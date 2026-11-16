@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 29
+version: 30
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -144,6 +144,8 @@ Work that laptop saved without sharing is not on the remote, so takeover cannot 
 
 Or save it there with `sflow backup create --out <DIRECTORY>` and restore it here with `sflow backup restore <DIRECTORY>`.
 
+Opening a Story (`session open`, `session attach`, `session takeover`) says when it was being worked on elsewhere a moment ago: when what it fetched for the Story's branch brought commits this computer did not have, and the Story's record says its last event is less than 12 hours old, it names how long ago and asks to publish that computer's work first (`sflow sync <WORK-ID>` there), so the two copies do not part ways. It reads only what opening the Story already fetched, makes no other network call, and never refuses for it (`activeElsewhere` and `warnings` in `--json`).
+
 ### Workspace selection and the editor
 
 Workspace and Story discovery use deterministic CLI tables, not a Home summary:
@@ -184,6 +186,11 @@ For a deferred checkout, it opens the existing workspace folder without cloning 
 code; **Start Work**, explicit Story attachment, or repair materializes the required repositories.
 Selection does not check out a branch, discard changes in the previous repository, or implicitly
 select a Story. VS Code's normal unsaved-editor handling applies to the folder switch.
+
+A multi-root window binds the first of its folders that is a Flow repository or a workspace folder, not only its
+first folder, and keeps presence for every other Git checkout it has open in a workspace (a second Story checkout,
+another clone), so automatic cleanup never retires one that is open there. **Repair workspace** shows the repair plan
+in the words `workspace repair` prints and applies it only after **Repair links**, the same plan a terminal confirms.
 
 The folder alignment prevents subsequent session discovery in a new, correctly scoped Copilot
 chat from listing the previously open repository's Stories. Existing chats and terminal history

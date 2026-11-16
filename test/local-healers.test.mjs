@@ -174,7 +174,7 @@ test('a new build\'s first run repairs machine-local state once, and records it'
   assert.deepEqual(reviews.map((entry) => entry.runningBuild), [versionLine(STAMPED)],
     'the pass starts this build\'s background configuration reviews once');
   assert.equal(outcome.configurationReviews, 'started');
-  assert.ok(lines.some((entry) => /packaged configuration against your registered repositories in the background/u.test(entry)));
+  assert.ok(lines.some((entry) => /packaged configuration to your registered repositories in the background/u.test(entry)));
   assert.deepEqual(outcome.healers.map((entry) => [entry.id, entry.outcome, entry.count]), [
     ['stale-workspace-registry', 'healed', 1], ['orphan-bootstrap-staging', 'healed', 1]
   ]);

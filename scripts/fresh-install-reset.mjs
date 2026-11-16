@@ -28,8 +28,15 @@ if (args.has('--yes')) {
     if (args.has('--json')) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else {
       console.log('Singularity Flow fresh-install reset — preview');
-      console.log(`Registered workspaces to delete: ${result.workspaces.length}`);
-      for (const workspace of result.workspaces) console.log(`  - ${workspace.name}: ${workspace.path}`);
+      // A workspace that holds a Story checkout is kept whole (SCF:REQ-021).
+      const deleted = result.workspaces.filter((workspace) => workspace.disposition !== 'kept');
+      const kept = result.workspaces.filter((workspace) => workspace.disposition === 'kept');
+      console.log(`Registered workspaces to delete: ${deleted.length}`);
+      for (const workspace of deleted) console.log(`  - ${workspace.name}: ${workspace.path}`);
+      if (kept.length) {
+        console.log(`Registered workspaces kept whole, each holding a Story checkout: ${kept.length}`);
+        for (const workspace of kept) console.log(`  - ${workspace.name}: ${workspace.path}`);
+      }
       if (result.missingRegistrations.length) {
         console.log(`Already-missing registrations: ${result.missingRegistrations.length}`);
         for (const target of result.missingRegistrations) console.log(`  - ${target}`);
@@ -40,8 +47,10 @@ if (args.has('--yes')) {
       }
       console.log('Additional reset targets:');
       for (const target of result.remove.slice(
-        result.installerGeneratedPaths.length + result.workspaces.length
+        result.installerGeneratedPaths.length + deleted.length
       )) console.log(`  - ${target}`);
+      console.log('Kept:');
+      for (const item of result.preserve ?? []) console.log(`  - ${item}`);
       const recoveryArgv = [
         'singularity-flow', 'fresh-install', '--checkout', process.cwd(), '--yes'
       ];

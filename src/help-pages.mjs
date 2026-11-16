@@ -2581,6 +2581,9 @@ const PAGES = Object.freeze({
       '',
       'Without `--forget-only`, the compatibility mode deletes each workspace directory only after',
       'its registry entry and regular workspace manifest prove the exact deletion boundary.',
+      'A workspace that holds a Story checkout is kept whole and only forgotten (`workspace open`',
+      'registers it again). The reset refuses while a Story checkout it lists holds uncommitted',
+      'or unpublished work.',
       'Interactive terminals preview and ask for an exact mode-bound phrase. Scripts and JSON callers',
       'must preview with `--dry-run`, then provide `--confirm` in a separate invocation.'
     ],

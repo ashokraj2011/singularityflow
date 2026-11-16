@@ -646,7 +646,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // version's review is not inspected again (phase-generation-need.mjs, guide.mjs, source-review-lifecycle.mjs) [2026-11-16].
     // 9,679,650 (measured 9,679,625): a step name typed by mistake names the Story's steps and the same command with one
     // (util.mjs unknownStepDetails +880, its callers in phase-lifecycle, submit, prepare and phase-show) [2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_679_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,678,100 (measured 9,678,093): the registered worktree list a reset reads for each workspace clone's linked
+    // worktrees (git-query.mjs repository.worktrees, +520; SCF:REQ-021, D10) [2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_680_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1001,7 +1003,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,268,650 (measured 4,268,636): the same, for an open next version [2026-11-16].
   // 4,269,550 (measured 4,269,516): a step name typed by mistake names the Story's steps (util.mjs unknownStepDetails +880)
   // [2026-11-16]. No new eager file.
-  assert.ok(current.bytes <= 4_269_550, `session current loads ${current.bytes} source bytes`);
+  // 4,268,700 (measured 4,268,681): the same registered worktree list (git-query.mjs +520) [2026-11-16]. No new eager file.
+  assert.ok(current.bytes <= 4_270_050, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 15 November 2026
-**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026); stages 2 to 5 are not.
+**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026), and 1f after D10 (16 November 2026); stages 2 to 5 are not.
 **Namespace:** SCF. No other document uses it.
 **Source baseline:** main bd90bcc46. File references are to that commit.
 **Inputs:** the four analyses of 2026-11-15 (workspaces, upgrades, editing and review, configuration history).
@@ -163,8 +163,11 @@ not counted on either side: they stay, and each one now ends in a proposal.
 ### Workspaces
 
 - **[SCF:REQ-021]** Story checkouts MUST live inside their workspace, as today, or beside a clone that is in no
-  workspace (D3), and never under SFlow's state folder. `reset-all` and `fresh-install` MUST list every Story
-  checkout, keep it, and refuse while one holds uncommitted or unpublished work.
+  workspace (D3), and never under SFlow's state folder. `reset-all`, `fresh-install` and destructive `local-reset`
+  MUST list every Story checkout, keep it, and refuse while one holds uncommitted or unpublished work. A workspace
+  that `fresh-install` or `local-reset` would delete MUST be kept whole while it holds a Story checkout, or the
+  clone one belongs to; only its registration is forgotten (D10). Every linked worktree of a workspace clone is a
+  Story checkout, and so is a clone with a Story's branch checked out in it while it holds such work.
 - **[SCF:REQ-022]** `workspace repair <folder>` MUST fix a moved workspace (its registry entry, then
   `git worktree repair`), drop worktree entries whose folder is gone (Git's `prunable`), and recreate a managed
   Story checkout that was deleted. A command run in a moved workspace gives that one route. A workspace's own ID is
@@ -203,8 +206,8 @@ Nothing is rewritten (SPEC-CIC D3).
 - `ledger.configurationHistory` stays valid and does nothing.
 - Pending proposals of every kind, including open `sflow/config-refresh/*` reviews and branches with several commits,
   appear in the one list and are approved by the new rules.
-- Existing Story checkouts keep their place and their links. `reset-all` keeps them (SCF:REQ-021); new ones follow
-  the new placement.
+- Existing Story checkouts keep their place and their links. `reset-all`, `fresh-install` and `local-reset` keep
+  them (SCF:REQ-021, D10); new ones follow the new placement.
 - Old history refs: `doctor` and `product status` offer one previewed "remove old history refs" step, done in pages
   under leases. It never runs by itself, and leaving the refs is harmless.
 
@@ -240,6 +243,8 @@ repository).
 - 1c. The `state` copy is never authority for Story start or organisation reads (SCF:REQ-001, REQ-002).
 - 1d. The upkeep class for the heartbeat (SCF:REQ-023).
 - 1e. `reset-all` and `fresh-install` keep and list Story checkouts (SCF:REQ-021, second sentence).
+- 1f. `fresh-install` and destructive `local-reset` keep every Story checkout, and a workspace that holds one
+  (SCF:REQ-021, second and third sentences; D10). Built 16 November 2026.
 
 Fixes UP-F1, F3, F4, F5, F8, F9, F11b, CH-F1, WS-1, WS-2, WS-7, and parts of UP-F6 and F7. Risk: low.
 
@@ -295,6 +300,23 @@ the decision; D2's Git 2.29 minimum is confirmed when stage 5 is built.
 - **D9. After a rewrite of `sflow/config` outside SFlow, can a running Story still adopt new approvers?** Recommended:
   yes, in the same step, by an approver's confirmation recorded as "adopted without ancestry". The refusal names
   the cause and this route.
+
+Decided 16 November 2026, after stage 1e:
+
+- **D10. Do `fresh-install` and `local-reset` keep Story checkouts too?** Yes: the owner extended stage 1e's
+  protection to both. Stage 1e let a Story checkout inside a workspace they delete go with it once it held no
+  work. Now every Story checkout is kept, and each reset stops, naming the checkout and its route, while one holds
+  uncommitted work or commits no remote has. A Story checkout is a linked worktree whose Git (HEAD, index, branch)
+  lives in its clone, so keeping only its folder would leave it broken. The rule built is the simplest safe one,
+  which the owner confirmed: a workspace that holds a Story checkout, or the clone one belongs to, is kept whole,
+  with its clones and documents. Only its registration is forgotten, as forget-only does, and `workspace open <DIRECTORY>` registers
+  it again. Every other workspace is deleted as before. The preview marks the workspace `kept` and lists each
+  Story checkout. The confirmation phrases and "Nothing was removed" on a refusal are unchanged.
+  The owner then confirmed the keep-whole rule and decided two more cases: every linked worktree of a workspace
+  clone is a Story checkout (an Auto flight's among them), listed through a registered Git query
+  (`repository.worktrees`); and a workspace clone with a Story's branch checked out in it, with no checkout of its
+  own, is one while it holds uncommitted work or commits no remote has, so the reset refuses with the same
+  message. Clean and published, it goes with its workspace as before.
 
 ## Appendix A — The findings
 

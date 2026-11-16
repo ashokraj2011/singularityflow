@@ -45,13 +45,18 @@
   ],
   "sflow-code": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
-    "Inspect `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
+    "false `policyVerified`: show `policyReason`, offer `/sf-validate` then `/sf-recover`, stop.",
+    "If `effectiveAuthoringSkill` is neither `/sf-code` nor `/sf-phase` (the step's configured author, or `/sf-converge`), relay it and `Terminal equivalent: singularity-flow prepare <phase>`, stop;",
+    "Code: Inspect `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
     "Stop on protected changes or lifecycle/authority holds.",
+    "Otherwise stop for human/protected/unowned edits.",
     "Otherwise unchanged publication: relay `next`, stop.",
-    "`not-admitted`: relay blockers/next, stop.",
+    "`not-admitted`: relay blockers/next, stop;",
     "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",
-    "Follow `testExecution.handoff`;",
-    "Absent: relay `commands.next`, stop."
+    "never stop there.",
+    "Code: Follow `testExecution.handoff`;",
+    "Absent: relay `commands.next`, stop.",
+    "Document: Relay `handoff`'s `copilotCommand`/`command`."
   ],
   "sflow-code-docs": [
     "Otherwise stop: this skill documents code steps only.",
@@ -219,9 +224,8 @@
   "sflow-next": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
     "Read `contextBoundary` first: an earlier-phase chat relays its ordered reset commands and stops;",
-    "Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action, and stop.",
+    "Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action (the current step's own work is one action: step 4), and stop.",
     "Run `singularity-flow sync <WORK-ID>` once in the verified cwd, then stop;",
-    "If the selected action is `/sf-code` or any `singularity-flow prepare <phase>` authoring route, do not imitate or inline it, nor run it: report `Next in Copilot: /sf-code` or its skill and stop;",
     "`ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and correction handoff, not a retry loop."
   ],
   "sflow-nextsteps": [
@@ -235,14 +239,17 @@
   "sflow-phase": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
     "false `policyVerified`: show `policyReason`, offer `/sf-validate` then `/sf-recover`, stop.",
-    "If `effectiveAuthoringSkill` is not `/sf-phase`, relay it and `Terminal equivalent: singularity-flow prepare <phase>`, stop;",
-    "`retained-generation`: relay `next`, stop.",
+    "If `effectiveAuthoringSkill` is neither `/sf-code` nor `/sf-phase` (the step's configured author, or `/sf-converge`), relay it and `Terminal equivalent: singularity-flow prepare <phase>`, stop;",
+    "Code: Inspect `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
+    "Stop on protected changes or lifecycle/authority holds.",
     "Otherwise stop for human/protected/unowned edits.",
+    "Otherwise unchanged publication: relay `next`, stop.",
     "`not-admitted`: relay blockers/next, stop;",
     "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",
     "never stop there.",
+    "Code: Follow `testExecution.handoff`;",
     "Absent: relay `commands.next`, stop.",
-    "Relay `handoff`'s `copilotCommand`/`command`."
+    "Document: Relay `handoff`'s `copilotCommand`/`command`."
   ],
   "sflow-phase-documents": [
     "Stop if its Story or phase differs from the selected session, policy is unverified, or a document reports an error.",

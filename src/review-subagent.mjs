@@ -156,17 +156,112 @@ export async function reviewerFramePayload(payload, boundaries, event, now = Dat
   return frame.started ? routed() : { payload };
 }
 
+// ------------------------------------------------------------------------------------ the qualified delegation adapter
+
+/**
+ * SPEC-OSA v1.1 §9, Stage 4 [OSA:REQ-052, AC-018]: an independent review is started only through a qualified delegation.
+ * Each Copilot dispatch mode SFlow knows, with what makes it independent and the evidence it was qualified on. Any other
+ * sub-agent tool is not a qualified reviewer start (the guard refuses it), and no other harness is ever a fallback.
+ */
+export const REVIEW_DISPATCH_MODES = Object.freeze({
+  'copilot-cli-task': Object.freeze({ tools: Object.freeze(['task']), context: 'a sub-agent session of its own, given only the review prompt',
+    attribution: 'the host names the reviewer agent on each of its calls; agent-start records its read-only-review turn',
+    evidence: 'Copilot CLI 1.0.109, live probe 2026-11-12' }),
+  'vscode-run-subagent': Object.freeze({ tools: Object.freeze(['runsubagent', 'run_subagent']), context: 'a sub-agent given only the review prompt, under the author\'s session',
+    attribution: 'the launch is noted beside the author\'s turn and the review prompt opens the reviewer\'s own turn',
+    evidence: 'VS Code 1.145, live 2026-11-11; same-chat review (owner, 2026-11-11)' })
+});
+/** The capability a host needs for the work command to start the review itself; without it the review waits for it. */
+export const REVIEW_DELEGATION_CAPABILITY = 'independent-review-delegation';
+export const REVIEW_DELEGATION_SCHEMA = 'sflow-review-delegation/v1';
+
+/** The dispatch mode a sub-agent tool call is, or null when the tool is not a qualified reviewer start. */
+export function reviewDispatchMode(toolName) {
+  const name = String(toolName ?? '').toLowerCase().split(/[.:]|__/u).at(-1);
+  return Object.entries(REVIEW_DISPATCH_MODES).find(([, mode]) => mode.tools.includes(name))?.[0] ?? null;
+}
+
+const digestOf = (value) => `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+
+/**
+ * The delegation the work command starts the review through [§9]: the exact version and packet the reviewer reviews, a
+ * fresh reviewer context (the review prompt alone, never the author's reasoning), its own read-only role and issued
+ * staging only, and the identity its retained report must carry. The author keeps the author's role: starting a reviewer
+ * grants it no reviewer, approver or person's authority. `fallback` is the supported route when no sub-agent tool is
+ * there; `pending` is what holds when no qualified mode is available at all.
+ */
+export function reviewDelegation({ workId, phase, generation, reviewerAgent, reviewerSha256 = null }) {
+  if (!workId || !phase || !NAME.test(String(reviewerAgent ?? '')) || !Number.isSafeInteger(Number(generation)) || Number(generation) < 1) return null;
+  const version = Number(generation);
+  const review = (verb, rest = '') => `singularity-flow review-source ${verb} ${phase}${rest}`;
+  const binding = { workId, phase, version, role: 'reviewer', reviewer: { agent: reviewerAgent, sha256: reviewerSha256 ?? null },
+    packet: { command: review('context', ' --for-agent --json'), version,
+      rule: 'the report copies this packet\'s binding; a report for another version or another packet is refused at retention' },
+    context: 'fresh: the review prompt alone, never the author\'s conversation', staging: 'the review packet\'s issued staging path only',
+    report: { version, reviewer: reviewerAgent, retainedBy: review('submit') } };
+  return { schema: REVIEW_DELEGATION_SCHEMA, status: 'delegate', binding, digest: digestOf(binding),
+    modes: Object.keys(REVIEW_DISPATCH_MODES), parent: { role: 'author', gains: [] },
+    fallback: { status: 'fresh-conversation', copilotCommand: `/sf-review-source ${phase}`, prerequisite: 'independent-context',
+      words: `Run this in a new chat: /sf-review-source ${phase}. A new chat keeps the review independent of the conversation that wrote it.` },
+    pending: { status: 'review-pending', capability: REVIEW_DELEGATION_CAPABILITY,
+      words: `${phase} version ${version} waits for its independent review: this host has no qualified way to start it, so nothing was reviewed. It is reviewed in a new chat with /sf-review-source ${phase}, or on a host that has ${REVIEW_DELEGATION_CAPABILITY}.` } };
+}
+
+/**
+ * Why a retained review does not answer the delegation `binding`, as `{ code, words }`, or null when it does: a report for
+ * another version than the one delegated, or by another reviewer, is never this version's review [§9, AC-018].
+ */
+export function delegatedReportProblem(binding, retained) {
+  if (!binding || !retained) return { code: 'REVIEW_DELEGATION_REPORT_MISSING', words: 'No review was retained for this delegation.' };
+  if (Number(retained.generation) !== Number(binding.version)) return { code: 'REVIEW_DELEGATION_VERSION_MISMATCH',
+    words: `The retained review is of version ${retained.generation}, not version ${binding.version} that was delegated; it does not count for it.` };
+  const reviewer = retained.provenance?.reviewerAgentId ?? retained.reviewer ?? null;
+  if (reviewer !== binding.reviewer.agent) return { code: 'REVIEW_DELEGATION_REVIEWER_MISMATCH',
+    words: `The retained review is by ${reviewer ?? 'no named reviewer'}, not the pinned reviewer ${binding.reviewer.agent}.` };
+  if (retained.provenance?.readOnly !== true) return { code: 'REVIEW_DELEGATION_NOT_READ_ONLY', words: 'The retained review was not made read-only.' };
+  return null;
+}
+
+/** How a reviewer launch ended, from the host's after-tool result: completed, failed or cancelled; null when unknown. */
+export function reviewDelegationOutcome(result) {
+  const type = String(result?.resultType ?? result?.result_type ?? result?.status ?? '').toLowerCase();
+  if (['success', 'completed', 'ok'].includes(type)) return 'completed';
+  if (['rejected', 'denied', 'cancelled', 'canceled', 'aborted', 'interrupted', 'skipped'].includes(type)) return 'cancelled';
+  if (['failure', 'failed', 'error'].includes(type)) return 'failed';
+  return null;
+}
+
+/**
+ * After-tool: the author's launch of its reviewer failed or was cancelled. The review stays pending, nothing was reviewed,
+ * and the author is told the supported way on: the review in a new chat, never its own review [§9, OSA:REQ-052].
+ * `failure`: the host's tool-failure event. Null for anything else.
+ */
+export function reviewDelegationAfter(payload, { failure = false } = {}) {
+  const call = launcherCall(payload);
+  if (!call || hasAgent(payload)) return null;
+  const agent = ownAgentName([call.args.agentName, call.args.agent_type, call.args.agentType, call.args.agent_name]
+    .find((entry) => typeof entry === 'string' && entry.trim()));
+  const step = String(call.args.prompt ?? '').match(/^\s*\/sf(?:low)?-review-source(?:\s+([^\s]+))?/u);
+  if (!step && !/reviewer/iu.test(String(agent ?? ''))) return null;
+  const outcome = failure ? 'failed' : reviewDelegationOutcome(payload.toolResult ?? payload.tool_result ?? payload.tool_response);
+  if (outcome !== 'failed' && outcome !== 'cancelled') return null;
+  const phase = step?.[1] ?? '<step>';
+  return { outcome, additionalContext: `SFlow: the reviewer of ${phase} did not run (${outcome}). Its review stays pending and nothing was reviewed. `
+    + `Never review, stage or retain it yourself. Run this in a new chat: /sf-review-source ${phase} (a new chat keeps the review independent).` };
+}
+
 /**
  * What a publication that owes its review hands the author's turn: start the pinned reviewer as a sub-agent in
  * this chat, then read the retained review's status once and follow its route here. Without a sub-agent tool, the
- * review runs in a new chat.
+ * review runs in a new chat. `delegation` is the qualified delegation it is started through (reviewDelegation).
  */
-export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent }) {
+export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent, reviewerSha256 = null }) {
   if (!workId || !phase || !NAME.test(String(reviewerAgent ?? ''))) return null;
   const prompt = `/sf-review-source ${phase}`;
   const status = `singularity-flow review-source status ${phase} --work-id ${workId} --for-agent --json`;
+  const delegation = reviewDelegation({ workId, phase, generation, reviewerAgent, reviewerSha256 });
   return {
-    agent: reviewerAgent, phase, generation, prompt, reviewStatus: status,
+    agent: reviewerAgent, phase, generation, prompt, reviewStatus: status, ...(delegation ? { delegation } : {}),
     instruction: `Start the independent reviewer of ${phase} generation ${generation} now, in this chat: run agent '${reviewerAgent}' as a sub-agent `
       + `with the task tool: agent_type '${reviewerAgent}', prompt '${prompt}' (VS Code's Copilot agent and the Copilot CLI alike). `
       // Started with mode 'background', the host said "tell the user you're waiting and end your response", and the

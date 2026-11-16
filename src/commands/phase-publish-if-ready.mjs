@@ -79,7 +79,8 @@ async function reviewerHandoff(shown, phaseId) {
       import('../accepted-story-execution.mjs'), import('../git.mjs'), import('../review-subagent.mjs')]);
     const { workflow } = await loadAcceptedStoryExecution(repoRoot(), shown.workId ?? null);
     return reviewSubagentHandoff({ workId: workflow.workItem.id, phase: phaseId,
-      generation: Number(workflow.phases?.[phaseId]?.generation ?? 0), reviewerAgent: workflow.resolution?.sourceReview?.reviewerAgent });
+      generation: Number(workflow.phases?.[phaseId]?.generation ?? 0), reviewerAgent: workflow.resolution?.sourceReview?.reviewerAgent,
+      reviewerSha256: workflow.resolution?.agents?.[workflow.resolution?.sourceReview?.reviewerAgent]?.sha256 ?? null });
   } catch { return null; }
 }
 

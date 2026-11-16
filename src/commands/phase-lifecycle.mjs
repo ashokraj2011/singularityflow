@@ -574,7 +574,8 @@ async function phaseSubcommand(positionals, options) {
   const reviewSubagent = ['governed-agent', 'deterministic'].includes(authorshipOptions.producer)
     && (await import('../source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id)
     ? (await import('../review-subagent.mjs')).reviewSubagentHandoff({ workId: workflow.workItem.id, phase: phase.id,
-      generation: Number(phase.generation ?? 0), reviewerAgent: workflow.resolution?.sourceReview?.reviewerAgent }) : null;
+      generation: Number(phase.generation ?? 0), reviewerAgent: workflow.resolution?.sourceReview?.reviewerAgent,
+      reviewerSha256: workflow.resolution?.agents?.[workflow.resolution?.sourceReview?.reviewerAgent]?.sha256 ?? null }) : null;
   // What the findings loop let through: findings that remain, scanners that could not run [CQF:REQ-043].
   const qualityFindings = (await import('../findings/presentation.mjs')).publishedFindingsSummary(phase.deliveryEvidence?.qualityFindings);
   if (optionBoolean(options, 'json')) {

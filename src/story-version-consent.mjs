@@ -14,7 +14,7 @@
  * No Git and no network here: the hook loads this module only for the one command that opens a version.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { sealHere, sealedHere } from './story-version-acceptance.mjs';
@@ -29,8 +29,11 @@ export const GRANT_PURPOSE = 'version-opening-grant';
 export const PROPOSAL_PURPOSE = 'version-opening-proposal';
 /** A yes holds for one turn window (30 minutes) from when it was given, never longer [OSA:REQ-051, AC-021]. */
 export const CONSENT_TTL_MS = 30 * 60 * 1000;
-/** Where a yes can come from: the host's question tool, a typed /sf-confirm code, or the person's own terminal. */
-export const CONSENT_SURFACES = Object.freeze(['question-tool', 'confirm-code', 'terminal']);
+/**
+ * Where a yes can come from: the host's question tool, a typed /sf-confirm code, the person's own terminal, or the decisions
+ * card, whose answer its extension records outside the chat (`decisions record --version-consent`) [OSA Stage 4].
+ */
+export const CONSENT_SURFACES = Object.freeze(['question-tool', 'confirm-code', 'terminal', 'decisions-card']);
 
 const store = (commonDir) => path.join(commonDir, 'singularity-flow', 'version-consents');
 const keyOf = (value) => createHash('sha256').update(String(value)).digest('hex').slice(0, 40);
@@ -85,6 +88,21 @@ export async function grantConsent(commonDir, { record, surface, question, answe
     grantedAt: new Date(now).toISOString(), expiresAt: new Date(now + ttlMs).toISOString() });
   if (grant) await writePrivate(grantFile(commonDir, record.digest), grant);
   return grant;
+}
+
+/**
+ * The newest proposal a preview kept on this clone for `phase` of `workId`, made on the Story as it is now
+ * (`lifecycleRevision`, the local Story branch head), or null. The decisions card asks it as it was proposed.
+ */
+export async function pendingProposalRecord(commonDir, { workId, phase, lifecycleRevision }) {
+  let names;
+  try { names = (await readdir(store(commonDir))).filter((name) => name.endsWith('.proposal.json')); } catch { return null; }
+  const found = [];
+  for (const name of names.slice(0, 256)) {
+    const record = await readSealed(path.join(store(commonDir), name), PROPOSAL_PURPOSE, commonDir, PROPOSAL_RECORD_SCHEMA);
+    if (record?.proposal?.workId === workId && record.proposal.phase === phase && record.proposal.lifecycleRevision === lifecycleRevision) found.push(record);
+  }
+  return found.sort((left, right) => String(right.recordedAt).localeCompare(String(left.recordedAt)))[0] ?? null;
 }
 
 /** The unexpired grant for a proposal digest, or null. */

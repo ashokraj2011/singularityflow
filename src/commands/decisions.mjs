@@ -45,7 +45,7 @@ import { assertConfirmation, copySlip } from '../text-lines.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card', 'probe', 'probe-wait']);
-const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch']);
+const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch', 'version-consent', 'expect']);
 const UNDO_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'settled', 'reason', 'fetch']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
@@ -655,7 +655,66 @@ function changedList(packet, confirm, phaseId) {
     details: { packet, packetSha256: packet.packetSha256, nextAction } });
 }
 
+/**
+ * The step's next version a preview proposed on this clone, on the Story as it is, waiting for the person's yes: what the
+ * decisions card asks [D3, OSA:REQ-030, Stage 4]. Null when there is none, the kernel no longer asks it, or a yes is given.
+ */
+async function versionOpeningOf(root, workflow) {
+  const phase = workflow.phases?.[workflow.currentPhase];
+  if (!phase || workflow.status !== 'in_progress') return null;
+  const [{ gitDirectories }, consent, { head }, { kernelRoute }] = await Promise.all([import('../story-version-acceptance.mjs'),
+    import('../story-version-consent.mjs'), import('../git.mjs'), import('./phase-opening.mjs')]);
+  const directories = gitDirectories(root);
+  if (!directories) return null;
+  const record = await consent.pendingProposalRecord(directories.commonDir, { workId: workflow.workItem.id, phase: phase.id, lifecycleRevision: head(root) });
+  if (!record || record.proposal.consent !== 'required' || await consent.readGrant(directories.commonDir, record.digest)) return null;
+  // Any successor its preview proposed (a return, a review's corrections, a change the person asked for): still the next
+  // number, with nothing open; the opening operation checks the proposal again when it runs.
+  const { decision } = await kernelRoute(root, workflow, phase);
+  if (phase.status !== 'in_progress' || decision.version.writing !== null || Number(decision.version.proposedNext) !== Number(record.proposal.version)) return null;
+  return { workId: workflow.workItem.id, phase: phase.id, version: record.proposal.version, question: record.question, confirmation: record.confirmation, digest: record.digest };
+}
+
+/**
+ * `decisions record [WORK-ID] --version-consent <confirmation> --expect <digest>`: the person's yes on the decisions card to
+ * the exact proposal it showed. It keeps the same sealed grant the question tool's answer and a typed /sf-confirm code keep,
+ * so the step's own confirmation turns it into the same `VersionOpeningConsent/v1` receipt (surface `decisions-card`). A
+ * changed proposal, another step or a moved Story opens nothing. Like every `decisions record`, a chat turn never runs it.
+ */
+async function recordVersionConsent(root, options, workId) {
+  const { workflow } = await storyContext(root, workId, { record: true, fetch: false });
+  const confirmation = optionString(options, 'version-consent');
+  const expect = optionString(options, 'expect');
+  if (!expect) refused('--version-consent needs --expect with the proposal digest the card showed.', 'DECISIONS_OPTIONS_INVALID');
+  const [{ gitDirectories }, consent, { head }, { kernelRoute }] = await Promise.all([import('../story-version-acceptance.mjs'),
+    import('../story-version-consent.mjs'), import('../git.mjs'), import('./phase-opening.mjs')]);
+  const directories = gitDirectories(root);
+  const record = directories ? await consent.readProposalRecord(directories.commonDir, confirmation) : null;
+  const phase = workflow.phases?.[workflow.currentPhase];
+  if (!record || record.proposal.workId !== workflow.workItem.id || record.proposal.phase !== phase?.id || record.digest !== expect) {
+    refused('This yes is for another proposal than the one waiting now; nothing was recorded. Read the decisions card again.', 'VERSION_CONSENT_WRONG_TARGET',
+      { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' } });
+  }
+  if (record.proposal.lifecycleRevision !== head(root)) {
+    refused(`The Story moved since version ${record.proposal.version} of ${phase.id} was proposed; nothing was recorded. Its work command proposes it again.`,
+      'VERSION_OPENING_STALE', { nextAction: (await kernelRoute(root, workflow, phase)).route });
+  }
+  const grant = await consent.grantConsent(directories.commonDir, { record, surface: 'decisions-card', question: record.question, answer: 'yes', host: 'decisions-card' });
+  if (!grant) refused('This clone has no key to keep the yes with; nothing was recorded.', 'VERSION_CONSENT_UNVERIFIED');
+  const { route } = await kernelRoute(root, workflow, phase);
+  const words = `Your yes to start version ${record.proposal.version} of ${phase.id} is kept for 30 minutes. ${phase.id}'s work command opens it with its confirmation, then writes it.`;
+  emitCommandResult(commandResult({
+    operation: { id: 'decisions.version-consent', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('decisions.version-consent.recorded', { phase: phase.id, version: String(record.proposal.version) }),
+    effects: effects({ stateChanged: false, filesChanged: false }),
+    next: route?.command ? [action({ id: 'version-opening.confirm', label: words, command: route.command, skill: route.skill ?? route.copilotCommand?.split(' ')[0] ?? null, rank: 'NOW', kind: 'workflow' })] : [],
+    data: { consent: { surface: 'decisions-card', phase: phase.id, version: record.proposal.version, proposalDigest: record.digest, expiresAt: grant.expiresAt }, words }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
 async function record(root, options, workId, io) {
+  if (optionString(options, 'version-consent')) return recordVersionConsent(root, options, workId);
   const { config, workflow } = await storyContext(root, workId, { record: true, fetch: optionBoolean(options, 'fetch') });
   if (workflow.status !== 'in_progress') {
     refused(`Story ${workflow.workItem.id} is ${workflow.status}; decisions are recorded while it is in progress.`, 'DECISIONS_STORY_CLOSED');
@@ -830,7 +889,9 @@ async function show(root, options, workId) {
   }
   const route = await inApproval(packet);
   const evidence = optionBoolean(options, 'json') ? await approvalEvidenceOf(root, config, workflow, packet, at) : null;
-  const shown = { ...packet, ...(route ? { inApproval: route } : {}), ...(evidence ? { approvalEvidence: evidence } : {}) };
+  const opening = await versionOpeningOf(root, workflow).catch(() => null);
+  const shown = { ...packet, ...(route ? { inApproval: route } : {}), ...(evidence ? { approvalEvidence: evidence } : {}),
+    ...(opening ? { versionOpening: opening } : {}) };
   if (!optionBoolean(options, 'json')) process.stdout.write(packetText(shown));
   return emitShow(shown, options, workflow);
 }

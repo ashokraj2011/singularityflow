@@ -86,9 +86,15 @@ async function inspect(packet, file) {
 const readList = async (workId, { probe = null } = {}) => (await runFlow(['decisions', ...(workId ? [workId] : []),
   ...(probe ? ['--probe', '--probe-wait', String(probe)] : []), '--json'], probe ? { timeout: (probe + 120) * 1000 } : {})).data;
 
+/** The person's yes to a step's next version, recorded by this card outside the chat, bound to the proposal it showed. */
+async function recordVersionConsent(opening) {
+  return (await runFlow(['decisions', 'record', opening.workId, '--version-consent', opening.confirmation, '--expect', opening.digest, '--json'])).data;
+}
+
 const decide = (workId, { askedInChat = false } = {}) => runCard({
   askedInChat,
   read: (options) => readList(workId, options),
+  consent: recordVersionConsent,
   ask: (form) => session.ui.elicitation(form),
   show: (text) => session.log(text),
   record: recordCard, witness: recordWitness, inspect

@@ -333,6 +333,7 @@ async function turnToolGuard(payload) {
 }
 
 export async function repositoryPostToolGuard(payload = {}) {
+  const launched = await reviewerLaunchEnded(payload);
   payload = await ownTurnPayload(payload, 'after');
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolResult(payload, { directory }));
   const unread = await unreadResult(payload);
@@ -340,7 +341,23 @@ export async function repositoryPostToolGuard(payload = {}) {
   let answer;
   try { answer = await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
   catch { const refusal = boundaryGuardUnavailable(); answer = { ...refusal, continue: false, additionalContext: refusal.permissionDecisionReason }; }
+  answer = withReviewerFallback(answer, launched);
   return unread ? unread.withUnreadResult(answer, unread.context) : answer;
+}
+
+/**
+ * The author's launch of its step's reviewer that failed or was cancelled (review-subagent.mjs reviewDelegationAfter): the
+ * review stays pending, and the author is told the supported way on, never to review it itself [OSA:REQ-052, AC-018].
+ * Loaded only for a sub-agent tool's event; a failure here changes no answer.
+ */
+async function reviewerLaunchEnded(payload, options = {}) {
+  if (!/subagent|task/iu.test(JSON.stringify([payload?.toolName ?? payload?.tool_name ?? null, ...(payload?.toolCalls ?? []).map((call) => call?.name ?? null)]))) return null;
+  try { return (await import('./review-subagent.mjs')).reviewDelegationAfter(payload, options); } catch { return null; }
+}
+
+function withReviewerFallback(answer, launched) {
+  if (!launched?.additionalContext) return answer;
+  return { ...answer, additionalContext: [answer?.additionalContext, launched.additionalContext].filter(Boolean).join(' ') };
 }
 
 /**
@@ -366,9 +383,10 @@ export async function repositoryAgentStop(payload = {}) {
 }
 
 export async function repositoryToolFailure(payload = {}) {
+  const launched = await reviewerLaunchEnded(payload, { failure: true });
   payload = await ownTurnPayload(payload, 'after');
   const unread = await unreadResult(payload);
-  const answer = await (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload);
+  const answer = withReviewerFallback(await (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload), launched);
   return unread ? unread.withUnreadResult(answer, unread.context) : answer;
 }
 

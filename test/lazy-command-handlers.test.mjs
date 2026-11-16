@@ -688,6 +688,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // No new eager file.
     // 9,766,750 (measured 9,766,714 for phase-lifecycle.mjs): the 11-17 landing, OSA v1.1 Stages 1-3 with SPEC-SCF stages 2-5
     // and the 11-16 small fixes on one tree; the sum of the measured rises above (each stage's own new code). No new eager file.
+    // 9,753,750 (measured 9,753,705 for phase-lifecycle.mjs, +6,124): SPEC-OSA v1.1 Stage 4. The one action-to-command map
+    // beside its renderer (step-decision.mjs ACTION_COMMANDS, actionSkill, workCommandOf), the work command's two names
+    // (command-skills.mjs WORK_COMMANDS, which safe-command-guidance.mjs reads instead of its own literal), a kernel-built
+    // step's successor rendered as its preview, and the card's yes narrated (narration/messages.mjs). The alias adapter
+    // (writing-aliases.mjs), the review delegation and the card's consent stay lazy. No new eager file.
     assert.ok(closure.bytes <= 9_766_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1077,6 +1082,9 @@ test('the common session projection does not import attach, state stores or publ
   // test-command-amendment-contracts.mjs +231) and two flags (+51), less skp-amendment-audit.mjs (-1,781) [2026-11-16].
   // 4,287,800 (measured 4,287,778): the 11-17 landing, OSA v1.1 Stages 1-3 with SPEC-SCF stages 2-5 and the 11-16 small
   // fixes on one tree; the measured rises above together. No new eager file.
+  // 4,280,250 (measured 4,280,210, +1,148): SPEC-OSA v1.1 Stage 4. The work command's two names (command-skills.mjs
+  // WORK_COMMANDS, isWorkCommand), the command validator reading them (safe-command-guidance.mjs) and the card's yes
+  // narrated (narration/messages.mjs). The map's renderer and the alias adapter stay out of this closure. No new eager file.
   assert.ok(current.bytes <= 4_287_800, `session current loads ${current.bytes} source bytes`);
 });
 

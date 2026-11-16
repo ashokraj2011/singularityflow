@@ -9,16 +9,18 @@ test('code author opens the exact generation before composition and verifies per
   const begin = code.indexOf('singularity-flow phase begin <phase> --json');
   const compose = code.indexOf('rerun it once with `<phase> --work-id <WORK-ID> --compose`');
   const permission = code.indexOf('Source edits need `codeAuthoringReady: true`');
-  const edit = code.indexOf('6. Native file-edit tool:');
+  // One work command for both kinds (D1, OSA Stage 4): step 6's code part opens with the native edits.
+  const edit = code.indexOf('6. Code: native file-edit tool:');
   assert.ok(begin > 0 && begin < compose);
   assert.ok(permission > compose && permission < edit);
   assert.match(code, /binding is not source permission/);
-  assert.match(code, /kernel-only `\/sf-next` cannot author/);
+  // /sf-next authors the current step in its own turn since OSA Stage 4 (D2): the work command no longer says it cannot.
+  assert.doesNotMatch(code, /kernel-only `\/sf-next` cannot author/);
   assert.match(code, /adoption\/confirmation before edits\/composition; never auto-adopt/);
   assert.match(code, /Successful begin: refresh entry once/);
   assert.match(code, /Consumed intent: follow the entry's `act`/);
   assert.doesNotMatch(code, /Consumed intent requires `\/sf-recover`/, 'a published code step is never sent to /sf-recover [OSA, C6]');
-  assert.match(code, /record before code mutation; refresh entry once/i);
+  assert.match(code, /record before code mutation(?: or preparation)?; refresh entry once/i);
   assert.match(code, /Remove staging only on success/);
   assert.match(code, /Stage JSON, never governed records/);
 });

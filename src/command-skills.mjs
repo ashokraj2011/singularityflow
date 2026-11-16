@@ -16,6 +16,24 @@ import { isTransportIntentId, parseArgs } from './util.mjs';
 
 export { adjudicationTableStep, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PLAN_CORRECTION_FLAGS, planRowCorrectionStep } from './person-step-catalog.mjs';
 
+// ------------------------------------------------------------------------------------ the work command and its aliases
+
+/*
+ * SPEC-OSA v1.1 Stage 4, D1: the one current-step work command's two names. The crosswalk holds them, so the command
+ * validator (safe-command-guidance.mjs) and the renderer (step-decision.mjs, the action-to-command map) read the same list
+ * with no file of their own.
+ */
+/** D1: the two names of the one current-step work command. */
+export const WORK_COMMANDS = Object.freeze(['/sf-code', '/sf-phase']);
+
+/** Whether a route or skill names the work command, in either name or its `/sflow-` spelling. */
+export function isWorkCommand(value) {
+  const word = String(value ?? '').trim().split(/\s+/u)[0].replace(/^\/sflow-/u, '/sf-');
+  return WORK_COMMANDS.includes(word);
+}
+
+// The writing aliases' adapter (workCommandArguments, writingAlias) is writing-aliases.mjs, loaded only where it is read.
+
 const entries = {
   pause: ['sf-pause'],
   specify: ['sf-specify'],

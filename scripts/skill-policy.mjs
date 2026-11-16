@@ -230,6 +230,28 @@ export function skillDelegationErrors(name, body, skills) {
   return errors;
 }
 
+/** What the work command (/sf-code and /sf-phase) must say for both kinds of step [D1, OSA:REQ-024]. */
+const WORK_COMMAND_CONTRACT = Object.freeze([
+  /successor-preparation-required/, /successor\.preparation\.command/,
+  /preserve private drafts\/publications/, /refresh entry once/, /unless prepared in step 2/,
+  /singularity-flow phase begin <phase> --json/,
+  // A published code step follows its entry's `act`, never /sf-recover, which repairs damage only [OSA Stage 1, C6].
+  /Consumed intent: follow the entry's `act`/,
+  /Untracked `\.sflow\/results\/\*\*` need no cleaning/,
+  /proven runtime repair permits retry without source changes/i,
+  /Nonzero exit fails despite passing JUnit/,
+  /run `checkpoint\.newQuestionAction` alone/,
+  /singularity-flow upstream-issue raise --from-artifact/,
+  /`\/sf-code` and `\/sf-phase` are one work command[^.]*never sends one to the other/,
+  /`effectiveAuthoringSkill` is neither `\/sf-code` nor `\/sf-phase`/
+]);
+/** The relays D1 removed: each name sent the other kind of step to the other name. */
+const WORK_COMMAND_FORBIDDEN = Object.freeze([
+  /`generatesCode: true`, `authoring\.policyVerified`; else relay routes/,
+  /If `effectiveAuthoringSkill` is not `\/sf-phase`, relay it/,
+  /kernel-only `\/sf-next` cannot author/
+]);
+
 // These are cross-surface contracts, not style preferences. A skill can have valid frontmatter,
 // remain inside its token budget, and still send Copilot down a command form the CLI rejects or
 // perform a mutation before its promised review. Keep the small set of high-risk invariants in the
@@ -309,22 +331,9 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
     required: [/phase prepublish <phase> --for-agent --json/, /returned `commands\.publish` once/,
       /never edit source\/artifacts/i, /Never advance to the next phase/]
   },
-  'sflow-phase': {
-    required: [/successor-preparation-required/, /successor\.preparation\.command/,
-      /preserve private drafts\/publications/, /refresh entry once/, /unless prepared in step 2/]
-  },
-  'sflow-code': {
-    required: [
-      /singularity-flow phase begin <phase> --json/,
-      // A published code step follows its entry's `act`, never /sf-recover, which repairs damage only [OSA Stage 1, C6].
-      /Consumed intent: follow the entry's `act`/,
-      /Untracked `\.sflow\/results\/\*\*` need no cleaning/,
-      /proven runtime repair permits retry without source changes/i,
-      /Nonzero exit fails despite passing JUnit/,
-      /run `checkpoint\.newQuestionAction` alone/,
-      /singularity-flow upstream-issue raise --from-artifact/
-    ]
-  },
+  // D1 (SPEC-OSA v1.1 Stage 4): one work command, two names, one body; each keeps the other's contract too.
+  'sflow-phase': { required: WORK_COMMAND_CONTRACT, forbidden: WORK_COMMAND_FORBIDDEN },
+  'sflow-code': { required: WORK_COMMAND_CONTRACT, forbidden: WORK_COMMAND_FORBIDDEN },
   'sflow-code-docs': {
     required: [/sflow-output-contract: scoped-repair/, /Never publish, submit or approve/],
     forbidden: [/sflow-output-contract: clarification-and-artifact/, /`singularity-flow phase publish/]
@@ -413,9 +422,12 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Relay, never run, human-decision routes \(`\/sf-approve`, `\/sf-confirm`, `\/sf-decide`, `\/sf-review-decide`[^)]*\): the person types them/i,
       /On failure follow `remediationPlan`'s first read-only step/i,
       /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i,
-      /never pair `\/sf-phase` with `singularity-flow next`/i
+      /never pair `\/sf-phase` with `singularity-flow next`/i,
+      /The current step's own agent work is this turn's[^.]*for the bound step\. Load that work command once and do its steps now[^.]*never report it as next/
     ],
     forbidden: [
+      // D2 (SPEC-OSA v1.1 Stage 4): it does the current step's own work in its turn, never reports it as next and stops.
+      /report `Next in Copilot: \/sf-code`/,
       /Then run `singularity-flow next` once/i,
       /run `phase show <phase> --for-agent --json`/i,
       /run `recover`/i,
@@ -560,11 +572,11 @@ function withGatewayToolsClause(text, enabled, file) {
 }
 
 /**
- * What a selectable authoring skill must say, checked on every catalog entry except `/sf-code` (the
- * only code skill, which checks code delivery itself and is never routed past).
+ * What a selectable authoring skill must say, checked on every catalog entry, the work command's two names included.
  *
  * Step 1 re-reads the step's verified route: it stops, showing `policyReason`, when `policyVerified`
- * is false, and continues only on its own route — `/sf-phase` relays any step routed elsewhere, and
+ * is false, and continues only on its own route — the work command (/sf-code and /sf-phase, one body since OSA
+ * Stage 4, D1) relays only a step whose author is neither of them, and
  * a specialised skill continues only when `effectiveAuthoringSkill` is itself or, for exactly its
  * catalog `legacyPhases`, the automatic `/sf-phase` route of an unchosen built-in step. Commands
  * name `<phase>`, never one of those step ids, and the last step ends with the engine's `handoff`.
@@ -593,7 +605,6 @@ export function authoringSkillContractErrors(entry, body) {
   if (/Stop on placeholders\/templates\/padding/i.test(body)) {
     errors.push('prepared template placeholders are authoring work, not a stopping condition');
   }
-  if (entry.id === 'sf-code') return errors;
   const steps = [...body.matchAll(/^(\d+)\. (.*)$/gmu)];
   const first = steps.find((match) => match[1] === '1')?.[2] ?? '';
   const last = steps.at(-1)?.[2] ?? '';
@@ -603,10 +614,13 @@ export function authoringSkillContractErrors(entry, body) {
   for (const required of ['entry `authoring`', '`policyVerified`', '`policyReason`']) {
     if (!first.includes(required)) errors.push(`step 1 of a selectable authoring skill must include '${required}'`);
   }
-  if (entry.id === 'sf-phase') {
-    if (!first.includes('`effectiveAuthoringSkill` is not `/sf-phase`')) {
-      errors.push("step 1 of the automatic authoring skill must relay any step whose `effectiveAuthoringSkill` is not `/sf-phase`");
+  // D1 (SPEC-OSA v1.1, Stage 4): /sf-code and /sf-phase are one work command with one body. Step 1 relays only a step
+  // whose author is neither of them, and never sends one to the other.
+  if (entry.id === 'sf-code' || entry.id === 'sf-phase') {
+    if (!first.includes('`effectiveAuthoringSkill` is neither `/sf-code` nor `/sf-phase`')) {
+      errors.push('step 1 of the work command must relay only a step whose `effectiveAuthoringSkill` is neither `/sf-code` nor `/sf-phase`');
     }
+    if (!first.includes('never sends one to the other')) errors.push('step 1 of the work command must never send /sf-code and /sf-phase to each other (D1)');
   } else {
     const own = `\`effectiveAuthoringSkill\` is \`/${entry.id}\``;
     if (!first.includes(own)) errors.push(`step 1 of a selectable authoring skill must continue only when ${own}`);

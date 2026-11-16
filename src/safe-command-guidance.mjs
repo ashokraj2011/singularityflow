@@ -10,7 +10,7 @@
 
 import { authoringSkillEntry } from './authoring-skills.mjs';
 import { commandDefinition } from './command-registry.mjs';
-import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
+import { commandLineWithoutSkill, skillForCommandLine, WORK_COMMANDS } from './command-skills.mjs';
 import { decideCardCopilotCommand, decideCardStep, modelFreeCommandForArgv, formatCommandRouteLines } from './model-free-commands.mjs';
 import {
   copilotCommandForCommand, directCopilotSkill, directCopilotSkillId, recordedValueRoute
@@ -390,8 +390,10 @@ export function safeCommandGuidance(value) {
   // `/sf-code`, `/sf-converge` and every listed authoring skill re-read the step's verified route
   // before doing any work, so presenting one for that step's prepare/phase commands only renders a
   // route; the engine chooses which one to present. The catalog is read only when a skill is asserted.
+  // D1: /sf-code and /sf-phase are the one work command, so either is accepted for every one of a step's own commands
+  // (command-skills.mjs WORK_COMMANDS) [OSA:REQ-024].
   if (phaseId && !(safe.argv[0] === 'phase' && safe.argv[1] === 'show')) {
-    allowedSkills.add('/sf-code');
+    for (const skill of WORK_COMMANDS) allowedSkills.add(skill);
     allowedSkills.add('/sf-converge');
   }
   // /sf-publish owns prepublish followed by publication only when ready. Deterministic

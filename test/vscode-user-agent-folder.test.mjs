@@ -125,8 +125,9 @@ test('a folder named like one of your agents offers to replace its folder under 
 
 test('/sf-call runs its step through the code or document skill, never a relay', async () => {
   const skill = await readFile(new URL('../plugin/skills/sflow-call/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /Delegate once to `\/sf-code`[\s\S]*delegates once to `\/sf-phase` instead\. That canonical skill\s+runs the step itself/u);
-  assert.doesNotMatch(skill, /\/sf-next/u, '/sf-next stops at code steps and only names /sf-code');
+  // D1 (OSA Stage 4): /sf-code and /sf-phase are one work command, so one delegation writes a code or a document step.
+  assert.match(skill, /Delegate once to `\/sf-code`[\s\S]*the one work command \(also named `\/sf-phase`\)[\s\S]*That canonical skill\s+runs the step itself/u);
+  assert.doesNotMatch(skill, /\/sf-next/u, 'the agent\'s step is run here, never handed to /sf-next');
   const registry = await readFile(new URL('../plugin/skills/registry.yml', import.meta.url), 'utf8');
   assert.match(registry, /sflow-call: \{ class: delegation, executionBoundary: machine, delegatesTo: sflow-code \}/u);
 });

@@ -63,8 +63,9 @@ test('every public skill has a bounded class and output contract', async () => {
   // 2026-11-13 (CIC:REQ-015): /sf-reject joins them — it shows the amendment's preview before it proposes.
   // 2026-11-15 (SPEC-WIA): /sf-fix-workflow joins them — after the fixes it assesses each step's instructions and applies the person's choices.
   // 2026-11-16 (SPEC-SCF D10): /sf-configuration leaves them: its cleanup-history step went with the history branches.
+  // 2026-11-17 (SPEC-OSA Stage 4, D2): /sf-next joins them — it does the current step's own work in its turn.
   const overridden = ['sflow-approve', 'sflow-build-workflow', 'sflow-capability-map', 'sflow-code', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
-    'sflow-fix-workflow', 'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall', 'sflow-reject',
+    'sflow-fix-workflow', 'sflow-home', 'sflow-mcp', 'sflow-next', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall', 'sflow-reject',
     'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-review-source', 'sflow-run-app', 'sflow-scenario-check', 'sflow-session', 'sflow-specify', 'sflow-start',
     'sflow-story-start', 'sflow-submit', 'sflow-test-setup', 'sflow-verify', 'sflow-workflows'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.pathContractTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - (row.storyCwdTokens ?? 0) - row.pauseGuardTokens - (row.gatewayToolsTokens ?? 0) - (row.questionToolTokens ?? 0) > 800).map((row) => row.name), overridden);

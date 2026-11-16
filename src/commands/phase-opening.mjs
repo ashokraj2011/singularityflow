@@ -82,7 +82,8 @@ export async function consentFor(root, workflow, { proposal, digest, question, t
   const principal = await principalHere(root);
   const grant = await consent.readGrant(commonDir, digest);
   if (grant) return { principal, receipt: consent.consentReceipt(commonDir, { proposal, digest, surface: grant.surface, question: grant.question,
-    answer: grant.answer, principal: grant.principal ?? principal, assurance: grant.surface === 'confirm-code' ? 'host-confirm-code' : 'host-answer',
+    answer: grant.answer, principal: grant.principal ?? principal,
+    assurance: grant.surface === 'confirm-code' ? 'host-confirm-code' : grant.surface === 'decisions-card' ? 'host-card' : 'host-answer',
     session: grant.session, turnId: grant.turnId, host: grant.host, confirmedAt: Date.parse(grant.grantedAt) }) };
   if (typed) return { principal, receipt: consent.consentReceipt(commonDir, { proposal, digest, surface: 'terminal', question, principal,
     assurance: 'terminal-tty', host: 'terminal' }) };
@@ -210,12 +211,13 @@ export async function openBeforePrepare(root, config, workflow, phase) {
   // A code-delivery step opens a code generation; a step that may also write application paths without delivering code (a
   // verification step's test automation) opens as a document does [Stage 3: prepare refused GENERATION_INTENT_NOT_APPLICABLE].
   const code = (await import('../code-delivery-policy.mjs')).phaseRequiresCodeDelivery(phase);
-  if (decision.kind.executionOwner === 'kernel' && !code) return null;
   const next = decision.next;
-  // A successor for any reason, and an older build's local opening of one, opens only on the person's yes.
+  // A successor for any reason, and an older build's local opening of one, opens only on the person's yes: a kernel-built
+  // step's too, whose generator ran its next version with no yes before [D3, D5, Stage 2 finding 5].
   if (['open-version', 'build-version'].includes(next.operation) && next.inputs.consent === 'required') {
     throw consentRequired(phase, { version: next.inputs.version }, route, next.inputs.reason === 'legacy-promotion' ? ' (an older build opened it on this checkout only)' : '');
   }
+  if (decision.kind.executionOwner === 'kernel' && !code) return null;
   // A published document's next draft is a successor too: prepare never reserves it without the person's yes. A published
   // code step with nothing reopened is refused by prepare itself (GENERATION_INTENT_ALREADY_CONSUMED), as before.
   if (!code && decision.version.published >= 1 && decision.version.writing === null) {
@@ -224,10 +226,24 @@ export async function openBeforePrepare(root, config, workflow, phase) {
     throw consentRequired(phase, { version: decision.version.proposedNext }, requested ? { command: requested.command ?? null,
       copilotCommand: requested.copilotCommand ?? null, label: requested.label ?? requested.reason ?? null } : route);
   }
-  // Version 1 of a code step opens here, shared before prepare writes anything.
-  if (!code || next.operation !== 'open-version' || next.inputs.consent !== 'not-required') return null;
+  if (next.operation !== 'open-version' || next.inputs.consent !== 'not-required') return null;
+  // Version 1 of a document step opens through the same operation only where the owner's switch turns it on: it commits
+  // and pushes at every document step's first prepare (docs/osa/stage4.md, owner decision) [OSA §4.3, §7.2].
+  if (!code && !documentInitialOpening()) return null;
+  // Version 1 opens here, shared before prepare writes anything; no consent is owed for it [§7.2].
   const { proposal, digest, question } = await proposalNow(root, workflow, phase);
-  return openSuccessor(root, config, workflow, phase, { proposal, digest, question, open: codeOpening(root, config) });
+  return openSuccessor(root, config, workflow, phase, { proposal, digest, question, open: code ? codeOpening(root, config) : documentOpening() });
+}
+
+/**
+ * Whether version 1 of a document step gets its opening record through the opening operation (`shared`), as a code step's
+ * does, or keeps the verified initial-version path every earlier build used (`local`, the default). Off by default until
+ * the owner decides: on, every document step's first `prepare` commits the opening and pushes the Story branch.
+ * `SINGULARITY_FLOW_DOCUMENT_VERSION_OPENING=shared` turns it on for this process; nothing else reads it.
+ */
+export const DOCUMENT_VERSION_OPENING_DEFAULT = 'local';
+export function documentInitialOpening(env = process.env) {
+  return (String(env.SINGULARITY_FLOW_DOCUMENT_VERSION_OPENING ?? '').trim() || DOCUMENT_VERSION_OPENING_DEFAULT) === 'shared';
 }
 
 /**

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import {
   access, chmod, link, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rename, rm, stat,
   symlink, writeFile
@@ -10,7 +11,18 @@ import test from 'node:test';
 import { toLegacyAgentsLayout, writeLegacyWorkflow } from './helpers/agents-layout.mjs';
 import { fileURLToPath } from 'node:url';
 import { confirmCode } from '../src/confirm-code.mjs';
+import { MACHINE_STATE_LOCATIONS } from '../src/machine-state-locations.mjs';
+import { isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
 import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-terminal.mjs';
+
+// Resets read and clear machine state, so this file keeps its own. The runner's Story index and workspace registry are
+// shared by every test file in the run: a file beside this one left an unpublished Story checkout in that index, and
+// a reset here refused for it (SCF:REQ-021), or would clear a registration another file still used.
+const fileMachineState = mkdtempSync(path.join(os.tmpdir(), 'sflow-factory-reset-machine-'));
+Object.assign(process.env, isolatedMachineEnvironment(fileMachineState));
+process.on('exit', () => rmSync(fileMachineState, { recursive: true, force: true }));
+// A child given a home of its own keeps all its machine state in that home.
+const HOME_MACHINE_STATE = Object.fromEntries(Object.keys(MACHINE_STATE_LOCATIONS).map((name) => [name, undefined]));
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // A run of 7 to 64 hexadecimal characters with a letter and a digit (person-text-no-hashes.test.mjs): a person reads none.
@@ -21,7 +33,7 @@ function command(executable, args, cwd, { ok = true, env = {} } = {}) {
   const result = spawnSync(executable, args, {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: 'test', ...env }
+    env: { ...process.env, NODE_ENV: 'test', ...(env.HOME ? HOME_MACHINE_STATE : {}), ...env }
   });
   if (ok) assert.equal(result.status, 0, `${executable} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
@@ -2743,11 +2755,7 @@ test('reset canonicalizes custom state paths and refuses symlink-ancestor escape
 
 test('local-reset CLI keeps non-interactive preview and confirmation mode-bound', async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-forget-cli-home-'));
-  const invoke = (...args) => spawnSync(process.execPath, [cli, 'local-reset', ...args], {
-    cwd: packageRoot,
-    encoding: 'utf8',
-    env: { ...process.env, HOME: home, NODE_ENV: 'test' }
-  });
+  const invoke = (...args) => command(process.execPath, [cli, 'local-reset', ...args], packageRoot, { ok: false, env: { HOME: home } });
   const previewed = invoke('--forget-only', '--dry-run', '--json');
   assert.equal(previewed.status, 0, previewed.stderr);
   const preview = JSON.parse(previewed.stdout);

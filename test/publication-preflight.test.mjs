@@ -67,6 +67,18 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
+/**
+ * The Story's shared remote, a local bare repository: a version opening is committed and pushed to it (SPEC-OSA Stage 2,
+ * OSA:REQ-031). The fixture's in-memory `git.publish: off` is not what the CLI reads, so its openings publish.
+ */
+async function sharedOrigin(root) {
+  const remote = `${root}-origin.git`;
+  git(root, 'init', '--bare', '-q', remote);
+  git(root, 'remote', 'add', 'origin', remote);
+  git(root, 'push', '-q', 'origin', 'HEAD');
+  return remote;
+}
+
 function flow(root, args, { allowFailure = false } = {}) {
   const result = spawnSync(process.execPath, [bin, ...args], {
     cwd: root, encoding: 'utf8',
@@ -3389,6 +3401,7 @@ test('phase rollover previews exact current bytes and opens one successor withou
   const publishedHead = git(context.root, 'rev-parse', 'HEAD');
   await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App { int next = 2; }\n');
 
+  await sharedOrigin(context.root);
   const preview = JSON.parse(flow(context.root, [
     'phase', 'rollover', 'implementation', '--json'
   ]).stdout);
@@ -3467,6 +3480,7 @@ test('an in-scope README edit after code publication routes through recovery, th
     'singularity-flow recover DELIVERY-1 --phase implementation --json');
   assert.equal(prepublish.correction.skill, '/sf-recover');
 
+  await sharedOrigin(context.root);
   const preview = JSON.parse(flow(context.root, ['phase', 'rollover', 'implementation', '--json']).stdout);
   assert.equal(preview.mutates, false);
   assert.equal(preview.command, rollover.command);
@@ -3543,6 +3557,7 @@ test('README correction after Code publication rolls over and retains byte-verif
     phaseId: 'implementation'
   });
   assert.equal(recovery.requiresRecovery, true);
+  await sharedOrigin(context.root);
   const preview = JSON.parse(flow(context.root, [
     'phase', 'rollover', 'implementation', '--json'
   ]).stdout);
@@ -3600,6 +3615,7 @@ test('README correction cannot reuse a mismatched prior source fingerprint', asy
     context.root, context.config, context.workflow, 'implementation'
   ));
   await writeFile(path.join(context.root, 'README.md'), '# Corrected README\n');
+  await sharedOrigin(context.root);
   const preview = JSON.parse(flow(context.root, [
     'phase', 'rollover', 'implementation', '--json'
   ]).stdout);

@@ -157,3 +157,28 @@ test('with no remote to publish to, publication says so plainly, with its way on
   });
   assert.equal(spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout, '', 'nothing was written');
 });
+
+test('liveness, authorization and acceptance stay apart: a running task renews none of them [OSA:REQ-051, AC-021]', () => {
+  const workflow = codeStory();
+  const phase = workflow.phases.implement;
+  const running = taskOutcomeOf(record(workflow, 'running'), workflow);
+  // A heartbeat keeps the execution observed; a revoked permission still stops the step first.
+  const revoked = stepState(stepSnapshotOf({ workflow, phase, task: running, revoked: true }));
+  assert.deepEqual([revoked.state, revoked.next.operation, revoked.edit.eligible], ['held', 'refresh-authority', false]);
+  assert.ok(revoked.next.reasonCodes.includes('PERMISSION_REVOKED'));
+  // An opening whose shared acceptance is not confirmed grants nothing, however live its execution.
+  const operated = structuredClone(workflow);
+  operated.phases.implement.versionOpening = { operationId: `vo-${'b'.repeat(32)}`, version: 1, highWatermark: 1, writer: { fence: 1 } };
+  const pending = stepState(stepSnapshotOf({ workflow: operated, phase: operated.phases.implement, task: running,
+    opening: { acceptance: 'pending', writer: 'current' } }));
+  assert.deepEqual([pending.state, pending.next.operation, pending.edit.eligible], ['waiting', 'recover-operation', false]);
+  assert.ok(pending.next.reasonCodes.includes('OPENING_PENDING'));
+  // Another checkout's writer fence holds whatever this one runs.
+  const fenced = stepState(stepSnapshotOf({ workflow: operated, phase: operated.phases.implement, task: running,
+    opening: { acceptance: 'confirmed', writer: 'other' } }));
+  assert.deepEqual([fenced.next.operation, fenced.edit.eligible], ['takeover-writer', false]);
+  // A running task on an accepted opening is observed, and keeps the version's writes; the turn's own window is the guard's.
+  const live = stepState(stepSnapshotOf({ workflow: operated, phase: operated.phases.implement, task: running,
+    opening: { acceptance: 'confirmed', writer: 'current' } }));
+  assert.deepEqual([live.state, live.next.operation, live.edit.eligible], ['waiting', 'inspect', true]);
+});

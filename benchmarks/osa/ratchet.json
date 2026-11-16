@@ -6,16 +6,6 @@
   "exempt": "src/kernel/ is the decision owner and holds no counted site by design.",
   "exceptions": [
     {
-      "module": "phase-mutation-contract.mjs",
-      "family": "lifecycleCommands",
-      "stage0": 0,
-      "ceiling": 2,
-      "kind": "renderer",
-      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
-      "deletion": "Stage 4: decisionRoutes moves into the central map",
-      "why": "decisionRoutes renders the kernel's approve-step as the approve and reject commands"
-    },
-    {
       "module": "phase-authoring-entry.mjs",
       "family": "lifecycleCommands",
       "stage0": 3,
@@ -36,14 +26,54 @@
       "why": "Stage 0 finding 5: a returned code step opens its next version (begin, or the person's rollover preview) instead of recovery"
     },
     {
-      "module": "sequence.mjs",
-      "family": "lifecycleCommands",
-      "stage0": 9,
-      "ceiling": 10,
+      "module": "step-decision.mjs",
+      "family": "predicateCalls",
+      "stage0": 0,
+      "ceiling": 1,
+      "kind": "normalizer",
+      "owner": "Stage 3, the kernel's record adapter (stepSnapshotOf, OSA:REQ-040)",
+      "deletion": "none while the Story record names its producers: the adapter classifies who builds the step, as the kernel's `kind` fact",
+      "why": "stepSnapshotOf moved here from phase-mutation-contract.mjs so every surface builds the kernel's snapshot the same way; phaseKernelOwned classifies the step's execution owner from its configuration"
+    },
+    {
+      "module": "step-decision.mjs",
+      "family": "skillChooserCalls",
+      "stage0": 0,
+      "ceiling": 1,
       "kind": "renderer",
-      "owner": "Stage 3, the Story's next in sequence guidance (b37, OSA:REQ-020)",
-      "deletion": "Stage 3: sequence guidance takes the kernel's rendered next instead of its own routes",
-      "why": "a published step being written opens its next version only on the person's yes (Stage 2, D3): sequence names the step's rollover preview, as the entry, the permission and the task do"
+      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
+      "deletion": "Stage 4: decisionRoutes moves into the central map",
+      "why": "decisionRoutes, the one rendering of the kernel's decision every surface shares (moved from phase-mutation-contract.mjs), names the step's work command"
+    },
+    {
+      "module": "step-decision.mjs",
+      "family": "lifecycleCommands",
+      "stage0": 0,
+      "ceiling": 2,
+      "kind": "renderer",
+      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
+      "deletion": "Stage 4: decisionRoutes moves into the central map",
+      "why": "decisionRoutes renders the kernel's approve-step as the approve and reject commands (moved from phase-mutation-contract.mjs)"
+    },
+    {
+      "module": "step-decision.mjs",
+      "family": "skillLiterals",
+      "stage0": 0,
+      "ceiling": 1,
+      "kind": "renderer",
+      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
+      "deletion": "Stage 4: decisionRoutes moves into the central map",
+      "why": "decisionRoutes renders the kernel's recover-operation for positive damage as /sf-recover (moved from phase-mutation-contract.mjs)"
+    },
+    {
+      "module": "commands/shared/prepared-phase-next-actions.mjs",
+      "family": "routeObjects",
+      "stage0": 1,
+      "ceiling": 2,
+      "kind": "renderer",
+      "owner": "Stage 4, the central action-to-command map (b25, OSA:REQ-021, REQ-026)",
+      "deletion": "Stage 4: the post-preparation route is the kernel's build-version then publish-version, rendered by the central map",
+      "why": "after a kernel-built step is prepared, its check-and-publish route names the step's own work command (its chooser) instead of handing the publication to /sf-publish (C9); at Stage 0 the same route hid the chooser in a conditional with the /sf-publish literal, which the scanner did not count"
     }
   ],
   "ceilings": {
@@ -232,8 +262,8 @@
     "commands/shared/prepared-phase-next-actions.mjs": {
       "predicateCalls": 2,
       "skillChooserCalls": 2,
-      "routeObjects": 1,
-      "lifecycleCommands": 2
+      "routeObjects": 2,
+      "lifecycleCommands": 1
     },
     "commands/start.mjs": {
       "skillChooserCalls": 1,
@@ -400,11 +430,11 @@
     },
     "guide.mjs": {
       "intentReads": 1,
-      "predicateCalls": 9,
-      "skillChooserCalls": 3,
+      "predicateCalls": 5,
+      "skillChooserCalls": 1,
       "versionArithmetic": 2,
-      "routeObjects": 10,
-      "lifecycleCommands": 10
+      "routeObjects": 8,
+      "lifecycleCommands": 8
     },
     "help-pages.mjs": {
       "lifecycleCommands": 9,
@@ -473,12 +503,10 @@
       "skillChooserCalls": 1
     },
     "own-correction-rollover.mjs": {
-      "intentWrites": 1,
       "skillChooserCalls": 1,
       "versionArithmetic": 1,
-      "routeObjects": 2,
-      "lifecycleCommands": 2,
-      "skillLiterals": 2
+      "routeObjects": 1,
+      "lifecycleCommands": 1
     },
     "owner-step-evidence.mjs": {
       "lifecycleCommands": 3
@@ -500,7 +528,7 @@
       "predicateCalls": 2,
       "routeObjects": 2,
       "lifecycleCommands": 5,
-      "skillLiterals": 2
+      "skillLiterals": 1
     },
     "phase-authoring-progress.mjs": {
       "predicateCalls": 3,
@@ -580,10 +608,7 @@
       "predicateCalls": 1
     },
     "phase-mutation-contract.mjs": {
-      "predicateCalls": 1,
-      "skillChooserCalls": 2,
-      "lifecycleCommands": 2,
-      "skillLiterals": 1
+      "skillChooserCalls": 1
     },
     "phase-preparation-guidance.mjs": {
       "skillChooserCalls": 1,
@@ -677,8 +702,8 @@
     },
     "refusal-remediation.mjs": {
       "routeObjects": 1,
-      "lifecycleCommands": 29,
-      "skillLiterals": 24
+      "lifecycleCommands": 28,
+      "skillLiterals": 23
     },
     "reinstall.mjs": {
       "skillChooserCalls": 1
@@ -723,10 +748,10 @@
       "predicateCalls": 1
     },
     "sequence.mjs": {
-      "predicateCalls": 6,
-      "skillChooserCalls": 3,
-      "routeObjects": 7,
-      "lifecycleCommands": 10
+      "predicateCalls": 1,
+      "skillChooserCalls": 1,
+      "routeObjects": 3,
+      "lifecycleCommands": 4
     },
     "session-read-service.mjs": {
       "versionArithmetic": 1
@@ -742,7 +767,7 @@
       "lifecycleCommands": 2
     },
     "source-review-continuation.mjs": {
-      "predicateCalls": 7,
+      "predicateCalls": 1,
       "skillChooserCalls": 1,
       "lifecycleCommands": 8,
       "skillLiterals": 1
@@ -769,6 +794,12 @@
       "versionArithmetic": 4,
       "routeObjects": 6,
       "lifecycleCommands": 22
+    },
+    "step-decision.mjs": {
+      "predicateCalls": 1,
+      "skillChooserCalls": 1,
+      "lifecycleCommands": 2,
+      "skillLiterals": 1
     },
     "story-paths.mjs": {
       "predicateCalls": 1

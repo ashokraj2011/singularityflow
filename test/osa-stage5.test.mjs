@@ -135,7 +135,7 @@ test('the edit guard reads the task stage: a repair within budget keeps the vers
   for (const command of Object.values(views(f.workflow, spent))) assert.equal(command, `singularity-flow decisions ${W}`, 'every view names the same card');
 });
 
-test('a waiting task stops the guard\'s writes as it stops the views; a running execution keeps them [§8, OSA:REQ-010, REQ-051]', () => {
+test('the permission follows the kernel for every task stage it is given; a running execution keeps the version\'s writes [§8, OSA:REQ-010, REQ-051]', () => {
   const workflow = { schemaVersion: 13, workItem: { id: W }, status: 'in_progress', currentPhase: 'implement', phaseOrder: ['implement'], history: [],
     // Version 1 open by its own intent (an initial version needs no operation's record, §4.3).
     phases: { implement: { id: 'implement', status: 'in_progress', generation: 0, writeScope: 'source-and-artifact',
@@ -285,4 +285,17 @@ test('a stale outcome is never applied: a lifecycle event after it returns the s
   assert.equal(taskOutcomeOf(record, f.workflow).outcome, 'repair-required');
   const moved = { ...f.workflow, history: [...f.workflow.history, { at: '2026-11-17T09:00:00.000Z', event: 'phase_generated', phase: 'implement' }] };
   assert.equal(taskOutcomeOf(record, moved), null, 'the person decided, or the step published: the outcome no longer applies');
+});
+
+test('the guard is handed the repair and running stages only: a wait for a person keeps the turn\'s writes while every view names it (journey E) [§8, owner decision]', async (t) => {
+  const f = await story(t);
+  await observeWorkflowTask(f.root, f.workflow, f.implement, { state: 'blocked', blockedCode: outcomeCode('waiting-person', 'CODE_TEST_FAILED', f.workflow) });
+  const waiting = await readTaskOutcome(f.root, f.workflow, f.implement);
+  assert.equal(waiting.outcome, 'waiting-person');
+  for (const command of Object.values(views(f.workflow, waiting))) assert.equal(command, `singularity-flow decisions ${W}`, 'every view names the card');
+  const guard = await readGuardTaskOutcome(f.root, f.workflow, f.implement);
+  assert.equal(guard.task, null, 'the wait is not handed to the guard');
+  assert.equal(guard.files.length, 1, 'its record is still stamped, so a repair spent later derives the turn again');
+  const turn = await f.enter('/sf-code');
+  assert.deepEqual(await f.write(turn, 'src/App.java'), {}, 'the turn that asked keeps the version\'s writes while the person decides');
 });

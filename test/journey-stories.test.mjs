@@ -370,30 +370,32 @@ test('journey F: a code step returned for rework is written again, its review as
   const rework = await followRoutes(story, { label: 'journey F, the rework', start: { copilot: '/sf-code' }, agent, person: cooperativePerson(),
     done: corrections, maxSteps: 20 });
   t.diagnostic(formatTrail(rework.trail));
-  await check(t, 'the returned code step is written in its own entry: its permission\'s next opens version 2, then act author, one command', {}, () => {
+  await check(t, 'the returned code step asks the person to start version 2 in its own entry, then writes it: no opening without their yes', {}, () => {
     assert.equal(rework.reached, true, report(rework));
     assert.deepEqual(rework.findings, [], report(rework));
-    // The quick fix's code step is built by the kernel from its code: nothing is granted until its version is open, so
-    // the entry's act is the permission's next (`phase begin`), never "prepare" relayed to the same skill [C13].
-    const entries = rework.trail.filter((item) => /^singularity-flow phase enter\b/u.test(item.ran ?? ''));
-    const begin = rework.trail.findIndex((item) => /^singularity-flow phase begin implement\b/u.test(item.ran ?? ''));
-    assert.ok(begin > 0 && rework.trail.slice(0, begin).every((item) => !/^singularity-flow prepare\b/u.test(item.ran ?? '')), report(rework));
-    assert.deepEqual(entries.map((item) => item.act), ['next', 'author'], report(rework));
+    // A person's return reopens the step, and its next version still opens only on their yes [D3, OSA:REQ-030]: the entry
+    // asks "Start version 2?", and only then does the confirmation run, through the guard; nothing is prepared, begun or
+    // written before it [C13].
+    const text = (item) => `${item.ran ?? ''} ${item.did ?? ''}`;
+    const asked = rework.trail.findIndex((item) => item.act === 'confirm');
+    const confirmed = rework.trail.findIndex((item) => /phase rollover implement --confirm /u.test(text(item)));
+    assert.ok(asked >= 0 && confirmed >= asked, report(rework));
+    assert.ok(rework.trail.slice(0, confirmed).every((item) => !/^singularity-flow (?:prepare|phase begin)\b/u.test(item.ran ?? '')), report(rework));
     assert.equal(storyRecord(story).phases.implement.generation, 2);
   });
-  await check(t, 'after the rewrite\'s review asks corrections, the person is asked "Start version 3?" before it opens', { knownBad: 'osa-stage-2' }, () => {
+  await check(t, 'after the rewrite\'s review asks corrections, the person is asked "Start version 3?" before it opens', {}, () => {
     const entry = json(story.raw(['phase', 'enter', '--compose', '--for-agent', '--json']).stdout);
     assert.equal(entry?.act?.state, 'confirm', JSON.stringify(entry?.act ?? entry).slice(0, 1500));
     assert.match(String(entry.act.ask?.question ?? ''), /^Start version 3\b/u);
     assert.equal(storyRecord(story).phases.implement.generationIntent?.status, 'consumed', 'version 3 is not open before the person says yes');
   });
 
-  // Onward: the person says yes, version 3 is written, reviewed ready and submitted. Until the ask (stage 2), the route
-  // after the review opens version 3 with `phase begin` and nobody is asked.
+  // Onward: the person says yes, version 3 opens through the opening operation on that yes, and is written, reviewed
+  // ready and submitted by its routes.
   const onward = await followRoutes(story, { label: 'journey F, version 3', start: rework.next ?? { copilot: '/sf-code' }, agent, person: cooperativePerson(),
     done: ({ record }) => record?.phases?.implement?.status === 'awaiting_approval' && Number(record.phases.implement.generation) === 3, maxSteps: 24 });
   t.diagnostic(formatTrail(onward.trail));
-  await check(t, 'version 3 is opened on the person\'s yes, written, reviewed ready and submitted by its routes', { knownBad: 'osa-stage-2' }, () => {
+  await check(t, 'version 3 is opened on the person\'s yes, written, reviewed ready and submitted by its routes', {}, () => {
     assert.equal(onward.reached, true, report(onward));
     assert.deepEqual(onward.findings, [], report(onward));
     // The person's yes comes first: the walk asked "Start version 3?" before the version opened.
@@ -426,6 +428,13 @@ test('journey G: version 2 open on a step with no review: submit refuses with th
   // The person asks for a change and confirms version 2.
   const preview = json(story.raw(['phase', 'rollover', 'implement', '--reason', 'Say in the code why the value is 2', '--json']).stdout);
   assert.match(String(preview?.command ?? ''), /--confirm /u, JSON.stringify(preview).slice(0, 1500));
+  // In a /sf-code turn the agent asks the preview's question; the person's yes reaches the hooks, and the guard keeps it for
+  // this version [OSA:REQ-030]. The confirmation then opens it through the opening operation.
+  const asking = copilotTurn(story, 'journey-g-yes');
+  asking.prompt('/sf-code');
+  asking.tool('ask_user', { question: preview.question, choices: ['Yes', 'No'] });
+  asking.after('ask_user', { question: preview.question, choices: ['Yes', 'No'] }, { resultType: 'success', textResultForLlm: 'User responded: Yes' });
+  assert.notEqual(asking.tool('bash', { command: preview.command }).permissionDecision, 'deny', 'the guard admits it on the person\'s yes');
   const opened = story.raw([...argvOf(preview.command), '--json']);
   assert.equal(opened.status, 0, opened.stdout.slice(-2000) + opened.stderr.slice(-2000));
   assert.equal(storyRecord(story).phases.implement.generationIntent?.status, 'open');

@@ -17,8 +17,6 @@ import { formatTrail } from './route-follower.mjs';
 
 /** Fix branch (or a defect a journey found that has none yet) → what is wrong on main until it lands. */
 export const KNOWN_BAD = Object.freeze({
-  'osa-stage-2': 'SPEC-OSA stage 2 (REQ-030, C8): a code step returned for rework and republished, whose review then asks corrections, '
-    + 'opens its next version (`phase begin`, /sf-code) with no "Start version N?" asked of the person',
   'osa-stage-3': 'SPEC-OSA stage 3 (REQ-020): after a code step is published with no review owed, the agent is routed to the outcome '
     + 'validation offer (/sf-outcome) while next steps, phase show and submission readiness name /sf-submit',
   'osa-stage-3-c9': 'SPEC-OSA stage 3 (REQ-026, C9): a kernel-built step\'s prepare hands its publication to /sf-publish '

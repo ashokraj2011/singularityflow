@@ -550,6 +550,19 @@ function guardedStory(story, guard, skill, contract) {
   return { story: { ...story, write }, written };
 }
 
+/** A command that starts a step's next version: it runs only on the person's yes, through the turn's own hooks [OSA:REQ-030]. */
+const successorConfirmation = (command) => /^(?:singularity-flow|sflow) phase rollover \S+ (?:.* )?--confirm\s/u.test(`${command ?? ''} `);
+
+/**
+ * The agent runs a step's next-version confirmation only as Copilot would: the real pre-tool guard sees it first, and
+ * holds it to the person's yes in this turn (it also keeps that yes for the opening). Returns the guard's refusal, or null.
+ */
+function guardedConfirmation(guard, command) {
+  if (!guard?.turn || !successorConfirmation(command)) return null;
+  const said = guard.turn.tool('bash', { command });
+  return said?.permissionDecision === 'deny' ? said : null;
+}
+
 const isPersonRoute = (route) => /^singularity-flow (?:approve|decisions record|story advance .*--confirm|reopen)\b/u.test(route.shell ?? '')
   || /^\/sf-(?:approve|decide|confirm)\b/u.test(route.copilot ?? '') && !route.inTurn;
 
@@ -564,9 +577,17 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     if (!answer) return { finding: { kind: 'person-unanswered', detail: `the person's step ${route.copilot ?? short(route.shell)} has no scripted answer` }, personPending: true, turn: 'person' };
     if (answer.route) return { next: { ...answer.route, source: 'person' }, personPending: true, turn: 'person' };
     let ran = null;
+    // The person types the code of a confirmation into their own prompt (/sf-confirm CODE): that turn's agent runs it,
+    // through the guard, which keeps the typed code as the person's yes for a next version [OSA:REQ-030].
+    const confirmTurn = guard && /^\/sf-confirm\b/u.test(route.copilot ?? '') ? copilotTurn(story, `${guard.sessionId}-confirm-${entry.n ?? Date.now()}`) : null;
+    if (confirmTurn) confirmTurn.prompt(route.copilot);
     for (const command of answer.commands ?? [answer.command]) {
       entry.did = `${entry.did ? `${entry.did}; ` : 'the person ran '}${short(command)}`;
-      ran = await runCommand(story, command, { agent: false });
+      if (confirmTurn && successorConfirmation(command)) {
+        const said = confirmTurn.tool('bash', { command });
+        if (said?.permissionDecision === 'deny') return { finding: { kind: 'guard-denied', detail: `the guard refused ${short(command)} in the person's /sf-confirm turn: ${String(said.permissionDecisionReason ?? '').slice(0, 500)}` }, personPending: true, turn: 'person' };
+      }
+      ran = await runCommand(story, command, { agent: Boolean(confirmTurn) });
       Object.assign(entry, { ran: ran.ran, status: ran.status, code: ran.result?.error?.code ?? null, act: ran.result?.act?.state ?? null });
       // A person's command refused is a refusal like any other: it routes on, or it is a dead end.
       if (ran.status !== 0) return refusalRoute(ran.result, command, 'person') ?? { result: ran.result, finding: { kind: 'person-refused', detail: `${short(command)} refused: ${ran.result?.error?.code ?? ran.stderr.slice(-300)}` }, turn: 'person' };
@@ -592,6 +613,8 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
   if (!command) return { finding: { kind: 'no-route', detail: 'a route with neither a command nor a skill' } };
   if (/<[A-Za-z][A-Za-z0-9_|-]*>/u.test(command)) return { finding: { kind: 'route-needs-value', detail: `${short(command)} needs a value no script gives` } };
   const nextTurn = skill ?? turn;
+  const held = guardedConfirmation(guard, command);
+  if (held) return { finding: { kind: 'guard-denied', detail: `the guard refused ${short(command)}: ${String(held.permissionDecisionReason ?? '').slice(0, 500)}` }, turn: nextTurn };
   const ran = await runCommand(story, command);
   const result = ran.result;
   const act = result?.act ?? null;
@@ -725,9 +748,17 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     const answer = person?.({ story, route: returnedRoute(result) ?? {}, result, act, phase });
     if (!answer) return { result, personPending: true, finding: { kind: 'person-unanswered', detail: `${act?.state}: ${String(act?.ask?.question ?? act?.said ?? '').slice(0, 300)}` }, turn: nextTurn };
     if (answer.route) return { result, next: { ...answer.route, source: 'person' }, personPending: true, turn: nextTurn };
+    // The agent asked this with the host's question tool, and the person's answer reaches SFlow as the host hands it to the
+    // hooks: the turn's answer ledger keeps it, so the guard can hold a confirmation to it [OSA:REQ-030].
+    if (guard?.turn && act?.ask?.question && answer.agent !== false) {
+      guard.turn.tool('ask_user', { question: act.ask.question, choices: ['Yes', 'No'] });
+      guard.turn.after('ask_user', { question: act.ask.question, choices: ['Yes', 'No'] }, { resultType: 'success', textResultForLlm: 'User responded: Yes' });
+    }
     let ran2 = null;
     for (const line of answer.commands ?? [answer.command]) {
       entry.did = `${entry.did ? `${entry.did}; ` : 'the person answered: '}${short(line)}`;
+      const refused = answer.agent !== false ? guardedConfirmation(guard, line) : null;
+      if (refused) return { result, finding: { kind: 'guard-denied', detail: `the guard refused ${short(line)}: ${String(refused.permissionDecisionReason ?? '').slice(0, 500)}` }, turn: nextTurn };
       ran2 = await runCommand(story, line, { agent: answer.agent !== false });
       if (ran2.status !== 0) return { result: ran2.result, finding: { kind: 'person-refused', detail: `${short(line)} refused: ${ran2.result?.error?.code ?? ran2.stderr.slice(-300)}` }, turn: nextTurn };
     }

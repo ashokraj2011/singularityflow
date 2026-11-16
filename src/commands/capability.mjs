@@ -108,7 +108,7 @@ async function runActivation(context) {
   console.log(result.alreadyMerged
     ? `${branch} was already merged into ${result.targetBranch}.`
     : `Merged ${branch} into ${result.targetBranch}.`);
-  if (result.presence?.status === 'unsigned') console.log(`SF Guard: approved without a signature, because ${result.presence.reason}.`);
+  if (result.presence?.status === 'failed') console.log(`SF Guard: ${result.presence.message}.`);
   if (result.nextAction?.command) await printCommandRoutes(result.nextAction.command, {
     skill: result.nextAction.skill ?? null, label: 'Recovery'
   });

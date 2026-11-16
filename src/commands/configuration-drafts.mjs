@@ -114,9 +114,11 @@ export async function run({ subcommand, positionals, options, root, apply, print
   if (delegated) {
     const { optionString } = await import('../util.mjs');
     const repository = await routes.delegatedProposalRepository(root, delegated, optionString(options, 'lead', null));
+    const { configurationCommitIdentity } = await import('../git.mjs');
     const common = { yes: options.yes === true, confirm: optionString(options, 'confirm', null),
       interactive: !json && Boolean(input.isTTY && output.isTTY), ask, print: json ? () => {} : (line) => console.log(line),
-      inspect: (branch) => routes.inspectDelegatedProposal(delegated, repository, branch) };
+      inspect: (branch) => routes.inspectDelegatedProposal(delegated, repository, branch),
+      identity: () => configurationCommitIdentity(root ?? process.cwd()) };
     const result = subcommand === 'approve'
       ? await drafts.approveDelegatedProposal(root, positionals[2], delegated, { ...common,
         activate: (branch, { confirm, reviewed }) => routes.activateDelegatedProposal(root, delegated, repository, branch, { confirm, reviewed }) })

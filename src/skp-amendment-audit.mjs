@@ -30,7 +30,7 @@ export const SKP_ANCESTRY_LIMITS = Object.freeze({ commits: 128, commitBytes: 65
  * its approved package baseline names (SCF:REQ-016, `singularity/.product/configuration-baseline.yml`
  * v2); a build is ordered by its clean stamp's `builtAt`, the source commit's time (D1). Builds made from
  * a source commit at or after this instant read v2, so v2 is written only where the minimum build is that
- * recent. It must not be earlier than the commit that lands this reader on main.
+ * recent. It is set to the day this reader lands on main, here only; every reader derives from it.
  */
 export const ANCESTRY_PROOF_V2_READERS_SINCE = '2026-11-17T00:00:00.000Z';
 export const ANCESTRY_ADOPTION_CAUSES = Object.freeze(['sflow-config-rewritten', 'ancestry-beyond-proof-limit']);

@@ -639,7 +639,7 @@ test('a capability proposal is approved and rejected through configuration appro
   const approved = await approveDelegatedProposal(checkout, service.branch, 'capability', { ...common, activate, confirm: service.commit });
   assert.equal(approved.kind, 'capability');
   assert.equal(approved.activated, true);
-  assert.ok(printed.some((line) => line === `Capability proposal ${service.branch}`), printed.join('\n'));
+  assert.ok(printed.some((line) => line.startsWith(`Capability proposal ${service.branch} by `)), printed.join('\n'));
   assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout, /service-api:/u);
 
   const web = await mapCapability(org.platform, { capabilityId: 'web-api', kind: 'delivery', repositoryUrl: org.web });
@@ -648,6 +648,114 @@ test('a capability proposal is approved and rejected through configuration appro
   assert.deepEqual([rejected.kind, rejected.status, rejected.removal], ['capability', 'rejected', 'cancelled']);
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${web.branch}`], { cwd: org.platform, allowFailure: true }).status, 1);
   assert.doesNotMatch(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout, /web-api:/u);
+});
+
+// Every capability approval [owner, 2026-11-17]: SF Guard's signature under the policy of the repository the proposal
+// is on, wherever the command runs, or a refusal with the way forward; its proposer, read as for every other proposal,
+// may not approve it where allowSelfApproval is false, and neither may anyone when Git records no proposer.
+test('a capability approval run outside the repository is signed or refused, and its proposer may not approve it', async (t) => {
+  const org = await remotes('platform', 'service', 'web', 'worker');
+  t.after(() => removeTemporaryTree(org.base));
+  const previous = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  t.after(() => { if (previous == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY; else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previous; });
+  await mapAndMerge(org.platform, { capabilityId: 'platform-app', name: 'Platform app', kind: 'delivery', repositoryUrl: org.platform });
+  // Each person works in another repository's checkout, not the capability map's.
+  const person = (name, remote, label, email) => {
+    const checkout = path.join(org.base, name);
+    run('git', ['clone', '-q', '--no-local', remote, checkout]);
+    run('git', ['config', 'user.name', label], { cwd: checkout });
+    run('git', ['config', 'user.email', email], { cwd: checkout });
+    return checkout;
+  };
+  const alice = person('alice', org.service, 'Alice Proposer', 'alice@example.test');
+  const bob = person('bob', org.web, 'Bob Approver', 'bob@example.test');
+  const tip = () => run('git', ['rev-parse', 'refs/heads/sflow/config'], { cwd: org.platform }).stdout.trim();
+  // A change to sflow/config landed outside SFlow (D6) sets the policy.
+  const allowSelfApproval = async (allowed) => {
+    const editor = path.join(org.base, `policy-${allowed}`);
+    run('git', ['clone', '-q', '--no-local', '--branch', 'sflow/config', org.platform, editor]);
+    run('git', ['config', 'user.name', 'Policy Editor'], { cwd: editor });
+    run('git', ['config', 'user.email', 'policy@example.test'], { cwd: editor });
+    const file = path.join(editor, 'singularity', 'workflow.yml');
+    const workflow = YAML.parse(await readFile(file, 'utf8'));
+    workflow.approvalSecurity = { ...(workflow.approvalSecurity ?? {}), allowSelfApproval: allowed };
+    await writeFile(file, YAML.stringify(workflow));
+    run('git', ['commit', '-qam', `allowSelfApproval: ${allowed}`], { cwd: editor });
+    run('git', ['push', '-q', 'origin', 'sflow/config'], { cwd: editor });
+  };
+  await allowSelfApproval(false);
+  const routes = await import('../src/configuration-proposal-routes.mjs');
+  const { approveDelegatedProposal } = await import('../src/configuration-drafts.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const signed = [];
+  const sign = async (policyRoot, step) => {
+    signed.push({ step, workflow: await readFile(path.join(policyRoot, 'singularity', 'workflow.yml'), 'utf8'),
+      origin: run('git', ['remote', 'get-url', 'origin'], { cwd: policyRoot }).stdout.trim() });
+    return { schema: 'sflow.presence.v1', chainId: 'test-chain', approver: 'bob', action: step.action, at: new Date().toISOString(),
+      recordSha256: `sha256:${'b'.repeat(64)}`, keyId: 'test-key', signature: 'test-signature' };
+  };
+  const cannotSign = async () => { throw new SingularityFlowError('no key', { code: 'PSS_KEY_NOT_REGISTERED' }); };
+
+  // The proposer is Alice, from her own checkout; she may not approve it here, and is refused before any signature.
+  const proposal = await mapCapability(org.platform, { capabilityId: 'service-api', kind: 'delivery', repositoryUrl: org.service, initiatingRoot: alice });
+  const before = tip();
+  await assert.rejects(() => routes.activateDelegatedProposal(alice, 'capability', org.platform, proposal.branch, { confirm: proposal.commit, signStep: sign }),
+    { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED' });
+  const printed = [];
+  await assert.rejects(() => approveDelegatedProposal(alice, proposal.branch, 'capability', { print: (line) => printed.push(line),
+    inspect: (branch) => routes.inspectDelegatedProposal('capability', org.platform, branch),
+    identity: () => ({ name: 'Alice Proposer', email: 'alice@example.test' }), activate: () => assert.fail('never reached') }),
+  { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED' }, 'configuration approve refuses before asking for the revision');
+  assert.ok(printed.includes(`Capability proposal ${proposal.branch} by Alice Proposer`), printed.join('\n'));
+  assert.ok(printed.some((line) => /needs another person to approve/u.test(line)), printed.join('\n'));
+  assert.equal(signed.length, 0);
+
+  // Bob cannot sign: refused with the reason and the way forward, and nothing moves.
+  await assert.rejects(() => routes.activateDelegatedProposal(bob, 'capability', org.platform, proposal.branch, { confirm: proposal.commit, signStep: cannotSign }),
+    (error) => {
+      assert.equal(error.code, 'PSS_KEY_NOT_REGISTERED');
+      assert.match(error.message, /SF Guard is on, so this approval needs your presence signature, and you have no presence key registered\. Nothing was approved\./u);
+      assert.equal(error.details.nextAction.command, 'singularity-flow guard register');
+      return true;
+    });
+  assert.equal(tip(), before, 'nothing was approved unsigned');
+
+  // Bob signs, under the capability map's own SF Guard policy although he runs it from another repository.
+  const approved = await routes.activateDelegatedProposal(bob, 'capability', org.platform, proposal.branch, { confirm: proposal.commit, signStep: sign });
+  assert.equal(approved.activated, true);
+  assert.equal(signed.length, 1);
+  assert.equal(signed[0].origin, org.platform);
+  assert.match(signed[0].workflow, /allowSelfApproval: false/u, 'the policy read is the capability map\'s sflow/config');
+  assert.equal(signed[0].step.record.proposalCommit, proposal.commit);
+  assert.deepEqual(approved.approval, { proposer: { name: 'Alice Proposer', email: 'alice@example.test' },
+    approver: { name: 'Bob Approver', email: 'bob@example.test' }, selfApproved: false });
+  assert.equal(approved.presence.status, 'published', JSON.stringify(approved.presence));
+  assert.match(run('git', ['log', '--all', '--format=%s'], { cwd: org.platform }).stdout, /\[configuration\]\[sf-guard\] approval seal/u);
+
+  // An older build's proposal names no proposer (its placeholder author): nobody may approve it while a second person
+  // is needed, and where self-approval is allowed it is approved as a possible self-approval.
+  const legacy = await mapCapability(org.platform, { capabilityId: 'worker-api', kind: 'delivery', repositoryUrl: org.worker, initiatingRoot: alice });
+  const rewriter = path.join(org.base, 'legacy');
+  run('git', ['clone', '-q', '--no-local', org.platform, rewriter]);
+  run('git', ['fetch', '-q', 'origin', `${legacy.branch}:refs/legacy`], { cwd: rewriter });
+  const placeholder = run('git', ['commit-tree', 'refs/legacy^{tree}', '-p', 'refs/legacy^', '-m',
+    run('git', ['log', '-1', '--format=%B', 'refs/legacy'], { cwd: rewriter }).stdout], {
+    cwd: rewriter, env: { ...process.env, GIT_AUTHOR_NAME: 'Singularity Flow', GIT_AUTHOR_EMAIL: 'unknown@invalid' }
+  }).stdout.trim();
+  run('git', ['push', '-q', '--force', 'origin', `${placeholder}:refs/heads/${legacy.branch}`], { cwd: rewriter });
+  await assert.rejects(() => routes.activateDelegatedProposal(bob, 'capability', org.platform, legacy.branch, { confirm: placeholder, signStep: sign }),
+    (error) => {
+      assert.equal(error.code, 'CONFIGURATION_PROPOSER_UNKNOWN');
+      assert.equal(error.details.nextAction.command, `singularity-flow configuration reject ${legacy.branch}`);
+      return true;
+    });
+  assert.equal(signed.length, 1, 'refused before any signature');
+  await allowSelfApproval(true);
+  const possible = await routes.activateDelegatedProposal(bob, 'capability', org.platform, legacy.branch, { confirm: placeholder, signStep: sign });
+  assert.equal(possible.activated, true);
+  assert.equal(possible.approval.proposer, null);
+  assert.equal(possible.approval.selfApproved, 'unknown');
 });
 
 test('map, value-level activation, repository and team proposals change only their own lines in configuration folded at 80 columns', async () => {

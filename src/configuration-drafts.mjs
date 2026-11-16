@@ -1297,13 +1297,35 @@ export async function rejectProposal(root, branch, {
     proposalCommit: revision, reason: reason ?? null, record: recorded ?? null, removal: removed?.status ?? null, restored };
 }
 
-/** A capability or setup proposal as a person reads it before deciding: what it is, its revision and its files. */
-function delegatedViewLines(kind, reviewed) {
+/** Whether `person` proposed `reviewed`: true, false, or 'unknown' when Git does not record its proposer [D4]. */
+function proposedBy(reviewed, person) {
+  if (!reviewed.proposer?.email) return 'unknown';
+  return Boolean(person?.email) && person.email.trim().toLowerCase() === reviewed.proposer.email.trim().toLowerCase();
+}
+
+/**
+ * A capability or setup proposal as a person reads it before deciding: what it is, who proposed it, its revision and
+ * its files, and whether approving it would be a self-approval [SCF:REQ-011, REQ-018].
+ */
+function delegatedViewLines(kind, reviewed, { approver = null } = {}) {
   const label = kind === 'capability' ? 'Capability proposal' : 'Repository setup proposal';
+  const by = reviewed.proposer?.name ? ` by ${reviewed.proposer.name}` : '';
   const files = (reviewed.changedFiles ?? []).map((entry) => `  ${String(entry.status ?? '').padEnd(4)} ${(entry.paths ?? [entry.path]).filter(Boolean).join(' -> ')}`);
-  return [`${label} ${reviewed.branch}`, `  Revision ${reviewed.proposalCommit ?? '(unknown)'}`,
+  const lines = [`${label} ${reviewed.branch}${by}`, `  Revision ${reviewed.proposalCommit ?? '(unknown)'}`,
     ...(reviewed.merged ? [`  Already in ${reviewed.targetBranch ?? 'sflow/config'}.`] : files.length ? files : ['  No file changes.']),
     ...(reviewed.failure?.message ? [`  It cannot be approved yet: ${reviewed.failure.message}`] : [])];
+  if (reviewed.merged || !approver) return lines;
+  const self = proposedBy(reviewed, approver);
+  const another = reviewed.approvalPolicy?.allowSelfApproval === false;
+  if (self === 'unknown') {
+    lines.push('', another ? 'Git does not record who proposed this, and this repository needs another person to approve configuration changes: reject it and propose it again.'
+      : 'Git does not record who proposed this, so approving it is recorded as a possible self-approval.');
+  } else if (self && another) {
+    lines.push('', 'You proposed this, and this repository needs another person to approve configuration changes: someone else approves it.');
+  } else if (self) {
+    lines.push('', 'You proposed this, so approving it is a self-approval, and is recorded as one.');
+  }
+  return lines;
 }
 
 /**
@@ -1334,10 +1356,23 @@ async function decidedRevision(root, branch, revision, { yes, confirm, interacti
  * signs it and hands it to its own engine.
  */
 export async function approveDelegatedProposal(root, branch, kind, {
-  yes = false, confirm = null, interactive = false, ask = null, print = (line) => console.log(line), inspect, activate
+  yes = false, confirm = null, interactive = false, ask = null, print = (line) => console.log(line), inspect, activate, identity = null
 }) {
   const reviewed = { ...(await inspect(branch)), branch };
-  for (const line of delegatedViewLines(kind, reviewed)) print(line);
+  let approver = null;
+  try { approver = typeof identity === 'function' ? identity() : null; } catch { approver = null; }
+  for (const line of delegatedViewLines(kind, reviewed, { approver })) print(line);
+  // One policy for every approval [SCF:REQ-011, D4]: refused before anyone is asked to confirm or sign. The engine
+  // route checks again, for the earlier commands that reach it directly.
+  const self = approver ? proposedBy(reviewed, approver) : false;
+  if (reviewed.approvalPolicy?.allowSelfApproval === false && !reviewed.merged && self !== false) {
+    if (self === true) {
+      fail(`You proposed ${branch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was approved.`,
+        'CONFIGURATION_SELF_APPROVAL_REFUSED', { nextAction: { label: 'Another person approves it', command: `singularity-flow configuration approve ${branch}` } });
+    }
+    fail(`Git does not record who proposed ${branch}, so it could be your own, and this repository needs another person to approve it. Nothing was approved. Reject it, then propose it again.`,
+      'CONFIGURATION_PROPOSER_UNKNOWN', { nextAction: { label: 'Reject it, then propose it again', command: `singularity-flow configuration reject ${branch}` } });
+  }
   if (reviewed.valid === false && !reviewed.merged) {
     fail(`Proposal ${branch} cannot be approved: ${reviewed.failure?.message ?? 'it changes files outside the configuration'}`,
       reviewed.failure?.code ?? 'CONFIGURATION_PROPOSAL_INVALID', { nextAction: 'singularity-flow configuration proposals' });
@@ -1353,7 +1388,8 @@ export async function approveDelegatedProposal(root, branch, kind, {
   const result = await activate(branch, { confirm: decided, reviewed });
   if (result?.activated !== false && result?.status !== 'review-required') {
     print('Approved. New Stories use these changes; Stories already running keep the configuration they started with.');
-    if (result?.presence?.status === 'unsigned') print(`SF Guard: approved without a signature, because ${result.presence.reason}.`);
+    // Signed, or refused before anything moved, while SF Guard is on: never unsigned here.
+    if (result?.presence?.status === 'failed') print(`SF Guard: ${result.presence.message}.`);
   } else if (result?.externalAction) {
     print(`sflow/config only accepts reviewed merges here. Merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch} on the Git host.`);
   } else {
@@ -1368,7 +1404,7 @@ export async function approveDelegatedProposal(root, branch, kind, {
  */
 export async function rejectDelegatedProposal(root, branch, kind, {
   yes = false, confirm = null, reason = null, interactive = false, ask = null, print = (line) => console.log(line),
-  inspect, remove, agent = () => false
+  inspect, remove, agent = () => false, identity = null
 }) {
   const reviewed = { ...(await inspect(branch)), branch };
   if (reviewed.merged) {
@@ -1376,12 +1412,16 @@ export async function rejectDelegatedProposal(root, branch, kind, {
       { nextAction: 'singularity-flow configuration proposals' });
   }
   for (const line of delegatedViewLines(kind, reviewed)) print(line);
+  let rejecter = null;
+  try { rejecter = typeof identity === 'function' ? identity() : null; } catch { rejecter = null; }
+  // Its proposer withdraws it [SCF:REQ-009].
+  const withdrawn = Boolean(rejecter) && proposedBy(reviewed, rejecter) === true;
   const revision = reviewed.proposalCommit;
   const command = `singularity-flow configuration reject ${branch} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}`;
   const decided = await decidedRevision(root, branch, revision, { yes, confirm, interactive, ask,
-    question: 'Reject this proposal? Nothing in sflow/config changes. [y/N] ', command });
+    question: withdrawn ? 'Withdraw your proposal? Nothing in sflow/config changes. [y/N] ' : 'Reject this proposal? Nothing in sflow/config changes. [y/N] ', command });
   if (!decided) {
-    print('Nothing was rejected.');
+    print(withdrawn ? 'Nothing was withdrawn.' : 'Nothing was rejected.');
     return { schemaVersion: 1, resultType: 'configuration-rejection', kind, status: 'declined', branch };
   }
   if (interactive && !reason && typeof ask === 'function') reason = String(await ask('Why? (the author reads this) ') ?? '').trim() || null;
@@ -1389,9 +1429,10 @@ export async function rejectDelegatedProposal(root, branch, kind, {
     fail(`Rejecting a configuration proposal is a person's step, and an agent started this command. Nothing was changed. Run it in your own terminal: ${command}`,
       'PSS_CARD_NOT_SHOWN', { nextAction: { command, label: `Run in your own terminal: ${command}` } });
   }
-  const removed = await remove(branch, { confirm: decided, reason: reason ?? 'Rejected with configuration reject; no reason was given.' });
-  print(`Rejected: ${branch}. Nothing in sflow/config changed.`);
+  const removed = await remove(branch, { confirm: decided,
+    reason: reason ?? (withdrawn ? 'Withdrawn by its proposer with configuration reject.' : 'Rejected with configuration reject; no reason was given.') });
+  print(`${withdrawn ? 'Withdrawn' : 'Rejected'}: ${branch}. Nothing in sflow/config changed.`);
   if (reason) print(`Reason kept with it: ${reason}`);
-  return { schemaVersion: 1, resultType: 'configuration-rejection', kind, status: 'rejected', branch, proposalCommit: decided,
-    reason: reason ?? null, removal: removed?.status ?? null };
+  return { schemaVersion: 1, resultType: 'configuration-rejection', kind, status: withdrawn ? 'withdrawn' : 'rejected', branch, proposalCommit: decided,
+    proposer: reviewed.proposer ?? null, reason: reason ?? null, removal: removed?.status ?? null };
 }

@@ -186,10 +186,21 @@ test('a workflow that workflow validate calls invalid cannot be approved (ER-F7)
       definition.workTypes['thin-flow'] = { label: 'Thin flow', phases: ['requirements', 'implementation'] };
     });
     const before = tip(f);
+    // The named fix route: the fix is made in the proposal, so its proposer withdraws it and anyone else rejects it
+    // with the problems as its reason, bound to the revision refused.
     await assert.rejects(approve(f.alice, thin.branch, thin.commit), (error) => {
       assert.equal(error.code, 'WORKFLOW_PROPOSAL_PROBLEMS');
       assert.ok(error.details.problems.every((problem) => problem.workflow === 'thin-flow'));
-      assert.match(error.details.nextAction.command, /workflow fix thin-flow/u);
+      assert.equal(error.details.nextAction.command,
+        `singularity-flow configuration reject ${thin.branch} --confirm ${thin.commit} --reason "workflow validate reports ${error.details.problems.length === 1 ? 'a problem' : 'problems'} in thin-flow"`);
+      assert.match(error.details.nextAction.label, /Withdraw it/u);
+      assert.match(error.message, /Withdraw it: your drafts come back to fix/u);
+      return true;
+    });
+    await assert.rejects(approve(f.bob, thin.branch, thin.commit), (error) => {
+      assert.equal(error.code, 'WORKFLOW_PROPOSAL_PROBLEMS');
+      assert.match(error.details.nextAction.label, /Reject it, so its proposer fixes it/u);
+      assert.match(error.details.nextAction.command, /^singularity-flow configuration reject .* --reason "workflow validate reports/u);
       return true;
     });
     assert.equal(tip(f), before, 'nothing landed');

@@ -881,11 +881,17 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         const added = [...after].filter(([key]) => !problemsBefore.has(key)).map(([, value]) => value);
         if (added.length) {
           const named = [...new Set(added.map((entry) => entry.workflow))];
+          // The fix is made in the proposal, not in sflow/config: its proposer withdraws it (their drafts come back to
+          // fix), or anyone else rejects it with the problems as the reason; the fixed change is proposed again.
+          const own = selfApproval(reviewed.proposer, approver);
+          const why = `workflow validate reports ${added.length === 1 ? 'a problem' : 'problems'} in ${named.join(', ')}`;
           throw new SingularityFlowError(
             `Approving ${proposalBranch} would give ${named.join(', ')} ${added.length === 1 ? 'a problem' : `${added.length} problems`} \`workflow validate\` reports: `
-            + `${added.map((entry) => `${entry.workflow}: ${entry.title}`).join('; ')}. Nothing was changed. Fix ${named.length === 1 ? 'it' : 'them'} in a new proposal, then approve that.`,
+            + `${added.map((entry) => `${entry.workflow}: ${entry.title}`).join('; ')}. Nothing was changed. `
+            + (own ? 'Withdraw it: your drafts come back to fix, then propose them again.' : 'Reject it with that reason: its proposer fixes it and proposes it again.'),
             { code: 'WORKFLOW_PROPOSAL_PROBLEMS', details: { problems: added, nextAction: {
-              label: 'Draft the fixes', command: `singularity-flow workflow fix${named.length === 1 ? ` ${named[0]}` : ''}`, skill: '/sf-fix-workflow' } } }
+              label: own ? 'Withdraw it, fix your drafts, then propose again' : 'Reject it, so its proposer fixes it',
+              command: `singularity-flow configuration reject ${proposalBranch} --confirm ${reviewed.proposalCommit} --reason "${why}"` } } }
           );
         }
       }

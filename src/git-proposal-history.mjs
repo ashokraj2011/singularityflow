@@ -74,3 +74,15 @@ export function readProposalHistory(root, authority, proposal, { env = process.e
   }
   return { mergeBase, merged, firstParent, proposer };
 }
+
+/**
+ * The author of one commit, as `{ name, email }`, or null when Git records none a person can be told apart by: a
+ * proposal that shares no history with `sflow/config` (a setup proposal creating it) is proposed by its tip's author.
+ */
+export function readProposalAuthor(root, commit, { env = process.env, branch = null } = {}) {
+  exact(commit, 'proposal');
+  const shown = run('git', ['log', '-1', '--format=%an%x00%ae', commit], { cwd: root, env, allowFailure: true });
+  if (!processResultSucceeded(shown)) unavailable('author', shown, branch);
+  const [name = '', email = ''] = shown.stdout.trim().split('\0');
+  return name.trim() && email.trim() ? { name: name.trim(), email: email.trim() } : null;
+}

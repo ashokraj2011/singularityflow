@@ -2244,6 +2244,112 @@ test('a setup proposal is approved with configuration approve and rejected with 
   }
 });
 
+// Every setup approval [owner, 2026-11-17]: SF Guard's signature under the policy of the repository the proposal is on,
+// wherever the command runs, or a refusal with the way forward; its proposer may not approve it where
+// allowSelfApproval is false, and neither may anyone when Git records no proposer.
+test('a setup approval run outside the repository is signed or refused, and its proposer may not approve it', async () => {
+  const personEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => !['AI_AGENT', 'COPILOT_CLI'].includes(name)));
+  const cli = (cwd, args) => run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), ...args], { cwd, env: personEnv, allowFailure: true });
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    const first = await applyRepositoryOnboarding(fixture.remote, { mode: 'recreate',
+      confirmPlan: (await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' })).planId });
+    await activateRepositoryOnboardingProposal(fixture.remote, first.proposal.branch, { confirm: first.proposal.commit, acknowledgeUnprotected: true });
+    // A change landed outside SFlow (D6): a second person is needed, and a path recreate does not carry forward.
+    const editor = path.join(fixture.base, 'policy-editor');
+    run('git', ['clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH, fixture.remote, editor], { cwd: fixture.base });
+    run('git', ['config', 'user.name', 'Policy Editor'], { cwd: editor });
+    run('git', ['config', 'user.email', 'policy@example.test'], { cwd: editor });
+    const workflowFile = path.join(editor, 'singularity', 'workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.approvalSecurity = { ...(workflow.approvalSecurity ?? {}), allowSelfApproval: false };
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    await writeFile(path.join(editor, 'singularity', 'custom-onboarding.yml'), 'custom: true\n');
+    run('git', ['add', '-A'], { cwd: editor });
+    run('git', ['commit', '-qm', 'Second person for configuration'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
+    const tip = () => run('git', ['rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: fixture.remote }).stdout.trim();
+    const before = tip();
+    const recreated = await applyRepositoryOnboarding(fixture.remote, { mode: 'recreate',
+      confirmPlan: (await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' })).planId });
+    const { branch, commit } = recreated.proposal;
+    const [proposerName, proposerEmail] = run('git', ['log', '-1', '--format=%an%x00%ae', commit], { cwd: fixture.remote }).stdout.trim().split('\0');
+    // Each person works outside the repository's checkout.
+    const person = async (name, label, email) => {
+      const directory = path.join(fixture.base, name);
+      run('git', ['init', '-q', '-b', 'main', directory], { cwd: fixture.base });
+      run('git', ['config', 'user.name', label], { cwd: directory });
+      run('git', ['config', 'user.email', email], { cwd: directory });
+      await writeFile(path.join(directory, 'README.md'), `# ${name}\n`);
+      run('git', ['add', '-A'], { cwd: directory });
+      run('git', ['commit', '-qm', 'Elsewhere'], { cwd: directory });
+      return directory;
+    };
+    const proposer = await person('proposer', proposerName, proposerEmail);
+    const other = await person('other', 'Setup Approver', 'setup.approver@example.test');
+    const routes = await import('../src/configuration-proposal-routes.mjs');
+    const { SingularityFlowError } = await import('../src/util.mjs');
+    const signed = [];
+    const sign = async (policyRoot, step) => {
+      signed.push({ step, workflow: await readFile(path.join(policyRoot, 'singularity', 'workflow.yml'), 'utf8'),
+        origin: run('git', ['remote', 'get-url', 'origin'], { cwd: policyRoot }).stdout.trim() });
+      return { schema: 'sflow.presence.v1', chainId: 'test-chain', approver: 'setup-approver', action: step.action, at: new Date().toISOString(),
+        recordSha256: `sha256:${'c'.repeat(64)}`, keyId: 'test-key', signature: 'test-signature' };
+    };
+
+    // Its proposer is refused, by configuration approve and by the earlier name, before any signature.
+    await assert.rejects(() => routes.activateDelegatedProposal(proposer, 'onboarding', fixture.remote, branch, { confirm: commit, signStep: sign }),
+      { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED' });
+    for (const args of [['configuration', 'approve'], ['capability', 'setup-activate']]) {
+      const refused = cli(proposer, [...args, branch, '--lead', fixture.remote, '--confirm', commit, '--json']);
+      assert.notEqual(refused.status, 0, refused.stdout);
+      assert.equal(JSON.parse(refused.stdout).error.code, 'CONFIGURATION_SELF_APPROVAL_REFUSED', `${args.join(' ')}: ${refused.stdout}`);
+    }
+    assert.equal(signed.length, 0);
+
+    // Someone who cannot sign is refused with the reason and the way forward; nothing is approved unsigned.
+    await assert.rejects(() => routes.activateDelegatedProposal(other, 'onboarding', fixture.remote, branch, { confirm: commit,
+      signStep: async () => { throw new SingularityFlowError('not an approver', { code: 'PSS_NOT_AN_APPROVER' }); } }), (error) => {
+      assert.equal(error.code, 'PSS_NOT_AN_APPROVER');
+      assert.match(error.message, /you are not an approver in the approved configuration\. Nothing was approved\./u);
+      assert.match(error.details.nextAction.label, /Another approver approves it/u);
+      return true;
+    });
+    assert.equal(tip(), before);
+
+    // An older build's proposal names no proposer (its placeholder author): nobody may approve it here.
+    const legacyBranch = `${branch}-legacy`;
+    const rewriter = path.join(fixture.base, 'legacy');
+    run('git', ['clone', '-q', '--no-hardlinks', fixture.remote, rewriter], { cwd: fixture.base });
+    run('git', ['fetch', '-q', 'origin', `${branch}:refs/legacy`], { cwd: rewriter });
+    const parents = run('git', ['log', '-1', '--format=%P', 'refs/legacy'], { cwd: rewriter }).stdout.trim().split(/\s+/u).filter(Boolean);
+    const placeholder = run('git', ['commit-tree', 'refs/legacy^{tree}', ...parents.flatMap((parent) => ['-p', parent]), '-m',
+      run('git', ['log', '-1', '--format=%B', 'refs/legacy'], { cwd: rewriter }).stdout], {
+      cwd: rewriter, env: { ...process.env, GIT_AUTHOR_NAME: 'Singularity Flow', GIT_AUTHOR_EMAIL: 'unknown@invalid' }
+    }).stdout.trim();
+    run('git', ['push', '-q', 'origin', `${placeholder}:refs/heads/${legacyBranch}`], { cwd: rewriter });
+    await assert.rejects(() => routes.activateDelegatedProposal(other, 'onboarding', fixture.remote, legacyBranch, { confirm: placeholder, signStep: sign }),
+      { code: 'CONFIGURATION_PROPOSER_UNKNOWN' });
+    assert.equal(signed.length, 0);
+
+    // Another person signs, under the repository's own policy although they run it elsewhere.
+    const approved = await routes.activateDelegatedProposal(other, 'onboarding', fixture.remote, branch, { confirm: commit, signStep: sign });
+    assert.equal(approved.activated, true, JSON.stringify(approved.failure ?? approved.status));
+    assert.equal(signed.length, 1);
+    assert.equal(signed[0].origin, fixture.remote);
+    assert.match(signed[0].workflow, /allowSelfApproval: false/u, 'the policy read is the repository\'s sflow/config');
+    assert.deepEqual(approved.approval, { proposer: { name: proposerName, email: proposerEmail.toLowerCase() },
+      approver: { name: 'Setup Approver', email: 'setup.approver@example.test' }, selfApproved: false });
+    assert.equal(approved.presence.status, 'published', JSON.stringify(approved.presence));
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test('a moved source blocks activation of an earlier setup proposal', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;

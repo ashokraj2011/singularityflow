@@ -1897,9 +1897,9 @@
     },
     "src/git-proposal-history.mjs": {
       "counts": {
-        "command-run": 3
+        "command-run": 4
       },
-      "digest": "ddae2db76cc383fed8f741240a35bd356800cf0b8ca89a783b7b48d195315626"
+      "digest": "95b294f39889600c19ea1ceb8eb8e5e3d637fed1951c264de3cdf4aefb68714f"
     },
     "src/skp-ancestry-capture.mjs": {
       "counts": {
@@ -1912,6 +1912,12 @@
         "command-run": 5
       },
       "digest": "1646f3a1d2e4237de774d3e89555734ba80a31c38e7e881c7404189374b0a8e6"
+    },
+    "src/configuration-proposal-routes.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "361ac433f736e49bbfd5a4ea5d9ef722a6751c7389c9454da80e356d629ad891"
     }
   }
 }

@@ -6553,7 +6553,10 @@ export async function activateCapabilityProposal(url, branch, {
   acknowledgeUnprotected = false,
   initiatingRoot = process.cwd(),
   initiatingEnv = process.env,
-  cleanupTemporaryTree = removeTemporaryTree
+  cleanupTemporaryTree = removeTemporaryTree,
+  // Who proposed it, read as for every other proposal (the author of its first own commit) by
+  // `configuration approve`; the tip's author when called on its own.
+  proposer: recordedProposer = undefined
 } = {}) {
   // The borrowed clone deliberately cannot see local/global author configuration. Freeze the
   // presentation identity before creating it; authorization is resolved separately below.
@@ -7145,7 +7148,9 @@ export async function activateCapabilityProposal(url, branch, {
         cwd: root, env
       }).stdout.trim();
       const targetCommit = acceptedAuditTarget ?? currentConfigurationCommit;
-      const proposer = commitIdentity(root, ref, { env });
+      const proposer = recordedProposer !== undefined
+        ? { name: recordedProposer?.name ?? null, email: recordedProposer?.email ?? null }
+        : commitIdentity(root, ref, { env });
       const intent = createLedgerIntent({
         eventId: recoveredActivation?.eventId ?? undefined,
         eventType: 'capability-configuration-activated',

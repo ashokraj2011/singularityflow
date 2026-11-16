@@ -895,23 +895,16 @@
     },
     "src/configuration-proposal.mjs": {
       "counts": {
-        "command-run": 14
+        "command-run": 13
       },
-      "digest": "be211e85eb4bf135544db5e423c37f15439e1ce3d784082f88716f4aab1a8392"
+      "digest": "f0b02be9b48581003d2de4350e9d15cc186d97f5142854a9a7b3a79c15e51e61"
     },
     "src/configuration-state-git.mjs": {
       "counts": {
-        "command-git": 10,
+        "command-git": 9,
         "command-run": 1
       },
-      "digest": "9c8b504cb81a3b6ad13df7344ee1b7b735faf2de4560fc877c7f9fb0ad136d06"
-    },
-    "src/configuration-recreate-sync.mjs": {
-      "counts": {
-        "command-git": 13,
-        "command-run": 1
-      },
-      "digest": "2e4ad9151ea6baf19aeae6786e84812c8d6e36e3de1338886fee7a3e162e5723"
+      "digest": "3de2ef5b31d7b94edf9383fb09540ced3a708c004b551f2162a06f7dc20f2391"
     },
     "src/configuration-reference-sync.mjs": {
       "counts": {
@@ -1907,6 +1900,12 @@
         "command-run": 1
       },
       "digest": "29978f7fb9357a01373aefdc43ff12bfb85f06eb1a612fd778197bb307d3ac42"
+    },
+    "src/git-proposal-history.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "ddae2db76cc383fed8f741240a35bd356800cf0b8ca89a783b7b48d195315626"
     }
   }
 }

@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 30,
   "draft-for-version": 15,
-  "generic-route": 6372,
+  "generic-route": 6371,
   "jargon": 1404,
-  "length": 701
+  "length": 697
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -1720,7 +1720,6 @@
   "WORKFLOW_PHASE_DEFAULT_AGENT_REQUIRED",
   "WORKFLOW_PLANNED_CLAIMS_OPT_OUT_RETIRED",
   "WORKFLOW_PROPOSAL_BRANCH_INVALID",
-  "WORKFLOW_PROPOSAL_HISTORY_INVALID",
   "WORKFLOW_PROPOSAL_INVALID",
   "WORKFLOW_SELECTOR_REQUIRED",
   "WORKFLOW_TASK_CHECKPOINT_SCOPE",
@@ -2192,7 +2191,6 @@
    "3897ef889f07": "jargon:ledger"
   },
   "apps/vscode/src/views/configuration-center-page.ts": {
-   "01d88a744652": "length",
    "0e92f989d35c": "jargon:retained",
    "3445ec0c7328": "length",
    "57e7b3858c4d": "length",
@@ -3302,13 +3300,6 @@
    "bef737301182": "length",
    "d34e873605af": "jargon:retained",
    "d8ea1f6dcdf4": "jargon:retained"
-  },
-  "src/configuration-recreate-sync.mjs": {
-   "76bc5e5303df": "length",
-   "ae228fa35351": "length"
-  },
-  "src/configuration-state-git.mjs": {
-   "323672ae2c48": "length"
   },
   "src/confirm-entry.mjs": {
    "21af58d92dc7": "length"

@@ -259,6 +259,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.confirm': (message) => this.confirm(stringField(message, 'id'), stringField(message, 'text'),
       stringField(message, 'detail'), stringField(message, 'ok')),
     'studio.reload': () => this.load(true),
+    // A newer configuration under unpublished changes: the page keeps them and moves them onto it.
+    'studio.refresh': () => this.load(false),
     'studio.preview': (message) => this.preview(stringField(message, 'changeSet')),
     'studio.check': (message) => this.check(stringField(message, 'workflow'), stringField(message, 'changeSet')),
     'studio.publish': (message) => this.publish(stringField(message, 'changeSet'), integerField(message, 'count') ?? 0),
@@ -388,13 +390,23 @@ export class WorkflowStudioPanel implements vscode.Disposable {
 
   /**
    * The approved configuration changed under the page (a proposal activated, a bundle imported). With
-   * nothing unpublished the page reloads; otherwise its changes stay, and the engine's base check
-   * refuses them until the person reloads, rather than replaying them over the newer configuration.
+   * nothing unpublished the page reloads; otherwise its changes stay and move onto the newer
+   * configuration, so they never revert what changed meanwhile [SCF:REQ-013, finding ER-F10].
    */
   private async configurationChanged(pending: number, reason: string): Promise<void> {
-    if (pending > 0) this.post({ type: 'studio.configurationChanged', reason });
-    else await this.load(true);
+    await this.loadKeeping(pending > 0, reason);
     await this.actions.refresh();
+  }
+
+  /** Load the newer configuration; with unpublished changes the page keeps them, moved onto it. */
+  private async loadKeeping(keep: boolean, reason: string): Promise<void> {
+    if (!keep) { await this.load(true); return; }
+    try {
+      this.model = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]);
+      this.post({ type: 'studio.model', model: this.model, reset: false, reason });
+    } catch (error) {
+      this.post({ type: 'studio.failed', message: (error as Error).message });
+    }
   }
 
   private async reviewProposal(branch: string | null, pending: number): Promise<void> {
@@ -404,8 +416,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     if (typeof stopped === 'string' && stopped) this.post({ type: 'studio.failed', message: stopped });
     const fresh = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]).catch(() => null);
     if (fresh && JSON.stringify(fresh.base ?? null) !== before) {
-      if (pending > 0) this.post({ type: 'studio.configurationChanged', reason: `${branch} was activated` });
-      else { this.model = fresh; this.post({ type: 'studio.model', model: fresh, reset: true }); }
+      // Unpublished changes stay and move onto the newer configuration (finding ER-F10).
+      this.model = fresh;
+      this.post({ type: 'studio.model', model: fresh, reset: pending === 0, ...(pending > 0 ? { reason: `${branch} was activated` } : {}) });
     }
     await this.proposals();
   }

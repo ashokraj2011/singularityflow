@@ -283,9 +283,8 @@ test('a reviewed configuration proposal retains the complete approved skill pack
   }
 });
 
-test('configuration proposal refuses an authority commit move even when file bytes are unchanged', async () => {
+test('a proposal is made on the authority commit its editor read; one rewritten out of its history is refused (SCF:REQ-005)', async () => {
   const item = await fixture();
-  let mutated = false;
   try {
     const tree = run('git', ['rev-parse', `${item.approved}^{tree}`], { cwd: item.story }).stdout.trim();
     const moved = run('git', [
@@ -293,16 +292,31 @@ test('configuration proposal refuses an authority commit move even when file byt
       'commit-tree', tree, '-p', item.approved, '-m', 'move authority without changing files'
     ], { cwd: item.story }).stdout.trim();
     run('git', ['push', '-q', '--force', 'origin', `${moved}:refs/heads/sflow/config`], { cwd: item.story });
+    const expectedAuthority = { kind: 'approved-configuration-ref', commit: item.approved,
+      sourceCommit: item.approved, remoteFingerprint: remoteFingerprint(item.remote) };
+    let mutated = false;
+    const proposal = await proposeConfigurationChange(item.story, {
+      operation: 'save-file', subject: 'workflow.yml', message: 'made on the commit the editor read', expectedAuthority,
+      async mutate(root) {
+        mutated = true;
+        const file = path.join(root, 'singularity/workflow.yml');
+        await writeFile(file, `${await readFile(file, 'utf8')}\n# edited on the commit the editor read\n`);
+      }
+    }, { env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox } });
+    assert.equal(mutated, true);
+    assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', `${proposal.branch}^`]).stdout.trim(), item.approved,
+      'its parent is the commit the editor read, not the newer authority');
 
+    // History rewritten outside SFlow: the commit the editor read is no longer in sflow/config's history.
+    const rewritten = run('git', ['-c', 'user.name=Authority mover', '-c', 'user.email=authority@example.test',
+      'commit-tree', tree, '-m', 'rewrite authority history'], { cwd: item.story }).stdout.trim();
+    run('git', ['push', '-q', '--force', 'origin', `${rewritten}:refs/heads/sflow/config`], { cwd: item.story });
+    mutated = false;
     await assert.rejects(() => proposeConfigurationChange(item.story, {
-      operation: 'save-file', subject: 'workflow.yml', message: 'must not mutate stale authority',
-      expectedAuthority: {
-        kind: 'approved-configuration-ref', commit: item.approved,
-        sourceCommit: item.approved, remoteFingerprint: remoteFingerprint(item.remote)
-      },
+      operation: 'save-file', subject: 'workflow.yml', message: 'must not mutate a rewritten authority', expectedAuthority,
       async mutate() { mutated = true; }
     }), (error) => error.code === 'CONFIGURATION_PROPOSAL_AUTHORITY_CHANGED'
-      && /commit changed after this editor loaded/i.test(error.message));
+      && /no longer in its history/i.test(error.message));
     assert.equal(mutated, false, 'authority identity CAS runs before the proposed mutation');
   } finally {
     await rm(item.base, { recursive: true, force: true });
@@ -390,7 +404,7 @@ test('configuration save proposal identities distinguish equal basenames in diff
       assert.equal(saved.status, 0, `${saved.stderr}\n${saved.stdout}`);
       const proposal = JSON.parse(saved.stdout);
       const subjectHash = createHash('sha256').update(relative).digest('hex').slice(0, 12);
-      assert.match(proposal.branch, new RegExp(`${subjectHash}-[0-9a-f]{8}-[0-9a-f]{12}$`));
+      assert.match(proposal.branch, new RegExp(`${subjectHash}-by[0-9a-f]{8}-[0-9a-f]{8}-[0-9a-f]{12}$`), 'the subject, its proposer\'s key, base and tree');
       branches.push(proposal.branch);
     }
 
@@ -433,7 +447,7 @@ test('configuration save bounds long filename proposal refs and retains full-pat
     assert.ok(Buffer.byteLength(component) <= 96,
       `proposal ref component must remain conservatively portable, got ${Buffer.byteLength(component)} bytes`);
     const pathDigest = createHash('sha256').update(relative).digest('hex').slice(0, 12);
-    assert.match(component, new RegExp(`${pathDigest}-[0-9a-f]{8}-[0-9a-f]{12}$`),
+    assert.match(component, new RegExp(`${pathDigest}-by[0-9a-f]{8}-[0-9a-f]{8}-[0-9a-f]{12}$`),
       'the bounded ref must preserve the full normalized path digest');
     assert.equal(run('git', [
       '--git-dir', item.remote, 'show-ref', '--verify', '--quiet', `refs/heads/${proposal.branch}`

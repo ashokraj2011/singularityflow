@@ -11,14 +11,27 @@ const equal = (a, b) => a === b || (a !== ABSENT && b !== ABSENT
   && JSON.stringify(canonical(a)) === JSON.stringify(canonical(b)));
 const copy = value => value === ABSENT ? ABSENT : structuredClone(value);
 
-/** Explicit policy: changed proposal values win; unrelated current values survive. */
-export function replayConfigurationIntent(base, proposed, current, { conflictPolicy = 'proposal-wins' } = {}) {
-  if (!['proposal-wins', 'reject'].includes(conflictPolicy)) throw new Error('Unknown configuration conflict policy.');
+/** One side of a clash: `{ value }`, or null where that side has no value. */
+const side = value => value === ABSENT ? null : { value: copy(value) };
+
+/**
+ * Explicit policy: changed proposal values win; unrelated current values survive.
+ *
+ * `conflictPolicy: 'reject'` refuses a value both sides changed differently; `'collect'` keeps the
+ * current value there and returns the clash with both values, so a person can pick one
+ * [SCF:REQ-007]. `choices` maps a clash's JSON pointer to `'proposal'` or `'current'`: the pick a
+ * person made, which is part of the approval. A pick decides only its own clash.
+ */
+export function replayConfigurationIntent(base, proposed, current, { conflictPolicy = 'proposal-wins', choices = null } = {}) {
+  if (!['proposal-wins', 'reject', 'collect'].includes(conflictPolicy)) throw new Error('Unknown configuration conflict policy.');
   const replacements = [];
+  const clashes = [];
+  const decided = [];
+  const picked = pointer => (choices instanceof Map ? choices.get(pointer) : choices?.[pointer]) ?? null;
   function replay(before, after, now, pointer) {
     if (equal(before, after)) return copy(now);
     if (equal(now, after)) return copy(now);
-    if (object(before) && object(after) && (object(now) || (now === ABSENT && conflictPolicy !== 'reject'))) {
+    if (object(before) && object(after) && (object(now) || (now === ABSENT && conflictPolicy === 'proposal-wins'))) {
       const target = now === ABSENT ? {} : now;
       const entries = new Map(Object.entries(target));
       for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -30,16 +43,46 @@ export function replayConfigurationIntent(base, proposed, current, { conflictPol
       }
       return Object.fromEntries(entries);
     }
-    if (!equal(before, now)) replacements.push(pointer || '/');
+    if (!equal(before, now)) {
+      const at = pointer || '/';
+      const pick = picked(at);
+      if (pick) decided.push({ pointer: at, pick });
+      if (pick === 'current') return copy(now);
+      if (pick !== 'proposal') {
+        replacements.push(at);
+        if (conflictPolicy !== 'proposal-wins') clashes.push({ pointer: at, base: side(before), proposal: side(after), current: side(now) });
+        if (conflictPolicy === 'collect') return copy(now);
+      }
+    }
     return copy(after);
   }
   const value = replay(base, proposed, current, '');
   if (conflictPolicy === 'reject' && replacements.length) {
-    throw new SingularityFlowError('The same configuration values changed since this proposal was authored. Review these exact fields; unrelated settings and the proposal remain preserved.', {
-      code: 'CONFIGURATION_ENTITY_CONFLICT', details: { pointers: replacements }
+    throw new SingularityFlowError('The same configuration values changed since this proposal was authored. Pick one of the two values for each of these fields; unrelated settings and the proposal remain preserved.', {
+      code: 'CONFIGURATION_ENTITY_CONFLICT', details: { pointers: replacements, clashes }
     });
   }
-  return { value, replacements };
+  return { value, replacements, clashes, decided };
+}
+
+/**
+ * Each value that differs between `before` and `after`, as `{ pointer, before, after }` with each side
+ * `{ value }` or null where it has none: what a person reads before approving [SCF:REQ-008]. Objects
+ * are walked key by key; a list, or a whole object only one side has, is one value.
+ */
+export function configurationFieldChanges(before, after, pointer = '', changes = []) {
+  const left = before === undefined ? ABSENT : before;
+  const right = after === undefined ? ABSENT : after;
+  if (equal(left, right) || (left === ABSENT && right === ABSENT)) return changes;
+  if (object(left) && object(right)) {
+    for (const key of [...new Set([...Object.keys(left), ...Object.keys(right)])].sort()) {
+      configurationFieldChanges(Object.hasOwn(left, key) ? left[key] : ABSENT, Object.hasOwn(right, key) ? right[key] : ABSENT,
+        `${pointer}/${key.replace(/~/gu, '~0').replace(/\//gu, '~1')}`, changes);
+    }
+    return changes;
+  }
+  changes.push({ pointer: pointer || '/', before: side(left), after: side(right) });
+  return changes;
 }
 
 /**

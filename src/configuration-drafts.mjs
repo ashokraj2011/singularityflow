@@ -1056,33 +1056,71 @@ export function draftLines(drafts, standings = null, { uploadFinished = false } 
   return lines;
 }
 
-function changedFileLine(entry) {
-  if (typeof entry === 'string') return entry;
-  const status = String(entry?.status ?? '').charAt(0);
-  const verb = { A: 'new', M: 'changed', D: 'removed', R: 'renamed', C: 'copied' }[status] ?? 'changed';
-  const paths = Array.isArray(entry?.paths) ? entry.paths : [entry?.path ?? entry?.file].filter(Boolean);
-  return `${verb}: ${paths.join(' → ') || 'a file'}`;
+const SHOWN_FILE = 'approval-shown.json';
+const SHOWN_SCHEMA = 'sflow-configuration-approval-shown@1';
+const SHOWN_LIMIT = 50;
+
+/** The proposal revision this machine last showed for `branch` with `configuration approve`, or null. */
+async function shownRevision(root, branch) {
+  try {
+    const value = await readJson(path.join(draftsDirectory(root), SHOWN_FILE));
+    const entry = value?.schema === SHOWN_SCHEMA ? value.shown?.[branch] : null;
+    return typeof entry?.proposalCommit === 'string' ? entry.proposalCommit : null;
+  } catch { return null; }
 }
 
-/** What approving a proposal will change, in plain lines. */
-export function proposalSummaryLines(reviewed) {
-  const lines = [`Proposal ${reviewed.branch}${reviewed.proposalCreatedAt ? `, made ${reviewed.proposalCreatedAt.slice(0, 16).replace('T', ' ')}` : ''}:`];
-  for (const workflow of reviewed.workflows ?? []) lines.push(`  Workflow ${workflow.label ?? workflow.id}: ${workflow.change}`);
-  for (const entry of reviewed.changedFiles ?? []) lines.push(`  ${changedFileLine(entry)}`);
-  if (!(reviewed.changedFiles ?? []).length) lines.push('  No file changes.');
-  return lines;
+/** Remember that `configuration approve` showed this revision, so `--yes` approves only it (finding ER-F6). */
+async function recordShown(root, branch, proposalCommit) {
+  try {
+    await withDraftStore(root, async (directory) => {
+      let value = null;
+      try { value = await readJson(path.join(directory, SHOWN_FILE)); } catch { value = null; }
+      const shown = value?.schema === SHOWN_SCHEMA && value.shown && typeof value.shown === 'object' ? { ...value.shown } : {};
+      delete shown[branch];
+      shown[branch] = { proposalCommit, at: new Date().toISOString() };
+      const kept = Object.entries(shown).slice(-SHOWN_LIMIT);
+      await publishFile(directory, SHOWN_FILE, `${JSON.stringify({ schema: SHOWN_SCHEMA, shown: Object.fromEntries(kept) }, null, 2)}\n`, { replace: true });
+    });
+  } catch { /* the record only lets --yes follow a view; --confirm <revision> never needs it */ }
+}
+
+/** The approve command for exactly the revision shown, with a pick for each field still to choose. */
+function approveCommand(branch, commit, clashes = [], choices = new Map()) {
+  const picks = [...choices].map(([key, pick]) => ` --pick '${key}=${pick}'`).join('')
+    + clashes.filter((clash) => !choices.has(clash.key)).map((clash) => ` --pick '${clash.key}=<proposal|current>'`).join('');
+  return `singularity-flow configuration approve ${branch} --confirm ${commit}${picks}`;
+}
+
+async function askPicks(clashes, ask, print) {
+  const choices = new Map();
+  for (const [index, clash] of clashes.entries()) {
+    for (;;) {
+      const answer = String(await ask(`Choice ${index + 1} (${clash.key}): keep [p] this proposal's value or [c] sflow/config's value? `) ?? '').trim().toLowerCase();
+      if (/^p(?:roposal)?$/u.test(answer)) { choices.set(clash.key, 'proposal'); break; }
+      if (/^c(?:urrent)?$/u.test(answer)) { choices.set(clash.key, 'current'); break; }
+      if (!answer) return null;
+      print('Answer p or c, or press Enter to stop without approving.');
+    }
+  }
+  return choices;
 }
 
 /**
- * Approve one proposal: show what it changes, confirm, and activate exactly the revision shown.
+ * Approve one proposal: show what it lands, confirm, and activate exactly the revision shown
+ * [SCF:REQ-006, REQ-007, REQ-008].
  *
- * The person never copies a commit: the reviewed revision is pinned here and activation refuses if
- * the proposal moved after the summary was shown. `sflow/config` accepts the update directly unless
- * the Git host protects it, in which case the proposal is merged there and approved again to record.
+ * The approval names the revision the approver was shown: `--confirm <revision>` (the same on every
+ * surface), a yes in the terminal right after the view, or `--yes`, which approves only the revision
+ * this machine last showed for that proposal. A proposal that moved since is refused and shown again.
+ * A field both this proposal and `sflow/config` changed is the approver's pick (`--pick
+ * <file>#<field>=proposal|current`, or asked in the terminal); the pick is part of the approval.
+ * `sflow/config` accepts the update directly unless the Git host protects it, in which case the
+ * proposal is merged there and approved again to record. Running approve again on an approved proposal
+ * finishes whatever an interruption left [SCF:REQ-009].
  */
 export async function approveProposal(root, requested, {
-  yes = false, interactive = false, ask = null, print = (line) => console.log(line),
-  list, inspect, activate, status = null, upload = null
+  yes = false, confirm = null, choices = null, interactive = false, ask = null, print = (line) => console.log(line),
+  list, inspect, activate, status = null, upload = null, finish = null, identity = null
 }) {
   const drafts = await readDrafts(root);
   let branch = requested ?? drafts.proposed?.branch ?? null;
@@ -1098,22 +1136,64 @@ export async function approveProposal(root, requested, {
     }
     branch = open[0].branch;
   }
+  let picks = new Map(choices instanceof Map ? choices : Object.entries(choices ?? {}));
   let reviewed;
-  try { reviewed = await inspect(root, branch); }
+  try { reviewed = await inspect(root, branch, picks.size ? { choices: picks } : undefined); }
   catch (error) {
+    if (error?.code !== 'WORKFLOW_PROPOSAL_UNAVAILABLE') throw error;
     // The proposal recorded here is gone: merged and deleted by the Git host, or closed (SDA sweep C6).
-    if (error?.code !== 'WORKFLOW_PROPOSAL_UNAVAILABLE' || drafts.proposed?.branch !== branch || typeof status !== 'function') throw error;
-    return settleGoneProposal(root, drafts.proposed, { status, upload, print });
+    if (drafts.proposed?.branch === branch && typeof status === 'function') return settleGoneProposal(root, drafts.proposed, { status, upload, print });
+    // Approved already, and an interruption left its finishing on this machine [SCF:REQ-009].
+    const finished = typeof finish === 'function' ? await finish(root, branch) : null;
+    if (!finished) throw error;
+    print(`Proposal ${branch} was already approved; finished what was left: ${finished.status}.`);
+    return { schemaVersion: 1, resultType: 'configuration-approval', ...finished, branch };
   }
-  for (const line of proposalSummaryLines(reviewed)) print(line);
+  let approver = null;
+  try { approver = typeof identity === 'function' ? identity(root) : null; } catch { approver = null; }
+  const { proposalViewLines } = await import('./configuration-approval-view.mjs');
+  const show = (shown) => { for (const line of proposalViewLines(shown, { approver })) print(line); };
+  show(reviewed);
   if (reviewed.valid === false) {
-    fail(`Proposal ${branch} cannot be approved: it changes files outside the configuration${reviewed.invalidFiles?.length ? ` (${reviewed.invalidFiles.join(', ')})` : ''}.`,
-      'WORKFLOW_PROPOSAL_INVALID');
+    fail(`Proposal ${branch} cannot be approved: ${reviewed.failure?.message ?? `it changes files outside the configuration${reviewed.invalidFiles?.length ? ` (${reviewed.invalidFiles.join(', ')})` : ''}`}`,
+      reviewed.failure?.code ?? 'WORKFLOW_PROPOSAL_INVALID');
   }
-  if (!yes) {
-    if (!interactive || typeof ask !== 'function') {
-      fail(`Read the summary above, then approve with: singularity-flow configuration approve ${branch} --yes`,
-        'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', { nextAction: `singularity-flow configuration approve ${branch} --yes` });
+  const revision = reviewed.proposalCommit;
+  const clashes = () => reviewed.lands?.clashes ?? [];
+  // A pick for a field that is not one both changed: what it would land is not what was shown.
+  if ((reviewed.lands?.unused ?? []).length) {
+    const nextAction = approveCommand(branch, revision, clashes(), new Map([...picks].filter(([key]) => !reviewed.lands.unused.includes(key))));
+    fail(`A pick names a field this proposal and sflow/config did not both change: ${reviewed.lands.unused.join(', ')}. Nothing was approved; approve what is shown above: ${nextAction}`,
+      'CONFIGURATION_CHOICE_STALE', { nextAction, unused: reviewed.lands.unused });
+  }
+  if (confirm != null || yes) {
+    // The revision the approver was shown: named, or the one this machine last showed.
+    const named = confirm != null ? String(confirm).trim() : await shownRevision(root, branch);
+    if (named !== revision) {
+      await recordShown(root, branch, revision);
+      const nextAction = approveCommand(branch, revision, clashes(), picks);
+      fail(named
+        ? `Proposal ${branch} changed after you were shown it, so nothing was approved. Read it again above, then approve what it shows now: ${nextAction}`
+        : `Read what approving it changes above, then approve exactly this revision: ${nextAction} (or --yes, which approves only the revision shown here).`,
+      named ? 'CONFIGURATION_APPROVE_PROPOSAL_MOVED' : 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', { nextAction, shown: revision });
+    }
+  } else if (!interactive || typeof ask !== 'function') {
+    await recordShown(root, branch, revision);
+    const nextAction = approveCommand(branch, revision, clashes(), picks);
+    fail(`Read what approving it changes above, then approve exactly this revision: ${nextAction} (or --yes, which approves only the revision shown here).`,
+      'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', { nextAction, shown: revision });
+  } else {
+    if (clashes().length) {
+      const asked = await askPicks(clashes(), ask, print);
+      if (!asked) { print('Nothing was approved.'); return { schemaVersion: 1, resultType: 'configuration-approval', status: 'declined', activated: false, branch }; }
+      picks = new Map([...picks, ...asked]);
+      reviewed = await inspect(root, branch, { choices: picks });
+      if (reviewed.proposalCommit !== revision) {
+        await recordShown(root, branch, reviewed.proposalCommit);
+        fail(`Proposal ${branch} changed while you were choosing, so nothing was approved. Look at it again: singularity-flow configuration approve ${branch}`,
+          'CONFIGURATION_APPROVE_PROPOSAL_MOVED', { nextAction: `singularity-flow configuration approve ${branch}` });
+      }
+      show(reviewed);
     }
     const answer = String(await ask('Approve these changes for new Stories? This updates sflow/config. [y/N] ') ?? '').trim();
     if (!/^y(?:es)?$/iu.test(answer)) {
@@ -1121,12 +1201,18 @@ export async function approveProposal(root, requested, {
       return { schemaVersion: 1, resultType: 'configuration-approval', status: 'declined', activated: false, branch };
     }
   }
+  if (clashes().length) {
+    const nextAction = approveCommand(branch, revision, clashes(), picks);
+    fail(`Proposal ${branch} needs a choice for ${clashes().length === 1 ? 'one field' : `${clashes().length} fields`} both it and sflow/config changed, so nothing was approved. Keep one value for each: ${nextAction}`,
+      'CONFIGURATION_APPROVE_CHOICE_REQUIRED', { nextAction, clashes: clashes().map((clash) => clash.key) });
+  }
   // SF Guard (SPEC-PSS-v1 §10.9): the approver's one touch over the exact proposal, before anything moves.
   const approval = await (await import('./presence/configuration-seal.mjs')).signConfigurationApproval(root, { ...reviewed, branch });
-  const result = await activate(root, branch, { confirm: reviewed.proposalCommit, acknowledgeUnprotected: true });
+  const result = await activate(root, branch, { confirm: revision, acknowledgeUnprotected: true, ...(picks.size ? { choices: picks } : {}) });
   if (result?.activated !== false && result?.status !== 'review-required' && result?.status !== 'activation-pending') {
     await forgetProposal(root, branch);
     print('Approved. New Stories use these changes; Stories already running keep the configuration they started with.');
+    if (result?.approval?.selfApproved) print('Recorded as a self-approval: you proposed it and approved it.');
     if (approval?.unsigned) {
       print(`SF Guard: approved without a signature, because ${approval.unsigned}. Anyone with access to this repository can change the configuration, so this holds nothing back; guard status shows the commit as unsigned.`);
       result.presence = { status: 'unsigned', reason: approval.unsigned };
@@ -1141,4 +1227,66 @@ export async function approveProposal(root, requested, {
     print(`The approval did not complete: ${result?.failure?.message ?? 'the update was not accepted'}. Nothing else changed; retry with singularity-flow configuration approve ${branch}.`);
   }
   return { schemaVersion: 1, resultType: 'configuration-approval', ...result, branch };
+}
+
+/**
+ * Reject a proposal, with a reason, or withdraw one's own [SCF:REQ-009]: show it, bind the decision to
+ * the revision shown (`--confirm <revision>`, or `--yes` for the revision this machine last showed),
+ * record who rejected it and why on the state branch, then remove its branch with a lease on that
+ * revision. A withdrawal is a rejection by the proposal's own author. It is a person's step: an agent
+ * that started this command is refused, as for an approval. A proposal of drafts saved on this machine
+ * gives its drafts back, waiting again.
+ */
+export async function rejectProposal(root, branch, {
+  yes = false, confirm = null, reason = null, interactive = false, ask = null, print = (line) => console.log(line),
+  inspect, remove, identity, record, agent = () => false
+}) {
+  if (!branch) fail('Name the proposal to reject: singularity-flow configuration reject <PROPOSAL>.', 'CONFIGURATION_REJECT_PROPOSAL_REQUIRED',
+    { nextAction: 'singularity-flow workflow proposals' });
+  const reviewed = await inspect(root, branch);
+  if (reviewed.merged) {
+    fail(`Proposal ${branch} is already approved, so it cannot be rejected. To undo it, propose the change back.`, 'CONFIGURATION_REJECT_ALREADY_APPROVED',
+      { nextAction: 'singularity-flow workflow studio' });
+  }
+  const rejecter = identity(root);
+  const { proposalViewLines } = await import('./configuration-approval-view.mjs');
+  for (const line of proposalViewLines(reviewed, { approver: rejecter })) print(line);
+  const revision = reviewed.proposalCommit;
+  const withdrawn = Boolean(reviewed.proposer?.email && rejecter?.email
+    && reviewed.proposer.email.trim().toLowerCase() === rejecter.email.trim().toLowerCase());
+  const verb = withdrawn ? 'withdraw' : 'reject';
+  const command = `singularity-flow configuration reject ${branch} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}`;
+  if (confirm != null || yes) {
+    const named = confirm != null ? String(confirm).trim() : await shownRevision(root, branch);
+    if (named !== revision) {
+      await recordShown(root, branch, revision);
+      fail(named ? `Proposal ${branch} changed after you were shown it, so nothing was rejected. Read it again above, then: ${command}`
+        : `Read the proposal above, then ${verb} exactly this revision: ${command}`,
+      named ? 'CONFIGURATION_APPROVE_PROPOSAL_MOVED' : 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', { nextAction: command, shown: revision });
+    }
+  } else if (!interactive || typeof ask !== 'function') {
+    await recordShown(root, branch, revision);
+    fail(`Read the proposal above, then ${verb} exactly this revision: ${command}`, 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', { nextAction: command, shown: revision });
+  } else {
+    const answer = String(await ask(`${withdrawn ? 'Withdraw your proposal' : 'Reject this proposal'}? Nothing in sflow/config changes. [y/N] `) ?? '').trim();
+    if (!/^y(?:es)?$/iu.test(answer)) {
+      print(`Nothing was ${withdrawn ? 'withdrawn' : 'rejected'}.`);
+      return { schemaVersion: 1, resultType: 'configuration-rejection', status: 'declined', branch };
+    }
+    if (!reason && !withdrawn) reason = String(await ask('Why? (the author reads this) ') ?? '').trim() || null;
+  }
+  if (agent()) {
+    fail(`Rejecting a configuration proposal is a person's step, and an agent started this command. Nothing was changed. Run it in your own terminal: ${command}`,
+      'PSS_CARD_NOT_SHOWN', { nextAction: { command, label: `Run in your own terminal: ${command}` } });
+  }
+  const recorded = await record(root, { branch, proposalCommit: revision, proposer: reviewed.proposer ?? null, rejectedBy: rejecter, reason });
+  const removed = await remove(root, branch, { confirm: revision });
+  let restored = [];
+  if ((await readDrafts(root)).proposed?.branch === branch) restored = (await restoreProposal(root, branch)).restored;
+  print(withdrawn ? `Withdrawn: ${branch}. Nothing in sflow/config changed.` : `Rejected: ${branch}. Nothing in sflow/config changed.`);
+  if (reason) print(`Reason recorded for its author: ${reason}`);
+  if (recorded?.status === 'failed') print(`The ${withdrawn ? 'withdrawal' : 'rejection'} stands, but ${recorded.message}.`);
+  if (restored.length) print(`The drafts it held are waiting again: ${restored.join('; ')}.`);
+  return { schemaVersion: 1, resultType: 'configuration-rejection', status: withdrawn ? 'withdrawn' : 'rejected', branch,
+    proposalCommit: revision, reason: reason ?? null, record: recorded ?? null, removal: removed?.status ?? null, restored };
 }

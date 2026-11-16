@@ -231,7 +231,13 @@ export async function draftWorkflowFixes(root, { workflow = null, answers = null
   const only = workflow ? { workflows: [workflow] } : {};
   const rounds = [await draftRound(root, { only, answers, round: 1 })];
   const first = rounds[0];
-  const base = first.ctx.model.base;
+  // The sflow/config commit the fixes were drafted on travels with them, so the proposal is made on it
+  // and approval re-applies it onto anything newer, never over it (SCF:REQ-005, finding ER-F12).
+  const authority = first.ctx.model.authority;
+  const base = first.ctx.model.base && authority?.commit && authority.kind !== 'working-tree'
+    ? { ...first.ctx.model.base, authority: { kind: authority.kind, commit: authority.commit,
+      remoteFingerprint: authority.remoteFingerprint ?? null, sourceCommit: authority.sourceCommit ?? null } }
+    : first.ctx.model.base;
   // Changes Workflow Studio refused, by round: their keys leave the change set.
   const refusedKeys = new Map();
   const studioChanges = () => rounds.flatMap((entry) => entry.draft.studioChanges(refusedKeys.get(entry)));

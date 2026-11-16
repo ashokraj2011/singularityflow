@@ -17,7 +17,7 @@ import { access, lstat, readFile, readdir, realpath as fsRealpath, rm } from 'no
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, isCliReadSuperseded, type CliLocation } from './cli/client.ts';
 import {
-  CliError, cliRefusalCode, CliTimeoutError, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
+  CliError, cliRefusalCode, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
   terminalCommand, recentCliCommandTimings,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory
@@ -38,7 +38,6 @@ import {
   prepareRefusal, PUBLISH_AUTHORSHIP, publishArgv
 } from './decisions.ts';
 import { ConfigurationValidator } from './validation.ts';
-import { ConfigurationSyncAction, configurationSyncConfirmation, configurationSyncInterruptedMessage } from './views/configuration-sync-model.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
@@ -68,7 +67,7 @@ import {
 import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
 import { configurationPathTarget } from './views/configuration-save.ts';
-import { activateReviewedWorkflowProposal, configurationSaveDisposition, configurationSavePlanCliArgs } from './views/configuration-save.ts';
+import { activateReviewedWorkflowProposal, configurationSaveDisposition, configurationSavePlanCliArgs, type ConfigurationClash } from './views/configuration-save.ts';
 import type { ConfigurationGitFailure } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
@@ -184,7 +183,8 @@ function performanceViews(): PerformanceViewRuntime {
 // Repository runtimes can be bound more than once per activation; Copilot Chat counting starts once.
 let copilotChatCountingStarted = false;
 /** A generated review branch as a person reads it: without the hex suffix that keeps it unique in Git (owner, 2026-11-11). */
-const personBranch = (branch: string): string => branch.replace(/(?:[-/][0-9a-f]{8,64})+$/iu, '');
+// The proposer's key (`-by` and 8 hex digits) and the revision suffix are not read by a person.
+const personBranch = (branch: string): string => branch.replace(/(?:-by[0-9a-f]{8})?(?:[-/][0-9a-f]{8,64})+$/iu, '');
 
 function lazyPanels(): LazyPanelsRuntime {
   if (lazyPanelsRuntime) return lazyPanelsRuntime;
@@ -1280,7 +1280,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.openWorkspaceStories', 'singularityFlow.openReviews', 'singularityFlow.startWork',
     'singularityFlow.openConfigurationApprovals',
-    'singularityFlow.recreateAndSyncConfiguration',
     'singularityFlow.openAdhocWork',
     'singularityFlow.openDeveloperHome',
     'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
@@ -8211,7 +8210,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     if (message.action === 'after-install') await vscode.commands.executeCommand('singularityFlow.afterInstall');
-    else if (message.action === 'recreate-sync') await vscode.commands.executeCommand('singularityFlow.recreateAndSyncConfiguration');
     else if (message.action === 'repository-setup') await vscode.commands.executeCommand(
       'singularityFlow.repairRepositorySetup', { repositoryPath: client.repository }
     );
@@ -8419,20 +8417,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Governed workflow configuration routines: review and activate a configuration proposal, propose
   // a change after previewing it, and export, import or copy workflows. Workflow Studio calls them;
   // every mutation goes through the engine's validation and the repository's review proposal.
-  const configurationSyncAction = new ConfigurationSyncAction({
-    run: argv => client.run(argv), refresh: async () => {
-      await refreshAfterKnownMutation();
-      await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
-    },
-    // It writes to the shared configuration and pushes, so it asks once, listing every proposal it
-    // replays (teammates' unreviewed ones too); the apply carries this preview's digest.
-    confirm: async preview => {
-      output.appendLine(JSON.stringify(preview, null, 2));
-      const review = configurationSyncConfirmation(preview);
-      return await showCompactWarningMessage(review.message, { modal: true, compactDetail: review.compactDetail,
-        detail: review.detail }, 'Recreate & sync') === 'Recreate & sync';
-    }
-  });
   /**
    * Activate a proposal its author confirmed on the page that made it (Build with Copilot's Finish
    * and activate): the same exact-commit leased update as Review and activate, without the diff tab
@@ -8440,9 +8424,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const activateWorkflowProposalNow = async (branch: string): Promise<{ activated: boolean; message: string }> => {
     try {
-      const inspected = await client.run<{ branch: string; proposalCommit: string; targetBranch: string; valid: boolean; merged?: boolean }>(
-        ['workflow', 'proposal', branch, '--json']);
+      const inspected = await client.run<{ branch: string; proposalCommit: string; targetBranch: string; valid: boolean; merged?: boolean;
+        lands?: { clashes?: ConfigurationClash[] } }>(['workflow', 'proposal', branch, '--json']);
       if (!inspected.valid) return { activated: false, message: 'the proposal contains invalid or out-of-scope configuration changes; review it under Changes' };
+      // A field sflow/config also changed needs the reviewer's pick, made where its two values are shown [SCF:REQ-007].
+      if (inspected.lands?.clashes?.length) return { activated: false, message: 'sflow/config changed a field this proposal also changes; pick which value to keep under Changes → Review and activate' };
       const activation = await activateReviewedWorkflowProposal<{
         activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
         failure?: ConfigurationGitFailure & { message?: string }; nextAction?: string; recoveryCommand?: string;
@@ -8466,11 +8452,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const inspected = await client.run<{
         branch: string; proposalCommit: string; proposalCreatedAt?: string | null; targetBranch: string; diff: string;
         valid: boolean; merged?: boolean; workflows?: Array<{ id: string; change: string }>;
+        viewLines?: string[]; lands?: { clashes?: ConfigurationClash[] };
       }>(['workflow', 'proposal', branch, '--json']);
       // A person reads the proposal by its branch and when it was made, never its commit; activation binds the exact commit (owner, 2026-11-11).
       const shown = personBranch(inspected.branch);
+      // What approving it lands, the same lines the terminal shows [SCF:REQ-008], then the raw diff from its merge base.
+      const view = Array.isArray(inspected.viewLines) && inspected.viewLines.length
+        ? `${inspected.viewLines.map((line) => `# ${line}`).join('\n')}\n#\n# The Git diff from where the proposal started:\n` : '';
       await showReviewDocument(`${shown}.diff`,
-        (inspected.diff || 'No textual diff.').replace(/^index [0-9a-f]{7,64}\.\.[0-9a-f]{7,64}(?: [0-7]{6})?\r?\n/gmu, ''));
+        view + (inspected.diff || 'No textual diff.').replace(/^index [0-9a-f]{7,64}\.\.[0-9a-f]{7,64}(?: [0-7]{6})?\r?\n/gmu, ''));
       if (!inspected.valid) {
         const message = 'The workflow proposal contains invalid or out-of-scope configuration changes.';
         showRefusal(message, { headline: 'Workflow proposal cannot be activated' });
@@ -8490,6 +8480,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
         failure?: ConfigurationGitFailure & { message?: string }; nextAction?: string; recoveryCommand?: string;
       }>(inspected, {
+        // A field both this proposal and sflow/config changed: the reviewer keeps one of the two values [SCF:REQ-007].
+        choose: async (clashes) => {
+          const picks: Record<string, 'proposal' | 'current'> = {};
+          for (const [index, clash] of clashes.entries()) {
+            const value = (side: { value: unknown } | null): string => side == null ? '(not set)' : JSON.stringify(side.value).slice(0, 200);
+            const picked = await vscode.window.showQuickPick([
+              { label: "Keep this proposal's value", description: value(clash.proposal), pick: 'proposal' as const },
+              { label: "Keep sflow/config's value", description: value(clash.current), pick: 'current' as const }
+            ], { title: `Choice ${index + 1} of ${clashes.length}: both changed ${clash.path} ${clash.pointer}`, ignoreFocusOut: true });
+            if (!picked) return null;
+            picks[clash.key] = picked.pick;
+          }
+          return picks;
+        },
         acknowledge: async () => {
           const acknowledge = 'Acknowledge and merge';
           return await showCompactWarningMessage(
@@ -8792,51 +8796,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openConfigurationApprovals': async () =>
       vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' }),
-    'singularityFlow.recreateAndSyncConfiguration': async () => {
-      // Preview first; the action's confirm lists the exact proposals before anything is applied.
-      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
-        title: 'Recreating and syncing configuration', cancellable: false }, async () => {
-        output.appendLine('Recreate & sync configuration: previewing the proposals it would replay.');
-        let result;
-        try { result = await configurationSyncAction.run(); }
-        catch (error) {
-          output.appendLine(`Configuration sync did not return a confirmed result: ${(error as Error).message}`);
-          if (cliRefusalCode(error) === 'CONFIGURATION_RECREATE_STALE') {
-            // The list changed after the person reviewed it; nothing was applied. Review it again.
-            showRefusal(error as CliError, { headline: 'Configuration proposals changed after your review' });
-          } else if (error instanceof CliError && error.result) {
-            // Preserve the engine's exact refusal and remediation; do not disguise validation as
-            // a host interruption or send the user around an unchanged retry loop.
-            showRefusal(error, { headline: 'Configuration sync needs attention' });
-          } else {
-            showRefusal(configurationSyncInterruptedMessage(error instanceof CliTimeoutError ? error.terminalCommand : null),
-              { headline: 'Configuration sync interrupted — retry to reconcile' });
-          }
-          return;
-        }
-        if (!result) return void output.appendLine('Recreate & sync configuration: not confirmed; nothing was applied.');
-        output.appendLine(JSON.stringify(result, null, 2));
-        if (!['synced', 'current'].includes(result.status)) {
-          showRefusal(result.failure?.message ?? `Configuration recreation is ${result.status}.`,
-            { headline: 'Configuration sync needs attention' });
-          return;
-        }
-        if (result.viewRefresh === 'attention') {
-          void showCompactWarningMessage('Configuration sync confirmed, but the display refresh failed. '
-            + 'Reopen Workflow Studio or click Recreate & sync again. Do not activate a cached older proposal.');
-          return;
-        }
-        if (result.referenceSync?.status === 'attention') {
-          void showCompactWarningMessage('Configuration synced, but local references need attention. '
-            + 'Details are in Activity & logs. Click Recreate & sync again to retry reference sync; no new merge is needed.');
-          return;
-        }
-        void showCompactInformationMessage(result.status === 'current'
-          ? 'Configuration is current; no pending proposals. Application code and Stories unchanged.'
-          : 'Configuration recreated and synced. '
-            + `${result.proposals.length} proposals archived. Application code and Stories unchanged.`);
-      });
-    },
     // Backward-compatible command ID for old keybindings and links; it never opens a second home.
     'singularityFlow.openDeveloperHome': async () =>
       vscode.commands.executeCommand('singularityFlow.myWork'),

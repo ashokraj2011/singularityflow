@@ -2615,15 +2615,6 @@ export function refusalDetails(details) {
     projected.decisions = compact({ headline: text(details.decisions.headline),
       count: Number.isSafeInteger(details.decisions.count) ? details.decisions.count : null });
   }
-  // A stale or unconfirmed recreate-sync apply: the current list and digest a person must review.
-  const recreate = details.preview;
-  if (recreate?.resultType === 'sflow-configuration-recreate-sync' && /^sha256:[a-f0-9]{64}$/u.test(recreate.confirmation ?? '')) {
-    projected.preview = compact({ resultType: recreate.resultType, confirmation: recreate.confirmation, baseCommit: text(recreate.baseCommit),
-      proposalCount: Array.isArray(recreate.proposals) ? recreate.proposals.length : null,
-      proposals: list(recreate.proposals, item => item && typeof item === 'object' ? compact({ branch: text(item.branch),
-        commit: text(item.commit), merged: typeof item.merged === 'boolean' ? item.merged : null, author: text(item.author),
-        summary: text(item.summary), files: list(item.files, text) }) : null), files: list(recreate.files, text) });
-  }
   if (Array.isArray(details.needs)) projected.needs = details.needs.map(String).slice(0, 5);
   if (Array.isArray(details.unclaimedPaths)) projected.unclaimedPaths = details.unclaimedPaths.map(String).slice(0, 20);
   if (details.setAside?.command) projected.setAside = { command: details.setAside.command, paths: (details.setAside.paths ?? []).slice(0, 20) };

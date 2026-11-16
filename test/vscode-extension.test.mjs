@@ -1786,12 +1786,9 @@ test('no CLI anywhere fails with both places named', () => {
   }
 });
 
-test('configuration recreation preview and apply use the remote transaction budget, not the two-minute UI timer', () => {
+test('finishing an interrupted configuration approval uses the remote transaction budget, not the two-minute UI timer', () => {
   const client = new SingularityFlowClient({ location: { executable: 'node', cli: '/cli.mjs', source: 'setting' }, repository: '/repo' });
-  assert.equal(client.timeoutFor(['configuration', 'recreate-sync', '--json']), 15 * 60_000);
-  assert.equal(client.timeoutFor(['configuration', 'recreate-sync', '--apply', '--json']), 15 * 60_000);
-  assert.equal(commandClass(['configuration', 'recreate-sync', '--json']), 'read');
-  assert.equal(commandClass(['configuration', 'recreate-sync', '--apply', '--json']), 'mutation');
+  assert.equal(client.timeoutFor(['configuration', 'reconcile', 'cft-1', '--json']), 15 * 60_000);
 });
 
 test('large remote operations and lifecycle submissions get operation-appropriate long timeouts', async () => {

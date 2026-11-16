@@ -1051,10 +1051,14 @@ Usage:
   singularity-flow configuration propose [--message TEXT] [--json]  Propose every draft as one review; drafts already approved are settled, not proposed
   singularity-flow configuration discard <NUMBER> --listing LISTING | <DRAFT-ID> | --all [--json]
                                                         drop drafts: a number from the list with that list's --listing, or a draft ID
-  singularity-flow configuration approve [<PROPOSAL>] [--yes] [--json]  Show what a proposal changes, confirm, and activate exactly that revision
-  singularity-flow configuration recreate-sync [--apply --confirm sha256:<PREVIEW>] [--json]  Preview lists every proposal it replays (teammates' unreviewed ones too) and its confirmation; apply replays only that reviewed list and refuses if it changed
+  singularity-flow configuration approve [<PROPOSAL>] [--confirm <REVISION> | --yes] [--pick <FILE>#<FIELD>=proposal|current] [--json]
+                                                        Show what approving it changes, value by value, and approve exactly the revision shown;
+                                                        --yes approves only the revision shown last; --pick keeps one value where both changed;
+                                                        run it again on an approved proposal to finish what an interruption left
+  singularity-flow configuration reject <PROPOSAL> [--confirm <REVISION> | --yes] [--reason TEXT] [--json]
+                                                        Reject a proposal with a reason, or withdraw your own; nothing in sflow/config changes
   singularity-flow configuration transactions [--json]     Inspect retained configuration operations; the journal grants no authority
-  singularity-flow configuration reconcile <CFT-ID> [--json]  Reconcile a committed operation and finish reference sync; never retry a push blindly
+  singularity-flow configuration reconcile <CFT-ID> [--json]  Finish one kept operation by its ID; approving the same proposal again does the same
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]
   singularity-flow configuration save <PATH> [--propose]    Reads replacement content from stdin; never an agent file (agents create|edit)
   singularity-flow configuration add-current-identity [--target *|story:*|initiative:*|SCOPE:GROUP] [--self-approval on|off] [--auto-enroll on|off] [--automatic] [--json]

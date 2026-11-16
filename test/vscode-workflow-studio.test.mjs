@@ -1623,7 +1623,7 @@ test('proposal versions group only matching workflow operations with known unequ
   assert.equal(logic.proposalGroups([older, { ...newer, merged: true }]).length, 2);
 });
 
-test('external configuration sync refreshes a clean page but preserves dirty private drafts and invalidates stale plans', async () => {
+test('external configuration sync refreshes a clean page, and moves a kept draft onto the newer configuration without reverting it (SCF:REQ-013, ER-F10)', async () => {
   const root = await repository();
   const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
   const { logic, posted, reply } = studioWithHost();
@@ -1634,12 +1634,30 @@ test('external configuration sync refreshes a clean page but preserves dirty pri
   state.draft.groups['architecture-reviewers'].members.push({ name: 'First', email: 'first@example.com', githubLogin: null });
   const draft = structuredClone(state.draft);
   state.plan = { valid: true }; state.planKey = 'stale';
-  const before = posted.length;
   reply({ type: 'studio.externalConfigurationChanged' });
-  assert.equal(posted.length, before, 'no automatic reload discards an unpublished draft');
+  assert.equal(posted.at(-1).type, 'studio.refresh', 'the newer configuration is loaded with the draft kept, never discarded');
   assert.deepEqual(state.draft, draft);
   assert.equal(state.plan, null); assert.equal(state.planKey, null);
-  assert.match(state.configurationChanged, /draft is preserved/u);
+  // Meanwhile a teammate's approved change renamed a workflow: the kept draft moves onto it.
+  const newer = structuredClone(model);
+  const renamed = newer.workflows[0];
+  renamed.label = `${renamed.label}, renamed by a teammate`;
+  newer.base = { ...(model.base ?? {}), commit: 'f'.repeat(40) };
+  reply({ type: 'studio.model', model: newer, reset: false, reason: 'a proposal was activated' });
+  assert.equal(state.draft.workflows[renamed.id].label, renamed.label, 'the newer value is taken where the person changed nothing');
+  assert.deepEqual(state.draft.groups['architecture-reviewers'].members, draft.groups['architecture-reviewers'].members, 'the person\'s edit is kept');
+  const changes = logic.changeSetFrom(newer, state.draft).changes;
+  assert.equal(changes.some((change) => change.op === 'workflow.update' && change.id === renamed.id), false, 'the kept draft does not revert the newer label');
+  assert.ok(changes.some((change) => change.op === 'group.update' && change.id === 'architecture-reviewers'));
+  assert.deepEqual(state.draftClashes.fields, []);
+  // A value both changed keeps the person's and is named for the approver.
+  state.draft.workflows[renamed.id].label = 'Mine';
+  const third = structuredClone(newer);
+  third.workflows[0].label = 'Theirs';
+  third.base = { ...(model.base ?? {}), commit: 'e'.repeat(40) };
+  reply({ type: 'studio.model', model: third, reset: false });
+  assert.equal(state.draft.workflows[renamed.id].label, 'Mine');
+  assert.deepEqual(state.draftClashes.fields, [`workflows › ${renamed.id} › label`]);
   reply({ type: 'studio.proposals', proposals: [] });
   assert.deepEqual(state.proposals.list, [], 'retired proposals leave the cache');
   const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
@@ -1704,7 +1722,7 @@ test('proposals waiting for review are listed in Changes, and reviewing one relo
   assert.equal(state.view, 'changes', 'an unknown section is ignored');
 
   const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
-  assert.match(host, /if \(pending > 0\) this\.post\(\{ type: 'studio\.configurationChanged'/, 'unpublished changes are never replayed over a newer configuration');
+  assert.match(host, /reset: pending === 0/, 'unpublished changes are kept and moved onto a newer configuration, never discarded');
   assert.match(host, /'studio\.openFile': \(message\) => this\.openFile/);
   assert.match(host, /private openableFile\(relative: string\): boolean \{\s*if \(relative\.split\('\/'\)\.some/);
 });

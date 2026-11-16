@@ -1429,12 +1429,12 @@
       "module": "configuration-proposal.mjs",
       "class": "shared-state",
       "git": {
-        "read": 9,
+        "read": 8,
         "write": 6,
-        "remote": 9,
+        "remote": 10,
         "dynamic": 1
       },
-      "localReads": 6,
+      "localReads": 5,
       "writes": 0,
       "yamlReads": 4,
       "lifetimes": []
@@ -1446,25 +1446,6 @@
       "writes": 2,
       "yamlReads": 0,
       "lifetimes": []
-    },
-    {
-      "module": "configuration-recreate-sync.mjs",
-      "class": "shared-state",
-      "git": {
-        "read": 6,
-        "write": 7,
-        "dynamic": 1
-      },
-      "localReads": 6,
-      "writes": 2,
-      "yamlReads": 2,
-      "lifetimes": [
-        {
-          "name": "timeoutMs",
-          "value": 15000,
-          "kind": "timeout"
-        }
-      ]
     },
     {
       "module": "configuration-reference-sync.mjs",
@@ -1492,13 +1473,13 @@
       "module": "configuration-state-git.mjs",
       "class": "shared-state",
       "git": {
-        "read": 3,
+        "read": 2,
         "write": 7,
         "dynamic": 1
       },
-      "localReads": 3,
+      "localReads": 2,
       "writes": 3,
-      "yamlReads": 3,
+      "yamlReads": 4,
       "lifetimes": [
         {
           "name": "timeoutMs",
@@ -2501,6 +2482,17 @@
           "kind": "timeout"
         }
       ]
+    },
+    {
+      "module": "git-proposal-history.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 3
+      },
+      "localReads": 3,
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
     },
     {
       "module": "git-ref-tree.mjs",

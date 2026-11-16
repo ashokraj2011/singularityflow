@@ -122,12 +122,28 @@ export function configurationSaveDisposition(output: string, plannedProposal: bo
   return { kind: 'unchanged' };
 }
 
+/** A field both a proposal and sflow/config changed differently, with the two values to keep one of [SCF:REQ-007]. */
+export interface ConfigurationClash {
+  key: string; path: string; pointer: string; kind?: string;
+  proposal: { value: unknown } | null; current: { value: unknown } | null;
+}
+
 /** Consent precedes expensive preparation. Neither a review nor a failed command grants it. */
 export async function activateReviewedWorkflowProposal<T>(
-  reviewed: { branch: string; proposalCommit: string; merged?: boolean },
-  boundary: { acknowledge: () => Promise<boolean>; activate: (args: string[]) => Promise<T> }
+  reviewed: { branch: string; proposalCommit: string; merged?: boolean; lands?: { clashes?: ConfigurationClash[] } },
+  boundary: {
+    acknowledge: () => Promise<boolean>; activate: (args: string[]) => Promise<T>;
+    /** The reviewer's pick for each clash; null when they stop. A clash with no pick activates nothing. */
+    choose?: (clashes: ConfigurationClash[]) => Promise<Record<string, 'proposal' | 'current'> | null>;
+  }
 ): Promise<T | null> {
   const args = ['workflow', 'activate', reviewed.branch, '--confirm', reviewed.proposalCommit];
+  const clashes = reviewed.merged ? [] : reviewed.lands?.clashes ?? [];
+  if (clashes.length) {
+    const picks = boundary.choose ? await boundary.choose(clashes) : null;
+    if (!picks || clashes.some((clash) => !picks[clash.key])) return null;
+    for (const clash of clashes) args.push('--pick', `${clash.key}=${picks[clash.key]}`);
+  }
   if (!reviewed.merged) {
     if (!await boundary.acknowledge()) return null;
     args.push('--acknowledge-unprotected');

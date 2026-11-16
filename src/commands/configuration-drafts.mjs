@@ -1,15 +1,15 @@
 /**
- * `configuration drafts | propose | discard | approve`: see the saved agent, skill and instruction
- * drafts, propose all of them as one review, drop some, and approve a proposal after reading what
- * it changes — without copying a commit.
+ * `configuration drafts | propose | discard | approve | reject`: see the saved agent, skill and
+ * instruction drafts, propose all of them as one review, drop some, approve a proposal after reading
+ * what it lands, and reject one with a reason or withdraw one's own.
  */
 import { stdin as input, stdout as output } from 'node:process';
 import readline from 'node:readline/promises';
 import { SingularityFlowError } from '../util.mjs';
 
-export const CONFIGURATION_DRAFT_SUBCOMMANDS = Object.freeze(['drafts', 'propose', 'discard', 'approve']);
+export const CONFIGURATION_DRAFT_SUBCOMMANDS = Object.freeze(['drafts', 'propose', 'discard', 'approve', 'reject']);
 const OPTIONS = Object.freeze({
-  drafts: ['json'], propose: ['json', 'message', 'background-sync'], discard: ['json', 'all', 'listing'], approve: ['json', 'yes']
+  drafts: ['json'], propose: ['json', 'message', 'background-sync'], discard: ['json', 'all', 'listing'], approve: ['json', 'yes', 'confirm', 'pick'], reject: ['json', 'yes', 'confirm', 'reason']
 });
 
 function validate(subcommand, positionals, options) {
@@ -19,7 +19,7 @@ function validate(subcommand, positionals, options) {
         { code: 'CONFIGURATION_DRAFTS_OPTION_UNSUPPORTED' });
     }
   }
-  const extra = { drafts: 2, propose: 2, discard: 3, approve: 3 }[subcommand];
+  const extra = { drafts: 2, propose: 2, discard: 3, approve: 3, reject: 3 }[subcommand];
   if (positionals.length > extra) {
     throw new SingularityFlowError(`configuration ${subcommand} takes ${extra === 2 ? 'no other words' : 'at most one more word'}: ${positionals.slice(extra).join(' ')}.`,
       { code: 'CONFIGURATION_DRAFTS_OPTION_UNSUPPORTED' });
@@ -101,12 +101,34 @@ export async function run({ subcommand, positionals, options, root, apply, print
     return console.log(`${result.pending} draft${result.pending === 1 ? '' : 's'} left.`);
   }
   const { activateWorkflowConfigurationProposal, configurationProposalCommitStatus, inspectWorkflowConfigurationProposal,
-    listWorkflowConfigurationProposals } = await import('../configuration-proposal.mjs');
+    listWorkflowConfigurationProposals, finishInterruptedApproval, removeRejectedConfigurationProposal } = await import('../configuration-proposal.mjs');
+  if (subcommand === 'reject') {
+    // Reject with a reason, or withdraw one's own proposal [SCF:REQ-009].
+    const [{ optionString }, { configurationCommitIdentity }, { publishConfigurationRejection, configurationRejectionRecord }, { agentStarted }] = await Promise.all([
+      import('../util.mjs'), import('../git.mjs'), import('../configuration-rejection.mjs'), import('../presence/person-records.mjs')]);
+    const result = await drafts.rejectProposal(root, positionals[2] ?? null, {
+      yes: options.yes === true, confirm: optionString(options, 'confirm', null), reason: optionString(options, 'reason', null),
+      interactive: !json && Boolean(input.isTTY && output.isTTY), ask, print: json ? () => {} : (line) => console.log(line),
+      inspect: inspectWorkflowConfigurationProposal, remove: removeRejectedConfigurationProposal,
+      identity: (repository) => configurationCommitIdentity(repository),
+      record: (repository, fields) => publishConfigurationRejection(repository, configurationRejectionRecord(fields)),
+      agent: () => agentStarted()
+    });
+    if (json) console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  const [{ optionString, optionStrings }, { configurationPicks }, { configurationCommitIdentity }] = await Promise.all([
+    import('../util.mjs'), import('../configuration-state-git.mjs'), import('../git.mjs')]);
+  // A pick keeps one of the two values of a field both the proposal and sflow/config changed [SCF:REQ-007].
+  const choices = configurationPicks(optionStrings(options, 'pick'));
   const result = await drafts.approveProposal(root, positionals[2] ?? null, {
-    yes: options.yes === true, interactive: !json && Boolean(input.isTTY && output.isTTY), ask,
+    yes: options.yes === true, confirm: optionString(options, 'confirm', null), choices,
+    interactive: !json && Boolean(input.isTTY && output.isTTY), ask,
     print: json ? () => {} : (line) => console.log(line),
     list: (repository) => listWorkflowConfigurationProposals(repository),
     inspect: inspectWorkflowConfigurationProposal, activate: activateWorkflowConfigurationProposal,
+    finish: (repository, branch) => finishInterruptedApproval(repository, branch),
+    identity: (repository) => configurationCommitIdentity(repository),
     // A recorded proposal that is gone: did its exact commit reach sflow/config, and is its upload still to finish?
     status: (repository, branch, commit) => configurationProposalCommitStatus(repository, branch, commit),
     upload: (intentId) => import('../transport-intents.mjs').then(({ readTransportIntent }) => readTransportIntent(intentId))

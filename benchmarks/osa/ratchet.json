@@ -956,9 +956,6 @@
       "apps/vscode/src/views/workspace-runtime.ts": {
         "argvRoutes": 1
       },
-      "asked-for.mjs": {
-        "altSkillLiterals": 4
-      },
       "authoring-skills.mjs": {
         "altSkillLiterals": 2
       },
@@ -1044,7 +1041,7 @@
         "computedCommands": 2
       },
       "copilot-repository-boundary.mjs": {
-        "altSkillLiterals": 6
+        "altSkillLiterals": 2
       },
       "copilot-review-completion.mjs": {
         "argvRoutes": 2

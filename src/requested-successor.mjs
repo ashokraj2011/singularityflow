@@ -67,10 +67,10 @@ export function requestedSuccessorConfirmation(workflow, phase, resultDigest, re
  * generation for what the person asked to change, and open it only on their exact confirmation.
  */
 export async function requestedSuccessorRollover(root, config, workflow, phase, options) {
-  const [{ typedFocusOff }, { optionBoolean, optionString, SingularityFlowError }, { generationResultMatches, generationResultDigest, beginPhaseGeneration, saveStoryDraft },
-    { safeCommandGuidance }, { nextPhaseGeneration }, { printCommandRoutes }, { storyDraftTransaction }, { verifyOpenGenerationIntent }] = await Promise.all([
+  const [{ typedFocusOff }, { optionBoolean, optionString, SingularityFlowError }, { generationResultMatches, generationResultDigest },
+    { safeCommandGuidance }, { nextPhaseGeneration }, { printCommandRoutes }] = await Promise.all([
     askedFor(), import('./util.mjs'), import('./state-stores.mjs'), import('./safe-command-guidance.mjs'), import('./phase-generation.mjs'),
-    import('./commands/shared/print-command-routes.mjs'), import('./commands/shared/story-draft-transaction.mjs'), import('./generation-boundary.mjs')]);
+    import('./commands/shared/print-command-routes.mjs')]);
   if (!requestedSuccessorEligible(workflow, phase)) throw new SingularityFlowError(
     `Phase '${phase.id}' has no changed consumed generation to roll over.`, { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: null });
   let supplied = optionString(options, 'confirm');
@@ -97,9 +97,12 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   const expected = requestedSuccessorConfirmation(workflow, phase, resultDigest, requests);
   const confirmArgv = ['phase', 'rollover', phase.id, ...(reason && typedFocusOff(workflow) ? ['--reason', reason] : []), '--confirm', expected];
   const route = safeCommandGuidance({ argv: confirmArgv, skill });
+  // The proposal the person answers [OSA §7.1]: its exact version, the publication it keeps and the question asked.
+  const opening = await import('./commands/phase-opening.mjs');
+  const proposed = await opening.proposalNow(root, workflow, phase, { reason: review && requests.length === 1 ? 'review-corrections' : 'requested-change', confirmation: expected });
   const preview = {
     schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'requested-change',
-    workId: workflow.workItem.id, phase: phase.id, fromGeneration: phase.generation, toGeneration: next,
+    workId: workflow.workItem.id, phase: phase.id, fromGeneration: phase.generation, toGeneration: proposed.proposal.version, question: proposed.question,
     requestedChange: { requests, keptAs: typedFocusOff(workflow) ? 'this command only' : `typed words of generation ${next} ("Asked for" once it is prepublished)` },
     confirmation: expected, currentResultDigest: resultDigest,
     preserved: code ? `Generation ${phase.generation}, its evidence and its test results stay as published.`
@@ -110,20 +113,19 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
       reason: `Show the person what they asked to change and this confirmation; only on their explicit yes open generation ${next}.` } : null,
     mutates: Boolean(supplied)
   };
+  let typed = false;
   if (!supplied) {
+    // Kept here, sealed, so the hook that hears the person's answer binds it to this exact proposal.
+    await opening.recordPreview(root, { ...proposed, confirmation: expected });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
     console.log(`Start ${phase.id} generation ${next} for a change (generation ${phase.generation} stays as published):`);
     for (const request of requests) console.log(`  · "${request.replace(/\s+/gu, ' ')}"`);
     // A person confirms the step and generation they just read, never a digest [no hashes shown]: in their own
     // terminal this same process asks, and binds the digest it derived above; `--json` keeps it for an agent.
     if (process.stdin.isTTY === true && process.stdout.isTTY === true) {
-      const readline = await import('node:readline/promises');
-      const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
-      let answer = '';
-      try { answer = (await terminal.question(`Type yes to start ${phase.id} generation ${next}, or press Enter to cancel: `)).trim().toLowerCase(); }
-      finally { terminal.close(); }
-      if (answer !== 'yes') return console.log('Nothing was changed.');
+      if (!await opening.askAtTerminal(proposed.question)) return console.log('Nothing was changed.');
       supplied = expected;
+      typed = true;
     } else {
       printCommandRoutes(safeCommandGuidance({ argv: confirmArgv.slice(0, confirmArgv.indexOf('--confirm')), skill }),
         { label: 'To start it, run this in your own terminal, which asks you to confirm, or ask Copilot' });
@@ -133,29 +135,19 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   if (supplied !== expected) throw new SingularityFlowError(
     `The rollover confirmation is not the current one: what was asked for or the published bytes changed since the preview. Preview again (its JSON carries the current confirmation).`,
     { code: 'GENERATION_ROLLOVER_STALE', details: preview });
+  // One opening operation on the person's yes: the reservation, the opening record and their receipt, shared [OSA:REQ-030, REQ-031].
+  const opened = await opening.openSuccessor(root, config, workflow, phase, { ...proposed, typed,
+    open: code ? opening.codeOpening(root, config) : opening.documentOpening() });
   if (!code) {
-    // A document step's next draft: the same reservation an explicit prepare makes (prepared-document-successor.mjs).
-    const { reservePreparedDocumentSuccessor } = await import('./prepared-document-successor.mjs');
-    const { nowIso } = await import('./util.mjs');
-    await storyDraftTransaction(root, config, workflow, `phase-rollover:${phase.id}`, async () => {
-      if (!reservePreparedDocumentSuccessor(workflow, phase, nowIso())) throw new SingularityFlowError(
-        `Phase '${phase.id}' has no published draft to start the next one from.`, { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: null });
-      await saveStoryDraft(root, config, workflow);
-    });
-    const result = { ...preview, mutates: true, nextAction: null, opened: { generation: next, status: 'open' },
+    const result = { ...preview, mutates: true, nextAction: null, opened: { generation: next, status: 'open' }, opening: opened.outcome, replayed: opened.replayed,
       next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: `${skill} ${phase.id}`,
         reason: `Author draft ${next} for what was asked in this step; it is checked${(await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id) ? ' and reviewed' : ''} again before it is published.` } };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else console.log(`Opened ${phase.id} draft ${next} for the change asked for. Draft ${phase.generation} stays as published.`);
     return;
   }
-  const intent = await storyDraftTransaction(root, config, workflow, `phase-rollover:${phase.id}`, async () => {
-    const opened = await beginPhaseGeneration(root, config, workflow, { phaseId: phase.id });
-    await saveStoryDraft(root, config, workflow);
-    await verifyOpenGenerationIntent(root, workflow, phase);
-    return opened;
-  });
-  const result = { ...preview, mutates: true, nextAction: null, generationIntent: intent,
+  const intent = phase.generationIntent;
+  const result = { ...preview, mutates: true, nextAction: null, generationIntent: intent, opening: opened.outcome, replayed: opened.replayed,
     next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: `/sf-code ${phase.id}`,
       reason: `Author generation ${intent.generation} for what was asked; its tests run again before it is published.` } };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));

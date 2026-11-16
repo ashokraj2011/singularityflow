@@ -380,7 +380,7 @@ export function safeCommandGuidance(value) {
   const allowedSkills = new Set([canonicalSkill]);
   const phaseId = safe.argv[0] === 'prepare'
     ? safe.argv[1]
-    : safe.argv[0] === 'phase' && ['begin', 'enter', 'publish', 'draft-check', 'prepublish', 'show', 'rollover'].includes(safe.argv[1])
+    : safe.argv[0] === 'phase' && ['begin', 'enter', 'publish', 'draft-check', 'prepublish', 'show', 'rollover', 'opening'].includes(safe.argv[1])
       ? safe.argv[2]
       : null;
   // A confirmed rollover is also the recovery plan's own route (`recover` returns it for changed published bytes).

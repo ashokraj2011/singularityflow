@@ -41,16 +41,22 @@ test('the entry says author only when its edit permission grants an edit; otherw
   assert.equal(agentAct(entry({ artifacts: [], applicationEdits: true, next })).state, 'author');
 });
 
-test('a code step returned for rework is written in its own entry: author, with the permission and one command [OSA:REQ-010, C13]', () => {
+test('a code step returned for rework asks the person in its own entry, with the permission and one command [OSA:REQ-010, REQ-030, C13]', () => {
   const workflow = codeStory({ reworkRevalidation: { generation: 1, invalidatedAt: '2026-11-16T09:00:00.000Z' } });
   const phase = workflow.phases.implement;
-  assert.equal(phaseAuthoringEntry(workflow, phase).status, 'authoring-entry');
+  // Stage 2: a successor, even one a person's return asked for, opens only on the person's yes [D3]; the entry asks it.
+  const entry = phaseAuthoringEntry(workflow, phase);
+  assert.equal(entry.status, 'successor-confirmation-required');
+  assert.equal(entry.reason, 'rework');
+  assert.match(entry.successor.question, /^Start version 2 of Implement\? Published version 1 will stay unchanged\.$/u);
   const contract = deriveMutationContract({ definition: {}, workflow });
-  assert.ok(contract.allow.artifacts.length, 'the step\'s files are granted');
+  assert.deepEqual(contract.allow.artifacts, [], 'nothing of the step is writable before the opening');
+  assert.equal(contract.allow.application, false);
   const progress = phaseAuthoringProgress(workflow, phase);
-  // One command for the step: the permission's next and the task's next are the same `phase begin`.
-  assert.equal(progress.next.command, 'singularity-flow phase begin implement --json');
+  // One command for the step: the permission's next, the task's next and the entry's preview are the same rollover.
+  assert.equal(progress.next.command, 'singularity-flow phase rollover implement --json');
   assert.equal(contract.next[0].command, progress.next.command);
+  assert.equal(entry.successor.preview.command, progress.next.command);
   assert.equal(contract.next[0].copilotCommand.split(' ')[0], '/sf-code');
 });
 

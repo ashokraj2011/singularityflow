@@ -158,6 +158,12 @@ export async function run(_argv, { positionals, options }) {
     }
     // The index records the Story's checkout in every repository it delivers in; never fails the takeover.
     await import('../story-index.mjs').then((index) => index.recordStoryCheckout(root, { source: 'session-takeover' })).catch(() => {});
+    // An open version another checkout writes: this verified takeover moves its writer fence here with one leased commit,
+    // so the old writer is refused at its next entry or publication [OSA:REQ-034, AC-017]. Nothing open: nothing to fence.
+    const currentStep = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
+    const { actionActor } = await import('../git.mjs');
+    const writerFence = currentStep?.versionOpening ? await (await import('../story-version-opening.mjs'))
+      .takeOverWriter(root, accepted.definition ?? accepted.config, workflow, currentStep, { principal: actionActor(root) }) : null;
     const references = workflow.resolution?.referenceRepositories ?? [];
     if (references.length) await (await import('../reference-repositories.mjs')).materializeReferenceRepositories(root, references);
     const documents = await step(['documents', 'list', id, '--json'], root);
@@ -185,8 +191,11 @@ export async function run(_argv, { positionals, options }) {
         message: `Phase '${phase}' uses ${restoreNow.length === 1 ? 'a document' : 'documents'} kept only on the laptop that added ${restoreNow.length === 1 ? 'it' : 'them'}. Ask for the same original file and upload it here with ${restoreNow.map(document => document.restore).join('; ')}. This keeps its ID and changes no approval.` } : null,
       // What a takeover can never bring (SDA §11): work saved only on the laptop that had the Story.
       localWorkNotCarried: localWorkNotCarried(id),
-      remoteSynchronized: true, exclusiveOwnership: false,
-      effects: { storyAdvanced: false, committed: false, pushed: false, testsRun: false } };
+      remoteSynchronized: true,
+      // Exclusive only for an open version whose writer fence this takeover moved here; otherwise nothing is fenced.
+      exclusiveOwnership: writerFence?.taken === true || writerFence?.current === true,
+      ...(writerFence ? { writerFence } : {}),
+      effects: { storyAdvanced: false, committed: writerFence?.taken === true, pushed: writerFence?.taken === true, testsRun: false } };
     if (options['for-agent']) Object.assign(result, { executionContext: agentExecutionContext(primary),
       repositories: bindings.map(agentExecutionContext) });
     console.log(options.json ? JSON.stringify(result, null, 2)

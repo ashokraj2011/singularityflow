@@ -142,7 +142,7 @@ function openVersionGuidance(workflow) {
   const phase = workflow?.pendingDecision ? null : workflow?.phases?.[step];
   if (phase?.status !== 'in_progress' || !successorGenerationOpen(phase)) return null;
   const skill = generationSkillForPhase(phase, workflow);
-  return skill ? { summary: `Write version ${phase.generationIntent.generation} of ${step}, then publish it.`,
+  return skill ? { summary: `Write version ${phase.generationIntent?.generation ?? phase.versionOpening?.version} of ${step}, then publish it.`,
     actions: [copilotAction({ skill, command: `singularity-flow prepare ${step}` })] } : null;
 }
 

@@ -32,9 +32,15 @@ function story({ code = true, review = false, phase: changes = {}, gates = null 
     resolution: { ...(review ? { sourceReview: { mode: 'enforce', phases: [id], kinds: { [id]: code ? 'code' : 'planning' }, reviewerAgent: 'sflow-source-reviewer' } } : {}),
       ...(gates ? { sequenceGates: gates } : {}) } };
 }
+/**
+ * Version `generation` open, as the opening operation opens it (Stage 2): the intent with its shared opening record. An
+ * intent alone is an older build's local opening, which a successor promotes on the person's yes first [OSA §14].
+ */
 const open = (workflow, generation = 2) => {
   const phase = workflow.phases[workflow.currentPhase];
   phase.generationIntent = { status: 'open', generation };
+  const operationId = `vo-${'1'.repeat(32)}`;
+  phase.versionOpening = { operationId, version: generation, highWatermark: generation, writer: { fence: 1, writerId: `vw-${'2'.repeat(32)}`, operationId } };
   return phase;
 };
 

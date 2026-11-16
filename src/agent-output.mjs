@@ -643,7 +643,14 @@ export function agentAct(result) {
     ? ' Run do.shell once to show the review and its digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once.' : ''}`) || null;
   const nextsteps = result.resultType === 'sflow-nextsteps'
     ? { read: ['contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
-  return withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);
+  const act = withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);
+  // A successor's preview carries the one question the person answers, with its actual numbers [OSA §7.1]: asked as it
+  // is, so the hook can bind their yes to exactly that version.
+  if (result.resultType === 'sflow-generation-rollover' && result.mutates === false && typeof result.question === 'string' && act?.ask) {
+    return { ...act, ask: { ...act.ask, question: result.question, choices: [{ label: 'Yes' }, { label: 'No' }],
+      how: 'Ask the person ask.question exactly, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run do.shell once; on No, or with no question tool, start nothing and give them do.copilot. Never answer it yourself.' } };
+  }
+  return act;
 }
 
 /**

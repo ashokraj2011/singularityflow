@@ -3405,7 +3405,7 @@ test('phase rollover previews exact current bytes and opens one successor withou
     'phase', 'rollover', 'implementation', '--confirm', `sha256:${'0'.repeat(64)}`
   ], { allowFailure: true });
   assert.equal(stale.status, 1);
-  assert.match(stale.stderr, /confirmation must equal the current digest/i);
+  assert.match(stale.stderr, /This confirmation is not the current one: the files changed since the preview/i);
 
   flow(context.root, [
     'phase', 'rollover', 'implementation', '--confirm', preview.confirmation
@@ -3416,8 +3416,11 @@ test('phase rollover previews exact current bytes and opens one successor withou
   assert.equal(stored.phases.implementation.generation, 1);
   assert.equal(stored.phases.implementation.generationIntent.generation, 2);
   assert.equal(stored.phases.implementation.generationIntent.status, 'open');
-  assert.equal(git(context.root, 'rev-parse', 'HEAD'), publishedHead,
-    'rollover created a commit instead of a local authoring boundary');
+  // Stage 2: the opening is shared, one commit of its own with only the Story's metadata on top of the publication;
+  // the changed source stays uncommitted, adopted by the open version [OSA:REQ-031].
+  assert.equal(git(context.root, 'rev-parse', 'HEAD^'), publishedHead, 'one opening commit, on the published version');
+  assert.deepEqual(git(context.root, 'show', '--name-only', '--format=', 'HEAD').split('\n').filter(Boolean)
+    .filter((file) => !file.startsWith('singularity/work-items/DELIVERY-1/')), [], 'the opening commits only the Story\'s metadata');
 });
 
 test('an in-scope README edit after code publication routes through recovery, then clears the code gate', async (t) => {
@@ -3490,8 +3493,8 @@ test('an in-scope README edit after code publication routes through recovery, th
   });
   assert.equal(post.requiresRecovery, false);
   assert.ok(!post.blockers.some((entry) => entry.code === 'generation.intent.consumed-changed'));
-  assert.equal(git(context.root, 'rev-parse', 'HEAD'), publishedHead,
-    'rollover must not rewrite the published generation');
+  // The opening is its own metadata commit on top: the published version is never rewritten [OSA:REQ-031].
+  assert.equal(git(context.root, 'rev-parse', 'HEAD^'), publishedHead, 'rollover must not rewrite the published generation');
 });
 
 test('unverifiable prior publication offers authority repair, never an impossible rollover', async (t) => {

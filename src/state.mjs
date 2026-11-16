@@ -75,7 +75,8 @@ import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents
 import {
   assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration, phasePublicationCommandForMode, storyClosedRefusal, storyNextDetails
 } from './sequence.mjs';
-import { successorGenerationOpen } from './phase-generation-need.mjs';
+import { counters, successorGenerationOpen } from './phase-generation-need.mjs';
+import { versionNumbers } from './kernel/step-versions.mjs';
 import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { answeredMarkerHashes, resolvedClarificationPolicy } from './clarifications.mjs';
 import {
@@ -2449,7 +2450,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const rendered = renderInputsBlock(inputs);
   if (!dryRun) {
     if (phaseRequiresCodeDelivery(phase)) {
-      if (phase.generationIntent?.status !== 'open') {
+      // Only version 1 opens here; a successor only on the person's yes (`phase rollover`) [D3, OSA:REQ-030].
+      if (phase.generationIntent?.status !== 'open' && versionNumbers(counters(phase)).next === 1) {
         await beginCodeGeneration(root, config, workflow, phase, {
           actor: session?.actor ?? null,
           agent: session?.agent ?? null,
@@ -5615,7 +5617,7 @@ async function submitPhaseTransition(root, config, workflow, {
   // While its next version is open, the version before it is never submitted, soft gate or not: the way on is writing
   // the open version (sequence.mjs storyNextDetails), in this step [OSA:REQ-032, C2].
   if (successorGenerationOpen(phase)) {
-    const version = Number(phase.generationIntent.generation);
+    const version = Number(phase.generationIntent?.generation ?? phase.versionOpening?.version);
     throw new SingularityFlowError(`Version ${version} of ${phase.id} is being written, so version ${phase.generation} cannot be submitted; `
       + `write version ${version} and publish it, then submit.`, {
       code: 'PHASE_VERSION_BEING_WRITTEN', details: { phase: phase.id, version, publishedVersion: Number(phase.generation ?? 0), ...storyNextDetails(workflow) }

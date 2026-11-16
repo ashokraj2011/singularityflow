@@ -555,12 +555,18 @@ async function recordedVisualReviewContext(root, workflow, phase) {
   return projection ? { projection, record: reviews.witnessDecisionCompositionRecord(projection) } : null;
 }
 
+/** What this checkout observed of the step's open version (story-version-acceptance.mjs), loaded only when it has one. */
+async function observedOpening(root, workflow, phase) {
+  return phase?.versionOpening ? (await import('./story-version-acceptance.mjs')).observeOpening(root, workflow, phase) : null;
+}
+
 /** Same delivery-only corrections for fresh and cached prompts; never persist over their receipts. */
-export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase) {
+export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase, { opening = null } = {}) {
   const bound = Boolean(workflow && phase);
-  // An artifact-only step keeps the permission (its mutation contract says so), not the page about it.
+  // An artifact-only step keeps the permission (its mutation contract says so), not the page about it. `opening`: the open
+  // version's acceptance and writer as this checkout observed them, as the edit guard reads them.
   const verification = bound && phase.writeScope !== 'artifact-only'
-    && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed;
+    && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase, opening })).localVerification.allowed;
   const requirements = bound && phaseOwnsScope(workflow, phase)
     && !phasePromptExecutionContract(definition, workflow, phase).deterministicOnly;
   return withCommandPresentationProtocol(withAgentPathProtocol(withRepairContinuationProtocol(withRequirementAuthoringProtocol(text, Boolean(requirements))), {
@@ -904,7 +910,7 @@ export async function compose(root, options, {
       // Reviews recorded since composition reach the prompt in this one refresh, beside new reuse.
       const consistent = withEvidenceConsistencyRefresh(refreshed, existing.record, consistency);
       const replyPrompt = withReplyPersonalization(
-        withPhasePromptRuntimeGuidance(consistent, definition, workflow, phase),
+        withPhasePromptRuntimeGuidance(consistent, definition, workflow, phase, { opening: await observedOpening(root, workflow, phase) }),
         resolvePersonalization({ root }));
       if (!renderOnly && options['skip-prompt-audit'] !== true) {
         await recordCompositionPromptAudit(root, {
@@ -1354,7 +1360,8 @@ export async function compose(root, options, {
     console.error(`Grounding composition recorded: ${file}`);
   }
   // Retained grounding stays canonical; the audit describes the exact host-delivered prompt.
-  const replyPrompt = withReplyPersonalization(withPhasePromptRuntimeGuidance(composedText, definition, workflow, phase), resolvePersonalization({ root }));
+  const replyPrompt = withReplyPersonalization(withPhasePromptRuntimeGuidance(composedText, definition, workflow, phase,
+    { opening: await observedOpening(root, workflow, phase) }), resolvePersonalization({ root }));
   if (!renderOnly && options['skip-prompt-audit'] !== true) {
     await recordCompositionPromptAudit(root, {
       text: replyPrompt,

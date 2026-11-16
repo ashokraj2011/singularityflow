@@ -69,8 +69,17 @@ test('checkpoint allocation and consumed generations share the permission bounda
   assert.equal(phaseAuthoringProgress(source, phase).stage, 'open-code-generation');
   assert.equal(mutationContractPresentation(deriveMutationContract({ definition: {}, workflow: source })).codeAuthoringReady, false);
   phase.generationIntent.generation = 5;
+  // Version 5 opened only on this checkout by an older build: not open until promoted on the person's yes [OSA §14].
+  assert.equal(phaseAuthoringProgress(source, phase).codeGenerationOpen, false);
+  assert.equal(phaseAuthoringProgress(source, phase).next.command, 'singularity-flow phase rollover team-repair --json');
+  assert.equal(mutationContractPresentation(deriveMutationContract({ definition: {}, workflow: source })).codeAuthoringReady, false);
+  // The opening operation's version 5 is its task's open version; the permission waits until this checkout observes its
+  // acceptance and writer (here, with no checkout to read, nothing is granted) [OSA:REQ-031, REQ-041].
+  const operationId = `vo-${'5'.repeat(32)}`;
+  phase.versionOpening = { operationId, version: 5, highWatermark: 5, writer: { fence: 1, writerId: `vw-${'6'.repeat(32)}`, operationId } };
   assert.equal(phaseAuthoringProgress(source, phase).codeGenerationOpen, true);
-  assert.equal(mutationContractPresentation(deriveMutationContract({ definition: {}, workflow: source })).codeAuthoringReady, true);
+  assert.equal(mutationContractPresentation(deriveMutationContract({ definition: {}, workflow: source })).codeAuthoringReady, false);
+  delete phase.versionOpening;
   phase.generationIntent.status = 'consumed';
   const successor = phaseAuthoringProgress(source, phase);
   assert.equal(successor.stage, 'review-successor');
@@ -80,7 +89,7 @@ test('checkpoint allocation and consumed generations share the permission bounda
   assert.equal(mutationContractPresentation(deriveMutationContract({ definition: {}, workflow: source })).codeAuthoringReady, false);
 });
 
-test('a code step returned for rework opens its successor with phase begin, not an empty recovery', () => {
+test('a code step returned for rework opens its successor on the person\'s yes, not an empty recovery [OSA:REQ-030]', () => {
   const source = workflow();
   const phase = source.phases[source.currentPhase];
   // A later step returned this one: its published generation 1 consumed the intent it began with.
@@ -88,9 +97,9 @@ test('a code step returned for rework opens its successor with phase begin, not 
     generationIntent: { status: 'consumed', generation: 1 } });
   const progress = phaseAuthoringProgress(source, phase);
   assert.equal(progress.stage, 'open-code-generation');
-  assert.equal(progress.next.command, 'singularity-flow phase begin team-repair --json');
-  assert.match(progress.instruction, /generation 2 from published generation 1/);
-  assert.equal(workflowNextSteps(source)[0].command, 'singularity-flow phase begin team-repair --json');
+  assert.equal(progress.next.command, 'singularity-flow phase rollover team-repair --json');
+  assert.match(progress.instruction, /Preview version 2 of team-repair and ask the person to confirm it; version 1 stays as published/);
+  assert.equal(workflowNextSteps(source)[0].command, 'singularity-flow phase rollover team-repair --json');
   assert.equal(deriveMutationContract({ definition: {}, workflow: source }).next[0].command, progress.next.command);
   // Published and not reopened: nothing to open, and nothing is damaged, so the permission names the step's own way on,
   // its submission readiness, never recover; the guard and the entry name the same [OSA:REQ-011, REQ-010, C1].

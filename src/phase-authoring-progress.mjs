@@ -2,7 +2,7 @@
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { stepBeingWritten, versionFactsOf } from './phase-generation-need.mjs';
-import { consumedOpeningMismatch, hasOpenVersion, reopenedByReturn } from './kernel/step-versions.mjs';
+import { consumedOpeningMismatch, versionNumbers } from './kernel/step-versions.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
@@ -64,25 +64,26 @@ export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null }
   const generation = nextPhaseGeneration(phase);
   // The kernel's predicates decide the stage, as they do the permission's next [OSA:REQ-010].
   const facts = versionFactsOf(workflow, phase);
-  const open = code && hasOpenVersion(facts);
+  const numbers = versionNumbers(facts);
+  // An older build's local opening of a successor is not an open version until it is promoted on the person's yes [§14].
+  const legacy = numbers.ok && numbers.writing > 1 && facts.opening?.record === 'legacy';
+  const writing = numbers.ok && numbers.writing !== null && !legacy;
+  const open = code && writing;
   let stage, argv, instruction;
   let skill = generationSkillForPhase(phase, workflow);
   if (code && consumedOpeningMismatch(facts)) {
     stage = 'review-successor'; argv = ['recover', workflow.workItem.id, '--phase', phase.id, '--json']; skill = '/sf-recover';
     instruction = 'Preserve the published generation and current edits. Review the guarded successor boundary before changing source.';
-  } else if (code && !open && phase.generationIntent?.status === 'consumed' && !reopenedByReturn(facts)) {
-    // Not returned by a person: the person confirms its next version (the entry's ask).
-    stage = 'open-code-generation'; argv = ['phase', 'rollover', phase.id, '--json']; skill = '/sf-code';
+  } else if (legacy || (!writing && (numbers.published >= 1 || numbers.next > 1))) {
+    // A successor, for any reason (a return, a rejection, a review or a request): the person confirms it first, the
+    // entry's ask, and it opens through the one opening operation [D3, OSA:REQ-030].
+    stage = code ? 'open-code-generation' : 'open-version'; argv = ['phase', 'rollover', phase.id, '--json'];
     instruction = `Preview version ${generation} of ${phase.id} and ask the person to confirm it; version ${phase.generation} stays as published.`;
   } else if (code && !open) {
-    // A step returned for rework still holds the intent its published generation consumed. Its
-    // successor opens with `phase begin` from that publication (recovery has nothing to repair
-    // while the published bytes are unchanged; when they changed, nextsteps routes to recovery
-    // before this point), and begin's own adoption review guards any edits made since.
+    // Version 1 opens with `phase begin`, shared before any application edit; begin's own adoption review guards edits
+    // made before it.
     stage = 'open-code-generation'; argv = ['phase', 'begin', phase.id, '--json'];
-    instruction = phase.generationIntent?.status === 'consumed'
-      ? `Open ${phase.id} generation ${generation} from published generation ${phase.generation} before any application edit; the published generation stays preserved. Existing changes require the returned adoption review; never auto-confirm or discard them.`
-      : 'Open the exact code generation before any application edit. Existing changes require the returned adoption review; never auto-confirm or discard them.';
+    instruction = 'Open the exact code generation before any application edit. Existing changes require the returned adoption review; never auto-confirm or discard them.';
   } else if (draftEvidence?.draftExists && draftEvidence.draftModified) {
     stage = 'validate-existing-draft'; argv = ['phase', 'prepublish', phase.id, '--for-agent', '--json'];
     instruction = 'Preserve the existing code, tests and authored draft. Validate it, repair only the returned findings, and publish only when fresh prepublish returns commands.publish. An authored draft or manual test pass is not publication.';

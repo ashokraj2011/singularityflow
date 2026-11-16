@@ -5,7 +5,22 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { reviewAsksForCorrection, reviewCorrection, sourceReviewContinuation } from './source-review-continuation.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
-import { consumedOpeningMismatch, reopenedByReturn, versionNumbers } from './kernel/step-versions.mjs';
+import { consumedOpeningMismatch, versionNeed, versionNumbers } from './kernel/step-versions.mjs';
+import { versionProposal } from './story-version-proposal.mjs';
+
+const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AMENDMENT: 'amendment', AUTHOR_CONFLICT: 'author-conflict' });
+
+/**
+ * A published step's next version, for any reason, is the person's one yes, asked here with the host's question tool and
+ * the proposal's own words and numbers [D3, §7.1, OSA:REQ-030]; the same turn goes straight on to its work once it opens.
+ */
+function successorAsk(workflow, phase, { reason, findings = [], route }) {
+  const { proposal, question } = versionProposal(workflow, phase, { reason });
+  // The step's own preview route (its continuation's, with its work command), asked with the proposal's question.
+  const preview = { ...route, reason: `Ask the person "${question}"; on their yes this preview, then its confirmation, opens version ${proposal.version} of ${phase.id}.` };
+  return { status: 'successor-confirmation-required', reason: reason === 'review-corrections' ? 'retained-review-correction' : reason,
+    targetGeneration: proposal.version, successor: { question, choices: ['Yes', 'No'], preview, findings }, actions: [preview] };
+}
 
 /** Read-only entry classification. Only explicit prepare can reserve a document successor. */
 export function phaseAuthoringEntry(workflow, phase, { review = null, reviewError = null } = {}) {
@@ -31,29 +46,28 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
       command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
       reason: `Source review could not be verified (${reviewError.code ?? 'inspection failed'}). Preserve the publication and inspect recovery before authoring.` })],
     diagnostic: reviewError };
+  const deterministic = phaseUsesDeterministicGeneration(phase);
   if (requiresProspectivePhaseInspection(workflow, phase)) {
-    // A code step returned for rework, or reopened by a skill amendment, is written now: its edit permission grants the
-    // step's files and its authoring task opens the next version with `phase begin` before any application edit. The entry
-    // said "next: prepare" while the permission and the task said `phase begin`, two commands for one step [OSA:REQ-010, C13].
-    if (phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !reopenedByReturn(versionFactsOf(workflow, phase))) return {
-      status: 'attention-required', reason: 'code-rollover-required',
-      actions: [copilotAction({ skill: '/sf-code', command: `singularity-flow phase rollover ${phase.id} --json`,
-        reason: `Preview starting version ${Number(phase.generation ?? 0) + 1} of ${phase.id} and ask the person to confirm it; version ${phase.generation} and its tests stay as published.` })] };
+    // A step a person returned, a rejection or an amendment reopened is written in its own entry, one command for the
+    // entry, the permission and the task [OSA:REQ-010, C13]; its next version opens first, on the person's yes, asked here
+    // [D3, OSA:REQ-030]. So does an older build's local opening of a successor, which the opening operation promotes.
+    const opened = versionNumbers(versionFactsOf(workflow, phase));
+    const legacy = opened.ok && opened.writing > 1 && versionFactsOf(workflow, phase).opening?.record === 'legacy';
+    if (opened.ok && !deterministic && (legacy || (opened.writing === null && opened.published >= 1))) {
+      const route = legacy ? copilotAction({ command: `singularity-flow phase rollover ${phase.id} --json` }) : sourceReviewContinuation(workflow, phase).actions[0];
+      return successorAsk(workflow, phase, { route, reason: legacy ? 'legacy-promotion' : NEED_REASONS[versionNeed(versionFactsOf(workflow, phase))] ?? 'requested-change' });
+    }
     return { status: 'authoring-entry' };
   }
   const continuation = review ? sourceReviewContinuation(workflow, phase, review) : null;
   // A retained review asked a published code step for corrections: its next version is the person's one yes, asked here
   // with the host's question tool, and the same turn goes straight on to the fix (owner, 2026-11-16). Never automatic.
-  if (continuation?.classification === 'successor-publication-required' && phaseRequiresCodeDelivery(phase)
-      && reviewAsksForCorrection(review) && continuation.nextCommand === `singularity-flow phase rollover ${phase.id} --json`) {
-    const to = continuation.targetGeneration;
-    return { status: 'successor-confirmation-required', reason: 'retained-review-correction', targetGeneration: to,
-      successor: { question: `Start version ${to} to fix the review's findings? Version ${to - 1} and its tests stay.`, choices: ['Yes', 'No'],
-        preview: continuation.actions[0], findings: reviewCorrection(review, phase.generation)?.findings ?? [] },
-      actions: continuation.actions };
+  if (continuation?.classification === 'successor-publication-required' && reviewAsksForCorrection(review)
+      && continuation.nextCommand === `singularity-flow phase rollover ${phase.id} --json`) {
+    return successorAsk(workflow, phase, { route: continuation.actions[0], reason: 'review-corrections', findings: reviewCorrection(review, phase.generation)?.findings ?? [] });
   }
   if (continuation?.classification === 'successor-publication-required'
-      && !phaseRequiresCodeDelivery(phase) && !phaseUsesDeterministicGeneration(phase)
+      && !phaseRequiresCodeDelivery(phase) && !deterministic
       && phase.generationPolicy?.requirement !== 'none') return {
     status: 'successor-preparation-required', reason: 'retained-review-correction',
     targetGeneration: continuation.targetGeneration,

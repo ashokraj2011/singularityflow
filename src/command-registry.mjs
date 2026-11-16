@@ -40,7 +40,7 @@ const DEPARTURE_WRITES = Object.freeze(['record', 'account']);
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain', 'drafts'
 ]);
-const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish', 'enter']);
+const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish', 'enter', 'opening']);
 // Skill packages are only inspected; the skill master also has edits, which --dry-run previews.
 const SKILL_READ_SUBCOMMANDS = Object.freeze(['inspect', 'approved', 'doctor', 'list', 'show']);
 const SKILL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
@@ -1727,6 +1727,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'phase') {
     if (positionals[1] === 'enter' && optionBoolean(options, 'compose')) return never('phase.enter.compose', definition, 'mutation');
     if (positionals[1] === 'prepublish' && optionBoolean(options, 'publish-if-ready')) return never('phase.prepublish.publish', definition, 'mutation');
+    // `phase opening --reconcile` settles a step's opening (OSA Stage 2); without it, a read.
+    if (positionals[1] === 'opening' && optionBoolean(options, 'reconcile')) return never('phase.opening.reconcile', definition, 'mutation');
     return PHASE_READ_SUBCOMMANDS.includes(positionals[1])
       ? never(`phase.${positionals[1]}`, definition, 'read')
       : never('phase', definition, 'mutation');
@@ -1977,6 +1979,7 @@ export function operationCatalog() {
     never('phase', commandDefinition('phase'), 'mutation'),
     never('phase.enter.compose', commandDefinition('phase'), 'mutation'),
     never('phase.prepublish.publish', commandDefinition('phase'), 'mutation'),
+    never('phase.opening.reconcile', commandDefinition('phase'), 'mutation'),
     never('status.submission-readiness.submit', commandDefinition('status'), 'mutation'),
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
     ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),

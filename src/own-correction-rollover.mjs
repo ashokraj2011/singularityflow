@@ -82,7 +82,7 @@ export async function ownCorrectionRollover(root, config, workflow, phase, optio
     ],
     effect: { generation: from, toGeneration: next }
   }, { actor: actionActor(root), agent });
-  const opened = await openNext(root, config, workflow, phase, code);
+  const opened = await openNext(root, config, workflow, phase, code, settled.id);
   const result = { schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'own-correction', workId: workflow.workItem.id, phase: phase.id,
     fromGeneration: from, toGeneration: next, mutates: true, correction,
     settled: { id: settled.id, kind: settled.kind, answer: settled.answer, evidence: settled.evidence,
@@ -95,23 +95,16 @@ export async function ownCorrectionRollover(root, config, workflow, phase, optio
   console.log(`Settled for the person as ${settled.id}; the decisions card lists it with an undo (/sf-decide ${workflow.workItem.id}).`);
 }
 
-/** The next generation, as a confirmed rollover opens it (requested-successor.mjs): a code intent, or a document's reservation. */
-async function openNext(root, config, workflow, phase, code) {
-  const [{ beginPhaseGeneration, saveStoryDraft }, { storyDraftTransaction }, { verifyOpenGenerationIntent }, { nowIso }] = await Promise.all([
-    import('./state-stores.mjs'), import('./commands/shared/story-draft-transaction.mjs'), import('./generation-boundary.mjs'), import('./util.mjs')]);
-  if (!code) {
-    const { reservePreparedDocumentSuccessor } = await import('./prepared-document-successor.mjs');
-    await storyDraftTransaction(root, config, workflow, `phase-rollover:${phase.id}`, async () => {
-      if (!reservePreparedDocumentSuccessor(workflow, phase, nowIso())) refuse(`Phase '${phase.id}' has no published draft to start the next one from.`, 'GENERATION_ROLLOVER_UNAVAILABLE');
-      await saveStoryDraft(root, config, workflow);
-    });
-    return { opened: { generation: Number(phase.generation) + 1, status: 'open' } };
-  }
-  const intent = await storyDraftTransaction(root, config, workflow, `phase-rollover:${phase.id}`, async () => {
-    const begun = await beginPhaseGeneration(root, config, workflow, { phaseId: phase.id });
-    await saveStoryDraft(root, config, workflow);
-    await verifyOpenGenerationIntent(root, workflow, phase);
-    return begun;
-  });
-  return { generationIntent: intent };
+/**
+ * The next generation, through the one opening operation as a confirmed rollover opens it (commands/phase-opening.mjs): a
+ * code intent, or a document's reservation, shared with the opening record. It carries the settlement, the owner's named
+ * exception to the person's yes, never a consent receipt [OSA:REQ-030 exception, owner 2026-11-13].
+ */
+async function openNext(root, config, workflow, phase, code, settledId) {
+  const opening = await import('./commands/phase-opening.mjs');
+  const proposed = await opening.proposalNow(root, workflow, phase, { reason: 'own-correction' });
+  const opened = await opening.openSuccessor(root, config, workflow, phase, { ...proposed, settled: { kind: 'own-correction', id: settledId },
+    open: code ? opening.codeOpening(root, config) : opening.documentOpening() });
+  return code ? { generationIntent: phase.generationIntent, opening: opened.outcome }
+    : { opened: { generation: proposed.proposal.version, status: 'open' }, opening: opened.outcome };
 }

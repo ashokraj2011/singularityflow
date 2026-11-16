@@ -26,6 +26,9 @@ export async function prepareConfiguredPhase(root, config, workflow, phase) {
       publicationProducer
     };
   }
+  // A version opens only through the one opening operation: version 1 here, shared before prepare writes anything; a
+  // successor only on the person's yes (`phase rollover`) [OSA:REQ-030, REQ-031].
+  await (await import('../phase-opening.mjs')).openBeforePrepare(root, config, workflow, phase);
   const artifact = await storyDraftTransaction(root, config, workflow, `prepare:${phase.id}`, async () => {
     const prepared = await preparePhase(root, config, workflow, phase.id);
     await saveStoryDraft(root, config, workflow);

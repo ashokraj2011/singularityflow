@@ -92,7 +92,7 @@ export function phaseHandoff(workflow, phase, {
   if (workflow.currentPhase === phase.id && phase.status === 'in_progress' && successorGenerationOpen(phase)) {
     const skill = generationSkillForPhase(phase, workflow);
     if (skill) return withView([copilotAction({ skill, command: `singularity-flow prepare ${phase.id}`,
-      reason: `Write version ${phase.generationIntent.generation} of ${phase.id}, then publish it.` })]);
+      reason: `Write version ${phase.generationIntent?.generation ?? phase.versionOpening?.version} of ${phase.id}, then publish it.` })]);
   }
   const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
   if (convergenceRoute) return withView([copilotAction(convergenceRoute)]);

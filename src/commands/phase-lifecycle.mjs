@@ -4,12 +4,11 @@ import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { generationRecovery } from '../recovery-plan.mjs';
 import { workDir } from '../story-paths.mjs';
-import { generationResultMatches, generationResultDigest, beginPhaseGeneration, saveStoryDraft, prefetchStoryPublicationObservation, scanArtifacts, commitAndPublish, publishGeneration } from '../state-stores.mjs';
-import { safeCommandGuidance, commandGuidanceLines } from '../safe-command-guidance.mjs';
+import { generationResultMatches, generationResultDigest, saveStoryDraft, prefetchStoryPublicationObservation, scanArtifacts, commitAndPublish, publishGeneration } from '../state-stores.mjs';
+import { commandGuidanceLines } from '../safe-command-guidance.mjs';
 import { nextPhaseGeneration } from '../phase-generation.mjs';
-import { printCommandRoutes } from './shared/print-command-routes.mjs';
 import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
-import { verifyOpenGenerationIntent, generationStartPublicationBinding } from '../generation-boundary.mjs';
+import { generationStartPublicationBinding } from '../generation-boundary.mjs';
 // Load the full document renderer only when a caller actually requests that projection.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { printPhaseReview } from './shared/print-phase-review.mjs';
@@ -115,6 +114,8 @@ async function phaseSubcommand(positionals, options) {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
+    // The same confirmation again (a lost reply): the opening it made, as it was, never another [OSA:REQ-033].
+    if (optionString(options, 'confirm') && await (await import('./phase-opening.mjs')).replayConfirmed(root, config, workflow, phase, optionString(options, 'confirm'), options)) return;
     const plan = await generationRecovery(
       root, workflow, phase,
       async (repositoryRoot, selectedPhase) => await generationResultMatches(
@@ -136,8 +137,15 @@ async function phaseSubcommand(positionals, options) {
         { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`, skill: successorSkillForPhase(phase, workflow) } } });
       return (await import('../own-correction-rollover.mjs')).ownCorrectionRollover(root, config, workflow, phase, options);
     }
-    // Unchanged published bytes: the next generation opens for a change the person asks for.
-    if (!plan) return (await import('../requested-successor.mjs')).requestedSuccessorRollover(root, config, workflow, phase, options);
+    // Unchanged published bytes: the next generation opens for a change the person asks for; a step a person's return,
+    // a rejection or an amendment reopened (or a legacy local opening) opens on their yes the same way [OSA:REQ-030].
+    if (!plan) {
+      const requested = await import('../requested-successor.mjs');
+      if (!requested.requestedSuccessorEligible(workflow, phase) && await (await import('./phase-opening.mjs')).successorAwaitsConsent(workflow, phase)) {
+        return (await import('./phase-opening.mjs')).returnedSuccessorRollover(root, config, workflow, phase, options);
+      }
+      return requested.requestedSuccessorRollover(root, config, workflow, phase, options);
+    }
     if (optionString(options, 'reason', null) !== null && plan.action.mode !== 'manual' && plan.action.command) {
       await (await import('../requested-successor.mjs')).noteRequestedChange(root, workflow, phase, optionString(options, 'reason'));
     }
@@ -147,89 +155,26 @@ async function phaseSubcommand(positionals, options) {
         { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: plan ?? null }
       );
     }
-    const expected = plan.blocker.details.rolloverConfirmation;
-    const route = safeCommandGuidance(plan.action);
-    if (!route) throw new SingularityFlowError(
-      'The reviewed rollover action has no validated Shell and Copilot route. Re-run recovery before changing state.',
-      { code: 'GENERATION_ROLLOVER_ROUTE_UNAVAILABLE', details: { action: plan.action } }
-    );
-    const supplied = optionString(options, 'confirm');
-    const preview = {
-      schemaVersion: 1,
-      workId: workflow.workItem.id,
-      phase: phase.id,
-      fromGeneration: phase.generation,
-      toGeneration: nextPhaseGeneration(phase),
-      confirmation: expected,
-      changeSetDigest: plan.blocker.details.changeSetDigest,
-      currentResultDigest: plan.blocker.details.currentResultDigest,
-      command: route.command,
-      executable: route.executable,
-      argv: route.argv,
-      skill: route.skill,
-      copilotCommand: route.copilotCommand,
-      platformCommands: route.platformCommands,
-      mutates: Boolean(supplied)
-    };
-    if (!supplied) {
-      if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
-      else {
-        console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${nextPhaseGeneration(phase)}.`);
-        console.log('To start it, confirm its code below, in Copilot or in your own terminal.');
-        printCommandRoutes(route, { label: 'Continue' });
-        console.log('Nothing was changed.');
-      }
-      return;
-    }
-    if (supplied !== expected) {
-      throw new SingularityFlowError(
-        `Generation rollover confirmation must equal the current digest ${expected}. Re-run the preview if files are still changing.`,
-        { code: 'GENERATION_ROLLOVER_STALE', details: preview }
-      );
-    }
-    const intent = await storyDraftTransaction(root, config, workflow, `phase-rollover:${phaseId}`, async () => {
-      const opened = await beginPhaseGeneration(root, config, workflow, {
-        phaseId,
-        adoptExisting: Boolean(plan.blocker.details.changeSetDigest),
-        confirm: plan.blocker.details.changeSetDigest
-      });
-      await saveStoryDraft(root, config, workflow);
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      return opened;
-    });
-    const result = { ...preview, mutates: true, generationIntent: intent };
+    // Changed files after publication: the proposal adopts exactly the reviewed ones, on the person's yes [OSA:REQ-030, REQ-031].
+    const opened = await (await import('./phase-opening.mjs')).changedFilesSuccessor(root, config, workflow, phase, plan, options);
+    if (!opened) return;
+    const result = { ...opened.preview, mutates: true, generationIntent: phase.generationIntent, opening: opened.outcome, replayed: opened.replayed };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else console.log(`Opened ${phase.id} generation ${intent.generation} from exact confirmed bytes. The previous generation remains preserved.`);
+    else console.log(`Opened ${phase.id} version ${opened.outcome.version} from exact confirmed bytes. The previous version remains preserved.`);
     return;
   }
   if (subcommand === 'begin') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
-    const existing = phase.generationIntent;
-    if (existing?.status === 'open' && Number(existing.generation) === nextPhaseGeneration(phase)) {
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      if (optionBoolean(options, 'json')) console.log(JSON.stringify(existing, null, 2));
-      else console.log(`Generation intent ${existing.id} is already open for ${phase.id} generation ${existing.generation}.`);
-      return;
-    }
-    const generation = nextPhaseGeneration(phase);
-    const intent = await storyDraftTransaction(root, config, workflow, `phase-begin:${phaseId}`, async () => {
-      const opened = await beginPhaseGeneration(root, config, workflow, {
-        phaseId,
-        adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
-        confirm: optionString(options, 'confirm')
-      });
-      // Generation begin is a local authoring boundary, not lifecycle authority. Persist the
-      // workflow and receipt without a commit, but with a hard-crash recovery journal.
-      await saveStoryDraft(root, config, workflow);
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      return opened;
-    });
-    const output = { ...intent, local: true, lifecycleEvent: null };
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
-    else console.log(`Began ${phaseId} generation ${generation} with local intent ${intent.id}. The receipt will be bound into the generation publication.`);
-    return;
+    // Version 1 opens through the one opening operation, committed and shared [OSA:REQ-031]; a successor never opens here.
+    return (await import('./phase-opening.mjs')).beginVersion(root, config, workflow, phase, options);
+  }
+  if (subcommand === 'opening') {
+    const phaseId = positionals[2] ?? workflow.currentPhase;
+    const phase = workflow.phases[phaseId];
+    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
+    return (await import('./phase-opening.mjs')).openingCommand(root, config, workflow, phase, options);
   }
   if (subcommand === 'draft-check' || subcommand === 'prepublish') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
@@ -336,6 +281,9 @@ async function phaseSubcommand(positionals, options) {
   }
   // Before anything this command records: a step paused for an amendment proposed from it publishes nothing [owner, 2026-11-13].
   assertIntentAmendmentNotPausing(workflow, requestedPhase.id);
+  // The version published is one this checkout may write: accepted on the shared branch, and its writer fence held here
+  // [OSA:REQ-034, AC-017]. A stale or fenced writer is refused before anything is recorded.
+  await (await import('../story-version-opening.mjs')).assertOpeningWriter(root, workflow, requestedPhase);
   // A Node the repository names is pinned before the gate runs the tests, settled, never asked [owner, 2026-11-13].
   if (phaseRequiresCodeDelivery(requestedPhase)) await (await import('../settle-before-publication.mjs')).settleBeforePublication(root, config, workflow, requestedPhase,
     { actor: actionActor(root), agent: null, accounting: false });

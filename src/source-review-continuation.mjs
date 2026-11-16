@@ -1,5 +1,6 @@
 /** Read-only author/reviewer handoff. A draft is never evidence of publication. */
-import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
+import { phaseNeedsGeneration } from './sequence.mjs';
+import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { generationSkillForPhase, opensCodeVersion, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -60,6 +61,8 @@ export function continuationPresentation(action, timing = 'Now') {
 export function sourceReviewContinuation(workflow, phase, review = null) {
   const hold = phaseGovernanceHold(workflow, phase);
   const action = (skill, command, reason, label = null) => ({ ...copilotAction({ skill, command, reason }), ...(label ? { label } : {}) });
+  // The step's own work command: it writes the step, and it asks the person before a next version opens.
+  const author = generationSkillForPhase(phase, workflow);
   let classification, actions, generation = Number(phase.generation ?? 0);
   if (hold) { classification = hold.classification; actions = hold.actions; }
   else if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress') {
@@ -74,24 +77,28 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     // Its next version is open: writing it is the next step. The published version's review is carried into it, so
     // that review is never offered again, nor its submission [OSA:REQ-032, C2]. Only its own work command writes it.
     classification = 'successor-publication-required';
-    generation = Number(phase.generationIntent.generation);
-    actions = [action(generationSkillForPhase(phase, workflow), `singularity-flow prepare ${phase.id}`,
+    generation = Number(phase.generationIntent?.generation ?? phase.versionOpening?.version);
+    actions = [action(author, `singularity-flow prepare ${phase.id}`,
       `Write version ${generation} of ${phase.id}, then publish it; ${sourceReviewRequired(workflow, phase.id) ? 'its review follows its publication' : 'its submission follows its publication'}.`,
       `Write version ${generation} of ${phase.label ?? phase.id}`)];
   } else if (phaseNeedsGeneration(workflow, phase) || reviewAsksForCorrection(review)) {
     classification = 'successor-publication-required'; generation = nextPhaseGeneration(phase);
     // The review's corrections, in plain words: the person gives one yes to start the next version (owner, 2026-11-16).
     const fix = !phaseNeedsGeneration(workflow, phase) && reviewAsksForCorrection(review) ? `Fix the review's findings (version ${generation})` : null;
-    // A published code step's next generation opens in /sf-code itself, which asks the person and goes straight on to the
-    // fix in the same turn. /sf-recover found "no recovery required" for unchanged bytes and ran nothing (owner, 2026-11-16).
-    actions = phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !phaseExplicitlyReopened(workflow, phase)
-      ? [action('/sf-code', `singularity-flow phase rollover ${phase.id} --json`,
-        fix ? `/sf-code shows the person the review's findings and asks "Start version ${generation} to fix the review's findings? Version ${generation - 1} and its tests stay."; on their yes it starts version ${generation} and fixes them in the same turn.`
-          : `/sf-code previews version ${generation} of ${phase.id} and asks the person to confirm it; version ${generation - 1} and its tests stay as published.`, fix)]
+    // A published step's next version, for any reason (a return, a rejection or a review's corrections), opens in its own
+    // work command, which asks the person and goes straight on to the fix in the same turn [D3, OSA:REQ-030]. /sf-recover
+    // found "no recovery required" for unchanged bytes and ran nothing (owner, 2026-11-16).
+    const code = phaseRequiresCodeDelivery(phase);
+    const successor = Number(phase.generation ?? 0) >= 1 && (code || (!phaseUsesDeterministicGeneration(phase) && phase.generationPolicy?.requirement !== 'none'));
+    const skill = code ? '/sf-code' : String(author).replace(/^\/sflow-/u, '/sf-');
+    actions = successor
+      ? [action(skill, `singularity-flow phase rollover ${phase.id} --json`,
+        fix ? `${skill} asks the person "Start version ${generation} of ${phase.label ?? phase.id} to fix the review's findings?" and, on their yes, fixes them in the same turn.`
+          : `${skill} previews version ${generation} of ${phase.id} and asks the person to confirm it; version ${phase.generation} stays as published.`, fix)]
       // A code step with no version open opens it first, as its entry, edit permission and task say: one command (C13).
-      : opensCodeVersion(phase) ? [action(generationSkillForPhase(phase, workflow), `singularity-flow phase begin ${phase.id} --json`,
+      : opensCodeVersion(phase) ? [action(author, `singularity-flow phase begin ${phase.id} --json`,
         `Open version ${generation} of ${phase.id}, then write and publish it; the published version and its tests stay. ${sourceReviewRequired(workflow, phase.id) ? 'Its review follows its publication.' : 'Its submission follows its publication.'}`, fix)]
-      : [action(generationSkillForPhase(phase, workflow), `singularity-flow prepare ${phase.id}`,
+      : [action(author, `singularity-flow prepare ${phase.id}`,
         `Resume the phase author and prepare generation ${generation}. Preserve any private corrected draft, author it at the returned artifact path, then draft-check and prepublish. Publish only when the returned gates are ready; ${sourceReviewRequired(workflow, phase.id) ? 'review the published successor afterward' : 'follow its returned submission handoff'}.`, fix)];
   } else if (review?.pendingDispositions?.length) {
     classification = 'human-disposition-required';

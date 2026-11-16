@@ -10,6 +10,18 @@ import { planFastPath } from '../src/fast-path.mjs';
 import { phaseContinuation, phaseContinuationLines } from '../src/phase-continuation.mjs';
 import { phaseAuthoringEntry } from '../src/phase-authoring-entry.mjs';
 
+/**
+ * A document step's next version opened as Stage 2 opens it: its reservation, and the opening operation's record of it
+ * (story-version-opening.mjs). A reservation alone is an older build's local one, promoted on the person's yes [OSA §14].
+ */
+function openThroughOperation(workflow, phase) {
+  const reserved = reservePreparedDocumentSuccessor(workflow, phase, '2026-10-07T00:00:00Z');
+  const version = Number(phase.generation) + 1;
+  const operationId = `vo-${'3'.repeat(32)}`;
+  phase.versionOpening = { operationId, version, highWatermark: version, writer: { fence: 1, writerId: `vw-${'4'.repeat(32)}`, operationId } };
+  return reserved;
+}
+
 function story(id) {
   const phase = { id, label: id, status: 'in_progress', generation: 1,
     generationPolicy: { requirement: 'required', defaultProducer: 'governed-agent' },
@@ -26,7 +38,7 @@ test('every document phase and future custom phase retains the successor authori
     // Reviewed because it defines the scope, whatever it is called.
     workflow.resolution.obligationGraph = { nodes: [{ id, responsibilities: ['scope'] }] };
     assert.equal(phaseNeedsGeneration(workflow, phase), false);
-    assert.equal(reservePreparedDocumentSuccessor(workflow, phase, '2026-10-07T00:00:00Z'), true);
+    assert.equal(openThroughOperation(workflow, phase), true);
     const before = JSON.stringify(workflow);
     assert.equal(reservePreparedDocumentSuccessor(workflow, phase, 'later'), false, 'prepare retries cannot replace the reservation');
     assert.equal(JSON.stringify(workflow), before);
@@ -66,21 +78,23 @@ test('planner, fast path and review status agree on a retained source-review cor
   for (const id of ['specification', 'planning', 'verification', 'convergence', 'release', 'design', 'customer-scope']) {
     const workflow = story(id), phase = workflow.phases[id];
     const sourceReviewEvidence = { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }], pendingDispositions: [] };
-    const expected = `singularity-flow prepare ${id}`;
+    // Stage 2: a document's next version opens on the person's yes, through the step's preview [D3, journey I].
+    const expected = `singularity-flow phase rollover ${id} --json`;
     assert.equal(phaseHandoff(workflow, phase, { sourceReviewEvidence })[0].command, expected);
     assert.equal(workflowGuide(workflow, { sourceReviewEvidence }).nextActions[0].command, expected);
     assert.equal(nextStepsSnapshot({ workflow, sourceReviewEvidence }).actions[0].command, expected);
     const definition = { workTypes: { custom: { fastPath: { specify: { milestone: 'done', phases: [id] } } } } };
     const fast = planFastPath(workflow, definition, 'specify', { sourceReviewEvidence });
     assert.equal(fast.next[0].command, expected);
-    assert.equal(fast.checkpoint.kind, 'model-generation');
     const before = JSON.stringify(workflow);
     const entry = phaseAuthoringEntry(workflow, phase, { review: sourceReviewEvidence });
-    assert.equal(entry.status, 'successor-preparation-required');
+    assert.equal(entry.status, 'successor-confirmation-required');
     assert.equal(entry.targetGeneration, 2);
-    assert.equal(entry.preparation.command, expected);
+    assert.equal(entry.successor.preview.command, expected);
+    assert.match(entry.successor.question, /^Start version 2 of [\w-]+ to fix the review's findings\? Published version 1 will stay unchanged\.$/u);
     assert.equal(JSON.stringify(workflow), before, 'entry cannot reserve or compose a successor');
-    reservePreparedDocumentSuccessor(workflow, phase, 'now');
+    // Once the person's yes opened it through the operation, the entry writes it.
+    openThroughOperation(workflow, phase);
     assert.equal(phaseAuthoringEntry(workflow, phase, { review: sourceReviewEvidence }).status, 'authoring-entry');
     assert.equal(phase.generation, 1, 'routing is not publication or approval');
   }
@@ -119,11 +133,12 @@ test('a code step returned for rework is written again, other code successors ke
   phase.generationIntent = { status: 'consumed', generation: 1 };
   phase.reworkRevalidation = { generation: 1, invalidatedAt: 'now' };
   const before = JSON.stringify(workflow);
-  // Rework can leave the published bytes unchanged and rollover needs changed bytes: its next version opens with
-  // `phase begin`, the one command its entry, edit permission and task name too [OSA:REQ-010, C13].
-  assert.equal(sourceReviewContinuation(workflow, phase).nextCommand, 'singularity-flow phase begin custom-code --json');
-  // Its own entry writes it: the edit permission grants its files, and its task opens the next version [OSA:REQ-010, C13].
-  assert.equal(phaseAuthoringEntry(workflow, phase).status, 'authoring-entry');
+  // Stage 2: a return opens its next version on the person's yes too [D3]: the one rollover preview its entry, edit
+  // permission and task name [OSA:REQ-010, REQ-030, C13]; the entry asks it.
+  assert.equal(sourceReviewContinuation(workflow, phase).nextCommand, 'singularity-flow phase rollover custom-code --json');
+  const asked = phaseAuthoringEntry(workflow, phase);
+  assert.equal(asked.status, 'successor-confirmation-required');
+  assert.equal(asked.reason, 'rework');
   assert.equal(JSON.stringify(workflow), before);
   delete phase.reworkRevalidation;
   const corrected = sourceReviewContinuation(workflow, phase, { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] });
@@ -140,7 +155,7 @@ test('a later document correction advances only its explicit reservation, never 
   phase.generationPublications = [{ generation: 7, record: { path: 'context/custom-plan-gen7.json' } }];
   const review = { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] };
   assert.equal(phaseAuthoringEntry(workflow, phase, { review }).targetGeneration, 8);
-  reservePreparedDocumentSuccessor(workflow, phase, 'now');
+  openThroughOperation(workflow, phase);
   assert.equal(phaseAuthoringEntry(workflow, phase, { review }).status, 'authoring-entry');
   assert.equal(phaseInspectionGeneration(workflow, phase), 8);
   assert.equal(phase.generation, 7);

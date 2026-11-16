@@ -12,7 +12,7 @@ import test from 'node:test';
 
 import { approvedSpecificationStory, implementationPlan, CLI } from './helpers/submitted-planning-story.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
-import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
+import { captureMutationTurn, mutationPostToolGuard, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { agentAct, boundedAgentOutput } from '../src/agent-output.mjs';
 import { resolveCapabilityApplication } from '../src/capability-application-context.mjs';
 import { saveLocalApplicationProfile } from '../src/local-application-profile.mjs';
@@ -119,10 +119,26 @@ test('a change the person asks for after Code is published opens generation 2 in
   assert.match(stale.stdout + stale.stderr, /GENERATION_ROLLOVER_STALE/u);
   assert.deepEqual(await workflowOf(item), before);
 
+  // In this Code turn the confirmation opens nothing without the person's yes [OSA:REQ-030]: the agent asks the preview's
+  // own question, with its actual numbers (no tests were recorded for version 1, so none are promised) [§7.1].
+  assert.equal(preview.question, 'Start version 2 of Implementation? Published version 1 will stay unchanged.');
+  const unasked2 = run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'implementation', '--confirm', preview.confirmation, '--json'], { allowFailure: true });
+  assert.notEqual(unasked2.status, 0);
+  assert.equal(JSON.parse(unasked2.stdout).error.code, 'VERSION_CONSENT_REQUIRED');
+  assert.deepEqual(await workflowOf(item), before, 'refused, it opened nothing');
+  // The person's yes reaches SFlow as the host hands it to the post-tool hook; the guard keeps it for this exact version.
+  await mutationPostToolGuard({ ...hook, toolName: 'ask_user', toolArgs: { question: preview.question },
+    toolResult: { resultType: 'success', textResultForLlm: 'User responded: Yes' } });
+  assert.deepEqual(await shell(preview.command), {}, 'the confirmation passes on the person\'s yes');
   const opened = json(cli('phase', 'rollover', 'implementation', '--confirm', preview.confirmation, '--json'));
   assert.equal(opened.mutates, true);
   assert.equal(opened.generationIntent.generation, 2);
   assert.equal(opened.generationIntent.status, 'open');
+  // One opening operation, shared: its record, the person's receipt and the reserved number, pushed with the Story.
+  assert.equal(opened.opening.version, 2);
+  assert.equal(opened.opening.pushed, true);
+  assert.equal(opened.opening.consent.surface, 'question-tool');
+  assert.equal(git('rev-parse', 'HEAD'), git('rev-parse', 'origin/' + git('branch', '--show-current')));
 
   // Generation 2 is authored as usual: the code is editable, its tests run again and it is published.
   cli('prepare', 'implementation');

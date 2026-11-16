@@ -64,11 +64,13 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   const evidence = phase?.generationIntent?.status === 'open' && turnMode === 'authoring'
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
     : [];
+  // The open version's acceptance and writer as this checkout observed them, as the edit guard reads them [OSA:REQ-010].
+  const opening = phase?.versionOpening ? (await import('./story-version-acceptance.mjs')).observeOpening(root, workflow, phase) : null;
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     repositoryChecks: repositoryCheckStatus(root),
     personalization: resolvePersonalization({ root }), ...binding,
     // The same decision and basis the edit guard derives its permission from: one grant and one next [OSA:REQ-010, C7].
-    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence })),
+    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence, opening })),
     authoringContract: phaseAuthoringContract(definition, workflow, phase),
     build: { description: versionLine(), ...BUILD_INFO },
     continuationReview: phase ? { contractRevision: PHASE_JOURNEY_CONTRACT, readOnly: true,

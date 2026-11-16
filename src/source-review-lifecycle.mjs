@@ -68,7 +68,7 @@ export const sourceReviewStepNotCurrent = (workflow, phase, action) => new Singu
 function checkPublishedGeneration(workflow, phaseId) {
   const phase = workflow.phases?.[phaseId];
   if (phase && successorGenerationOpen(phase)) {
-    const version = phase.generationIntent.generation;
+    const version = phase.generationIntent?.generation ?? phase.versionOpening?.version;
     // Writing it is its own work command's, never a skill named from the command text [OSA:REQ-021, C4].
     throw new SingularityFlowError(`Version ${version} of ${phaseId} is being written; review it after it is published.`, {
       code: 'SOURCE_REVIEW_SUCCESSOR_OPEN',
@@ -823,7 +823,7 @@ async function loadSourceReviewStatus(root, config, workflow, phaseId) {
   if (step && successorGenerationOpen(step)) {
     // The next version is open: writing it comes first, by the step's own work command; the published version's review
     // is already carried into it (source-review-continuation.mjs) [OSA:REQ-021].
-    const version = step.generationIntent.generation;
+    const version = step.generationIntent?.generation ?? step.versionOpening?.version;
     return { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, // schema-transient
       phase: phaseId, generation: step.generation, status: 'successor-publication-required',
       reportPath: null, reportSha256: null, binding: null, pendingDispositions: [],

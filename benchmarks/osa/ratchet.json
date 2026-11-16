@@ -1,0 +1,923 @@
+{
+  "schemaVersion": 1,
+  "specification": "SPEC-OSA v1.1 AC-020 ratchet, started in Stage 1: per module and family, counts may only fall.",
+  "baseline": "benchmarks/osa/inventory.json (Stage 0, d7a976821). A ceiling above its Stage 0 count needs a named exception below.",
+  "lockIn": "node scripts/osa-inventory.mjs --ratchet rewrites the ceilings with the current counts; run it when a count falls.",
+  "exempt": "src/kernel/ is the decision owner and holds no counted site by design.",
+  "exceptions": [
+    {
+      "module": "phase-generation-need.mjs",
+      "family": "intentReads",
+      "stage0": 1,
+      "ceiling": 2,
+      "kind": "normalizer",
+      "owner": "the Story record's adapter (OSA:REQ-040)",
+      "deletion": "none: versionFactsOf is the approved record normalizer; Stage 5 checks it is the only raw reader left",
+      "why": "phase-inspection-generation.mjs (2 reads) moved in; the reads are versionFactsOf's normalization into kernel facts"
+    },
+    {
+      "module": "phase-mutation-contract.mjs",
+      "family": "lifecycleCommands",
+      "stage0": 0,
+      "ceiling": 2,
+      "kind": "renderer",
+      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
+      "deletion": "Stage 4: decisionRoutes moves into the central map",
+      "why": "decisionRoutes renders the kernel's approve-step as the approve and reject commands"
+    },
+    {
+      "module": "phase-mutation-contract.mjs",
+      "family": "skillLiterals",
+      "stage0": 1,
+      "ceiling": 2,
+      "kind": "renderer",
+      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
+      "deletion": "Stage 4: decisionRoutes moves into the central map",
+      "why": "decisionRoutes renders the person's successor preview with the code work command"
+    },
+    {
+      "module": "phase-authoring-entry.mjs",
+      "family": "routeObjects",
+      "stage0": 2,
+      "ceiling": 3,
+      "kind": "renderer",
+      "owner": "Stage 3, entry classification (b1)",
+      "deletion": "Stage 3: phaseAuthoringEntry takes the kernel's rendered next",
+      "why": "the entry now classifies positive damage and an impossible opening first, as the permission does (shadow comparison)"
+    },
+    {
+      "module": "phase-authoring-entry.mjs",
+      "family": "lifecycleCommands",
+      "stage0": 3,
+      "ceiling": 5,
+      "kind": "renderer",
+      "owner": "Stage 3, entry classification (b1)",
+      "deletion": "Stage 3: phaseAuthoringEntry takes the kernel's rendered next",
+      "why": "the recover and phase show commands of those two classifications"
+    },
+    {
+      "module": "phase-authoring-entry.mjs",
+      "family": "skillLiterals",
+      "stage0": 2,
+      "ceiling": 3,
+      "kind": "renderer",
+      "owner": "Stage 3, entry classification (b1)",
+      "deletion": "Stage 3: phaseAuthoringEntry takes the kernel's rendered next",
+      "why": "the recover route's skill"
+    },
+    {
+      "module": "phase-authoring-progress.mjs",
+      "family": "skillLiterals",
+      "stage0": 1,
+      "ceiling": 2,
+      "kind": "renderer",
+      "owner": "Stage 3, the authoring task's continuation (b9, a8)",
+      "deletion": "Stage 3: the task takes its continuation from the decision",
+      "why": "a published code step no person returned: the task previews its successor with the code work command, as the entry and permission do"
+    },
+    {
+      "module": "phase-prepublish.mjs",
+      "family": "lifecycleCommands",
+      "stage0": 9,
+      "ceiling": 10,
+      "kind": "renderer",
+      "owner": "Stage 3, prepublish's lead action (b39)",
+      "deletion": "Stage 3: prepublish leads with the decision's rendered next",
+      "why": "Stage 0 finding 5: a returned code step opens its next version (begin, or the person's rollover preview) instead of recovery"
+    }
+  ],
+  "ceilings": {
+    "acceptance-owner-check.mjs": {
+      "lifecycleCommands": 1
+    },
+    "agent-hooks.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 1,
+      "skillLiterals": 1
+    },
+    "agents.mjs": {
+      "predicateCalls": 3
+    },
+    "amended-drafts.mjs": {
+      "intentReads": 6,
+      "intentWrites": 1,
+      "predicateCalls": 7,
+      "routeObjects": 2,
+      "lifecycleCommands": 4,
+      "skillLiterals": 2
+    },
+    "application-review-host.mjs": {
+      "skillLiterals": 2
+    },
+    "application-review-human.mjs": {
+      "skillLiterals": 1
+    },
+    "application-review-read.mjs": {
+      "lifecycleCommands": 1
+    },
+    "application-review.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 3,
+      "skillLiterals": 2
+    },
+    "approval-agent-result.mjs": {
+      "lifecycleCommands": 1
+    },
+    "approval-check.mjs": {
+      "skillChooserCalls": 1,
+      "lifecycleCommands": 3
+    },
+    "approval-evidence.mjs": {
+      "skillLiterals": 2
+    },
+    "approval-submitted.mjs": {
+      "lifecycleCommands": 2
+    },
+    "apps/vscode/src/views/configuration-center-page.ts": {
+      "skillLiterals": 1
+    },
+    "apps/vscode/src/views/journey-model.ts": {
+      "routeObjects": 1
+    },
+    "apps/vscode/src/views/phase-prepublish.ts": {
+      "lifecycleCommands": 2
+    },
+    "apps/vscode/src/views/refusal.ts": {
+      "lifecycleCommands": 2
+    },
+    "apps/vscode/src/views/workflow-studio-page.ts": {
+      "skillLiterals": 2
+    },
+    "asked-for-records.mjs": {
+      "skillLiterals": 2
+    },
+    "asked-for.mjs": {
+      "intentReads": 1
+    },
+    "ast-lifecycle.mjs": {
+      "predicateCalls": 1
+    },
+    "auto/auto-executor.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 3
+    },
+    "changes-after-publication.mjs": {
+      "intentReads": 1,
+      "versionArithmetic": 2,
+      "routeObjects": 2,
+      "lifecycleCommands": 2,
+      "skillLiterals": 2
+    },
+    "choices.mjs": {
+      "lifecycleCommands": 1
+    },
+    "clarification-remote.mjs": {
+      "predicateCalls": 2
+    },
+    "clarifications.mjs": {
+      "predicateCalls": 3,
+      "skillChooserCalls": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "cli.mjs": {
+      "predicateCalls": 5,
+      "skillChooserCalls": 1,
+      "versionArithmetic": 2,
+      "routeObjects": 1,
+      "lifecycleCommands": 8
+    },
+    "code-delivery-policy.mjs": {
+      "intentReads": 2,
+      "predicateCalls": 7,
+      "skillChooserCalls": 4,
+      "skillLiterals": 7
+    },
+    "code-delivery-tests.mjs": {
+      "lifecycleCommands": 1
+    },
+    "code-documentation-inspection.mjs": {
+      "intentReads": 1
+    },
+    "code-submission-evidence.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 1,
+      "lifecycleCommands": 1
+    },
+    "collaboration.mjs": {
+      "intentReads": 2,
+      "predicateCalls": 1,
+      "routeObjects": 2,
+      "lifecycleCommands": 4,
+      "skillLiterals": 3
+    },
+    "commands/app-review.mjs": {
+      "intentReads": 1,
+      "intentWrites": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 1,
+      "skillLiterals": 1
+    },
+    "commands/approval-packet.mjs": {
+      "lifecycleCommands": 2
+    },
+    "commands/check.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "commands/decisions.mjs": {
+      "lifecycleCommands": 2
+    },
+    "commands/departure.mjs": {
+      "versionArithmetic": 1
+    },
+    "commands/goal.mjs": {
+      "lifecycleCommands": 1
+    },
+    "commands/nextsteps.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 5,
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "commands/phase-lifecycle.mjs": {
+      "intentReads": 2,
+      "intentWrites": 1,
+      "predicateCalls": 7,
+      "skillChooserCalls": 3,
+      "routeObjects": 2,
+      "lifecycleCommands": 2
+    },
+    "commands/phase-publish-if-ready.mjs": {
+      "lifecycleCommands": 1
+    },
+    "commands/prepare.mjs": {
+      "predicateCalls": 2
+    },
+    "commands/result.mjs": {
+      "lifecycleCommands": 2
+    },
+    "commands/revise.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "commands/session-takeover.mjs": {
+      "lifecycleCommands": 1
+    },
+    "commands/shared/decision-workflow.mjs": {
+      "predicateCalls": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "commands/shared/prepared-phase-next-actions.mjs": {
+      "predicateCalls": 2,
+      "skillChooserCalls": 2,
+      "routeObjects": 1,
+      "lifecycleCommands": 2
+    },
+    "commands/start.mjs": {
+      "skillChooserCalls": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 2
+    },
+    "commands/story-target-origin.mjs": {
+      "lifecycleCommands": 1
+    },
+    "commands/story-test-selection.mjs": {
+      "intentReads": 1
+    },
+    "commands/story.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "commands/submit-if-ready.mjs": {
+      "lifecycleCommands": 1
+    },
+    "commands/submit.mjs": {
+      "predicateCalls": 1,
+      "lifecycleCommands": 1
+    },
+    "commands/sync.mjs": {
+      "lifecycleCommands": 3
+    },
+    "commands/tests.mjs": {
+      "routeObjects": 3,
+      "lifecycleCommands": 1,
+      "skillLiterals": 3
+    },
+    "commands/upstream-issue.mjs": {
+      "versionArithmetic": 1
+    },
+    "config.mjs": {
+      "predicateCalls": 2
+    },
+    "confirm-entry.mjs": {
+      "lifecycleCommands": 2
+    },
+    "context-policy.mjs": {
+      "predicateCalls": 1
+    },
+    "convergence-context.mjs": {
+      "routeObjects": 1
+    },
+    "convergence-review-route.mjs": {
+      "routeObjects": 4
+    },
+    "copilot-answer-binding.mjs": {
+      "lifecycleCommands": 1
+    },
+    "copilot-guidance.mjs": {
+      "skillChooserCalls": 5,
+      "skillLiterals": 1
+    },
+    "copilot-hook-benchmark.mjs": {
+      "skillLiterals": 1
+    },
+    "copilot-mutation-guard.mjs": {
+      "intentReads": 2,
+      "predicateCalls": 1,
+      "skillChooserCalls": 23,
+      "versionArithmetic": 1,
+      "skillLiterals": 2
+    },
+    "copilot-plain-chat.mjs": {
+      "skillLiterals": 2
+    },
+    "copilot-repository-boundary.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 4,
+      "skillLiterals": 1
+    },
+    "criterion-test-failures.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 2,
+      "skillLiterals": 1
+    },
+    "decision-advice.mjs": {
+      "versionArithmetic": 1
+    },
+    "decision-list-reads.mjs": {
+      "intentReads": 1,
+      "versionArithmetic": 2,
+      "lifecycleCommands": 3,
+      "skillLiterals": 1
+    },
+    "decision-list.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 6,
+      "skillLiterals": 4
+    },
+    "delivery-evidence.mjs": {
+      "predicateCalls": 1,
+      "lifecycleCommands": 5
+    },
+    "design-sources.mjs": {
+      "predicateCalls": 2
+    },
+    "documents.mjs": {
+      "predicateCalls": 1
+    },
+    "draft-evidence-hold.mjs": {
+      "predicateCalls": 4
+    },
+    "epic-lifecycle.mjs": {
+      "versionArithmetic": 1
+    },
+    "evidence-reuse.mjs": {
+      "lifecycleCommands": 4
+    },
+    "evidence/cross-phase-change.mjs": {
+      "lifecycleCommands": 2
+    },
+    "evidence/terminal.mjs": {
+      "lifecycleCommands": 2
+    },
+    "fault-repair.mjs": {
+      "versionArithmetic": 1
+    },
+    "finding-escalation.mjs": {
+      "lifecycleCommands": 1
+    },
+    "findings/repair-continuation.mjs": {
+      "lifecycleCommands": 1
+    },
+    "fos-features.mjs": {
+      "lifecycleCommands": 2
+    },
+    "gate-recovery.mjs": {
+      "lifecycleCommands": 6
+    },
+    "gateway/planners/developer-next.mjs": {
+      "lifecycleCommands": 1
+    },
+    "gateway/planners/home-overview.mjs": {
+      "routeObjects": 1
+    },
+    "gateway/planners/work-continue.mjs": {
+      "lifecycleCommands": 1
+    },
+    "gateway/work-records.mjs": {
+      "intentReads": 1
+    },
+    "generation-boundary.mjs": {
+      "intentReads": 4,
+      "intentWrites": 4,
+      "predicateCalls": 3,
+      "skillChooserCalls": 1,
+      "routeObjects": 3,
+      "lifecycleCommands": 4,
+      "skillLiterals": 2
+    },
+    "generation-publication-store.mjs": {
+      "intentReads": 1,
+      "intentWrites": 1
+    },
+    "git.mjs": {
+      "lifecycleCommands": 2
+    },
+    "governed-goals.mjs": {
+      "versionArithmetic": 1
+    },
+    "guide.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 9,
+      "skillChooserCalls": 3,
+      "versionArithmetic": 2,
+      "routeObjects": 10,
+      "lifecycleCommands": 10
+    },
+    "help-pages.mjs": {
+      "lifecycleCommands": 9,
+      "skillLiterals": 3
+    },
+    "help-service.mjs": {
+      "skillChooserCalls": 1
+    },
+    "inbox.mjs": {
+      "lifecycleCommands": 3
+    },
+    "initiative-context.mjs": {
+      "versionArithmetic": 2
+    },
+    "initiative-evidence.mjs": {
+      "versionArithmetic": 3
+    },
+    "initiative-next.mjs": {
+      "skillChooserCalls": 2,
+      "versionArithmetic": 1
+    },
+    "initiative-report.mjs": {
+      "skillChooserCalls": 1
+    },
+    "initiative-state.mjs": {
+      "versionArithmetic": 4
+    },
+    "inject.mjs": {
+      "predicateCalls": 1
+    },
+    "inputs.mjs": {
+      "predicateCalls": 1
+    },
+    "lifecycle-event.mjs": {
+      "intentWrites": 1
+    },
+    "lifecycle-worktree.mjs": {
+      "lifecycleCommands": 1
+    },
+    "local-test-runs.mjs": {
+      "predicateCalls": 3
+    },
+    "manual-authorship.mjs": {
+      "skillLiterals": 3
+    },
+    "mcp-evidence.mjs": {
+      "predicateCalls": 3
+    },
+    "narration/command-result.mjs": {
+      "skillChooserCalls": 2
+    },
+    "narration/continuation.mjs": {
+      "skillChooserCalls": 1,
+      "lifecycleCommands": 3
+    },
+    "nextsteps.mjs": {
+      "predicateCalls": 3,
+      "skillChooserCalls": 10,
+      "lifecycleCommands": 18,
+      "skillLiterals": 1
+    },
+    "node-pin.mjs": {
+      "intentReads": 1
+    },
+    "outcome-review.mjs": {
+      "skillChooserCalls": 1
+    },
+    "own-correction-rollover.mjs": {
+      "intentWrites": 1,
+      "skillChooserCalls": 1,
+      "versionArithmetic": 2,
+      "routeObjects": 2,
+      "lifecycleCommands": 2,
+      "skillLiterals": 2
+    },
+    "owner-step-evidence.mjs": {
+      "lifecycleCommands": 3
+    },
+    "phase-agent-result.mjs": {
+      "lifecycleCommands": 1
+    },
+    "phase-appeals.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 2
+    },
+    "phase-artifact-risk.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 2
+    },
+    "phase-authoring-entry.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 3,
+      "versionArithmetic": 1,
+      "routeObjects": 3,
+      "lifecycleCommands": 5,
+      "skillLiterals": 3
+    },
+    "phase-authoring-progress.mjs": {
+      "intentReads": 2,
+      "predicateCalls": 3,
+      "skillChooserCalls": 1,
+      "skillLiterals": 2
+    },
+    "phase-authoring-summary.mjs": {
+      "predicateCalls": 1,
+      "skillChooserCalls": 1
+    },
+    "phase-checkpoint.mjs": {
+      "skillLiterals": 1
+    },
+    "phase-continuation-runtime.mjs": {
+      "predicateCalls": 1
+    },
+    "phase-continuation.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "phase-draft-check.mjs": {
+      "intentReads": 3,
+      "predicateCalls": 4,
+      "skillChooserCalls": 1,
+      "routeObjects": 2,
+      "lifecycleCommands": 4,
+      "skillLiterals": 2
+    },
+    "phase-entry-authoring.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 2,
+      "versionArithmetic": 1,
+      "routeObjects": 4,
+      "lifecycleCommands": 8
+    },
+    "phase-entry-context.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 1
+    },
+    "phase-evidence-amendment.mjs": {
+      "predicateCalls": 3,
+      "routeObjects": 1
+    },
+    "phase-execution-evidence.mjs": {
+      "intentReads": 1
+    },
+    "phase-finding-dispute.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 2
+    },
+    "phase-finding-policy.mjs": {
+      "intentReads": 1,
+      "lifecycleCommands": 2
+    },
+    "phase-generation-need.mjs": {
+      "intentReads": 2,
+      "predicateCalls": 2
+    },
+    "phase-generation.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 1
+    },
+    "phase-governance-routing.mjs": {
+      "intentReads": 1,
+      "skillChooserCalls": 1,
+      "routeObjects": 3,
+      "lifecycleCommands": 3,
+      "skillLiterals": 1
+    },
+    "phase-input-presentation.mjs": {
+      "lifecycleCommands": 1
+    },
+    "phase-journey-inspection.mjs": {
+      "predicateCalls": 1
+    },
+    "phase-journey.mjs": {
+      "predicateCalls": 1
+    },
+    "phase-mutation-contract.mjs": {
+      "predicateCalls": 1,
+      "skillChooserCalls": 2,
+      "lifecycleCommands": 2,
+      "skillLiterals": 2
+    },
+    "phase-preparation-guidance.mjs": {
+      "skillChooserCalls": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "phase-prepublish.mjs": {
+      "intentReads": 2,
+      "predicateCalls": 2,
+      "skillChooserCalls": 4,
+      "routeObjects": 8,
+      "lifecycleCommands": 10,
+      "skillLiterals": 9
+    },
+    "phase-prompt-composer.mjs": {
+      "predicateCalls": 8
+    },
+    "phase-publication-readiness.mjs": {
+      "predicateCalls": 1,
+      "routeObjects": 4,
+      "lifecycleCommands": 2,
+      "skillLiterals": 1
+    },
+    "phase-publication-unchanged.mjs": {
+      "predicateCalls": 2
+    },
+    "phase-quality-risk.mjs": {
+      "intentReads": 3
+    },
+    "phase-repair-journal.mjs": {
+      "predicateCalls": 1,
+      "routeObjects": 1
+    },
+    "phase-repair-runtime.mjs": {
+      "predicateCalls": 3,
+      "routeObjects": 1,
+      "lifecycleCommands": 1,
+      "skillLiterals": 1
+    },
+    "phase-resolution.mjs": {
+      "intentReads": 2,
+      "skillChooserCalls": 6,
+      "skillLiterals": 3
+    },
+    "phase-staging-paths.mjs": {
+      "predicateCalls": 1
+    },
+    "phase-transition-routes.mjs": {
+      "routeObjects": 3,
+      "lifecycleCommands": 2,
+      "skillLiterals": 1
+    },
+    "planning.mjs": {
+      "predicateCalls": 5
+    },
+    "prepared-document-successor.mjs": {
+      "predicateCalls": 2
+    },
+    "presence/person-records.mjs": {
+      "lifecycleCommands": 2
+    },
+    "publication-pending.mjs": {
+      "lifecycleCommands": 1
+    },
+    "publication-preflight.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 1
+    },
+    "pull-request.mjs": {
+      "lifecycleCommands": 1
+    },
+    "recovery-plan.mjs": {
+      "intentReads": 10,
+      "predicateCalls": 11,
+      "skillChooserCalls": 1,
+      "versionArithmetic": 1,
+      "routeObjects": 7,
+      "lifecycleCommands": 15,
+      "skillLiterals": 6
+    },
+    "recovery-preparation-context.mjs": {
+      "predicateCalls": 3
+    },
+    "recovery-set-aside.mjs": {
+      "lifecycleCommands": 3
+    },
+    "recovery-worktree-commit.mjs": {
+      "routeObjects": 2,
+      "lifecycleCommands": 4,
+      "skillLiterals": 1
+    },
+    "refusal-remediation.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 29,
+      "skillLiterals": 24
+    },
+    "reinstall.mjs": {
+      "skillChooserCalls": 1
+    },
+    "repair-budget.mjs": {
+      "lifecycleCommands": 1
+    },
+    "requested-successor.mjs": {
+      "intentWrites": 1,
+      "predicateCalls": 1,
+      "skillChooserCalls": 1,
+      "routeObjects": 3,
+      "lifecycleCommands": 3,
+      "skillLiterals": 1
+    },
+    "retained-skill-instructions.mjs": {
+      "predicateCalls": 2
+    },
+    "review-continuation.mjs": {
+      "intentReads": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "review-subagent.mjs": {
+      "predicateCalls": 1,
+      "versionArithmetic": 1,
+      "lifecycleCommands": 1
+    },
+    "revision/interactive-service.mjs": {
+      "skillChooserCalls": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "revision/publication-adapter.mjs": {
+      "predicateCalls": 1
+    },
+    "safe-command-guidance.mjs": {
+      "skillChooserCalls": 1,
+      "skillLiterals": 3
+    },
+    "scope/authoring.mjs": {
+      "predicateCalls": 1
+    },
+    "sequence.mjs": {
+      "predicateCalls": 6,
+      "skillChooserCalls": 3,
+      "routeObjects": 7,
+      "lifecycleCommands": 9
+    },
+    "session-read-service.mjs": {
+      "versionArithmetic": 1
+    },
+    "session.mjs": {
+      "predicateCalls": 2
+    },
+    "settle-before-publication.mjs": {
+      "intentReads": 1
+    },
+    "settled-decisions.mjs": {
+      "routeObjects": 2,
+      "lifecycleCommands": 2
+    },
+    "source-review-continuation.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 7,
+      "skillChooserCalls": 3,
+      "versionArithmetic": 2,
+      "lifecycleCommands": 8,
+      "skillLiterals": 3
+    },
+    "source-review-decision.mjs": {
+      "lifecycleCommands": 1
+    },
+    "source-review-lifecycle.mjs": {
+      "predicateCalls": 5,
+      "skillChooserCalls": 1,
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "source-review-staging.mjs": {
+      "lifecycleCommands": 1
+    },
+    "spec-coverage-preview.mjs": {
+      "lifecycleCommands": 1
+    },
+    "state.mjs": {
+      "intentReads": 3,
+      "predicateCalls": 27,
+      "skillChooserCalls": 5,
+      "versionArithmetic": 4,
+      "routeObjects": 6,
+      "lifecycleCommands": 22
+    },
+    "story-paths.mjs": {
+      "predicateCalls": 1
+    },
+    "story-test-command-amendment.mjs": {
+      "intentReads": 1
+    },
+    "story-test-commands.mjs": {
+      "lifecycleCommands": 1
+    },
+    "submission-readiness.mjs": {
+      "predicateCalls": 4,
+      "skillChooserCalls": 4,
+      "routeObjects": 8,
+      "lifecycleCommands": 3,
+      "skillLiterals": 1
+    },
+    "submit-route.mjs": {
+      "routeObjects": 2,
+      "lifecycleCommands": 1
+    },
+    "summary-step-changes.mjs": {
+      "intentReads": 2
+    },
+    "telemetry.mjs": {
+      "predicateCalls": 2
+    },
+    "test-command-pins.mjs": {
+      "lifecycleCommands": 1
+    },
+    "test-recovery-runtime.mjs": {
+      "intentReads": 1
+    },
+    "trp-delivery-selection.mjs": {
+      "predicateCalls": 1
+    },
+    "trp-document-runtime.mjs": {
+      "intentReads": 1
+    },
+    "upstream-routes.mjs": {
+      "routeObjects": 1,
+      "lifecycleCommands": 1
+    },
+    "verification/corner-case-obligations.mjs": {
+      "intentReads": 1
+    },
+    "verification/repository-tests.mjs": {
+      "predicateCalls": 1
+    },
+    "verification/witness-records.mjs": {
+      "predicateCalls": 1,
+      "lifecycleCommands": 3
+    },
+    "visual-coverage.mjs": {
+      "predicateCalls": 2
+    },
+    "visual-native-capture.mjs": {
+      "predicateCalls": 1
+    },
+    "wca-git-drafts.mjs": {
+      "versionArithmetic": 1
+    },
+    "work-intervals.mjs": {
+      "intentReads": 1,
+      "predicateCalls": 1
+    },
+    "workflow-assess/layers.mjs": {
+      "intentWrites": 1
+    },
+    "workflow-lifecycle-simulation.mjs": {
+      "predicateCalls": 5
+    },
+    "workflow-snapshots.mjs": {
+      "intentReads": 2
+    },
+    "workflow-step-people.mjs": {
+      "lifecycleCommands": 2
+    },
+    "workflow-studio.mjs": {
+      "predicateCalls": 2,
+      "skillChooserCalls": 1
+    },
+    "workflow-task-store.mjs": {
+      "predicateCalls": 1,
+      "skillChooserCalls": 1,
+      "lifecycleCommands": 1
+    },
+    "workflow-task.mjs": {
+      "predicateCalls": 4,
+      "skillChooserCalls": 2,
+      "versionArithmetic": 1,
+      "lifecycleCommands": 1
+    },
+    "workflow-walk/walk.mjs": {
+      "skillChooserCalls": 1,
+      "lifecycleCommands": 3
+    },
+    "workspace-bootstrap.mjs": {
+      "versionArithmetic": 2
+    },
+    "worldmodel.mjs": {
+      "predicateCalls": 1,
+      "skillChooserCalls": 1,
+      "skillLiterals": 1
+    }
+  }
+}

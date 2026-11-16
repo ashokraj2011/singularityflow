@@ -29,9 +29,11 @@
  * the ratchet: a module's counts may only fall, and approved normalizers, record validators and renderer strings are
  * named exceptions with an owner and a deletion target.
  *
- *   node scripts/osa-inventory.mjs [--json] [--sites] [--output=FILE]
+ *   node scripts/osa-inventory.mjs [--json] [--sites] [--output=FILE] [--ratchet]
  *
- * --sites keeps every site with its line, for an investigation; the default prints the summary.
+ * --sites keeps every site with its line, for an investigation; the default prints the summary. --ratchet rewrites
+ * benchmarks/osa/ratchet.json's ceilings with the current counts per module and family (FAMILIES), keeping its named
+ * exceptions: run it to lock in a fall. test/osa-ratchet.test.mjs holds the counts to it, and it to the Stage 0 baseline.
  */
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -363,6 +365,24 @@ export function summarize(modules) {
   };
 }
 
+/**
+ * The ratchet's families: one count per module for each kind of competing decision (AC-020). Moving a call from one
+ * predicate to another is not growth; a new raw intent read, route, command literal or skill literal is.
+ */
+export const FAMILIES = Object.freeze(['intentReads', 'intentWrites', 'predicateCalls', 'skillChooserCalls', 'versionArithmetic',
+  'routeObjects', 'lifecycleCommands', 'skillLiterals']);
+const total = (object) => sum(Object.values(object ?? {}).map((value) => typeof value === 'number' ? value : total(value)));
+export function familyCounts(entry) {
+  return { intentReads: total(entry.intentStatus), intentWrites: entry.intentWrites ?? 0, predicateCalls: total(entry.predicateCalls),
+    skillChooserCalls: total(entry.skillChooserCalls), versionArithmetic: entry.versionArithmetic ?? 0, routeObjects: entry.routeObjects ?? 0,
+    lifecycleCommands: total(entry.lifecycleCommands), skillLiterals: total(entry.skillLiterals) };
+}
+/** The ratchet's ceilings: each module's nonzero family counts. */
+export function ratchetCeilings(modules) {
+  return Object.fromEntries(modules.map((entry) => [entry.module, Object.fromEntries(Object.entries(familyCounts(entry)).filter(([, value]) => value > 0))])
+    .filter(([, counts]) => Object.keys(counts).length).sort(([a], [b]) => a.localeCompare(b)));
+}
+
 /** The committed form: counts per module, no line numbers. */
 export function baseline(modules) {
   return { schemaVersion: 1, specification: 'SPEC-OSA v1.1 Stage 0 inventory (AC-020 baseline)',
@@ -375,6 +395,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const report = process.argv.includes('--sites')
     ? { schemaVersion: 1, specification: 'SPEC-OSA v1.1 Stage 0 inventory (AC-020 baseline)', summary: summarize(modules), modules }
     : baseline(modules);
+  if (process.argv.includes('--ratchet')) {
+    const file = path.join(packageRoot, 'benchmarks', 'osa', 'ratchet.json');
+    const current = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, `${JSON.stringify({ ...current, ceilings: ratchetCeilings(modules) }, null, 2)}\n`);
+  }
   const output = process.argv.find((argument) => argument.startsWith('--output='))?.slice('--output='.length);
   if (output) await writeFile(output, `${JSON.stringify(report, null, 2)}\n`);
   if (process.argv.includes('--json')) console.log(JSON.stringify(report, null, 2));

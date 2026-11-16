@@ -5115,7 +5115,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     return sfGuardStandingsReader;
   };
-  for (const [id, handler] of Object.entries(executionContextHandlers(context, client))) handlers.set(id, handler);
+  for (const [id, handler] of Object.entries(executionContextHandlers(context, client, () => repository))) handlers.set(id, handler);
   handlers.set('singularityFlow.countCopilotChatUsage', () => turnOnCopilotChatCounting(client));
   handlers.set('singularityFlow.stopCountingCopilotChatUsage', () => turnOffCopilotChatCounting(client));
   if (!copilotChatCountingStarted && vscode.env?.appHost) {
@@ -10275,12 +10275,17 @@ async function resolveGovernedRepository(
     }
   }
 
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (folder) {
+  // A multi-root window binds the first of its folders that is a Flow repository or a workspace directory, not only
+  // its first folder (WS-8): a notes or tools folder listed first no longer hides the repository after it.
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  let firstError: Error | null = null;
+  let authorityError: Error | null = null;
+  for (const folder of folders) {
+    const named = folders.length > 1 ? ` (${folder.name})` : '';
     try {
       const repository = await validateRepositoryDirectory(folder.uri.fsPath, { signal: extensionLifetime.signal });
       return {
-        repository, root: repository, origin: 'the open folder', workspaceId: null,
+        repository, root: repository, origin: `the open folder${named}`, workspaceId: null,
         workspaceName: null, repositoryId: null
       };
     } catch (error) {
@@ -10294,26 +10299,30 @@ async function resolveGovernedRepository(
           const repository = await validateRepositoryDirectory(lead, { signal: extensionLifetime.signal });
           return {
             repository, root: repository,
-            origin: 'the lead repository of the workspace directory you have open',
+            origin: `the lead repository of the workspace directory you have open${named}`,
             workspaceId: null, workspaceName: null, repositoryId: null
           };
         } catch (leadError) {
           if (leadError instanceof RepositoryAuthorityUnavailableError) repositoryError = leadError;
         }
       }
-      if (repositoryError instanceof RepositoryAuthorityUnavailableError) {
-        return {
-          label: 'Singularity Flow authority is unavailable', reason: repositoryError.message,
-          contextValue: 'sflow.authorityUnavailable'
-        };
-      }
-      // A folder that is not a Flow repository is no selection of its own, so the profile default
-      // still applies; only without one does the window describe the folder.
-      return await activeWorkspaceRepository(context, output) ?? {
-        label: 'Not a Singularity Flow repository', reason: repositoryError.message,
-        contextValue: 'sflow.uninitialized'
-      };
+      if (repositoryError instanceof RepositoryAuthorityUnavailableError) authorityError ??= repositoryError;
+      firstError ??= repositoryError;
     }
+  }
+  if (authorityError) {
+    return {
+      label: 'Singularity Flow authority is unavailable', reason: authorityError.message,
+      contextValue: 'sflow.authorityUnavailable'
+    };
+  }
+  if (firstError) {
+    // A folder that is not a Flow repository is no selection of its own, so the profile default
+    // still applies; only without one does the window describe the folder.
+    return await activeWorkspaceRepository(context, output) ?? {
+      label: 'Not a Singularity Flow repository', reason: firstError.message,
+      contextValue: 'sflow.uninitialized'
+    };
   }
 
   const active = await activeWorkspaceRepository(context, output);

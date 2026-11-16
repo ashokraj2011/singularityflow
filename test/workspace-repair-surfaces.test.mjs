@@ -1,15 +1,20 @@
 /**
  * SPEC-SCF stage 5 on the other surfaces, decided by the owner on 16 November 2026:
  * - VS Code's Repair workspace previews the links and confirms that exact plan (the CLI's plan ID) before applying it.
+ * - A multi-root VS Code window keeps presence for each open folder in a workspace, not only its first (WS-8).
  * - Opening a Story says when its branch on the remote had commits made lately elsewhere (WS-10), from what opening it
  *   already fetched: no new network call.
  */
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
   confirmWorkspaceRepairLinks, REPAIR_LINKS_ACTION, workspaceRepairCommand, workspaceRepairConfirmCommand
 } from '../apps/vscode/src/views/workspace-repair-links.ts';
+import { heartbeatCommands } from '../apps/vscode/src/window-folder-heartbeats.ts';
 import { ACTIVE_ELSEWHERE_HOURS, storyActiveElsewhere } from '../src/story-active-elsewhere.mjs';
 
 function ports({ answer = true } = {}) {
@@ -50,6 +55,27 @@ test('VS Code repair shows the CLI\'s plan and applies exactly that plan once co
     assert.deepEqual(await confirmWorkspaceRepairLinks('/w/ws1', { links }, quiet), { outcome: 'none' });
     assert.equal(quiet.calls.asked.length + quiet.calls.ran.length, 0);
   }
+});
+
+test('a multi-root window keeps presence for every open folder in a workspace, not only the first [WS-8]', async (t) => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-window-folders-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workspace = path.join(root, 'ws');
+  const lead = path.join(workspace, 'repos', 'app');
+  const story = path.join(workspace, '.singularity-flow', 'story-worktrees', '.w-0123456789abcdef01234567');
+  const notes = path.join(root, 'notes');
+  for (const folder of [lead, story, notes]) await mkdir(folder, { recursive: true });
+  await writeFile(path.join(workspace, 'workspace.json'), '{}\n');
+  await mkdir(path.join(lead, '.git'));
+  await writeFile(path.join(story, '.git'), 'gitdir: elsewhere\n');
+  await mkdir(path.join(notes, '.git'));
+
+  const base = ['workspace', 'retention', '--heartbeat', '--surface', 'window', '--pid', '42', '--json'];
+  assert.deepEqual(heartbeatCommands('window', 42, [lead], lead), [base], 'a one-folder window is unchanged');
+  assert.deepEqual(heartbeatCommands('window', 42, [workspace], lead), [base], 'nor does a workspace folder opened alone');
+  assert.deepEqual(heartbeatCommands('window', 42, [notes, lead, story], lead), [base,
+    ['workspace', 'retention', '--heartbeat', '--surface', 'window-1', '--pid', '42', '--context-root', story, '--json']],
+  'the Story checkout open beside the bound repository has its own presence; a folder in no workspace has none');
 });
 
 test('opening a Story says when its remote branch brought changes made lately elsewhere, with no network call [WS-10]', () => {

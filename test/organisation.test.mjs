@@ -6983,7 +6983,8 @@ test('choosing a workspace is what scopes the rest', async () => {
 
   // A window's checkout wins; changing the profile default must not retarget another window.
   const active = extension.indexOf('const active = await activeWorkspaceRepository(context, output);');
-  const folder = extension.indexOf('const folder = vscode.workspace.workspaceFolders?.[0];',
+  // Every open folder of a multi-root window, in order, not only the first (WS-8).
+  const folder = extension.indexOf('const folders = vscode.workspace.workspaceFolders ?? [];',
     extension.indexOf('async function resolveGovernedRepository'));
   const windowRoot = extension.indexOf("const windowRoot = context.workspaceState.get<string>('singularityFlow.executionRoot');");
   assert.ok(windowRoot > 0 && folder > windowRoot && active > folder,

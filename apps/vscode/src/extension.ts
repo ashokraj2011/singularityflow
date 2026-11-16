@@ -67,7 +67,8 @@ import {
 import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
 import { configurationPathTarget } from './views/configuration-save.ts';
-import { activateReviewedWorkflowProposal, configurationSaveDisposition, configurationSavePlanCliArgs, type ConfigurationClash } from './views/configuration-save.ts';
+import { activateReviewedWorkflowProposal, configurationSaveDisposition, configurationSavePlanCliArgs, selfApprovalWords,
+  type ConfigurationClash, type ConfigurationSelfApproval } from './views/configuration-save.ts';
 import type { ConfigurationGitFailure } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
@@ -8070,7 +8071,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const text = await client.runText(args, { input: message.content });
         const disposition = configurationSaveDisposition(text, message.proposal);
-        // Save and activate: the person who chose the change activates the exact proposal it made, the
+        // Save and approve: the person who chose the change activates the exact proposal it made, the
         // same activation as Build with Copilot's Finish; a protected sflow/config says to merge [RTC:REQ-006].
         if (message.activate && disposition.kind === 'proposal') {
           const activation = await activateWorkflowProposalNow(disposition.branch);
@@ -8418,21 +8419,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // a change after previewing it, and export, import or copy workflows. Workflow Studio calls them;
   // every mutation goes through the engine's validation and the repository's review proposal.
   /**
-   * Activate a proposal its author confirmed on the page that made it (Build with Copilot's Finish
-   * and activate): the same exact-commit leased update as Review and activate, without the diff tab
-   * and second acknowledgement the person already answered. Server policy still applies.
+   * `configuration approve --json`: a proposal the host keeps for its own review (exit 2) still answers with
+   * its approval result, which the caller reads like any other.
+   */
+  const runApproval = async <T>(args: string[]): Promise<T> => {
+    try { return await client.run<T>(args); } catch (error) {
+      const result = (error as { result?: unknown }).result;
+      if (result && typeof result === 'object' && (result as { resultType?: unknown }).resultType === 'configuration-approval') return result as T;
+      throw error;
+    }
+  };
+  /**
+   * Approve a proposal its author just made on the page that made it (Build with Copilot's Finish and approve,
+   * Configuration Center's Save and approve): the same signed `configuration approve` as Review and approve.
+   * One acknowledgement says what approving does and whether it is a self-approval [SCF:REQ-011]; with
+   * self-approval off it is refused before anyone is asked [D4]. Server policy still applies.
    */
   const activateWorkflowProposalNow = async (branch: string): Promise<{ activated: boolean; message: string }> => {
     try {
       const inspected = await client.run<{ branch: string; proposalCommit: string; targetBranch: string; valid: boolean; merged?: boolean;
-        lands?: { clashes?: ConfigurationClash[] } }>(['workflow', 'proposal', branch, '--json']);
+        lands?: { clashes?: ConfigurationClash[] }; selfApproval?: ConfigurationSelfApproval | null }>(['workflow', 'proposal', branch, '--json']);
       if (!inspected.valid) return { activated: false, message: 'the proposal contains invalid or out-of-scope configuration changes; review it under Changes' };
       // A field sflow/config also changed needs the reviewer's pick, made where its two values are shown [SCF:REQ-007].
-      if (inspected.lands?.clashes?.length) return { activated: false, message: 'sflow/config changed a field this proposal also changes; pick which value to keep under Changes → Review and activate' };
+      if (inspected.lands?.clashes?.length) return { activated: false, message: 'sflow/config changed a field this proposal also changes; pick which value to keep under Changes → Review and approve' };
+      if (inspected.selfApproval?.self && !inspected.selfApproval.allowed) {
+        return { activated: false, message: 'this repository needs another person to approve configuration changes. It waits under Workflow Studio → Changes for them' };
+      }
       const activation = await activateReviewedWorkflowProposal<{
         activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
         failure?: ConfigurationGitFailure & { message?: string }; nextAction?: string; recoveryCommand?: string;
-      }>(inspected, { acknowledge: async () => true, activate: args => client.run(args) });
+        approval?: { selfApproved?: boolean } | null;
+      }>(inspected, {
+        acknowledge: async (selfApproval) => {
+          const approve = 'Approve';
+          return await showCompactWarningMessage(`Approve ${personBranch(inspected.branch)} for new Stories? This updates ${inspected.targetBranch}.`,
+            { modal: true, detail: `${selfApprovalWords(selfApproval)} Only this exact revision is approved. Server policy still applies; Stories already running keep their configuration.` },
+            approve) === approve;
+        },
+        activate: args => runApproval(args)
+      });
+      if (activation === null) return { activated: false, message: 'not approved. It waits under Workflow Studio → Changes' };
       if (!activation || activation.activated === false) {
         const message = activation?.failure?.message ?? `activation is ${activation?.status ?? 'waiting for repository review'}`;
         output.appendLine([message, lazyPanels().configurationGitFailureText(activation?.failure), `Preserved proposal: ${inspected.branch}@${inspected.proposalCommit}`,
@@ -8441,7 +8467,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
-      return { activated: true, message: `Activated on ${activation.targetBranch ?? 'sflow/config'}.` };
+      return { activated: true, message: `Approved on ${activation.targetBranch ?? 'sflow/config'}${activation.approval?.selfApproved ? ', recorded as a self-approval' : ''}.` };
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);
       return { activated: false, message: (error as Error).message };
@@ -8452,7 +8478,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const inspected = await client.run<{
         branch: string; proposalCommit: string; proposalCreatedAt?: string | null; targetBranch: string; diff: string;
         valid: boolean; merged?: boolean; workflows?: Array<{ id: string; change: string }>;
-        viewLines?: string[]; lands?: { clashes?: ConfigurationClash[] };
+        viewLines?: string[]; lands?: { clashes?: ConfigurationClash[] }; selfApproval?: ConfigurationSelfApproval | null;
       }>(['workflow', 'proposal', branch, '--json']);
       // A person reads the proposal by its branch and when it was made, never its commit; activation binds the exact commit (owner, 2026-11-11).
       const shown = personBranch(inspected.branch);
@@ -8463,15 +8489,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         view + (inspected.diff || 'No textual diff.').replace(/^index [0-9a-f]{7,64}\.\.[0-9a-f]{7,64}(?: [0-7]{6})?\r?\n/gmu, ''));
       if (!inspected.valid) {
         const message = 'The workflow proposal contains invalid or out-of-scope configuration changes.';
-        showRefusal(message, { headline: 'Workflow proposal cannot be activated' });
+        showRefusal(message, { headline: 'Workflow proposal cannot be approved' });
         return message;
       }
-      const merge = 'Merge exact proposal';
+      // One policy for every approval [D4]: with self-approval off, its author is not asked to approve it.
+      if (inspected.selfApproval?.self && !inspected.selfApproval.allowed) {
+        const message = `You proposed ${shown}, and this repository needs another person to approve configuration changes. It waits for them under Changes.`;
+        void showCompactWarningMessage(message);
+        return message;
+      }
+      const merge = 'Approve exact proposal';
       const confirmed = await showCompactWarningMessage(
-        `Merge ${shown}${inspected.proposalCreatedAt ? `, made ${inspected.proposalCreatedAt.slice(0, 16).replace('T', ' ')} UTC,` : ''} into ${inspected.targetBranch}?`,
+        `Approve ${shown}${inspected.proposalCreatedAt ? `, made ${inspected.proposalCreatedAt.slice(0, 16).replace('T', ' ')} UTC,` : ''} into ${inspected.targetBranch}?`,
         {
           modal: true,
-          detail: 'Review the open diff. A second acknowledgement authorizes one exact leased update. Server policy still applies. Application branches remain unchanged.'
+          detail: `Review the open view. ${selfApprovalWords(inspected.selfApproval ?? null)} A second acknowledgement authorizes one exact leased update. Server policy still applies. Application branches remain unchanged.`
         },
         merge
       );
@@ -8495,14 +8527,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return picks;
         },
         acknowledge: async () => {
-          const acknowledge = 'Acknowledge and merge';
+          const acknowledge = 'Acknowledge and approve';
           return await showCompactWarningMessage(
             `Authorize one exact leased update to ${inspected.targetBranch} for this reviewed commit? Git cannot confirm direct-push permission in advance.`,
             { modal: true, detail: 'Only this exact commit is authorized. Server hooks and review controls still apply. Application branches stay unchanged.' },
             acknowledge
           ) === acknowledge;
         },
-        activate: args => client.run(args)
+        activate: args => runApproval(args)
       });
       if (activation === null) return null;
       if (activation.activated === false) {
@@ -8519,13 +8551,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
       void showCompactInformationMessage(
-        `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'}. `
+        `Workflow configuration approved on ${activation.targetBranch ?? 'sflow/config'}${(activation as { approval?: { selfApproved?: boolean } }).approval?.selfApproved ? ', recorded as a self-approval' : ''}. `
         + 'It is now available to new Stories; refresh workspace configuration to project it to other repositories.'
       );
       return null;
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);
-      showRefusal(error, { headline: 'Could not activate workflow configuration proposal' });
+      showRefusal(error, { headline: 'Could not approve workflow configuration proposal' });
       return (error as Error).message;
     }
   };
@@ -8557,7 +8589,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (intent.status === 'succeeded') {
           const { WorkflowStudioPanel } = lazyPanels();
           await WorkflowStudioPanel.refreshProposals();
-          const review = 'Review and activate';
+          const review = 'Review and approve';
           const openChanges = 'Open Changes';
           const choice = await showCompactInformationMessage(
             `Workflow proposal ${personBranch(branch)} was uploaded and is waiting for review in Workflow Studio → Changes.`,
@@ -8616,7 +8648,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (proposal.transportIntent) watchProposalUpload(proposal.transportIntent, proposal.branch);
           return { outcome: 'proposed', branch: proposal.branch, error: null, uploaded: false };
         }
-        const review = 'Review and activate';
+        const review = 'Review and approve';
         const selected = await showCompactInformationMessage(
           `Workflow proposal ${personBranch(proposal.branch)} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
           + `It remains visible as Pending review until it is merged into ${proposal.baseBranch ?? 'sflow/config'}. `

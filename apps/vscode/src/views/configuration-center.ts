@@ -23,7 +23,7 @@ import { RetainedPanelRenderGate } from '../single-flight.ts';
 import { testScopeFromYaml, testSetupTargetsFromYaml, updateTestScopeYaml, updateTestSetupYaml, type TestSetupInspection } from './test-setup-model.ts';
 
 export type ConfigurationCenterMessage =
-  // `activate`: the person chose Save and activate, so a proposal this save makes is activated at once.
+  // `activate`: the person chose Save and approve, so a proposal this save makes is activated at once.
   | ({ type: 'save'; path: string; content: string; activate?: boolean } & ConfigurationSavePlan)
   | { type: 'profile'; name: string; role: string }
   | {
@@ -44,7 +44,7 @@ export type ConfigurationCenterMessage =
 export type ConfigurationCenterReply = string | null | {
   error: string | null;
   disposition: ConfigurationSaveDisposition;
-  /** Save and activate's outcome: activated, or why the proposal waits (a protected sflow/config). */
+  /** Save and approve's outcome: activated, or why the proposal waits (a protected sflow/config). */
   activation?: { activated: boolean; message: string };
 } | {
   error: string | null;
@@ -275,7 +275,7 @@ export class ConfigurationCenterPanel {
 
   private savedNotice(localNotice: string, disposition: ConfigurationSaveDisposition | null): string {
     if (disposition?.kind === 'proposal') {
-      return `Configuration proposal ${reviewBranchName(disposition.branch)} is pending review. Activate it in Workflow Studio → Changes → Review and activate, or merge it into ${disposition.baseBranch}, then recheck the approved authority. The application checkout was not changed.`;
+      return `Configuration proposal ${reviewBranchName(disposition.branch)} is pending review. Approve it in Workflow Studio → Changes → Review and approve, or merge it into ${disposition.baseBranch}, then recheck the approved authority. The application checkout was not changed.`;
     }
     if (disposition?.kind === 'unchanged') {
       return 'The approved configuration already contains this change; no proposal was required.';
@@ -415,7 +415,7 @@ export class ConfigurationCenterPanel {
         this.dirty = false;
         const kept = 'Stories already in progress keep their own test commands; a person who approves a Story\'s step adopts the new ones (/sf-test-setup), and their tests run fresh.';
         if (outcome.activation?.activated) {
-          // The person chose Save and activate: the same activation as Workflow Studio → Changes [RTC:REQ-006].
+          // The person chose Save and approve: the same activation as Workflow Studio → Changes [RTC:REQ-006].
           this.notice = `Saved and activated: ${outcome.activation.message} New Stories run these tests. ${kept}`;
           return this.render();
         }

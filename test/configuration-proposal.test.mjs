@@ -528,9 +528,9 @@ test('workflow proposals publish from approved configuration without changing th
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',
       '--label', 'Customer onboarding', '--description', 'A reviewed delivery path.',
-      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--phases', 'requirements,implementation-spec,implementation', '--governs', 'story',
       '--planned-claims', 'required', '--clause-phases', 'requirements',
-      '--claim-owners', 'implementation=requirements',
+      '--claim-owners', 'implementation=implementation-spec',
       '--propose', '--json'
     ], {
       cwd: item.story,
@@ -562,16 +562,17 @@ test('workflow proposals publish from approved configuration without changing th
     const proposed = YAML.parse(run('git', [
       '--git-dir', item.remote, 'show', `${result.branch}:singularity/workflow.yml`
     ]).stdout);
-    assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['requirements', 'implementation']);
+    // Planned by its implementation-spec step, so `workflow validate` finds no problem and it can be approved (ER-F7).
+    assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['requirements', 'implementation-spec', 'implementation']);
     assert.equal(proposed.workTypes['customer-onboarding'].plannedClaims.mode, 'required');
     assert.equal(result.nextAction, `singularity-flow workflow proposal ${result.branch} --json`);
 
     const retried = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',
       '--label', 'Customer onboarding', '--description', 'A reviewed delivery path.',
-      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--phases', 'requirements,implementation-spec,implementation', '--governs', 'story',
       '--planned-claims', 'required', '--clause-phases', 'requirements',
-      '--claim-owners', 'implementation=requirements',
+      '--claim-owners', 'implementation=implementation-spec',
       '--propose', '--json'
     ], {
       cwd: item.story,
@@ -626,23 +627,24 @@ test('workflow proposals publish from approved configuration without changing th
     // The review is the way forward [RTC:REQ-007]: the exact activation line, what its flag means,
     // and the VS Code place, in --json and in text.
     assert.equal(review.nextAction,
-      `singularity-flow workflow activate ${result.branch} --confirm ${result.commit} --acknowledge-unprotected`);
-    assert.equal(review.activation.vscode, 'Workflow Studio → Changes → Review and activate');
+      `singularity-flow configuration approve ${result.branch} --confirm ${result.commit}`);
+    assert.equal(review.activation.vscode, 'Workflow Studio → Changes → Review and approve');
     const reviewText = spawnSync(process.execPath, [
       cli, 'workflow', 'proposal', result.branch
     ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
     assert.equal(reviewText.status, 0, reviewText.stderr || reviewText.stdout);
-    assert.ok(reviewText.stdout.includes(`Activate it: ${review.nextAction}\n`), reviewText.stdout);
-    assert.match(reviewText.stdout, /--acknowledge-unprotected says you accept that SFlow updates sflow\/config itself\. Where the server protects/u);
-    assert.match(reviewText.stdout, /VS Code: Workflow Studio → Changes → Review and activate/u);
+    assert.ok(reviewText.stdout.includes(`Approve it: ${review.nextAction}\n`), reviewText.stdout);
+    assert.match(reviewText.stdout, /Approving updates sflow\/config with exactly this revision\. Where the server protects/u);
+    assert.match(reviewText.stdout, /VS Code: Workflow Studio → Changes → Review and approve/u);
 
-    const unacknowledged = spawnSync(process.execPath, [
-      cli, 'workflow', 'activate', result.branch, '--confirm', result.commit, '--json'
+    // Activating names the exact revision; without it nothing moves, and the refusal names the approve route.
+    const unconfirmed = spawnSync(process.execPath, [
+      cli, 'workflow', 'activate', result.branch, '--json'
     ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-    assert.notEqual(unacknowledged.status, 0);
-    assert.match(unacknowledged.stdout, /cannot prove whether.*protected/is);
+    assert.notEqual(unconfirmed.status, 0);
+    assert.match(unconfirmed.stdout, /configuration approve/u);
     assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(), item.approved,
-      'an unprotected authority does not move without its separate acknowledgement');
+      'an authority does not move without the revision named');
 
     const realGit = realGitForTest();
     const wrappers = path.join(item.base, 'git-wrappers');
@@ -740,9 +742,9 @@ test('workflow activation keeps a generic pre-receive refusal pending with its d
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'security-scanned-flow',
       '--label', 'Security scanned flow', '--description', 'A reviewed delivery path.',
-      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--phases', 'requirements,implementation-spec,implementation', '--governs', 'story',
       '--planned-claims', 'required', '--clause-phases', 'requirements',
-      '--claim-owners', 'implementation=requirements',
+      '--claim-owners', 'implementation=implementation-spec',
       '--propose', '--json'
     ], {
       cwd: item.story,

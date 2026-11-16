@@ -19,11 +19,23 @@ import { assertCredentialFreeRemote, sanitizeRemote, frozenRemoteTransport, fail
 import { gitDisabledHooksPath } from './platform-process.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
+import { configurationProposerKey } from './configuration-state-contract.mjs';
+import { listsMember, removedApprovalMemberships } from './configuration-people-history.mjs';
 import { canonicalJson } from './records.mjs';
 import { GitRemoteSession, gitCommonDir } from './git-execution.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
+const PEOPLE_PREFIX = 'sflow/config-change/people/';
+
+/** This person's people proposal of `label` still waiting on the authority, or null [SCF:REQ-012]. */
+async function waitingPeopleProposal(remoteUrl, label, key, session) {
+  const observed = await session.observeAsync(remoteUrl, { refs: [`refs/heads/${PEOPLE_PREFIX}*`], includeHead: false, refresh: true });
+  if (!observed?.ok) return null;
+  const pattern = new RegExp(`^refs/heads/${PEOPLE_PREFIX}${label}-${key}-[0-9a-f]{8}-[0-9a-f]{12}$`, 'u');
+  const found = [...observed.refs].find(([ref]) => pattern.test(ref));
+  return found ? { branch: found[0].slice('refs/heads/'.length), commit: found[1] } : null;
+}
 const ENROLLMENT_SNAPSHOTS = new WeakMap();
 
 /** Machine-local handoff; never serialized into the public enrollment result. */
@@ -234,21 +246,36 @@ function durableCheckout(root) {
 }
 
 /**
- * What a Story start says when its automatic approval enrollment could not be pushed to
- * `sflow/config`. The Story starts anyway with the approved configuration it inspected; this names
- * Git's reason and its fix, and the retry that publishes the retained commit once that is fixed.
- * A branch that moved meanwhile cannot take this commit: the next Story start enrolls again.
+ * What a Story start says when its automatic approval enrollment did not land on `sflow/config`. The Story
+ * starts anyway with the approved configuration it inspected. Either the enrollment waits as a people
+ * proposal for someone who may approve it [SCF:REQ-012], or Git refused the push: this names Git's reason
+ * and its fix, and the retry that publishes the retained commit once that is fixed. A branch that moved
+ * meanwhile cannot take this commit: the next Story start enrolls again.
  */
 export function enrollmentPendingNotice(enrollment) {
   const fault = enrollment?.fault ?? null;
   const diverged = enrollment?.transportStatus === 'remote-diverged' || fault?.classification === 'remote-diverged';
   const retry = enrollment?.transportIntent && !diverged ? `singularity-flow sync ${enrollment.transportIntent}` : null;
+  const proposal = enrollment?.proposed && enrollment?.proposal?.branch ? enrollment.proposal : null;
+  if (proposal && !fault) {
+    const why = enrollment.removalCheck === 'unknown'
+      ? ` SFlow could not read ${CONFIGURATION_BRANCH}'s history to check that no approved change removed you, so you cannot approve it yourself.`
+      : enrollment.approvalSecurity?.allowSelfApproval === false
+        ? ' This repository needs another person to approve configuration changes.' : '';
+    const command = `singularity-flow configuration approve ${proposal.branch}`;
+    return {
+      message: `Your Git identity waits for approval as people proposal ${proposal.branch}; until someone approves it, approvals need someone already in the groups.${why} Someone who may approve configuration runs: ${command}.`,
+      intentId: enrollment?.transportIntent ?? null, status: enrollment?.transportStatus ?? null, classification: null,
+      proposal: proposal.branch,
+      nextAction: { command: 'singularity-flow configuration proposals', label: 'See the proposal waiting for approval', skill: '/sf-configuration' }
+    };
+  }
   const reason = diverged
     ? ` ${CONFIGURATION_BRANCH} moved before the push landed, so the next Story start adds you again.`
     : fault?.classification === 'git-identity-required'
       ? ' A configuration commit names who made it, and Git has no user.name and user.email for you: set them '
         + '(git config --global user.name <NAME>, git config --global user.email <EMAIL>), and the next Story start adds you.'
-    : fault ? ` Git refused the push to ${CONFIGURATION_BRANCH}${fault.classification ? ` (${fault.classification})` : ''}`
+    : fault ? ` Git refused the push${proposal ? ` of people proposal ${proposal.branch}` : ` to ${CONFIGURATION_BRANCH}`}${fault.classification ? ` (${fault.classification})` : ''}`
       + `${fault.evidence?.diagnostic?.trim() ? `: "${fault.evidence.diagnostic.trim()}"` : ''}.${fault.advice ? ` ${fault.advice}` : ''}` : '';
   const then = retry ? ` ${fault ? 'After fixing that, run' : 'Run'}: ${retry}.` : '';
   return {
@@ -393,11 +420,22 @@ export async function publishCurrentIdentityToConfiguration(root, {
     const initiative = portfolio ? authorityRows(portfolio, 'initiative') : [];
     const selected = selectedAuthorities(story, initiative, target);
     const changedGroups = [];
+    // A group a reviewed change removed this person from is one they are never added back to by their own
+    // approval [SCF:REQ-012, finding ER-F3]. Story start leaves those groups alone; an explicit request still
+    // proposes, for someone else to approve. The groups they would join are read from sflow/config's history.
+    const joining = selected.filter((entry) => mergeMember(entry.authority?.members, actor, entry.scope).changed
+      && !listsMember(entry.authority?.members, member, entry.scope));
+    const removal = joining.length
+      ? removedApprovalMemberships(scratch, previousCommit, member, joining.map(({ id, scope }) => ({ id, scope })))
+      : { status: 'known', removed: [] };
+    const removedKeys = new Set((removal.removed ?? []).map((entry) => `${entry.scope}:${entry.id}`));
+    const keptOut = [];
 
     for (const entry of selected) {
       const document = entry.scope === 'story' ? workflow : portfolio;
       const merged = mergeMember(entry.authority?.members, actor, entry.scope);
       if (!merged.changed) continue;
+      if (automatic && removedKeys.has(`${entry.scope}:${entry.id}`)) { keptOut.push({ id: entry.id, scope: entry.scope }); continue; }
       document.setIn(['approvalAuthorities', entry.id, 'members'], merged.members);
       changedGroups.push({ id: entry.id, scope: entry.scope });
     }
@@ -424,7 +462,8 @@ export async function publishCurrentIdentityToConfiguration(root, {
       return {
         changed: false, pushed: false, branch: CONFIGURATION_BRANCH, commit: previousCommit,
         identity: member, groups: selected.map(({ id, scope }) => ({ id, scope })),
-        profile: previousProfile, approvalSecurity: currentSecurity, automatic: Boolean(automatic)
+        profile: previousProfile, approvalSecurity: currentSecurity, automatic: Boolean(automatic),
+        ...(keptOut.length ? { keptOut, keptOutReason: 'removed-by-approved-change' } : {})
       };
     }
 
@@ -469,7 +508,40 @@ export async function publishCurrentIdentityToConfiguration(root, {
     ], {
       env: process.env, legacyRun: (argv, opts) => run('git', argv, {...opts, cwd: scratch})
     });
-    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    const proposalCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    const proposalTree = run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: scratch }).stdout.trim();
+    // Every people or policy edit is a people proposal [SCF:REQ-012]. At Story start, where the repository
+    // allows self-approval and the person was never removed from these groups, the starter approves their
+    // own enrollment in the same step [D5]: one approval commit records them as proposer and approver.
+    // Otherwise the proposal waits for someone who may approve it, and the Story starts without them.
+    const policyEdit = profileChanged || selfApprovalChanged || autoEnrollmentChanged;
+    const inline = Boolean(automatic) && !policyEdit && currentSecurity.allowSelfApproval && removal.status === 'known';
+    const label = automatic ? 'enroll' : policyEdit ? 'approval-policy' : 'add-identity';
+    const proposalBranch = `${PEOPLE_PREFIX}${label}-${configurationProposerKey(author)}-${previousCommit.slice(0, 8)}-${proposalTree.slice(0, 12)}`;
+    let commit = proposalCommit;
+    if (inline) {
+      const person = `${author.name} <${author.email}>`;
+      const approvalMessage = `[configuration] approve people proposal ${proposalBranch}\n\n`
+        + `Proposed-by: ${person}\nApproved-by: ${person}\nSelf-approved: yes\nSflow-Approved-At: story-start\n`;
+      commit = run('git', ['commit-tree', proposalTree, '-p', previousCommit, '-p', proposalCommit, '-F', '-'], {
+        cwd: scratch, input: approvalMessage,
+        env: { ...process.env, GIT_AUTHOR_NAME: author.name, GIT_AUTHOR_EMAIL: author.email,
+          GIT_COMMITTER_NAME: author.name, GIT_COMMITTER_EMAIL: author.email }
+      }).stdout.trim();
+      run('git', ['update-ref', 'HEAD', commit, proposalCommit], { cwd: scratch });
+    } else if (automatic) {
+      // One waiting enrollment per person: a later Story start does not propose it again.
+      const waiting = await waitingPeopleProposal(remoteUrl, label, configurationProposerKey(author), remoteSession);
+      if (waiting) {
+        return {
+          changed: true, pushed: false, proposed: true, selfApproved: false, branch: CONFIGURATION_BRANCH, commit: previousCommit,
+          identity: member, groups: changedGroups, profile: previousProfile, approvalSecurity: currentSecurity, automatic: true,
+          proposal: { branch: waiting.branch, commit: waiting.commit, existing: true }, removalCheck: removal.status,
+          ...(keptOut.length ? { keptOut, keptOutReason: 'removed-by-approved-change' } : {}),
+          transportIntent: null, transportStatus: 'succeeded-existing', fault: null, nextAction: null
+        };
+      }
+    }
 
     // A Story starts in its own checkout, which a failed start removes. Retain and push the commit
     // from the repository's main checkout, which outlives it, so a later `sync <INTENT-ID>` can still run.
@@ -486,8 +558,9 @@ export async function publishCurrentIdentityToConfiguration(root, {
       repositoryRoot: publisher,
       remote,
       sourceCommit: commit,
-      targetRef: `refs/heads/${CONFIGURATION_BRANCH}`,
-      expectedRemote: previousCommit,
+      // The approval lands on sflow/config; a proposal is a new branch of its own, created only if absent.
+      targetRef: inline ? `refs/heads/${CONFIGURATION_BRANCH}` : `refs/heads/${proposalBranch}`,
+      expectedRemote: inline ? previousCommit : null,
       scope: {
         operation: 'sflow.configuration.people.add-current-identity',
         target,
@@ -495,12 +568,18 @@ export async function publishCurrentIdentityToConfiguration(root, {
         solo: Boolean(solo),
         allowSelfApproval: desiredSelfApproval,
         autoEnrollNewIdentities: desiredAutoEnrollment,
-        automatic: Boolean(automatic)
+        automatic: Boolean(automatic),
+        proposal: proposalBranch,
+        selfApproved: inline
       }
     }, transport);
+    const succeeded = publication.status === 'succeeded';
     const result = {
       changed: true,
-      pushed: publication.status === 'succeeded',
+      // Whether sflow/config now lists them: only an approval lands there.
+      pushed: inline && succeeded,
+      proposed: !inline,
+      selfApproved: inline,
       branch: CONFIGURATION_BRANCH,
       commit,
       identity: member,
@@ -508,10 +587,16 @@ export async function publishCurrentIdentityToConfiguration(root, {
       profile: profileChanged ? 'poc' : previousProfile,
       approvalSecurity: normalizeApprovalSecurity(workflow.toJS()?.approvalSecurity ?? {}),
       automatic: Boolean(automatic),
+      proposal: { branch: proposalBranch, commit: proposalCommit, published: inline ? null : succeeded },
+      removalCheck: removal.status,
+      ...(keptOut.length ? { keptOut, keptOutReason: 'removed-by-approved-change' } : {}),
+      ...(!automatic && removedKeys.size ? { previouslyRemoved: [...removedKeys] } : {}),
       transportIntent: publication.intentId,
       transportStatus: publication.status,
       fault: publication.fault ?? null,
-      nextAction: publication.nextAction ?? null
+      nextAction: publication.nextAction ?? (!inline && succeeded
+        ? { command: `singularity-flow configuration approve ${proposalBranch}`, label: 'Approve the people proposal (someone who may approve configuration)' }
+        : null)
     };
     if (result.pushed) {
       const snapshot = await captureEnrolledConfigurationSnapshot(scratch, remoteUrl, previousCommit, commit);

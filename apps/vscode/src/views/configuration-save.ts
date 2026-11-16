@@ -128,29 +128,46 @@ export interface ConfigurationClash {
   proposal: { value: unknown } | null; current: { value: unknown } | null;
 }
 
-/** Consent precedes expensive preparation. Neither a review nor a failed command grants it. */
+/**
+ * Whether the person approving is the proposal's author, and whether the repository lets them approve it
+ * [SCF:REQ-011, D4]: `workflow proposal --json` answers for whoever runs it.
+ */
+export interface ConfigurationSelfApproval { self: boolean; allowed: boolean; profile?: string }
+
+/**
+ * Approve one reviewed proposal: the signed person step `configuration approve`, the same on every surface
+ * [SCF:REQ-006, REQ-010]. Consent precedes expensive preparation; neither a review nor a failed command grants
+ * it, and a self-approval is said in the acknowledgement before it is given.
+ */
 export async function activateReviewedWorkflowProposal<T>(
-  reviewed: { branch: string; proposalCommit: string; merged?: boolean; lands?: { clashes?: ConfigurationClash[] } },
+  reviewed: { branch: string; proposalCommit: string; merged?: boolean; lands?: { clashes?: ConfigurationClash[] };
+    selfApproval?: ConfigurationSelfApproval | null },
   boundary: {
-    acknowledge: () => Promise<boolean>; activate: (args: string[]) => Promise<T>;
+    acknowledge: (selfApproval: ConfigurationSelfApproval | null) => Promise<boolean>; activate: (args: string[]) => Promise<T>;
     /** The reviewer's pick for each clash; null when they stop. A clash with no pick activates nothing. */
     choose?: (clashes: ConfigurationClash[]) => Promise<Record<string, 'proposal' | 'current'> | null>;
   }
 ): Promise<T | null> {
-  const args = ['workflow', 'activate', reviewed.branch, '--confirm', reviewed.proposalCommit];
+  const args = ['configuration', 'approve', reviewed.branch, '--confirm', reviewed.proposalCommit];
   const clashes = reviewed.merged ? [] : reviewed.lands?.clashes ?? [];
   if (clashes.length) {
     const picks = boundary.choose ? await boundary.choose(clashes) : null;
     if (!picks || clashes.some((clash) => !picks[clash.key])) return null;
     for (const clash of clashes) args.push('--pick', `${clash.key}=${picks[clash.key]}`);
   }
-  if (!reviewed.merged) {
-    if (!await boundary.acknowledge()) return null;
-    args.push('--acknowledge-unprotected');
-  }
+  if (!reviewed.merged && !await boundary.acknowledge(reviewed.selfApproval ?? null)) return null;
   // One attempt only: a changed ref, lease refusal or server policy needs a fresh review,
   // not an automatic retry. The kernel still re-observes and validates the exact commit.
   return boundary.activate([...args, '--json']);
+}
+
+/** The acknowledgement's words about who approves [SCF:REQ-011]: a self-approval is recorded and shown. */
+export function selfApprovalWords(selfApproval: ConfigurationSelfApproval | null): string {
+  if (!selfApproval?.self) return 'Your approval is recorded in the approval commit.';
+  if (!selfApproval.allowed) return 'You proposed this, and this repository needs another person to approve configuration changes: someone else approves it.';
+  return selfApproval.profile === 'poc'
+    ? 'You proposed this: a solo repository approves its own changes, recorded as a self-approval.'
+    : 'You proposed this, so approving it is recorded as a self-approval.';
 }
 
 export type ConfigurationPathTarget =

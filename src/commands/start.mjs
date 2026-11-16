@@ -2084,9 +2084,13 @@ async function startCommandAtRoot(positionals, options) {
           target: '*',
           commit: automaticEnrollment.commit,
           pushed: automaticEnrollment.pushed === true,
+          // Approved by the starter in this step where allowed [D5], else a people proposal that waits [SCF:REQ-012].
+          selfApproved: automaticEnrollment.selfApproved === true,
+          ...(automaticEnrollment.proposal?.branch ? { proposal: automaticEnrollment.proposal.branch } : {}),
           ...(automaticEnrollment.pushed ? {} : { pending: enrollmentPendingNotice(automaticEnrollment) })
         }
       } : {}),
+      ...(automaticEnrollment?.keptOut?.length ? { approvalEnrollmentKeptOut: automaticEnrollment.keptOut } : {}),
       ...(storyBase.scope === 'capability' ? {
         capabilityBase: {
           ...storyBase.plan.record,
@@ -2121,7 +2125,8 @@ async function startCommandAtRoot(positionals, options) {
       }),
       ...(automaticEnrollment?.changed && !automaticEnrollment.pushed && enrollmentPendingNotice(automaticEnrollment).nextAction ? [narrationAction({
         id: 'start.enrollment-retry',
-        label: 'Add yourself to the approval groups once the push can land',
+        label: automaticEnrollment.proposed && !automaticEnrollment.fault
+          ? 'See your enrollment waiting for approval' : 'Add yourself to the approval groups once the push can land',
         command: enrollmentPendingNotice(automaticEnrollment).nextAction.command,
         rank: 'LATER'
       })] : [])
@@ -2146,9 +2151,12 @@ async function startCommandAtRoot(positionals, options) {
       });
     }
     if (automaticEnrollment?.changed && automaticEnrollment.pushed) {
-      console.log(`Approval enrollment: current Git identity added to configured authorities on ${CONFIGURATION_BRANCH} (published).`);
+      console.log(`Approval enrollment: you were added to the approval groups on ${CONFIGURATION_BRANCH}, approved by you as you started this Story (recorded as a self-approval).`);
     } else if (automaticEnrollment?.changed) {
       console.log(`Approval enrollment pending: ${enrollmentPendingNotice(automaticEnrollment).message}`);
+    }
+    if (automaticEnrollment?.keptOut?.length) {
+      console.log(`Approval enrollment: not added back to ${automaticEnrollment.keptOut.map((group) => group.id).join(', ')}, which an approved change removed you from. Someone who may approve configuration can propose it.`);
     }
     if (managedStoryWorktree) {
       console.log(`Isolated Story checkout: ${root}`);

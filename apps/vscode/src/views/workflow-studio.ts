@@ -108,13 +108,14 @@ export interface WorkflowStudioActions {
   /** Re-read repository state after a publish, so the rest of the extension sees it. */
   refresh(): Promise<void>;
   /**
-   * Review a configuration proposal's exact diff and activate it after the person confirms, with the
+   * Review a configuration proposal's exact diff and approve it after the person confirms, with the
    * separate acknowledgement an unprotected configuration branch needs. Returns why it stopped, if it did.
    */
   reviewProposal(branch: string): Promise<string | null | void>;
   /**
-   * Activate a proposal the person already confirmed on the page that made it, with no diff tab and
-   * no second acknowledgement. Server policy still applies; when it refuses, the proposal waits.
+   * Approve a proposal the person just made on the page that made it: one acknowledgement that says
+   * whether it is a self-approval, then the signed `configuration approve`. Server policy still applies;
+   * when it refuses, or the repository needs another person, the proposal waits.
    */
   activateProposal?(branch: string): Promise<{ activated: boolean; message: string }>;
   /** Export the chosen workflows (`story:<id>`, `initiative:<id>`) and their dependencies as one bundle. */
@@ -149,8 +150,11 @@ export interface StudioChangeOutcome {
   uploaded?: boolean;
 }
 
-/** Unpublished Studio changes kept across closing the panel. */
-export interface StudioSavedDraft { schema: 1; base: string; savedAt: string; draft: string }
+/**
+ * Unpublished Studio changes kept across closing the panel: schema 2 holds edits against `base`
+ * [SCF:REQ-013]; schema 1 was a full copy, kept by earlier builds.
+ */
+export interface StudioSavedDraft { schema: 1 | 2; base: string; savedAt: string; draft: string }
 
 /** One agent to open the Agents view at, as the Instruction Designer's agent tab asks: its form, or a new one. */
 export type StudioAgentFocus = { agent: string } | { newAgent: true };
@@ -502,8 +506,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     this.post({ type: 'studio.retireDone', text: outcome.text });
     if (outcome.outcome === 'proposed' && outcome.branch && action !== 'delete') {
       const branch = outcome.branch;
-      void showCompactInformationMessage(outcome.text, 'Review and activate').then((choice) => {
-        if (choice === 'Review and activate') return this.reviewProposal(branch, pending);
+      void showCompactInformationMessage(outcome.text, 'Review and approve').then((choice) => {
+        if (choice === 'Review and approve') return this.reviewProposal(branch, pending);
       });
     } else if (outcome.outcome === 'written') {
       void showCompactInformationMessage(outcome.text, 'Open Source Control').then((choice) => {
@@ -802,21 +806,31 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     return base == null ? null : JSON.stringify(base);
   }
 
-  /** Offer kept changes back, but only against the configuration they were made on; others are dropped. */
+  /**
+   * Offer kept changes back. They are kept as edits against the configuration they were read from (schema 2),
+   * so the page moves them onto a newer one and names a value both changed: a newer configuration never
+   * discards them [SCF:REQ-013, finding ER-F8]. A full copy an earlier build kept (schema 1) can only be offered
+   * on the configuration it was made on; elsewhere the person is told it could not be moved.
+   */
   private async offerSavedDraft(): Promise<void> {
     const store = this.actions.draftStore;
     if (!store) return;
     const saved = store.get() as Partial<StudioSavedDraft> | undefined;
-    if (!saved || saved.schema !== 1 || typeof saved.draft !== 'string') return;
-    if (saved.base !== this.modelBase()) { await store.set(undefined); return; }
-    this.post({ type: 'studio.savedDraft', draft: saved.draft, savedAt: saved.savedAt ?? null });
+    if (!saved || (saved.schema !== 1 && saved.schema !== 2) || typeof saved.draft !== 'string') return;
+    const moved = saved.base !== this.modelBase();
+    if (saved.schema === 1 && moved) {
+      await store.set(undefined);
+      this.post({ type: 'studio.savedDraftDiscarded', message: 'Changes an earlier version of Workflow Studio kept were made on an older configuration and could not be moved onto this one.' });
+      return;
+    }
+    this.post({ type: 'studio.savedDraft', draft: saved.draft, savedAt: saved.savedAt ?? null, moved });
   }
 
   private async saveDraft(text: string | null): Promise<void> {
     const store = this.actions.draftStore;
     const base = this.modelBase();
     if (!store || !text || !base || Buffer.byteLength(text, 'utf8') > MAX_CHANGE_SET_BYTES) return;
-    await store.set({ schema: 1, base, savedAt: new Date().toISOString(), draft: text });
+    await store.set({ schema: 2, base, savedAt: new Date().toISOString(), draft: text });
   }
 
   private async clearDraft(): Promise<void> {
@@ -897,8 +911,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       await this.actions.refresh();
       if (result.reviewRequired && result.branch) {
         const choice = await showCompactInformationMessage(
-          `Workflow Studio changes are ready for review: ${result.branch}.`, 'Review and activate', 'Later');
-        if (choice === 'Review and activate') await this.actions.reviewProposal(result.branch);
+          `Workflow Studio changes are ready for review: ${result.branch}.`, 'Review and approve', 'Later');
+        if (choice === 'Review and approve') await this.actions.reviewProposal(result.branch);
       } else {
         const choice = await showCompactInformationMessage(
           'Workflow Studio wrote the configuration files. Review the diff and commit it.', 'Open Source Control');
@@ -1076,19 +1090,20 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       const check = await this.client.run<{ ready: boolean; changeSet: unknown; build: { workflow: string; label: string }; changes?: BuildChanges | null;
         draft?: { workflow?: { phases?: string[] } } }>(studioBuildArgs('check', id));
       if (!check.ready) return this.buildFailed('The build is not ready to finish. Its check says what is left.');
-      // A change build changes the workflow it names; it never creates one. Finishing and activating
-      // here asks once, with every change listed, instead of a diff tab and two more confirmations.
+      // A change build changes the workflow it names; it never creates one. Finishing and approving here
+      // proposes it, then asks once more, as an approval: the signed `configuration approve`, which says
+      // whether it is a self-approval and refuses one the repository does not allow [SCF:REQ-011, D4].
       const now = activate && proposal && Boolean(this.actions.activateProposal);
       const verb = check.changes?.inPlace ? 'Change' : 'Create';
-      const confirmed = await showCompactWarningMessage(now ? `${verb} the workflow ${check.build.label} and activate it now?` : `${verb} the workflow ${check.build.label}?`, {
+      const confirmed = await showCompactWarningMessage(now ? `${verb} the workflow ${check.build.label} and approve it now?` : `${verb} the workflow ${check.build.label}?`, {
         modal: true,
         ...(now ? { compactDetail: buildChangeSummary(check) } : {}),
         detail: now
-          ? [...buildChangeLines(check), '', 'One reviewed proposal is created and merged into the approved configuration at its exact commit; server rules still apply. New Stories use it at once; Stories already running keep theirs.'].join('\n')
+          ? [...buildChangeLines(check), '', 'One proposal is created, then you approve it into the approved configuration at its exact commit; server rules still apply. New Stories use it at once; Stories already running keep theirs.'].join('\n')
           : proposal
-            ? 'It becomes one review proposal on the approved configuration. Nothing changes for running or new Stories until it is reviewed and activated.'
+            ? 'It becomes one review proposal on the approved configuration. Nothing changes for running or new Stories until it is reviewed and approved.'
             : 'The files are written to this repository. Review the diff and commit it through your usual review.'
-      }, now ? 'Finish and activate' : proposal ? 'Create the proposal' : 'Write files');
+      }, now ? 'Finish and approve' : proposal ? 'Create the proposal' : 'Write files');
       if (!confirmed) { this.post({ type: 'studio.buildCancelled' }); return; }
       const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Finishing the workflow build', cancellable: false },
         () => proposal
@@ -1097,22 +1112,22 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       if (now && result.reviewRequired && result.branch) {
         const activation = await this.actions.activateProposal!(result.branch);
         this.post({ type: 'studio.buildFinished', build: id, how: 'publish', activated: activation.activated, summary: activation.activated
-          ? `Activated: ${check.build.label} is in the approved configuration, and new Stories use it now. Stories already running keep theirs.`
-          : `Proposed for review as ${result.branch}, not activated: ${activation.message}` });
+          ? `Approved: ${check.build.label} is in the approved configuration, and new Stories use it now. Stories already running keep theirs.`
+          : `Proposed for review as ${result.branch}, not approved: ${activation.message}` });
         await this.buildRefresh(id);
         await this.load(true);
         await this.actions.refresh();
         return;
       }
-      const summary = result.reviewRequired && result.branch ? `Proposed for review as ${result.branch}. Review and activate it under Changes.`
+      const summary = result.reviewRequired && result.branch ? `Proposed for review as ${result.branch}. Review and approve it under Changes.`
         : `Wrote ${(result.written ?? []).length} file(s) to this repository. Review the diff and commit it.`;
       this.post({ type: 'studio.buildFinished', build: id, how: 'publish', summary });
       await this.buildRefresh(id);
       await this.load(true);
       await this.actions.refresh();
       if (result.reviewRequired && result.branch) {
-        const choice = await showCompactInformationMessage(`The workflow is ready for review: ${result.branch}.`, 'Review and activate', 'Later');
-        if (choice === 'Review and activate') await this.actions.reviewProposal(result.branch);
+        const choice = await showCompactInformationMessage(`The workflow is ready for review: ${result.branch}.`, 'Review and approve', 'Later');
+        if (choice === 'Review and approve') await this.actions.reviewProposal(result.branch);
       }
     } catch (error) {
       this.output.appendLine(`  refused: ${(error as Error).message}`);

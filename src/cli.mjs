@@ -5277,6 +5277,15 @@ async function workflowCommand(positionals, options) {
 
   if (subcommand === 'activate') {
     const branch = requirePositional(positionals, 2, 'workflow proposal branch');
+    // Approval is one signed person step, the same on every surface [SCF:REQ-010]: activating names the exact
+    // revision and is `configuration approve`, which shows what lands, says whether it is a self-approval,
+    // follows approvalSecurity.allowSelfApproval and is signed by SF Guard where it is on.
+    if (optionString(options, 'confirm') != null) {
+      const { run: approve } = await import('./commands/configuration-drafts.mjs');
+      return approve({ subcommand: 'approve', positionals: ['configuration', 'approve', branch], root,
+        options: Object.fromEntries(Object.entries(options).filter(([key]) => ['json', 'confirm', 'pick'].includes(key))),
+        apply: null, printResult: null });
+    }
     const { configurationPicks } = await import('./configuration-state-git.mjs');
     const result = await activateWorkflowConfigurationProposal(root, branch, {
       confirm: optionString(options, 'confirm'),
@@ -8426,7 +8435,7 @@ async function initiativeCommand(positionals, options) {
 async function editorCommand(positionals, options, namespace = 'configuration') {
   const subcommand = requirePositional(positionals, 1, `${namespace} subcommand`);
   const root = repoRoot();
-  if (['drafts', 'propose', 'discard', 'approve', 'reject'].includes(subcommand)) {
+  if (['drafts', 'propose', 'discard', 'proposals', 'approve', 'reject'].includes(subcommand)) {
     return (await import('./commands/configuration-drafts.mjs')).run({ subcommand, positionals, options, root, printResult: printImportResult,
       apply: (set, { propose = false, subject, message } = {}) => applyImportChangeSet(root, set, { ...options, propose: propose || undefined }, { subject, message }) });
   }

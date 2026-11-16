@@ -5,15 +5,16 @@ import { activateReviewedWorkflowProposal } from '../apps/vscode/src/views/confi
 
 const reviewed = { branch: 'sflow/config-change/workflow/fixture', proposalCommit: 'a'.repeat(40), merged: false };
 
-test('workflow review obtains separate consent before exactly one activation call', async () => {
+test('workflow review obtains separate consent before exactly one signed approval call', async () => {
   const events = [];
-  const result = await activateReviewedWorkflowProposal(reviewed, {
-    acknowledge: async () => { events.push('consent'); return true; },
+  const result = await activateReviewedWorkflowProposal({ ...reviewed, selfApproval: { self: true, allowed: true } }, {
+    acknowledge: async (selfApproval) => { events.push(['consent', selfApproval]); return true; },
     activate: async args => { events.push(args); return { activated: true }; }
   });
   assert.equal(result.activated, true);
-  assert.deepEqual(events, ['consent', ['workflow', 'activate', reviewed.branch, '--confirm',
-    reviewed.proposalCommit, '--acknowledge-unprotected', '--json']]);
+  // The person step every surface takes [SCF:REQ-010]; the acknowledgement learns it is a self-approval [SCF:REQ-011].
+  assert.deepEqual(events, [['consent', { self: true, allowed: true }], ['configuration', 'approve', reviewed.branch, '--confirm',
+    reviewed.proposalCommit, '--json']]);
 });
 
 test('declining consent starts no expensive activation or mutation', async () => {
@@ -26,7 +27,7 @@ test('declining consent starts no expensive activation or mutation', async () =>
 test('an already merged proposal skips unnecessary direct-push acknowledgement', async () => {
   await activateReviewedWorkflowProposal({ ...reviewed, merged: true }, {
     acknowledge: async () => { assert.fail('No direct-push consent needed'); },
-    activate: async args => assert.deepEqual(args, ['workflow', 'activate', reviewed.branch,
+    activate: async args => assert.deepEqual(args, ['configuration', 'approve', reviewed.branch,
       '--confirm', reviewed.proposalCommit, '--json'])
   });
 });

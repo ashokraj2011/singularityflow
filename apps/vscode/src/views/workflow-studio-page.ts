@@ -495,11 +495,50 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function rebasedDraft(previousModel, draft, model) {
     var clashes = [];
     var next = rebaseDraft(initialDraft(previousModel), draft, initialDraft(model), [], clashes);
-    // The workflow order is one list both may have added to: keep the person's order, then the others' new workflows.
+    return orderedDraft(next, clashes);
+  }
+  // The workflow order is one list both may have added to: keep the person's order, then the others' new workflows.
+  function orderedDraft(next, clashes) {
     var order = (next.order || []).filter(function (id) { return next.workflows[id]; });
     Object.keys(next.workflows).forEach(function (id) { if (order.indexOf(id) < 0) order.push(id); });
     next.order = order;
     return { draft: withDraftDefaults(next), clashes: clashes.filter(function (path) { return path.indexOf('order') !== 0; }) };
+  }
+  /**
+   * A draft as edits against the configuration it was read from, never a full copy [SCF:REQ-013]: each changed
+   * value with what it was, so the edits move onto whatever configuration is current when they are restored.
+   */
+  var DRAFT_EDITS_FORMAT = 'sflow-studio-edits@1';
+  function draftEdits(before, draft, at, out) {
+    var plain = function (value) { return value !== null && typeof value === 'object' && !Array.isArray(value); };
+    if (same(before, draft)) return out;
+    if (plain(before) && plain(draft)) {
+      Object.keys(Object.assign({}, before, draft)).forEach(function (key) { draftEdits(before[key], draft[key], at.concat([key]), out); });
+      return out;
+    }
+    out.push({ path: at, hadBefore: before !== undefined, before: before === undefined ? null : clone(before), hasAfter: draft !== undefined, after: draft === undefined ? null : clone(draft) });
+    return out;
+  }
+  /** The edits moved onto the model: a value it changed differently since is a clash, where the person's value is kept. */
+  function draftFromEdits(model, edits) {
+    var next = initialDraft(model);
+    var clashes = [];
+    (edits || []).forEach(function (edit) {
+      if (!edit || !Array.isArray(edit.path) || !edit.path.length) return;
+      var parent = next;
+      for (var i = 0; i < edit.path.length - 1; i += 1) {
+        var key = edit.path[i];
+        if (parent[key] === null || typeof parent[key] !== 'object' || Array.isArray(parent[key])) parent[key] = {};
+        parent = parent[key];
+      }
+      var last = edit.path[edit.path.length - 1];
+      var current = parent[last];
+      var before = edit.hadBefore ? edit.before : undefined;
+      var after = edit.hasAfter ? edit.after : undefined;
+      if (!same(current, before) && !same(current, after)) clashes.push(edit.path.join(' › '));
+      if (after === undefined) delete parent[last]; else parent[last] = clone(after);
+    });
+    return orderedDraft(next, clashes);
   }
 
   function initialDraft(model) {
@@ -1010,7 +1049,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }
   }
 
-  window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, rebasedDraft: rebasedDraft, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
+  window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, rebasedDraft: rebasedDraft, draftEdits: draftEdits, draftFromEdits: draftFromEdits, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
     catalogSearch: catalogSearch, agentPromptPreview: agentPromptPreview, renderHome: renderHome, renderAgents: renderAgents, renderSkills: renderSkills, renderInstructions: renderInstructions, renderInspector: renderInspector,
     duplicateAgent: duplicateAgent, editAgent: editAgent, renderAgentForm: renderAgentForm, saveAgentForm: saveAgentForm,
     renderConstitution: renderConstitution, openConstitutionForm: openConstitutionForm, saveConstitutionArticle: saveConstitutionArticle,
@@ -1359,13 +1398,19 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     draftSaving = setTimeout(function () {
       if (!state.draft || !state.model) return;
       if (!changesNow().length) { post({ type: 'studio.draftClear' }); return; }
-      post({ type: 'studio.draftSave', draft: JSON.stringify(state.draft, function (key, value) { return UI_ONLY_KEYS[key] ? undefined : value; }) });
+      var kept = JSON.parse(JSON.stringify(state.draft, function (key, value) { return UI_ONLY_KEYS[key] ? undefined : value; }));
+      post({ type: 'studio.draftSave', draft: JSON.stringify({ format: DRAFT_EDITS_FORMAT, edits: draftEdits(initialDraft(state.model), kept, [], []) }) });
     }, 500);
   }
-  /** A kept draft is offered back only if it has the shape this page reads. */
+  /**
+   * A kept draft is offered back only if it has the shape this page reads. Kept edits are moved onto the
+   * configuration open now, so a newer one never discards them; a full copy kept by an earlier build is
+   * offered only on the configuration it was made on (the host checks that).
+   */
   function restorableDraft(text) {
     var draft;
     try { draft = JSON.parse(text); } catch (error) { return null; }
+    if (draft && draft.format === DRAFT_EDITS_FORMAT && Array.isArray(draft.edits) && state.model) return draftFromEdits(state.model, draft.edits);
     var objects = ['workflows', 'steps', 'phases', 'agents', 'groups', 'integrations'];
     if (!draft || typeof draft !== 'object' || !Array.isArray(draft.order) || !Array.isArray(draft.imports || [])) return null;
     return objects.every(function (key) { return draft[key] && typeof draft[key] === 'object' && !Array.isArray(draft[key]); }) ? draft : null;
@@ -1666,7 +1711,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       pending ? check('wait', pending + (pending === 1 ? ' change' : ' changes') + ' not published yet', 'Check and publish them together from Changes.', button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })) : check('dim', 'No unpublished changes', 'Edits you make collect here until you publish them.'),
       waitingProposals.length ? check('wait', waitingProposals.length + (waitingProposals.length === 1 ? ' proposal waiting for review' : ' proposals waiting for review'), 'Imported or published workflows become active after you review and activate them.',
         waitingProposals.length === 1 && waitingProposals[0].valid
-          ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(waitingProposals[0].branch); }, { class: 'primary', disabled: Boolean(state.busy) })
+          ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and approve', function () { reviewProposal(waitingProposals[0].branch); }, { class: 'primary', disabled: Boolean(state.busy) })
           : button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })) : null,
       waitingUploads.length ? check('wait', waitingUploads.length + (waitingUploads.length === 1 ? ' proposal saved on this computer' : ' proposals saved on this computer'), 'Not uploaded to the remote yet; check Changes if an upload needs your attention.',
         button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' })) : null));
@@ -1701,7 +1746,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
             pendingProposal ? el('span', { class: 'pill new', text: 'Pending review' }) : null),
           el('div', { class: 'studio-row' },
             pendingProposal && pendingProposal.valid
-              ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(pendingProposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + pendingProposal.branch })
+              ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and approve', function () { reviewProposal(pendingProposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and approve ' + pendingProposal.branch })
               : null,
             button(readOnly ? 'View' : 'Edit', function () { openWorkflowCanvas(id); }, { class: 'secondary', 'data-key': 'workflow-open-' + id,
               'aria-label': (readOnly ? 'View seeded workflow ' : 'Edit workflow in canvas: ') + workflow.label }),
@@ -1732,7 +1777,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
               el('span', { class: 'pill new', text: proposal.valid ? 'Pending review' : 'Blocked' })),
             el('div', { class: 'studio-row' },
               proposal.valid
-                ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
+                ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and approve', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and approve ' + proposal.branch })
                 : null,
               button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }))),
           el('span', { class: 'muted', text: (phases.length ? phases.length + (phases.length === 1 ? ' step · ' : ' steps · ') : '') + 'Proposed on ' + personBranch(proposal.branch) + ' — activate to edit or start Stories' }),
@@ -1831,7 +1876,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
             el('span', { class: 'pill', text: workflow.lifecycleMode === 'planning-only' ? 'Plans Stories' : 'Full delivery' })),
           el('div', { class: 'studio-row' },
             pendingProposal && pendingProposal.valid
-              ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(pendingProposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + pendingProposal.branch })
+              ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and approve', function () { reviewProposal(pendingProposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and approve ' + pendingProposal.branch })
               : null,
             button(protectedObject('epics', id) ? 'View' : 'Edit', function () { openEpicCanvas(id); }, { class: 'secondary',
               'aria-label': (protectedObject('epics', id) ? 'View seeded Epic workflow ' : 'Edit Epic workflow in canvas: ') + workflow.label }),
@@ -1856,7 +1901,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
               el('span', { class: 'pill new', text: proposal.valid ? 'Pending review' : 'Blocked' })),
             el('div', { class: 'studio-row' },
               proposal.valid
-                ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
+                ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and approve', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and approve ' + proposal.branch })
                 : null,
               button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }))),
           el('span', { class: 'muted', text: (phases.length ? phases.length + (phases.length === 1 ? ' step · ' : ' steps · ') : '') + 'Proposed on ' + personBranch(proposal.branch) + ' — activate to edit or start Epics' }),
@@ -6015,7 +6060,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       el('div', { class: 'studio-row spread' },
         el('div', null, el('code', { text: personBranch(proposal.branch) }), el('span', { class: 'muted', text: '  ' + madeAt(proposal) + (proposal.proposer ? ' by ' + proposal.proposer : '') })),
         proposal.valid && !proposal.merged
-          ? button(state.busy === 'review' ? 'Reviewing…' : earlier ? 'Review earlier proposal' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: earlier ? 'secondary' : 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + personBranch(proposal.branch) })
+          ? button(state.busy === 'review' ? 'Reviewing…' : earlier ? 'Review earlier proposal' : 'Review and approve', function () { reviewProposal(proposal.branch); }, { class: earlier ? 'secondary' : 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and approve ' + personBranch(proposal.branch) })
           : el('span', { class: 'pill', text: proposal.merged ? 'Merged' : 'Blocked' })),
       el('span', { class: 'muted', text: (subjects.length ? subjects.join(', ') : 'Configuration-only change') + ' · ' + proposal.files + (proposal.files === 1 ? ' file' : ' files') }),
       proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
@@ -6855,9 +6900,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var b = buildState();
     return el('div', { class: 'callout ok', 'data-key': 'build-landed' },
       el('div', { text: landed.change && (landed.activated || (b.finished && b.finished.activated))
-        ? 'Finished and activated: ' + landed.label + ' is in the approved configuration, and new Stories use it now. To change it again, change it with Copilot.'
+        ? 'Finished and approved: ' + landed.label + ' is in the approved configuration, and new Stories use it now. To change it again, change it with Copilot.'
         : landed.change
-        ? 'Finished: the change to ' + landed.label + ' was proposed; once it is reviewed and activated (Changes), new Stories use it. To change it again, change it with Copilot.'
+        ? 'Finished: the change to ' + landed.label + ' was proposed; once it is reviewed and approved (Changes), new Stories use it. To change it again, change it with Copilot.'
         : 'Finished: ' + landed.label + ' is in the approved configuration. Running and new Stories can use it. Change it in place with Copilot, or start a build from it to make a copy.' }),
       el('div', { class: 'studio-row', style: 'margin-top:6px' },
         button('Change ' + landed.label + ' with Copilot', function () { buildAction('start', { from: 'change', workflow: landed.workflow, name: null }, 'start'); },
@@ -6900,14 +6945,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var authority = (state.model.authority || {}).kind || 'working-tree';
     var proposal = authority !== 'working-tree';
     card.appendChild(el('div', { class: 'studio-row' },
-      // Finished and in use from this page: one confirmation, no diff tab, no second acknowledgement.
-      proposal ? button(b.busy === 'finish' ? 'Finishing…' : 'Finish and activate…', function () { buildAction('finish', { how: 'publish', activate: true }, 'finish'); },
+      // Finished and approved from this page: the change is proposed, then approved by the person after one
+      // acknowledgement that says whether it is a self-approval [SCF:REQ-011]; the signed configuration approve.
+      proposal ? button(b.busy === 'finish' ? 'Finishing…' : 'Finish and approve…', function () { buildAction('finish', { how: 'publish', activate: true }, 'finish'); },
         { class: 'primary', 'data-key': 'build-finish-activate', disabled: !result.ready || Boolean(b.busy) }) : null,
       button(b.busy === 'finish' && !proposal ? 'Finishing…' : proposal ? 'Create the proposal for review' : 'Write the files', function () { buildAction('finish', { how: 'publish' }, 'finish'); },
         { class: proposal ? 'secondary' : 'primary', 'data-key': 'build-finish-publish', disabled: !result.ready || Boolean(b.busy) }),
       button('Save as a portable file…', function () { buildAction('finish', { how: 'file' }, 'finish'); }, { class: 'secondary', 'data-key': 'build-finish-file', disabled: !result.ready || Boolean(b.busy) })));
     card.appendChild(el('p', { class: 'hint', text: proposal
-      ? 'Finish and activate makes one reviewed change on the approved configuration and activates it here, after one confirmation that lists every change; new Stories use it at once, running Stories keep theirs. If you may not approve configuration, the change waits as a proposal for someone who may. Create the proposal for review leaves it for another person to review and activate.'
+      ? 'Finish and approve proposes one change on the approved configuration and approves it here, after one confirmation that lists every change and says when you are approving your own change; new Stories use it at once, running Stories keep theirs. If the repository needs another person to approve configuration, the change waits as a proposal for them. Create the proposal for review leaves it for another person to review and approve.'
       : 'Write the files puts the workflow in this repository\'s configuration; review the diff and commit it. A portable file can be imported in another repository with Import….' }));
     if (b.finished) {
       card.appendChild(el('div', { class: 'callout ok', role: 'status', 'data-key': 'build-finished' }, b.finished.summary,
@@ -6934,7 +6980,13 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       main.appendChild(el('div', { class: 'callout wait', role: 'status' },
         el('div', { text: 'Unpublished changes were kept when Workflow Studio closed' + (when && !isNaN(when.getTime()) ? ' (' + when.toLocaleString() + ')' : '') + '.' }),
         el('div', { class: 'studio-row', style: 'margin-top:6px' },
-          button('Restore them', function () { state.draft = withDraftDefaults(state.restorable.draft); state.restorable = null; state.view = 'changes'; changed(); }, { class: 'primary', 'data-key': 'draft-restore' }),
+          button('Restore them', function () {
+            var restored = state.restorable;
+            state.draft = withDraftDefaults(restored.draft); state.restorable = null; state.view = 'changes';
+            // Moved onto a newer configuration: say so, and name a value both changed [SCF:REQ-013].
+            if (restored.moved || (restored.clashes || []).length) state.draftClashes = { reason: 'since your changes were kept', fields: restored.clashes || [] };
+            changed();
+          }, { class: 'primary', 'data-key': 'draft-restore' }),
           button('Discard them', function () {
             confirmAction('Discard your unsaved Studio changes?', 'They cannot be recovered afterwards.', 'Discard changes',
               function () { state.restorable = null; post({ type: 'studio.draftClear' }); render(); });
@@ -6948,12 +7000,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('div', { class: 'studio-row', style: 'margin-top:6px' }, button('OK', function () { state.draftClashes = null; render(); }, { class: 'secondary', 'data-key': 'draft-moved-ok' }))));
     }
     if (state.configurationChanged) {
+      // A newer configuration never discards unpublished changes [SCF:REQ-013]: ask for it, and the changes move onto it.
       main.appendChild(el('div', { class: 'callout wait', role: 'status' },
-        el('div', { text: 'The approved configuration changed (' + state.configurationChanged + ') and no longer holds the version your changes were made on, so Check refuses them until you reload; reloading discards them.' }),
-        el('div', { class: 'studio-row', style: 'margin-top:6px' }, button('Reload and discard my changes', function () {
-          confirmAction('Reload and discard your changes?', 'Your edits are replaced by the current configuration and cannot be recovered.', 'Discard and reload',
-            function () { post({ type: 'studio.draftClear' }); post({ type: 'studio.reload' }); });
-        }, { class: 'secondary', 'data-key': 'configuration-reload' }))));
+        el('div', { text: 'The approved configuration changed (' + state.configurationChanged + '). Your changes stay; load the newer configuration and they move onto it.' }),
+        el('div', { class: 'studio-row', style: 'margin-top:6px' }, button('Load it and keep my changes', function () {
+          post({ type: 'studio.refresh' });
+        }, { class: 'secondary', 'data-key': 'configuration-refresh-keep' }))));
     }
     if (state.view === 'changes' && proposalsState().list === null && !proposalsState().loading && !proposalsState().error) requestProposals();
     if (state.view === 'board') renderBoard(main);
@@ -7120,7 +7172,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       state.busy = null; render();
     } else if (message.type === 'studio.savedDraft') {
       var kept = restorableDraft(message.draft);
-      if (kept && !changesNow().length) { state.restorable = { draft: kept, savedAt: message.savedAt || null }; render(); }
+      var moved = kept && kept.draft && Array.isArray(kept.clashes) ? kept : null;
+      if (kept && !changesNow().length) {
+        state.restorable = { draft: moved ? moved.draft : kept, clashes: moved ? moved.clashes : [], moved: message.moved === true, savedAt: message.savedAt || null };
+        render();
+      }
     } else if (message.type === 'studio.confirmed') {
       var confirmed = state.confirms[message.id];
       delete state.confirms[message.id];

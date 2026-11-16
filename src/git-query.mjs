@@ -297,6 +297,27 @@ const descriptors = [
       return lines(result).map((line) => line.split('\0'));
     }
   }),
+  // The sflow/config commits, newest first, whose landed change added or removed a text in the people files: the
+  // candidates for "was this person ever in that group" [SCF:REQ-012]. First parent with merge diffs, so only what
+  // an approval actually landed counts, never a proposal's own commits.
+  descriptor('configuration.member-history', {
+    validate(params) {
+      const commit = String(params?.commit ?? '');
+      const needle = String(params?.needle ?? '');
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit) || !needle || needle.length > 320 || /[\u0000-\u001f]/u.test(needle)) {
+        throw new SingularityFlowError('A member history read needs an exact commit and a bounded identity.', { code: 'GIT_QUERY_INPUT_INVALID' });
+      }
+      return Object.freeze({ commit, needle });
+    },
+    argv: (params) => ['log', '--first-parent', '-m', '--format=%H', '--max-count=200', '--regexp-ignore-case', '--pickaxe-regex',
+      `-S${params.needle.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`, params.commit, '--',
+      'singularity/workflow.yml', 'singularity/portfolio.yml'],
+    dependency: 'repository-instance', allowFailure: true,
+    parser(result) {
+      if (!processResultSucceeded(result)) return null;
+      return [...new Set(lines(result))];
+    }
+  }),
   descriptor('repository.remote-url', {
     argv(params) {
       const remote = String(params?.remote ?? '');

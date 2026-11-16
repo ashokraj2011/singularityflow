@@ -54,6 +54,16 @@ export async function run(argv, { positionals, options }) {
     value = method === 'proposal' ? await api.inspectWorkflowConfigurationProposal(root, parameters.branch)
       : await api.listWorkflowConfigurationProposals(root, { includeMerged: parameters.includeMerged, includeDiff: false });
   }
+  if (method === 'proposal') {
+    // Whoever reads it is the one who would approve it: say whether that is a self-approval and whether the
+    // repository allows one [SCF:REQ-011, D4], in the view and for VS Code's acknowledgement.
+    let approver = null;
+    try { approver = (await import('../git.mjs')).configurationCommitIdentity(root); } catch { approver = null; }
+    const self = Boolean(approver?.email && value.proposer?.email
+      && approver.email.trim().toLowerCase() === value.proposer.email.trim().toLowerCase());
+    value.selfApproval = { self, allowed: value.approvalPolicy?.allowSelfApproval !== false, profile: value.approvalPolicy?.profile ?? null };
+    if (value.viewLines) value.viewLines = (await import('../configuration-approval-view.mjs')).proposalViewLines(value, { approver });
+  }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(value, null, 2));
   if (method === 'proposals') {
     if (!value.length) return console.log('No workflow configuration proposals are waiting.');
@@ -66,6 +76,8 @@ export async function run(argv, { positionals, options }) {
       if (proposal.repositoryTests) console.log(`  ${repositoryTestsWords(proposal.repositoryTests)} (${proposal.repositoryTests.change})`);
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
     }
+    // Every kind, drafts and capability proposals too, are in the one list [SCF:REQ-010].
+    console.log('Every configuration proposal, of every kind: singularity-flow configuration proposals');
     return;
   }
   if (value.repositoryTests) console.log(`  ${value.repositoryTests.change.padEnd(8)} ${repositoryTestsWords(value.repositoryTests)}`);
@@ -75,7 +87,7 @@ export async function run(argv, { positionals, options }) {
   console.log(`  status: ${value.merged ? 'already merged' : !value.valid ? 'invalid' : value.state === 'needs-choice' ? 'needs a choice' : 'ready for review'}`);
   // The way forward, for the person who may change the approved configuration (src/cli.mjs prints the same).
   if (value.activation) {
-    console.log(`Activate it: ${value.activation.command}`);
+    console.log(`Approve it: ${value.activation.command}`);
     console.log(`  ${value.activation.acknowledgement}`);
     console.log(`  VS Code: ${value.activation.vscode}`);
   }

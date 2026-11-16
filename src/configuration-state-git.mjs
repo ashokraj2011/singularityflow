@@ -12,7 +12,7 @@ import { loadSkillLibrary } from './skill-library.mjs';
 import { readInstruction } from './instruction-library.mjs';
 import { replayConfigurationYaml, replayConfigurationJson, replayFileMode, configurationFieldChanges } from './configuration-intent-replay.mjs';
 import { readProposalHistory } from './git-proposal-history.mjs';
-import { CONFIGURATION_STATE_PATH, CONFIGURATION_OID, readConfigurationState,
+import { CONFIGURATION_STATE_PATH, CONFIGURATION_OID, readConfigurationState, configurationDigest, configurationProposalKind,
   createConfigurationTransaction, appendConfigurationTransaction, isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 
@@ -297,15 +297,23 @@ export async function prepareConfigurationStateTransaction(root, remote, reviewe
     });
   }
   // Compute every conflict before materializing any candidate change.
-  const state = readConfigurationState(text(reader.file(reviewed.targetCommit, CONFIGURATION_STATE_PATH)));
-  const transaction = createConfigurationTransaction({ proposalId, proposalRevision: reviewed.proposalCommit,
-    branch: reviewed.branch, baseCommit: reviewed.proposalBase, expectedAuthorityCommit: reviewed.targetCommit, actor, changes });
+  // Only a workflow proposal's approval is appended to the shared receipt, which every build checks field by
+  // field; a people or package approval is recorded by its approval commit alone (SCF:REQ-018), so the receipt
+  // file older builds read never holds a kind they refuse.
+  const receipt = configurationProposalKind(reviewed.branch) === 'workflow';
+  const state = receipt ? readConfigurationState(text(reader.file(reviewed.targetCommit, CONFIGURATION_STATE_PATH))) : null;
+  const transaction = receipt ? createConfigurationTransaction({ proposalId, proposalRevision: reviewed.proposalCommit,
+    branch: reviewed.branch, baseCommit: reviewed.proposalBase, expectedAuthorityCommit: reviewed.targetCommit, actor, changes })
+    : approvalRecord({ proposalId, proposalRevision: reviewed.proposalCommit, branch: reviewed.branch,
+      baseCommit: reviewed.proposalBase, expectedAuthorityCommit: reviewed.targetCommit, actor, changes });
   const currentPaths = reader.inventory(reviewed.targetCommit, configurationAssetSearchRoots(assetPolicy),
     relative => isConfigurationAssetPath(relative, assetPolicy)).map(entry => entry.path);
   assertConfigurationAssetPathIdentities([...currentPaths.filter(relative => !files.has(relative)),
     ...[...files].filter(([, file]) => file).map(([relative]) => relative)]);
   for (const [relative, file] of files) await install(root, relative, file, env);
-  const baselineDefinition = validateDefinition(YAML.parse(text(reader.file(reviewed.targetCommit, 'singularity/workflow.yml'))));
+  // A sflow/config that does not load (an outside edit) is repaired by a proposal like any other [SCF:REQ-002]:
+  // the candidate must load, the broken baseline only grants nothing.
+  const baselineDefinition = loadableDefinition(text(reader.file(reviewed.targetCommit, 'singularity/workflow.yml')));
   // Validation is a mutation/candidate concern. Read-only catalog/proposal callers must not
   // import the editor's doctor/model graph just to inspect committed configuration objects.
   const { validateEditorConfiguration } = await import('./editor.mjs');
@@ -313,8 +321,10 @@ export async function prepareConfigurationStateTransaction(root, remote, reviewe
   const library = await loadSkillLibrary(root);
   if (library.problems.length) fail('The configuration skill library is invalid.', 'CONFIGURATION_TRANSACTION_VALIDATION_FAILED', { problems: library.problems });
   for (const skill of library.skills.values()) for (const id of skill.instructionRefs ?? []) await readInstruction(root, id);
-  const next = appendConfigurationTransaction(state, transaction);
-  await install(root, CONFIGURATION_STATE_PATH, { bytes: Buffer.from(JSON.stringify(next, null, 2) + '\n'), mode: '100644' }, env);
+  if (receipt) {
+    const next = appendConfigurationTransaction(state, transaction);
+    await install(root, CONFIGURATION_STATE_PATH, { bytes: Buffer.from(JSON.stringify(next, null, 2) + '\n'), mode: '100644' }, env);
+  }
   const candidateTree = git(root, ['write-tree', '--missing-ok'], env).stdout.trim();
   const changed = readGitNameStatusDiff(root, reviewed.targetCommit, candidateTree, { env, maximumRecords: 2_001 }).names;
   if (changed.some(relative => !files.has(relative) && relative !== CONFIGURATION_STATE_PATH)
@@ -328,22 +338,38 @@ export async function prepareConfigurationStateTransaction(root, remote, reviewe
   const proposer = reviewed.proposer?.name && reviewed.proposer?.email ? reviewed.proposer : actor;
   const commitEnv = { ...env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date,
     GIT_AUTHOR_NAME: proposer.name, GIT_AUTHOR_EMAIL: proposer.email, GIT_COMMITTER_NAME: actor.name, GIT_COMMITTER_EMAIL: actor.email };
-  const message = approvalCommitMessage(transaction.id, { proposer: reviewed.proposer ?? null, approver: actor, decided: landing.decided });
+  const message = approvalCommitMessage(transaction.id, { proposer: reviewed.proposer ?? null, approver: actor, decided: landing.decided,
+    branch: receipt ? null : reviewed.branch });
   const targetCommit = git(root, ['commit-tree', candidateTree, '-p', reviewed.targetCommit, '-p', reviewed.proposalCommit,
     '-F', '-'], commitEnv, { input: message }).stdout.trim();
   if (!CONFIGURATION_OID.test(targetCommit)) fail('The configuration transaction commit is invalid.');
   git(root, ['update-ref', 'HEAD', targetCommit, reviewed.targetCommit], env);
-  return { targetCommit, transaction, selfApproved: selfApproval(reviewed.proposer, actor), decided: landing.decided };
+  return { targetCommit, transaction, receipt, files, selfApproved: selfApproval(reviewed.proposer, actor), decided: landing.decided };
 }
 
 const sameIdentity = (left, right) => Boolean(left?.email && right?.email) && left.email.trim().toLowerCase() === right.email.trim().toLowerCase();
 /** Whether the approver also proposed: shown and recorded as a self-approval [SCF:REQ-011, REQ-018]. */
 export function selfApproval(proposer, approver) { return sameIdentity(proposer, approver); }
 
+/**
+ * The record a people or package approval keeps instead of a receipt entry: the same bindings and digest, written
+ * only into its approval commit's message [SCF:REQ-018].
+ */
+function approvalRecord({ proposalId, proposalRevision, branch, baseCommit, expectedAuthorityCommit, actor, changes }) {
+  const orderedChanges = [...changes].sort((a, b) => a.path.localeCompare(b.path));
+  return { id: `cft-${configurationDigest({ proposalId, proposalRevision, expectedAuthorityCommit, actor, changes: orderedChanges })}`,
+    proposalId, proposalRevision, branch, baseCommit, expectedAuthorityCommit, actor, changes: orderedChanges };
+}
+
+/** The approved definition, or null when it does not load: a broken baseline relaxes no check on the candidate. */
+function loadableDefinition(source) {
+  try { return validateDefinition(YAML.parse(source ?? '')); } catch { return null; }
+}
+
 /** The approval commit's message: who proposed, who approved, and each pick the approver made [SCF:REQ-018, REQ-007]. */
-export function approvalCommitMessage(transactionId, { proposer = null, approver, decided = [] }) {
+export function approvalCommitMessage(transactionId, { proposer = null, approver, decided = [], branch = null }) {
   const person = identity => `${identity.name} <${identity.email}>`;
-  const trailers = [...(proposer ? [`Proposed-by: ${person(proposer)}`] : []), `Approved-by: ${person(approver)}`,
+  const trailers = [...(branch ? [`Sflow-Proposal: ${branch}`] : []), ...(proposer ? [`Proposed-by: ${person(proposer)}`] : []), `Approved-by: ${person(approver)}`,
     ...(selfApproval(proposer, approver) ? ['Self-approved: yes'] : []),
     ...decided.map(entry => `Sflow-Picked: ${entry.pick} ${entry.key}`)];
   return `[configuration] activate ${transactionId}\n\n${trailers.join('\n')}\n`;

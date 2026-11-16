@@ -1,15 +1,17 @@
 /**
- * `configuration drafts | propose | discard | approve | reject`: see the saved agent, skill and
- * instruction drafts, propose all of them as one review, drop some, approve a proposal after reading
- * what it lands, and reject one with a reason or withdraw one's own.
+ * `configuration drafts | propose | discard | proposals | approve | reject`: see the saved agent, skill
+ * and instruction drafts, propose all of them as one review, drop some, list every proposal of every kind
+ * in one place, approve a proposal after reading what it lands, and reject one with a reason or withdraw
+ * one's own.
  */
 import { stdin as input, stdout as output } from 'node:process';
 import readline from 'node:readline/promises';
 import { SingularityFlowError } from '../util.mjs';
 
-export const CONFIGURATION_DRAFT_SUBCOMMANDS = Object.freeze(['drafts', 'propose', 'discard', 'approve', 'reject']);
+export const CONFIGURATION_DRAFT_SUBCOMMANDS = Object.freeze(['drafts', 'propose', 'discard', 'proposals', 'approve', 'reject']);
 const OPTIONS = Object.freeze({
-  drafts: ['json'], propose: ['json', 'message', 'background-sync'], discard: ['json', 'all', 'listing'], approve: ['json', 'yes', 'confirm', 'pick'], reject: ['json', 'yes', 'confirm', 'reason']
+  drafts: ['json'], propose: ['json', 'message', 'background-sync'], discard: ['json', 'all', 'listing'], proposals: ['json', 'lead'],
+  approve: ['json', 'yes', 'confirm', 'pick'], reject: ['json', 'yes', 'confirm', 'reason']
 });
 
 function validate(subcommand, positionals, options) {
@@ -19,7 +21,7 @@ function validate(subcommand, positionals, options) {
         { code: 'CONFIGURATION_DRAFTS_OPTION_UNSUPPORTED' });
     }
   }
-  const extra = { drafts: 2, propose: 2, discard: 3, approve: 3, reject: 3 }[subcommand];
+  const extra = { drafts: 2, propose: 2, discard: 3, proposals: 2, approve: 3, reject: 3 }[subcommand];
   if (positionals.length > extra) {
     throw new SingularityFlowError(`configuration ${subcommand} takes ${extra === 2 ? 'no other words' : 'at most one more word'}: ${positionals.slice(extra).join(' ')}.`,
       { code: 'CONFIGURATION_DRAFTS_OPTION_UNSUPPORTED' });
@@ -99,6 +101,12 @@ export async function run({ subcommand, positionals, options, root, apply, print
     if (json) return console.log(JSON.stringify(result, null, 2));
     for (const line of result.removed) console.log(`Discarded: ${line}`);
     return console.log(`${result.pending} draft${result.pending === 1 ? '' : 's'} left.`);
+  }
+  if (subcommand === 'proposals') {
+    const result = await (await import('../configuration-proposal-list.mjs')).listEveryConfigurationProposal(root, {
+      lead: typeof options.lead === 'string' ? options.lead : null });
+    if (json) return console.log(JSON.stringify(result, null, 2));
+    return console.log((await import('../configuration-proposal-list.mjs')).proposalListLines(result).join('\n'));
   }
   const { activateWorkflowConfigurationProposal, configurationProposalCommitStatus, inspectWorkflowConfigurationProposal,
     listWorkflowConfigurationProposals, finishInterruptedApproval, removeRejectedConfigurationProposal } = await import('../configuration-proposal.mjs');

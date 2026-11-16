@@ -126,7 +126,8 @@ export async function captureEnrolledConfigurationSnapshot(directory, remote, pr
   const ancestry = gitReadOutput(run('git', ['log', '-1', '--format=%H%n%P', 'HEAD'], {
     cwd: directory, env: enterpriseGitEnvironment(), allowFailure: true
   }), 'Enrolled configuration ancestry').trim().split(/\r?\n/u);
-  if (ancestry[0] !== commit || ancestry[1] !== previousCommit) throw new SingularityFlowError(
+  // An enrollment approved at Story start is an approval commit: sflow/config's commit first, the people proposal second [D5].
+  if (ancestry[0] !== commit || (ancestry[1] ?? '').split(' ')[0] !== previousCommit) throw new SingularityFlowError(
     'Enrollment snapshot does not extend the exact reviewed configuration parent.',
     { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
   );

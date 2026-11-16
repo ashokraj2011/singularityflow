@@ -9,8 +9,22 @@ export const isConfigurationStatePath = value => portableFilesystemPathIdentity(
 export const CONFIGURATION_OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const ID = /^(?:cfp|cft)-[a-f0-9]{64}$/u;
 const SHA = /^[a-f0-9]{64}$/u;
+// The receipt records workflow proposals only: every build checks it field by field, so a people or package
+// proposal's approval is recorded by its approval commit instead (SCF:REQ-018), never here.
 const BRANCH = /^sflow\/config-change\/workflow\/[a-z0-9._/-]+$/u;
+/** The proposal kinds one engine inspects, lists and approves [SCF:REQ-005]. */
+export const ENGINE_PROPOSAL_KINDS = Object.freeze(['workflow', 'people', 'package']);
+const PROPOSAL_BRANCH = /^sflow\/config-change\/(workflow|people|package)\/[a-z0-9._/-]+$/u;
+/** The kind of an engine proposal branch, or null. */
+export function configurationProposalKind(branch) {
+  const match = PROPOSAL_BRANCH.exec(String(branch ?? ''));
+  return match && !branch.includes('..') && !branch.includes('//') && !branch.endsWith('/') ? match[1] : null;
+}
 export const configurationDigest = value => createHash('sha256').update(canonicalJson(value)).digest('hex');
+/** The proposer's part of a proposal branch name: `by` and 8 hex digits of their Git email's digest (finding ER-F9). */
+export function configurationProposerKey(identity) {
+  return `by${createHash('sha256').update(String(identity?.email ?? '').trim().toLowerCase()).digest('hex').slice(0, 8)}`;
+}
 const fail = message => { throw new SingularityFlowError(message, { code: 'CONFIGURATION_STATE_INVALID' }); };
 function exact(value, keys) {
   if (!value || Object.getPrototypeOf(value) !== Object.prototype
@@ -24,8 +38,11 @@ export function configurationProposalId(remoteFingerprint, logicalKey) {
 }
 /** Legacy branch suffixes are revisions, never entity identities. */
 export function configurationProposalKey(branch) {
-  if (!BRANCH.test(branch) || branch.includes('..') || branch.includes('//') || branch.endsWith('/')) fail('Invalid proposal transport identity.');
-  return branch.slice('sflow/config-change/workflow/'.length).replace(/-[a-f0-9]{8}(?:-[a-f0-9]{12})?$/u, '');
+  const kind = configurationProposalKind(branch);
+  if (!kind) fail('Invalid proposal transport identity.');
+  // A workflow proposal keeps the key it always had; other kinds name their kind, so their IDs never meet one.
+  const key = branch.slice(`sflow/config-change/${kind}/`.length).replace(/-[a-f0-9]{8}(?:-[a-f0-9]{12})?$/u, '');
+  return kind === 'workflow' ? key : `${kind}/${key}`;
 }
 export function emptyConfigurationState() {
   return { format: 'sflow.configuration-state', version: 1, revision: 0, transactions: [] };
@@ -35,6 +52,7 @@ export function validateConfigurationTransaction(value) {
   if (!ID.test(value.id ?? '') || !value.id.startsWith('cft-') || !ID.test(value.proposalId ?? '') || !value.proposalId.startsWith('cfp-')
       || !CONFIGURATION_OID.test(value.proposalRevision ?? '') || !CONFIGURATION_OID.test(value.baseCommit ?? '')
       || !CONFIGURATION_OID.test(value.expectedAuthorityCommit ?? '') || !SHA.test(value.digest ?? '')) fail('Invalid configuration transaction binding.');
+  if (!BRANCH.test(value.branch ?? '')) fail('Invalid proposal transport identity.');
   configurationProposalKey(value.branch);
   exact(value.actor, ['name', 'email']);
   if (['name', 'email'].some(key => typeof value.actor[key] !== 'string' || !value.actor[key].trim()

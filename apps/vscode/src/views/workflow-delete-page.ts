@@ -210,7 +210,7 @@ export function workflowDeleteHtml(view: DeleteReviewView): string {
         : 'The configuration files changed in this checkout. Review the diff and commit it through your usual review.'}</p>
       ${done.backupPath ? `<p>A complete backup of the workflow was saved first:</p><p><code class="wd-path" data-wd-backup>${escape(done.backupPath)}</code></p>
         <p>To bring it back, preview importing the backup: <code data-wd-restore>${escape(restore)}</code></p>` : ''}
-      <div class="wd-actions">${done.reviewRequired && done.branch ? '<button type="button" data-wd-action="review">Review and activate</button>' : ''}
+      <div class="wd-actions">${done.reviewRequired && done.branch ? '<button type="button" data-wd-action="review">Review and approve</button>' : ''}
         ${restore ? '<button type="button" class="secondary" data-wd-action="copy">Copy restore command</button>' : ''}${close}</div></section></main>`;
   }
   if (!plan) {

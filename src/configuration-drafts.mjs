@@ -1154,6 +1154,12 @@ export async function approveProposal(root, requested, {
   const { proposalViewLines } = await import('./configuration-approval-view.mjs');
   const show = (shown) => { for (const line of proposalViewLines(shown, { approver })) print(line); };
   show(reviewed);
+  // One policy for every approval [SCF:REQ-011, D4]: refused before anyone is asked to confirm or sign.
+  if (reviewed.approvalPolicy?.allowSelfApproval === false && !reviewed.merged && approver?.email && reviewed.proposer?.email
+      && approver.email.trim().toLowerCase() === reviewed.proposer.email.trim().toLowerCase()) {
+    fail(`You proposed ${branch}, and this repository needs another person to approve configuration changes (approvalSecurity.allowSelfApproval is false). Nothing was approved; ask someone who may approve configuration to run: singularity-flow configuration approve ${branch}`,
+      'CONFIGURATION_SELF_APPROVAL_REFUSED', { nextAction: { label: 'Another person approves it', command: `singularity-flow configuration approve ${branch}` } });
+  }
   if (reviewed.valid === false) {
     fail(`Proposal ${branch} cannot be approved: ${reviewed.failure?.message ?? `it changes files outside the configuration${reviewed.invalidFiles?.length ? ` (${reviewed.invalidFiles.join(', ')})` : ''}`}`,
       reviewed.failure?.code ?? 'WORKFLOW_PROPOSAL_INVALID');
@@ -1242,7 +1248,7 @@ export async function rejectProposal(root, branch, {
   inspect, remove, identity, record, agent = () => false
 }) {
   if (!branch) fail('Name the proposal to reject: singularity-flow configuration reject <PROPOSAL>.', 'CONFIGURATION_REJECT_PROPOSAL_REQUIRED',
-    { nextAction: 'singularity-flow workflow proposals' });
+    { nextAction: 'singularity-flow configuration proposals' });
   const reviewed = await inspect(root, branch);
   if (reviewed.merged) {
     fail(`Proposal ${branch} is already approved, so it cannot be rejected. To undo it, propose the change back.`, 'CONFIGURATION_REJECT_ALREADY_APPROVED',

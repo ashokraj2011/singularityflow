@@ -140,6 +140,11 @@ export function proposalViewLines(reviewed, { approver = null } = {}) {
   if ((reviewed.invalidFiles ?? []).length) lines.push(`  Not configuration, so it cannot be approved: ${reviewed.invalidFiles.join(', ')}`);
   if (reviewed.failure?.message) lines.push(`  It cannot be approved yet: ${reviewed.failure.message}`);
   const self = approver?.email && reviewed.proposer?.email && approver.email.trim().toLowerCase() === reviewed.proposer.email.trim().toLowerCase();
-  if (self) lines.push('', 'You proposed this, so approving it is a self-approval: the approval commit records it as one.');
+  // One policy for every approval [D4]: where self-approval is off, say so before anyone is asked to confirm.
+  if (self && reviewed.approvalPolicy?.allowSelfApproval === false) {
+    lines.push('', 'You proposed this, and this repository needs another person to approve configuration changes: someone else approves it.');
+  } else if (self) {
+    lines.push('', `You proposed this, so approving it is a self-approval: the approval commit records it as one${reviewed.approvalPolicy?.profile === 'poc' ? ' (a solo repository approves its own changes)' : ''}.`);
+  }
   return lines;
 }

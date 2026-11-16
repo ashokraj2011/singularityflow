@@ -10,6 +10,7 @@ import { PACKAGE_ROOT } from '../../../src/package-root.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-runtime-client.ts';
 import { commandGuidance, setChatModelsAvailable } from './copilot-command.ts';
+import { participantRequestEnded, participantRequestStarted } from './chat-prefill.ts';
 import { commandGuidanceMarkdown } from './views/command-guidance.ts';
 import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
 import { commandClass, resolveCli, SingularityFlowClient } from './cli/client.ts';
@@ -1575,7 +1576,12 @@ export function registerSflowChat(
     };
   };
 
-  const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, handler);
+  // While @sflow answers, the next command is not put in the chat box over it (chat-prefill.ts).
+  const answering: vscode.ChatRequestHandler = async (...args) => {
+    participantRequestStarted();
+    try { return await handler(...args); } finally { participantRequestEnded(); }
+  };
+  const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, answering);
   // Chat shows a URI icon as an <img>, where activity.svg's currentColor is black: these two carry
   // fixed inks, dark green on light themes and light green on dark ones.
   participant.iconPath = {

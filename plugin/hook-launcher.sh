@@ -111,8 +111,37 @@ quiet_hook() {
     hold_hook_input || return 1
     if hook_input_goes_to_node; then return 1; fi
     if folder=$(hook_input_cwd) && cwd_uses_sflow "$folder"; then return 1; fi
-  else cat >/dev/null 2>&1 || true; fi
+  else
+    # No SFlow turn record means no stop continues this turn: it ends here.
+    if [[ "$action" == boundary-stop || "$action" == boundary-end ]]; then close_turn; fi
+    (( hook_input_held )) || cat >/dev/null 2>&1 || true
+  fi
   printf '%s\n' '{}'; exit 0
+}
+# SFlow's machine folder, where copilotModeFile() places the mode file.
+machine_dir() {
+  local mode=${SINGULARITY_FLOW_COPILOT_MODE_FILE:-}
+  if [[ -z "$mode" && "${HOME:-}" == /* ]]; then mode="$HOME/.singularity-flow/copilot-mode.json"; fi
+  [[ "$mode" == /* && "$mode" != */ && "$mode" != *'/./'* && "$mode" != *'/../'* ]] || return 1
+  machine_folder=${mode%/*}
+}
+# The held payload's session, hashed as recordPath() hashes it, once per hook.
+session_hash=''
+held_session_hash() {
+  local LC_ALL=C id tool hash
+  [[ -n "$session_hash" ]] && return 0
+  # macOS's bash 3.2 takes no bound past 255 in a pattern: the length is checked apart.
+  [[ $hook_input =~ \"session(Id|_id)\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9._:-]+)\" ]] || return 1
+  id=${BASH_REMATCH[2]}
+  (( ${#id} <= 256 )) || return 1
+  for tool in "$(command -v sha256sum 2>/dev/null)" /sbin/sha256sum /usr/bin/sha256sum "$(command -v shasum 2>/dev/null)" /usr/bin/shasum; do
+    [[ -n "$tool" && -x "$tool" ]] || continue
+    if [[ ${tool##*/} == shasum ]]; then hash=$(printf '%s' "$id" | "$tool" -a 256 2>/dev/null)
+    else hash=$(printf '%s' "$id" | "$tool" 2>/dev/null); fi
+    hash=${hash%% *}
+    [[ $hash =~ ^[a-f0-9]{64}$ ]] && { session_hash=$hash; return 0; }
+  done
+  return 1
 }
 # [PCR:REQ-016] Before Node starts for a prompt, the session's copy of its last prompt goes, and a plain prompt
 # ends the session's earlier /sf- turn: a prompt hook that fails or times out then leaves no earlier turn's
@@ -120,29 +149,15 @@ quiet_hook() {
 # the turn it continues), is left to the runtime, which writes a skill turn's record again as today.
 # Mirrors copilotModeFile() and recordPath() in src/copilot-repository-boundary.mjs.
 clear_stale_turn() {
-  local LC_ALL=C text before after id hash tool mode_dir
+  local LC_ALL=C text before after hash mode_dir machine_folder
   hold_hook_input || return 0
   (( hook_input_large )) && return 0
   text=$hook_input
   # A stop continuation reads the turn it continues; a subagent's task shares the person's session.
   [[ $text == *SFLOW_* || $text == *'"agentId"'* || $text == *'"agent_id"'* ]] && return 0
-  # macOS's bash 3.2 takes no bound past 255 in a pattern: the length is checked apart.
-  [[ $text =~ \"session(Id|_id)\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9._:-]+)\" ]] || return 0
-  id=${BASH_REMATCH[2]}
-  (( ${#id} <= 256 )) || return 0
-  mode_dir=${SINGULARITY_FLOW_COPILOT_MODE_FILE:-}
-  if [[ -z "$mode_dir" && "${HOME:-}" == /* ]]; then mode_dir="$HOME/.singularity-flow/copilot-mode.json"; fi
-  [[ "$mode_dir" == /* && "$mode_dir" != */ && "$mode_dir" != *'/./'* && "$mode_dir" != *'/../'* ]] || return 0
-  mode_dir=${mode_dir%/*}
-  for tool in "$(command -v sha256sum 2>/dev/null)" /sbin/sha256sum /usr/bin/sha256sum "$(command -v shasum 2>/dev/null)" /usr/bin/shasum; do
-    [[ -n "$tool" && -x "$tool" ]] || continue
-    if [[ ${tool##*/} == shasum ]]; then hash=$(printf '%s' "$id" | "$tool" -a 256 2>/dev/null)
-    else hash=$(printf '%s' "$id" | "$tool" 2>/dev/null); fi
-    hash=${hash%% *}
-    [[ $hash =~ ^[a-f0-9]{64}$ ]] && break
-    hash=''
-  done
-  [[ -n "$hash" ]] || return 0
+  held_session_hash || return 0
+  machine_dir || return 0
+  mode_dir=$machine_folder hash=$session_hash
   rm -f -- "$mode_dir/copilot-prompts/$hash.json" 2>/dev/null
   if [[ $text == *'"cwd":"'* ]]; then
     before=${text%%'"cwd":"'*} after=${text#*'"cwd":"'}
@@ -152,11 +167,48 @@ clear_stale_turn() {
   rm -f -- "$mode_dir/copilot-boundaries/$hash.json" "$mode_dir/copilot-boundaries/$hash.mutation.json" 2>/dev/null
   return 0
 }
+# [chat prefill] A prompt in a repository that uses SFlow opens the session's turn: one small file in copilot-turns,
+# named by the session's hash and holding the chat's folder, which VS Code waits for before it puts the next command
+# in the chat box (apps/vscode/src/chat-prefill.ts). Its agent's stop closes it (close_turn here, or the runtime for a
+# stop it answers). No Git, no network; a turn that never stops is ignored after a while. Mirrors copilotTurnDirectory()
+# in src/copilot-mode.mjs.
+open_turn() {
+  local LC_ALL=C folder directory machine_folder
+  (( hook_input_held && ! hook_input_large )) || return 0
+  # A subagent's task is part of the person's turn.
+  [[ $hook_input == *'"agentId"'* || $hook_input == *'"agent_id"'* ]] && return 0
+  folder=$(hook_input_cwd) && cwd_uses_sflow "$folder" || return 0
+  held_session_hash && machine_dir || return 0
+  directory="$machine_folder/copilot-turns"
+  [[ -d "$directory" ]] || mkdir -p "$directory" 2>/dev/null || return 0
+  # Written aside and renamed, so a reader never sees half a folder; the hash came with clear_stale_turn.
+  if printf '%s\n' "$folder" > "$directory/.$session_hash.$$" 2>/dev/null; then
+    mv -f "$directory/.$session_hash.$$" "$directory/$session_hash" 2>/dev/null || rm -f "$directory/.$session_hash.$$" 2>/dev/null
+  fi
+  return 0
+}
+# The turn's end, for a stop or a session's end answered here. Nothing to read or hash unless a turn is open.
+close_turn() {
+  local LC_ALL=C directory machine_folder
+  local -a open
+  machine_dir || return 0
+  directory="$machine_folder/copilot-turns"
+  shopt -s nullglob
+  open=("$directory"/*)
+  shopt -u nullglob
+  (( ${#open[@]} )) || return 0
+  (( hook_input_held )) || hold_hook_input || return 0
+  (( hook_input_large )) && return 0
+  [[ $hook_input == *'"agentId"'* || $hook_input == *'"agent_id"'* ]] && return 0
+  held_session_hash || return 0
+  rm -f -- "$directory/$session_hash" 2>/dev/null
+  return 0
+}
 run_hook() {
   if (( ! hook_input_held )); then exec "$@"; fi
   exec "$@" < <(printf '%s' "$hook_input")
 }
-if [[ "$action" == boundary-turn ]]; then clear_stale_turn; fi
+if [[ "$action" == boundary-turn ]]; then clear_stale_turn; open_turn; fi
 managed_root="${SINGULARITY_FLOW_ENGINE_HOME:-${HOME:-}/.singularity-flow/engine}"
 if [[ "$managed_root" == /* && -f "$managed_root/active" ]]; then
   IFS='|' read -r managed_schema managed_runtime managed_release managed_extra < "$managed_root/active"

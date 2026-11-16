@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, rm, stat as fileStat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
-import { copilotModeFile, hookCliLine, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
+import { copilotModeFile, copilotTurnDirectory, hookCliLine, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { platformPathWithin } from './util.mjs';
@@ -117,6 +117,18 @@ async function attribute(payload, note, { always = false } = {}) {
 
 async function removeRecord(file) {
   if (file) await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
+}
+
+/**
+ * The session's open-turn marker (copilotTurnDirectory): the launchers write it at a prompt in a repository that
+ * uses SFlow and remove it at a stop they answer without Node. A stop answered here removes it unless the answer
+ * continues the turn, and so does the session's end; a sub-agent's or a reviewer's stop leaves the author's turn
+ * open. One unlink; never Git or network.
+ */
+async function closeTurnMarker(payload, own = payload) {
+  const id = sessionId(payload);
+  if (!id || sessionId(own) !== id || [payload.agentId, payload.agent_id].some((value) => value != null && value !== '')) return;
+  await removeRecord(path.join(copilotTurnDirectory(), createHash('sha256').update(id).digest('hex'))).catch(() => {});
 }
 
 async function removeMutationRecord(file) {
@@ -277,6 +289,7 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
   await removeRecord(recordPath(payload));
   const file = recordPath(payload);
   await removeMutationRecord(file);
+  await closeTurnMarker(payload);
   return {};
 }
 
@@ -340,8 +353,11 @@ async function unreadResult(payload) {
 }
 
 export async function repositoryAgentStop(payload = {}) {
-  payload = await ownTurnPayload(payload, 'stop');
-  return (await import('./copilot-review-completion.mjs')).workflowTaskAgentStop(payload);
+  const own = await ownTurnPayload(payload, 'stop');
+  const answer = await (await import('./copilot-review-completion.mjs')).workflowTaskAgentStop(own);
+  // A blocking answer continues the turn; any other ends it.
+  if (answer?.decision !== 'block') await closeTurnMarker(payload, own);
+  return answer;
 }
 
 export async function repositoryToolFailure(payload = {}) {

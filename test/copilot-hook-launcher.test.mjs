@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -676,6 +677,112 @@ test('with no SFlow turn recorded, PowerShell guard, completion and failure hook
   await writeFile(path.join(item.directory, 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER), '');
   launch('boundary-guard');
   assert.equal(nodeStarts(), 1, 'the marker sends the guard to the runtime');
+});
+
+/**
+ * The open-turn marker VS Code waits for before it puts the next command in the chat box (chat prefill). A prompt in a
+ * repository that uses SFlow writes one small file; the agent's stop or the session's end removes it. Neither the
+ * marker nor its removal may cost a guard its no-Node answer, and a stop answered without Node starts none.
+ */
+async function sflowTurnFixture(t) {
+  const item = await fixture(t);
+  await mkdir(path.join(item.cwd, '.git'));
+  await mkdir(path.join(item.cwd, 'singularity'));
+  await writeFile(path.join(item.cwd, 'singularity', 'workflow.yml'), 'version: 1\n');
+  const plain = path.join(item.directory, 'plain folder');
+  await mkdir(plain);
+  const turns = path.join(item.directory, 'copilot-turns');
+  const marker = (session) => path.join(turns, createHash('sha256').update(session).digest('hex'));
+  return { item, plain, turns, marker };
+}
+
+test('a prompt in a repository that uses SFlow opens its turn, and the agent\'s stop closes it without starting Node', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const { item, plain, marker } = await sflowTurnFixture(t);
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin);
+  const started = path.join(item.directory, 'node-started');
+  await writeFile(path.join(bin, 'node'), `#!/bin/sh\necho started >> '${started}'\nexec '${process.execPath}' "$@"\n`, { mode: 0o755 });
+  await symlink(cli, path.join(bin, 'singularity-flow'));
+  const launch = (action, payload) => {
+    const result = spawnSync('/bin/bash', [path.join(pluginRoot, 'hook-launcher.sh'), action], {
+      cwd: item.cwd, env: { ...item.env, PATH: `${bin}:/usr/bin:/bin` }, input: JSON.stringify(payload), encoding: 'utf8', timeout: childTimeout(30_000)
+    });
+    assert.equal(result.status, 0, `${action}: ${result.stderr}`);
+    return JSON.parse(result.stdout);
+  };
+  const nodeStarts = () => (existsSync(started) ? readFileSync(started, 'utf8').split('\n').filter(Boolean).length : 0);
+
+  launch('boundary-turn', { sessionId: 'chat-1', cwd: item.cwd, prompt: 'What does this step need?' });
+  assert.equal(readFileSync(marker('chat-1'), 'utf8'), `${item.cwd}\n`, 'the turn holds the chat\'s folder, and nothing else');
+  const afterPrompt = nodeStarts();
+  for (const action of ['boundary-guard', 'boundary-after', 'boundary-failure']) assert.deepEqual(launch(action, { sessionId: 'chat-1' }), {}, action);
+  assert.equal(nodeStarts(), afterPrompt, 'an open turn keeps every guard\'s no-Node answer');
+  assert.deepEqual(launch('boundary-stop', { sessionId: 'chat-1', agentId: 'helper', cwd: item.cwd }), {});
+  assert.ok(existsSync(marker('chat-1')), 'a sub-agent\'s stop is not the person\'s turn ending');
+  assert.deepEqual(launch('boundary-stop', { sessionId: 'chat-1', cwd: item.cwd }), {});
+  assert.equal(existsSync(marker('chat-1')), false, 'the agent\'s stop closes the turn');
+  assert.equal(nodeStarts(), afterPrompt, 'answered without Node');
+
+  launch('boundary-turn', { session_id: 'chat-1', cwd: item.cwd, prompt: 'And then?', hook_event_name: 'UserPromptSubmit' });
+  assert.ok(existsSync(marker('chat-1')), 'VS Code\'s own field names open it too');
+  assert.deepEqual(launch('boundary-end', { session_id: 'chat-1' }), {});
+  assert.equal(existsSync(marker('chat-1')), false, 'the session\'s end closes it');
+
+  launch('boundary-turn', { sessionId: 'chat-2', cwd: plain, prompt: 'hello' });
+  launch('boundary-turn', { sessionId: 'chat-3', agentId: 'helper', cwd: item.cwd, prompt: 'the task' });
+  assert.equal(existsSync(marker('chat-2')), false, 'a repository without SFlow has no turn to wait for');
+  assert.equal(existsSync(marker('chat-3')), false, 'a sub-agent\'s task is part of the person\'s turn');
+
+  // With an SFlow turn recorded on this machine (here another session's) the runtime answers the stop, and closes
+  // the turn when it ends it.
+  launch('boundary-turn', { sessionId: 'chat-1', cwd: item.cwd, prompt: 'Once more' });
+  assert.ok(existsSync(marker('chat-1')));
+  await mkdir(path.join(item.directory, 'copilot-boundaries'), { recursive: true });
+  await writeFile(path.join(item.directory, 'copilot-boundaries', `${createHash('sha256').update('another chat').digest('hex')}.json`), '{}');
+  const beforeStop = nodeStarts();
+  assert.deepEqual(launch('boundary-stop', { sessionId: 'chat-1', cwd: item.cwd }), {});
+  assert.equal(nodeStarts(), beforeStop + 1, 'the runtime answered this stop');
+  assert.equal(existsSync(marker('chat-1')), false, 'a stop the runtime does not continue ends the turn');
+});
+
+test('the PowerShell launcher opens and closes the same turn as the bash one', {
+  skip: !powershell && 'PowerShell host unavailable'
+}, async t => {
+  const { item, plain, marker } = await sflowTurnFixture(t);
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin);
+  const started = path.join(item.directory, 'node-started');
+  // A stand-in node that records each start and reads the prompt it is handed, as the runtime does.
+  const standIn = process.platform === 'win32'
+    ? [path.join(bin, 'node.cmd'), `@echo started>>"${started}"\r\n@more >nul\r\n@echo {}\r\n`]
+    : [path.join(bin, 'node'), `#!/bin/sh\necho started >> '${started}'\ncat >/dev/null\necho '{}'\n`];
+  await writeFile(standIn[0], standIn[1], { mode: 0o755 });
+  const launch = (action, payload) => {
+    const result = spawnSync(powershell, [...powershellArgs, `& '${path.join(pluginRoot, 'hook-launcher.ps1')}' ${action}`], {
+      cwd: item.cwd, env: { ...item.env, PATH: `${bin}${path.delimiter}${item.env.PATH}` }, input: JSON.stringify(payload), encoding: 'utf8', timeout: childTimeout(30_000)
+    });
+    assert.equal(result.status, 0, `${action}: ${result.stderr}`);
+    return JSON.parse(result.stdout);
+  };
+  const nodeStarts = () => (existsSync(started) ? readFileSync(started, 'utf8').split(/\r?\n/u).filter(Boolean).length : 0);
+
+  launch('boundary-turn', { sessionId: 'chat-1', cwd: item.cwd, prompt: 'What does this step need?' });
+  assert.equal(readFileSync(marker('chat-1'), 'utf8').trim(), item.cwd);
+  const afterPrompt = nodeStarts();
+  assert.deepEqual(launch('boundary-stop', { sessionId: 'chat-1', agentId: 'helper' }), {});
+  assert.ok(existsSync(marker('chat-1')), 'a sub-agent\'s stop is not the person\'s turn ending');
+  assert.deepEqual(launch('boundary-stop', { sessionId: 'chat-1' }), {});
+  assert.equal(existsSync(marker('chat-1')), false);
+  assert.equal(nodeStarts(), afterPrompt, 'stops answered without Node');
+  launch('boundary-turn', { session_id: 'chat-1', cwd: item.cwd, prompt: 'And then?' });
+  const afterSecondPrompt = nodeStarts();
+  assert.deepEqual(launch('boundary-end', { session_id: 'chat-1' }), {});
+  assert.equal(existsSync(marker('chat-1')), false, 'the session\'s end closes it');
+  assert.equal(nodeStarts(), afterSecondPrompt, 'and is answered without Node');
+  launch('boundary-turn', { sessionId: 'chat-2', cwd: plain, prompt: 'hello' });
+  assert.equal(existsSync(marker('chat-2')), false);
 });
 
 /**

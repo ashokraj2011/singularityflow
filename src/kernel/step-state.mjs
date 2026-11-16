@@ -37,8 +37,12 @@ export const REASON_CODES = Object.freeze([
   'PERMISSION_REVOKED', 'STEP_HELD', 'DECISION_PENDING', 'AMENDMENT_PAUSE', 'REVIEW_DISPOSITION_PENDING', 'STEP_SUBMITTED',
   'INITIAL_VERSION', 'WATERMARK_SUCCESSOR', 'VERSION_OPEN', 'KERNEL_BUILT', 'REWORK', 'AMENDMENT', 'REJECTED', 'AUTHOR_CONFLICT',
   'REVIEW_CORRECTIONS', 'REVIEW_PENDING', 'REVIEW_READY', 'REVIEW_UNAVAILABLE', 'NO_REVIEW_OWED', 'FUTURE_STEP',
-  'APPROVED_STEP', 'CONSUMED_OPENING_MISMATCH', 'NOT_AUTHORING_TURN', 'NO_CHANGE_CAPABILITY', 'LEGACY_SUCCESSOR_EDITS', 'LEGACY_SUCCESSOR_OPENING', 'STEP_NOT_ACTIVE'
+  'APPROVED_STEP', 'CONSUMED_OPENING_MISMATCH', 'NOT_AUTHORING_TURN', 'NO_CHANGE_CAPABILITY', 'STEP_NOT_ACTIVE',
+  'LEGACY_LOCAL_OPENING', 'OPENING_PENDING', 'OPENING_UNKNOWN', 'OPENING_REFUSED', 'OPENING_UNOBSERVED', 'WRITER_FENCED', 'CONSENT_REQUIRED'
 ]);
+/** An opening operation's shared acceptance as this checkout observed it (story-version-acceptance.mjs), and its writer. */
+export const OPENING_ACCEPTANCE = Object.freeze(['confirmed', 'pending', 'unknown', 'refused', 'unobserved']);
+export const OPENING_WRITERS = Object.freeze(['current', 'other']);
 
 const BOUND = 256;
 const text = (value) => value === null || value === undefined ? null : typeof value === 'string' && value.length <= BOUND ? value : undefined;
@@ -140,16 +144,33 @@ function sourceProblem(snapshot) {
 const published3 = (numbers) => ({ hasPublishedVersion: numbers.published >= 1, hasOpenVersion: numbers.writing !== null,
   currentVersionPublished: numbers.published >= 1 && numbers.writing === null });
 
-/** What an authoring turn may write in this state: the step's declared capabilities, narrowed by the state [§6]. */
-function editFor(snapshot, state, numbers, target, { legacy = false } = {}) {
+/**
+ * What an authoring turn may write in this state: the step's declared capabilities, narrowed by the state [§6]. A successor
+ * grants nothing before its accepted opening: the person's yes and the shared opening come first [D3, OSA:REQ-030, REQ-031].
+ */
+function editFor(snapshot, state, numbers, target, { successor = false } = {}) {
   const facts = snapshot.step;
   if (snapshot.actor.turnMode !== 'authoring') return NO_EDIT(['NOT_AUTHORING_TURN']);
+  if (successor) return NO_EDIT(['CONSENT_REQUIRED']);
   const code = facts.kind?.code === true;
   // Application edits in a code step need its version open; a document step's own declared source scope needs none.
   const permitted = capabilitiesOf(facts.kind).filter((entry) => entry !== 'application' || !code || numbers.writing !== null);
   if (!permitted.length) return NO_EDIT([facts.kind?.executionOwner === 'kernel' ? 'KERNEL_BUILT' : 'NO_CHANGE_CAPABILITY']);
   return { eligible: true, scopeReference: target, permittedCategories: permitted,
-    reasons: [legacy ? 'LEGACY_SUCCESSOR_EDITS' : state === 'writing' || numbers.writing !== null ? 'VERSION_OPEN' : 'INITIAL_VERSION'] };
+    reasons: [state === 'writing' || numbers.writing !== null ? 'VERSION_OPEN' : 'INITIAL_VERSION'] };
+}
+
+/**
+ * An opening the opening operation made is written only once this checkout observed its shared acceptance and holds its
+ * writer fence [§7.2, §7.3, OSA:REQ-031, REQ-033, REQ-034]: the reason it may not be yet, or null. An opening whose facts
+ * carry no provenance (`record` absent) is the abstract accepted opening of §4.3.
+ */
+function openingHold(opening) {
+  if (opening?.record !== 'operation') return null;
+  if (opening.writer === 'other') return 'WRITER_FENCED';
+  if (opening.writer !== 'current') return 'OPENING_UNOBSERVED';
+  if (opening.acceptance === 'confirmed') return null;
+  return { pending: 'OPENING_PENDING', unknown: 'OPENING_UNKNOWN', refused: 'OPENING_REFUSED' }[opening.acceptance] ?? 'OPENING_UNOBSERVED';
 }
 
 /** The primary action of the Story's current step, for a decision about another step [§5 precedence 11]. */
@@ -231,6 +252,24 @@ export function stepState(snapshot) {
   // 7–8. No accepted version open and none published: the initial version, which needs no successor consent unless an
   // earlier reservation used its number. Then an accepted open version, which is written now.
   const successor = numbers.published >= 1 ? versionNeed(facts) : null;
+  // A local opening no operation made (an older build's working-copy intent) opens a successor only once it is promoted
+  // through the opening operation, with the person's yes; until then it grants nothing [§14, OSA:REQ-030, REQ-031].
+  if (numbers.writing !== null && numbers.writing > 1 && facts.opening?.record === 'legacy') {
+    return decision(snapshot, 'reopened', action('person-consent', kernelBuilt ? 'build-version' : 'open-version', { target: target(numbers.writing),
+      principalKind: 'human', inputs: { ...(kernelBuilt ? { producer: 'deterministic' } : {}), version: numbers.writing, consent: 'required',
+        reason: 'legacy-promotion', from: numbers.published, opening: 'promotion' },
+      reasonCodes: ['LEGACY_LOCAL_OPENING', ...(kernelBuilt ? ['KERNEL_BUILT'] : [])], then: kernelBuilt ? ['publish-version'] : after(true) }),
+    { ...base, edit: NO_EDIT(['LEGACY_LOCAL_OPENING']), obligations });
+  }
+  // An opening the operation made: written only once accepted on the shared authority and held by this checkout's writer.
+  const held = numbers.writing !== null ? openingHold(facts.opening) : null;
+  if (held === 'WRITER_FENCED') return decision(snapshot, 'held', action('person-decision', 'takeover-writer', { target: target(numbers.writing),
+    principalKind: 'human', role: 'person', inputs: { version: numbers.writing, fence: facts.opening.fence ?? null }, reasonCodes: ['STEP_HELD', 'WRITER_FENCED'] }),
+  { ...base, edit: NO_EDIT(['WRITER_FENCED']), obligations });
+  // A lost or uncertain shared acceptance is reconciled as the same operation, never replaced by another version [REQ-033].
+  if (held) return decision(snapshot, 'waiting', action('reconcile', 'recover-operation', { target: target(numbers.writing),
+    inputs: { operation: 'version-opening', version: numbers.writing, operationId: text(facts.opening.operationId) ?? null }, reasonCodes: [held] }),
+  { ...base, edit: NO_EDIT([held]), obligations });
   if (numbers.writing !== null) {
     if (kernelBuilt) return decision(snapshot, 'kernel-build', action('agent-work', 'build-version', { target: target(numbers.writing),
       inputs: { producer: 'deterministic', version: numbers.writing, consent: 'given' }, reasonCodes: ['KERNEL_BUILT', 'VERSION_OPEN'], then: ['publish-version'] }),
@@ -245,10 +284,10 @@ export function stepState(snapshot) {
     const reasonCodes = [initial ? 'INITIAL_VERSION' : 'WATERMARK_SUCCESSOR'];
     if (kernelBuilt) return decision(snapshot, 'kernel-build', action(initial ? 'agent-work' : 'person-consent', 'build-version', { target: target(numbers.proposedNext),
       principalKind: initial ? 'agent' : 'human', inputs: { producer: 'deterministic', version: numbers.proposedNext, consent },
-      reasonCodes: [...reasonCodes, 'KERNEL_BUILT'], then: ['publish-version'] }), { ...base, edit: editFor(snapshot, 'kernel-build', numbers, target(numbers.proposedNext), { legacy: !initial }), obligations });
+      reasonCodes: [...reasonCodes, 'KERNEL_BUILT'], then: ['publish-version'] }), { ...base, edit: editFor(snapshot, 'kernel-build', numbers, target(numbers.proposedNext), { successor: !initial }), obligations });
     return decision(snapshot, 'not-started', action(initial ? 'agent-work' : 'person-consent', 'open-version', { target: target(numbers.proposedNext),
       principalKind: initial ? 'agent' : 'human', inputs: { version: numbers.proposedNext, consent, reason: initial ? 'initial' : 'watermark' }, reasonCodes, then: after(true) }),
-    { ...base, edit: editFor(snapshot, 'not-started', numbers, target(numbers.proposedNext), { legacy: !initial }), obligations });
+    { ...base, edit: editFor(snapshot, 'not-started', numbers, target(numbers.proposedNext), { successor: !initial }), obligations });
   }
   // A published step a person's return, an amendment or a rejection reopened: its successor needs the person's yes [D3].
   if (successor) {
@@ -256,11 +295,11 @@ export function stepState(snapshot) {
     const inputs = { version: numbers.proposedNext, consent: 'required', reason: successor.toLowerCase().replaceAll('_', '-'), from: numbers.published, opening: reopenedBy };
     if (kernelBuilt) return decision(snapshot, 'kernel-build', action('person-consent', 'build-version', { target: target(numbers.proposedNext), principalKind: 'human',
       inputs: { producer: 'deterministic', ...inputs }, reasonCodes: [successor, 'KERNEL_BUILT'], then: ['publish-version'] }),
-    { ...base, edit: editFor(snapshot, 'kernel-build', numbers, target(numbers.proposedNext), { legacy: true }), obligations });
-    // Until Stage 2's consent receipt, the step's files stay writable as before; the opening itself still asks [LEGACY_SUCCESSOR_EDITS].
+    { ...base, edit: editFor(snapshot, 'kernel-build', numbers, target(numbers.proposedNext), { successor: true }), obligations });
+    // Nothing of the step is written before the person's yes and the accepted opening [D3, OSA:REQ-030].
     return decision(snapshot, 'reopened', action('person-consent', 'open-version', { target: target(numbers.proposedNext), principalKind: 'human',
-      inputs, reasonCodes: [successor, 'LEGACY_SUCCESSOR_OPENING'], then: after(true) }),
-    { ...base, edit: editFor(snapshot, 'reopened', numbers, target(numbers.proposedNext), { legacy: true }), obligations });
+      inputs, reasonCodes: [successor, 'CONSENT_REQUIRED'], then: after(true) }),
+    { ...base, edit: editFor(snapshot, 'reopened', numbers, target(numbers.proposedNext), { successor: true }), obligations });
   }
   if (numbers.published === 0) return decision(snapshot, 'published',
     action('agent-work', 'submit-version', { target: target(0), reasonCodes: ['NO_REVIEW_OWED'] }), { ...base, edit: NO_EDIT(['NO_REVIEW_OWED']), obligations });

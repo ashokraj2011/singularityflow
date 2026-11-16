@@ -118,8 +118,11 @@ function executionOwner(phase) {
  * Sources the caller did not read are `unavailable`, never empty or allowed [OSA:REQ-004]; the review status is one of them.
  */
 export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.currentPhase], turnMode = 'authoring', sources = {},
-  review = null, revoked = false, basis = {} } = {}) {
-  const facts = (step) => step ? { id: step.id, ...versionFactsOf(workflow, step),
+  review = null, revoked = false, basis = {}, opening = null } = {}) {
+  // What this checkout observed of an operation's opening (story-version-acceptance.mjs): its shared acceptance and writer.
+  const observed = (step, version) => version.opening?.record === 'operation' && step.id === phase?.id && opening
+    ? { ...version, opening: { ...version.opening, acceptance: opening.acceptance, writer: opening.writer } } : version;
+  const facts = (step) => step ? { id: step.id, ...observed(step, versionFactsOf(workflow, step)),
     kind: { executionOwner: executionOwner(step), code: phaseRequiresCodeDelivery(step),
       changeCapabilities: [...(onlyDeterministic(step) ? [] : ['step-artifacts']),
         ...(step.writeScope === 'source-and-artifact' && (!onlyDeterministic(step) || phaseRequiresCodeDelivery(step)) ? ['application'] : [])] },
@@ -160,11 +163,17 @@ export function decisionRoutes(decision, workflow, requested) {
   const author = generationSkillForPhase(phase, workflow);
   const code = phaseRequiresCodeDelivery(phase);
   switch (next.operation) {
-    case 'recover-operation': return [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')];
+    // An opening whose shared acceptance is lost or uncertain is reconciled as the same operation; nothing new opens [REQ-033].
+    case 'recover-operation': return [next.inputs.operation === 'version-opening'
+      ? route(['phase', 'opening', phase.id, '--reconcile', '--json'], `Find out whether version ${next.inputs.version} of ${phase.id} reached the shared Story branch; this settles the same opening and opens no other version.`, author)
+      : route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')];
+    // Another checkout holds the version's writer fence: this one inspects it, or takes it over with its writer's agreement [REQ-034].
+    case 'takeover-writer': return [route(['session', 'takeover', workId, '--json'],
+      `Another checkout writes version ${next.inputs.version} of ${phase.id}. Take it over here only when that checkout's work is published or set aside; this checkout may still inspect it.`, '/sf-session')];
     case 'open-version':
-      // A published code step a person did not return is previewed and confirmed by the person; a return opens it directly.
-      if (code && next.inputs.opening === 'successor-preview') return [route(['phase', 'rollover', phase.id, '--json'],
-        `Preview starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; version ${next.inputs.from} and its tests stay as published.`, '/sf-code')];
+      // A successor, for any reason, is previewed and opened only on the person's yes [D3, OSA:REQ-030]; version 1 opens directly.
+      if (next.inputs.consent === 'required') return [route(['phase', 'rollover', phase.id, '--json'],
+        `Preview starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}.`, author)];
       return [code ? route(['phase', 'begin', phase.id, '--json'], 'Open the exact code generation before application edits.', author)
         : route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', author)];
     case 'author-version': case 'build-version': return [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', author)];
@@ -197,7 +206,7 @@ function caseInsensitiveCheckout(root) {
 }
 
 export function deriveMutationContract({ root = null, definition, workflow, phase = workflow?.phases?.[workflow.currentPhase],
-  turnMode = 'authoring', staging = [], evidence = [] }) {
+  turnMode = 'authoring', staging = [], evidence = [], opening = null }) {
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
@@ -206,7 +215,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const code = phaseRequiresCodeDelivery(phase);
   // One decision owner: the kernel decides the step's state, what an authoring turn may write and its next action
   // [OSA:REQ-001, REQ-010]; this module renders it and keeps the path checks.
-  const decision = phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode })) : null;
+  // `opening`: the open version's acceptance and writer as the caller observed them on this checkout (a few file reads,
+  // never Git: story-version-acceptance.mjs) [OSA:REQ-041]; without it an operation's opening grants nothing.
+  const decision = phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode, opening })) : null;
   const openGeneration = code && decision?.publication.hasOpenVersion === true;
   const editable = decision?.edit.authoring === true;
   const deterministic = onlyDeterministic(phase);

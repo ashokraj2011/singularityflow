@@ -7,19 +7,21 @@ const counter = (value) => value === undefined ? 0 : typeof value === 'string' &
 
 /**
  * `published`, `writing` (the applicable opening's, or null), `highWatermark`, and `proposedNext` while nothing is open.
- * An opening applies only at max(published, recorded watermark) + 1: numbers are never reused, and a later one is
- * impossible. Bad counters give `{ ok: false, code }`, never a plausible number.
+ * An opening applies only at max(published, recorded watermark, released reservation) + 1: numbers are never reused, and
+ * a later one is impossible. Bad counters give `{ ok: false, code }`, never a plausible number.
  */
 export function versionNumbers(facts) {
-  const published = counter(facts?.published), recorded = counter(facts?.recordedHighWatermark);
-  if (![published, recorded].every((value) => Number.isSafeInteger(value) && value >= 0)
-      || Math.max(published, recorded) >= Number.MAX_SAFE_INTEGER) return { ok: false, code: 'GENERATION_COUNTER_INVALID' };
-  const base = Math.max(published, recorded);
+  const published = counter(facts?.published), recorded = counter(facts?.recordedHighWatermark), reserved = counter(facts?.reservedHighWatermark);
+  if (![published, recorded, reserved].every((value) => Number.isSafeInteger(value) && value >= 0)
+      || Math.max(published, recorded, reserved) >= Number.MAX_SAFE_INTEGER) return { ok: false, code: 'GENERATION_COUNTER_INVALID' };
   const open = facts?.opening?.status === 'open' ? counter(facts.opening.version) : null;
+  // A reservation (§7.2) the live (or amendment-carried) opening holds is its own number; any other is a used one.
+  const held = reserved > 0 && ['open', 'superseded'].includes(facts?.opening?.status) && counter(facts.opening.version) === reserved;
+  const base = Math.max(published, recorded, held ? 0 : reserved);
   const opening = open === null ? 'none' : !Number.isSafeInteger(open) || open < 1 ? 'invalid'
     : open === base + 1 ? 'applicable' : open <= base ? 'superseded' : 'ahead';
   const writing = opening === 'applicable' ? open : null;
-  return { ok: true, published, writing, highWatermark: Math.max(base, writing ?? 0),
+  return { ok: true, published, writing, highWatermark: Math.max(base, reserved, writing ?? 0),
     proposedNext: writing === null ? base + 1 : null, next: base + 1, opening };
 }
 

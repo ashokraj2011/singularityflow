@@ -21,11 +21,13 @@ import { stepState } from '../src/kernel/step-state.mjs';
 import { gitDir } from '../src/git-execution.mjs';
 import { sourceReviewStagingPath } from '../src/phase-staging-paths.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import { acceptOpening } from './helpers/accepted-opening.mjs';
+import { observeOpening } from '../src/story-version-acceptance.mjs';
 
 const RECORD = { path: 'singularity/work-items/OSA-G/publications/implement-1.json', sha256: `sha256:${'c'.repeat(64)}` };
 
 /** A Story at `implement` (code) after an approved `design`, then `verify`, in a real Git checkout. */
-async function fixture(t, changes = {}) {
+async function fixture(t, { legacy = false, ...changes } = {}) {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-osa-guard-')));
   const root = path.join(directory, 'repository');
   const foreign = path.join(directory, 'other-repository');
@@ -51,6 +53,9 @@ async function fixture(t, changes = {}) {
       implement, verify: { id: 'verify', status: 'pending', generation: 0, writeScope: 'artifact-only', generationPolicy: { requirement: 'required', task: 'document' } } },
     resolution: { sourceReview: { mode: 'enforce', phases: ['implement'], kinds: { implement: 'code' }, reviewerAgent: 'sflow-source-reviewer' } } };
   const definition = { workItemRoot: 'singularity/work-items', governance: { protectedPaths: ['policy'] } };
+  // An open version 2 is the opening operation's, accepted and held here (Stage 2), unless the case is an older build's
+  // local opening, which grants nothing until it is promoted on the person's yes.
+  if (implement.generationIntent?.status === 'open' && !legacy) await acceptOpening(root, workflow, implement);
   const workflowFile = path.join(root, 'singularity', 'work-items', 'OSA-G', 'workflow.json');
   await mkdir(path.dirname(workflowFile), { recursive: true });
   await writeFile(workflowFile, JSON.stringify(workflow));
@@ -90,6 +95,7 @@ async function guardSays(payload, target) {
 
 const STATES = {
   'version 2 open (writing)': {},
+  'version 2 opened only on this checkout by an older build (reopened, its promotion asks)': { legacy: true },
   'version 1 not yet opened (not-started)': { generation: 0, generationIntent: undefined, generationPublications: [] },
   'returned for rework (reopened)': { generationIntent: { status: 'consumed', generation: 1 }, reworkRevalidation: { generation: 1 } },
   'published, awaiting its review': { generationIntent: { status: 'consumed', generation: 1 } },
@@ -101,10 +107,11 @@ const STATES = {
 test('for one basis the decision, the entry\'s permission and the real guard agree on every write [OSA:AC-001, REQ-010]', async (t) => {
   for (const [name, changes] of Object.entries(STATES)) {
     const f = await fixture(t, changes);
-    const decision = stepState(stepSnapshotOf({ workflow: f.workflow, turnMode: 'authoring' }));
+    // The basis includes what this checkout observed of the opening (its acceptance and writer), as the entry reads it.
+    const decision = stepState(stepSnapshotOf({ workflow: f.workflow, turnMode: 'authoring', opening: observeOpening(f.root, f.workflow, f.implement) }));
     // The entry's edit permission, as phase entry presents it (phase-entry-context.mjs) for the same Story record.
     const entry = mutationContractPresentation(deriveMutationContract({ root: f.root, definition: f.definition, workflow: f.workflow,
-      phase: f.implement, turnMode: 'authoring' }));
+      phase: f.implement, turnMode: 'authoring', opening: observeOpening(f.root, f.workflow, f.implement) }));
     assert.equal(entry.applicationEdits, decision.edit.permittedCategories.includes('application'), `${name}: entry application`);
     assert.equal(entry.artifacts.length > 0, decision.edit.permittedCategories.includes('step-artifacts'), `${name}: entry artifacts`);
     const turn = await f.enter('/sf-code');
@@ -125,7 +132,7 @@ test('for one basis the decision, the entry\'s permission and the real guard agr
 
 test('the guard, the entry and the authoring task give one next action for one basis [OSA:AC-002, AC-003, Stage 0 finding 1]', async () => {
   const { phaseAuthoringProgress } = await import('../src/phase-authoring-progress.mjs');
-  for (const [name, changes] of Object.entries(STATES)) {
+  for (const [name, { legacy: _legacy, ...changes }] of Object.entries(STATES)) {
     const workflow = { workItem: { id: 'OSA-G' }, status: 'in_progress', currentPhase: 'implement', phaseOrder: ['implement'], history: [],
       phases: { implement: { id: 'implement', status: 'in_progress', generation: 1, writeScope: 'source-and-artifact',
         generationPolicy: { requirement: 'required', task: 'code', allowedProducers: ['governed-agent'] },
@@ -168,7 +175,9 @@ test('review staging and execution outputs are their own capabilities and grant 
   assert.equal(mutationToolProtocol(testContract).localVerification.allowed, false, 'execution outputs never widen to edits');
   // In an authoring turn with an open version, local test runs and their outputs are allowed, and still no other step's files.
   f.implement.generationIntent = { status: 'open', generation: 2 };
-  const authoring = deriveMutationContract({ root: f.root, definition: f.definition, workflow: f.workflow, turnMode: 'authoring' });
+  await acceptOpening(f.root, f.workflow, f.implement);
+  const authoring = deriveMutationContract({ root: f.root, definition: f.definition, workflow: f.workflow, turnMode: 'authoring',
+    opening: observeOpening(f.root, f.workflow, f.implement) });
   assert.equal(mutationToolProtocol(authoring).localVerification.allowed, true);
   assert.deepEqual(authoring.allow.staging, []);
 });

@@ -872,7 +872,7 @@
   },
   {
    "id": "G21",
-   "covers": "a step returned for rework asks for its successor; its files stay writable until Stage 2's receipt",
+   "covers": "a step returned for rework asks for its successor; nothing of it is writable before the person's yes and the accepted opening",
    "facts": {
     "phase": "implementation",
     "kind": "code",
@@ -898,10 +898,7 @@
      "currentVersionPublished": true
     },
     "edit": {
-     "eligible": true,
-     "categories": [
-      "step-artifacts"
-     ]
+     "eligible": false
     },
     "next": {
      "kind": "person-consent",
@@ -917,10 +914,11 @@
       "consent": "required",
       "reason": "rework",
       "opening": "return"
-     }
+     },
+     "reasonCodes": ["REWORK", "CONSENT_REQUIRED"]
     }
    },
-   "note": "D3: a successor always needs the person's yes. LEGACY_SUCCESSOR_EDITS names the compatibility exception that Stage 2 removes."
+   "note": "D3: a successor always needs the person's yes. Stage 1 kept the step's files writable here (LEGACY_SUCCESSOR_EDITS); Stage 2's consent receipt and accepted opening removed that exception (REQ-030, REQ-031)."
   },
   {
    "id": "G22",

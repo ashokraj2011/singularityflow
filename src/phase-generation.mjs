@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { invariant, posix, SingularityFlowError } from './util.mjs';
 import { consumedByPublishedVersion, versionNumbers } from './kernel/step-versions.mjs';
+import { counters } from './phase-generation-need.mjs';
 
 /** Pure selection, shared with the persistence API without importing that API. */
 export function currentPhase(workflow) {
@@ -19,9 +20,9 @@ export function groundingRecordRelative(definition, workflow, phase, generation 
 export const consumedByPublishedGeneration = (phase) => consumedByPublishedVersion(phase ? { published: phase.generation,
   opening: phase.generationIntent ? { status: phase.generationIntent.status, version: phase.generationIntent.generation } : null } : null);
 
-/** max(generation, high-watermark) + 1, validated: the kernel's one version arithmetic (§4.3). Numbers are never reused. */
+/** max(generation, high-watermark, used reservation) + 1, validated: the kernel's one version arithmetic (§4.3). */
 export function nextPhaseGeneration(phase) {
-  const numbers = versionNumbers({ published: phase?.generation, recordedHighWatermark: phase?.generationHighWatermark });
+  const numbers = versionNumbers(counters(phase) ?? {});
   if (!numbers.ok) throw new SingularityFlowError('Phase generation counters must be nonnegative safe integers with room for a new generation.', {
     code: 'GENERATION_COUNTER_INVALID'
   });

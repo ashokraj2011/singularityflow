@@ -226,7 +226,7 @@
     },
     "commands/nextsteps.mjs": {
       "intentReads": 1,
-      "predicateCalls": 5,
+      "predicateCalls": 3,
       "routeObjects": 1,
       "lifecycleCommands": 1
     },
@@ -395,7 +395,7 @@
       "lifecycleCommands": 2
     },
     "gate-recovery.mjs": {
-      "lifecycleCommands": 6
+      "lifecycleCommands": 4
     },
     "gateway/planners/developer-next.mjs": {
       "lifecycleCommands": 1
@@ -649,9 +649,7 @@
       "skillLiterals": 1
     },
     "phase-resolution.mjs": {
-      "intentReads": 2,
-      "skillChooserCalls": 6,
-      "skillLiterals": 3
+      "skillChooserCalls": 1
     },
     "phase-staging-paths.mjs": {
       "predicateCalls": 1
@@ -681,13 +679,10 @@
       "lifecycleCommands": 1
     },
     "recovery-plan.mjs": {
-      "intentReads": 10,
-      "predicateCalls": 11,
       "skillChooserCalls": 1,
-      "versionArithmetic": 1,
-      "routeObjects": 7,
-      "lifecycleCommands": 15,
-      "skillLiterals": 6
+      "routeObjects": 6,
+      "lifecycleCommands": 12,
+      "skillLiterals": 2
     },
     "recovery-preparation-context.mjs": {
       "predicateCalls": 3
@@ -703,7 +698,7 @@
     "refusal-remediation.mjs": {
       "routeObjects": 1,
       "lifecycleCommands": 28,
-      "skillLiterals": 23
+      "skillLiterals": 21
     },
     "reinstall.mjs": {
       "skillChooserCalls": 1

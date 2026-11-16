@@ -176,14 +176,15 @@ The targeted runs are listed in [stage2.md](stage2.md) §10. **Not run:** the fu
 | 4 | The owner's decision of 2026-11-17: the own correction asks the person | [stage3.md](stage3.md) §5 |
 | 5 | Findings and decisions for the owner | [stage3.md](stage3.md) §6 |
 | 6 | Ratchet, budgets, performance and acceptance rows | [stage3.md](stage3.md) §7–§9 |
+| 7 | Stage 3 completion: refusals and the recovery planner, sessions, the `publication-pending` stage, the qualification journeys | [stage3.md](stage3.md) §12 |
 
 **Exit gate (plan section 5).**
 
 | Gate item | Result |
 |---|---|
-| All listed surfaces agree at the same basis | **Met** for sequence guidance, the guide and next steps, the review continuation, readiness, phase show, the session's task resume and the VS Code views (0 differences in 7,400 readings; every journey's views agree). **Not met** for session listing and selection, which were not moved ([stage3.md](stage3.md) §11) |
+| All listed surfaces agree at the same basis | **Met** for sequence guidance, the guide and next steps, the review continuation, readiness, phase show, the session's task resume and the VS Code views (0 differences in 7,400 readings; every journey's views agree). Session listing and selection **met** in the completion: one session-opening read for `/sf-session` and `/sf-resume` ([stage3.md](stage3.md) §12) |
 | The original incidents have named, passing journeys | **Met:** journeys A–G and I pass in the slow lane with KNOWN_BAD empty ([stage3.md](stage3.md) §10) |
-| Human boundaries and damaged operations keep their own routes | **Met:** damage leads before holds; a waiting task names the person's decision; an uncertain opening keeps its reconciliation |
+| Human boundaries and damaged operations keep their own routes | **Met:** damage leads before holds; a waiting task names the person's decision; an uncertain opening keeps its reconciliation; a pending publication names its sync; a healthy refusal or finding no longer detours through recovery ([stage3.md](stage3.md) §12) |
 | No generic work command broadens a source, review or approval permission | **Met:** the guard's grants are unchanged (`osa-stage1-guard`); a view is `turnMode: view` and grants nothing |
 
 The targeted runs are listed in [stage3.md](stage3.md) §10. **Not run:** the full suite and the weekly Node 26 run, which are the owner's heavy run at the end.

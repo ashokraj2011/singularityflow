@@ -14,8 +14,8 @@
   "count-without-name": 30,
   "draft-for-version": 13,
   "generic-route": 6371,
-  "jargon": 1397,
-  "length": 700
+  "jargon": 1388,
+  "length": 698
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -3542,7 +3542,6 @@
    "1802461f0493": "jargon:generation",
    "191f07a64185": "length",
    "1a019128430e": "jargon:digest length",
-   "38f5c6f1e673": "jargon:generation",
    "49458c8b3924": "jargon:retained length",
    "6b167864a729": "jargon:retained",
    "77478545642a": "jargon:retained length",
@@ -4004,7 +4003,6 @@
    "96b0c3128509": "jargon:durable",
    "a3ec13e602d6": "jargon:digest length",
    "acaaa2d327d2": "length",
-   "baff46c3ce13": "jargon:generation",
    "bb3dc63f0543": "length",
    "c21d068fdbbd": "jargon:successor",
    "c26c26ce704a": "jargon:retained",
@@ -4097,16 +4095,13 @@
    "44ee477ab8d6": "jargon:retained",
    "45a0dac2d1f4": "length",
    "54cf370abf08": "count-without-name",
-   "58a4996d7ca4": "jargon:generation jargon:published-generation jargon:successor length",
    "744db3913d93": "length",
    "a7dde630ed44": "length",
    "b0efd5a37ce8": "jargon:generation length",
    "b9465d6933f6": "jargon:generation length",
    "cca8d8b61d2a": "length",
    "dd8870f39a33": "length",
-   "e339c4d8af17": "length",
-   "eb7504198a63": "jargon:generation jargon:published-generation jargon:retained length",
-   "f050dedca2f1": "jargon:generation"
+   "e339c4d8af17": "length"
   },
   "src/recovery-worktree-commit.mjs": {
    "1d86a3aa9e73": "jargon:successor length",

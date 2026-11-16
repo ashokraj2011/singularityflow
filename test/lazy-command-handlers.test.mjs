@@ -667,7 +667,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-mutation-contract.mjs, which these handlers do not load). Their own deleted branches give a little back. The task
     // outcome reader (workflow-task-outcome.mjs) and the task record stay lazy; next steps and readiness name a code step's own
     // opening and its task's wait (+554 after the journeys). Two new eager files: submit.mjs 473 of 473.
-    assert.ok(closure.bytes <= 9_747_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,751,600 (measured 9,751,587 for phase-lifecycle.mjs, +4,006): SPEC-OSA v1.1 Stage 3 completion. The recovery
+    // planner, finding resolution, gate recovery and recover's healthy answer name the step's own route from the kernel
+    // (step-decision.mjs stepRoute, recovery-plan.mjs +285, phase-resolution.mjs +574, gate-recovery.mjs +893,
+    // collaboration.mjs +339), the kernel's `publication-pending` stage and its render (kernel/step-state.mjs +1,087,
+    // step-decision.mjs +607) and readiness naming it (submission-readiness.mjs +223). Their deleted raw reads and recover
+    // routes give a little back. The stage's readers (workflow-task-outcome.mjs, the lease and pending-publication reads) and
+    // the shared session-opening read stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_751_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

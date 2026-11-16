@@ -1,8 +1,8 @@
 # OSA Stage 3 — surfaces on the one decision, and durable continuation
 
 **Specification:** [SPEC-OSA v1.1](../SPEC-OSA-ONE-STEP-AUTHOR-v1.1.md) sections 5, 8 and 10; REQ-010–014, REQ-020–023 (their Stage 3 parts), REQ-050–052, REQ-060; AC-002, AC-006, AC-012, AC-020, AC-022; implementation plan section 5.
-**Branch:** `osa-v11-s3`, from `osa-v11-s2` at `91dac87bb`.
-**Status:** the stage's implementation and its targeted qualification, **with named parts not done** (section 11). The heavy run (full suite on Node 22, then the weekly Node 26 run) has not been made; it comes at the end.
+**Branch:** `osa-v11-s3`, from `osa-v11-s2` at `91dac87bb`; completed on `osa-v11-s3b`, from `osa-v11-s3` at `dac523e22` (section 12).
+**Status:** the stage's implementation and its targeted qualification. Section 12 completes the parts the first pass left (refusals and the recovery planner, session listing and selection, the `publication-pending` stage, the missing qualification journeys); section 11 lists only what is still left. The heavy run (full suite on Node 22, then the weekly Node 26 run) has not been made; it comes at the end.
 
 ## 1 What changed
 
@@ -162,21 +162,21 @@ Timings moved both ways under load (within about ±10%), and no row is consisten
 | Row | Result | Evidence |
 |---|---|---|
 | REQ-010 | **Pass** (Stage 1 cohort kept; Stage 3 adds the hook and the entry) | `osa-stage1-guard`, `agent-hooks` (a7), journey H (the entry and the permission name one route for an uncertain opening) |
-| REQ-011 | **Pass** for the cohorts moved | no recovery beside a failed test (`refusal-remediation`), the entry's unreadable review (`phase-authoring-continuation`), the hook (`agent-hooks`); journeys B, D, F, G, I with no detour |
-| REQ-012 | **Pass** (task outcomes); **partial** for task stages beyond the existing record states | `osa-stage3-continuation` tests 1–4, journey D (the failed test's wait) |
+| REQ-011 | **Pass** | no recovery beside a failed test (`refusal-remediation`), the entry's unreadable review (`phase-authoring-continuation`), the hook (`agent-hooks`); journeys B, D, F, G, I with no detour. Completion (§12): phase refusals, the recovery planner, finding resolution and gate recovery name the step's own route; `recover` on healthy work names its real next action (`refusal-remediation`, `step-routes-stage1`, `gate-recovery`, `upstream-route-dead-ends`, `phase-resolution-rca`, `osa-stage3-journeys`) |
+| REQ-012 | **Pass** | `osa-stage3-continuation` tests 1–4, journey D (the failed test's wait); completion: `publication-pending` from the sealed record and `running` from a live lease (§12.2), `workflow-task-resume`, `osa-stage3-journeys` (heartbeat, missing attachment, bounded repair, and the slow-lane pending publication across processes) |
 | REQ-013 | **Pass** (Stage 1, kept) | `osa-stage1-guard` "review staging and execution outputs are their own capabilities" |
-| REQ-014 | **Kept, not extended** | `publication-preflight` (changed bytes preserved, consent to keep them); no new restoration journey |
-| REQ-020 | **Pass** for sequence, guide, next steps, the review continuation, readiness, phase show and the session's task resume; VS Code views; **partial** for session listing and selection | `osa-stage1-shadow` (7,400 readings, 0 differences), `osa-stage3-continuation` test 4, `osa-stage3-vscode`, journeys B, D, E, F, G, I "the person's views name the agent's skill at every hand-off" |
+| REQ-014 | **Pass** | `publication-preflight` (changed bytes preserved; keeping them is asked by the work command, b34), `phase-appeals` (an edited published document is kept through its preview, never published in place, b11); the slow-lane journey keeps both the edit and the published bytes and opens nothing before the yes |
+| REQ-020 | **Pass** | `osa-stage1-shadow` (7,400 readings, 0 differences), `osa-stage3-continuation` test 4, `osa-stage3-vscode`, journeys B, D, E, F, G, I "the person's views name the agent's skill at every hand-off"; completion: one session-opening read for `/sf-session` and `/sf-resume`, the `/sf-resume` prerequisite on the decision (`session-open`, `session-read-service`, `handoff`, `workspace-clone-resume`, `story-start-handoff`, `nextsteps`); every view at one basis in `osa-stage3-journeys` |
 | REQ-021 | **Pass** | the kernel returns no command, skill or prompt (`osa-stage1-kernel`, `osa-stage3-continuation` test 1) |
-| REQ-022 | **Pass** for the refusals moved (failed test, Story-next refusals through sequence, the missing remote); **partial** overall | `refusal-remediation`, `refusal-story-next`, `osa-stage3-continuation` test 6 |
+| REQ-022 | **Pass** for every phase refusal's containment and the planners moved; **partial**: the producer details and refusal steps listed in section 11 | `refusal-remediation`, `refusal-story-next`, `osa-stage3-continuation` test 6, `osa-stage3-journeys` (codes kept, original details, the step's own route) |
 | REQ-023 | **Pass** for the routes changed | every new route validates through `safeCommandGuidance` (`osa-stage3-continuation`, `authoring-skills`) |
 | REQ-050 | **Pass** (existing guard boundary; prefill) | `step-routes-stage1`, `osa-stage1-guard`, `vscode-chat-prefill`, `osa-stage3-vscode` |
-| REQ-051 | **Pass** at the kernel; the guard's turn window unchanged | `osa-stage3-continuation` test 7, `copilot-turn-renewal`, journey E |
+| REQ-051 | **Pass** | `osa-stage3-continuation` test 7, `copilot-turn-renewal`, journey E; completion: a live heartbeat renews no turn, a person's answer renews the turn but neither an expired yes nor a fenced writer (`osa-stage3-journeys`) |
 | REQ-052 | **Stage 4** (review delegation) | — |
 | REQ-060 | **Pass** | `plain-language-check` (section 10) |
 | AC-002 | **Pass** for the moved surfaces | `osa-stage1-shadow` |
-| AC-006 | **Pass** for the refusals moved | as REQ-022 |
-| AC-012 | **Pass** | `osa-stage3-continuation` test 5 (kernel classifier); the route follower's loop, circle and no-progress checks in every journey |
+| AC-006 | **Pass** for the refusals and planners moved; section 11 names the rest | as REQ-022 |
+| AC-012 | **Pass** | `osa-stage3-continuation` test 5 (kernel classifier); the route follower's loop, circle and no-progress checks in every journey; completion: an agent's repair repeated on an unchanged basis is a loop, a person's wait is not (`osa-stage3-journeys`) |
 | AC-020 | **Pass** | `osa-ratchet` |
 | AC-022 | see section 8 | |
 
@@ -202,14 +202,135 @@ Node 22, through the isolated runner at concurrency 2, targeted files only. No t
 
 **Not run:** the full suite, the weekly Node 26 run, and `osa-stage2-compat` against an older checkout.
 
-## 11 What is left for Stage 4 and Stage 5
+## 11 What is left
 
-Not done in Stage 3, and why:
-- **Version 1 of a document step has no opening record** (Stage 2 finding 4). Opening it through the operation would commit and push at every document step's first `prepare`, a change to every Story's first step and to many fixtures; it needs its own stage of work. **Stage 4/5.**
-- **Successors of kernel-built document steps** (Stage 2 finding 5): unchanged; `phase rollover` still excludes deterministic steps. **Stage 4** (kernel-built work, REQ-026).
-- **The decisions card as a consent surface** producing `VersionOpeningConsent/v1` with the question tool's binding: not built. The card shows the consent route; the yes is still the question tool, `/sf-confirm` or the person's terminal. **Stage 4.**
-- **Session listing and selection** (`session list`, `/sf-session`): not moved; the session's task resume is. **Stage 4** (sessions, plan item 7).
-- **Refusal presentation as a whole and the recovery planner**: moved for the failed test, the entry's review read, the hook, the uncertain opening and the Story-next refusals; `recovery-plan.mjs` (b11, b34), `phase-resolution.mjs` (b13's default `/sf-recover`), `gate-recovery.mjs` (b26) and the rest of `refusal-remediation.mjs` keep their own routes. **Stage 5** (delete duplicates).
-- **Task stages** beyond the outcomes: the record's existing states are kept; `publication-pending` as a durable stage is not added.
-- **Qualification not added as new journeys:** a long-running execution with a real heartbeat, a missing local attachment, a permission error, a damaged published file kept intact, a stale screen, a switched Story, a concurrent window and text already in the composer. Existing tests cover some of them (`publication-preflight` for preserved bytes, `vscode-chat-prefill` for the composer, `osa-stage2-journey-h` for a stale view); the rest are open.
-- The heavy run (full suite, Node 22) and the weekly Node 26 run.
+Done in the completion (section 12): the recovery planner (b11, b34), finding resolution (b13), gate recovery (b26), the rest of the phase refusals' containment (b12, b33), session listing and selection with one session-opening read for `/sf-session` and `/sf-resume`, the `publication-pending` stage, and the qualification journeys. Still left, and why:
+- **Stage 4's (owned there):** version 1 of a document step has no opening record (Stage 2 finding 4); successors of kernel-built document steps (Stage 2 finding 5); the decisions card as a consent surface; the central action-to-command map, which should take over `decisionRoutes` with this stage's two additions (its `publish-version` case for a pending publication, and `stepRoute`).
+- **Routes not moved here, each a producer's own detail or step:**
+  - prepublish's lead action for changed files after a code publication still names `recover` (`phase-prepublish.mjs`, b39); recovery's own plan then names the work command;
+  - `state.mjs` and `spec-coverage-preview.mjs` still set a coverage refusal's `diagnosticCommand` to `recover` (the refusal now drops it);
+  - `CODE_TEST_RESULT_REQUIRED` and `CODE_TEST_SUPPRESSED` with a pinned configuration dependency open with a recovery read of the configured command; `TRP_PUBLICATION_PENDING` and `TCA_PUBLICATION_PENDING` name `recover` where the pending publication's `sync` is the continuation;
+  - `return` still prints a fixed `prepare` of the active step (`cli.mjs`), as `resume` did.
+- **The guard does not read task outcomes.** A spent repair budget stops every view at the decisions card, but the guard keeps the open version's writes; the edit permission does not take the task's stage.
+- **`running` applies to an open version only**: a long run under the Story's lease after publication (a submission's tests) is not observed as running, and a lease held on another machine is not observed at all (its owner cannot be read here).
+- **The session listing** (`session candidates`, the roster) shows the indexed phase status and published number and names no step action; it has no decision to move and was left as is.
+- **Not run:** the full suite, the weekly Node 26 run, `osa-stage2-compat` against an older checkout, and the performance comparison for the completion.
+
+## 12 Stage 3 completion
+
+**Branch:** `osa-v11-s3b`, from `osa-v11-s3` at `dac523e22`. Commits: `2d3be74de` (refusals and the recovery planner), `abac5bd81` (sessions), `00ffd0385` (task stages), `d85a5e8f3` (journeys), then this record with the ratchet, budget and plain-language lock-ins. Built beside Stage 4 (`osa-v11-s4`, same base), which owns the work commands, `/sf-next`, kernel-built steps, review delegation, the decisions card as a consent surface, version 1 of a document's opening, the central action-to-command map and the skill, help and example texts; none of those were changed here.
+
+### 12.1 What changed
+
+| # | Cohort | What | Where |
+|---|---|---|---|
+| 1 | Recovery planner (b11, b34) | The planner reads the step's version through the kernel's predicates (no raw opening read, no `nextPhaseGeneration`, no `generation + 1`). Changed files after a code publication keep their exact confirmation but are asked by the step's own work command, not `/sf-recover`. An edited published document is kept as the next version through its preview (`phase rollover <step> --reason "<what to change>" --json`), never `phase publish` in place; dropping it is the person's set-aside. A published version's other changed content, an agent-brief source error and the retry contract name the step's own preview or recheck, never a document view or `recover`. An approved step's and a matching published code step's action is the kernel's route (`stepRoute`) | `src/recovery-plan.mjs`, `src/step-decision.mjs` |
+| 2 | Recover for healthy work (§10) | `recover` with nothing to repair says so and names the step's real next action | `src/collaboration.mjs` |
+| 3 | Finding resolution (b13) | No default `/sf-recover` skill. The read beside every finding is the Story's next steps; a failed or skipped test is rechecked by the step's own work command (`phase prepublish <step> --for-agent --json --publish-if-ready`); an intent to open is the kernel's route (version 1 directly, a next version on the person's yes); only changed published bytes and a lifecycle appeal keep recovery | `src/phase-resolution.mjs` |
+| 4 | Gate recovery (b26) | A final step in progress repairs in its own work (its kernel route); an approved owner is never repaired in place (the upstream issue for its approvers, about the finding's clause); a step not reached yet names the current step's action; an unknown owner reads the Story's next steps. `recover --fetch` stays for a remote that moved (a refresh) | `src/gate-recovery.mjs` |
+| 5 | Refusals (b12, b33) | A phase refusal's containment is the step's own next-step read (`nextsteps <W> --json`), which names recovery only for real damage; recovery and the document view are no longer added beside a healthy refusal. An approval turn keeps its end-of-turn step and the approver's evidence read. A coverage refusal's recovery read is dropped (the author's recheck lists the obligations) | `src/refusal-remediation.mjs` |
+| 6 | Sessions (plan section 6 item 7) | One session-opening read for `/sf-session` (`session open`, `session takeover`) and `/sf-resume` (`resume`): the binding, the brief and the next steps (from the kernel through next steps). `resume` keeps its own selection and arguments (`<WORK-ID or branch>`, `--fetch`, `--allow-dirty`, `--agent`) and no longer prints a fixed `prepare` of the active step. The `/sf-resume` prerequisite in next steps reads the kernel's decision (b7) | `src/session-opening.mjs`, `src/commands/session-open.mjs`, `src/commands/session-takeover.mjs`, `src/commands/shared/start-context.mjs`, `src/commands/nextsteps.mjs` |
+| 7 | Task stages (§8) | `publication-pending`, and `running` from a live lease | `src/kernel/step-state.mjs`, `src/workflow-task-outcome.mjs`, `src/workflow-task.mjs`, `src/workflow-task-store.mjs`, `src/submission-readiness.mjs`, `src/commands/nextsteps.mjs`, `src/session-read-service.mjs`, `src/step-decision.mjs` |
+| 8 | No-progress (AC-012) | A declared wait is a wait for a person; the agent's own repair repeated on an unchanged basis is now a loop | `src/kernel/step-state.mjs` |
+| 9 | Qualification | `test/osa-stage3-journeys.test.mjs` (section 12.4); the tests that pinned a recovery detour changed to the new route, each with its reason | `test/` |
+
+### 12.2 The task stages
+
+| Stage | Kernel | Rendered | Read from |
+|---|---|---|---|
+| `publication-pending` | `waiting`, `reconcile` / `publish-version` (`pending: true`, the original code and commit), before any authoring; it applies whether or not a version is open | `singularity-flow sync` (the same command next steps, readiness and the skills already name for `state=publication_pending`) | the sealed pending-publication record (`readPendingPublication`), which keeps the exact commit, branch, remote and lease across any interruption. Not a task-record code: a record cannot outlive the publication it names |
+| `running` | `waiting`, `observe` / `inspect` (task: execution); the version stays writable | `session current --for-agent --json` | another process on this machine holds the Story's lease with a fresh heartbeat (`inspectSubjectLease`); this process's own lease, an unknown owner or a stale heartbeat is not observed as running |
+
+- **Who reads them.** Next steps (the retained record is read once and shared with the task's stage and resume), submission readiness (`synchronization-required`), the session's task resume (session current and session status read the record; the shared session read passes what it already checked), and the kernel's views.
+- **The task resume** with a retained publication says `stage: 'publication-pending'`, `remaining: ['publish']` and names `sync`; it named `recover` before. A blocked task with no route of its own, and an interrupted operation with no inspection, now name the kernel's route for the step instead of `recover`.
+
+### 12.3 Refusals and the recovery planner, before and now
+
+| Before | Now | Reference |
+|---|---|---|
+| Every phase refusal with no route of its own added `recover <W> --phase <step> --json` (`/sf-recover`) and `phase show <step> --json` (`/sf-phase-documents`) | `nextsteps <W> --json` (`/sf-nextsteps`): the step's own next action as the kernel decides it, recovery only for damage. Its codes, details and producer routes are unchanged | b12, b33, D4 |
+| Gate findings owned by a step: `recover <W> --phase <owner>` | the owner's kernel route, the upstream issue for an approved owner, or the Story's next steps | b26 |
+| `phaseResolutionChoices` defaulted every route's skill to `/sf-recover`, and its trailing read was `recover` | the command's own skill; the trailing read is the Story's next steps; a failed test is rechecked in its step | b13, owner 2026-11-17 |
+| Changed files after a code publication: `phase rollover --confirm <digest>` under `/sf-recover` ("Use /sf-recover for this phase-scoped rollover") | the same confirmation under the step's own work command, which previews it and asks the person | b34, REQ-014 |
+| An edited published document in progress: `phase publish <step>` (`/sf-publish`), which opened the next version with nobody asked; restoring it pointed at the document view | its preview (`phase rollover <step> --reason "<what to change>" --json`); restoring is the person's set-aside | b11, D3, REQ-014 |
+| `recover` with nothing to repair named no next action | it names the step's real next action | §10 |
+
+**Kept on purpose:** recovery for changed published bytes (it protects them first, §6), a lifecycle appeal problem, an unreadable Story state, a retained publication's backup route and a dirty start's set-aside (they protect bytes or reconcile an interrupted operation); `recover --fetch` for a remote that moved; `CODE_TEST_RESULT_REQUIRED` with a pinned configuration dependency still opens with the recovery read of the configured command (section 12.7).
+
+### 12.4 Qualification journeys
+
+`test/osa-stage3-journeys.test.mjs`, through the real guard (`mutationToolGuard`), the real lease, task and consent stores, and the views; expected results written out from §5, §6 and §8:
+
+| Journey | What it shows |
+|---|---|
+| A long-running execution with a live heartbeat | A child process holds the Story's lease and renews its heartbeat; `inspectSubjectLease` reads it alive and fresh; every view names `session current`; repeated observation is no loop; a turn opened 31 minutes ago is refused (`PHASE_MUTATION_TURN_EXPIRED`) while a fresh turn still writes the open version; once the execution ends the views name `prepare implement`, and another turn resumes the same task record |
+| A revoked writer and an expired yes | A takeover moves the writer fence: the same turn's next write is denied, the kernel names `session takeover`. A yes given 31 minutes ago leaves no grant and its receipt is `VERSION_CONSENT_EXPIRED`; the person's answer renews the turn's window and neither the yes nor the fenced write |
+| A missing local attachment, a missing file, a permission error | The task record keeps `waiting-input` (`DOCUMENT_REUPLOAD_REQUIRED`); a later read names `documents readiness` on every view, nothing repeats. A missing required artifact and `PHASE_ARTIFACT_MISSING` keep their codes, with the author's route then the next-step read. A write to another step's artifact is denied by the guard (`PHASE_MUTATION_PATH_DENIED`) before a byte changes, leading with `prepare implement` |
+| A failed test with bounded repair | Attempts 1 and 2 of 2 repair in the step; spent, the decisions card; a repair repeated on an unchanged basis is a loop; the refusal and the finding name the step's recheck, never recovery |
+| A malformed review citation | The reviewer's turn writes only its exact staging file; the review task's `repair-report` stage names its own context read and opens no version |
+| A stale screen, a switched Story, a concurrent window | An unobserved opening is advisory and grants nothing; two windows both write the open version, and once one publishes the other's next write is refused; another Story's files are refused; the action has a Shell and a Copilot line and an explicit model-free status, and the engine sends nothing (VS Code's prefill: `osa-stage3-vscode`) |
+| No-progress | An idempotent acknowledgement and a declared wait are no loop; the same action on an unchanged basis is |
+| (slow lane) A pending publication; a published document edited in place | Through the CLI with a bare remote that refuses the push: next steps and session current name `singularity-flow sync` and `publication-pending` from separate processes, never recovery; sync sends the same commit and the stage ends. Then the published intake edited in place: recover offers its preview (`phase rollover intake --reason …`), never `phase publish`; the edit and the published bytes are both kept; the preview asks "Start version 2 of Intake? …" and opens nothing |
+
+### 12.5 Ratchet and budgets
+
+**AC-020 ratchet** (totals of the per-module ceilings, locked in with `scripts/osa-inventory.mjs --ratchet`; no rise, no new exception):
+
+| Family | Stage 3 first pass | Completion |
+|---|---|---|
+| Raw opening reads | 76 | 64 |
+| Opening writes | 11 | 11 |
+| Lifecycle predicate calls | 214 | 201 |
+| Skill and turn chooser calls | 102 | 97 |
+| Version arithmetic in place | 38 | 37 |
+| Routes built in place | 115 | 114 |
+| Lifecycle command literals | 321 | 317 |
+| Route skill literals | 112 | 103 |
+
+Falls by module: `recovery-plan.mjs` opening reads 10 → 0, predicates 11 → 0, version arithmetic 1 → 0, routes 7 → 6, commands 15 → 12, skill literals 6 → 2; `phase-resolution.mjs` opening reads 2 → 0, choosers 6 → 1, skill literals 3 → 0; `gate-recovery.mjs` commands 6 → 4; `refusal-remediation.mjs` skill literals 23 → 21; `commands/nextsteps.mjs` predicates 5 → 3.
+
+**Budgets:**
+
+| Ceiling | Before | Completion measured | Change |
+|---|---|---|---|
+| Lifecycle handlers' bytes | 9,747,600 (`phase-lifecycle` 9,747,581) | `phase-lifecycle` 9,751,587 | **raised to 9,751,600** (+4,006), measured and commented in `test/lazy-command-handlers.test.mjs`: the planners' kernel route (`stepRoute`), the kernel's `publication-pending` stage and its render, readiness naming it. The comments of the first draft were cut to keep it there; the stage's readers and the session-opening read stay lazy |
+| Lifecycle handlers' files | 473 | `submit` 473 | none, no new eager file |
+| Session current | 4,279,100 | 4,279,062, 221 files | none |
+
+Plain language: 0 new, 5 fixed and locked in (`benchmarks/plain-language/baseline.json`). Git bypass audit: 2,013 sites, no new one.
+
+### 12.6 Targeted runs
+
+Node 22, through the isolated runner at concurrency 2, targeted files only; no touched set, no full run.
+
+| Run | Files | Result |
+|---|---|---|
+| Completion qualification | `osa-stage3-journeys` (7 fast tests), `osa-stage3-continuation` (7) | pass |
+| Slow lane (`SINGULARITY_FLOW_TEST_SLOW=1`), alone | `osa-stage3-journeys` "a publication left pending … a published document edited in place" | pass |
+| Refusals and planners | `refusal-remediation`, `phr-routing`, `approval-intervening-commits`, `refusal-story-next`, `refusal-ways-out`, `refusal-plumbing`, `refusal-renewal-route`, `refusal-routes-test-risk`, `refusal-first-routes`, `refusal-routes-test-coverage-flow`, `phr-refusal-plans`, `phr-owner-checks`, `publication-retry-refusals`, `unknown-step-refusals`, `gate-recovery`, `upstream-route-dead-ends`, `upstream-coverage-decision`, `terminal-publication-routes`, `dead-end-routes`, `phase-resolution-rca`, `finding-routes-audit`, `publication-preflight`, `phase-appeals`, `phase-publication-readiness`, `node-pin-flow`, `phase-contract-recovery`, `phase-prepublish`, `phase-entry`, `phase-repair-loop`, `findings-loop`, `conformance-gap-decisions`, `decision-list-plan-accounting`, `lifecycle-worktree`, `sda-acceptance-007-010-020` | pass after the test changes below, but one pre-existing red |
+| Sessions and surfaces | `handoff`, `session-open`, `session-open-local`, `session-read-service`, `session-entry-view`, `session-entry-bounded`, `session-roster`, `workspace-clone-resume`, `story-start-handoff`, `command-skills`, `nextsteps`, `submission-readiness`, `workflow-task-resume`, `workflow-task-completion`, `kernel-step-routes`, `step-routes-stage1`, `osa-stage1-kernel`, `osa-stage1-shadow`, `osa-stage1-skills`, `osa-stage1-guard`, `phase-mutation-contract`, `agent-output`, `agent-hooks`, `review-next-step`, `confirmation-routes`, `no-dead-end`, `route-audit`, `document-step-routes`, `phase-authoring-progress`, `phase-authoring-continuation`, `changes-after-publication-cli`, `step-sheet-shadow`, `source-clause-bindings`, `spk-fastpath`, `skill-efficiency`, `iac-chat`, `oap-m3-one-list`, `vscode-outcome-review`, `git-index-lock-wait`, `journey-routes` (fast tier), `post-code-handoff`, `copilot-guidance`, `native-copilot-efficiency`, `person-step-golden` | pass, but one pre-existing red |
+| Must stay green | `osa-ratchet`, `osa-stage0`, `lazy-command-handlers` (after the measured raise), `plain-language`, `source-inspection`; the scripts `plain-language-check` (0 new), `git-bypass-audit` (no new site), `build-docs-manifest` | pass |
+| Repository check | `node check-iso.mjs <worktree>` (`scripts/check.mjs`) | pass: 3,786 checks |
+
+**Tests changed, each to the new route with its reason (none weakened):** 20 assertions pinned the recovery detour: the containment's `recover <W> --phase <step>` (`refusal-remediation` ×7, `phr-routing` kept its id, `approval-intervening-commits`, `step-routes-stage1`), a failed test's `recover` (`refusal-routes-test-risk`, `phase-resolution-rca`), gate recovery's `recover --phase <owner>` (`gate-recovery` ×3, `upstream-route-dead-ends` ×2), the changed-files rollover under `/sf-recover` (`publication-preflight` ×4 and the retry's `beforeRetry`), the edited document's `phase publish` (`phase-appeals`), the task resume's `recover` for a pending publication (`workflow-task-resume`), and the outcome list (`osa-stage3-continuation`). Two fixtures were made consistent with what they test: `gate-recovery`'s pinned-owner Story now has its earlier steps approved and its current step in progress, and `upstream-route-dead-ends` submits from an in-progress final step.
+
+**Reds, both pre-existing (by reading; not run at `dac523e22`):**
+- `phase-publication-readiness` "missing MCP evidence and a missing required host are actionable without starting any server" expects "this phase generation" where `src/phase-publication-readiness.mjs:182` says "this version" since `8ac43fb0f`, before `dac523e22`. Neither file changed here.
+- `person-step-golden` "the tables, and every person's step against the turns that differ most, have not moved": its golden table lacks the `version-opened` and `version-writer-taken-over` lifecycle members Stage 2 added (`abdcca2ba`). Neither the vocabulary nor the golden changed here.
+
+### 12.7 Decisions for the owner
+
+| # | Decision | What was done; the recommendation |
+|---|---|---|
+| 1 | The lifecycle handlers' eager budget, raised again by 4,006 bytes | Accepted at the measured value. **Recommendation:** let Stage 5 lazy-load the planners' kernel route behind their refusal paths when it removes the duplicates. |
+| 2 | A healthy phase refusal now offers the step's next-step read instead of `recover` and the document view | Done (D4). An approval turn keeps its end-of-turn step and the approver's own evidence read. **Recommendation:** confirm. |
+| 3 | `publication-pending` renders as `singularity-flow sync`, without the Work ID | Kept as the skills' `state=publication_pending` contract and next steps already say it; the exact commit is in the decision's inputs. **Recommendation:** Stage 4's central map names `sync <WORK-ID>` once the skill texts move with it. |
+| 4 | `running` is read from a live lease held by another process on this machine | A lease on another machine, or a stale heartbeat, is not observed as running. **Recommendation:** keep; a cross-machine execution observation needs its own record. |
+| 5 | `resume` now runs the shared session-opening read | It reports the binding and the kernel's next steps instead of a fixed `prepare`, and costs the binding read (also when `start` resumes an existing Story). A failed read is reported, never a failed resume. **Recommendation:** confirm. |
+| 6 | `CODE_TEST_RESULT_REQUIRED` with a pinned configuration dependency still opens with a recovery read | Left (a configuration defect, not a failed test). **Recommendation:** Stage 5 replaces it with the policy read (`story test-policy`). |
+
+### 12.8 For the merge with Stage 4
+
+- `src/step-decision.mjs`: two additions only, `stepRoute` (after `stepDecisionOf`) and the `publish-version` case before `default` in `decisionRoutes`. If Stage 4 moves `decisionRoutes` into its central map, both move with it; `recovery-plan.mjs`, `phase-resolution.mjs`, `gate-recovery.mjs` and `collaboration.mjs` import `stepRoute` from `step-decision.mjs`.
+- No new command name: every route uses a command the map already renders (`nextsteps`, `sync`, `phase rollover`, `phase prepublish`, `session current`, `session takeover`, `upstream-issue raise`, `status --submission-readiness`).
+- Skill texts were not changed.

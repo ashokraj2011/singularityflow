@@ -77,7 +77,9 @@ test('every shipped and example workflow routes publication through its phase co
         } else assert.ok(nextActions.length > 0, `${label} omitted its publication action`);
         for (const action of nextActions) assertValidPublicationAction(action, phase, label);
 
-        assert.equal(workflowGuide(workflow).nextActions[0].command, `singularity-flow prepare ${phase.id}`);
+        // A code step's first version opens with `phase begin`, as its entry and edit permission say [OSA:REQ-020].
+        assert.equal(workflowGuide(workflow).nextActions[0].command, phase.generationPolicy.task === 'code' || phase.writeScope === 'source-and-artifact'
+          ? sequence[0].command : `singularity-flow prepare ${phase.id}`);
         if (contract.producer === 'deterministic') {
           assert.equal(contract.channel, 'kernel-generator', `${label} deterministic output escaped the kernel`);
           assert.ok(nextActions.every((entry) => !entry.command.includes('--authored human')),

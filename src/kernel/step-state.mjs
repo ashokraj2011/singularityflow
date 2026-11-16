@@ -20,7 +20,7 @@ export const ACTION_KINDS = Object.freeze(['agent-work', 'person-consent', 'pers
   'refresh', 'reconcile', 'none']);
 export const OPERATIONS = Object.freeze(['open-version', 'author-version', 'build-version', 'publish-version', 'start-review',
   'review-version', 'submit-version', 'approve-step', 'decide', 'recover-operation', 'refresh-authority', 'refresh-facts',
-  'takeover-writer', 'inspect', 'none']);
+  'takeover-writer', 'inspect', 'repair-version', 'provide-input', 'none']);
 export const PRINCIPAL_KINDS = Object.freeze(['agent', 'human']);
 export const ROLES = Object.freeze(['author', 'reviewer', 'approver', 'person']);
 export const SOURCE_STATUSES = Object.freeze(['verified', 'not-created', 'missing', 'unavailable', 'stale', 'corrupt']);
@@ -38,8 +38,16 @@ export const REASON_CODES = Object.freeze([
   'INITIAL_VERSION', 'WATERMARK_SUCCESSOR', 'VERSION_OPEN', 'KERNEL_BUILT', 'REWORK', 'AMENDMENT', 'REJECTED', 'AUTHOR_CONFLICT',
   'REVIEW_CORRECTIONS', 'REVIEW_PENDING', 'REVIEW_READY', 'REVIEW_UNAVAILABLE', 'NO_REVIEW_OWED', 'FUTURE_STEP',
   'APPROVED_STEP', 'CONSUMED_OPENING_MISMATCH', 'NOT_AUTHORING_TURN', 'NO_CHANGE_CAPABILITY', 'STEP_NOT_ACTIVE',
-  'LEGACY_LOCAL_OPENING', 'OPENING_PENDING', 'OPENING_UNKNOWN', 'OPENING_REFUSED', 'OPENING_UNOBSERVED', 'WRITER_FENCED', 'CONSENT_REQUIRED'
+  'LEGACY_LOCAL_OPENING', 'OPENING_PENDING', 'OPENING_UNKNOWN', 'OPENING_REFUSED', 'OPENING_UNOBSERVED', 'WRITER_FENCED', 'CONSENT_REQUIRED',
+  'TASK_RUNNING', 'TASK_WAITING_INPUT', 'TASK_WAITING_ENVIRONMENT', 'TASK_WAITING_PERSON', 'TASK_REPAIR_REQUIRED', 'TASK_REPAIR_EXHAUSTED',
+  'REVIEW_CORRECTIONS_WITHOUT_VERSIONS'
 ]);
+/**
+ * A durable task's outcome (§8, plan section 5 "Task stages"): what the version being written waits for, as its task
+ * record keeps it across turns, chats and laptops. `running` is an execution being observed; the four waits stop at a
+ * named, recoverable boundary with the original code and resources, never a repetition of the same route.
+ */
+export const TASK_OUTCOMES = Object.freeze(['running', 'waiting-input', 'waiting-environment', 'waiting-person', 'repair-required']);
 /** An opening operation's shared acceptance as this checkout observed it (story-version-acceptance.mjs), and its writer. */
 export const OPENING_ACCEPTANCE = Object.freeze(['confirmed', 'pending', 'unknown', 'refused', 'unobserved']);
 export const OPENING_WRITERS = Object.freeze(['current', 'other']);
@@ -173,6 +181,35 @@ function openingHold(opening) {
   return { pending: 'OPENING_PENDING', unknown: 'OPENING_UNKNOWN', refused: 'OPENING_REFUSED' }[opening.acceptance] ?? 'OPENING_UNOBSERVED';
 }
 
+/**
+ * The open version's task outcome as the next action, or null when the task is simply being written [§8]. `task`:
+ * `{ id, outcome, code, repairs: { used, budget } }` from the task record (workflow-task-outcome.mjs). A running execution
+ * is observed and keeps the version's edits; a wait names the person's or environment's step; a repair runs within its
+ * configured budget, and an exhausted budget is a person's decision with the evidence kept, never the same work again.
+ */
+function taskWait(task, target) {
+  if (!task || !TASK_OUTCOMES.includes(task.outcome)) return null;
+  const code = text(task.code) ?? null;
+  const used = Number.isSafeInteger(task.repairs?.used) && task.repairs.used >= 0 ? task.repairs.used : 0;
+  const budget = Number.isSafeInteger(task.repairs?.budget) && task.repairs.budget >= 0 ? task.repairs.budget : 0;
+  const record = (status, next) => ({ id: text(task.id) ?? null, status, stage: text(task.stage) ?? null, progressReference: text(task.progressReference) ?? null,
+    continuation: next.actionId });
+  const make = (reason, next, edit = false) => ({ code: reason, next, edit, task: record(task.outcome, next) });
+  if (task.outcome === 'running') return make('TASK_RUNNING', action('observe', 'inspect', { target, inputs: { task: 'execution' }, reasonCodes: ['TASK_RUNNING'] }), true);
+  if (task.outcome === 'waiting-input') return make('TASK_WAITING_INPUT', action('person-decision', 'provide-input', { target, principalKind: 'human', role: 'person',
+    inputs: { code }, reasonCodes: ['TASK_WAITING_INPUT'] }));
+  if (task.outcome === 'waiting-environment' || task.outcome === 'waiting-person') {
+    const reason = task.outcome === 'waiting-person' ? 'TASK_WAITING_PERSON' : 'TASK_WAITING_ENVIRONMENT';
+    return make(reason, action('person-decision', 'decide', { target, principalKind: 'human', role: 'person',
+      inputs: { decision: 'task-outcome', outcome: task.outcome, code }, reasonCodes: [reason] }));
+  }
+  // repair-required: within its budget the same step's work repairs it; past it, a person decides.
+  if (used < budget) return make('TASK_REPAIR_REQUIRED', action('agent-work', 'repair-version', { target,
+    inputs: { code, attempt: used + 1, budget }, reasonCodes: ['TASK_REPAIR_REQUIRED'], then: ['publish-version'] }), true);
+  return make('TASK_REPAIR_EXHAUSTED', action('person-decision', 'decide', { target, principalKind: 'human', role: 'person',
+    inputs: { decision: 'task-outcome', outcome: 'repair-exhausted', code, attempts: used }, reasonCodes: ['TASK_REPAIR_EXHAUSTED'] }));
+}
+
 /** The primary action of the Story's current step, for a decision about another step [§5 precedence 11]. */
 function currentStepNext(snapshot) {
   if (!snapshot.current) return null;
@@ -262,7 +299,11 @@ export function stepState(snapshot) {
     { ...base, edit: NO_EDIT(['LEGACY_LOCAL_OPENING']), obligations });
   }
   // An opening the operation made: written only once accepted on the shared authority and held by this checkout's writer.
-  const held = numbers.writing !== null ? openingHold(facts.opening) : null;
+  // A view that observed nothing of it (`turnMode: 'view'`, no acceptance or writer given) names its writing, as an
+  // advisory decision with its basis [§4.1]: it grants nothing, and the work command's entry observes the opening before
+  // any write and reconciles an uncertain one [OSA:REQ-031, REQ-041].
+  const advisory = actor.turnMode === 'view' && facts.opening?.record === 'operation' && facts.opening.acceptance === undefined && facts.opening.writer === undefined;
+  const held = numbers.writing !== null && !advisory ? openingHold(facts.opening) : null;
   if (held === 'WRITER_FENCED') return decision(snapshot, 'held', action('person-decision', 'takeover-writer', { target: target(numbers.writing),
     principalKind: 'human', role: 'person', inputs: { version: numbers.writing, fence: facts.opening.fence ?? null }, reasonCodes: ['STEP_HELD', 'WRITER_FENCED'] }),
   { ...base, edit: NO_EDIT(['WRITER_FENCED']), obligations });
@@ -270,12 +311,18 @@ export function stepState(snapshot) {
   if (held) return decision(snapshot, 'waiting', action('reconcile', 'recover-operation', { target: target(numbers.writing),
     inputs: { operation: 'version-opening', version: numbers.writing, operationId: text(facts.opening.operationId) ?? null }, reasonCodes: [held] }),
   { ...base, edit: NO_EDIT([held]), obligations });
+  // 8. The open version's task, as its durable record keeps it: an execution is observed, a wait names its exact
+  // continuation, and a repair runs only within its budget [§8, OSA:REQ-012, REQ-051].
+  const waiting = numbers.writing !== null ? taskWait(facts.task, target(numbers.writing)) : null;
+  if (waiting) return decision(snapshot, 'waiting', waiting.next, { ...base, edit: waiting.edit ? editFor(snapshot, 'writing', numbers, target(numbers.writing)) : NO_EDIT([waiting.code]),
+    obligations, task: waiting.task });
   if (numbers.writing !== null) {
     if (kernelBuilt) return decision(snapshot, 'kernel-build', action('agent-work', 'build-version', { target: target(numbers.writing),
       inputs: { producer: 'deterministic', version: numbers.writing, consent: 'given' }, reasonCodes: ['KERNEL_BUILT', 'VERSION_OPEN'], then: ['publish-version'] }),
     { ...base, edit: editFor(snapshot, 'kernel-build', numbers, target(numbers.writing)), obligations });
     return decision(snapshot, 'writing', action('agent-work', 'author-version', { target: target(numbers.writing),
-      inputs: { version: numbers.writing, ...(numbers.published >= 1 ? { from: numbers.published } : {}) }, reasonCodes: ['VERSION_OPEN'], then: after(false) }),
+      inputs: { version: numbers.writing, ...(numbers.published >= 1 ? { from: numbers.published } : {}) },
+      reasonCodes: ['VERSION_OPEN', ...(advisory ? ['OPENING_UNOBSERVED'] : [])], then: after(false) }),
     { ...base, edit: editFor(snapshot, 'writing', numbers, target(numbers.writing)), obligations });
   }
   if (numbers.published === 0 && needsVersion(facts)) {
@@ -313,6 +360,10 @@ export function stepState(snapshot) {
     const stale = Number.isSafeInteger(review.version) && review.version !== numbers.published;
     if (status === 'unavailable') return decision(snapshot, 'published', action('refresh', 'refresh-facts', { target: target(numbers.published),
       inputs: { source: 'review' }, reasonCodes: ['REVIEW_UNAVAILABLE'] }), { ...base, edit: NO_EDIT(['REVIEW_UNAVAILABLE']), obligations });
+    // A step that takes no versions cannot open a successor for its corrections: a person decides what the review left.
+    if (status === 'correction-required' && !stale && facts.versionRequired === false) return decision(snapshot, 'paused', action('person-decision', 'decide',
+      { target: target(numbers.published), principalKind: 'human', role: 'person', inputs: { decision: 'review-disposition' }, reasonCodes: ['REVIEW_CORRECTIONS_WITHOUT_VERSIONS'] }),
+    { ...base, edit: NO_EDIT(['REVIEW_CORRECTIONS_WITHOUT_VERSIONS']), obligations });
     if (status === 'correction-required' && !stale) return decision(snapshot, 'review-corrections', action('person-consent', 'open-version',
       { target: target(numbers.proposedNext), principalKind: 'human', inputs: { version: numbers.proposedNext, consent: 'required', reason: 'review-corrections',
         from: numbers.published, opening: 'successor-preview' }, reasonCodes: ['REVIEW_CORRECTIONS'], then: after(true) }),
@@ -327,4 +378,24 @@ export function stepState(snapshot) {
   }
   return decision(snapshot, 'published', action('agent-work', 'submit-version', { target: target(numbers.published),
     prerequisites: submitPrerequisites, reasonCodes: ['NO_REVIEW_OWED'] }), { ...base, edit: NO_EDIT(['NO_REVIEW_OWED']), obligations });
+}
+
+/**
+ * Whether a run of decisions made progress [OSA:AC-012]: the same action on an unchanged basis, taken again, is a loop.
+ * Not a loop: observing a running task (its execution is the progress), a declared wait (the decision says what it waits
+ * for) and an idempotent acknowledgement (the caller marks it: repeating it changes nothing and asks for nothing).
+ * `steps`: `[{ decision, basisKey, acknowledgement }]` in the order they were taken; `basisKey` is the caller's digest of
+ * the facts the decision was made on. Returns `{ loop: false }` or `{ loop: true, first, repeated, actionId }`.
+ */
+export function noProgress(steps) {
+  const seen = new Map();
+  for (const [index, entry] of (Array.isArray(steps) ? steps : []).entries()) {
+    const next = entry?.decision?.next;
+    if (!next?.actionId) continue;
+    const legitimate = next.kind === 'observe' || entry.decision.state === 'waiting' || entry.acknowledgement === true;
+    const key = `${next.actionId}|${String(entry.basisKey ?? '')}`;
+    if (seen.has(key) && !legitimate) return { loop: true, first: seen.get(key), repeated: index, actionId: next.actionId };
+    if (!seen.has(key)) seen.set(key, index);
+  }
+  return { loop: false };
 }

@@ -13,6 +13,7 @@ import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 import { approvalCheckLines, blockingCommitLines, owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
 import { blockingHolds, sheetRoute } from './step-sheet-route.mjs';
+import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -164,12 +165,16 @@ async function phaseReadiness(root, config, workflow, {
       stepActionHold = hold ? { ...hold, reason: stepActionHoldSentence(hold) } : null;
     } catch { stepActionHold = null; }
   }
+  // Where the step's task stopped, kept across turns (workflow-task-outcome.mjs); the kernel applies it to an open version only.
+  const taskOutcome = phase?.status === 'in_progress' && phaseId === workflow.currentPhase
+    ? await (await import('./workflow-task-outcome.mjs')).readTaskOutcome(root, workflow, phase) : null;
   const readiness = submissionReadinessSnapshot(workflow, {
     phaseId,
     pendingSynchronization,
     draftEvidence,
     sourceReviewEvidence,
-    stepActionHold
+    stepActionHold,
+    taskOutcome
   });
   if (phase && phaseId === workflow.currentPhase && ['in_progress', 'awaiting_approval'].includes(phase.status)) {
     try {
@@ -288,7 +293,8 @@ export function submissionReadinessSnapshot(workflow, {
   pendingSynchronization = false,
   draftEvidence = null,
   sourceReviewEvidence = null,
-  stepActionHold = null
+  stepActionHold = null,
+  taskOutcome = null
 } = {}) {
   const phase = phaseId ? workflow?.phases?.[phaseId] ?? null : null;
   const draft = draftEvidence == null ? {} : {
@@ -384,6 +390,14 @@ export function submissionReadinessSnapshot(workflow, {
   if (convergenceRoute) return result(workflow, phase, {
     ...draft, ...convergenceRoute, nextSkill: directCopilotSkill(convergenceRoute.skill)
   });
+  // Its task stopped at a boundary its author cannot cross alone: that wait is the next step, as every view says [§8].
+  const waiting = writing && taskOutcome ? stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome }) : null;
+  if (waiting?.state === 'waiting') {
+    const [route] = decisionRoutes(waiting, workflow, phase);
+    return result(workflow, phase, { ...draft, classification: 'task-waiting', lifecycleReady: false, command: route?.command ?? null,
+      nextSkill: route?.skill ?? null, reason: route?.detail ?? null, taskOutcome: { outcome: taskOutcome.outcome, code: taskOutcome.code },
+      reasonCode: waiting.next.reasonCodes[0] ?? 'TASK_WAITING' });
+  }
   const authoringProgress = phaseAuthoringProgress(workflow, phase, { draftEvidence });
   if (writing) return result(workflow, phase, {
     ...draft,

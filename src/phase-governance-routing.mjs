@@ -3,10 +3,15 @@ import { decisionsCardAction, intentAmendmentPause, intentAmendmentPauseReason }
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { versionFactsOf } from './phase-generation-need.mjs';
+import { consumedOpeningMismatch } from './kernel/step-versions.mjs';
 
 /** Shared read-only handoff for every workflow, including renamed/copied phases. */
 export function phaseGovernanceHold(workflow, phase) {
   if (!phase) return null;
+  // Positive damage comes before every hold (section 5 precedence 3 before 4 and 5): a damaged step's recovery leads, as
+  // the edit permission and the entry say [OSA:REQ-005, REQ-020].
+  if (phase.status === 'in_progress' && phaseRequiresCodeDelivery(phase) && consumedOpeningMismatch(versionFactsOf(workflow, phase))) return null;
   const amendment = pendingIntentAmendmentAcknowledgement(workflow);
   if (amendment) return {
     code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED', classification: 'amendment-acknowledgement-required',
@@ -39,14 +44,16 @@ export function phaseGovernanceHold(workflow, phase) {
       ...(phase.status === 'awaiting_approval' ? [copilotAction({ skill: '/sf-reject',
         command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to ${phase.id} --reason "Re-author under the accepted phase author for independent review"`,
         reason: 'An authorized human must return the submitted generation before authoring its successor.' })] : []),
-      ...(phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed'
+      // A submitted step is returned first: nothing opens a successor of it while it waits for approval (C14).
+      ...(phase.status === 'in_progress' && phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed'
         // /sf-code previews the next generation and asks the person; /sf-recover ran nothing for unchanged bytes (owner, 2026-11-16).
         ? [copilotAction({ skill: '/sf-code',
           command: `singularity-flow phase rollover ${phase.id} --json`,
-          reason: 'Preview and review the exact successor-generation digest before reopening code authoring.' })] : []),
-      copilotAction({ skill: generationSkillForPhase(phase, workflow),
-        command: `singularity-flow prepare ${phase.id}`,
-        reason: 'Re-author against the current approved inputs and publish a new generation, preserving all prior evidence.' })
+          reason: 'Preview and review the exact successor-generation digest before reopening code authoring.' })]
+        // `prepare` of a code step whose version is consumed refuses (C20): its successor opens by the preview above.
+        : phase.status === 'in_progress' ? [copilotAction({ skill: generationSkillForPhase(phase, workflow),
+          command: `singularity-flow prepare ${phase.id}`,
+          reason: 'Re-author against the current approved inputs and publish a new generation, preserving all prior evidence.' })] : [])
     ]
   };
 }

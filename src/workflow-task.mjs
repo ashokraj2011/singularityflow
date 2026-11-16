@@ -4,6 +4,8 @@ import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration } from './phase-generation-need.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
+import { taskOutcomeOf } from './workflow-task-outcome.mjs';
 import { readRecord, currentSchemaVersion } from './schema-migrations.mjs';
 
 const ROLES = new Set(['author', 'source-reviewer']);
@@ -192,8 +194,17 @@ export function workflowTaskResume(workflow, phase, { role = 'author', generatio
   const recovery = safeCommandGuidance({ argv: ['recover', identity.workId, '--phase', phase.id, '--for-agent', '--json'] });
   const checkpointRoute = workflow.currentPhase === phase.id && workflow.status === 'in_progress'
     ? safeCommandGuidance({ argv: ['appeal', 'task-checkpoint', '--work-id', identity.workId, '--phase', phase.id, '--role', role, '--json'] }) : null;
+  // Where the task stopped, kept in its record (workflow-task-outcome.mjs): the kernel's wait for it, with its original
+  // code, as every view names it; never a recovery for a healthy wait [§8, OSA:REQ-012, REQ-020].
+  const outcome = role === 'author' && record && !pendingPublication && !blocked ? taskOutcomeOf(record, workflow) : null;
+  const waiting = outcome ? stepDecisionOf(workflow, phase, { task: outcome }) : null;
   if (pendingPublication) { state = 'blocked'; complete = false; next = recovery; }
   else if (blocked) { state = 'blocked'; complete = false; next = blocked.nextAction ?? next ?? recovery; }
+  else if (waiting?.state === 'waiting') {
+    const [route] = decisionRoutes(waiting, workflow, phase);
+    state = 'blocked'; complete = false;
+    next = route?.command ? { ...route.commandGuidance, reason: route.detail, outcome: outcome.outcome, code: outcome.code } : next;
+  }
   else if (complete) state = 'complete';
   else if (role === 'author' && phase.status !== 'in_progress') {
     state = 'lifecycle-handoff'; next ??= safeCommandGuidance({ argv: ['nextsteps', identity.workId, '--for-agent', '--json'] });

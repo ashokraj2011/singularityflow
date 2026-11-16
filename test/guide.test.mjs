@@ -52,8 +52,10 @@ test('workflow guide requires regeneration after rejection to an earlier generat
   const rejected = workflow('in_progress', 2);
   rejected.phases.intake.rejectedAt = '2026-01-02T00:00:00.000Z';
   rejected.history.push({ phase: 'requirements', event: 'phase_rejected', at: rejected.phases.intake.rejectedAt });
+  // Its next version opens on the person's yes, as the entry and the edit permission say [D3, OSA:REQ-020, REQ-030].
   assert.equal(workflowGuide(rejected).nextActions[0].skill, '/sf-phase');
-  assert.match(workflowGuide(rejected).nextActions[0].reason, /Regenerate/);
+  assert.equal(workflowGuide(rejected).nextActions[0].command, 'singularity-flow phase rollover intake --json');
+  assert.match(workflowGuide(rejected).nextActions[0].reason, /Preview version 3 of intake and ask the person to confirm it/);
   rejected.history.push({ phase: 'intake', event: 'phase_generated', at: '2026-01-03T00:00:00.000Z' });
   assert.equal(workflowGuide(rejected).nextActions[0].skill, '/sf-submit');
 });

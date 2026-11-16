@@ -120,7 +120,8 @@ test('the command result preserves policy-selected generation skills', () => {
   };
   const implementation = planFastPath(implementationStory, DEFINITION, 'implement');
   const narratedImplementation = fastPathCommandAction(implementation.next[0]);
-  assert.equal(narratedImplementation.command, 'singularity-flow prepare implementation');
+  // A code step's first version opens with `phase begin`, as its entry and edit permission say [OSA:REQ-020].
+  assert.equal(narratedImplementation.command, 'singularity-flow phase begin implementation --json');
   assert.equal(narratedImplementation.skill, '/sf-code');
   assert.equal(narratedImplementation.copilotCommand, '/sf-code');
 });

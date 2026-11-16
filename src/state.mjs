@@ -5500,6 +5500,9 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     if (refusal) {
       // The criterion whose own test failed is named, with its repair in this step [PHR:REQ-002, finding 11].
       if (ownerStepChecks(workflow)) await (await import('./criterion-test-failures.mjs')).withCriterionTestFailures(root, phase, refusal, recordedRuns, deliveryEvidence.acceptanceCriteria?.witnesses ?? []);
+      // The version's task keeps where the failed test stopped it, so every view and turn names the same continuation
+      // (a person's Node choice, the environment, or its repair within budget) and nothing repeats the run [§8, OSA:REQ-012].
+      await (await import('./workflow-task-outcome.mjs')).recordRefusalOutcome(root, workflow, phase, refusal);
       throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
     }
   } finally {

@@ -1,33 +1,30 @@
 /**
- * SPEC-OSA v1.1 Stage 1 shadow comparison (scripts/osa-shadow.mjs): the kernel's decision against the surfaces that
- * still decide on their own, on the same captured Story records, executing nothing [plan section 3].
+ * SPEC-OSA v1.1 shadow comparison (scripts/osa-shadow.mjs): the kernel's decision against every surface that names a
+ * step's next action, on the same captured Story records and the same review, executing nothing [plan sections 3 and 5].
  *
- * The migrated cohort (the edit permission the guard and the entry share, and the entry's classification) shows no
- * difference. Every remaining difference belongs to a surface Stage 3 moves, is one of the classes below with its
- * owner, and its count may only fall: a new class or a rise is a new competing decision [OSA:AC-020, section 13].
+ * Stage 1 moved the edit permission and the entry; Stage 3 moved sequence guidance, the guide, next steps, the review
+ * continuation and submission readiness onto the same decision (step-decision.mjs). Stage 1's declared differences (sequence
+ * ignored the amendment pause, wrote a damaged step and named submit where the permission led with readiness) are gone, so
+ * every difference is now a new competing decision [OSA:AC-002, AC-020, section 13].
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { shadowDifferences } from '../scripts/osa-shadow.mjs';
+import { operationOf, shadowDifferences } from '../scripts/osa-shadow.mjs';
 
-/** The declared differences, by surface and class: the most each may show, its owner and why it is not a fault here. */
-const DECLARED = {
-  'sequence sequence-ignores-amendment-pause': { max: 312, owner: 'Stage 3 (b16 sequenceGuidance)', why: 'sequence reads no amendment pause; the permission and entry send the person to the decisions card' },
-  'sequence sequence-writes-a-damaged-step': { max: 48, owner: 'Stage 3 (b16)', why: 'sequence routes damage to begin or prepare; the permission and entry recover it' },
-  'sequence submit-led-by-readiness': { max: 20, owner: 'Stage 3 (b15, b16)', why: 'the permission leads with the readiness read, which names the exact submission; sequence names submit directly' }
-};
-
-test('the shadow comparison: the cohort agrees with the kernel; the rest differs only as declared, and no more [plan section 3]', async () => {
-  const { records, differences } = await shadowDifferences();
+test('the shadow comparison: every surface names the kernel\'s operation for the same Story and review [OSA:AC-002]', async () => {
+  const { records, comparisons, differences } = await shadowDifferences();
   assert.ok(records >= 600, `${records} captured records`);
-  const cohort = differences.filter((entry) => entry.surface !== 'sequence');
-  assert.deepEqual(cohort.slice(0, 3), [], `${cohort.length} differences in the migrated cohort`);
-  const counts = {};
-  for (const entry of differences) counts[`${entry.surface} ${entry.class}`] = (counts[`${entry.surface} ${entry.class}`] ?? 0) + 1;
-  for (const [key, count] of Object.entries(counts)) {
-    assert.ok(DECLARED[key], `undeclared difference ${key} (${count}), e.g. ${JSON.stringify(differences.find((entry) => `${entry.surface} ${entry.class}` === key))}`);
-    assert.ok(count <= DECLARED[key].max, `${key}: ${count} > ${DECLARED[key].max}`);
-  }
-  for (const declared of Object.values(DECLARED)) assert.ok(declared.owner && declared.why);
+  // Six surfaces, each read on every record it applies to, with each review a surface may hold.
+  assert.ok(comparisons >= 6000, `${comparisons} surface readings`);
+  assert.deepEqual(differences.slice(0, 5), [], `${differences.length} differences`);
+});
+
+test('the comparison reads two renderings of one action as one operation, and different actions apart', () => {
+  assert.equal(operationOf('singularity-flow submit implement --work-id W-1'), operationOf('singularity-flow status W-1 --submission-readiness --json'));
+  assert.equal(operationOf('singularity-flow review-source status plan'), operationOf('singularity-flow review-source context plan --json'));
+  assert.equal(operationOf('singularity-flow phase begin implement --json'), operationOf('singularity-flow prepare implement'));
+  assert.notEqual(operationOf('singularity-flow phase rollover implement --json'), operationOf('singularity-flow prepare implement'));
+  assert.notEqual(operationOf('singularity-flow recover W-1 --phase implement --json'), operationOf('singularity-flow prepare implement'));
+  assert.notEqual(operationOf('singularity-flow decisions W-1'), operationOf('singularity-flow submit implement'));
 });

@@ -1,4 +1,3 @@
-import { submitRoute } from './submit-route.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import readline from 'node:readline/promises';
@@ -8,7 +7,8 @@ import path from 'node:path';
 import { exists, nowIso, SingularityFlowError } from './util.mjs';
 import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import { action, because, commandResult, noEffects, refused, withCommandResult } from './narration/command-result.mjs';
-import { generationSkillForPhase, opensCodeVersion } from './code-delivery-policy.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { gitDir, rememberedActor } from './git.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer,
@@ -16,7 +16,7 @@ import {
 } from './manual-authorship.mjs';
 import { operationContext } from './operation-context.mjs';
 import { cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
-import { phaseNeedsGeneration, stepBeingWritten, successorGenerationOpen, versionFactsOf } from './phase-generation-need.mjs';
+import { phaseNeedsGeneration, versionFactsOf } from './phase-generation-need.mjs';
 import { explicitlyReopened } from './kernel/step-versions.mjs';
 
 export { phaseNeedsGeneration };
@@ -78,45 +78,39 @@ export function sequenceGuidance(workflow) {
       copilotAction({ command: 'singularity-flow gate --terminal' })
     ]
   };
-  if (phase.status === 'awaiting_approval') return {
-    summary: `Review submitted phase '${phase.id}', then approve it or return it for correction.`,
-    actions: [
-      copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch` }),
-      copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>` })
-    ],
-    alternativeSecond: true
-  };
-  // The step being written: its open next version is written, never the version before it reviewed or submitted [OSA:REQ-032, C2, C21].
-  const open = stepBeingWritten(workflow, phase) ? openVersionGuidance(workflow) : null;
-  if (open) return open;
-  if (stepBeingWritten(workflow, phase)) {
-    const convergence = isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase);
+  return stepGuidance(workflow, phase);
+}
+
+/**
+ * The current step's primary action: the kernel's decision, rendered as the edit permission, the entry and every other
+ * surface render it [OSA:REQ-020, b16]. The step's pause, damage, open version, review and successor consent are the
+ * kernel's to weigh; sequence names them in its own words and adds the step's publication after writing it.
+ */
+function stepGuidance(workflow, phase) {
+  const decision = stepDecisionOf(workflow, phase);
+  const { operation, inputs } = decision.next;
+  // A kernel-built convergence step is built, then advanced: its submission is the convergence route.
+  const convergence = isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase);
+  const advance = convergence && ['submit-version', 'refresh-facts'].includes(operation) ? convergenceTransitionRoute(workflow, phase) : null;
+  if (advance) return { summary: advance.reason, actions: [copilotAction(advance)] };
+  const routes = decisionRoutes(decision, workflow, phase, { exactSubmit: true }).filter((entry) => entry?.command);
+  const actions = routes.map((entry) => copilotAction({ skill: entry.skill, command: entry.command }));
+  if (operation === 'approve-step') return { summary: `Review submitted phase '${phase.id}', then approve it or return it for correction.`,
+    actions, alternativeSecond: true };
+  const writes = ['open-version', 'author-version', 'build-version', 'repair-version'].includes(operation);
+  if (writes) {
     // The publication named here follows the run's model mode, as the planner's does (nextsteps.mjs).
     const publication = convergence ? null : phasePublicationCommandForMode(phase);
-    return {
-      summary: convergence
-        ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
-        : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
-      actions: [
-        // A published step's next version opens on the person's yes [OSA:REQ-030].
-        copilotAction({ skill: generationSkillForPhase(phase, workflow), command: !convergence && phase.generation > 0 ? `singularity-flow phase rollover ${phase.id} --json`
-          : !convergence && opensCodeVersion(phase) ? `singularity-flow phase begin ${phase.id} --json` : `singularity-flow prepare ${phase.id}` }),
-        ...(publication ? [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: publication })] : [])
-      ]
-    };
+    const summary = convergence ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
+      : operation === 'author-version' && decision.version.published >= 1 ? `Write version ${decision.version.writing} of ${phase.id}, then publish it.`
+        : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`;
+    return { summary, actions: [...actions, ...(publication && inputs.consent !== 'required' ? [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: publication })] : [])] };
   }
-  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: stepBeingWritten(workflow, phase) });
-  if (convergenceRoute) return { summary: convergenceRoute.reason, actions: [copilotAction(convergenceRoute)] };
-  if (phase.status === 'in_progress') return {
-    summary: phase.approvalPolicy?.mode === 'none'
-      ? `Submit published phase '${phase.id}' to run its checks, complete it, and advance.`
-      : `Submit published phase '${phase.id}' for approval.`,
-    actions: [copilotAction(submitRoute(workflow, phase))]
-  };
-  return {
-    summary: `Continue from the active workflow state for phase '${phase.id}'.`,
-    actions: [copilotAction({ skill: '/sflow-nextsteps', command: `singularity-flow nextsteps ${workId}` })]
-  };
+  if (operation === 'submit-version') return { summary: phase.approvalPolicy?.mode === 'none'
+    ? `Submit published phase '${phase.id}' to run its checks, complete it, and advance.`
+    : `Submit published phase '${phase.id}' for approval.`, actions };
+  return { summary: routes[0]?.detail ?? `Continue from the active workflow state for phase '${phase.id}'.`,
+    actions: actions.length ? actions : [copilotAction({ skill: '/sflow-nextsteps', command: `singularity-flow nextsteps ${workflow.workItem.id}` })] };
 }
 
 /**
@@ -131,21 +125,6 @@ export function storyNextDetails(workflow) {
   const next = guidance?.actions.find((entry) => entry.command);
   return { ...(workflow?.workItem?.id ? { workId: workflow.workItem.id } : {}), ...(next ? { storyNext: true,
     nextAction: { command: next.command, skill: next.skill, label: `Next for this Story: ${guidance.summary}` } } : {}) };
-}
-
-/**
- * While the current step's next version is open, writing it is the Story's next step, as guide.mjs phaseHandoff says:
- * never a review or a submission of the version before it [owner, 2026-11-16]. A decision the Story waits for comes first.
- */
-function openVersionGuidance(workflow) {
-  const step = workflow?.currentPhase;
-  const phase = workflow?.pendingDecision ? null : workflow?.phases?.[step];
-  if (phase?.status !== 'in_progress' || !successorGenerationOpen(phase)) return null;
-  // An older build's local opening is promoted first [§14].
-  if (versionFactsOf(workflow, phase).opening?.record === 'legacy') return null;
-  const skill = generationSkillForPhase(phase, workflow);
-  return skill ? { summary: `Write version ${phase.generationIntent?.generation ?? phase.versionOpening?.version} of ${step}, then publish it.`,
-    actions: [copilotAction({ skill, command: `singularity-flow prepare ${step}` })] } : null;
 }
 
 /** A closed Story has no step in progress to cancel: its own next step (landing it), or a reopen. */

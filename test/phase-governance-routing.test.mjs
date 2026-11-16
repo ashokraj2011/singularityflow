@@ -80,7 +80,8 @@ test('copied/renamed review steps offer honest successor authorship instead of a
   assert.match(phaseGovernanceHold(workflow, phase).actions[1].command, /--to custom-peer-step/);
   phase.status = 'in_progress';
   phase.generationPolicy = { requirement: 'required', task: 'code' };
-  phase.generationIntent = { status: 'consumed' };
+  // Its published version consumed its opening (an opening for another version is damage, which recovery leads).
+  phase.generationIntent = { status: 'consumed', generation: 2 };
   assert.match(phaseGovernanceHold(workflow, phase).actions[1].command, /phase rollover custom-peer-step --json/);
   phase.generationPolicy = { requirement: 'none' };
   delete phase.generationIntent;

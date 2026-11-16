@@ -1,11 +1,10 @@
 /** Pinned phase permissions, not a filesystem sandbox or a new lifecycle authority. */
 import path from 'node:path';
-import { versionFactsOf } from './phase-generation-need.mjs';
 import { stepState } from './kernel/step-state.mjs';
-import { pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
+import { decisionRoutes, onlyDeterministic, stepSnapshotOf } from './step-decision.mjs';
 import { lstatSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { phaseKernelOwned, phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { isCopilotHooksPath } from './governed-roots.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
@@ -17,6 +16,9 @@ import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
+
+// The kernel's adapter and the host's rendering of its decision live in step-decision.mjs, shared with every surface.
+export { decisionRoutes, stepSnapshotOf } from './step-decision.mjs';
 
 export const MUTATION_CONTRACT_VERSION = 1;
 /**
@@ -103,96 +105,6 @@ function route(argv, detail, skill = null) {
   const guidance = safeCommandGuidance({ argv, ...(skill ? { skill } : {}) });
   return { detail, ...guidance, commandGuidance: guidance,
     modelFreeStatus: guidance?.modelFreeCommand ? 'available' : 'unavailable' };
-}
-
-/** Only the step's own configuration decides what it may change: no producer but the kernel builds no files (P-9). */
-const onlyDeterministic = (phase) => phase?.generationPolicy?.allowedProducers?.length === 1 && phase.generationPolicy.allowedProducers[0] === 'deterministic';
-/** Who builds the step (the entry's phaseKernelOwned); a policy that contradicts itself is classified by its producers alone. */
-function executionOwner(phase) {
-  try { return phaseKernelOwned(phase) ? 'kernel' : 'agent'; } catch { return onlyDeterministic(phase) && !phaseRequiresCodeDelivery(phase) ? 'kernel' : 'agent'; }
-}
-
-/**
- * `StepSnapshot/v1` from the Story record the caller already loaded: the adapter side of the kernel [OSA:REQ-040, REQ-041].
- * No Git, history walk or review record is read here, so the entry's permission and the edit guard decide on one basis.
- * Sources the caller did not read are `unavailable`, never empty or allowed [OSA:REQ-004]; the review status is one of them.
- */
-export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.currentPhase], turnMode = 'authoring', sources = {},
-  review = null, revoked = false, basis = {}, opening = null } = {}) {
-  // What this checkout observed of an operation's opening (story-version-acceptance.mjs): its shared acceptance and writer.
-  const observed = (step, version) => version.opening?.record === 'operation' && step.id === phase?.id && opening
-    ? { ...version, opening: { ...version.opening, acceptance: opening.acceptance, writer: opening.writer } } : version;
-  const facts = (step) => step ? { id: step.id, ...observed(step, versionFactsOf(workflow, step)),
-    kind: { executionOwner: executionOwner(step), code: phaseRequiresCodeDelivery(step),
-      changeCapabilities: [...(onlyDeterministic(step) ? [] : ['step-artifacts']),
-        ...(step.writeScope === 'source-and-artifact' && (!onlyDeterministic(step) || phaseRequiresCodeDelivery(step)) ? ['application'] : [])] },
-    pause: intentAmendmentPause(workflow, step.id) ? { id: intentAmendmentPause(workflow, step.id).id } : null,
-    // An approved amendment waits for a person's acknowledgement before downstream submission, not before authoring.
-    holds: pendingIntentAmendmentAcknowledgement(workflow) ? [{ code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED', owner: 'person',
-      blocks: ['submission'], resolution: 'decide' }] : [],
-    review: { required: sourceReviewRequired(workflow, step.id), status: review?.phaseId === step.id ? review.status : 'unavailable',
-      version: review?.phaseId === step.id ? review.version ?? null : null }, damage: null } : null;
-  const currentPhaseId = workflow?.currentPhase ?? null;
-  return { schemaVersion: 1, record: { family: 'story-workflow', version: Number(workflow?.schemaVersion ?? 1) },
-    subject: { projectId: null, workId: workflow?.workItem?.id ?? null, requestedPhaseId: phase?.id ?? null, currentPhaseId },
-    basis, sources: { lifecycle: { status: 'verified' }, configuration: { status: 'verified' }, review: { status: review ? 'verified' : 'unavailable' }, ...sources },
-    // The working record against the accepted one is not compared here (no Git per tool call): unknown, never "same".
-    differences: [{ field: 'lifecycle-record', state: 'unknown' }],
-    story: { status: workflow?.status === 'cancelled' ? 'cancelled' : currentPhaseId ? 'active' : 'complete', phaseOrder: workflow?.phaseOrder ?? [],
-      pendingDecision: workflow?.pendingDecision ? { id: workflow.pendingDecision.key ?? null } : null },
-    step: facts(phase), current: phase && phase.id !== currentPhaseId ? facts(workflow?.phases?.[currentPhaseId]) : null,
-    actor: { principalKind: 'agent', role: turnMode === 'read-only-review' ? 'reviewer' : 'author', turnMode, permissionsRevoked: revoked === true } };
-}
-
-/** One Shell command as a route, with the skill the host shows for it. */
-function commandRoute(command, detail, skill = null) {
-  const guidance = safeCommandGuidance({ command, ...(skill ? { skill } : {}) });
-  return guidance ? { detail, ...guidance, commandGuidance: guidance, modelFreeStatus: guidance.modelFreeCommand ? 'available' : 'unavailable' } : null;
-}
-
-/**
- * The host's rendering of the kernel's primary action for this step's own turns [OSA:REQ-021]: the command and skill each
- * operation maps to. The entry, the edit guard and the authoring task all render it from the same decision, so they give
- * one next step [OSA:REQ-010, C7]; recovery appears only for a positively damaged step [OSA:REQ-003, C1].
- */
-export function decisionRoutes(decision, workflow, requested) {
-  const { next } = decision;
-  const workId = workflow.workItem.id;
-  // The action's own step: from an inspected step, the current one it names [§4.2 target].
-  const phase = workflow.phases?.[next.target?.phase] ?? requested;
-  const author = generationSkillForPhase(phase, workflow);
-  const code = phaseRequiresCodeDelivery(phase);
-  switch (next.operation) {
-    // An opening whose shared acceptance is lost or uncertain is reconciled as the same operation; nothing new opens [REQ-033].
-    case 'recover-operation': return [next.inputs.operation === 'version-opening'
-      ? route(['phase', 'opening', phase.id, '--reconcile', '--json'], `Find out whether version ${next.inputs.version} of ${phase.id} reached the shared Story branch; this settles the same opening and opens no other version.`, author)
-      : route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')];
-    // Another checkout holds the version's writer fence: this one inspects it, or takes it over with its writer's agreement [REQ-034].
-    case 'takeover-writer': return [route(['session', 'takeover', workId, '--json'],
-      `Another checkout writes version ${next.inputs.version} of ${phase.id}. Take it over here only when that checkout's work is published or set aside; this checkout may still inspect it.`, '/sf-session')];
-    case 'open-version':
-      // A successor, for any reason, is previewed and opened only on the person's yes [D3, OSA:REQ-030]; version 1 opens directly.
-      if (next.inputs.consent === 'required') return [route(['phase', 'rollover', phase.id, '--json'],
-        `Preview starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}.`, author)];
-      return [code ? route(['phase', 'begin', phase.id, '--json'], 'Open the exact code generation before application edits.', author)
-        : route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', author)];
-    case 'author-version': case 'build-version': return [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', author)];
-    case 'decide': return [next.inputs.decision === 'story-decision'
-      ? route(['decision', 'show', workId], 'Choose what happens next; a member of the deciding group decides.', '/sf-decide')
-      : route(['decisions', workId], `A person ${next.inputs.decision === 'review-disposition' ? 'decides what the review left to them' : `who approves the scope decides ${next.inputs.id ?? 'the amendment'}`} on the decisions card.`, '/sf-decide')];
-    case 'approve-step': return [commandRoute(`singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `Review submitted ${phase.id}, then approve it or return it for correction.`, '/sf-approve'),
-      commandRoute(`singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, 'Or return it for correction.', '/sf-reject')].filter(Boolean);
-    // Submission readiness reports the review and the workflow decisions a submission records, then the exact submit.
-    case 'submit-version': case 'refresh-facts': return [route(['status', workId, '--submission-readiness', '--json'],
-      `Check ${phase.id}'s submission readiness: it names its review, if one is owed, and then the exact submission.`, '/sf-submit')];
-    case 'start-review': return [route(['review-source', 'context', phase.id, '--for-agent', '--json'], 'Review the exact published version against its sources.', '/sf-review-source')];
-    case 'none': return [route(['nextsteps', '--json'], 'Nothing is written now; see where the Story stands.')];
-    // The shared Story branch moved past this checkout: bring it in (it only fast-forwards), then the entry decides again.
-    case 'refresh-authority': return [next.inputs.source === 'lifecycle'
-      ? route(['refresh-branch'], 'Bring in what the shared Story branch holds now; this checkout\'s view of the step is old.')
-      : route(['session', 'current', '--for-agent', '--json'], 'Run this read in this turn: it binds the turn to the Story as it is now.')];
-    default: return [route(['phase', 'show', phase.id, '--json'], `Inspect ${phase.id} as it is (${next.reasonCodes.join(', ') || 'no action'}); nothing is written now.`)];
-  }
 }
 
 function caseInsensitiveCheckout(root) {

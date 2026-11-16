@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 /**
- * SPEC-OSA v1.1 shadow comparison (plan section 3, "Shadow comparison"): evaluate the kernel's decision against the
- * existing surfaces' outputs on the same captured Story records, without executing any action and without reading
- * anything but the records themselves (no Git, no repeated I/O).
+ * SPEC-OSA v1.1 shadow comparison (plan sections 3 and 5): evaluate the kernel's decision against every surface's output
+ * on the same captured Story records, without executing any action and without reading anything but the records
+ * themselves (no Git, no repeated I/O).
  *
- *   node scripts/osa-shadow.mjs [--baseline=<checkout>] [--json]
+ *   node scripts/osa-shadow.mjs [--json]
  *
- * Each captured record is a Story at its current step, generated over the lifecycle facts the cohort reads. For each,
- * the kernel's primary action, rendered by the host map (phase-mutation-contract.mjs decisionRoutes), is compared with:
- * - `sequence`: the Story's next action (sequence.mjs sequenceGuidance), a Stage 3 surface that adapts later;
- * - `entry`: the entry's classification (phase-authoring-entry.mjs), where it names a command;
- * - `baseline` (with --baseline): the edit permission's next as the baseline checkout derived it, before the migration.
- * Differences are grouped by class; `shadowDifferences` is what test/osa-stage1-shadow.test.mjs holds to its declared list.
+ * Each captured record is a Story at its current step, generated over the lifecycle facts the surfaces read, with each
+ * review a surface may hold. For each, the kernel's primary operation (step-decision.mjs) is compared with the operation
+ * each surface's first action carries out (`operationOf`): sequence guidance, the guide, next steps' "now", the review
+ * continuation, submission readiness and the entry's classification. Stage 3 moved every one onto the decision, so a
+ * difference is a new competing decision [OSA:AC-002, AC-020]; test/osa-stage1-shadow.test.mjs holds the count to zero.
  */
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -46,63 +45,87 @@ export function* capturedRecords() {
 
 const words = (command) => String(command ?? '').replace(/\s--(?:json|for-agent|fetch)\b/gu, '').trim() || null;
 
-/** The class of one difference, from what each side named. Unclassified differences are reported as such. */
-function classify(surface, kernelDecision, ours, theirs) {
-  const state = kernelDecision.state;
-  if (surface === 'sequence') {
-    if (state === 'paused') return 'sequence-ignores-amendment-pause';
-    if (state === 'damaged') return 'sequence-writes-a-damaged-step';
-    if (state === 'invalid') return 'sequence-writes-an-invalid-opening';
-    if (/^singularity-flow submit /u.test(theirs) && /--submission-readiness/u.test(ours)) return 'submit-led-by-readiness';
-    if (/phase rollover/u.test(ours) && /phase begin/u.test(theirs)) return 'published-code-successor-previewed';
-  }
-  if (surface === 'entry') {
-    if (state === 'paused') return 'entry-holds-for-the-pause';
-    if (/phase rollover/u.test(theirs) && state === 'damaged') return 'entry-previews-a-damaged-step';
-  }
-  if (surface !== 'sequence' && state === 'damaged' && /decisions /u.test(theirs)) return 'damage-before-pause';
-  if (surface === 'baseline') {
-    if (/nextsteps/u.test(theirs)) return 'guard-named-nextsteps';
-    if (/phase rollover/u.test(ours) && /phase begin/u.test(theirs)) return 'published-code-successor-previewed';
-    if (state === 'invalid') return 'invalid-opening-classified';
-  }
-  return `unclassified:${surface}`;
+/**
+ * The operation a rendered command carries out, so two renderings of one action compare equal: the exact submission and
+ * the readiness read that names it are one `submit-version`; a review's context and its status are one review [AC-002].
+ */
+export function operationOf(command) {
+  const line = words(command) ?? '';
+  if (/^singularity-flow submit |--submission-readiness/u.test(line)) return 'submit-version';
+  if (/^singularity-flow review-source (?:context|status) /u.test(line)) return 'start-review';
+  if (/^singularity-flow (?:review-source decision-context|decisions? )/u.test(line)) return 'decide';
+  if (/^singularity-flow phase rollover /u.test(line)) return 'open-version (consent)';
+  if (/^singularity-flow (?:phase begin|prepare) /u.test(line)) return 'write';
+  if (/^singularity-flow approve /u.test(line)) return 'approve-step';
+  if (/^singularity-flow (?:recover |phase opening .*--reconcile)/u.test(line)) return 'recover-operation';
+  if (/^singularity-flow story advance /u.test(line)) return 'submit-version';
+  if (/^singularity-flow (?:nextsteps|phase show)\b/u.test(line)) return 'inspect';
+  return line ? `other: ${line.split(' ').slice(1, 3).join(' ')}` : null;
 }
 
-/** Compare every captured record; returns { records, differences: [{ class, surface, name, kernel, existing }] }. */
-export async function shadowDifferences({ root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..'), baseline = null } = {}) {
-  const load = (base, file) => import(pathToFileURL(path.join(base, 'src', file)).href);
-  const [{ stepState }, contract, { sequenceGuidance }, { phaseAuthoringEntry }] = await Promise.all([
-    load(root, 'kernel/step-state.mjs'), load(root, 'phase-mutation-contract.mjs'), load(root, 'sequence.mjs'), load(root, 'phase-authoring-entry.mjs')]);
-  const old = baseline ? await load(baseline, 'phase-mutation-contract.mjs') : null;
+/** The kernel's own operation in the same terms; a facts read accepts the surface that read those facts (the review). */
+function kernelOperations(decision) {
+  const { operation, inputs } = decision.next;
+  if (operation === 'open-version' && inputs.consent === 'required') return ['open-version (consent)'];
+  if (['open-version', 'author-version', 'build-version', 'repair-version'].includes(operation)) return ['write'];
+  if (operation === 'refresh-facts') return inputs.source === 'review' ? ['submit-version', 'start-review'] : ['submit-version'];
+  if (operation === 'none') return ['inspect'];
+  return [operation];
+}
+
+/** The reviews a surface may have read for a step that owes one: none read, or one in each of the kernel's statuses. */
+const REVIEWS = { 'not read': null, pending: { status: 'pending', findings: [] }, ready: { status: 'ready', findings: [] },
+  corrections: { status: 'correction-required', findings: [{ code: 'reviewer-blocker', message: 'Say why.' }] },
+  disposition: { status: 'correction-required', findings: [{ code: 'human-disposition-required' }], pendingDispositions: [{ id: 'F-1' }] } };
+
+/**
+ * Compare every captured record, with each review a surface may hold; returns { records, differences: [{ class, surface,
+ * name, state, kernel, existing }] }. Each surface is read on the same basis the kernel decided on: the same Story
+ * record and the same review [OSA:AC-002]. A surface that reads no review (sequence) is given none.
+ */
+export async function shadowDifferences({ root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..') } = {}) {
+  const load = (file) => import(pathToFileURL(path.join(root, 'src', file)).href);
+  const [{ stepDecisionOf }, { sequenceGuidance }, { phaseAuthoringEntry }, { workflowGuide }, { workflowNextSteps },
+    { sourceReviewContinuation }, { submissionReadinessSnapshot }] = await Promise.all([load('step-decision.mjs'), load('sequence.mjs'),
+    load('phase-authoring-entry.mjs'), load('guide.mjs'), load('nextsteps.mjs'), load('source-review-continuation.mjs'), load('submission-readiness.mjs')]);
   const differences = [];
-  let records = 0;
+  let records = 0, comparisons = 0;
   for (const { name, workflow } of capturedRecords()) {
     records += 1;
     const phase = workflow.phases[workflow.currentPhase];
-    const decision = stepState(contract.stepSnapshotOf({ workflow, phase }));
-    const ours = words(contract.decisionRoutes(decision, workflow, phase)[0]?.command);
-    const compare = (surface, theirs) => {
-      if (!theirs || words(theirs) === ours) return;
-      differences.push({ class: classify(surface, decision, ours, words(theirs)), surface, name, state: decision.state, kernel: ours, existing: words(theirs) });
-    };
-    let sequence = null;
-    try { sequence = sequenceGuidance(workflow).actions.find((action) => action.command)?.command; } catch { /* the surface itself refused */ }
-    compare('sequence', sequence);
-    if (phase.status === 'in_progress') compare('entry', phaseAuthoringEntry(workflow, phase).actions?.[0]?.command ?? null);
-    if (old) compare('baseline', old.deriveMutationContract({ definition: {}, workflow }).next[0]?.command);
+    for (const [reviewName, review] of Object.entries(REVIEWS)) {
+      if (review && !workflow.resolution?.sourceReview) continue;
+      const decision = stepDecisionOf(workflow, phase, { review });
+      const expected = kernelOperations(decision);
+      const compare = (surface, read) => {
+        let theirs;
+        try { theirs = read(); } catch (error) { theirs = `refused: ${error.code ?? error.message}`; }
+        if (!theirs) return;
+        comparisons += 1;
+        const operation = theirs.startsWith('refused: ') ? theirs : operationOf(theirs);
+        if (expected.includes(operation)) return;
+        differences.push({ class: `${decision.state}: ${expected.join(' | ')} / ${operation}`, surface, name: `${name} review ${reviewName}`,
+          state: decision.state, kernel: expected.join(' | '), existing: words(theirs) });
+      };
+      if (!review) compare('sequence', () => sequenceGuidance(workflow).actions.find((action) => action.command)?.command);
+      compare('guide', () => workflowGuide(workflow, { sourceReviewEvidence: review }).nextActions[0]?.command);
+      compare('nextsteps', () => workflowNextSteps(workflow, { sourceReviewEvidence: review, pendingDecisions: null }).find((action) => action.timing === 'now')?.command);
+      if (phase.status !== 'in_progress') continue;
+      compare('continuation', () => (review || workflow.resolution?.sourceReview ? sourceReviewContinuation(workflow, phase, review).nextCommand : null));
+      compare('readiness', () => { const read = submissionReadinessSnapshot(workflow, { sourceReviewEvidence: review }); return read.nextCommand ?? read.command; });
+      compare('entry', () => phaseAuthoringEntry(workflow, phase, { review }).actions?.[0]?.command ?? null);
+    }
   }
-  return { records, differences };
+  return { records, comparisons, differences };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const baseline = process.argv.find((arg) => arg.startsWith('--baseline='))?.slice('--baseline='.length) ?? null;
-  const { records, differences } = await shadowDifferences({ baseline: baseline ? path.resolve(baseline) : null });
+  const { records, comparisons, differences } = await shadowDifferences();
   const byClass = {};
   for (const entry of differences) (byClass[`${entry.surface} ${entry.class}`] ??= []).push(entry);
   if (process.argv.includes('--json')) console.log(JSON.stringify({ records, byClass }, null, 2));
   else {
-    console.log(`${records} captured records, ${differences.length} differences`);
+    console.log(`${records} captured records, ${comparisons} surface readings, ${differences.length} differences`);
     for (const [key, entries] of Object.entries(byClass)) console.log(`${String(entries.length).padStart(5)}  ${key}  e.g. kernel "${entries[0].kernel}" / existing "${entries[0].existing}" (${entries[0].state})`);
   }
 }

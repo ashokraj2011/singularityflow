@@ -115,8 +115,11 @@ test('a pending prepare renders the next generation\'s inputs, so no separate in
   for (const generation of [2, 3]) {
     story.phases.intake.inputContext = { generation };
     const steps = workflowNextSteps(story);
-    assert.equal(steps[0].command, 'singularity-flow prepare intake', `inputs rendered for generation ${generation}`);
-    assert.equal(steps.some((entry) => entry.command === 'singularity-flow inputs intake'), false);
+    // The step's own route leads: its next version's preview, which the person confirms [D3, OSA:REQ-030].
+    assert.equal(steps[0].command, 'singularity-flow phase rollover intake --json', `inputs rendered for generation ${generation}`);
+    // Never an input read before it: after the person's yes, the step's own preparation renders the same inputs.
+    assert.equal(steps.findIndex((entry) => entry.command === 'singularity-flow inputs intake') === 0, false);
+    assert.notEqual(steps.find((entry) => entry.command === 'singularity-flow inputs intake')?.timing, 'now');
   }
 });
 
@@ -124,8 +127,9 @@ test('rejection, pending publication, and completion produce safe action plans',
   const rejectedWorkflow = workflow({ generation: 2, history: [{ phase: 'requirements', event: 'phase_rejected', at: '2026-01-02T00:00:00.000Z' }] });
   rejectedWorkflow.phases.intake.rejectedAt = '2026-01-02T00:00:00.000Z';
   const rejected = workflowNextSteps(rejectedWorkflow);
+  // A rejected step's next version opens on the person's yes, as its entry and edit permission say [D3, OSA:REQ-020].
   assert.equal(rejected[0].skill, '/sf-phase');
-  assert.match(rejected[0].reason, /Regenerate/);
+  assert.equal(rejected[0].command, 'singularity-flow phase rollover intake --json');
 
   rejectedWorkflow.history.push({ phase: 'intake', event: 'phase_generated', at: '2026-01-03T00:00:00.000Z' });
   assert.equal(workflowNextSteps(rejectedWorkflow)[0].skill, '/sf-submit');

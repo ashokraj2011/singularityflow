@@ -260,7 +260,7 @@ export function workflowNextSteps(workflow, options = {}) {
 function plannedNextSteps(workflow, {
   publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
   repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, sheet = null,
-  changedAfterPublication = null
+  changedAfterPublication = null, taskOutcome = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -301,7 +301,7 @@ function plannedNextSteps(workflow, {
   // person who records them is rarely its author, and submission would otherwise be the first to say.
   const undecidedAfterAuthoring = endsHere && !submitsTheEnd ? applicabilityActions(workflow, phase, 'then') : [];
   // One primary action: the step's own route. Its later stages (publish, review, submit) are 'then' (owner, 2026-11-11).
-  let immediate = workflowGuide(workflow, { sourceReviewEvidence, authoringProgress }).nextActions.map((item, index) => action(
+  let immediate = workflowGuide(workflow, { sourceReviewEvidence, authoringProgress, taskOutcome }).nextActions.map((item, index) => action(
     item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
       : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : index > 0 ? 'then' : 'now',
     item.skill,
@@ -320,7 +320,7 @@ function plannedNextSteps(workflow, {
   // A required after-step action of an earlier step without a receipt holds only the Story's ending
   // [PHR:REQ-003], so that delivery comes first only where this step's submission ends the Story.
   if (stepActionHold?.missing?.length && phase.status === 'in_progress' && submissionEndsStory(workflow, phase)) {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, taskOutcome });
     const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
     return [
       action('now', copilotSkillForCommand(command) ?? '/sf-integrations', command,
@@ -332,7 +332,7 @@ function plannedNextSteps(workflow, {
   // Files changed after the published code, which submission refuses: its next draft with them (the person
   // confirms) leads, or the person sets them aside; the step's own routes follow (N7, changes-after-publication.mjs).
   if (changedAfterPublication?.include && phase.status === 'in_progress' && changedAfterPublication.phase === phase.id) {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, mcpHold });
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, taskOutcome, mcpHold });
     const include = action('now', changedAfterPublication.include.skill, changedAfterPublication.include.command, changedAfterPublication.include.label,
       { route: 'changed-after-publication' });
     return [changedAfterPublication.include.copilotCommand ? Object.freeze({ ...include, copilotCommand: changedAfterPublication.include.copilotCommand }) : include,
@@ -343,7 +343,7 @@ function plannedNextSteps(workflow, {
   // alike (assertMcpPhaseReadiness), so the setup it names comes first, in order, and the step's
   // own work follows it.
   if (mcpHold?.actions?.length && phase.status === 'in_progress' && mcpHold.phase === phase.id) {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, taskOutcome });
     return [
       ...mcpHold.actions.map((entry, index) => action(index === 0 ? 'now' : 'then',
         copilotSkillForCommand(entry.command) ?? '/sf-mcp', entry.command,
@@ -356,7 +356,7 @@ function plannedNextSteps(workflow, {
   // A published visual step its submission would refuse for coverage: the way out comes first, and
   // submitting waits for it rather than being offered into the same refusal.
   if (visualCoverageHold?.routes?.length && visualCoverageHold.published && phase.status === 'in_progress') {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, taskOutcome });
     return [...visualCoverageActions(visualCoverageHold, 'now'),
       ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))];
   }
@@ -480,7 +480,7 @@ function plannedNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null, sheet = null, changedAfterPublication = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null, sheet = null, changedAfterPublication = null, taskOutcome = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -509,7 +509,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet, changedAfterPublication })
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet, changedAfterPublication, taskOutcome })
     .map((entry) => (entry.label ? entry : Object.freeze({ ...entry, label: nextActionLabel(entry, workflow) })));
   return {
     schemaVersion: 1,

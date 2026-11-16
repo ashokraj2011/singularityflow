@@ -293,7 +293,11 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       mcpHold,
       pending,
       sheet,
-      changedAfterPublication
+      changedAfterPublication,
+      // Where the step's task stopped, kept across turns: the same wait every view names [§8, OSA:REQ-012].
+      // The kernel applies it only to an open version, so a published step's old record names nothing.
+      taskOutcome: active?.status === 'in_progress' && active.id === workflow.currentPhase
+        ? await (await import('../workflow-task-outcome.mjs')).readTaskOutcome(root, workflow, active) : null
     }),
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root),

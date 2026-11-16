@@ -119,8 +119,9 @@ test('a pinned independent review routes real corrections to the author before S
   assert.equal(pending.classification, 'source-review-required');
   assert.equal(pending.lifecycleReady, false);
   assert.equal(pending.publicationRecorded, true);
+  // The review's corrections are a next version, which opens on the person's yes [D3, OSA:REQ-020, REQ-030].
   assert.equal(pending.nextSkill, '/sf-phase');
-  assert.equal(pending.nextCommand, 'singularity-flow prepare specification');
+  assert.equal(pending.nextCommand, 'singularity-flow phase rollover specification --json');
   assert.equal(pending.reasonCode, 'SOURCE_REVIEW_CORRECTION_REQUIRED');
   assert.equal(pending.sourceReviewFindings[0].code, 'source-unmapped');
   assert.match(submissionReadinessText(pending), /Published generation 1 — not ready to submit/);
@@ -274,7 +275,8 @@ test('an old publication does not satisfy a rejected phase that needs a successo
 
   assert.equal(result.publicationRecorded, true);
   assert.equal(result.lifecycleReady, false);
-  assert.equal(result.command, 'singularity-flow prepare specification');
+  // Its next version opens on the person's yes [D3, OSA:REQ-030].
+  assert.equal(result.command, 'singularity-flow phase rollover specification --json');
   assert.match(result.reasonCode, /generation|rejected|correction/i);
 });
 

@@ -2,10 +2,11 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import { decisionsCardAction, intentAmendmentProposable } from './intent-amendment-pause.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
-import { stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
+import { stepBeingWritten } from './phase-generation-need.mjs';
+import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
-import { generationSkillForPhase, phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
@@ -87,19 +88,17 @@ export function phaseHandoff(workflow, phase, {
   }) : null;
   const withView = (actions) => view ? [...actions, view] : actions;
   const noApproval = phase.approvalPolicy?.mode === 'none';
-  // The step's next version is open: writing it is the next step. Its published version's review is already carried
-  // into it, so that review is not offered again [real Story, 2026-11-16].
-  if (workflow.currentPhase === phase.id && phase.status === 'in_progress' && successorGenerationOpen(phase)) {
-    const skill = generationSkillForPhase(phase, workflow);
-    if (skill) return withView([copilotAction({ skill, command: `singularity-flow prepare ${phase.id}`,
-      reason: `Write version ${phase.generationIntent?.generation ?? phase.versionOpening?.version} of ${phase.id}, then publish it.` })]);
-  }
   const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
   if (convergenceRoute) return withView([copilotAction(convergenceRoute)]);
-  // A phase document display must not send reopened authoring back to its old review.
-  if (workflow.currentPhase === phase.id && phase.status === 'in_progress'
-      && (phaseNeedsGeneration(workflow, phase) || sourceReviewEvidence)) {
-    return withView(withSuccessor(sourceReviewContinuation(workflow, phase, sourceReviewEvidence).actions));
+  // The current step's primary action is the kernel's decision, read with the review the caller holds [OSA:REQ-020, b5]:
+  // its open version, its successor's consent, its review and its corrections are all the review continuation's rendering
+  // of it. Its published version's review is carried into an open next version, so that review is not offered again
+  // [real Story, 2026-11-16]; and a document display never sends reopened authoring back to its old review.
+  if (workflow.currentPhase === phase.id && phase.status === 'in_progress') {
+    const decision = stepDecisionOf(workflow, phase, { review: sourceReviewEvidence });
+    if (sourceReviewEvidence || !['submit-version', 'refresh-facts', 'start-review'].includes(decision.next.operation)) {
+      return withView(withSuccessor(sourceReviewContinuation(workflow, phase, sourceReviewEvidence).actions));
+    }
   }
   const submit = copilotAction({
     skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
@@ -119,7 +118,7 @@ export function phaseHandoff(workflow, phase, {
   return withView(withSuccessor([submit]));
 }
 
-function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {
+function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress, taskOutcome = null) {
   if (workflow.status === 'cancelled') return [
     copilotAction({ skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' })
   ];
@@ -147,26 +146,22 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {
     ...(phaseCorrectionTargets(phase).length ? [copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to ${phase.id} --reason <reason>`,
       reason: `Request an authorized correction within ${phase.id}; prior phase approvals remain unchanged.` })] : [])
   ];
-  const regenerate = phaseNeedsGeneration(workflow, phase);
-  // The version being written, version 1 or an open next one, has its task: its next stage leads [OSA:REQ-012, C5].
-  if (stepBeingWritten(workflow, phase) && (authoringProgress ?? (phase.generationIntent ? phaseAuthoringProgress(workflow, phase) : null))?.next) {
-    const progress = authoringProgress ?? phaseAuthoringProgress(workflow, phase);
-    return [copilotAction({ ...progress.next, reason: progress.instruction,
-      authoringStage: progress.stage, preserveExistingWork: true })];
+  // Its task stopped at a boundary its author cannot cross alone (workflow-task-outcome.mjs): that wait, with its original
+  // code, is the next step, as the kernel decides it for every view [§8, OSA:REQ-012, REQ-020].
+  if (taskOutcome && workflow.currentPhase === phase.id && phase.status === 'in_progress') {
+    const decision = stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome });
+    if (decision.state === 'waiting') return decisionRoutes(decision, workflow, phase).filter((entry) => entry?.command)
+      .map((entry) => copilotAction({ skill: entry.skill, command: entry.command, reason: entry.detail }));
   }
-  if (regenerate) return [
-    copilotAction({
-      skill: generationSkillForPhase(phase, workflow),
-      command: `singularity-flow prepare ${phase.id}`,
-      reason: isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase)
-        ? 'Compute the deterministic convergence projection, then follow its returned adjudication, rework, amendment, or publication action.'
-        : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.`
-    })
-  ];
+  // The version being written, version 1 or an open next one, has its task: its next stage leads [OSA:REQ-012, C5]. The
+  // task's stage is the kernel's (phase-authoring-progress.mjs); any other step's action is its handoff's.
+  const progress = stepBeingWritten(workflow, phase) ? authoringProgress ?? phaseAuthoringProgress(workflow, phase) : null;
+  if (progress?.next) return [copilotAction({ ...progress.next, reason: progress.instruction,
+    authoringStage: progress.stage, preserveExistingWork: true })];
   return phaseHandoff(workflow, phase, { sourceReviewEvidence });
 }
 
-export function workflowGuide(workflow, { sourceReviewEvidence = null, authoringProgress = null } = {}) {
+export function workflowGuide(workflow, { sourceReviewEvidence = null, authoringProgress = null, taskOutcome = null } = {}) {
   const active = currentPhase(workflow);
   return {
     workId: workflow.workItem.id,
@@ -188,7 +183,7 @@ export function workflowGuide(workflow, { sourceReviewEvidence = null, authoring
       };
     }),
     nextActions: [
-      ...nextActions(workflow, active, sourceReviewEvidence, authoringProgress),
+      ...nextActions(workflow, active, sourceReviewEvidence, authoringProgress, taskOutcome),
       // Offered only where it can succeed: none waits for a decision or an acknowledgement [owner, 2026-11-13].
       ...(intentAmendmentProposable(workflow) ? [copilotAction({
         skill: '/sflow-amend',

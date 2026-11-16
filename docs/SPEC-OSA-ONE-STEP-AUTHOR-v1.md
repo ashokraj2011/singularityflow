@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 16 November 2026
-**Status:** Approved by the owner on 16 November 2026 ("approve"). The eight decisions in section 3 were approved the same day ("ok"). Nothing in this spec is built yet; Stage 1 starts next.
+**Status:** Superseded by [v1.1](SPEC-OSA-ONE-STEP-AUTHOR-v1.1.md) on 16 November 2026. Its stop-the-loops Stage 1 was built and counts in v1.1's Stage 0 baseline.
 **Namespace:** OSA. No other document uses it.
 **Source baseline:** main 56dfa031e. File references are to that commit unless a branch is named.
 **Input:** the authoring-model review of 16 November 2026 (46 deciding places, 23 contradictions). Appendix A lists the contradictions and the requirement that closes each.

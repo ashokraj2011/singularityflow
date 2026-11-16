@@ -1031,7 +1031,11 @@ test('the common session projection does not import attach, state stores or publ
   // (kernel/step-versions.mjs, 5,083 bytes) and deletes phase-inspection-generation.mjs, so the file count stays 221. The
   // moved bodies cost what they did; the rise is the new §4.3 checks (one opening number, bounded counters) and the record
   // adapter (phase-generation-need.mjs versionFactsOf). The reducer (kernel/step-state.mjs) stays out of this closure.
-  assert.ok(current.bytes <= 4_277_600, `session current loads ${current.bytes} source bytes`);
+  // 4,279,100 (measured 4,279,049, +1,478): SPEC-OSA v1.1 Stage 2. The record adapter names an opening's provenance and
+  // its reservation (phase-generation-need.mjs openingFactsOf and counters, +784), the one version arithmetic never reuses a
+  // reserved number (kernel/step-versions.mjs, +375) and `phase opening --reconcile` is registered (command-registry.mjs,
+  // +~330). The opening operation, its consent and its acceptance reader stay out of this closure. No new eager file.
+  assert.ok(current.bytes <= 4_279_100, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -33,7 +33,10 @@ const FAMILIES = Object.freeze([
     // What a person typed after /sf-code or /sf-phase, kept by the prompt hook for its Story [SCS:REQ-040].
     'asked-for.mjs',
     // Plain-chat routing: every prompt kept, a secret refused, a change routed through a skill [PCR P1, P2].
-    'copilot-plain-chat.mjs', 'plain-chat-prompts.mjs']],
+    'copilot-plain-chat.mjs', 'plain-chat-prompts.mjs',
+    // An open version's acceptance and writer, read from files at a turn's prompt, and the person's yes the guard keeps
+    // as a grant for the opening command (SPEC-OSA v1.1 Stage 2). Unclaimed, a prompt loaded the compatibility chunk.
+    'story-version-acceptance.mjs', 'story-version-consent.mjs', 'story-version-proposal.mjs']],
   // Small worker/presentation helper closures share a slot without increasing deployment files.
   // Claim output before policy reads: otherwise even status pays to load the policy chunk when
   // rendering --for-agent. Entry programs remain private; helper imports never start a worker.
@@ -91,6 +94,8 @@ const FAMILIES = Object.freeze([
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
   ['phases', ['phase-entry-authoring.mjs', 'phase-prompt-composer.mjs', 'document-runtime.mjs',
     'copilot-story-follow.mjs',
+    // A step's version opening: the one operation and the commands that open a version through it (SPEC-OSA Stage 2).
+    'story-version-opening.mjs', 'commands/phase-opening.mjs',
     'evidence-consistency-read.mjs', 'scope/authoring.mjs', 'owed-decisions.mjs',
     'phase-repair-journal.mjs', 'phase-appeals.mjs', 'phase-quality-risk.mjs', 'source-review-lifecycle.mjs',
     'workflow-task-store.mjs', 'workflow-task.mjs',

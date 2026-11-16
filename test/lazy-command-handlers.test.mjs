@@ -686,7 +686,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // +272, test-command-amendment-contracts.mjs +231) and the --rollback and --adopt-without-ancestry flags (util.mjs,
     // command-registry.mjs +51), less the capture moved out of the eager graph (skp-amendment-audit.mjs -1,781) [2026-11-16].
     // No new eager file.
-    assert.ok(closure.bytes <= 9_751_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,766,750 (measured 9,766,714 for phase-lifecycle.mjs): the 11-17 landing, OSA v1.1 Stages 1-3 with SPEC-SCF stages 2-5
+    // and the 11-16 small fixes on one tree; the sum of the measured rises above (each stage's own new code). No new eager file.
+    assert.ok(closure.bytes <= 9_766_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -798,7 +800,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 870,250 (measured 870,201): SPEC-SCF stage 5: a moved active workspace's refusal names `workspace repair` (built in
   // workspace-relink.mjs, which stays lazy), `workspace repair <CLONE>` leases a clone in no workspace (cli-entry.mjs +941)
   // and the folder-gone refusal names repair for a Story checkout (util.mjs +526) [2026-11-16]. No new eager file.
-  assert.ok(root.bytes <= 870_250, `root dispatch loads ${root.bytes} source bytes`);
+  // 870,900 (measured 870,863, +662 on the 870,201 above): the 11-17 landing puts the branches' registrations on one tree:
+  // OSA's `phase opening --reconcile` and SCF's `configuration approve`/`reject` for every proposal kind
+  // (command-registry.mjs +339, util.mjs +51, the rest in their small imports). Each was under 869,150 alone. No new eager file.
+  assert.ok(root.bytes <= 870_900, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1070,7 +1075,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,277,750 (measured 4,277,717): SPEC-SCF stages 3 and 4 on 4,273,495 (+4,222): the registered Git queries
   // (git-query.mjs +4,869), ancestry proof v2 readers (workflow-snapshots.mjs +580, schema-migrations.mjs +272,
   // test-command-amendment-contracts.mjs +231) and two flags (+51), less skp-amendment-audit.mjs (-1,781) [2026-11-16].
-  assert.ok(current.bytes <= 4_279_100, `session current loads ${current.bytes} source bytes`);
+  // 4,287,800 (measured 4,287,778): the 11-17 landing, OSA v1.1 Stages 1-3 with SPEC-SCF stages 2-5 and the 11-16 small
+  // fixes on one tree; the measured rises above together. No new eager file.
+  assert.ok(current.bytes <= 4_287_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

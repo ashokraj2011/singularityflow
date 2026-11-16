@@ -11,11 +11,11 @@
   "skill-line": 120
  },
  "totals": {
-  "count-without-name": 30,
+  "count-without-name": 27,
   "draft-for-version": 13,
-  "generic-route": 6371,
-  "jargon": 1388,
-  "length": 698
+  "generic-route": 6360,
+  "jargon": 1371,
+  "length": 681
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -280,7 +280,6 @@
   "CAPABILITY_POLICY_INVALID",
   "CAPABILITY_POLICY_LOOSENED",
   "CAPABILITY_PORTABILITY_PENDING",
-  "CAPABILITY_PROJECTION_AUTHORITY_MOVED",
   "CAPABILITY_PROPOSAL_CANCEL_AUTHORITY_CHANGED",
   "CAPABILITY_PROPOSAL_CONFIGURATION_INVALID",
   "CAPABILITY_PROPOSAL_DISCARD_REASON_INVALID",
@@ -407,7 +406,6 @@
   "CONFIGURATION_REFRESH_INVALID",
   "CONFIGURATION_REFRESH_REF_CHANGED",
   "CONFIGURATION_REFRESH_REF_INVALID",
-  "CONFIGURATION_REFRESH_STATE_AUTHORITY_CHANGED",
   "CONFIGURATION_REPOSITORY_HEAD_UNAVAILABLE",
   "CONFIGURATION_RETENTION_REF_COLLISION",
   "CONFIGURATION_RETENTION_REF_UNAVAILABLE",
@@ -417,8 +415,6 @@
   "CONFIGURATION_REVIEW_UNREADABLE",
   "CONFIGURATION_REVISION_CHANGED",
   "CONFIGURATION_SNAPSHOT_STALE",
-  "CONFIGURATION_STATE_AUTHORITY_UNPROVEN",
-  "CONFIGURATION_STATE_BRANCH_UNSAFE",
   "CONFIGURATION_STATE_PROTECTED",
   "CONFIGURATION_TRANSACTION_CANDIDATE_INVALID",
   "CONFIGURATION_TRANSACTION_UNKNOWN",
@@ -1396,7 +1392,6 @@
   "STATE_CONFIGURATION_MIRROR_INVALID",
   "STATE_CONFIGURATION_MIRROR_LIMIT_EXCEEDED",
   "STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH",
-  "STATE_CONFIGURATION_MIRROR_SUBJECT_UNAVAILABLE",
   "STEP_ACTION_COMMIT_REQUIRED",
   "STEP_ACTION_COMMIT_UNKNOWN",
   "STEP_ACTION_DELIVERY_REQUIRED",
@@ -1719,7 +1714,6 @@
   "WORKFLOW_PHASE_DEFAULT_AGENT_REQUIRED",
   "WORKFLOW_PLANNED_CLAIMS_OPT_OUT_RETIRED",
   "WORKFLOW_PROPOSAL_BRANCH_INVALID",
-  "WORKFLOW_PROPOSAL_HISTORY_INVALID",
   "WORKFLOW_PROPOSAL_INVALID",
   "WORKFLOW_SELECTOR_REQUIRED",
   "WORKFLOW_TASK_CHECKPOINT_SCOPE",
@@ -2048,8 +2042,8 @@
   "src/workflow-transfer.mjs": 1,
   "src/workspace-branch-checkout.mjs": 4,
   "src/workspace-branch-locations.mjs": 3,
-  "src/workspace-configuration-refresh.mjs": 37,
-  "src/workspace-context.mjs": 8,
+  "src/workspace-configuration-refresh.mjs": 31,
+  "src/workspace-context.mjs": 6,
   "src/workspace-impact.mjs": 22,
   "src/workspace-logs.mjs": 5,
   "src/workspace-manifest.mjs": 29,
@@ -2063,11 +2057,9 @@
    "55f12edd713c": "jargon:durable"
   },
   "apps/vscode/src/views/adjudication-page.ts": {
-   "4f914c9e01ec": "count-without-name",
    "a55fabaac8e6": "length"
   },
   "apps/vscode/src/views/adjudication.ts": {
-   "5ea531cf7c6e": "count-without-name",
    "c68295a30ce8": "count-without-name"
   },
   "apps/vscode/src/views/after-install-model.ts": {
@@ -2191,7 +2183,6 @@
    "3897ef889f07": "jargon:ledger"
   },
   "apps/vscode/src/views/configuration-center-page.ts": {
-   "01d88a744652": "length",
    "0e92f989d35c": "jargon:retained",
    "3445ec0c7328": "length",
    "57e7b3858c4d": "length",
@@ -2199,7 +2190,6 @@
    "6f162dff5c82": "length",
    "723e052aea2b": "length",
    "7354128869db": "jargon:ledger",
-   "74b750b20e14": "length",
    "8acd80f4c1e1": "count-without-name",
    "b7736f649d1d": "jargon:canonical length",
    "bfbed4185540": "length",
@@ -2208,7 +2198,6 @@
    "dd56d080348b": "length"
   },
   "apps/vscode/src/views/configuration-center.ts": {
-   "1e2ba54495ac": "length",
    "99156f446088": "length"
   },
   "apps/vscode/src/views/copilot-extensions-model.ts": {
@@ -2341,17 +2330,13 @@
   "apps/vscode/src/views/map-capability-form.ts": {
    "0792a023ef30": "length",
    "1b0c6008ed0b": "length",
-   "1c9488f81e48": "length",
-   "30e809b21f1a": "jargon:projection",
    "415a4530fd86": "length",
-   "7c2e7a1745ad": "jargon:projection",
    "88883f0eabbb": "jargon:durable",
    "89e2a6bcb1de": "length",
    "910c97595e15": "length",
    "967523997d8e": "length",
    "b29ae58d261f": "length",
-   "c3ad2cae26d7": "length",
-   "ff7a2679365a": "jargon:projection"
+   "c3ad2cae26d7": "length"
   },
   "apps/vscode/src/views/map-capability-operation-store.ts": {
    "33213fcde529": "jargon:durable"
@@ -2700,9 +2685,6 @@
    "550add6d2ae9": "length",
    "932f5c8ed5ee": "length"
   },
-  "apps/vscode/src/views/workflow-studio.ts": {
-   "6db3c86804ce": "length"
-  },
   "apps/vscode/src/views/workflow-transfer-page.ts": {
    "d3218b31a61d": "length"
   },
@@ -2717,9 +2699,7 @@
   "apps/vscode/src/views/workspaces-page.ts": {
    "15b1171c510d": "jargon:retained",
    "377e57f38a70": "length",
-   "3d0364509f09": "length",
    "45e2c31344d2": "length",
-   "4c9aa45fffd3": "jargon:projection length",
    "58538853a84f": "length",
    "60f596c5c7e9": "jargon:durable",
    "65b13b86e885": "length",
@@ -2727,14 +2707,10 @@
    "7b3af717ed36": "length",
    "88961c5fdcbe": "length",
    "ac9feb2dcd15": "length",
-   "dd9e6a734fe6": "jargon:projection",
    "e51f40ff3b49": "length"
   },
   "plugin/extensions/decisions/card.mjs": {
    "65a51c54d0d0": "length"
-  },
-  "plugin/extensions/decisions/decisions.mjs": {
-   "7e2cd1365489": "count-without-name"
   },
   "plugin/extensions/decisions/extension.mjs": {
    "148ceefd7341": "length",
@@ -3270,7 +3246,6 @@
    "6562b06edd60": "jargon:canonical",
    "6fc9ab3adea6": "jargon:retained",
    "7d31ef050a75": "jargon:binding",
-   "7e2e8470c006": "length",
    "8565170a9274": "jargon:retained",
    "a06674bea0ea": "jargon:projection",
    "a4d1b95f3fea": "jargon:provenance",
@@ -3293,20 +3268,12 @@
    "2b1ae2466f05": "jargon:retained length",
    "5e15a9f7eeb3": "jargon:staging",
    "707772c4ce97": "length",
-   "9bdb1bc5a3db": "length",
    "a3884d858571": "2× jargon:retained",
    "a7c62af95b14": "jargon:retained",
    "af0e04d78b4a": "length",
    "bef737301182": "length",
    "d34e873605af": "jargon:retained",
    "d8ea1f6dcdf4": "jargon:retained"
-  },
-  "src/configuration-recreate-sync.mjs": {
-   "76bc5e5303df": "length",
-   "ae228fa35351": "length"
-  },
-  "src/configuration-state-git.mjs": {
-   "323672ae2c48": "length"
   },
   "src/confirm-entry.mjs": {
    "21af58d92dc7": "length"
@@ -3358,11 +3325,8 @@
    "cba728ca4423": "length"
   },
   "src/decision-advice.mjs": {
-   "107319e9e898": "jargon:generation",
    "240fa5f35a06": "jargon:generation",
    "468fb74aa76f": "jargon:generation",
-   "c9b82bb099d5": "jargon:generation",
-   "ca9ed7c8e9d8": "length",
    "cc716f60431d": "jargon:generation"
   },
   "src/decision-list.mjs": {
@@ -3389,13 +3353,9 @@
    "9a6b3c180f5f": "jargon:generation",
    "b88b4d8c85ac": "jargon:generation",
    "c01d78586f5e": "length",
-   "e0922e564066": "length",
    "eb3cf2de3adc": "jargon:generation",
    "f669f5f25872": "jargon:generation",
    "fd63065456d0": "jargon:generation"
-  },
-  "src/decision-plain.mjs": {
-   "47c2ab843df2": "jargon:generation"
   },
   "src/delivery-evidence.mjs": {
    "055020bc3093": "length",
@@ -3917,21 +3877,16 @@
    "4457391e87f2": "length",
    "5fc123e58f5a": "jargon:canonical",
    "60a926ae1dc9": "length",
-   "6bddbbc87ed0": "jargon:projection",
    "70a17174c69a": "jargon:retained",
    "77c803e3c391": "length",
    "7d31ef050a75": "jargon:binding",
-   "91a63b5efa0f": "jargon:projection",
    "96255909a0c1": "jargon:ledger",
    "96d0d0a97ea1": "length",
    "97bb4b35748c": "jargon:retained",
    "99cc9e72398b": "length",
    "9d7a9863a4e4": "jargon:canonical",
    "a52f78f3d8f5": "length",
-   "b9b0481faa85": "jargon:projection",
-   "bd8123c912d5": "jargon:projection",
    "cffbdea489a9": "jargon:retained",
-   "d11a9fe5db36": "jargon:projection",
    "dfef79a785d4": "length",
    "e558de61efd5": "jargon:idempotent length"
   },
@@ -3946,8 +3901,7 @@
    "e3396ae086e3": "jargon:generation length"
   },
   "src/phase-entry-authoring.mjs": {
-   "737e8a9a2301": "length",
-   "cba811bd4b54": "jargon:deterministic length"
+   "737e8a9a2301": "length"
   },
   "src/phase-evidence-amendment.mjs": {
    "b1a0bb577c52": "length"
@@ -4121,7 +4075,6 @@
    "1e4a42ac5c98": "length",
    "220765ad0484": "jargon:digest jargon:generation",
    "29682b55fee3": "jargon:deterministic",
-   "2eac476f364b": "length",
    "31fdac040348": "length",
    "32ccb6e578ba": "jargon:retained length",
    "36c7240a2deb": "jargon:ledger",
@@ -4346,8 +4299,7 @@
    "9dfba9eecf10": "jargon:lifecycle-event",
    "a38ab81b91db": "jargon:retained",
    "c488023d32ca": "jargon:binding",
-   "dbbf480b46e6": "jargon:retained",
-   "fa7ef4860ddd": "jargon:generation jargon:published-generation"
+   "dbbf480b46e6": "jargon:retained"
   },
   "src/source-review-snapshot.mjs": {
    "97703286861d": "jargon:binding"
@@ -4535,7 +4487,6 @@
   },
   "src/story-worktree.mjs": {
    "03e399678167": "jargon:retained",
-   "87c7ec15e124": "length",
    "892e235675c4": "length",
    "99e10fedaaac": "jargon:retained",
    "d296747ea161": "jargon:retained",
@@ -4685,7 +4636,6 @@
   },
   "src/workspace-configuration-refresh.mjs": {
    "535e76062869": "length",
-   "6d54e5f13325": "jargon:projection",
    "a6f37e70f122": "length",
    "fb3caebc8393": "length"
   },

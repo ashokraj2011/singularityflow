@@ -1016,7 +1016,8 @@ test('the common session projection does not import attach, state stores or publ
   // (git-query.mjs +520) and `phase rollover` as the step author's route, with its step in the Copilot route
   // (code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs +260,
   // +1,509). No new eager file.
-  assert.ok(current.bytes <= 4_271_500, `session current loads ${current.bytes} source bytes`);
+  // 4,271,600 (measured 4,271,580): the 2026-11-16 batch and the one-click direct upgrade together on main 6343414ae.
+  assert.ok(current.bytes <= 4_271_600, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -76,13 +76,13 @@ test('journey C: a document step reviewed before it is written is routed to writ
     start: { copilot: '/sf-review-source planning' },
     agent: { author: specDrivenAuthor(W), review: reviewer() },
     person: cooperativePerson(),
-    // Until the route is right, the person types the authoring skill themselves, so the rest is still checked.
+    // Should the route break, the person types the authoring skill themselves, so the rest is still checked.
     detour: ({ finding }) => (finding.step === 1 ? { copilot: '/sf-phase planning' } : null),
     done: ({ record }) => publishedGeneration(record, 'planning') >= 1,
     maxSteps: 12
   });
   t.diagnostic(formatTrail(walk.trail));
-  await check(t, 'the refusal routes to writing the step: no generic help, no dead end', { knownBad: 'refusal-next-step' }, () => {
+  await check(t, 'the refusal routes to writing the step: no generic help, no dead end', {}, () => {
     assert.deepEqual(walk.findings.filter((entry) => entry.step === 1), [], report(walk));
     assert.match(walk.trail[1]?.ran ?? '', /^singularity-flow phase enter\b/u, `the route enters the authoring skill\n${report(walk)}`);
   });

@@ -105,7 +105,7 @@ test('journey B: a code review asks for corrections, and version 2 is opened, fi
     return true;
   };
   const opened = ({ record }) => Number(record?.phases?.implement?.generationIntent?.generation ?? 0) >= 2 && record.phases.implement.generationIntent.status === 'open';
-  // Until the continuation is right, the person types its Shell line at their terminal, so the rest is still checked.
+  // Should the continuation break, the person types its Shell line at their terminal, so the rest is still checked.
   const detour = ({ finding, result }) => {
     if (opened({ record: storyRecord(story) })) return null;
     const continuation = result?.continuation?.actions?.find((entry) => /phase rollover/u.test(entry.command ?? '')) ?? null;
@@ -127,12 +127,12 @@ test('journey B: a code review asks for corrections, and version 2 is opened, fi
     assert.deepEqual(first.findings.filter((entry) => entry.step <= reviewAt + 1), [], report(first));
   });
   // Incident 5: the reviewer ends its turn on what the retained review returned; a route alone was dropped from its reply.
-  await check(t, 'the reviewer\'s reply carries the next step: a route, and the words to relay', { knownBad: 'review-next' }, () => {
+  await check(t, 'the reviewer\'s reply carries the next step: a route, and the words to relay', {}, () => {
     const { act, continuation } = first.trail[reviewAt].retained;
     assert.ok(returnedRoute({ act, continuation }), JSON.stringify({ act, continuation }).slice(0, 2000));
     assert.match(String(act?.show ?? ''), /- Copilot: `?\/sf-/u, `the reply's next step to show: ${JSON.stringify(act ?? null).slice(0, 1500)}`);
   });
-  await check(t, 'the correction\'s continuation opens version 2 by its routes, with no detour', { knownBad: 'review-next' }, () => {
+  await check(t, 'the correction\'s continuation opens version 2 by its routes, with no detour', {}, () => {
     assert.equal(first.reached, true, report(first));
     assert.deepEqual(first.findings, [], report(first));
   });
@@ -147,7 +147,7 @@ test('journey B: a code review asks for corrections, and version 2 is opened, fi
     assert.doesNotMatch(JSON.stringify(entry), /SOURCE_REVIEW_RECORD_UNPUBLISHED/u, JSON.stringify(entry).slice(0, 2000));
     assert.notEqual(entry.act?.state, 'attention-required', JSON.stringify(entry.act));
   });
-  await check(t, 'after the rollover, /sf-recover routes the code step to its author, never /sf-phase-documents', { knownBad: 'review-next' }, () => {
+  await check(t, 'after the rollover, /sf-recover routes the code step to its author, never /sf-phase-documents', {}, () => {
     const command = entryCommand(entries, '/sf-recover', at);
     const recovered = JSON.parse(story.raw([...command.replace(/^singularity-flow /u, '').split(' ')]).stdout);
     const routes = [returnedRoute(recovered), ...(recovered.actions ?? []).map((action) => ({ copilot: action.skill ?? action.copilotCommand ?? null, shell: action.command ?? null }))].filter(Boolean);
@@ -281,7 +281,7 @@ test('journey E: the person answers the card after the 30-minute turn window, an
   await writeFile(answers, JSON.stringify(card.card));
   const answered = story.raw(['decisions', 'record', W, '--answers', answers, '--json']);
   assert.equal(answered.status, 0, answered.stdout.slice(-2000));
-  await check(t, 'the person\'s answer on the card renews the turn: its next edit goes on', { knownBad: 'turn-renew' }, () => {
+  await check(t, 'the person\'s answer on the card renews the turn: its next edit goes on', {}, () => {
     const after = turn.tool('edit', edit);
     assert.notEqual(after.permissionDecision, 'deny', JSON.stringify(after));
   });
@@ -290,7 +290,7 @@ test('journey E: the person answers the card after the 30-minute turn window, an
   asked.prompt('/sf-code');
   asked.age(31);
   asked.answered('Pin Node 22.');
-  await check(t, 'the person\'s answer to the turn\'s question renews it too', { knownBad: 'turn-renew' }, () => {
+  await check(t, 'the person\'s answer to the turn\'s question renews it too', {}, () => {
     const after = asked.tool('edit', edit);
     assert.notEqual(after.permissionDecision, 'deny', JSON.stringify(after));
   });

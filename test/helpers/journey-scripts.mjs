@@ -16,12 +16,7 @@ import { implementationPlan, specification } from './submitted-planning-story.mj
 import { formatTrail } from './route-follower.mjs';
 
 /** Fix branch (or a defect a journey found that has none yet) → what is wrong on main until it lands. */
-export const KNOWN_BAD = Object.freeze({
-  'refusal-next-step': 'a refusal about the Story\'s state (a step reviewed before it is written) routes to generic /sf-help, not to writing the step',
-  'review-next': 'a code review asking for corrections continues with /sf-recover, which runs `recover --fetch`, finds nothing to do and never opens version 2; '
-    + 'the reviewer\'s reply has no next-step words to relay; and recovery right after the rollover routes the code step to /sf-phase-documents',
-  'turn-renew': 'a person\'s answer after the 30-minute turn window does not renew the turn, so the agent\'s next edit is denied'
-});
+export const KNOWN_BAD = Object.freeze({});
 
 const stale = new WeakMap();
 

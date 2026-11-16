@@ -398,6 +398,11 @@ export const MESSAGES = Object.freeze({
       + (Number(s.refused) > 0 ? `; ${slot(s.refused)} you may not decide were not recorded.` : '.'),
     preserves: false
   },
+  'decisions.version-consent.recorded': {
+    // The person's yes on the decisions card to a step's next version [D3, OSA Stage 4]: kept, not yet opened.
+    headline: (s) => `Your yes to start version ${slot(s.version)} of ${slot(s.phase)} is kept for 30 minutes; its work command opens it.`,
+    preserves: false
+  },
   'decisions.undo.succeeded': {
     // What was settled for a person is their question again [owner, 2026-11-13].
     headline: (s) => `Undid ${slot(s.settled)}; it is a question for a person again.`,

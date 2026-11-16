@@ -1988,14 +1988,18 @@ async function answerBoundDenial(payload, record) {
     const proposed = await successorProposal(payload, options.confirm);
     const preview = [safeCommandGuidance({ argv: ['phase', 'rollover', positionals[2] ?? '<step>', '--json'] })].filter(Boolean);
     if (!proposed.record) return { ...mutationDenial(null, `PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. This confirmation names no version previewed on this machine, so the person's yes cannot be bound to it. Run the preview (singularity-flow phase rollover ${positionals[2] ?? '<step>'} --json), ask the person its question, and run the confirmation it returns.`, [], { routes: preview }), recoverable: true };
+    // The person's yes on the decisions card to this exact proposal (`decisions record --version-consent`, recorded outside
+    // this chat by the card) is their consent here as well: its grant stands, and no question is asked again [OSA Stage 4].
+    const consent = await import('./story-version-consent.mjs');
+    if ((await consent.readGrant(proposed.commonDir, proposed.record.digest).catch(() => null))?.surface === 'decisions-card') continue;
     const binding = await answerBinding();
     const version = proposed.record.proposal.version;
     const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals, version }).catch(() => null);
     if (reason) return { ...mutationDenial(null, reason, [], { routes: [safeCommandGuidance({ argv })].filter(Boolean) }), recoverable: true };
     const reply = await binding.successorReply(file, record, version, positionals[2] ?? null).catch(() => null);
-    await import('./story-version-consent.mjs').then((consent) => consent.grantConsent(proposed.commonDir, { record: proposed.record, surface: 'question-tool',
+    await consent.grantConsent(proposed.commonDir, { record: proposed.record, surface: 'question-tool',
       question: reply?.asked, session: payload.sessionId ?? payload.session_id ?? null, turnId: record.turnId ?? null,
-      host: typeof payload.tool_name === 'string' ? 'vscode' : 'copilot-cli' })).catch(() => null);
+      host: typeof payload.tool_name === 'string' ? 'vscode' : 'copilot-cli' }).catch(() => null);
   }
   if (!ANSWER_BOUND_SKILLS.has(skillName(record.skill))) return null;
   // The turn's contract, read once and only for a proposal: whether change impact holds it to a yes.
@@ -2253,6 +2257,9 @@ async function publishedReviewerStart(payload, record, delegations) {
     return (!named || subagentName({ agentType: named }) === reviewer) && (!step?.[1] || step[1] === phase.id);
   };
   if (!reviewer || !delegations.every(forThisStep)) return false;
+  // Only a qualified Copilot delegation starts it [OSA:REQ-052].
+  const { reviewDispatchMode } = await import('./review-subagent.mjs');
+  if (!delegations.every(call => reviewDispatchMode(call.name))) return false;
   // The reviewer this turn started, kept through the turn's refresh (reviewRolloverCall).
   await updateTurnRecord(recordFile(payload), value, current => current.turnId !== record.turnId ? null
     : { ...current, reviewerStarted: { phaseId: phase.id, generation } }).catch(() => {});
@@ -2362,6 +2369,10 @@ async function mutationToolDecision(payload, record) {
     if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring' && reviewerDelegation(call)) return mutationDenial(contract,
       `PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this turn cannot start the reviewer as a sub-agent, and never reviews its own step. End with "Run this in a new chat:" and /sf-review-source${contract.phaseId ? ` ${contract.phaseId}` : ''}`);
     if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring') return mutationDenial(contract, 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: a sub-agent does not run in this turn. Do the work here yourself with the route below; only this turn holds its contract');
+    // The independent reviewer starts only through a qualified Copilot delegation (review-subagent.mjs REVIEW_DISPATCH_MODES);
+    // another sub-agent tool is never one, and no other harness stands in for it [OSA:REQ-052, AC-018].
+    if (DELEGATION.has(call.name) && reviewerDelegation(call) && !(await import('./review-subagent.mjs')).reviewDispatchMode(call.name)) return mutationDenial(contract,
+      `PHASE_MUTATION_DELEGATION_NOT_QUALIFIED: ${call.name} is not a qualified way to start the independent reviewer, and this turn never reviews its own step. End with "Run this in a new chat:" and /sf-review-source${contract.phaseId ? ` ${contract.phaseId}` : ''}`);
     // The author's turn starts its step's reviewer: from here the review is what the step corrects (reviewRolloverCall).
     if (DELEGATION.has(call.name) && reviewerDelegation(call) && !value.reviewerStarted) {
       value.reviewerStarted = { phaseId: contract.phaseId ?? null, generation: contract.generation ?? null };

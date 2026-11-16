@@ -508,8 +508,32 @@ const checkNames = (packet) => cardRows(packet).filter((item) => checkOf(item) &
  * `inspect(packet, file)` puts a file in front of the person. The caller passes these in, so a test can run every
  * route and no route can be answered by anything but `ask`.
  */
-export async function runCard({ ask, show, read, record, witness, inspect, askedInChat = false }) {
+/** The start of a step's next version as the card asks it: the proposal's own question, yes or not now [D3, OSA Stage 4]. */
+export const START_VERSION = 'Yes, start it';
+export function versionOpeningForm(opening) {
+  return { message: `${opening.question}\nYour yes is kept for this exact proposal; the step's work command then opens it. Nothing starts on "Not now".`,
+    requestedSchema: { type: 'object', required: ['start'], properties: { start: { type: 'string', title: 'Start it?', enum: [START_VERSION, NOT_NOW] } } } };
+}
+
+/**
+ * A step's next version waiting for the person's yes (the list's `versionOpening`): asked first, as its own question.
+ * `consent(opening)` records the yes outside the chat (`decisions record --version-consent`). Null when none waits.
+ */
+async function askVersionOpening(packet, { ask, show, consent }) {
+  const opening = packet?.versionOpening;
+  if (!opening || !consent) return null;
+  const answer = await ask(versionOpeningForm(opening));
+  if (answer?.action !== 'accept' || answer.content?.start !== START_VERSION) return { started: false };
+  const result = await consent(opening);
+  await show(result?.words ?? `Your yes to start version ${opening.version} of ${opening.phase} is kept.`);
+  return { started: true };
+}
+
+export async function runCard({ ask, show, read, record, witness, inspect, consent = null, askedInChat = false }) {
   let packet = await read();
+  const opening = await askVersionOpening(packet, { ask, show, consent });
+  if (opening?.started && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-opening'], remaining: [],
+    message: `Your yes to start version ${packet.versionOpening.version} of ${packet.versionOpening.phase} is kept; its work command opens it.` };
   // A chat that asked carries on when nothing waits: only a person who typed /decide sees a review nothing waits on.
   if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
   // What an answer depends on, SFlow checks before it asks, read-only and bounded [owner, 2026-11-16].

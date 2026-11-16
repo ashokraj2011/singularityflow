@@ -32,7 +32,6 @@ import { confirmCode } from '../src/confirm-code.mjs';
 import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
 import { createInitiative, initiativeDir, prepareInitiativePhase, saveInitiative } from '../src/initiative-state.mjs';
 import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
-import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
 import { run } from '../src/util.mjs';
 import { readLocalDocument } from '../src/document-storage.mjs';
 import { createPerformanceTrace } from '../src/performance-trace.mjs';
@@ -6381,7 +6380,6 @@ test('Attach existing offers only workspaces from the inspected capability autho
   run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
     'commit', '-qm', 'Complete governed configuration'], { cwd: firstSeed });
   run('git', ['push', '-q', first.lead, 'HEAD:sflow/config'], { cwd: firstSeed });
-  await publishOrganisationCapabilityMap(first.lead);
 
   const authority = (org, leadUrl = org.lead) => ({
     leadUrl,
@@ -6402,14 +6400,10 @@ test('Attach existing offers only workspaces from the inspected capability autho
   await registered.commands.get('singularityFlow.openWorkspaces')({
     capabilityIds: ['payments-api'],
     // Git accepts this trailing-slash spelling for the same bare repository. Authority matching
-    // must use repository identity rather than raw URL bytes, on every host. Retained Map panels
-    // from the pre-split schema supplied the state projection here; a current host upgrades that
-    // exact fresh projection lease to the canonical configuration identity before attachment.
-    authority: {
-      leadUrl: `${first.lead}/`,
-      sourceBranch: 'state',
-      sourceCommit: run('git', ['rev-parse', 'refs/heads/state'], { cwd: first.lead }).stdout.trim()
-    }
+    // must use repository identity rather than raw URL bytes, on every host. (A Map panel kept from
+    // the pre-split schema leased the state branch's copy; that copy is never read now (SCF:REQ-003),
+    // so such a panel's lease no longer verifies and it inspects again.)
+    authority: authority(first, `${first.lead}/`)
   });
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
   const matching = await until(() => panel.webview.html.includes('<option value="payments-api" selected>')
@@ -9442,7 +9436,7 @@ test('Map capability opens the exact repository setup review from its pending re
   controller.dispose();
 });
 
-test('Map capability continues with current configuration without applying optional state refresh', async (t) => {
+test('Map capability continues with current configuration: there is no state copy to refresh', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();
   loadExtension(api);
@@ -9474,7 +9468,7 @@ test('Map capability continues with current configuration without applying optio
     state: { kind: 'none', branch: 'state', commit: null },
     configuration: { branch: 'sflow/config', status: 'current', commit,
       schemaVersion: 2, currentSchemaVersion: 2 },
-    effects: [{ kind: 'state-projection', target: 'state', action: 'refresh' }],
+    effects: [],
     preserved: [], omitted: [], choices: [], availableModes: ['reset-local'],
     planId: `sha256:${'b'.repeat(64)}`, canApply: true, routing: null
   };
@@ -9488,7 +9482,7 @@ test('Map capability continues with current configuration without applying optio
   assert.match(ready, /The approved capability map was checked/);
   assert.match(ready, /href="#map-capability-details">Go to capability details/);
   assert.equal(ready.includes('data-map-details hidden'), false,
-    'the first-capability form opens even while the portable state index is pending');
+    'the first-capability form opens at once');
   assert.deepEqual(calls, [[
     'capability', 'inspect-repository', lead, '--json', '--lead', lead, '--include-proposals'
   ]], 'Continue performs only the bounded approved-map read');

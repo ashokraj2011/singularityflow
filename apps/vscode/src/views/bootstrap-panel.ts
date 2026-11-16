@@ -1563,11 +1563,9 @@ export class BootstrapPanel {
       this.update({ repositorySetupApplying: false, repositorySetupNotice: null });
       return;
     }
-    const notice = applied.status === 'ready-state-refresh-pending'
-      ? 'Repository setup is ready; its state refresh is still pending.'
-      : applied.changed
-        ? 'Repository setup was updated successfully.'
-        : 'Repository setup was already current; no change was needed.';
+    const notice = applied.changed
+      ? 'Repository setup was updated successfully.'
+      : 'Repository setup was already current; no change was needed.';
     this.update({
       repositorySetupApplying: false, repositorySetupNotice: notice
     });
@@ -1583,7 +1581,7 @@ export class BootstrapPanel {
     if (!plan || !repositoryOnboardingPlanMatchesInput(plan, this.form.repositoryUrl.trim())) return;
     const applied = this.form.repositorySetupResult;
     const resultCanContinue = applied != null && applied.mode !== 'reset-local' && [
-      'ready', 'ready-state-refresh-pending', 'linked-to-team-configuration',
+      'ready', 'linked-to-team-configuration',
       'sflow-repository-capability-not-mapped'
     ].includes(applied.status);
     if (!repositoryOnboardingCanContinue(plan) && !resultCanContinue) return;
@@ -1935,8 +1933,7 @@ export class BootstrapPanel {
 
     if (message?.type === 'copyRepositorySetupShell') {
       const value = typeof message.value === 'string' ? message.value : '';
-      if (value && (value === this.form.repositorySetupResult?.nextActions.shell
-        || value === this.form.repositorySetupResult?.stateRefresh?.retry?.shell)) {
+      if (value && value === this.form.repositorySetupResult?.nextActions.shell) {
         await vscode.env.clipboard.writeText(value);
       }
       return;
@@ -1944,8 +1941,7 @@ export class BootstrapPanel {
 
     if (message?.type === 'copyRepositorySetupCopilot') {
       const value = typeof message.value === 'string' ? message.value : '';
-      if (value && (value === this.form.repositorySetupResult?.nextActions.copilot
-        || value === this.form.repositorySetupResult?.stateRefresh?.retry?.copilot)) {
+      if (value && value === this.form.repositorySetupResult?.nextActions.copilot) {
         await vscode.env.clipboard.writeText(value);
       }
       return;

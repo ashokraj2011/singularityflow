@@ -495,9 +495,6 @@ async function runOnboard(context) {
   } else {
     console.log(`  changed: ${result.changed ? 'yes' : 'no'}`);
     if (result.proposal?.reviewRequired) console.log(`  review branch: ${result.proposal.branch}`);
-    if (result.stateRefresh?.pending) {
-      console.log('  configuration is ready; state refresh is pending.');
-    }
   }
   for (const warning of result.localCleanupWarnings ?? []) console.log(`Warning: ${warning}`);
   // While a setup proposal awaits review, its inspection command is the Shell route.

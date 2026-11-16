@@ -2189,7 +2189,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">echo</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1055 body tokens</span>
+          <span class="pill">~1049 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-doctor</code></dd></div>
@@ -2227,7 +2227,7 @@ folder or branch names, and do not repair governed state by hand.
    `singularity-flow capabilities doctor --json`, and offer `/sf-capability-map` to register one.
    Never infer a lead from the current folder or chat history.
 2. Run `singularity-flow capability fsck --lead &lt;LEAD-URL&gt; --json`. Report every failed
-   workspace binding, stale state projection, and proposal-history finding with the exact
+   workspace binding and proposal-history finding with the exact
    remediation supplied by the engine. Do not mutate anything during this check.
 3. If repository-local policy diagnostics were requested, run
    `singularity-flow workspace current --json`, change only to its verified
@@ -2272,7 +2272,7 @@ offline and must not be represented as remote publication proof.
           <span class="pill">interactive</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1291 body tokens</span>
+          <span class="pill">~1290 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-map</code></dd></div>
@@ -2313,7 +2313,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
    For `delivery`, add `--repository &lt;GIT-URL&gt;`; `collection` omits it.
 
-5. Show `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`. After approval run `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`; ask separately before `--acknowledge-unprotected`. `singularity-flow capability publish` repairs projection only.
+5. Show `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`. After approval run `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`; ask separately before `--acknowledge-unprotected`. `singularity-flow capability publish` repairs locators only.
 6. On a value conflict, run the returned `singularity-flow capability discard-proposal` once confirmed, then the returned `singularity-flow capability edit` or `map` again. Preview a returned `singularity-flow capability rebase-proposal`. Consent separately to each confirmation; never auto-activate.
 
 ## Cancel or replace a pending mapping
@@ -9248,7 +9248,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~917 body tokens</span>
+          <span class="pill">~915 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-refresh-configuration</code></dd></div>
@@ -9282,7 +9282,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Show each repository&#39;s current authority, candidate changes, protected conflicts, exact plan ID, and proposed `sflow/config` and state-branch effects. Show `agentsHome` the same way: each move, each stay with its reason, each install, why a move is held, and that every teammate updates SFlow, since the move lands on `sflow/config` with the rest. A preserved conflict is not consent to overwrite it.
 3. If a conflict needs resolution, ask the contributor to choose each exact `--resolve PATH=local|bundled|merge` value, then preview again with those choices. Do not select `--accept-bundled-conflicts` on their behalf.
 4. Ask for explicit confirmation of the returned plan. Only then run the same scoped command with the same resolution choices and `--confirm-plan &lt;EXACT-PLAN-ID&gt; --json`. If the plan is stale, stop and preview again; never reuse the old confirmation.
-5. Report configuration and state projection results separately, then the CLI&#39;s `summary` lines as they are: whose `sflow/config` it updated and the old history and review branches it removed. Where the host refused the update, report the exact review branch and its link; report any repository that needs a newer build with its install route. Retry only as the CLI directs; do not force-push or edit active Story snapshots.
+5. Report the configuration result for each repository, then the CLI&#39;s `summary` lines as they are: whose `sflow/config` it updated and the old history and review branches it removed. Where the host refused the update, report the exact review branch and its link; report any repository that needs a newer build with its install route. Retry only as the CLI directs; do not force-push or edit active Story snapshots.
 
 Shell: `singularity-flow workspace refresh-configuration`. Copilot: `/sf-refresh-configuration`.
 </code></pre>

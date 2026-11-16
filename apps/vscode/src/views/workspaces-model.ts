@@ -339,18 +339,11 @@ export interface WorkspaceConfigurationRefreshRepository {
   remote: string;
   memberships?: Array<{ workspaceId: string; repositoryId: string }>;
   configurationChanged?: boolean;
-  stateChanged?: boolean;
-  stateStatus?: string;
   configurationCommit?: string;
-  stateCommit?: string | null;
   proposalBranch?: string;
   compareUrl?: string | null;
   route?: string;
   files?: string[];
-  missingStatePaths?: string[];
-  changedStatePaths?: string[];
-  extraStatePaths?: string[];
-  removedStatePaths?: string[];
   conflicts?: WorkspaceConfigurationConflict[];
   /** A preflight-owned, still-unapplied repair that the UI may select for a new preview. */
   repair?: {

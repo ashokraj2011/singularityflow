@@ -1366,11 +1366,11 @@ Usage:
   Removing a capability with children requires --reparent-children-to. Pass an empty value to move
   those direct children to the top level; older reviewed map revisions remain available in Git.
   singularity-flow capability publish [--lead URL] [--json]
-    (after a capability review branch is merged, refresh its orphan state projection)
+    (after a capability review branch is merged, publish its delivery repositories' locators)
   singularity-flow capability fsck [--lead URL | --repository DELIVERY-URL]
     [--search-known] [--portable-discovery] [--json]
     (read-only verification of registered workspace bindings, approved configuration,
-     state projection, proposal refs, and optional cross-laptop authority links; returns exact
+     proposal refs, and optional cross-laptop authority links; returns exact
      remediation commands)
   singularity-flow capability reconcile <DELIVERY-URL> --canonical-lead <URL>
     [--confirm-plan PLAN-ID] [--json]
@@ -1406,7 +1406,7 @@ Usage:
      the repaired commit must be reviewed again and approved/application branches are unchanged)
   singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT>
     [--acknowledge-unprotected] [--json]
-    (review and normally merge one exact proposal into sflow/config, then refresh its projection;
+    (review and normally merge one exact proposal into sflow/config, then record its audit;
      protection is unknown until the real exact-CAS update; a direct attempt requires explicit acknowledgement;
      application main is never written)
     (a capability that ships has its lead's model; one that groups others composes theirs)

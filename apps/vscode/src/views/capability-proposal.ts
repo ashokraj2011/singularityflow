@@ -27,14 +27,13 @@ export interface CapabilityProposal {
 }
 
 interface ActivationResult {
-  status?: 'activated' | 'activated-without-projection' | 'activation-complete-projection-pending'
+  status?: 'activated' | 'activation-complete-portability-pending'
     | 'review-required' | 'activation-pending';
   activated?: boolean;
   targetBranch: string;
   targetCommit: string;
   proposalCommit: string;
   alreadyMerged: boolean;
-  projection?: { published?: boolean; pending?: boolean; branch?: string; commit?: string; reason?: string } | null;
   audit?: { recorded?: boolean; eventId?: string; sequence?: number; ledgerCommit?: string };
   failure?: ConfigurationGitFailure & { retryable?: boolean; message?: string };
   externalAction?: { action: string; sourceBranch: string; targetBranch: string; proposalCommit: string } | null;
@@ -77,7 +76,6 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
   const changeSummary = proposal.merged
     ? `This proposal has already been merged into ${proposal.targetBranch}. Check the changed files, then record its activation.`
     : `This proposal changes ${proposal.changedFiles.length} ${proposal.changedFiles.length === 1 ? 'file' : 'files'} on ${proposal.targetBranch}. Check the changed files before merging this exact proposal.`;
-  const projection = activated?.projection;
   const activationComplete = capabilityActivationSucceeded(activated);
   const cleanup = activated?.proposalCleanup;
   const cleanupNotice = !cleanup ? '' : cleanup.status === 'deleted'
@@ -91,10 +89,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
   const activationNotice = !activated ? '' : activationComplete
     ? `<div class="notice ok"><p><strong>Capability activated.</strong> ${escape(
       activated.alreadyMerged ? 'The externally merged proposal is now audited.' : `Approved ${activated.targetBranch} now carries this proposal.`
-    )}</p><p>${escape(projection?.published
-      ? `Projection published to ${projection.branch}.`
-      : projection?.branch ? `${projection.branch} was already current.`
-      : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${cleanupNotice}${activated.audit?.eventId
+    )}</p>${cleanupNotice}${activated.audit?.eventId
           ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
           : ''}${activated.nextAction?.command
             ? commandGuidanceHtml(activated.nextAction) : ''}
@@ -152,7 +147,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
           ? '<p class="muted">Activation is complete. Create a workspace above to work with the approved capability.</p>'
           : '<p class="muted">Activation is complete. The approved configuration is now current.</p>'
         : proposal.merged
-        ? '<p class="muted">Record the activation audit and publish the capability projection for this already merged commit.</p>'
+        ? '<p class="muted">Record the activation audit for this already merged commit.</p>'
         : `<p class="muted">Merge and acknowledge authorizes one exact leased update of <code>${escape(proposal.targetBranch)}</code> to the commit reviewed here if the repository permits direct pushes. Branch protection and server hooks still apply.</p>`}
       <div class="actions">
         ${activationComplete ? '' : `<button class="primary" data-action="activate" ${busy || !proposal.valid ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated ? 'Retry merge and acknowledge' : 'Merge and acknowledge'}</button>`}

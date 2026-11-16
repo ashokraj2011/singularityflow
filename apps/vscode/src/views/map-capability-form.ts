@@ -16,7 +16,6 @@ import { createHash } from 'node:crypto';
 import { commandGuidance } from '../copilot-command.ts';
 import { CAPABILITY_KINDS } from './capability-model.ts';
 import {
-  repositoryOnboardingCanDeferStateRefresh,
   repositoryOnboardingCopy,
   repositoryOnboardingFailureDiagnosis,
   type RepositoryOnboardingMode,
@@ -474,11 +473,8 @@ function repositorySetupPrimary(plan: RepositoryOnboardingPlan): {
     return { message: 'applyRepositorySetup', label: copy.action, disabled: !plan.canApply };
   }
   if (plan.primaryAction === 'continue' || plan.primaryAction === 'map-capability') {
-    // A current approved configuration can be inspected even when the portable state projection
-    // is pending. Its refresh remains an explicit, separately confirmed optional action below.
-    // Other effects, including local registration for a team locator, retain exact-plan consent.
-    if (plan.canApply && plan.effects.length > 0
-      && !repositoryOnboardingCanDeferStateRefresh(plan)) {
+    // Effects, including local registration for a team locator, retain exact-plan consent.
+    if (plan.canApply && plan.effects.length > 0) {
       return { message: 'applyRepositorySetup', label: copy.action, disabled: false };
     }
     return { message: 'continueRepositorySetup', label: copy.action, disabled: false };
@@ -506,9 +502,6 @@ function repositorySetupEffect(effect: RepositoryOnboardingPlan['effects'][numbe
   if (effect.kind === 'configuration-recreate' || effect.kind === 'configuration') {
     if (effect.action === 'create') return 'Set up SFlow configuration; repository approval may be required.';
     if (effect.action === 'propose') return 'Prepare a proposal to recreate SFlow configuration.';
-  }
-  if (effect.kind === 'state-projection' && effect.action === 'refresh') {
-    return `Refresh the portable state index on ${effect.target}.`;
   }
   if (effect.kind === 'local-registration') {
     if (effect.action === 'remember') return 'Remember this repository on this laptop.';
@@ -599,41 +592,30 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     </section>`;
   }
   if (outcome?.status === 'local-registration-pending' && outcome.localRegistration) {
-    const projectionPending = outcome.stateRefresh?.pending === true;
     return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(outcome.status)}" aria-live="polite">
       <div class="card-head"><div><p class="eyebrow">Repository setup</p>
         <h3>${icon('warning')}Local registration pending</h3></div></div>
-      <p>Completed remote writes are preserved. This laptop could not remember the repository locally${projectionPending
-        ? ', and the portable state projection also remains pending.'
-        : '; preview again to retry only the local step.'}</p>
+      <p>Completed remote writes are preserved. This laptop could not remember the repository locally; preview again to retry only the local step.</p>
       ${outcomeCleanupWarnings}
       ${inlineError}
       ${existingMapLookup}
       <p><button type="button" data-repository-setup-primary="retryRepositorySetup">Retry local registration</button>
         <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
-        <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>
-        ${projectionPending && outcome.stateRefresh?.retry
-          ? `<button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.stateRefresh.retry.shell)}">Copy state-refresh retry</button>`
-          : ''}</p>
+        <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button></p>
     </section>`;
   }
-  if (outcome && ['ready', 'ready-state-refresh-pending', 'linked-to-team-configuration',
+  if (outcome && ['ready', 'linked-to-team-configuration',
     'sflow-repository-capability-not-mapped'].includes(outcome.status)) {
-    const pendingProjection = outcome.status === 'ready-state-refresh-pending';
     return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(outcome.status)}" aria-live="polite">
       <div class="card-head"><div><p class="eyebrow">Repository setup</p>
-        <h3>${icon(pendingProjection ? 'warning' : 'ok')}${pendingProjection ? 'Ready · state refresh pending' : 'Ready'}</h3></div></div>
-      <p>${pendingProjection
-        ? 'Configuration is ready. The portable state projection can be retried without repeating configuration publication.'
-        : 'Repository setup completed and the confirmed result is being reused without another full Git inspection.'}</p>
+        <h3>${icon('ok')}Ready</h3></div></div>
+      <p>Repository setup completed and the confirmed result is being reused without another full Git inspection.</p>
       ${outcomeCleanupWarnings}
       ${inlineError}
       ${capabilityHandoff}
       ${existingMapLookup}
       <p>${capabilityMapReady ? '' : `<button type="button" data-repository-setup-primary="continueRepositorySetup"${form.inspectionStatus === 'checking' ? ' disabled' : ''}>${form.inspectionStatus === 'checking' ? 'Checking…' : 'Continue to capability mapping'}</button>`}
-        <button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">${pendingProjection ? 'Prepare state-refresh retry' : 'Check setup again'}</button>
-        ${pendingProjection ? `<button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy exact shell retry</button>
-        <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>` : ''}</p>
+        <button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">Check setup again</button></p>
     </section>`;
   }
   const copy = repositoryOnboardingCopy(plan);
@@ -667,20 +649,15 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     .map((mode) => `<button type="button" class="secondary"
       data-repository-setup-mode="${escape(mode)}">${escape(modeLabels[mode])}</button>`)
     .join(' ');
-  const deferredStateRefresh = repositoryOnboardingCanDeferStateRefresh(plan);
   // Newer shipped files are an upgrade the team may propose; the approved configuration is used as it is [owner, 2026-11-12].
   const configurationUpdate = plan.mode === 'auto' && plan.availableModes.includes('migrate') ? plan.configurationUpdate ?? null : null;
   const optionalUpdateNote = configurationUpdate
     ? `<p class="muted" data-repository-setup-update-note>${icon('info')}This SFlow version has ${configurationUpdate.files} newer shipped file${configurationUpdate.files === 1 ? '' : 's'} for this repository's team configuration. Setup goes on with the approved configuration; propose the upgrade from More options when it suits the team.</p>`
     : '';
-  const optionalStateRefresh = deferredStateRefresh && plan.canApply
-    ? '<button type="button" class="secondary" data-repository-setup-optional-apply>Refresh portable state index</button>'
-    : '';
   const moreOptions = `<details class="configuration-advanced-tools"><summary>More options</summary>
-    <p>${optionalStateRefresh}${optionalStateRefresh ? ' ' : ''}${optionalModeButtons}${optionalModeButtons ? ' ' : ''}<button type="button" class="secondary"
+    <p>${optionalModeButtons}${optionalModeButtons ? ' ' : ''}<button type="button" class="secondary"
       data-repository-setup-diagnostics>Diagnostics</button></p>
     ${configurationUpdate ? `<p class="muted" data-repository-setup-optional-update>Migrate configuration proposes the ${configurationUpdate.files} newer shipped file${configurationUpdate.files === 1 ? '' : 's'} for review; nothing here waits for it.</p>` : ''}
-    ${deferredStateRefresh ? '<p class="muted">The approved configuration can be used now. Refreshing its portable state index helps another laptop discover this capability later; it is not required to describe the first capability.</p>' : ''}
     ${plan.availableModes.includes('reset-local') ? '<p class="muted">Reset local registration clears only this laptop\'s shortcut and cache, then checks Git again. It does not remove the approved configuration or capability map.</p>' : ''}
   </details>`;
   return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(plan.status)}" aria-live="polite">
@@ -1030,8 +1007,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       <h2>${icon('ok')}Ready for review</h2>
       <p class="ok-text">Creates and pushes a dedicated capability review branch in ${escape(form.lead)}.</p>
       <p class="muted">The proposal targets the dedicated <code>sflow/config</code> authority branch.
-        Application branches and the capability state projection are not changed. Review and merge the proposal,
-        then publish the reviewed projection.</p>
+        Application branches are not changed. Once the proposal is reviewed and merged,
+        sflow/config holds it.</p>
     </div>
     ${form.notice ? `<p class="warning-text">${icon('warning')}${escape(form.notice)}</p>` : ''}
     ${form.error && !form.repositorySetupPlan ? `<p class="blockers" role="alert">${escape(form.error)}</p>` : ''}
@@ -1061,8 +1038,6 @@ export const MAP_CAPABILITY_SCRIPT = `
     if (setupMode) return vscode.postMessage({
       type: 'previewRepositorySetupMode', mode: setupMode.dataset.repositorySetupMode
     });
-    const optionalApply = event.target.closest('[data-repository-setup-optional-apply]');
-    if (optionalApply) return vscode.postMessage({ type: 'applyRepositorySetup' });
     const setupDiagnostics = event.target.closest('[data-repository-setup-diagnostics]');
     if (setupDiagnostics) return vscode.postMessage({ type: 'diagnoseRepositorySetup' });
     const setupShell = event.target.closest('[data-repository-setup-copy-shell]');

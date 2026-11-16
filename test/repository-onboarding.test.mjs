@@ -551,7 +551,7 @@ test('valid lifecycle-only state recognizes SFlow without inferring capability o
   }
 });
 
-test('current configuration rebuilds its projection without deleting lifecycle state', async () => {
+test('current configuration needs no state copy and leaves lifecycle state as it is', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
@@ -563,26 +563,23 @@ test('current configuration rebuilds its projection without deleting lifecycle s
       updatedAt: '2026-01-01T00:00:00.000Z'
     })}\n`;
     await publishStateFiles(fixture, { 'ledger/head.json': head });
+    const stateBefore = run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim();
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.status, 'ready');
-    assert.equal(plan.configuration.hasRepositoryMappings, true);
+    // sflow/config is the configuration; no copy of it goes to the state branch (SCF:REQ-003).
     assert.deepEqual(plan.effects, [
-      { kind: 'state-projection', target: 'state', action: 'refresh' },
       { kind: 'local-registration', target: fixture.remote, action: 'remember' }
     ]);
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId
     });
     assert.equal(result.status, 'ready');
+    assert.equal(run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim(), stateBefore);
     assert.equal(run('git', ['show', 'state:ledger/head.json'], {
       cwd: fixture.remote
     }).stdout, head);
-    assert.equal(run('git', [
-      'show-ref', '--verify', '--quiet', 'refs/heads/state'
-    ], { cwd: fixture.remote, allowFailure: true }).status, 0);
-    assert.doesNotThrow(() => JSON.parse(run('git', [
-      'show', `state:${STATE_CONFIGURATION_MANIFEST}`
-    ], { cwd: fixture.remote }).stdout));
+    assert.equal(run('git', ['show', `state:${STATE_CONFIGURATION_MANIFEST}`],
+      { cwd: fixture.remote, allowFailure: true }).status, 128, 'no copy was written');
     assert.deepEqual((await listLeadRepositories()).map((entry) => entry.url), [fixture.remote]);
 
     const stateBeforeRegistrationOnly = run('git', ['rev-parse', 'refs/heads/state'], {
@@ -654,7 +651,7 @@ test('an onboarded repository whose configuration predates this build\'s shipped
   }
 });
 
-test('a failed state projection preserves configuration and returns an exact projection-only retry', async () => {
+test('onboarding an existing configuration writes nothing to a state branch that refuses every push', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
@@ -666,65 +663,33 @@ test('a failed state projection preserves configuration and returns an exact pro
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.status, 'ready');
     assert.equal(plan.configuration.commit, configurationCommit);
-    assert.ok(plan.effects.some((effect) =>
-      effect.kind === 'state-projection' && effect.action === 'refresh'));
+    assert.equal(plan.effects.some((effect) => effect.kind === 'state-projection'), false,
+      'no copy of sflow/config goes to the state branch (SCF:REQ-003)');
     const hook = path.join(fixture.remote, 'hooks', 'pre-receive');
     await writeFile(hook, `#!/bin/sh
 while read old new ref; do
   if [ "$ref" = "refs/heads/state" ]; then
-    echo "state projection temporarily unavailable" >&2
+    echo "state branch temporarily unavailable" >&2
     exit 1
   fi
 done
 exit 0
 `);
     await chmod(hook, 0o755);
-
-    let configurationPushes = 0;
+    let pushes = 0;
     const observingRemoteCommand = async (args, options) => {
-      if (args[0] === 'push'
-          && args.some((argument) => argument.endsWith(':refs/heads/sflow/config'))) {
-        configurationPushes += 1;
-      }
+      if (args[0] === 'push') pushes += 1;
       return runRemoteGitAsync(args, options);
     };
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId, runRemoteCommand: observingRemoteCommand
     });
-    const retry = {
-      shell: renderPlatformCommand([
-        'singularity-flow', 'capability', 'onboard', fixture.remote, '--dry-run', '--json'
-      ]),
-      copilot: '/sf-capability-map'
-    };
-    assert.equal(result.status, 'ready-state-refresh-pending');
-    assert.equal(result.primaryAction, 'retry');
-    assert.equal(result.changed, true);
-    assert.equal(result.stateRefresh.pending, true);
-    assert.deepEqual(result.stateRefresh.retry, retry);
-    assert.deepEqual(result.nextActions, retry);
-    assert.equal(configurationPushes, 0);
+    assert.equal(result.status, 'ready');
+    assert.equal(result.stateRefresh, undefined);
+    assert.equal(pushes, 0, 'nothing is pushed: the configuration exists and needs no copy');
     assert.equal(run('git', [
       'show-ref', '--verify', '--quiet', 'refs/heads/state'
     ], { cwd: fixture.remote, allowFailure: true }).status, 1);
-
-    const recoveryPlan = await inspectRepositoryOnboarding(fixture.remote, {
-      runRemoteCommand: observingRemoteCommand
-    });
-    assert.equal(recoveryPlan.status, 'ready');
-    assert.equal(recoveryPlan.configuration.commit, configurationCommit);
-    assert.deepEqual(recoveryPlan.effects, [{
-      kind: 'state-projection', target: 'state', action: 'refresh'
-    }]);
-
-    await rm(hook);
-    const recovered = await applyRepositoryOnboarding(fixture.remote, {
-      confirmPlan: recoveryPlan.planId, runRemoteCommand: observingRemoteCommand
-    });
-    assert.equal(recovered.status, 'ready');
-    assert.equal(recovered.stateRefresh.pending, false);
-    assert.equal(configurationPushes, 0,
-      'retrying the projection must not repeat the configuration mutation');
     assert.equal(run('git', [
       'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`
     ], { cwd: fixture.remote }).stdout.trim(), configurationCommit);
@@ -938,7 +903,7 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
     };
     const remoteCount = (counters, verb) => counters[`git.remote.command.${verb}`] ?? 0;
     // The lead's approved configuration is re-read in place from the configuration object pool when
-    // one is available (SDA-AC-013), or cloned; its state mirror is still cloned.
+    // one is available (SDA-AC-013), or cloned. Its old state copy is never read (SCF:REQ-003).
     const leadReads = (sample) => remoteCount(sample.counters, 'clone') - sample.deliveryClones
       + (sample.counters['configuration.object-store-read'] ?? 0);
 
@@ -975,9 +940,8 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
     await assert.rejects(withCommandTiming(applyTimer, () => applyRepositoryOnboarding(
       delivery.remote, { ...options, confirmPlan: `sha256:${'0'.repeat(64)}` }
     )), { code: 'REPOSITORY_ONBOARDING_CONFIRMATION_MISMATCH' });
-    assert.ok(remoteCount(applyTimer.finish().counters, 'clone')
-      > deliveryClones - beforeApplyDeliveryClones,
-      'apply must deep-revalidate before comparing the confirmed plan');
+    assert.ok(leadReads({ counters: applyTimer.finish().counters, deliveryClones: deliveryClones - beforeApplyDeliveryClones }) > 0,
+      'apply must deep-revalidate the lead before comparing the confirmed plan');
 
     run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, unmappedCommit], {
       cwd: lead.remote
@@ -1004,7 +968,8 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
     run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateEditor });
     const advancedState = await inspectTimed();
     assert.equal(advancedState.plan.routing.verified, true);
-    assert.ok(leadReads(advancedState) > 0, 'a moved lead state ref must revalidate before the mapping stays trusted');
+    assert.equal(leadReads(advancedState), 0,
+      'the lead\'s state branch is not its configuration, so moving it leaves the warm cache standing (SCF:REQ-003)');
 
     const wrongLink = createCapabilityAuthorityLink({
       authorityRemote: lead.remote, repositoryRemote: delivery.remote,
@@ -1233,7 +1198,6 @@ test('mirror reconstruction preserves a disabled state-publication policy', asyn
       cwd: fixture.remote
     });
     const plan = await inspectRepositoryOnboarding(fixture.remote);
-    assert.equal(plan.state.stateProjectionEnabled, false);
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId
     });
@@ -1284,7 +1248,7 @@ test('a legacy unbound mirror is recoverable only when retained history proves t
   }
 });
 
-test('current configuration rebinds an unbound legacy state mirror', async () => {
+test('current configuration leaves an unbound legacy state copy exactly as it is', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
@@ -1295,15 +1259,18 @@ test('current configuration rebinds an unbound legacy state mirror', async () =>
     assert.equal(plan.configuration.status, 'current');
     assert.equal(plan.state.kind, 'configuration-mirror');
     assert.equal(plan.state.repositoryBound, false);
-    assert.ok(plan.effects.some((effect) => effect.kind === 'state-projection'));
+    // sflow/config is the configuration; an old copy is never rewritten and no new one is written (SCF:REQ-003).
+    assert.equal(plan.effects.some((effect) => effect.kind === 'state-projection'), false);
+    const stateBefore = run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim();
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId
     });
     assert.equal(result.status, 'ready');
+    assert.equal(run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim(), stateBefore);
     const manifest = JSON.parse(run('git', [
       'show', `state:${STATE_CONFIGURATION_MANIFEST}`
     ], { cwd: fixture.remote }).stdout);
-    assert.match(manifest.subject.repositoryIdentity, /^sha256:[0-9a-f]{64}$/u);
+    assert.equal(manifest.subject, undefined, 'the old copy keeps its own manifest');
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
@@ -1944,10 +1911,9 @@ test('fresh setup directly creates configuration despite a later application-onl
     assert.equal(run('git', [
       'show-ref', '--verify', '--quiet', 'refs/heads/state'
     ], { cwd: fixture.remote, allowFailure: true }).status, 1,
-    'no repository mapping exists yet, so fresh setup performs no state projection');
+    'fresh setup writes no configuration copy to a state branch (SCF:REQ-003)');
     const repeated = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(repeated.status, 'ready');
-    assert.equal(repeated.configuration.hasRepositoryMappings, false);
     assert.equal(repeated.stateRefresh, undefined);
     assert.equal(repeated.effects.some((effect) => effect.kind === 'state-projection'), false);
     assert.equal(run('git', [
@@ -2855,7 +2821,7 @@ test('a local registry failure after remote setup returns an exact resumable loc
     });
     assert.equal(result.status, 'local-registration-pending');
     assert.equal(result.primaryAction, 'retry');
-    assert.equal(result.changed, true);
+    assert.equal(result.changed, false, 'sflow/config already exists and no state copy is written (SCF:REQ-003)');
     assert.equal(result.localRegistration.status, 'pending');
     assert.equal(result.localRegistration.remembered, false);
     assert.equal(result.localRegistration.target, fixture.remote);
@@ -2866,9 +2832,10 @@ test('a local registry failure after remote setup returns an exact resumable loc
     const configurationCommit = run('git', [
       'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`
     ], { cwd: fixture.remote }).stdout.trim();
-    const stateCommit = run('git', ['rev-parse', 'refs/heads/state'], {
-      cwd: fixture.remote
-    }).stdout.trim();
+    const stateAbsent = () => run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+      cwd: fixture.remote, allowFailure: true
+    }).status === 1;
+    assert.ok(stateAbsent());
 
     const recoveryPlan = await inspectRepositoryOnboarding(fixture.remote);
     assert.deepEqual(recoveryPlan.effects, [{
@@ -2882,9 +2849,7 @@ test('a local registry failure after remote setup returns an exact resumable loc
     assert.equal(run('git', [
       'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`
     ], { cwd: fixture.remote }).stdout.trim(), configurationCommit);
-    assert.equal(run('git', ['rev-parse', 'refs/heads/state'], {
-      cwd: fixture.remote
-    }).stdout.trim(), stateCommit);
+    assert.ok(stateAbsent());
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;

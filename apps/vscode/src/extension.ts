@@ -2881,7 +2881,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const repositorySetupReceiptCurrent = Boolean(requestedAuthority && repositorySetupPlan
       && repositorySetupPlan.canApply
       && (repositorySetupResult
-        ? ['ready', 'ready-state-refresh-pending', 'linked-to-team-configuration']
+        ? ['ready', 'linked-to-team-configuration']
           .includes(repositorySetupResult.status)
         : ['ready', 'linked-to-team-configuration'].includes(repositorySetupPlan.status))
       && setupLead && sameGitRepository(setupLead, requestedAuthority.leadUrl)

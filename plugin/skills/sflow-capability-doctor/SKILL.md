@@ -24,7 +24,7 @@ folder or branch names, and do not repair governed state by hand.
    `singularity-flow capabilities doctor --json`, and offer `/sf-capability-map` to register one.
    Never infer a lead from the current folder or chat history.
 2. Run `singularity-flow capability fsck --lead <LEAD-URL> --json`. Report every failed
-   workspace binding, stale state projection, and proposal-history finding with the exact
+   workspace binding and proposal-history finding with the exact
    remediation supplied by the engine. Do not mutate anything during this check.
 3. If repository-local policy diagnostics were requested, run
    `singularity-flow workspace current --json`, change only to its verified

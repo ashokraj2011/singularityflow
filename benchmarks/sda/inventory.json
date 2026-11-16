@@ -3466,14 +3466,14 @@
       "module": "organisation.mjs",
       "class": "shared-state",
       "git": {
-        "read": 44,
+        "read": 42,
         "write": 14,
-        "remote": 12,
+        "remote": 11,
         "dynamic": 1
       },
-      "localReads": 42,
+      "localReads": 40,
       "writes": 19,
-      "yamlReads": 35,
+      "yamlReads": 34,
       "lifetimes": [
         {
           "name": "CAPABILITY_PUSH_RECOVERY_TTL_MS",
@@ -5872,13 +5872,13 @@
       "module": "workspace-configuration-refresh.mjs",
       "class": "source-control",
       "git": {
-        "read": 19,
-        "write": 12,
-        "remote": 9
+        "read": 11,
+        "write": 11,
+        "remote": 8
       },
-      "localReads": 19,
+      "localReads": 11,
       "writes": 33,
-      "yamlReads": 8,
+      "yamlReads": 7,
       "lifetimes": [
         {
           "name": "REFRESH_CACHE_MAX_AGE_MS",
@@ -5889,36 +5889,6 @@
           "name": "REFRESH_CACHE_LOCK_STALE_MS",
           "value": 60000,
           "kind": "lifetime"
-        },
-        {
-          "name": "timeoutMs",
-          "value": 5000,
-          "kind": "timeout"
-        },
-        {
-          "name": "timeoutMs",
-          "value": 5000,
-          "kind": "timeout"
-        },
-        {
-          "name": "timeoutMs",
-          "value": 5000,
-          "kind": "timeout"
-        },
-        {
-          "name": "timeoutMs",
-          "value": 5000,
-          "kind": "timeout"
-        },
-        {
-          "name": "timeoutMs",
-          "value": 10000,
-          "kind": "timeout"
-        },
-        {
-          "name": "timeoutMs",
-          "value": 5000,
-          "kind": "timeout"
         },
         {
           "name": "timeoutMs",

@@ -1329,9 +1329,9 @@
     },
     "src/organisation.mjs": {
       "counts": {
-        "command-run": 59
+        "command-run": 57
       },
-      "digest": "528b813d8987c67cea6183e6c5fec498896173cd798a4c2b3717267a739a9c95"
+      "digest": "de1ef0b73ecdb241dc3dc0cf28de4e2d42e3413530ed41a2a7f7bb5bd7cd5832"
     },
     "src/performance-doctor.mjs": {
       "counts": {
@@ -1695,9 +1695,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 33
+        "command-run": 24
       },
-      "digest": "ec61b33a7d71c35df641cc4ee1733d7ebd06cdf96f69bf3aba0be74ab8cc0bb5"
+      "digest": "084930fd28b09c7199d46662131356f7365eb36f9ce468433b307340c72f0f6e"
     },
     "src/workspace-impact.mjs": {
       "counts": {

@@ -423,10 +423,6 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
     .map((file) => ({ repository: repository.repository, file })))
     .sort((left, right) => left.repository.localeCompare(right.repository)
       || left.file.localeCompare(right.file));
-  const removedPaths = repositories.flatMap((repository) => (repository.removedStatePaths ?? [])
-    .map((file) => ({ repository: repository.repository, file })))
-    .sort((left, right) => left.repository.localeCompare(right.repository)
-      || left.file.localeCompare(right.file));
   // The exact plan is necessary but not sufficient: a retained panel can receive output from an
   // older configured CLI. Only the current seeded-only contract may authorize Apply.
   const actionable = isSafeWorkspaceReinitializationPreview(result);
@@ -437,16 +433,10 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
     <p class="muted">Install the matching current CLI and VS Code extension first, then review and
       apply this upgrade. Reinitialize framework-seeded assets here; do not use <strong>Re-create</strong>
       as a routine upgrade. Re-creating repository configuration does not update the installed CLI.</p>
-    <p class="muted">This is the repeatable, non-destructive upgrade path. It installs missing
-      framework seeds and refreshes only byte-exact registered framework revisions for workflow,
-      phase, artifact-set, template, prompt and agent assets. User-created or user-modified assets
-      remain repository-owned and unchanged. Same-name or same-path collisions are reported instead
-      of overwritten, and work-item artifacts are excluded. The action also refreshes framework
-      <code>state</code> projections and checks every stored schema version. Capability-specific
-      publication and portable locator repair
-      are outside this action; user-owned capability definitions remain unchanged in the approved
-      configuration mirror. Readable legacy records migrate in memory; immutable history, world
-      models, application branches and application source remain untouched.</p>
+    <p class="muted">The repeatable, safe upgrade: it adds missing SFlow files and updates the ones SFlow shipped that nobody changed.</p>
+    <p class="muted">Files your team made or changed stay as they are. A clash is reported, never overwritten. Story files are left out.</p>
+    <p class="muted">It checks the version of every stored record. It writes nothing to the state branch.</p>
+    <p class="muted">Capability publication and locator repair are separate steps. History, the world model, application branches and source stay untouched.</p>
     <p class="card-foot">
       <button class="secondary" data-config-preview="selected"${view.loading || view.applying ? ' disabled' : ''}>
         ${view.loading && view.scope === 'selected' ? 'Checking…' : `Review ${escape(row.name)}`}</button>
@@ -458,11 +448,10 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
     ${result ? `<p><strong>${view.scope === 'all' ? 'All registered workspaces' : row.name}</strong>
       · ${escape(result.total)} ${result.total === 1 ? 'repository' : 'repositories'}</p>
       ${repositories.length ? `<table>
-        <thead><tr><th>Repository</th><th>Configuration</th><th>State branch</th><th>Details</th></tr></thead>
+        <thead><tr><th>Repository</th><th>Configuration</th><th>Details</th></tr></thead>
         <tbody>${repositories.map((repository) => `<tr>
           <td><strong>${escape(repository.repository)}</strong><br><span class="muted">${escape(repository.remote)}</span></td>
           <td><span class="pill ${repository.configurationChanged ? 'wait' : 'ok'}">${repository.configurationChanged ? 'update' : 'current'}</span></td>
-          <td><span class="pill ${repository.stateChanged ? 'wait' : 'ok'}">${escape(repository.stateStatus ?? (repository.stateChanged ? 'update' : 'current'))}</span></td>
           <td>${repository.error ? `<span class="blockers">${escape(repository.error)}</span>${repository.proposalBranch
             // The full branch name and its link: a person finds and merges it on the Git host [owner, 2026-11-16].
             ? `<br><span class="muted">Review <code>${escape(repository.proposalBranch)}</code>${repository.compareUrl
@@ -473,11 +462,8 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
             ${agentsHomeSummary(repository.agentsHome).length ? `<details><summary>${escape(agentsHomeSummary(repository.agentsHome)[0])}</summary><ul>${agentsHomeSummary(repository.agentsHome).slice(1).map((line) => `<li><code>${escape(line)}</code></li>`).join('')}</ul></details>` : ''}</td>
         </tr>`).join('')}</tbody>
       </table>` : '<p class="muted">No registered workspace repositories were found.</p>'}
-      ${changedPaths.length || removedPaths.length ? `<h3>Exact reviewed paths</h3>
+      ${changedPaths.length ? `<h3>Exact reviewed paths</h3>
         ${changedPaths.length ? `<p class="muted"><strong>Refresh:</strong></p><ul>${changedPaths
-          .map((entry) => `<li><code>${escape(entry.repository)}:${escape(entry.file)}</code></li>`)
-          .join('')}</ul>` : ''}
-        ${removedPaths.length ? `<p class="muted"><strong>Remove from state projection:</strong></p><ul>${removedPaths
           .map((entry) => `<li><code>${escape(entry.repository)}:${escape(entry.file)}</code></li>`)
           .join('')}</ul>` : ''}` : ''}
       ${schemaCensuses.length ? `<h3>Stored schema compatibility</h3>

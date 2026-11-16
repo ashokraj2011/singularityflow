@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 30,
   "draft-for-version": 15,
-  "generic-route": 6371,
-  "jargon": 1404,
-  "length": 697
+  "generic-route": 6357,
+  "jargon": 1393,
+  "length": 694
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -280,7 +280,6 @@
   "CAPABILITY_POLICY_INVALID",
   "CAPABILITY_POLICY_LOOSENED",
   "CAPABILITY_PORTABILITY_PENDING",
-  "CAPABILITY_PROJECTION_AUTHORITY_MOVED",
   "CAPABILITY_PROPOSAL_CANCEL_AUTHORITY_CHANGED",
   "CAPABILITY_PROPOSAL_CONFIGURATION_INVALID",
   "CAPABILITY_PROPOSAL_DISCARD_REASON_INVALID",
@@ -407,7 +406,6 @@
   "CONFIGURATION_REFRESH_INVALID",
   "CONFIGURATION_REFRESH_REF_CHANGED",
   "CONFIGURATION_REFRESH_REF_INVALID",
-  "CONFIGURATION_REFRESH_STATE_AUTHORITY_CHANGED",
   "CONFIGURATION_REPOSITORY_HEAD_UNAVAILABLE",
   "CONFIGURATION_RETENTION_REF_COLLISION",
   "CONFIGURATION_RETENTION_REF_UNAVAILABLE",
@@ -417,8 +415,6 @@
   "CONFIGURATION_REVIEW_UNREADABLE",
   "CONFIGURATION_REVISION_CHANGED",
   "CONFIGURATION_SNAPSHOT_STALE",
-  "CONFIGURATION_STATE_AUTHORITY_UNPROVEN",
-  "CONFIGURATION_STATE_BRANCH_UNSAFE",
   "CONFIGURATION_STATE_PROTECTED",
   "CONFIGURATION_TRANSACTION_CANDIDATE_INVALID",
   "CONFIGURATION_TRANSACTION_UNKNOWN",
@@ -1397,7 +1393,6 @@
   "STATE_CONFIGURATION_MIRROR_INVALID",
   "STATE_CONFIGURATION_MIRROR_LIMIT_EXCEEDED",
   "STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH",
-  "STATE_CONFIGURATION_MIRROR_SUBJECT_UNAVAILABLE",
   "STEP_ACTION_COMMIT_REQUIRED",
   "STEP_ACTION_COMMIT_UNKNOWN",
   "STEP_ACTION_DELIVERY_REQUIRED",
@@ -2048,7 +2043,7 @@
   "src/workflow-transfer.mjs": 1,
   "src/workspace-branch-checkout.mjs": 4,
   "src/workspace-branch-locations.mjs": 3,
-  "src/workspace-configuration-refresh.mjs": 37,
+  "src/workspace-configuration-refresh.mjs": 31,
   "src/workspace-context.mjs": 8,
   "src/workspace-impact.mjs": 22,
   "src/workspace-logs.mjs": 5,
@@ -2340,17 +2335,13 @@
   "apps/vscode/src/views/map-capability-form.ts": {
    "0792a023ef30": "length",
    "1b0c6008ed0b": "length",
-   "1c9488f81e48": "length",
-   "30e809b21f1a": "jargon:projection",
    "415a4530fd86": "length",
-   "7c2e7a1745ad": "jargon:projection",
    "88883f0eabbb": "jargon:durable",
    "89e2a6bcb1de": "length",
    "910c97595e15": "length",
    "967523997d8e": "length",
    "b29ae58d261f": "length",
-   "c3ad2cae26d7": "length",
-   "ff7a2679365a": "jargon:projection"
+   "c3ad2cae26d7": "length"
   },
   "apps/vscode/src/views/map-capability-operation-store.ts": {
    "33213fcde529": "jargon:durable"
@@ -2716,9 +2707,7 @@
   "apps/vscode/src/views/workspaces-page.ts": {
    "15b1171c510d": "jargon:retained",
    "377e57f38a70": "length",
-   "3d0364509f09": "length",
    "45e2c31344d2": "length",
-   "4c9aa45fffd3": "jargon:projection length",
    "58538853a84f": "length",
    "60f596c5c7e9": "jargon:durable",
    "65b13b86e885": "length",
@@ -2726,7 +2715,6 @@
    "7b3af717ed36": "length",
    "88961c5fdcbe": "length",
    "ac9feb2dcd15": "length",
-   "dd9e6a734fe6": "jargon:projection",
    "e51f40ff3b49": "length"
   },
   "plugin/extensions/decisions/card.mjs": {
@@ -3912,21 +3900,16 @@
    "4457391e87f2": "length",
    "5fc123e58f5a": "jargon:canonical",
    "60a926ae1dc9": "length",
-   "6bddbbc87ed0": "jargon:projection",
    "70a17174c69a": "jargon:retained",
    "77c803e3c391": "length",
    "7d31ef050a75": "jargon:binding",
-   "91a63b5efa0f": "jargon:projection",
    "96255909a0c1": "jargon:ledger",
    "96d0d0a97ea1": "length",
    "97bb4b35748c": "jargon:retained",
    "99cc9e72398b": "length",
    "9d7a9863a4e4": "jargon:canonical",
    "a52f78f3d8f5": "length",
-   "b9b0481faa85": "jargon:projection",
-   "bd8123c912d5": "jargon:projection",
    "cffbdea489a9": "jargon:retained",
-   "d11a9fe5db36": "jargon:projection",
    "dfef79a785d4": "length",
    "e558de61efd5": "jargon:idempotent length"
   },
@@ -4689,7 +4672,6 @@
   },
   "src/workspace-configuration-refresh.mjs": {
    "535e76062869": "length",
-   "6d54e5f13325": "jargon:projection",
    "a6f37e70f122": "length",
    "fb3caebc8393": "length"
   },

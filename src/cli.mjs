@@ -6998,15 +6998,16 @@ async function capabilityCommand(positionals, options) {
   if (subcommandForWrite === 'publish') {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
-    const state = await publishOrganisationCapabilityMap(leadUrl);
+    // The delivery locators only: the configuration itself is never copied to the state branch (SCF:REQ-003).
+    const published = await publishOrganisationCapabilityMap(leadUrl);
     await rememberLeadRepository(leadUrl);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...state }, null, 2));
-    if (state.published) {
-      return console.log(`Published the reviewed ${state.baseBranch} capability map to ${state.branch}.`);
-    }
-    return console.log(state.branch
-      ? `The ${state.branch} capability projection is already current.`
-      : `Capability projection not published: ${state.reason}.`);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...published }, null, 2));
+    const pending = published.portability?.pending ?? [];
+    return console.log(pending.length
+      ? `Delivery locators still to publish for: ${pending.join(', ')}. Run the same command again once Git accepts the push.`
+      : ['not-configured', 'not-required'].includes(published.portability?.status)
+        ? `The ${published.baseBranch} capability map names no other delivery repository, so there is no locator to publish.`
+        : `Delivery repositories can find the ${published.baseBranch} capability map: their locators are current.`);
   }
 
   if (subcommandForWrite === 'fsck') {

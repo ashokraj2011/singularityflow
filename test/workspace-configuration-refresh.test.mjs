@@ -29,11 +29,12 @@ import {
   mergePackagedConfiguration,
   PACKAGE_BASELINE_PATH,
   refreshPackagedConfiguration,
-  refreshWorkspaceConfigurations,
-  STATE_CONFIGURATION_MANIFEST
+  refreshWorkspaceConfigurations
 } from '../src/workspace-configuration-refresh.mjs';
 import { openConfigurationReviews } from '../src/configuration-review-pass.mjs';
 import { changedLines, foldYamlFile, unfoldFirst } from './helpers/folded-yaml.mjs';
+
+const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
@@ -2006,8 +2007,8 @@ test('configuration refresh reports published refs when disposable checkout clea
   assert.equal(applied.results[0].status, 'updated');
   assert.notEqual(git(remote, ['rev-parse', 'refs/heads/sflow/config']), before);
   assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), applied.results[0].configurationCommit);
-  assert.equal(JSON.parse(git(remote, ['show', `state:${STATE_CONFIGURATION_MANIFEST}`])).source.commit,
-    applied.results[0].configurationCommit, 'state projection also reached the remote');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/state'], { allowFailure: true }).status, 1,
+    'no configuration copy goes to a state branch (SCF:REQ-003)');
   assert.deepEqual(applied.cleanupPending, [{
     repository: 'published-cleanup', path: scratch, code: 'EBUSY'
   }]);
@@ -2216,69 +2217,26 @@ test('configuration refresh discards a symbolic private cache ref before confirm
   ]).stdout.trim(), configBefore, 'the hardened cache should still publish the reviewed refresh');
 });
 
-test('configuration refresh refuses symbolic remote authority instead of dereferencing it', async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-symbolic-authority-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const { remote, registry } = await registeredRepositoryFixture(root, 'symbolic-authority');
-  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
-  assert.equal(preview.status, 'preview');
-  const configBefore = run('git', [
-    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
-  ]).stdout.trim();
-
-  run('git', [
-    '--git-dir', remote, 'symbolic-ref', 'refs/heads/state', 'refs/heads/main'
-  ]);
-  const applied = await refreshWorkspaceConfigurations({
-    registryFile: registry, confirmPlan: preview.planId
+// SCF:REQ-003: a refresh writes no configuration copy to the state branch, so it neither reads nor follows that
+// branch. A symbolic `state` ref, which used to stop the refresh before it published, is left exactly as it is.
+for (const cacheMiss of [false, true]) {
+  test(`a refresh neither reads nor writes a symbolic state ref (${cacheMiss ? 'cache-miss apply' : 'cached apply'})`, async (t) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-symbolic-state-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const { remote, registry } = await registeredRepositoryFixture(root, cacheMiss ? 'symbolic-state-cache-miss' : 'symbolic-state');
+    const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+    assert.equal(preview.status, 'preview');
+    const configBefore = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
+    const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+    if (cacheMiss) await rm(path.join(fixtureCacheRoot(registry), preview.planId), { recursive: true, force: true });
+    git(remote, ['symbolic-ref', 'refs/heads/state', 'refs/heads/main']);
+    const applied = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId });
+    assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+    assert.notEqual(git(remote, ['rev-parse', 'refs/heads/sflow/config']), configBefore, 'sflow/config was published');
+    assert.equal(git(remote, ['symbolic-ref', 'refs/heads/state']), 'refs/heads/main');
+    assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore, 'the symbolic target is unchanged');
   });
-
-  assert.equal(applied.status, 'blocked');
-  assert.equal(applied.results[0].status, 'failed');
-  assert.match(applied.results[0].error, /exact branch authority/i);
-  assert.equal(run('git', [
-    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
-  ]).stdout.trim(), configBefore, 'ambiguous authority must not publish configuration changes');
-});
-
-test('configuration refresh cache-miss apply refuses a symbolic remote state source', async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-symbolic-state-cache-miss-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const { remote, registry } = await registeredRepositoryFixture(root, 'symbolic-state-cache-miss');
-  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
-  assert.equal(preview.status, 'preview');
-  const configBefore = run('git', [
-    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
-  ]).stdout.trim();
-  const mainBefore = run('git', [
-    '--git-dir', remote, 'rev-parse', 'refs/heads/main'
-  ]).stdout.trim();
-
-  // Force confirmed apply down the fresh-clone fallback where no cached state-branch name is
-  // available to the initial multi-head preflight.
-  await rm(path.join(fixtureCacheRoot(registry), preview.planId), {
-    recursive: true, force: true
-  });
-  run('git', [
-    '--git-dir', remote, 'symbolic-ref', 'refs/heads/state', 'refs/heads/main'
-  ]);
-
-  const applied = await refreshWorkspaceConfigurations({
-    registryFile: registry, confirmPlan: preview.planId
-  });
-  assert.equal(applied.status, 'blocked');
-  assert.equal(applied.results[0].status, 'failed');
-  assert.match(applied.results[0].error, /exact branch authority/i);
-  assert.equal(run('git', [
-    '--git-dir', remote, 'symbolic-ref', 'refs/heads/state'
-  ]).stdout.trim(), 'refs/heads/main');
-  assert.equal(run('git', [
-    '--git-dir', remote, 'rev-parse', 'refs/heads/main'
-  ]).stdout.trim(), mainBefore, 'the symbolic target must remain unchanged');
-  assert.equal(run('git', [
-    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
-  ]).stdout.trim(), configBefore, 'no configuration publication may precede the refusal');
-});
+}
 
 test('configuration refresh reclaims an old cache lock only after its owner is dead', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-stale-lock-'));
@@ -2549,12 +2507,13 @@ test('seeded first-authority bootstrap preserves compatible repository and ledge
     'safe reinitialize must retain the complete imported ledger policy');
   assert.deepEqual(approvedPortfolio.repositories[id], portfolio.repositories[id],
     'safe reinitialize must retain the complete compatible repository policy');
-  assert.equal(run('git', [
-    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/company-state'
-  ], { allowFailure: true }).status, 0, 'the preserved state authority receives the projection');
-  assert.equal(run('git', [
-    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/state'
-  ], { allowFailure: true }).status, 1, 'reinitialize must not silently substitute state/origin policy');
+  // No configuration copy goes to either state branch (SCF:REQ-003); the ledger creates its own branch when it first
+  // records something.
+  for (const branch of ['company-state', 'state']) {
+    assert.equal(run('git', [
+      '--git-dir', remote, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`
+    ], { allowFailure: true }).status, 1, `no copy was written to ${branch}`);
+  }
   assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
     'safe reinitialize must not move the application branch');
 });
@@ -2816,7 +2775,6 @@ test('multi-repository initialization reports durable partial progress when push
   assert.equal(created.status, 'initialization-created');
   assert.equal(created.configurationChanged, true);
   assert.match(created.configurationCommit, /^[a-f0-9]{40}$/);
-  assert.equal(created.stateChanged, false);
   assert.equal(failed.status, 'failed');
   assert.equal(failed.configurationChanged, false);
   assert.equal(run('git', [
@@ -3049,7 +3007,7 @@ test('configuration refresh refuses a cache pathname carrying an inherited write
   assert.equal(timer.finish().counters['git.remote.command.clone'], 1);
 });
 
-test('all-workspace refresh leaves a dirty clone untouched and mirrors approved configuration to state', async (t) => {
+test('all-workspace refresh leaves a dirty clone untouched and writes no configuration copy to state', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-refresh-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, repository } = await repositoryFixture(root);
@@ -3078,8 +3036,8 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   const headBefore = git(repository, ['rev-parse', 'HEAD']);
 
   // An older install mirrored configuration below configuration/files and also left one retired
-  // canonical policy file. Runtime world-model bytes share the state branch but are not part of the
-  // configuration projection and must survive the migration exactly.
+  // canonical policy file, beside runtime world-model bytes. SFlow writes no configuration copy any
+  // more (SCF:REQ-003), so all of it stays exactly as it is.
   const statePublisher = path.join(root, 'state-publisher');
   await initializeStatePublisher(statePublisher);
   await mkdir(path.join(statePublisher, 'configuration/files/singularity'), { recursive: true });
@@ -3105,23 +3063,22 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
         inspectedCandidates.push({
           localPaths: candidate.repository.localPaths,
           defaultBaseBranch: (await loadDefinition(candidate.root)).defaultBaseBranch,
-          sourceCommit: candidate.sourceCommit,
-          stateCommit: candidate.stateBefore.stateCommit
+          sourceCommit: candidate.sourceCommit
         });
       }
     }));
   const previewCounters = previewTimer.finish().counters;
   assert.equal(preview.status, 'preview');
   assert.match(preview.planId, /^cfgp-[a-f0-9]{24}$/);
-  assert.equal(preview.results[0].stateStatus, 'would-follow-configuration');
+  assert.equal(Object.hasOwn(preview.results[0], 'stateStatus'), false, 'the preview says nothing about a state copy');
   assert.equal(previewCounters['git.remote.command.clone'], 1);
-  assert.equal(previewCounters['git.remote.command.fetch'], 1);
+  assert.equal(previewCounters['git.remote.command.fetch'] ?? 0, 0, 'the state branch is not fetched');
   assert.deepEqual(inspectedCandidates, [{
     localPaths: [await realpath(repository)],
     defaultBaseBranch: 'release',
-    sourceCommit: git(remote, ['rev-parse', 'refs/heads/sflow/config']),
-    stateCommit: git(remote, ['rev-parse', 'refs/heads/state'])
-  }], 'candidate inspection must see the exact approved configuration and state authority');
+    sourceCommit: git(remote, ['rev-parse', 'refs/heads/sflow/config'])
+  }], 'candidate inspection must see the exact approved configuration');
+  const stateBefore = git(remote, ['rev-parse', 'refs/heads/state']);
 
   const applyTimer = commandTimer('configuration-refresh-apply');
   const result = await withCommandTiming(applyTimer, () => refreshWorkspaceConfigurations({
@@ -3131,17 +3088,17 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   assert.equal(result.status, 'complete');
   assert.equal(result.results.length, 1);
   assert.equal(result.results[0].configurationChanged, true);
-  assert.equal(result.results[0].stateChanged, true);
-  // No history ref is retained any more [owner, 2026-11-16]; the last lists the superseded refs once.
-  assert.equal(applyCounters['git.remote.command.ls-remote'], 3,
-    'apply re-observes the source authority, guards the state publication, then lists the superseded refs once');
+  // No history ref is retained any more [owner, 2026-11-16] and no state copy is published (SCF:REQ-003); the last
+  // lists the superseded refs once.
+  assert.equal(applyCounters['git.remote.command.ls-remote'], 2,
+    'apply re-observes the source authority, then lists the superseded refs once');
   assert.equal(result.results[0].supersededRefs.status, 'current');
   assert.equal(run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-history/'])
     .stdout.trim(), '', 'the refresh writes no history ref');
   assert.equal(applyCounters['git.remote.command.clone'] ?? 0, 0,
     'apply reuses the SHA-bound preview clone instead of cloning the authority again');
   assert.equal(applyCounters['git.remote.command.fetch'] ?? 0, 0,
-    'apply inspects the preview-bound state object without a duplicate fetch');
+    'apply fetches nothing more');
   assert.equal(git(repository, ['rev-parse', 'HEAD']), headBefore);
   assert.equal(git(repository, ['status', '--porcelain']), dirtyBefore);
 
@@ -3150,27 +3107,13 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   ]).stdout);
   assert.equal(approved.phases.implementation.generation.task, 'code');
   assert.equal(approved.defaultBaseBranch, 'release');
-  const manifestText = run('git', [
-    '--git-dir', remote, 'show', `state:${STATE_CONFIGURATION_MANIFEST}`
-  ]).stdout;
-  const mirror = JSON.parse(manifestText);
-  assert.equal(mirror.format, 'singularity-flow-configuration-mirror/v2');
-  assert.equal(mirror.layout, 'canonical-paths');
-  assert.equal(mirror.source.commit, run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim());
-  assert.equal(mirror.assets['singularity/workflow.yml'].sha256,
-    mirror.files['singularity/workflow.yml']);
-  assert.match(mirror.assets['singularity/workflow.yml'].object, /^[0-9a-f]{40,64}$/);
-  assert.match(mirror.assets['singularity/workflow.yml'].mode, /^100(?:644|755)$/);
-  const mirroredWorkflow = run('git', [
-    '--git-dir', remote, 'show', 'state:singularity/workflow.yml'
-  ]).stdout;
-  assert.equal(YAML.parse(mirroredWorkflow).phases.implementation.generation.task, 'code');
-  assert.equal(run('git', [
-    '--git-dir', remote, 'show', 'state:configuration/files/singularity/workflow.yml'
-  ], { allowFailure: true }).status, 128);
-  assert.equal(run('git', [
-    '--git-dir', remote, 'show', 'state:singularity/obsolete-policy.yml'
-  ], { allowFailure: true }).status, 128);
+  // The state branch is exactly as the older install left it: no copy is written, and nothing old is rewritten.
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/state']), stateBefore);
+  assert.equal(run('git', ['--git-dir', remote, 'show', `state:${STATE_CONFIGURATION_MANIFEST}`]).stdout,
+    '{"format":"singularity-flow-configuration-mirror/v1"}\n');
+  assert.equal(run('git', ['--git-dir', remote, 'show', 'state:singularity/workflow.yml'], { allowFailure: true }).status, 128);
+  assert.equal(run('git', ['--git-dir', remote, 'show', 'state:configuration/files/singularity/workflow.yml']).stdout, 'legacy: true\n');
+  assert.equal(run('git', ['--git-dir', remote, 'show', 'state:singularity/obsolete-policy.yml']).stdout, 'retired: true\n');
   assert.deepEqual(run('git', [
     '--git-dir', remote, 'show', 'state:singularity/world-model/model.md'
   ], { encoding: 'buffer' }).stdout, worldModelBytes);
@@ -3178,10 +3121,9 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   const current = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   assert.equal(current.results[0].status, 'current');
   assert.equal(current.results[0].configurationChanged, false);
-  assert.equal(current.results[0].stateChanged, false);
 
-  // A cached preview is acceleration, not authority. If state moves before apply, exact ref
-  // revalidation must discard the cache and refuse the now-stale plan before changing config.
+  // The state branch is not part of a refresh any more: moving it after the preview leaves the plan
+  // current, and applying it changes nothing.
   const staleStatePreview = current;
   const stateMover = path.join(root, 'state-mover');
   run('git', ['clone', '--quiet', '--single-branch', '--branch', 'state', remote, stateMover]);
@@ -3197,8 +3139,8 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   const staleStateApply = await refreshWorkspaceConfigurations({
     registryFile: registry, confirmPlan: staleStatePreview.planId
   });
-  assert.equal(staleStateApply.status, 'blocked');
-  assert.equal(staleStateApply.results[0].status, 'stale-plan');
+  assert.equal(staleStateApply.status, 'complete', JSON.stringify(staleStateApply, null, 2));
+  assert.equal(staleStateApply.results[0].status, 'current');
   assert.equal(run('git', [
     '--git-dir', remote, 'rev-parse', 'sflow/config'
   ]).stdout.trim(), configBeforeStaleApply);
@@ -3218,7 +3160,6 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
       bootstrapInspections.push({
         sourceCommit: candidate.sourceCommit,
         bootstrapCommit: candidate.bootstrapCommit,
-        stateCommit: candidate.stateBefore.stateCommit,
         version: definition.version,
         defaultBaseBranch: definition.defaultBaseBranch,
         root: candidate.root
@@ -3241,10 +3182,9 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   assert.deepEqual(bootstrapInspections.map(({ root: _root, ...entry }) => entry), [{
     sourceCommit: null,
     bootstrapCommit: git(remote, ['rev-parse', 'refs/heads/main']),
-    stateCommit: git(remote, ['rev-parse', 'refs/heads/state']),
     version: 2,
     defaultBaseBranch: 'main'
-  }], 'first-authority preview inspects the bundled candidate and current state authority');
+  }], 'first-authority preview inspects the bundled candidate');
   assert.notEqual(path.resolve(bootstrapInspections[0].root), path.resolve(repository),
     'bootstrap inspection must never read configuration from the application checkout');
   assert.equal(await readFile(path.join(repository, 'singularity/workflow.yml'), 'utf8'),
@@ -3456,7 +3396,10 @@ test('scoped reinitialization refuses case aliases of one Windows repository aut
   );
 });
 
-test('state authority refresh proves root and linearity in one walk and still refuses merges', async t => {
+// SCF:REQ-003: a refresh writes no configuration copy to the state branch, so it no longer proves that branch's history
+// or refuses a ledger branch it would have written to. Whatever the state branch holds, the refresh neither walks nor
+// changes it.
+test('a refresh neither walks nor changes a nonlinear state branch', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-proof-walk-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, registry } = await registeredRepositoryFixture(root, 'state-proof');
@@ -3466,12 +3409,15 @@ test('state authority refresh proves root and linearity in one walk and still re
   await writeFile(path.join(publisher, 'retained.txt'), 'retained state\n');
   git(publisher, ['add', '.']); git(publisher, ['commit', '-m', 'state successor']);
   const stateCommit = git(publisher, ['rev-parse', 'HEAD']);
+  const tree = git(publisher, ['rev-parse', 'HEAD^{tree}']);
+  const merged = git(publisher, ['commit-tree', tree, '-p', stateCommit, '-p', rootCommit, '-m', 'nonlinear authority']);
+  git(publisher, ['update-ref', 'refs/heads/state', merged, stateCommit]);
   git(publisher, ['remote', 'add', 'origin', remote]);
   git(publisher, ['push', 'origin', 'state']);
   const original = childProcess.spawnSync;
   const walks = [];
   childProcess.spawnSync = function (program, args, options) {
-    if (args?.[0] === 'rev-list' && args.includes(stateCommit)) walks.push(args);
+    if (args?.[0] === 'rev-list' && (args.includes(merged) || args.includes(stateCommit))) walks.push(args);
     return original(program, args, options);
   };
   syncBuiltinESMExports();
@@ -3479,18 +3425,13 @@ test('state authority refresh proves root and linearity in one walk and still re
   try { preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true }); }
   finally { childProcess.spawnSync = original; syncBuiltinESMExports(); }
   assert.equal(preview.status, 'preview', JSON.stringify(preview));
-  assert.deepEqual(walks, [['rev-list', '--parents', stateCommit]]);
-  const tree = git(publisher, ['rev-parse', 'HEAD^{tree}']);
-  const merged = git(publisher, ['commit-tree', tree, '-p', stateCommit, '-p', rootCommit, '-m', 'nonlinear authority']);
-  git(publisher, ['update-ref', 'refs/heads/state', merged, stateCommit]);
-  git(publisher, ['push', 'origin', 'state']);
-  const blocked = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
-  assert.equal(blocked.status, 'blocked');
-  assert.match(blocked.results[0].error, /history is not linear/u);
-  assert.equal(git(remote, ['rev-parse', 'refs/heads/state']), merged, 'a refused preview changes no authority');
+  assert.deepEqual(walks, [], 'the state branch\'s history is not read');
+  const applied = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/state']), merged, 'the state branch is unchanged');
 });
 
-test('seeded reinitialization refuses an unmarked application branch configured as state authority', async (t) => {
+test('a refresh writes nothing to an application branch named as the ledger branch', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-authority-boundary-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, registry } = await registeredRepositoryFixture(root, 'state-boundary');
@@ -3508,19 +3449,20 @@ test('seeded reinitialization refuses an unmarked application branch configured 
   git(editor, ['push', 'origin', 'HEAD:sflow/config']);
   const mainCommit = git(remote, ['rev-parse', 'refs/heads/main']);
   run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/release', mainCommit]);
-  const before = Object.fromEntries(['main', 'release', 'sflow/config'].map((branch) => [
+  const before = Object.fromEntries(['main', 'release'].map((branch) => [
     branch, git(remote, ['rev-parse', `refs/heads/${branch}`])
   ]));
 
   const preview = await refreshWorkspaceConfigurations({
     registryFile: registry, dryRun: true, restorePackagedSeeds: true
   });
-  assert.equal(preview.status, 'blocked', JSON.stringify(preview, null, 2));
-  assert.equal(preview.results[0].status, 'blocked');
-  assert.match(preview.results[0].error, /not a proven dedicated Singularity Flow state authority/u);
+  assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, restorePackagedSeeds: true
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   for (const [branch, commit] of Object.entries(before)) {
-    assert.equal(git(remote, ['rev-parse', `refs/heads/${branch}`]), commit,
-      `${branch} must remain unchanged when state provenance is absent`);
+    assert.equal(git(remote, ['rev-parse', `refs/heads/${branch}`]), commit, `${branch} must remain unchanged`);
   }
 });
 
@@ -3582,15 +3524,11 @@ test('seeded workspace reinitialization restores an absent workflow in an existi
   ]).stdout, 'preserve repository configuration\n');
   assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
     'reinitialization must not change the application branch');
-  assert.equal(YAML.parse(run('git', [
-    '--git-dir', remote, 'show', 'state:singularity/workflow.yml'
-  ]).stdout).version, 2, 'state projection must receive the restored approved workflow');
-  assert.equal(run('git', [
-    '--git-dir', remote, 'show', `state:${starterRelative}`
-  ]).stdout, starterBytes, 'state projection receives the starter pack');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/state'], { allowFailure: true }).status, 1,
+    'no configuration copy goes to a state branch (SCF:REQ-003)');
 });
 
-test('seeded workspace reinitialization preserves repository contracts through config and state publication', async (t) => {
+test('seeded workspace reinitialization preserves repository contracts in sflow/config and leaves state as it was', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-publication-preservation-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, registry } = await registeredRepositoryFixture(root, 'seeded-preservation');
@@ -3679,6 +3617,7 @@ Review customer evidence without changing files.
   git(statePublisher, ['commit', '-m', 'Seed unrelated state runtime']);
   git(statePublisher, ['remote', 'add', 'origin', remote]);
   git(statePublisher, ['push', 'origin', 'HEAD:state']);
+  const stateBefore = git(remote, ['rev-parse', 'refs/heads/state']);
 
   const preview = await refreshWorkspaceConfigurations({
     registryFile: registry, dryRun: true, restorePackagedSeeds: true
@@ -3689,7 +3628,7 @@ Review customer evidence without changing files.
   });
   assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
 
-  for (const branch of ['sflow/config', 'state']) {
+  for (const branch of ['sflow/config']) {
     const observed = YAML.parse(run('git', [
       '--git-dir', remote, 'show', `${branch}:singularity/workflow.yml`
     ]).stdout);
@@ -3712,9 +3651,11 @@ Review customer evidence without changing files.
   ]).stdout, await readFile(seededAgent, 'utf8'),
   'a modified framework-started agent must remain repository-owned');
   assert.equal(run('git', [
-    '--git-dir', remote, 'show', 'state:singularity/templates/feature/requirements.md'
+    '--git-dir', remote, 'show', 'sflow/config:singularity/templates/feature/requirements.md'
   ]).stdout, await readFile(seededTemplate, 'utf8'),
   'a modified framework-started template must remain repository-owned');
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/state']), stateBefore,
+    'no configuration copy goes to the state branch (SCF:REQ-003)');
   assert.equal(run('git', ['--git-dir', remote, 'show', 'state:runtime-marker.txt']).stdout,
     runtimeMarker);
   assert.equal(run('git', [
@@ -3729,10 +3670,9 @@ Review customer evidence without changing files.
   });
   assert.equal(repeated.results[0].status, 'current');
   assert.equal(repeated.results[0].configurationChanged, false);
-  assert.equal(repeated.results[0].stateChanged, false);
 });
 
-test('workspace refresh mirrors and verifies configured asset roots outside conventional directories', async (t) => {
+test('workspace refresh publishes configured asset roots outside conventional directories and leaves state alone', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-refresh-custom-roots-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote } = await repositoryFixture(root, 'custom-roots');
@@ -3764,6 +3704,7 @@ test('workspace refresh mirrors and verifies configured asset roots outside conv
   git(statePublisher, ['commit', '-m', 'Seed custom world-model state']);
   git(statePublisher, ['remote', 'add', 'origin', remote]);
   git(statePublisher, ['push', 'origin', 'HEAD:state']);
+  const stateBefore = git(remote, ['rev-parse', 'refs/heads/state']);
 
   const workspaceRoot = path.join(root, 'workspace');
   const manifest = {
@@ -3788,17 +3729,14 @@ test('workspace refresh mirrors and verifies configured asset roots outside conv
   assert.equal(preview.status, 'preview');
   const applied = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId });
   assert.equal(applied.status, 'complete');
-  assert.equal(applied.results[0].stateChanged, true);
   assert.equal(run('git', [
-    '--git-dir', remote, 'show', 'state:governed/templates/common/custom.md'
+    '--git-dir', remote, 'show', 'sflow/config:governed/templates/common/custom.md'
   ]).stdout, 'custom template\n');
   assert.equal(run('git', [
-    '--git-dir', remote, 'show', 'state:governed/agents/custom.agent.md'
+    '--git-dir', remote, 'show', 'sflow/config:governed/agents/custom.agent.md'
   ]).stdout, 'custom agent\n');
-  assert.equal(run('git', [
-    '--git-dir', remote, 'show', 'state:.github/agents/developer.agent.md'
-  ]).stdout, await readFile(path.join(ROOT, 'templates/agents/developer.agent.md'), 'utf8'),
-  'canonical packaged agents remain governed and mirrored beside an additional custom agent root');
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/state']), stateBefore,
+    'no configuration copy goes to the state branch (SCF:REQ-003)');
   assert.deepEqual(run('git', [
     '--git-dir', remote, 'show', 'state:governed/world-model/manifest.json'
   ], { encoding: 'buffer' }).stdout, worldModelBytes);
@@ -3806,7 +3744,6 @@ test('workspace refresh mirrors and verifies configured asset roots outside conv
   const current = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   assert.equal(current.results[0].status, 'current');
   assert.equal(current.results[0].configurationChanged, false);
-  assert.equal(current.results[0].stateChanged, false);
 });
 
 test('seeded reinitialization refuses a symbolic workflow authority before reading or writing', async (t) => {

@@ -12,13 +12,13 @@ import YAML from 'yaml';
 import { BUILD_INFO } from './build-info.mjs';
 import {
   canonicalConfigurationAssets, configurationAssetPaths, CONFIGURATION_BRANCH,
-  configurationAssetPolicyFromDirectory, configurationAssetPolicyFromRef,
+  configurationAssetPolicyFromDirectory,
   ensureConfigurationBranch, isConfigurationAsset, prepareConfigurationBootstrapWorktree
 } from './configuration-branch.mjs';
 import { compareLink, removedRefsSummary, removeSupersededConfigurationRefs } from './configuration-superseded-refs.mjs';
 import { pruneLocalSupersededConfigurationRefs } from './configuration-local-history-prune.mjs';
 import {
-  configurationAssetPolicy, configurationAssetSearchRoots, mergeConfigurationAssetPolicies,
+  configurationAssetPolicy, mergeConfigurationAssetPolicies,
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
@@ -34,16 +34,14 @@ import { configurationCommitIdentity, refHead } from './git.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
-import { gitRepositoryComparisonKey, resolvedGitRepositoryComparisonKey } from './git-repository-identity.mjs';
-import { recordSha256 } from './records.mjs';
-import { publishToStateBranch } from './ledger.mjs';
+import { resolvedGitRepositoryComparisonKey } from './git-repository-identity.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
-  assertCredentialFreeRemote, configuredRemoteAuthority, frozenRemoteTransport,
+  assertCredentialFreeRemote, frozenRemoteTransport,
   redactDiagnosticText, remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import {
-  gitReadOutput, gitWorkerCount, isGitRefName, mapLimit, removeTemporaryTree, SingularityFlowError, run,
+  gitReadOutput, gitWorkerCount, mapLimit, removeTemporaryTree, SingularityFlowError, run,
   writeAtomic
 } from './util.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
@@ -58,8 +56,6 @@ import { CAPABILITIES_PATH } from './capabilities.mjs';
 import { stageStoryHardCutover } from './story-hard-cutover.mjs';
 
 export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
-export const STATE_CONFIGURATION_ROOT = 'configuration';
-export const STATE_CONFIGURATION_MANIFEST = `${STATE_CONFIGURATION_ROOT}/manifest.json`;
 // v2 records the build that proposed the package (SCF:REQ-015). Every build since 2026-08-23 refuses any baseline that
 // is not v1 before it changes anything, so once a v2 baseline is approved no older build can propose or publish over
 // it: their refusal names the v1 format they expect (SPEC-SCF section 5). v1 baselines stay readable.
@@ -126,7 +122,6 @@ const PACKAGE_OWNERSHIP_REPOSITORY = 'repository';
 const PACKAGE_OWNERSHIP_VALUES = new Set([
   PACKAGE_OWNERSHIP_FRAMEWORK, PACKAGE_OWNERSHIP_REPOSITORY
 ]);
-const MIRROR_FORMAT = 'singularity-flow-configuration-mirror/v2';
 const REFRESH_CACHE_FORMAT = 'singularity-flow-configuration-refresh-cache/v1';
 const REFRESH_CACHE_OWNER_FORMAT = 'singularity-flow-configuration-refresh-cache-owner/v1';
 const REFRESH_CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
@@ -343,37 +338,6 @@ function installExactRefreshRef(root, ref, commit, {
     `Configuration refresh could not install '${ref}' with its expected-object lease.`, {
       code: 'CONFIGURATION_REFRESH_REF_CHANGED',
       details: { ref, expectedCommit, observedCommit: after.commit, exitCode: updated.status }
-    }
-  );
-}
-
-/** Remove only the exact private ref installed by this operation. */
-function removeExactRefreshRef(root, ref, expectedCommit, { env = process.env } = {}) {
-  const before = observeExactRefreshRef(root, ref, { env });
-  if (before.status === 'absent') return;
-  if (before.status === 'symbolic' || before.status === 'unavailable') {
-    throw refreshRefError(ref, before.status, 'remove');
-  }
-  if (before.commit !== expectedCommit) {
-    throw new SingularityFlowError(
-      `Configuration refresh did not remove '${ref}' because it changed concurrently.`, {
-        code: 'CONFIGURATION_REFRESH_REF_CHANGED',
-        details: { ref, expectedCommit, observedCommit: before.commit }
-      }
-    );
-  }
-  run('git', ['update-ref', '--no-deref', '-d', ref, expectedCommit], {
-    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
-  });
-  const after = observeExactRefreshRef(root, ref, { env });
-  if (after.status === 'absent') return;
-  if (after.status === 'symbolic' || after.status === 'unavailable') {
-    throw refreshRefError(ref, after.status, 'reconcile removal of');
-  }
-  throw new SingularityFlowError(
-    `Configuration refresh could not remove '${ref}' with its expected-object lease.`, {
-      code: 'CONFIGURATION_REFRESH_REF_CHANGED',
-      details: { ref, expectedCommit, observedCommit: after.commit }
     }
   );
 }
@@ -1982,17 +1946,7 @@ async function prepareBootstrapInspectionCandidate(observation, options, {
     });
     let refresh = await refreshPackagedConfiguration(scratch, options);
     if (options.hardCutover) refresh = await stageStoryHardCutover(scratch, repository, bootstrapCommit, refresh);
-    const desired = await desiredStateProjection(scratch, { env: transport.env, repository });
-    assertDedicatedStateAuthority(repository, desired);
-    const stateCommit = await fetchStateRefAsync(scratch, desired.stateConfig, {
-      env: transport.env
-    });
-    assertExistingStateAuthority(scratch, repository, desired, stateCommit, {
-      env: transport.env
-    });
-    const stateBefore = observeStateProjection(
-      scratch, desired, null, refresh.product, { stateCommit, env: transport.env }
-    );
+    const desired = await desiredConfiguration(scratch, { env: transport.env });
     // Commit locally during preview with source-bound deterministic metadata.  This does not make
     // a remote mutation, but it gives confirmation one exact Git identity.  Apply reconstructs the
     // same commit and ensureConfigurationBranch pushes only that reviewed object under an absent-ref
@@ -2028,7 +1982,6 @@ async function prepareBootstrapInspectionCandidate(observation, options, {
       bootstrapAuthorIdentity: authorIdentity,
       refresh,
       desired,
-      stateBefore,
       gitEnv: transport.env
     };
   } catch (error) {
@@ -2412,8 +2365,8 @@ async function readRefreshPlanCache(registryFile, planId) {
  * Retain the already-validated shallow clone between UI preview and apply.
  *
  * This is an untrusted, disposable acceleration cache, never authority. Apply re-observes the
- * exact configuration and state SHAs, recomputes the complete plan ID, and force-with-lease binds
- * publication to those SHAs before any cached object can affect a remote ref.
+ * exact configuration SHA, recomputes the complete plan ID, and force-with-lease binds
+ * publication to that SHA before any cached object can affect a remote ref.
  */
 async function retainRefreshPlanCache(registryFile, planId, candidates) {
   const boundary = await approvedRefreshCacheRoot(registryFile, { create: true });
@@ -2433,27 +2386,10 @@ async function retainRefreshPlanCache(registryFile, planId, candidates) {
         const destination = path.join(staging, 'repositories', key);
         // Clone from the local object database so preview's uncommitted candidate bytes are not
         // retained as authority. This is local I/O: no second remote clone or credential exchange.
-        const cacheStateRef = 'refs/heads/sflow-cache-state';
-        const retainedState = candidate.stateBefore.stateCommit
-          ? installExactRefreshRef(candidate.root, cacheStateRef,
-            candidate.stateBefore.stateCommit, { env })
-          : null;
-        try {
-          run('git', [
-            'clone', '--quiet', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH,
-            candidate.root, destination
-          ], { env });
-        } finally {
-          // Do not delete a same-object ref that predated this optional retention operation.
-          if (retainedState?.created) {
-            removeExactRefreshRef(candidate.root, cacheStateRef,
-              candidate.stateBefore.stateCommit, { env });
-          }
-        }
-        if (candidate.stateBefore.stateCommit) {
-          installExactRefreshRef(destination, cacheStateRef,
-            candidate.stateBefore.stateCommit, { env });
-        }
+        run('git', [
+          'clone', '--quiet', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH,
+          candidate.root, destination
+        ], { env });
         // The operational URL is credential-free but otherwise byte-for-byte exact. A display-safe
         // URL is not transport authority: local and SCP-like paths may legitimately contain `?` or
         // `#`, for which diagnostic redaction would name a different repository.
@@ -2465,8 +2401,6 @@ async function retainRefreshPlanCache(registryFile, planId, candidates) {
           remote: candidate.repository.remote,
           remoteFingerprint: remoteFingerprint(candidate.repository.remote),
           configurationCommit: candidate.sourceCommit,
-          stateBranch: candidate.desired.stateConfig.branch,
-          stateCommit: candidate.stateBefore.stateCommit,
           productRevision: candidate.refresh.product.revision
         });
       }
@@ -2617,134 +2551,6 @@ export function isolatedCacheGitEnvironment(sourceEnv = process.env, { runComman
   return enterpriseGitEnvironment(sourceEnv, { runCommand });
 }
 
-function stateConfiguration(approved) {
-  return {
-    ...(approved.ledger ?? {}),
-    enabled: true,
-    remote: 'origin',
-    branch: approved.ledger?.branch ?? 'state'
-  };
-}
-
-function assertDedicatedStateAuthority(repository, desired) {
-  const branch = String(desired?.stateConfig?.branch ?? '').trim();
-  const reserved = new Set([CONFIGURATION_BRANCH, String(repository.defaultBranch ?? '').trim()]);
-  const configurationNamespace = branch.startsWith('sflow/config-refresh/')
-    || branch.startsWith('sflow/config-history/');
-  if (!branch || reserved.has(branch) || configurationNamespace) {
-    throw new SingularityFlowError(
-      `Configuration state branch '${branch || '(empty)'}' is not a dedicated state authority. It would overlap the application or configuration ref and is refused before preview or publication.`, {
-        code: 'CONFIGURATION_STATE_BRANCH_UNSAFE',
-        details: {
-          branch: branch || null,
-          applicationBranch: repository.defaultBranch,
-          configurationBranch: CONFIGURATION_BRANCH,
-          preserved: ['application-branches', 'configuration-authority', 'state-authority']
-        }
-      }
-    );
-  }
-}
-
-function assertExistingStateAuthority(root, repository, desired, stateCommit, {
-  env = process.env
-} = {}) {
-  if (!stateCommit) return;
-  const fail = (reason) => {
-    throw new SingularityFlowError(
-      `Configured branch '${desired.stateConfig.branch}' is not a proven dedicated Singularity Flow state authority: ${reason}. No branch was changed.`, {
-        code: 'CONFIGURATION_STATE_AUTHORITY_UNPROVEN',
-        details: {
-          branch: desired.stateConfig.branch,
-          commit: stateCommit,
-          applicationBranch: repository.defaultBranch,
-          preserved: ['application-branches', 'configuration-authority', 'state-authority']
-        }
-      }
-    );
-  };
-  // Prove both invariants in one traversal. Isolated transport environments intentionally bypass
-  // generic Git-fact reuse, so two independent rev-list calls otherwise reread the same packs.
-  const history = run('git', ['rev-list', '--parents', stateCommit], {
-    cwd: root, env, allowFailure: true, maxBuffer: 16 * 1024 * 1024, timeoutMs: 10_000
-  });
-  if (history.status !== 0) fail('its complete history could not be read');
-  const commits = history.stdout.trim().split(/\r?\n/u).filter(Boolean).map(line => line.trim().split(/\s+/u));
-  if (!commits.length || commits.some(row => row.some(oid => !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(oid)))) {
-    fail('its complete history could not be read');
-  }
-  const rootCommits = commits.filter(row => row.length === 1).map(row => row[0]);
-  if (rootCommits.length !== 1) fail('its complete history does not have one orphan root');
-  if (commits.some(row => row.length > 2)) fail('its history is not linear');
-  const rootCommit = rootCommits[0];
-  const paths = run('git', ['ls-tree', '-r', '--name-only', rootCommit], {
-    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
-  });
-  const rootPaths = paths.status === 0
-    ? paths.stdout.split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean).sort() : [];
-  if (!equal(rootPaths, ['README.md', 'ledger/head.json'])) {
-    fail('its orphan root is not the canonical ledger root');
-  }
-  const readme = run('git', ['show', `${rootCommit}:README.md`], {
-    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
-  });
-  if (readme.status !== 0 || !readme.stdout.startsWith('# Singularity Flow Capability Ledger\n')) {
-    fail('its orphan root has no canonical ledger marker');
-  }
-  const head = run('git', ['show', `${rootCommit}:ledger/head.json`], {
-    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
-  });
-  let initialHead = null;
-  try { initialHead = JSON.parse(head.stdout); } catch { /* handled below */ }
-  if (head.status !== 0 || initialHead?.sequence !== 0 || initialHead?.entryHash !== null
-      || initialHead?.previousHeadHash !== null || !Number.isSafeInteger(initialHead?.schemaVersion)) {
-    fail('its orphan root has no valid initial ledger head');
-  }
-}
-
-function stateTree(root, ref, policy, { env = process.env } = {}) {
-  const listed = run('git', [
-    'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
-    'configuration', ...configurationAssetSearchRoots(policy)
-  ], { cwd: root, env });
-  const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
-    const first = line.indexOf(' ');
-    const second = line.indexOf(' ', first + 1);
-    return {
-      mode: line.slice(0, first),
-      oid: line.slice(first + 1, second),
-      file: line.slice(second + 1)
-    };
-  });
-  if (!entries.length) return new Map();
-  const batch = run('git', ['cat-file', '--batch'], {
-    cwd: root, env, encoding: 'buffer', input: `${entries.map((entry) => entry.oid).join('\n')}\n`
-  });
-  const output = new Map();
-  let cursor = 0;
-  for (const entry of entries) {
-    const newline = batch.stdout.indexOf(0x0a, cursor);
-    if (newline < 0) throw new SingularityFlowError(`State configuration object '${entry.file}' was truncated.`);
-    const header = batch.stdout.toString('utf8', cursor, newline).trim().split(' ');
-    const size = Number(header[2]);
-    if (header[0] !== entry.oid || header[1] !== 'blob' || !Number.isSafeInteger(size) || size < 0) {
-      throw new SingularityFlowError(`State configuration path '${entry.file}' is not a readable file.`);
-    }
-    const start = newline + 1;
-    const end = start + size;
-    if (end > batch.stdout.length) {
-      throw new SingularityFlowError(`State configuration object '${entry.file}' was truncated.`);
-    }
-    output.set(entry.file, {
-      mode: entry.mode,
-      object: entry.oid,
-      contents: batch.stdout.subarray(start, end)
-    });
-    cursor = end + 1;
-  }
-  return output;
-}
-
 /**
  * The commit a successful fetch left in FETCH_HEAD, or a refusal when Git could not read it.
  *
@@ -2758,158 +2564,23 @@ function fetchedHeadCommit(root, env, label, options = {}) {
   }), label, { absentStatus: 1 })?.trim() ?? '';
 }
 
-async function fetchStateRefAsync(root, config, { env = process.env, observationAttempt = 0 } = {}) {
-  const remoteRef = `refs/remotes/${config.remote}/${config.branch}`;
-  const before = observeExactRefreshRef(root, remoteRef, { env });
-  if (before.status === 'symbolic' || before.status === 'unavailable') {
-    throw refreshRefError(remoteRef, before.status, 'refresh');
-  }
-  // Prove the remote source is itself one exact direct branch. `git fetch` dereferences symbolic
-  // source refs, so validating only FETCH_HEAD would make an alias indistinguishable from direct
-  // authority when a preview cache is unavailable and apply has to reconstruct its checkout.
-  const authority = configuredRemoteAuthority(root, config.remote, { direction: 'fetch', env });
-  if (!authority.url) throw refreshRefError(remoteRef, 'unavailable', 'resolve remote authority for');
-  const sourceHeads = await remoteHeads(authority.url, [config.branch], { env, cwd: root });
-  const expectedSourceCommit = sourceHeads.get(config.branch) ?? null;
-  if (expectedSourceCommit == null) return null;
-
-  // Fetch into FETCH_HEAD only. A configured refspec must not mutate the tracking ref before the
-  // refresh owner applies its independently observed expected-object lease.
-  const transport = frozenRemoteTransport(authority.url, { env });
-  const fetched = await runRemoteGitAsync([
-    'fetch', '--no-tags', '--refmap=', transport.remote, `refs/heads/${config.branch}`
-  ], { cwd: root, operation: 'remote-configuration', env: transport.env });
-  gitReadOutput(fetched, `Fetch exact ${config.branch} state authority`);
-  const fetchedCommit = fetchedHeadCommit(root, env, `Fetched ${config.branch} commit`, {
-    maxBuffer: 1024, timeoutMs: 5_000
-  });
-  if (!EXACT_GIT_OID.test(fetchedCommit) || fetchedCommit !== expectedSourceCommit) {
-    // Another refresh may publish between ls-remote and fetch. Repeat only this read-only
-    // observation, never publication or a failed network call. Each attempt revalidates the
-    // exact direct source ref; the caller still compares the full projection and source identity.
-    if (EXACT_GIT_OID.test(fetchedCommit) && observationAttempt < 2) {
-      return fetchStateRefAsync(root, config, { env, observationAttempt: observationAttempt + 1 });
-    }
-    throw new SingularityFlowError(
-      'Configuration refresh state authority changed after its exact direct-ref observation.', {
-        code: 'CONFIGURATION_REFRESH_STATE_AUTHORITY_CHANGED',
-        details: {
-          ref: remoteRef,
-          expectedCommit: expectedSourceCommit,
-          observedCommit: EXACT_GIT_OID.test(fetchedCommit) ? fetchedCommit : null
-        }
-      }
-    );
-  }
-  installExactRefreshRef(root, remoteRef, fetchedCommit, {
-    env, expectedCommit: before.commit
-  });
-  return fetchedCommit;
-}
-
 /**
- * The repository a state mirror belongs to, as capability publication records it. A mirror that names its repository
- * needs no history ref to prove it (configuration-branch.mjs), so the refresh writes one and no history ref.
+ * The configuration files this refresh would leave on sflow/config, with their exact Git objects. The preview and its
+ * plan bind them; nothing is copied to the state branch any more (SCF:REQ-003).
  */
-function stateMirrorSubject(repository) {
-  const repositoryKey = repository?.remote ? gitRepositoryComparisonKey(repository.remote) : null;
-  return repositoryKey ? { repositoryIdentity: `sha256:${recordSha256({ repositoryKey })}` } : null;
-}
-
-async function desiredStateProjection(root, { env = process.env, repository = null } = {}) {
+async function desiredConfiguration(root, { env = process.env } = {}) {
   const policy = await configurationAssetPolicyFromDirectory(root);
   const paths = await configurationAssetPaths(root, policy);
-  const files = {};
-  const hashes = {};
   const assets = {};
   const canonicalAssets = await canonicalConfigurationAssets(root, paths, { env });
   for (const relative of paths) {
     const asset = canonicalAssets.get(relative);
-    files[relative] = asset.contents;
-    hashes[relative] = asset.sha256;
     assets[relative] = { sha256: asset.sha256, object: asset.object, mode: asset.mode };
   }
-  const approved = YAML.parse(await readFile(path.join(root, WORKFLOW_PATH), 'utf8'));
   return {
     paths,
-    files,
-    hashes: Object.fromEntries(Object.entries(hashes).sort(([left], [right]) => left.localeCompare(right))),
-    assets: Object.fromEntries(Object.entries(assets).sort(([left], [right]) => left.localeCompare(right))),
-    approved,
-    policy,
-    stateConfig: stateConfiguration(approved),
-    subject: stateMirrorSubject(repository)
+    assets: Object.fromEntries(Object.entries(assets).sort(([left], [right]) => left.localeCompare(right)))
   };
-}
-
-function observeStateProjection(root, desired, sourceCommit, product, {
-  stateCommit,
-  env = process.env
-} = {}) {
-  // Remote observation is deliberately not hidden inside this deterministic projection reader.
-  // Callers fetch through `fetchStateRefAsync` first and supply the exact observed commit (including
-  // null for a missing branch), keeping every remote operation behind the process-tree supervisor.
-  if (!stateCommit) {
-    return {
-      status: 'missing', stateCommit: null, changed: true,
-      missingPaths: desired.paths, changedPaths: [], extraPaths: [], legacyPaths: [], manifest: null
-    };
-  }
-  // Search both the incoming policy and the policy currently mirrored on state. A configuration
-  // upgrade can move templates or agents from one custom root to another; looking only under the
-  // new roots would declare the projection current while silently leaving the retired root behind.
-  let statePolicy = desired.policy;
-  try {
-    statePolicy = mergeConfigurationAssetPolicies(
-      desired.policy,
-      configurationAssetPolicyFromRef(root, stateCommit, { env })
-    );
-  } catch {
-    // A malformed old state workflow is repairable. The valid incoming policy remains authoritative,
-    // and manifest/source mismatch below forces replacement instead of making refresh unrecoverable.
-  }
-  const tree = stateTree(root, stateCommit, statePolicy, { env });
-  const paths = [...tree.keys()].sort();
-  const canonical = paths.filter((relative) => isConfigurationAsset(relative, statePolicy));
-  const desiredSet = new Set(desired.paths);
-  const missingPaths = desired.paths.filter((relative) => !canonical.includes(relative));
-  const changedPaths = desired.paths.filter((relative) => {
-    const entry = tree.get(relative);
-    const expected = desired.assets[relative];
-    return entry != null && (sha256(entry.contents) !== expected.sha256
-      || entry.object !== expected.object || entry.mode !== expected.mode);
-  });
-  const extraPaths = canonical.filter((relative) => !desiredSet.has(relative));
-  const legacyPaths = paths.filter((relative) => relative.startsWith(`${STATE_CONFIGURATION_ROOT}/files/`));
-  let manifest = null;
-  const manifestEntry = tree.get(STATE_CONFIGURATION_MANIFEST);
-  if (manifestEntry) {
-    try { manifest = JSON.parse(manifestEntry.contents.toString('utf8')); }
-    catch { manifest = null; }
-  }
-  const manifestCurrent = manifest?.format === MIRROR_FORMAT
-    && manifest?.layout === 'canonical-paths'
-    && manifest?.source?.branch === CONFIGURATION_BRANCH
-    && manifest?.source?.commit === sourceCommit
-    // No history ref is retained any more [owner, 2026-11-16]: the mirror names its repository instead.
-    && manifest?.history == null
-    && equal(manifest?.subject ?? null, desired.subject ?? null)
-    && manifest?.product?.revision === product.revision
-    && equal(manifest?.files ?? {}, desired.hashes)
-    && equal(manifest?.assets ?? {}, desired.assets);
-  const changed = !manifestCurrent || missingPaths.length > 0 || changedPaths.length > 0
-    || extraPaths.length > 0 || legacyPaths.length > 0;
-  return {
-    status: changed ? 'stale' : 'current', stateCommit, changed,
-    missingPaths, changedPaths, extraPaths, legacyPaths, manifest
-  };
-}
-
-async function observeFreshStateProjection(root, desired, sourceCommit, product, {
-  env = process.env
-} = {}) {
-  const stateCommit = await fetchStateRefAsync(root, desired.stateConfig, { env });
-  return observeStateProjection(root, desired, sourceCommit, product, { stateCommit, env });
 }
 
 function workspaceMatches(entry, reference) {
@@ -3032,14 +2703,8 @@ async function prepareCandidate(repository, options, { env = process.env } = {})
     const sourceCommit = sourceRef.commit;
     let refresh = await refreshPackagedConfiguration(root, options);
     if (options.hardCutover) refresh = await stageStoryHardCutover(root, repository, sourceCommit, refresh);
-    const desired = await desiredStateProjection(root, { env: gitEnv, repository });
-    assertDedicatedStateAuthority(repository, desired);
-    const stateCommit = await fetchStateRefAsync(root, desired.stateConfig, { env: gitEnv });
-    assertExistingStateAuthority(root, repository, desired, stateCommit, { env: gitEnv });
-    const stateBefore = observeStateProjection(root, desired, sourceCommit, refresh.product, {
-      stateCommit, env: gitEnv
-    });
-    return { repository, root, sourceCommit, refresh, desired, stateBefore, gitEnv };
+    const desired = await desiredConfiguration(root, { env: gitEnv });
+    return { repository, root, sourceCommit, refresh, desired, gitEnv };
   } catch (error) {
     await removeTemporaryTree(root);
     throw error;
@@ -3051,7 +2716,6 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
   if (!entry
     || entry.remoteFingerprint !== observation.repository.remoteFingerprint
     || entry.configurationCommit !== observation.commit
-    || entry.stateCommit !== observation.stateCommit
     || entry.productRevision !== productIdentity().revision) return null;
   const root = await claimRefreshPlanRoot(cache, entry, { env });
   if (!root) return null;
@@ -3061,7 +2725,7 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
     // different commit while rev-parse still prints the approved name.
     const objectCheck = run('git', [
       'fsck', '--strict', '--no-reflogs', '--full', '--no-progress',
-      entry.configurationCommit, ...(entry.stateCommit ? [entry.stateCommit] : [])
+      entry.configurationCommit
     ], { cwd: root, env, allowFailure: true });
     if (objectCheck.status !== 0) throw new Error('cached Git objects failed strict verification');
     const available = run('git', ['cat-file', '-e', `${entry.configurationCommit}^{commit}`], {
@@ -3081,14 +2745,6 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
     if (run('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, env }).stdout.trim()) {
       throw new Error('cached configuration checkout is not clean');
     }
-    if (entry.stateCommit) {
-      const stateObject = run('git', ['cat-file', '-e', `${entry.stateCommit}^{commit}`], {
-        cwd: root, env, allowFailure: true
-      });
-      if (stateObject.status !== 0) throw new Error('cached state commit is unavailable');
-      installExactRefreshRef(root, `refs/remotes/origin/${entry.stateBranch}`,
-        entry.stateCommit, { env });
-    }
     const transport = frozenRemoteTransport(observation.repository.remote, { push: true, env });
     // The claimed checkout is disposable. Store the private alias, not the operational URL, so
     // every later named-origin transport must carry the invocation-local exact rewrite below.
@@ -3097,19 +2753,9 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
     });
     let refresh = await refreshPackagedConfiguration(root, options);
     if (options.hardCutover) refresh = await stageStoryHardCutover(root, observation.repository, sourceCommit, refresh);
-    const desired = await desiredStateProjection(root, { env: transport.env, repository: observation.repository });
-    assertDedicatedStateAuthority(observation.repository, desired);
-    if (desired.stateConfig.branch !== entry.stateBranch) {
-      throw new Error('cached state branch no longer matches approved configuration');
-    }
-    assertExistingStateAuthority(root, observation.repository, desired, entry.stateCommit, {
-      env: transport.env
-    });
-    const stateBefore = observeStateProjection(root, desired, sourceCommit, refresh.product, {
-      stateCommit: entry.stateCommit, env: transport.env
-    });
+    const desired = await desiredConfiguration(root, { env: transport.env });
     return {
-      repository: observation.repository, root, sourceCommit, refresh, desired, stateBefore,
+      repository: observation.repository, root, sourceCommit, refresh, desired,
       reusedPreview: true, gitEnv: transport.env
     };
   } catch {
@@ -3134,7 +2780,6 @@ function refreshPlanId(candidates, {
       bootstrapCommit: candidate.bootstrapCommit ?? null,
       bootstrapCandidateCommit: candidate.bootstrapCandidateCommit ?? null,
       bootstrapCandidateTree: candidate.bootstrapCandidateTree ?? null,
-      stateCommit: candidate.stateBefore.stateCommit,
       productRevision: candidate.refresh.product.revision,
       packageContentDigest: candidate.refresh.packageContentDigest ?? null,
       // These are the exact approved-configuration bytes/modes the preview would publish. Binding
@@ -3173,15 +2818,6 @@ function previewResultForCandidate(candidate, status) {
     bootstrapCandidateTree: candidate.bootstrapCandidateTree ?? null,
     configurationChanged: status === 'would-initialize' || candidate.refresh.changed,
     ...(productStampOnly ? { productStampOnly } : {}),
-    stateChanged: status === 'would-initialize'
-      || candidate.refresh.changed || candidate.stateBefore.changed,
-    stateStatus: status === 'would-initialize'
-      ? 'would-follow-configuration'
-      : candidate.refresh.changed ? 'would-follow-configuration' : candidate.stateBefore.status,
-    stateCommit: candidate.stateBefore.stateCommit,
-    missingStatePaths: candidate.stateBefore.missingPaths,
-    changedStatePaths: candidate.stateBefore.changedPaths,
-    extraStatePaths: candidate.stateBefore.extraPaths,
     files: candidate.refresh.files,
     changedFiles: candidate.refresh.files,
     removed: candidate.refresh.removed,
@@ -3233,7 +2869,6 @@ function refreshPreflightFailure(observation, error) {
     remote: observation.repository.displayRemote,
     memberships: observation.repository.memberships,
     configurationChanged: false,
-    stateChanged: false,
     conflicts,
     repair: repairPaths.length ? {
       kind: 'packaged-agents',
@@ -3336,7 +2971,7 @@ async function proposeCandidate(candidate) {
   const result = (status, extra = {}) => ({
     status, repository: repository.id, remote: repository.displayRemote,
     memberships: repository.memberships, sourceCommit,
-    conflicts: refresh.conflicts, configurationChanged: false, stateChanged: false, error: null,
+    conflicts: refresh.conflicts, configurationChanged: false, error: null,
     ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}), ...extra
   });
   // A difference that is only the build's name is nothing for a person to review [owner, 2026-11-13].
@@ -3379,7 +3014,7 @@ async function retainRefusedCandidate(candidate, candidateCommit, refusal) {
     status: 'review-required', protectedBranch: true,
     repository: repository.id, remote: repository.displayRemote, memberships: repository.memberships,
     sourceCommit, ...review, compareUrl, conflicts: refresh.conflicts,
-    configurationChanged: false, stateChanged: false,
+    configurationChanged: false,
     ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
     error: `The host refused the update to ${CONFIGURATION_BRANCH} (${remoteFailureMessage(refusal,
       'it is protected or a rule refused the push')}). This build's configuration is on review branch `
@@ -3389,7 +3024,7 @@ async function retainRefusedCandidate(candidate, candidateCommit, refusal) {
 
 async function publishCandidate(candidate) {
   if (candidate.reviewOnly) return proposeCandidate(candidate);
-  const { root, repository, refresh, sourceCommit, desired } = candidate;
+  const { root, repository, refresh, sourceCommit } = candidate;
   const env = candidate.gitEnv ?? process.env;
   let approvedCommit = sourceCommit;
   // A first-authority candidate was already published as the exact previewed commit.  Report that
@@ -3432,87 +3067,9 @@ async function publishCandidate(candidate) {
     }
   }
 
+  // No copy of the configuration goes to the state branch any more (SCF:REQ-003): sflow/config is the configuration.
   try {
-  const projection = configurationChanged ? await desiredStateProjection(root, { env, repository }) : desired;
-  assertDedicatedStateAuthority(repository, projection);
-  const stateBefore = observeStateProjection(root, projection, approvedCommit, refresh.product, {
-    stateCommit: candidate.stateBefore.stateCommit, env
-  });
-  const mirrored = { ...projection.files };
-  // The mirror names its repository and retains no history ref [owner, 2026-11-16]; it is never authority (SCF:REQ-001).
-  const manifest = {
-    format: MIRROR_FORMAT,
-    layout: 'canonical-paths',
-    ...(projection.subject ? { subject: projection.subject } : {}),
-    source: { branch: CONFIGURATION_BRANCH, commit: approvedCommit },
-    product: refresh.product,
-    files: projection.hashes,
-    assets: projection.assets
-  };
-  mirrored[STATE_CONFIGURATION_MANIFEST] = `${JSON.stringify(manifest, null, 2)}\n`;
-  let state;
-  try {
-    const publicationOptions = {
-      replaceRoots: [STATE_CONFIGURATION_ROOT],
-      removePaths: stateBefore.extraPaths,
-      // Absence is an authority value too. A concurrent first state publisher must make this
-      // confirmed plan stale rather than becoming an unreviewed base for its projection.
-      expectedRemoteSha: stateBefore.stateCommit,
-      guardedRemoteRefs: {
-        [`refs/heads/${CONFIGURATION_BRANCH}`]: approvedCommit
-      },
-      env,
-      ...(stateBefore.stateCommit ? {
-        baseRef: stateBefore.stateCommit,
-        refreshRemote: false
-      } : {})
-    };
-    state = await publishToStateBranch(
-      root,
-      projection.stateConfig,
-      mirrored,
-      `[configuration][source:${approvedCommit.slice(0, 12)}] mirror approved configuration`,
-      publicationOptions
-    );
-  } catch (error) {
-    // The matching configuration race can continue into the state projection: both publishers
-    // create the same mirror and one loses the lease. The winner may have created the empty state
-    // root but not its mirror commit yet, so wait for that bounded in-flight publication. Join only
-    // when a fresh fetch proves that the complete projection, source commit and product identity are
-    // exact; a different or stalled publication remains a failure.
-    if (error?.code !== 'state_branch.concurrent_publication' && error?.concurrent !== true) throw error;
-    let concurrentState = null;
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      concurrentState = await observeFreshStateProjection(
-        root, projection, approvedCommit, refresh.product, { env }
-      );
-      if (concurrentState.status === 'current') break;
-      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
-    }
-    if (concurrentState.status !== 'current') throw error;
-    state = { commit: concurrentState.stateCommit, changed: false, removed: [] };
-  }
-  const stateTrackingRef = `refs/remotes/origin/${projection.stateConfig.branch}`;
-  const observedStateRef = state.commit == null
-    ? observeExactRefreshRef(root, stateTrackingRef, { env }) : null;
-  if (observedStateRef && observedStateRef.status !== 'direct') {
-    throw refreshRefError(stateTrackingRef, observedStateRef.status, 'verify');
-  }
-  const stateRef = state.commit ?? observedStateRef.commit;
-  const verified = run('git', ['show', `${stateRef}:${STATE_CONFIGURATION_MANIFEST}`], { cwd: root, env });
-  let verifiedManifest;
-  try { verifiedManifest = JSON.parse(verified.stdout); }
-  catch { throw new SingularityFlowError(`State configuration mirror for '${repository.displayRemote}' is not valid JSON.`); }
-  if (verifiedManifest?.source?.commit !== approvedCommit) {
-    throw new SingularityFlowError(`State configuration mirror for '${repository.displayRemote}' does not pin the approved configuration commit.`);
-  }
-  const stateAfter = observeStateProjection(root, projection, approvedCommit, refresh.product, {
-    stateCommit: stateRef, env
-  });
-  if (stateAfter.status !== 'current') {
-    throw new SingularityFlowError(`State configuration projection for '${repository.displayRemote}' did not verify after publication.`);
-  }
-  const changed = configurationChanged || state.changed;
+  const changed = configurationChanged;
   // sflow/config now holds this build's configuration, so its history and review branches are superseded and go in
   // the same upgrade [owner, 2026-11-16]. Never part of the publication: a refusal is reported and holds up nothing.
   const supersededRefs = await removeSupersededConfigurationRefs(repository.remote, {
@@ -3531,11 +3088,7 @@ async function publishCandidate(candidate) {
     memberships: repository.memberships,
     sourceCommit,
     configurationCommit: approvedCommit,
-    stateCommit: stateRef,
     configurationChanged,
-    stateChanged: state.changed,
-    stateStatus: stateAfter.status,
-    removedStatePaths: state.removed,
     files: refresh.files,
     conflicts: refresh.conflicts,
     ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {}),
@@ -3543,16 +3096,14 @@ async function publishCandidate(candidate) {
     supersededRefs
   };
   } catch (error) {
-    // Configuration and state are two remote publications. If the first succeeded, never report
-    // the repository as unchanged merely because the second failed: that hides the exact durable
-    // progress a retry must resume from and led operators to repeat configuration publication.
+    // Once sflow/config was published, never report the repository as unchanged merely because a
+    // later step failed: that hides the exact durable progress a retry must resume from.
     if (configurationChanged) {
       error.details = {
         ...(error?.details && typeof error.details === 'object' ? error.details : {}),
         partialPublication: {
           configurationChanged: true,
-          configurationCommit: approvedCommit,
-          stateChanged: false
+          configurationCommit: approvedCommit
         }
       };
     }
@@ -3579,8 +3130,7 @@ function refreshCleanupWarnings(cleanupPending) {
  * Refresh every unique repository remote registered by machine-local workspaces.
  *
  * All reachable existing authorities are prepared and validated before the first update is pushed.
- * A rerun is the recovery protocol: completed repositories become no-ops, failed repositories retry,
- * and the state mirror is verified even when configuration itself was already current.
+ * A rerun is the recovery protocol: completed repositories become no-ops and failed repositories retry.
  */
 export async function refreshWorkspaceConfigurations({
   registryFile,
@@ -3614,11 +3164,8 @@ export async function refreshWorkspaceConfigurations({
   const cachedPlan = confirmPlan ? await readRefreshPlanCache(registryFile, confirmPlan) : null;
   let observations = await mapLimit(targets, workers, async (repository) => {
     try {
-      const cacheEntry = cachedPlan?.repositories.get(repository.remote) ?? null;
-      const cachedStateBranch = isGitRefName(cacheEntry?.stateBranch ?? '')
-        ? cacheEntry.stateBranch : null;
       const heads = await remoteHeads(repository.remote, [
-        CONFIGURATION_BRANCH, repository.defaultBranch, cachedStateBranch
+        CONFIGURATION_BRANCH, repository.defaultBranch
       ], { env: gitEnv });
       const commit = heads.get(CONFIGURATION_BRANCH) ?? null;
       // A missing configuration authority is seeded from the application default branch. Bind the
@@ -3633,11 +3180,7 @@ export async function refreshWorkspaceConfigurations({
           { code: 'CONFIGURATION_BOOTSTRAP_SOURCE_MISSING' }
         );
       }
-      return {
-        repository, commit, bootstrapCommit,
-        stateCommit: cachedStateBranch ? heads.get(cachedStateBranch) ?? null : undefined,
-        error: null
-      };
+      return { repository, commit, bootstrapCommit, error: null };
     } catch (error) {
       return { repository, commit: null, bootstrapCommit: null, error };
     }
@@ -3658,7 +3201,7 @@ export async function refreshWorkspaceConfigurations({
   const held = [];
   const hold = (repository, status, error) => held.push({
     status, repository: repository.id, remote: repository.displayRemote, memberships: repository.memberships,
-    configurationChanged: false, stateChanged: false, error: refreshErrorMessage(error),
+    configurationChanged: false, error: refreshErrorMessage(error),
     ...(error?.code === 'CONFIGURATION_BUILD_TOO_OLD' ? { requiredBuild: error.details.requiredBuild } : {})
   });
   const heldResult = (error) => (error?.code === 'CONFIGURATION_BUILD_TOO_OLD' ? 'needs-newer-build' : null);
@@ -3690,7 +3233,7 @@ export async function refreshWorkspaceConfigurations({
         try {
           // First-authority preview must describe and bind the exact candidate it would publish.
           // A sentinel containing only the application SHA/product revision lets package bytes,
-          // conflicts, removals, and the desired state projection change behind one plan ID.
+          // conflicts and removals change behind one plan ID.
           candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
             restorePackagedSeeds, migrateWorldModel, hardCutover, build
@@ -3720,12 +3263,9 @@ export async function refreshWorkspaceConfigurations({
         }
         return { planCandidate: null, result: refreshPreflightFailure(observation, error) };
       }
-      const stateChanged = candidate.refresh.changed || candidate.stateBefore.changed;
       return {
         planCandidate: candidate,
-        result: previewResultForCandidate(
-          candidate, candidate.refresh.changed || stateChanged ? 'would-update' : 'current'
-        )
+        result: previewResultForCandidate(candidate, candidate.refresh.changed ? 'would-update' : 'current')
       };
     });
     const planCandidates = prepared.map((entry) => entry.planCandidate).filter(Boolean);
@@ -3823,8 +3363,8 @@ export async function refreshWorkspaceConfigurations({
         results: observations.map((item) => ({
           status: 'stale-plan', repository: item.repository.id,
           remote: item.repository.displayRemote, memberships: item.repository.memberships,
-          configurationChanged: false, stateChanged: false,
-          error: 'Configuration or state authority changed after preview. Refresh the plan before applying it.'
+          configurationChanged: false,
+          error: 'Configuration authority changed after preview. Refresh the plan before applying it.'
         }))
       };
     }
@@ -3863,7 +3403,7 @@ export async function refreshWorkspaceConfigurations({
         return {
           status: failed ? 'failed' : 'preflight-passed', repository: item.repository.id,
           remote: item.repository.displayRemote, memberships: item.repository.memberships,
-          configurationChanged: false, stateChanged: false,
+          configurationChanged: false,
           error: refreshErrorMessage(failed?.error)
         };
       })
@@ -3895,7 +3435,7 @@ export async function refreshWorkspaceConfigurations({
           return {
             status: failed ? 'failed' : 'preflight-passed', repository: item.repository.id,
             remote: item.repository.displayRemote, memberships: item.repository.memberships,
-            configurationChanged: false, stateChanged: false,
+            configurationChanged: false,
             error: failed ? refreshErrorMessage(failed.error) : null
           };
         })
@@ -3936,8 +3476,8 @@ export async function refreshWorkspaceConfigurations({
     return {
       // Branch creation is an irreversible remote publication. If one repository succeeded while
       // a peer failed, report that durable progress instead of claiming the whole apply was
-      // blocked without changes. A rerun observes the created authority and resumes its state
-      // projection while retrying only the missing authority.
+      // blocked without changes. A rerun observes the created authority and retries only the
+      // missing one.
       status: createdInitializations.length ? 'partial' : 'blocked',
       dryRun: false,
       ...(previewBoundPlanId ? { planId: previewBoundPlanId } : {}),
@@ -3957,7 +3497,6 @@ export async function refreshWorkspaceConfigurations({
           remote: item.repository.displayRemote, memberships: item.repository.memberships,
           configurationChanged: Boolean(created),
           configurationCommit: created?.initialization?.commit ?? null,
-          stateChanged: false,
           error: refreshErrorMessage(failed?.error)
         };
       })
@@ -3990,7 +3529,6 @@ export async function refreshWorkspaceConfigurations({
           remote: item.repository.displayRemote, memberships: item.repository.memberships,
           configurationChanged: Boolean(created),
           configurationCommit: created?.initialization?.commit ?? null,
-          stateChanged: false,
           error: moved
             ? 'Configuration authority was created concurrently after preview. Create and review a fresh plan before applying it.'
             : null
@@ -4000,8 +3538,7 @@ export async function refreshWorkspaceConfigurations({
   }
 
   // The exact reviewed candidate is now the approved source commit.  Keep its original refresh
-  // report for presentation, but do not author or push a second configuration commit; only the
-  // state projection remains to publish.
+  // report for presentation, but do not author or push a second configuration commit.
   for (const entry of initialized) {
     const candidate = bootstrapCandidates.get(entry.observation.repository.remote);
     if (!candidate || entry.error) continue;
@@ -4063,7 +3600,7 @@ export async function refreshWorkspaceConfigurations({
           return {
             status: failed ? 'failed' : 'preflight-passed', repository: candidate.repository.id,
             remote: candidate.repository.displayRemote, memberships: candidate.repository.memberships,
-            configurationChanged: false, stateChanged: false,
+            configurationChanged: false,
             error: failed ? refreshErrorMessage(failed.error) : null
           };
         })
@@ -4081,8 +3618,8 @@ export async function refreshWorkspaceConfigurations({
       results: candidates.map((candidate) => ({
         status: 'stale-plan', repository: candidate.repository.id,
         remote: candidate.repository.displayRemote, memberships: candidate.repository.memberships,
-        configurationChanged: false, stateChanged: false,
-        error: 'Configuration or state authority changed after preview. Refresh the plan before applying it.'
+        configurationChanged: false,
+        error: 'Configuration authority changed after preview. Refresh the plan before applying it.'
       }))
     };
   }
@@ -4105,7 +3642,6 @@ export async function refreshWorkspaceConfigurations({
           remote: candidate.repository.displayRemote, memberships: candidate.repository.memberships,
           configurationChanged: partial.configurationChanged === true,
           configurationCommit: partial.configurationCommit ?? null,
-          stateChanged: partial.stateChanged === true,
           error: refreshErrorMessage(error)
         };
       }

@@ -8253,9 +8253,23 @@ test('the Story\'s next command waits in Copilot Chat\'s input once per state, a
   const fills = (registered) => registered.executedCommands.filter((entry) => entry.id === 'workbench.action.chat.open');
   const nextItem = (registered) => registered.statusBars.find((item) => /^\$\(comment-discussion\) Next: /.test(item.text)) ?? null;
 
+  // A Copilot turn is still answering in this repository (the marker SFlow's prompt hook writes): nothing is filled
+  // until its stop removes the marker.
+  const { copilotTurnDirectory } = await import('../src/copilot-mode.mjs');
+  const turnMarker = path.join(copilotTurnDirectory(), 'f'.repeat(64));
+  await mkdir(path.dirname(turnMarker), { recursive: true });
+  await writeFile(turnMarker, `${root}\n`);
+  t.after(() => rm(turnMarker, { force: true }));
   const windowValues = new Map();
   const first = host(true);
   await loadExtension(first.api).activate(context(new Map(), windowValues));
+  await until(() => nextItem(first.registered), { what: 'the Next button while the turn is open' });
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  assert.equal(fills(first.registered).length, 0, 'no fill while Copilot is still answering');
+  await rm(turnMarker);
+  const turns = first.registered.watchers.find((watcher) => watcher.pattern?.pattern === 'copilot-turns/*');
+  assert.ok(turns, 'the open-turn markers are watched');
+  turns.remove.fire({});
   const filled = await until(() => fills(first.registered)[0] ?? null, { what: 'the next command to be put in the chat input' });
   const query = filled.args[0]?.query;
   assert.match(query ?? '', /^\/sf-[a-z-]+(?: \S+)* $/, 'a /sf- command, followed by one space for the person to continue');

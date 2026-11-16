@@ -7,7 +7,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { AUTHORING_SKILL_DECLARATION } from '../src/authoring-skills.mjs';
 import { phaseTaskCompletion, phaseTaskHeldForAnswers } from '../src/phase-authoring-progress.mjs';
-import { setCopilotPaused } from '../src/copilot-mode.mjs';
+import { copilotTurnDirectory, setCopilotPaused } from '../src/copilot-mode.mjs';
+import { existsSync } from 'node:fs';
 import { captureMutationTurn, recordPhaseTaskAnswers, recordPhaseTaskProgress, recordPhaseTaskCheck, refreshMutationContracts } from '../src/copilot-mutation-guard.mjs';
 import { recordRepositoryBoundaryTurn, repositoryAgentStop, repositoryToolGuard, repositoryToolFailure,
   workflowTaskCompletionRequested, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
@@ -131,6 +132,26 @@ test('a turn cannot end on a person\'s answers: after the question returns, and 
     await repositoryToolGuard({ ...other.payload, toolName: 'ask_user', toolArgs: { question: 'Which?' } });
     assert.deepEqual(await other.stop(), {});
   });
+});
+
+test('a stop that continues the turn keeps its open-turn marker, and the stop that ends it removes it', async t => {
+  // The marker VS Code waits for before it puts the next command in the chat box (chat prefill).
+  const f = await fixture(t, { phaseId: 'specification' });
+  const marker = path.join(copilotTurnDirectory(), createHash('sha256').update(f.payload.sessionId).digest('hex'));
+  await mkdir(path.dirname(marker), { recursive: true });
+  await writeFile(marker, `${f.root}\n`);
+  await f.arm({ ...f.entry, status: 'clarification-required', authoringAllowed: false,
+    clarification: { checkpoint: { recordAction: { commandGuidance: { command: 'singularity-flow clarification record specification --response-file /issued/r.json --for-agent --json' } } } } });
+  await repositoryToolGuard({ ...f.payload, toolName: 'ask_user', toolArgs: { question: 'Which?' } });
+  assert.equal((await f.stop()).decision, 'block');
+  assert.ok(existsSync(marker), 'the continued turn is still open');
+  assert.deepEqual(await f.stop(), {}, 'told once');
+  assert.equal(existsSync(marker), false, 'the stop that ends the turn closes it');
+  await writeFile(marker, `${f.root}\n`);
+  await repositoryAgentStop({ ...f.payload, agentId: 'helper', stopReason: 'end_turn' });
+  assert.ok(existsSync(marker), 'a sub-agent\'s stop leaves the person\'s turn open');
+  await endRepositoryBoundaryTurn(f.payload);
+  assert.equal(existsSync(marker), false, 'the session\'s end closes it');
 });
 
 test('a real Story carries on after a person\'s answers, through the real commands', async t => {

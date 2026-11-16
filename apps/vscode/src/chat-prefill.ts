@@ -14,11 +14,18 @@
  * no chat focused yet does it open the Chat view. It always focuses that chat's input when it does,
  * and it replaces whatever the input held. So the automatic fill waits while the person types in an
  * editor or in a chat input, never replaces text they wrote there, fills only where a chat is open,
- * and waits for an `@sflow` request to finish. VS Code offers no way to see whether a Copilot request
- * is running, so that alone cannot be waited for.
+ * and waits for an `@sflow` request to finish.
+ *
+ * VS Code does not say whether a Copilot request is running, and a step usually publishes in the middle
+ * of one: a fill then, and an Enter, would steer or queue into that turn. SFlow's own prompt and stop
+ * hooks keep an open-turn marker for a repository that uses SFlow (copilotTurnDirectory() in
+ * src/copilot-mode.mjs), so the fill waits until the turn has ended and then fills the state it ended
+ * on. A marker older than TURN_STALE_MS (a turn that crashed or never stopped) is ignored.
  *
  * No `vscode` import: extension.ts supplies the host, so tests drive this in plain Node.
  */
+import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { routedCommandGuidance } from './copilot-command.ts';
 import { buildJourney } from './views/journey-model.ts';
@@ -109,6 +116,45 @@ export function nextChatPrefill(snapshot: RepositorySnapshot | null | undefined)
   return { command, head, label, reason, workId, stateKey, freshChat: startsFreshChat(command) };
 }
 
+// --- Copilot turns in flight ---------------------------------------------------------------------
+
+/**
+ * How long an open-turn marker holds the fill. A turn that runs tests can take minutes; one that crashed
+ * never closes its marker, so past this the marker is ignored and the fill goes ahead.
+ */
+export const TURN_STALE_MS = 10 * 60 * 1000;
+
+function within(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/**
+ * Whether a Copilot turn is open in this repository, from the markers the hooks keep in `directory`, and
+ * when the newest stops counting. A turn counts when its chat's folder holds the repository or lies inside
+ * it. Bounded: at most 200 markers of 4 KiB, local reads only.
+ */
+export async function copilotTurnOpen(directory: string, repository: string,
+  { now = Date.now(), staleMs = TURN_STALE_MS }: { now?: number; staleMs?: number } = {}): Promise<{ open: boolean; until: number | null }> {
+  let names: string[];
+  try { names = await readdir(directory); } catch { return { open: false, until: null }; }
+  const root = await realpath(repository).catch(() => path.resolve(repository));
+  let until: number | null = null;
+  for (const name of names.filter((entry) => /^[a-f0-9]{64}$/u.test(entry)).slice(0, 200)) {
+    try {
+      const file = path.join(directory, name);
+      const info = await stat(file);
+      const expires = info.mtimeMs + staleMs;
+      if (!info.isFile() || info.size > 4096 || expires <= now) continue;
+      const folder = (await readFile(file, 'utf8')).split(/\r?\n/u)[0]?.trim() ?? '';
+      if (!folder || !path.isAbsolute(folder)) continue;
+      const cwd = await realpath(folder).catch(() => path.resolve(folder));
+      if (within(root, cwd) || within(cwd, root)) until = Math.max(until ?? 0, expires);
+    } catch { /* a marker removed while it was read is a turn that ended */ }
+  }
+  return { open: until !== null, until };
+}
+
 // --- @sflow requests in flight ------------------------------------------------------------------
 
 /**
@@ -141,6 +187,8 @@ export interface ChatPrefillHost {
   chatDisabled(): boolean;
   /** The text of every open chat input; null when the host cannot tell. */
   chatInputs(): string[] | null;
+  /** Whether a Copilot turn is open in the selected repository (copilotTurnOpen), and until when. */
+  turnOpen?: () => Promise<{ open: boolean; until: number | null }>;
   /** The latest confirmed snapshot of the selected repository, and that repository. */
   current(): { snapshot: RepositorySnapshot | null; repository: string } | null;
   memento: { get<T>(key: string): T | undefined; update(key: string, value: unknown): PromiseLike<void> };
@@ -159,7 +207,7 @@ export interface ChatPrefillOptions {
   quietMs?: number;
 }
 
-export type PrefillOutcome = 'filled' | 'off' | 'none' | 'same' | 'held' | 'busy' | 'typing' | 'composing' | 'no-chat' | 'failed';
+export type PrefillOutcome = 'filled' | 'off' | 'none' | 'same' | 'held' | 'turn' | 'busy' | 'typing' | 'composing' | 'no-chat' | 'failed';
 
 export class ChatPrefill {
   private readonly host: ChatPrefillHost;
@@ -220,6 +268,11 @@ export class ChatPrefill {
     this.noteActivity();
   }
 
+  /** A turn marker appeared, changed or went: a state held for the turn is filled once it has ended. */
+  turnChanged(): void {
+    if (this.seen) this.schedule(this.settleMs);
+  }
+
   /** The extension sent a whole prompt itself (a Copilot handoff): no fill over it. */
   noteRequestSent(): void {
     this.hold = { key: this.action()?.key ?? null };
@@ -258,6 +311,12 @@ export class ChatPrefill {
       if (this.hold.key === null) this.hold.key = next.key;
       if (this.hold.key === next.key) { this.remember(next.key); return 'held'; }
       this.hold = null;
+    }
+    // A turn still answering: wait for its stop, or for its marker to go stale.
+    const turn = this.host.turnOpen ? await this.host.turnOpen().catch(() => null) : null;
+    if (turn?.open) {
+      this.schedule(Math.max(0, (turn.until ?? this.now()) - this.now()) + 50);
+      return 'turn';
     }
     if (participantRequestRunning()) return 'busy';
     const quiet = this.now() - this.activityAt;

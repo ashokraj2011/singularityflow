@@ -55,6 +55,8 @@ declare module '*/personalization.mjs' {
 
 declare module '*/copilot-mode.mjs' {
   export function readCopilotMode(file?: string): { paused: boolean; stateAvailable: boolean; changedAt: string | null };
+  /** Where the hooks keep a Copilot turn's open marker (chat-prefill.ts waits for it). */
+  export function copilotTurnDirectory(env?: Record<string, string | undefined>, home?: string): string;
 }
 
 /** Only the two entry points a read-only host calls, and what they hand back. */

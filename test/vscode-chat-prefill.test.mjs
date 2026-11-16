@@ -9,13 +9,14 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  CHAT_INPUT_SCHEMES, ChatPrefill, isChatRoute, nextChatPrefill, participantRequestEnded, participantRequestStarted, PREFILL_COMMAND, PREFILL_SETTING
+  CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, isChatRoute, nextChatPrefill, TURN_STALE_MS, participantRequestEnded, participantRequestStarted, PREFILL_COMMAND, PREFILL_SETTING
 } = await import(pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', 'chat-prefill.ts')).href);
 
 const phase = (id, label, status, generation) => ({ id, label, status, generation, artifacts: [], approvals: [] });
@@ -99,7 +100,7 @@ test('only a /sf- skill or an @sflow command with plain arguments is a chat rout
 function harness({ enabled = true, inputs = undefined, memento = new Map() } = {}) {
   let now = 1_000;
   const timers = [];
-  const state = { snapshot: null, enabled, inputs, chatDisabled: false };
+  const state = { snapshot: null, enabled, inputs, chatDisabled: false, turnUntil: null };
   const executed = [];
   const shown = [];
   const said = [];
@@ -108,6 +109,8 @@ function harness({ enabled = true, inputs = undefined, memento = new Map() } = {
     enabled: () => state.enabled,
     chatDisabled: () => state.chatDisabled,
     chatInputs: () => (state.inputs === undefined ? null : state.inputs),
+    // A Copilot turn open until state.turnUntil, as copilotTurnOpen reads its marker.
+    turnOpen: async () => (state.turnUntil !== null && state.turnUntil > now ? { open: true, until: state.turnUntil } : { open: false, until: null }),
     current: () => (state.snapshot ? { snapshot: state.snapshot, repository: '/work/repo' } : null),
     memento: { get: (key) => memento.get(key), update: async (key, value) => { memento.set(key, value); } },
     status: { show: (action) => shown.push(action.head), hide: () => shown.push(null) },
@@ -130,7 +133,7 @@ function harness({ enabled = true, inputs = undefined, memento = new Map() } = {
   };
   const show = async (snapshot) => { state.snapshot = snapshot; prefill.observe(); await advance(500); };
   const fills = () => executed.filter((entry) => entry.id === 'workbench.action.chat.open').map((entry) => entry.args[0]);
-  return { prefill, state, executed, shown, said, memento, advance, show, fills };
+  return { prefill, state, executed, shown, said, memento, advance, show, fills, now: () => now };
 }
 
 test('a changed next action is filled once, never sent, and not again for the same state', async () => {
@@ -256,6 +259,70 @@ test('a prompt the extension sent itself keeps its state unfilled; the next stat
   assert.equal(run.prefill.last, 'held');
   await run.show(submit());
   assert.deepEqual(run.fills().map((fill) => fill.query), ['/sf-submit ']);
+});
+
+test('a step published mid-turn waits for the turn to end, then fills the state the turn ended on', async () => {
+  const run = harness();
+  run.state.turnUntil = run.now() + TURN_STALE_MS;
+  await run.show(generation());
+  assert.deepEqual(run.fills(), [], 'Copilot is still answering: an Enter now would steer or queue into its turn');
+  assert.equal(run.prefill.last, 'turn');
+  await run.show(submit());
+  assert.deepEqual(run.fills(), [], 'the state changed again during the turn');
+  run.state.turnUntil = null;
+  run.prefill.turnChanged();
+  await run.advance(500);
+  assert.deepEqual(run.fills().map((fill) => fill.query), ['/sf-submit '], 'the turn ended: only the state it ended on is filled');
+  run.state.turnUntil = run.now() + TURN_STALE_MS;
+  run.prefill.turnChanged();
+  await run.advance(500);
+  assert.equal(run.fills().length, 1, 'a new turn on the same state fills nothing more');
+});
+
+test('a turn marker that goes stale stops holding the fill, with no event needed', async () => {
+  const run = harness();
+  run.state.turnUntil = run.now() + 60_000;
+  await run.show(generation());
+  assert.equal(run.prefill.last, 'turn');
+  await run.advance(59_000);
+  assert.deepEqual(run.fills(), [], 'held while the marker counts');
+  await run.advance(2_000);
+  assert.deepEqual(run.fills().map((fill) => fill.query), ['/sf-code '], 'a crashed turn never blocks the fill for good');
+});
+
+test('the open-turn reader counts a fresh marker for this repository only, and never a stale one', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-chat-turns-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const turns = path.join(base, 'copilot-turns');
+  const repository = path.join(base, 'work', 'app');
+  const other = path.join(base, 'work', 'other');
+  await mkdir(repository, { recursive: true });
+  await mkdir(other, { recursive: true });
+  const hash = (seed) => seed.repeat(64).slice(0, 64);
+  const marker = async (seed, folder, ageMs = 0) => {
+    await mkdir(turns, { recursive: true });
+    const file = path.join(turns, hash(seed));
+    await writeFile(file, `${folder}\n`);
+    const at = (Date.now() - ageMs) / 1000;
+    await utimes(file, at, at);
+    return file;
+  };
+  assert.deepEqual(await copilotTurnOpen(turns, repository), { open: false, until: null }, 'no folder, no turn');
+  await marker('a', other);
+  assert.equal((await copilotTurnOpen(turns, repository)).open, false, 'another repository\'s turn');
+  const fresh = await marker('b', repository);
+  const open = await copilotTurnOpen(turns, repository);
+  assert.equal(open.open, true);
+  assert.ok(open.until > Date.now() + TURN_STALE_MS - 60_000 && open.until <= Date.now() + TURN_STALE_MS + 1_000);
+  await rm(fresh);
+  await marker('c', path.join(base, 'work'));
+  assert.equal((await copilotTurnOpen(turns, repository)).open, true, 'a chat started in a folder holding the repository');
+  await rm(path.join(turns, hash('c')));
+  await marker('d', repository, TURN_STALE_MS + 1_000);
+  assert.equal((await copilotTurnOpen(turns, repository)).open, false, 'a turn that never stopped stops counting');
+  await writeFile(path.join(turns, 'not-a-marker'), `${repository}\n`);
+  await writeFile(path.join(turns, `.${hash('e')}.123`), `${repository}\n`);
+  assert.equal((await copilotTurnOpen(turns, repository)).open, false, 'only a session\'s marker counts, not a write in flight');
 });
 
 test('the setting and the command are contributed, and the setting is documented', async () => {

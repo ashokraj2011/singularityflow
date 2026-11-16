@@ -65,6 +65,18 @@ export function copilotModeFile(env = process.env, home = os.homedir()) {
     || path.join(home, '.singularity-flow', 'copilot-mode.json'));
 }
 
+/**
+ * Where a Copilot turn in a repository that uses SFlow is open: one file per session, named by the session's
+ * SHA-256 and holding the chat's folder, from its prompt until its agent stops. The hook launchers write and
+ * remove it (plugin/hook-launcher.sh and .ps1); the runtime removes it at a stop it does not continue; VS Code
+ * waits for it before putting the next command in the chat box (apps/vscode/src/chat-prefill.ts).
+ */
+export const COPILOT_TURN_DIRECTORY = 'copilot-turns';
+
+export function copilotTurnDirectory(env = process.env, home = os.homedir()) {
+  return path.join(path.dirname(copilotModeFile(env, home)), COPILOT_TURN_DIRECTORY);
+}
+
 /** One bounded local read; never Git, workspace discovery, telemetry, or network. */
 export function readCopilotMode(file = copilotModeFile()) {
   let descriptor;

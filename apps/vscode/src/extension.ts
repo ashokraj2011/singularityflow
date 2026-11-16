@@ -44,7 +44,8 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedA
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
-import { CHAT_INPUT_SCHEMES, ChatPrefill, PREFILL_COMMAND, PREFILL_SETTING } from './chat-prefill.ts';
+import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING } from './chat-prefill.ts';
+import { copilotTurnDirectory } from '../../../src/copilot-mode.mjs';
 import {
   phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
 } from './views/submission-presentation.ts';
@@ -6057,6 +6058,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (inputs.length) chatInputSeen = true;
       return chatInputSeen ? inputs : null;
     },
+    // The open-turn markers SFlow's prompt and stop hooks keep: no fill while Copilot is still answering.
+    turnOpen: () => copilotTurnOpen(copilotTurnDirectory(), repository),
     current: () => {
       const state = store.current;
       return state.snapshot && !state.stale && !state.error ? { snapshot: state.snapshot, repository } : null;
@@ -6079,6 +6082,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (state.error) { nextCommandStatus.hide(); return; }
     if (change.kind === 'snapshot' && state.snapshot && !state.stale) chatPrefill.observe();
   }));
+  // A turn that ends removes its marker: the state it ended on is filled then. Watched from the machine folder,
+  // which exists, as the Copilot Story follower watches its own; window focus re-checks a missed event.
+  const turnDirectory = copilotTurnDirectory();
+  const turnWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
+    vscode.Uri.file(path.dirname(turnDirectory)), `${path.basename(turnDirectory)}/*`));
+  context.subscriptions.push(turnWatcher,
+    turnWatcher.onDidCreate(() => chatPrefill.turnChanged()),
+    turnWatcher.onDidChange(() => chatPrefill.turnChanged()),
+    turnWatcher.onDidDelete(() => chatPrefill.turnChanged()),
+    vscode.window.onDidChangeWindowState((state) => { if (state.focused) chatPrefill.turnChanged(); }));
   if (typeof vscode.workspace.onDidChangeTextDocument === 'function') {
     context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((event) => {
       if (!event.contentChanges.length) return;

@@ -667,7 +667,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-mutation-contract.mjs, which these handlers do not load). Their own deleted branches give a little back. The task
     // outcome reader (workflow-task-outcome.mjs) and the task record stay lazy; next steps and readiness name a code step's own
     // opening and its task's wait (+554 after the journeys). Two new eager files: submit.mjs 473 of 473.
-    assert.ok(closure.bytes <= 9_747_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,753,750 (measured 9,753,705 for phase-lifecycle.mjs, +6,124): SPEC-OSA v1.1 Stage 4. The one action-to-command map
+    // beside its renderer (step-decision.mjs ACTION_COMMANDS, actionSkill, workCommandOf), the work command's two names
+    // (command-skills.mjs WORK_COMMANDS, which safe-command-guidance.mjs reads instead of its own literal), a kernel-built
+    // step's successor rendered as its preview, and the card's yes narrated (narration/messages.mjs). The alias adapter
+    // (writing-aliases.mjs), the review delegation and the card's consent stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_753_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1042,7 +1047,10 @@ test('the common session projection does not import attach, state stores or publ
   // its reservation (phase-generation-need.mjs openingFactsOf and counters, +784), the one version arithmetic never reuses a
   // reserved number (kernel/step-versions.mjs, +375) and `phase opening --reconcile` is registered (command-registry.mjs,
   // +~330). The opening operation, its consent and its acceptance reader stay out of this closure. No new eager file.
-  assert.ok(current.bytes <= 4_279_100, `session current loads ${current.bytes} source bytes`);
+  // 4,280,250 (measured 4,280,210, +1,148): SPEC-OSA v1.1 Stage 4. The work command's two names (command-skills.mjs
+  // WORK_COMMANDS, isWorkCommand), the command validator reading them (safe-command-guidance.mjs) and the card's yes
+  // narrated (narration/messages.mjs). The map's renderer and the alias adapter stay out of this closure. No new eager file.
+  assert.ok(current.bytes <= 4_280_250, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

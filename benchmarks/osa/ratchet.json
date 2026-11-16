@@ -42,7 +42,7 @@
       "ceiling": 1,
       "kind": "renderer",
       "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
-      "deletion": "Stage 4: decisionRoutes moves into the central map",
+      "deletion": "Stage 5: kept while step-decision.mjs is the central action-to-command map (Stage 4 put the map beside decisionRoutes, its one renderer); deleted if the map moves out",
       "why": "decisionRoutes, the one rendering of the kernel's decision every surface shares (moved from phase-mutation-contract.mjs), names the step's work command"
     },
     {
@@ -52,7 +52,7 @@
       "ceiling": 2,
       "kind": "renderer",
       "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
-      "deletion": "Stage 4: decisionRoutes moves into the central map",
+      "deletion": "Stage 5: kept while step-decision.mjs is the central action-to-command map (Stage 4 put the map beside decisionRoutes, its one renderer); deleted if the map moves out",
       "why": "decisionRoutes renders the kernel's approve-step as the approve and reject commands (moved from phase-mutation-contract.mjs)"
     },
     {
@@ -62,7 +62,7 @@
       "ceiling": 1,
       "kind": "renderer",
       "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
-      "deletion": "Stage 4: decisionRoutes moves into the central map",
+      "deletion": "Stage 5: kept while step-decision.mjs is the central action-to-command map (Stage 4 put the map beside decisionRoutes, its one renderer); deleted if the map moves out",
       "why": "decisionRoutes renders the kernel's recover-operation for positive damage as /sf-recover (moved from phase-mutation-contract.mjs)"
     },
     {
@@ -74,6 +74,26 @@
       "owner": "Stage 4, the central action-to-command map (b25, OSA:REQ-021, REQ-026)",
       "deletion": "Stage 4: the post-preparation route is the kernel's build-version then publish-version, rendered by the central map",
       "why": "after a kernel-built step is prepared, its check-and-publish route names the step's own work command (its chooser) instead of handing the publication to /sf-publish (C9); at Stage 0 the same route hid the chooser in a conditional with the /sf-publish literal, which the scanner did not count"
+    },
+    {
+      "module": "command-skills.mjs",
+      "family": "skillLiterals",
+      "stage0": 0,
+      "ceiling": 2,
+      "kind": "renderer",
+      "owner": "Stage 4, D1: the work command's two names (WORK_COMMANDS), the one list the command validator and the central map read",
+      "deletion": "Stage 5: permanent as the one list of the work command's names; a copy of the two names anywhere else is a new competing route",
+      "why": "/sf-code and /sf-phase are one work command (D1, OSA:REQ-024); safe-command-guidance.mjs reads the list instead of adding /sf-code itself (its count fell 3 -> 2), and writingAlias names the work command through it"
+    },
+    {
+      "module": "review-subagent.mjs",
+      "family": "lifecycleCommands",
+      "stage0": 1,
+      "ceiling": 2,
+      "kind": "renderer",
+      "owner": "Stage 4, the qualified review delegation adapter (reviewDelegation, OSA:REQ-052, AC-018)",
+      "deletion": "Stage 5: the delegation's packet and retention commands are rendered by the central map's start-review and review-version entries",
+      "why": "the delegation binds the exact review packet command and the retention command its report identity names; one template renders both"
     }
   ],
   "ceilings": {
@@ -200,6 +220,9 @@
       "routeObjects": 2,
       "lifecycleCommands": 4,
       "skillLiterals": 3
+    },
+    "command-skills.mjs": {
+      "skillLiterals": 2
     },
     "commands/app-review.mjs": {
       "intentReads": 1,
@@ -730,7 +753,7 @@
     "review-subagent.mjs": {
       "predicateCalls": 1,
       "versionArithmetic": 1,
-      "lifecycleCommands": 1
+      "lifecycleCommands": 2
     },
     "revision/interactive-service.mjs": {
       "skillChooserCalls": 1,
@@ -742,7 +765,7 @@
     },
     "safe-command-guidance.mjs": {
       "skillChooserCalls": 1,
-      "skillLiterals": 3
+      "skillLiterals": 2
     },
     "scope/authoring.mjs": {
       "predicateCalls": 1

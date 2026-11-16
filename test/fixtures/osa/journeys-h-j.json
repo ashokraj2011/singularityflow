@@ -1,0 +1,345 @@
+{
+  "schemaVersion": 1,
+  "specification": "SPEC-OSA v1.1 Stage 0: journeys H, I and J (section 12.2) defined as fixtures with expected actions. Their walks come in the stages named; journeys A to G already exist in test/journey-routes.test.mjs and test/journey-stories.test.mjs.",
+  "independence": "Every expected value below was written by hand from SPEC-OSA v1.1; nothing here was computed by the code under test.",
+  "journeys": [
+    {
+      "id": "OSA-J-H",
+      "journey": "H",
+      "title": "A shared opening becomes visible after another checkout refreshes",
+      "stage": 2,
+      "story": {
+        "workId": "JRN-H",
+        "workType": "quick-fix",
+        "phaseOrder": [
+          "intake",
+          "implement",
+          "verify"
+        ],
+        "currentPhase": "implement"
+      },
+      "checkouts": {
+        "first": {
+          "role": "the writer that opened version 2",
+          "observed": {
+            "published": 1,
+            "writing": 2,
+            "openingReceipt": "accepted and shared"
+          }
+        },
+        "second": {
+          "role": "another laptop of the same person, last refreshed before the opening",
+          "observed": {
+            "published": 1,
+            "writing": null,
+            "review": "correction-required"
+          }
+        }
+      },
+      "expected": [
+        {
+          "at": "second checkout, before it refreshes",
+          "state": "review-corrections",
+          "basis": {
+            "freshness": "stale",
+            "note": "the view names the revision it observed"
+          },
+          "next": {
+            "kind": "refresh",
+            "operation": "refresh-authority",
+            "target": {
+              "phase": "implement",
+              "version": null
+            },
+            "principalKind": "human",
+            "role": "author",
+            "prerequisites": []
+          },
+          "mustNot": [
+            "asking 'Start version 2?' again from a cached view",
+            "proposing version 3",
+            "opening a second successor"
+          ]
+        },
+        {
+          "at": "second checkout, after it refreshes the Story's shared authority",
+          "state": "held",
+          "publication": {
+            "hasPublishedVersion": true,
+            "hasOpenVersion": true,
+            "currentVersionPublished": false
+          },
+          "version": {
+            "published": 1,
+            "writing": 2,
+            "highWatermark": 2,
+            "proposedNext": null
+          },
+          "edit": {
+            "eligible": false,
+            "note": "the open version's writer fence belongs to the first checkout's authoring session"
+          },
+          "next": {
+            "kind": "person-decision",
+            "operation": "takeover-writer",
+            "inputs": {
+              "protocol": "the verified ownership takeover"
+            },
+            "target": {
+              "phase": "implement",
+              "version": 2
+            },
+            "principalKind": "human",
+            "role": "author",
+            "prerequisites": []
+          },
+          "alsoPermitted": [
+            "inspect"
+          ],
+          "mustNot": [
+            "writing version 2 without the takeover",
+            "a duplicate opening"
+          ]
+        },
+        {
+          "at": "first checkout, after the takeover",
+          "state": "held",
+          "next": {
+            "kind": "refresh",
+            "operation": "refresh-authority",
+            "target": {
+              "phase": "implement",
+              "version": 2
+            },
+            "principalKind": "human",
+            "role": "author",
+            "prerequisites": []
+          },
+          "mustNot": [
+            "any further write by the fenced writer"
+          ]
+        }
+      ],
+      "rules": [
+        "section 7.2",
+        "section 7.3",
+        "REQ-031",
+        "REQ-033",
+        "REQ-034",
+        "REQ-040",
+        "AC-015",
+        "AC-016",
+        "AC-017"
+      ],
+      "dependsOn": [
+        "a shared opening operation (capability matrix rows 2a, 3a, 3b, 4b)",
+        "a writer fence (capability matrix row 5d: a gap)"
+      ]
+    },
+    {
+      "id": "OSA-J-I",
+      "journey": "I",
+      "title": "The same consent rule for document corrections",
+      "stage": 2,
+      "story": {
+        "workId": "JRN-I",
+        "workType": "spec-driven-standard",
+        "phaseOrder": [
+          "specification",
+          "planning",
+          "implementation",
+          "verification",
+          "release"
+        ],
+        "currentPhase": "planning"
+      },
+      "facts": {
+        "phase": "planning",
+        "kind": "document",
+        "status": "in_progress",
+        "generation": 1,
+        "generationHighWatermark": null,
+        "generationIntent": null,
+        "review": {
+          "generation": 1,
+          "retained": "correction-required",
+          "findings": 1
+        }
+      },
+      "expected": [
+        {
+          "at": "the work command's entry after the review asks corrections",
+          "state": "review-corrections",
+          "publication": {
+            "hasPublishedVersion": true,
+            "hasOpenVersion": false,
+            "currentVersionPublished": true
+          },
+          "version": {
+            "published": 1,
+            "writing": null,
+            "highWatermark": 1,
+            "proposedNext": 2
+          },
+          "next": {
+            "kind": "person-consent",
+            "operation": "open-version",
+            "inputs": {
+              "version": 2,
+              "consent": "required",
+              "reason": "review-corrections"
+            },
+            "target": {
+              "phase": "planning",
+              "version": 2
+            },
+            "principalKind": "human",
+            "role": "author",
+            "prerequisites": []
+          },
+          "mustNot": [
+            "prepare planning opening version 2 without the person's yes",
+            "publishing an edited draft as version 2 without the person's yes"
+          ]
+        },
+        {
+          "at": "after the person says yes",
+          "state": "writing",
+          "version": {
+            "published": 1,
+            "writing": 2,
+            "highWatermark": 2,
+            "proposedNext": null
+          },
+          "next": {
+            "kind": "agent-work",
+            "operation": "author-version",
+            "target": {
+              "phase": "planning",
+              "version": 2
+            },
+            "principalKind": "agent",
+            "role": "author",
+            "prerequisites": []
+          }
+        },
+        {
+          "at": "after the person says no",
+          "state": "review-corrections",
+          "version": {
+            "published": 1,
+            "writing": null,
+            "highWatermark": 1,
+            "proposedNext": 2
+          },
+          "note": "no version is opened, the number is not used, and the review's findings stay owed",
+          "mustNot": [
+            "opening version 2",
+            "asking again in the same turn without a new proposal"
+          ]
+        }
+      ],
+      "rules": [
+        "D3",
+        "section 7.1",
+        "REQ-030",
+        "REQ-014",
+        "C8",
+        "C12"
+      ],
+      "currentBehaviour": "On this branch a document step whose review asks corrections returns successor-preparation-required and prepare, with no question (decision inventory, state S4b document)."
+    },
+    {
+      "id": "OSA-J-J",
+      "journey": "J",
+      "title": "A fresh-chat /sf-next completes the current step's agent work without a relay command",
+      "stage": 4,
+      "story": {
+        "workId": "JRN-J",
+        "workType": "quick-fix",
+        "phaseOrder": [
+          "intake",
+          "implement",
+          "verify"
+        ],
+        "currentPhase": "implement"
+      },
+      "facts": {
+        "phase": "implement",
+        "kind": "code",
+        "status": "in_progress",
+        "generation": 0,
+        "generationHighWatermark": null,
+        "generationIntent": null,
+        "review": null,
+        "turn": {
+          "skill": "/sf-next",
+          "chat": "new",
+          "mode": "today kernel-only"
+        }
+      },
+      "expected": [
+        {
+          "at": "the /sf-next turn's first decision",
+          "state": "not-started",
+          "version": {
+            "published": 0,
+            "writing": null,
+            "highWatermark": 0,
+            "proposedNext": 1
+          },
+          "next": {
+            "kind": "agent-work",
+            "operation": "open-version",
+            "inputs": {
+              "version": 1,
+              "consent": "not-required"
+            },
+            "target": {
+              "phase": "implement",
+              "version": 1
+            },
+            "principalKind": "agent",
+            "role": "author",
+            "prerequisites": [],
+            "then": [
+              "author-version",
+              "publish-version",
+              "start-review"
+            ]
+          },
+          "turn": "the same /sf-next turn authors, checks and publishes version 1 and starts the qualified reviewer",
+          "mustNot": [
+            "Next in Copilot: /sf-code",
+            "any relay that needs a second typed command",
+            "submitting",
+            "approving"
+          ]
+        },
+        {
+          "at": "the turn's end",
+          "state": "in-review",
+          "next": {
+            "kind": "review",
+            "operation": "review-version",
+            "target": {
+              "phase": "implement",
+              "version": 1
+            },
+            "principalKind": "agent",
+            "role": "reviewer",
+            "prerequisites": []
+          },
+          "stopsAt": "the reviewer's result, then the person's next action (submission or consent), in a new turn"
+        }
+      ],
+      "rules": [
+        "D2",
+        "REQ-025",
+        "REQ-050",
+        "AC-013"
+      ],
+      "currentBehaviour": "/sf-next is a kernel-only turn and its skill text reports 'Next in Copilot: /sf-code' and stops (alias matrix, /sf-next)."
+    }
+  ]
+}

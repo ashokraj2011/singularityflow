@@ -1,0 +1,957 @@
+{
+  "schemaVersion": 1,
+  "specification": "SPEC-OSA v1.1 Stage 0 incident fixtures (docs/SPEC-OSA-ONE-STEP-AUTHOR-v1.1.md section 13 Stage 0, plan section 2 item 4)",
+  "source": "The eight dead ends of one real Story on 2026-11-16, numbered as SPEC-OSA v1 section 1 lists them. Identifiers are generic: the real Story's name is not recorded.",
+  "independence": "Every expected value below was written by hand from SPEC-OSA v1.1 (sections 4.3, 5, 6, 7, 8, 9 and 10). Nothing here was computed by, or copied from the output of, the code under test.",
+  "numbering": "test/journey-stories.test.mjs comments use an earlier count of five incidents; the ids here follow SPEC-OSA v1 section 1 (incidents 1 to 8).",
+  "normalization": "Facts are the Story record as it stood: generationHighWatermark null means the record held none (on this branch only rollForwardRework writes it). The expected highWatermark is max(recorded, published, writing), and proposedNext is max(published, highWatermark) + 1 only while no version is open (section 4.3); with an opening it is null and actions use the reserved number.",
+  "vocabulary": {
+    "states": [
+      "not-started",
+      "writing",
+      "kernel-build",
+      "waiting",
+      "published",
+      "in-review",
+      "review-ready",
+      "review-corrections",
+      "reopened",
+      "submitted",
+      "approved",
+      "paused",
+      "held",
+      "damaged",
+      "complete",
+      "cancelled"
+    ],
+    "kinds": [
+      "agent-work",
+      "person-consent",
+      "person-decision",
+      "person-approval",
+      "review",
+      "observe",
+      "refresh",
+      "reconcile",
+      "none"
+    ],
+    "operations": [
+      "open-version",
+      "author-version",
+      "build-version",
+      "publish-version",
+      "start-review",
+      "review-version",
+      "submit-version",
+      "approve-step",
+      "decide",
+      "recover-operation",
+      "refresh-authority",
+      "takeover-writer",
+      "inspect",
+      "none"
+    ],
+    "principalKinds": [
+      "agent",
+      "human"
+    ],
+    "roles": [
+      "author",
+      "reviewer",
+      "approver",
+      "person"
+    ],
+    "consent": [
+      "not-required",
+      "required",
+      "given"
+    ],
+    "note": "Stage 0 names for the fixtures; Stage 1 freezes the exact StepDecision/v1 identifiers (section 4.2) and maps these to them."
+  },
+  "incidents": [
+    {
+      "id": "OSA-INC-1",
+      "title": "A review asked for before the step was written pointed to the help page",
+      "story": {
+        "workId": "INC-1",
+        "workType": "spec-driven-standard",
+        "phaseOrder": [
+          "specification",
+          "planning",
+          "implementation",
+          "verification",
+          "release"
+        ],
+        "currentPhase": "planning"
+      },
+      "facts": {
+        "phase": "planning",
+        "kind": "document",
+        "status": "in_progress",
+        "generation": 0,
+        "generationHighWatermark": null,
+        "generationIntent": null,
+        "review": null,
+        "turn": {
+          "skill": "/sf-review-source",
+          "arguments": "planning",
+          "mode": "read-only-review"
+        },
+        "earlierSteps": {
+          "specification": "approved"
+        }
+      },
+      "observed": {
+        "refusal": "SOURCE_REVIEW_GENERATION_REQUIRED",
+        "route": "/sf-help (generic command help)",
+        "then": "the agent made up /sf-session"
+      },
+      "expected": {
+        "state": "not-started",
+        "refusal": {
+          "keepsCode": "SOURCE_REVIEW_GENERATION_REQUIRED",
+          "leadsWith": "next"
+        },
+        "publication": {
+          "hasPublishedVersion": false,
+          "hasOpenVersion": false,
+          "currentVersionPublished": false
+        },
+        "version": {
+          "published": 0,
+          "writing": null,
+          "highWatermark": 0,
+          "proposedNext": 1
+        },
+        "edit": {
+          "eligible": false,
+          "note": "a review turn edits nothing; the work command's own turn is granted the step's document once version 1 is open"
+        },
+        "next": {
+          "kind": "agent-work",
+          "operation": "open-version",
+          "inputs": {
+            "version": 1,
+            "consent": "not-required"
+          },
+          "target": {
+            "phase": "planning",
+            "version": 1
+          },
+          "principalKind": "agent",
+          "role": "author",
+          "prerequisites": [],
+          "then": [
+            "author-version",
+            "publish-version",
+            "start-review"
+          ],
+          "rendering": "the step's work command; /sf-code and /sf-phase are equivalent (D1)"
+        },
+        "mustNot": [
+          "/sf-help",
+          "/sf-session",
+          "/sf-recover",
+          "a review of planning version 0"
+        ],
+        "rules": [
+          "section 5 precedence 7",
+          "section 4.3 the initial version",
+          "REQ-022",
+          "REQ-023"
+        ]
+      },
+      "coverage": {
+        "journey": "C",
+        "test": "test/journey-routes.test.mjs",
+        "testTitle": "journey C: a document step reviewed before it is written is routed to writing it",
+        "checks": [
+          "the refusal routes to writing the step: no generic help, no dead end"
+        ],
+        "status": "passing",
+        "fixedBy": [
+          "1cfb2c986",
+          "7a2bbf482"
+        ],
+        "remaining": "Stage 1 asserts the expected next above (operation, target, role) against the decision, not only the route's spelling."
+      }
+    },
+    {
+      "id": "OSA-INC-2",
+      "title": "The decisions card's wait ended the agent's 30-minute window",
+      "story": {
+        "workId": "INC-1",
+        "workType": "spec-driven-standard",
+        "phaseOrder": [
+          "specification",
+          "planning",
+          "implementation",
+          "verification",
+          "release"
+        ],
+        "currentPhase": "implementation"
+      },
+      "facts": {
+        "phase": "implementation",
+        "kind": "code",
+        "status": "in_progress",
+        "generation": 0,
+        "generationHighWatermark": null,
+        "generationIntent": {
+          "status": "open",
+          "generation": 1
+        },
+        "review": null,
+        "check": "a required test failed for an environment reason (the wrong Node); the decisions card asked the person",
+        "turn": {
+          "skill": "/sf-code",
+          "mode": "authoring",
+          "windowMinutes": 30,
+          "cardOpenedAtMinute": 21,
+          "personAnsweredAtMinute": 54
+        }
+      },
+      "observed": {
+        "refusal": "PHASE_MUTATION_TURN_EXPIRED",
+        "effect": "the agent's next edit after the answer was denied; a new /sf-code turn (a premium request) was needed"
+      },
+      "expected": {
+        "state": "writing",
+        "publication": {
+          "hasPublishedVersion": false,
+          "hasOpenVersion": true,
+          "currentVersionPublished": false
+        },
+        "version": {
+          "published": 0,
+          "writing": 1,
+          "highWatermark": 1,
+          "proposedNext": null
+        },
+        "edit": {
+          "eligible": true,
+          "categories": [
+            "application",
+            "step-artifacts"
+          ],
+          "note": "the person's delivered answer renews the interaction window; it renews no consent, presence or approval (REQ-051, AC-021)"
+        },
+        "next": {
+          "kind": "agent-work",
+          "operation": "author-version",
+          "inputs": {
+            "stage": "checking",
+            "after": "the person's answer on the card"
+          },
+          "target": {
+            "phase": "implementation",
+            "version": 1
+          },
+          "principalKind": "agent",
+          "role": "author",
+          "prerequisites": [],
+          "then": [
+            "publish-version",
+            "start-review"
+          ]
+        },
+        "mustNot": [
+          "PHASE_MUTATION_TURN_EXPIRED after a delivered answer",
+          "a second /sf-code turn to continue the same version"
+        ],
+        "rules": [
+          "section 8 windows and leases",
+          "REQ-051",
+          "AC-021"
+        ]
+      },
+      "coverage": {
+        "journey": "E",
+        "test": "test/journey-stories.test.mjs",
+        "testTitle": "journey E: the person answers the card after the 30-minute turn window, and the turn that asked goes on",
+        "checks": [
+          "renews the turn: its next edit goes on",
+          "past its window with no answer"
+        ],
+        "related": [
+          "journey D: a required test fails on the wrong Node"
+        ],
+        "status": "passing (slow lane)",
+        "fixedBy": [
+          "7436ec3ff"
+        ],
+        "remaining": "A long test run with no person's answer still ends the window: execution liveness is a Stage 3 item (REQ-051)."
+      }
+    },
+    {
+      "id": "OSA-INC-3",
+      "title": "A review that asked for corrections sent the person to /sf-recover, which cannot open a new version",
+      "story": {
+        "workId": "INC-1",
+        "workType": "spec-driven-standard",
+        "phaseOrder": [
+          "specification",
+          "planning",
+          "implementation",
+          "verification",
+          "release"
+        ],
+        "currentPhase": "implementation"
+      },
+      "facts": {
+        "phase": "implementation",
+        "kind": "code",
+        "status": "in_progress",
+        "generation": 1,
+        "generationHighWatermark": null,
+        "generationIntent": {
+          "status": "consumed",
+          "generation": 1
+        },
+        "review": {
+          "generation": 1,
+          "findings": 3,
+          "retained": "correction-required"
+        },
+        "turn": {
+          "skill": "/sf-review-source",
+          "mode": "read-only-review"
+        }
+      },
+      "observed": {
+        "route": "/sf-recover (a phase rollover named as a guarded code successor boundary)",
+        "effect": "/sf-recover ran recover --fetch, found nothing to repair and never opened version 2"
+      },
+      "expected": {
+        "state": "review-corrections",
+        "publication": {
+          "hasPublishedVersion": true,
+          "hasOpenVersion": false,
+          "currentVersionPublished": true
+        },
+        "version": {
+          "published": 1,
+          "writing": null,
+          "highWatermark": 1,
+          "proposedNext": 2
+        },
+        "edit": {
+          "eligible": false,
+          "note": "nothing is written until the person says yes to version 2"
+        },
+        "next": {
+          "kind": "person-consent",
+          "operation": "open-version",
+          "inputs": {
+            "version": 2,
+            "consent": "required",
+            "reason": "review-corrections",
+            "question": "Start version 2 of the implementation step? Published version 1 and its recorded evidence will stay unchanged."
+          },
+          "target": {
+            "phase": "implementation",
+            "version": 2
+          },
+          "principalKind": "human",
+          "role": "author",
+          "prerequisites": [],
+          "then": [
+            "author-version",
+            "publish-version",
+            "start-review"
+          ]
+        },
+        "mustNot": [
+          "/sf-recover",
+          "recover",
+          "submitting version 1",
+          "opening version 2 without the person's yes"
+        ],
+        "rules": [
+          "section 5 precedence 9",
+          "section 7.1",
+          "D3",
+          "D4",
+          "REQ-003",
+          "REQ-011",
+          "REQ-030"
+        ]
+      },
+      "coverage": {
+        "journey": "B",
+        "test": "test/journey-stories.test.mjs",
+        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "checks": [
+          "continuation opens version 2 by its routes, with no detour"
+        ],
+        "related": [
+          "test/review-every-step-cli.test.mjs: a quick-fix Story reviews every step"
+        ],
+        "status": "passing (slow lane)",
+        "fixedBy": [
+          "fb368d49b"
+        ],
+        "remaining": "The yes is a per-turn answer matched by a pattern; the authenticated consent receipt bound to the proposal is Stage 2 (REQ-030)."
+      }
+    },
+    {
+      "id": "OSA-INC-4",
+      "title": "After version 2 was opened, the code step was held as 'review record unpublished'",
+      "story": {
+        "workId": "INC-1",
+        "workType": "spec-driven-standard",
+        "phaseOrder": [
+          "specification",
+          "planning",
+          "implementation",
+          "verification",
+          "release"
+        ],
+        "currentPhase": "implementation"
+      },
+      "facts": {
+        "phase": "implementation",
+        "kind": "code",
+        "status": "in_progress",
+        "generation": 1,
+        "generationHighWatermark": null,
+        "generationIntent": {
+          "status": "open",
+          "generation": 2
+        },
+        "committedRecord": {
+          "generationIntent": {
+            "status": "consumed",
+            "generation": 1
+          },
+          "note": "phase rollover --confirm saved the open version 2 in the working copy only"
+        },
+        "review": {
+          "generation": 1,
+          "findings": 3,
+          "retained": "correction-required"
+        },
+        "turn": {
+          "skill": "/sf-code",
+          "mode": "authoring"
+        }
+      },
+      "observed": {
+        "refusal": "SOURCE_REVIEW_RECORD_UNPUBLISHED",
+        "effect": "the entry held the step (codeAuthoringReady false); recovery then routed the code step to /sf-phase-documents"
+      },
+      "expected": {
+        "state": "writing",
+        "publication": {
+          "hasPublishedVersion": true,
+          "hasOpenVersion": true,
+          "currentVersionPublished": false
+        },
+        "version": {
+          "published": 1,
+          "writing": 2,
+          "highWatermark": 2,
+          "proposedNext": null
+        },
+        "edit": {
+          "eligible": true,
+          "categories": [
+            "application",
+            "step-artifacts"
+          ]
+        },
+        "next": {
+          "kind": "agent-work",
+          "operation": "author-version",
+          "inputs": {
+            "corrections": "the review of version 1"
+          },
+          "target": {
+            "phase": "implementation",
+            "version": 2
+          },
+          "principalKind": "agent",
+          "role": "author",
+          "prerequisites": [],
+          "then": [
+            "publish-version",
+            "start-review"
+          ]
+        },
+        "history": "the review of version 1 stays readable as history; it is not the current review target",
+        "mustNot": [
+          "SOURCE_REVIEW_RECORD_UNPUBLISHED",
+          "/sf-phase-documents",
+          "/sf-recover"
+        ],
+        "rules": [
+          "section 4.3 example",
+          "section 5 precedence 8",
+          "REQ-010",
+          "REQ-032",
+          "REQ-040"
+        ]
+      },
+      "coverage": {
+        "journey": "B",
+        "test": "test/journey-stories.test.mjs",
+        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "checks": [
+          "entry is admitted, not held",
+          "routes the code step to its author, never /sf-phase-documents"
+        ],
+        "related": [
+          "test/review-every-step-cli.test.mjs: a quick-fix Story reviews every step"
+        ],
+        "status": "passing (slow lane)",
+        "fixedBy": [
+          "e1574fa2d",
+          "fb368d49b"
+        ],
+        "unresolved": "The opening on this branch is local to the checkout (saveStoryDraft). Under v1.1 it is a legacy local opening (section 14): Stage 2 decides how it is normalized and promoted to a shared opening with its consent receipt. Another checkout's view is fixture OSA-J-H."
+      }
+    },
+    {
+      "id": "OSA-INC-5",
+      "title": "After version 2 was prepared, the step was held again and /sf-session offered to review version 1",
+      "story": {
+        "workId": "INC-1",
+        "workType": "spec-driven-standard",
+        "phaseOrder": [
+          "specification",
+          "planning",
+          "implementation",
+          "verification",
+          "release"
+        ],
+        "currentPhase": "implementation"
+      },
+      "facts": {
+        "phase": "implementation",
+        "kind": "code",
+        "status": "in_progress",
+        "generation": 1,
+        "generationHighWatermark": null,
+        "generationIntent": {
+          "status": "open",
+          "generation": 2
+        },
+        "prepared": "prepare implementation rewrote the step's summary in the checkout",
+        "review": {
+          "generation": 1,
+          "findings": 3,
+          "retained": "correction-required"
+        },
+        "turn": {
+          "skill": "/sf-session",
+          "mode": "session-only"
+        }
+      },
+      "observed": {
+        "route": "/sf-review-source status implementation (the review of version 1)",
+        "refusal": "SOURCE_REVIEW_INPUT_UNPUBLISHED",
+        "then": "/sf-help"
+      },
+      "expected": {
+        "state": "writing",
+        "publication": {
+          "hasPublishedVersion": true,
+          "hasOpenVersion": true,
+          "currentVersionPublished": false
+        },
+        "version": {
+          "published": 1,
+          "writing": 2,
+          "highWatermark": 2,
+          "proposedNext": null
+        },
+        "edit": {
+          "eligible": false,
+          "note": "a session turn opens the Story and ends; the work command's turn is granted the step's code and artifacts"
+        },
+        "next": {
+          "kind": "agent-work",
+          "operation": "author-version",
+          "target": {
+            "phase": "implementation",
+            "version": 2
+          },
+          "principalKind": "agent",
+          "role": "author",
+          "prerequisites": [],
+          "then": [
+            "publish-version",
+            "start-review"
+          ]
+        },
+        "surfaces": "session open, session current, next steps, phase show and submission readiness name the same primary operation and target (REQ-020)",
+        "mustNot": [
+          "/sf-review-source for version 1 as the next action",
+          "/sf-help",
+          "SOURCE_REVIEW_INPUT_UNPUBLISHED"
+        ],
+        "rules": [
+          "section 4.3 example",
+          "REQ-020",
+          "REQ-032"
+        ]
+      },
+      "coverage": {
+        "journey": "B",
+        "test": "test/journey-stories.test.mjs",
+        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "checks": [
+          "version 2 is fixed, published, re-reviewed ready and submitted by its routes"
+        ],
+        "related": [
+          "test/review-every-step-cli.test.mjs: a quick-fix Story reviews every step",
+          "test/step-being-written.test.mjs"
+        ],
+        "status": "passing in part",
+        "fixedBy": [
+          "95e25ed06",
+          "651086f40",
+          "13066fe33"
+        ],
+        "unresolved": "The journeys' person views read session current, not session open (what /sf-session runs). Adding session open to the views is a Stage 3 item (session listing and selection cohort)."
+      }
+    },
+    {
+      "id": "OSA-INC-6",
+      "title": "/sf-code was told 'write now' by the entry and 'no edits, recover' by the edit permission, and looped",
+      "story": {
+        "workId": "INC-1",
+        "workType": "spec-driven-standard",
+        "phaseOrder": [
+          "specification",
+          "planning",
+          "implementation",
+          "verification",
+          "release"
+        ],
+        "currentPhase": "implementation"
+      },
+      "facts": {
+        "phase": "implementation",
+        "kind": "code",
+        "status": "in_progress",
+        "generation": 1,
+        "generationHighWatermark": null,
+        "generationIntent": {
+          "status": "open",
+          "generation": 2
+        },
+        "review": {
+          "generation": 1,
+          "findings": 3,
+          "retained": "correction-required",
+          "statusView": "successor-publication-required"
+        },
+        "turn": {
+          "skill": "/sf-code",
+          "mode": "authoring"
+        }
+      },
+      "observed": {
+        "entry": "act author",
+        "permission": "not editable, next recover",
+        "loop": [
+          "/sf-recover",
+          "/sf-phase-documents",
+          "phase show",
+          "/sf-review-source (SOURCE_REVIEW_SUCCESSOR_OPEN)",
+          "/sf-phase",
+          "use /sf-code"
+        ]
+      },
+      "expected": {
+        "state": "writing",
+        "publication": {
+          "hasPublishedVersion": true,
+          "hasOpenVersion": true,
+          "currentVersionPublished": false
+        },
+        "version": {
+          "published": 1,
+          "writing": 2,
+          "highWatermark": 2,
+          "proposedNext": null
+        },
+        "edit": {
+          "eligible": true,
+          "categories": [
+            "application",
+            "step-artifacts"
+          ],
+          "agreement": "the entry's act, the edit permission and the real pre-tool guard agree for the same basis (AC-001)"
+        },
+        "next": {
+          "kind": "agent-work",
+          "operation": "author-version",
+          "target": {
+            "phase": "implementation",
+            "version": 2
+          },
+          "principalKind": "agent",
+          "role": "author",
+          "prerequisites": [],
+          "then": [
+            "publish-version",
+            "start-review"
+          ]
+        },
+        "mustNot": [
+          "recover",
+          "/sf-phase-documents",
+          "/sf-review-source",
+          "/sf-phase relaying to /sf-code"
+        ],
+        "rules": [
+          "section 6",
+          "REQ-010",
+          "REQ-011",
+          "AC-001",
+          "AC-012"
+        ]
+      },
+      "coverage": {
+        "journey": "B",
+        "test": "test/journey-stories.test.mjs",
+        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "checks": [
+          "version 2 is fixed, published, re-reviewed ready and submitted by its routes"
+        ],
+        "related": [
+          "test/step-being-written.test.mjs",
+          "test/step-routes-stage1.test.mjs",
+          "journeys F and G write through the real guard"
+        ],
+        "status": "passing",
+        "fixedBy": [
+          "56dfa031e",
+          "13066fe33",
+          "f749b5fed",
+          "4787ce1ef",
+          "ce1b89ecc"
+        ],
+        "remaining": "The guard builds its permission without the entry's handoff (copilot-mutation-guard.mjs createRecord): the grant agrees, its next does not (decision inventory finding 1)."
+      }
+    },
+    {
+      "id": "OSA-INC-7",
+      "title": "A step SFlow builds itself was sent to a skill that would not build it",
+      "story": {
+        "workId": "INC-7",
+        "workType": "quick-fix",
+        "phaseOrder": [
+          "intake",
+          "implement",
+          "verify"
+        ],
+        "currentPhase": "verify"
+      },
+      "facts": {
+        "phase": "verify",
+        "kind": "kernel-document",
+        "status": "in_progress",
+        "generation": 0,
+        "generationHighWatermark": null,
+        "generationIntent": null,
+        "producers": [
+          "deterministic"
+        ],
+        "review": null,
+        "turn": {
+          "skill": "/sf-next",
+          "mode": "kernel-only"
+        },
+        "earlierSteps": {
+          "intake": "approved",
+          "implement": "approved"
+        }
+      },
+      "observed": {
+        "loop": [
+          "next steps: /sf-resume prerequisite",
+          "/sf-resume",
+          "/sf-phase",
+          "phase enter: attention-required",
+          "/sf-appeal resolve (dead end)"
+        ]
+      },
+      "expected": {
+        "state": "kernel-build",
+        "publication": {
+          "hasPublishedVersion": false,
+          "hasOpenVersion": false,
+          "currentVersionPublished": false
+        },
+        "version": {
+          "published": 0,
+          "writing": null,
+          "highWatermark": 0,
+          "proposedNext": 1
+        },
+        "edit": {
+          "eligible": false,
+          "note": "nothing is written by a model: the declared deterministic operation builds the step"
+        },
+        "next": {
+          "kind": "agent-work",
+          "operation": "build-version",
+          "inputs": {
+            "producer": "deterministic",
+            "version": 1,
+            "consent": "not-required"
+          },
+          "target": {
+            "phase": "verify",
+            "version": 1
+          },
+          "principalKind": "agent",
+          "role": "author",
+          "prerequisites": [],
+          "then": [
+            "publish-version"
+          ]
+        },
+        "mustNot": [
+          "/sf-appeal",
+          "/sf-resume as a hop",
+          "a model writing the document",
+          "/sf-publish as a separate route where the work command publishes"
+        ],
+        "rules": [
+          "section 5 state kernel-build",
+          "D5",
+          "REQ-026"
+        ]
+      },
+      "coverage": {
+        "journey": "B",
+        "test": "test/journey-stories.test.mjs",
+        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "checks": [
+          "after the code step, the Story is approved to its end by its routes, with no detour"
+        ],
+        "related": [
+          "journey A: a spec-driven Story from its start to its release",
+          "test/kernel-step-routes.test.mjs"
+        ],
+        "status": "passing in part",
+        "fixedBy": [
+          "5baaba5d1"
+        ],
+        "unresolved": "KNOWN_BAD osa-stage-3-c9: the prepare result hands publication to /sf-publish while the views name the work command; the session task resume still offers phase enter --compose (workflow-task.mjs). Stage 3 and Stage 4."
+      }
+    },
+    {
+      "id": "OSA-INC-8",
+      "title": "A reviewer's reply dropped its next step",
+      "story": {
+        "workId": "INC-1",
+        "workType": "spec-driven-standard",
+        "phaseOrder": [
+          "specification",
+          "planning",
+          "implementation",
+          "verification",
+          "release"
+        ],
+        "currentPhase": "implementation"
+      },
+      "facts": {
+        "phase": "implementation",
+        "kind": "code",
+        "status": "in_progress",
+        "generation": 1,
+        "generationHighWatermark": null,
+        "generationIntent": {
+          "status": "consumed",
+          "generation": 1
+        },
+        "review": {
+          "generation": 1,
+          "findings": 3,
+          "by": "the reviewer sub-agent",
+          "retained": "correction-required"
+        },
+        "turn": {
+          "skill": "/sf-review-source",
+          "mode": "read-only-review",
+          "delegated": true
+        }
+      },
+      "observed": {
+        "effect": "the retained review returned a continuation, and the reviewer's last reply showed no next step"
+      },
+      "expected": {
+        "state": "review-corrections",
+        "publication": {
+          "hasPublishedVersion": true,
+          "hasOpenVersion": false,
+          "currentVersionPublished": true
+        },
+        "version": {
+          "published": 1,
+          "writing": null,
+          "highWatermark": 1,
+          "proposedNext": 2
+        },
+        "edit": {
+          "eligible": false,
+          "note": "the reviewer writes only its issued report staging; it never edits, opens a version or approves (section 9)"
+        },
+        "next": {
+          "kind": "person-consent",
+          "operation": "open-version",
+          "inputs": {
+            "version": 2,
+            "consent": "required",
+            "reason": "review-corrections"
+          },
+          "target": {
+            "phase": "implementation",
+            "version": 2
+          },
+          "principalKind": "human",
+          "role": "author",
+          "prerequisites": [],
+          "then": [
+            "author-version",
+            "publish-version",
+            "start-review"
+          ]
+        },
+        "presentation": "the reviewer's reply ends with the next action in words and its command lines for each host",
+        "mustNot": [
+          "a reviewer reply with no next action",
+          "the reviewer opening version 2",
+          "the reviewer editing product content"
+        ],
+        "rules": [
+          "section 9",
+          "section 10 command map",
+          "REQ-052",
+          "REQ-060"
+        ]
+      },
+      "coverage": {
+        "journey": "B",
+        "test": "test/journey-stories.test.mjs",
+        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "checks": [
+          "reply carries the next step: a route, and the words to relay"
+        ],
+        "related": [
+          "test/review-every-step-cli.test.mjs: a quick-fix Story reviews every step"
+        ],
+        "status": "passing (slow lane)",
+        "fixedBy": [
+          "fb368d49b"
+        ],
+        "remaining": "Reviewer independence (fresh context, dispatch mode, packet digest) is not recorded: Stage 4 (REQ-052, capability matrix row 7)."
+      }
+    }
+  ]
+}

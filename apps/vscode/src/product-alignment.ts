@@ -212,20 +212,36 @@ export const CONFIGURATION_REVIEW_KEY = 'singularityFlow.configurationReview.las
 interface ReviewsResult {
   status: 'ran' | 'recorded' | 'running' | 'development';
   outcome: string | null;
-  reviews: Array<{ repository: string; proposalBranch: string }>;
+  reviews: Array<{ repository: string; proposalBranch: string; compareUrl?: string | null }>;
+  updated?: Array<{ repository: string }>;
+  removedRefs?: { history?: number; archiveTags?: number; reviews?: number; total?: number } | null;
+  summary?: string[];
   unfinished?: Array<{ repository: string; reason: string }>;
   reason?: string | null;
 }
 
+/** "N old history and review branches" and any archive tags, as the CLI says it. */
+function removedRefsText(removed: ReviewsResult['removedRefs']): string {
+  const branches = Number(removed?.history ?? 0) + Number(removed?.reviews ?? 0);
+  const tags = Number(removed?.archiveTags ?? 0);
+  const parts: string[] = [];
+  if (branches) parts.push(`${branches} old history and review branch${branches === 1 ? '' : 'es'}`);
+  if (tags) parts.push(`${tags} history archive tag${tags === 1 ? '' : 's'}`);
+  return parts.join(' and ');
+}
+
 /**
- * Once per newly loaded build, open a review for each registered repository whose approved
- * configuration lags this build's packaged configuration. Nothing is applied: a person merges each
- * review. The pass is the CLI's own `product reviews`, shared with a terminal's background pass
- * through one per-build record, so a window and a terminal never refresh the same configuration at
- * once and a review a terminal already opened is reported, not opened again.
+ * Once per newly loaded build, bring each registered repository's `sflow/config` to this build's packaged configuration
+ * and remove its superseded history and review branches: this one action is the person's click [owner, 2026-11-16:
+ * "upgrade should ... let them update sflow/config directly without any review or merge request"]. The pass is the
+ * CLI's own `product reviews`, shared with a terminal's background pass through one per-build record, so a window and a
+ * terminal never refresh the same configuration at once.
  *
- * A window waiting to reload onto a newer build proposes nothing: its CLI would propose the
- * configuration the machine just replaced, and the reloaded build proposes its own.
+ * Only a repository whose host refuses the push (branch protection) keeps the change on a review branch; the window
+ * names that branch in full, with the link that merges it.
+ *
+ * A window waiting to reload onto a newer build changes nothing: its CLI would publish the configuration the machine
+ * just replaced, and the reloaded build publishes its own.
  */
 export async function openConfigurationReviews(host: ProductAlignmentHost, {
   loadedBuild, bundle = null
@@ -235,34 +251,41 @@ export async function openConfigurationReviews(host: ProductAlignmentHost, {
   if (host.remembered<string>(CONFIGURATION_REVIEW_KEY) === loadedBuild) return 'skipped-recent';
   let result: ReviewsResult | undefined;
   try {
-    result = (await host.progress('Singularity Flow: opening configuration reviews for this build',
+    result = (await host.progress('Singularity Flow: updating sflow/config to this build',
       () => host.run<Envelope<ReviewsResult>>(['product', 'reviews', '--json']))).data;
   } catch (error) {
-    void host.warn(`Singularity Flow could not open configuration reviews for this build: ${failureText(error)} Run \`singularity-flow product reviews\` to retry.`);
+    void host.warn(`Singularity Flow could not update sflow/config to this build: ${failureText(error)} Run \`singularity-flow product reviews\` to retry.`);
     return 'failed';
   }
   if (!result) return 'unavailable';
-  // A terminal's background pass still owns this build's reviews; a later window reports them.
+  // A terminal's background pass is still running this build's update; a later window reports it.
   if (result.status === 'running') return 'running';
   // A failed pass is retried after an hour; the window that ran it has already warned.
   if (result.outcome === 'failed') return 'failed';
   const unfinished = result.unfinished ?? [];
   if (unfinished.length) {
-    host.log(`Configuration reviews not yet checked, tried again after an hour: ${unfinished
+    host.log(`Configuration not yet updated, tried again after an hour: ${unfinished
       .map((entry) => `${entry.repository} (${entry.reason})`).join('; ')}`);
   }
   if (result.outcome === 'unavailable') return 'unavailable';
   // A pass that left repositories unchecked is not done for this build: a later window runs it again.
   if (!unfinished.length) await host.remember(CONFIGURATION_REVIEW_KEY, loadedBuild);
+  const updated = (result.updated ?? []).map((entry) => entry.repository);
   const reviews = (result.reviews ?? []).filter((entry) => entry.proposalBranch);
-  for (const entry of reviews) host.log(`Configuration review opened: ${entry.repository} → ${entry.proposalBranch}`);
-  if (!reviews.length) return unfinished.length ? 'incomplete' : 'current';
-  // Announce reviews once: from the window whose pass opened them, or from a finished pass.
+  for (const line of result.summary ?? []) host.log(`Configuration: ${line}`);
+  if (!updated.length && !reviews.length) return unfinished.length ? 'incomplete' : 'current';
+  // Say it once: from the window whose pass did it, or from a finished pass.
   if (result.status === 'ran' || !unfinished.length) {
-    void host.inform(`Singularity Flow opened ${reviews.length} configuration review(s) for this build: `
-      // A generated review branch reads without its hex suffix (owner, 2026-11-11: a person never reads a hash).
-      + `${reviews.map((entry) => `${entry.repository} → ${String(entry.proposalBranch).replace(/(?:[-/][0-9a-f]{8,64})+$/iu, '')}`).join('; ')}. `
-      + 'Nothing changes until each review is merged.');
+    if (updated.length) {
+      const removed = removedRefsText(result.removedRefs);
+      void host.inform(`Updated sflow/config in ${updated.join(', ')} to this build${removed ? `; removed ${removed}` : ''}.`);
+    }
+    // The full branch name and its link: a person finds and merges it on the Git host (owner, 2026-11-16).
+    for (const entry of reviews) {
+      void host.warn(`The Git host refused the update to sflow/config in ${entry.repository} (branch protection). `
+        + `This build's configuration is on review branch ${entry.proposalBranch}`
+        + `${entry.compareUrl ? `: ${entry.compareUrl}` : '; merge it on the Git host.'}`);
+    }
   }
-  return 'reviews-opened';
+  return updated.length ? 'updated' : 'reviews-opened';
 }

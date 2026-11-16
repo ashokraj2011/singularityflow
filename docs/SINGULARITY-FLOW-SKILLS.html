@@ -2584,11 +2584,11 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1265 body tokens</span>
+          <span class="pill">~1141 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-configuration</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|transactions|reconcile &lt;CFT-ID&gt;|recreate-sync [--apply --confirm &lt;digest&gt;]|cleanup-history [--keep-recent 10]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|transactions|reconcile &lt;CFT-ID&gt;|recreate-sync [--apply --confirm &lt;digest&gt;]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-configuration/SKILL.md</code></dd></div>
         </dl>
@@ -2601,7 +2601,7 @@ name: sflow-configuration
 description: Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.
 disable-model-invocation: true
 agent: agent
-argument-hint: &quot;show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|transactions|reconcile &lt;CFT-ID&gt;|recreate-sync [--apply --confirm &lt;digest&gt;]|cleanup-history [--keep-recent 10]&quot;
+argument-hint: &quot;show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|transactions|reconcile &lt;CFT-ID&gt;|recreate-sync [--apply --confirm &lt;digest&gt;]&quot;
 ---
 # Manage governed configuration
 
@@ -2621,12 +2621,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    It never retries a push, accepts a proposal, or grants approval. Preserve `not-confirmed` or
    `sync-pending`; do not turn a prepared/cache record into an acceptance decision.
 2. For `recreate-sync`, always run the preview `singularity-flow configuration recreate-sync --json` first. Apply replays every proposal, teammates&#39; unreviewed ones included: list each `proposals` branch, author, summary, `files` and `replacements`. Only after the person confirms that exact list (a request to recreate is not that confirmation), add `--apply --confirm &lt;confirmation&gt;` with that preview&#39;s value. On `CONFIGURATION_RECREATE_STALE`, show its new list and ask again; never reuse a digest. The main-panel **Recreate &amp; sync configuration** menu performs the same model-free review. Preserve its backups and effects; never reset application code or Story history, and never apply merely because a proposal conflict was reported. The operation owns validation; do not add a pre-validation or another publication command.
-3. For `cleanup-history`, run `singularity-flow configuration cleanup-history --json` (preserve an explicit `--keep-recent`). Show the exact candidates and retained reasons, then obtain human confirmation of that packet before using its returned apply command. Do not delete refs manually, retry a stale hash, or prune tags. The Configuration menu has the same model-free preview/confirmation path. This archives only immutable history branch refs; it never accepts proposals or changes Stories.
-4. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
-5. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
-6. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
-7. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
-8. For drafts, run `singularity-flow configuration drafts --json`. Run a returned `singularity-flow configuration discard` or `singularity-flow configuration propose` only on the person&#39;s explicit request.
+3. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
+4. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
+5. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
+6. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
+7. For drafts, run `singularity-flow configuration drafts --json`. Run a returned `singularity-flow configuration discard` or `singularity-flow configuration propose` only on the person&#39;s explicit request.
 
 Report the exact `singularity-flow configuration ...` action on all three surfaces per the Output contract; preserve its operation and operands.
 </code></pre>
@@ -9249,7 +9248,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~883 body tokens</span>
+          <span class="pill">~917 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-refresh-configuration</code></dd></div>
@@ -9280,10 +9279,10 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow workspace refresh-configuration [WORKSPACE-ID] [--repository REPOSITORY-ID] --dry-run --json` using only the user&#39;s explicit scope. Do not infer a repository from chat history.
-2. Show each repository&#39;s current authority, candidate changes, protected conflicts, exact plan ID, and proposed review-branch and state-branch effects. Show `agentsHome` the same way: each move, each stay with its reason, each install, why a move is held, and that every teammate updates SFlow before it is approved. A preserved conflict is not consent to overwrite it.
+2. Show each repository&#39;s current authority, candidate changes, protected conflicts, exact plan ID, and proposed `sflow/config` and state-branch effects. Show `agentsHome` the same way: each move, each stay with its reason, each install, why a move is held, and that every teammate updates SFlow, since the move lands on `sflow/config` with the rest. A preserved conflict is not consent to overwrite it.
 3. If a conflict needs resolution, ask the contributor to choose each exact `--resolve PATH=local|bundled|merge` value, then preview again with those choices. Do not select `--accept-bundled-conflicts` on their behalf.
 4. Ask for explicit confirmation of the returned plan. Only then run the same scoped command with the same resolution choices and `--confirm-plan &lt;EXACT-PLAN-ID&gt; --json`. If the plan is stale, stop and preview again; never reuse the old confirmation.
-5. Report configuration and state projection results separately. Refresh only proposes: report each repository&#39;s exact review branch, which a person approves by merging it, and any repository that needs a newer build with its install route. Retry only as the CLI directs; do not force-push or edit active Story snapshots.
+5. Report configuration and state projection results separately, then the CLI&#39;s `summary` lines as they are: whose `sflow/config` it updated and the old history and review branches it removed. Where the host refused the update, report the exact review branch and its link; report any repository that needs a newer build with its install route. Retry only as the CLI directs; do not force-push or edit active Story snapshots.
 
 Shell: `singularity-flow workspace refresh-configuration`. Copilot: `/sf-refresh-configuration`.
 </code></pre>

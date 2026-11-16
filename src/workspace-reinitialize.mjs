@@ -463,7 +463,8 @@ function cutoverSummary(result, requested) {
   const verified = repositories.length === result.total && result.total > 0
     && repositories.every(entry => entry.requested === true && entry.mode === 'hard');
   return { storyCutover: { requested: true, mode: 'hard', historicalBytes: 'preserved',
-    // A confirmed cutover is proposed like every refresh (SCF:REQ-014); it is retired once a person approves it.
+    // A confirmed cutover lands with the configuration it publishes [owner, 2026-11-16]; a proposed one (a review
+    // branch) is retired once a person merges it.
     status: verified && ['preview', 'complete', 'proposed'].includes(result.status)
       ? (result.dryRun ? 'planned' : result.status === 'proposed' ? 'proposed' : 'retired') : 'incomplete', repositories,
     statement: 'Known existing Stories are discontinued, read-only, and excluded from schema migration. Their branches and history remain intact. Start new Stories with new IDs.' } };
@@ -656,7 +657,8 @@ export async function reinitializeWorkspaces({
 
   const schemaBlocked = schemaBlockers.length > 0;
   const topologyBlocked = topologyChanged || topology.issues.length > 0;
-  // A confirmed plan proposes, like every refresh route (SCF:REQ-014): each review waits for a person to approve it.
+  // A confirmed plan publishes this build's configuration directly, like every refresh route [owner, 2026-11-16]; a
+  // repository whose host refuses the push keeps it on a review branch and makes the result partial.
   const status = refresh.status === 'blocked' ? 'blocked'
       : refresh.status === 'partial' || schemaBlocked || topologyBlocked ? 'partial'
         : refresh.status === 'proposed' ? 'proposed' : 'complete';
@@ -675,6 +677,7 @@ export async function reinitializeWorkspaces({
     failed: (refresh.failed ?? 0) + schemaBlockers.length
       + topology.issues.length,
     results: refresh.results,
+    ...(refresh.summary ? { summary: refresh.summary } : {}),
     configurationRefresh: refresh,
     ...worldModelMigrationSummary({ ...refresh, status }, migrateWorldModel),
     capabilityPortability,

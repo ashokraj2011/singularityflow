@@ -223,6 +223,40 @@ test('a Story whose only reviewer left takes the new reviewer from the approved 
   assert.equal(value.workflow.status, 'closed', 'the final check passed with the earlier decisions still verifying');
 });
 
+// [owner, 2026-11-16] The upgrade deletes every sflow/config-history/* branch and archive tag. A running Story never
+// needed them: it reads its own pinned copy, and its ancestry proof fetches sflow/config itself.
+test('a running Story still opens, revalidates and adopts approvers after the upgrade removes its history refs', async (t) => {
+  const { removeSupersededConfigurationRefs } = await import('../src/configuration-superseded-refs.mjs');
+  const value = await fixture(t);
+  const pinned = git(value.remote, 'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`);
+  // What an earlier build kept for the Story's pinned commit: a history branch and its archive tag.
+  git(value.remote, 'update-ref', `refs/heads/sflow/config-history/${pinned}`, pinned);
+  git(value.remote, 'update-ref', `refs/tags/sflow/config-history/${pinned}`, pinned);
+  await value.reload(); await value.publish(); await value.reload(); await value.submit(); await value.reload();
+  await value.configure((next) => { next.approvalAuthorities['engineering-reviewers'].members = [{ name: reviewer.name, email: reviewer.email, githubLogin: null }]; });
+  const current = git(value.remote, 'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`);
+  const removed = await removeSupersededConfigurationRefs(value.remote, { configurationCommit: current });
+  assert.equal(removed.status, 'removed', JSON.stringify(removed));
+  assert.deepEqual(removed.removed, { history: 1, archiveTags: 1, reviews: 0 });
+  assert.equal(git(value.remote, 'for-each-ref', 'refs/heads/sflow/config-history/', 'refs/tags/sflow/config-history/'), '');
+
+  // The Story opens from its own pin, and its snapshot verifies.
+  await value.reload();
+  assert.equal(value.workflow.phases.implementation.status, 'awaiting_approval');
+  assert.equal((await verifyWorkflowSnapshot(value.root, value.config, value.workflow, { requireAccepted: true })).revision, 1);
+  // It adopts the new approver: the ancestry proof reads sflow/config, never a history ref.
+  setActor(value.root, reviewer);
+  const preview = await refresh(value, { reason });
+  assert.equal(preview.status, 'ready', JSON.stringify(preview));
+  const recorded = await refresh(value, { reason, confirm: preview.planSha256 });
+  assert.equal(recorded.applied, true);
+  await value.reload();
+  assert.equal((await verifyWorkflowSnapshot(value.root, value.config, value.workflow, { requireAccepted: true })).revision, 2);
+  await value.approve();
+  await value.reload();
+  assert.equal(value.workflow.phases.implementation.status, 'approved');
+});
+
 test('a refresh changes only members of existing groups, and its replay refuses anything else', () => {
   const groups = { reviewers: { label: 'Reviewers', allowAnyGitIdentity: false, members: [{ email: 'a@example.invalid', githubLogin: null }] } };
   const offered = { reviewers: { label: 'Renamed', allowAnyGitIdentity: true, members: [{ email: 'b@example.invalid', githubLogin: null }] },

@@ -13,7 +13,7 @@ import {
   type WorkspaceFosAction, type WorkspaceFosOutcome, type WorkspaceRecoveryAction,
   isSafeWorkspaceReinitializationPreview, agentsHomeSummary
 } from './workspaces-model.ts';
-import { escape, icon, repositoryWebLink, reviewBranchName } from './webview.ts';
+import { escape, icon, repositoryWebLink } from './webview.ts';
 import { commandGuidanceHtml } from './command-guidance.ts';
 
 function rowHtml(row: WorkspaceRow, selected: string | null): string {
@@ -464,7 +464,10 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
           <td><span class="pill ${repository.configurationChanged ? 'wait' : 'ok'}">${repository.configurationChanged ? 'update' : 'current'}</span></td>
           <td><span class="pill ${repository.stateChanged ? 'wait' : 'ok'}">${escape(repository.stateStatus ?? (repository.stateChanged ? 'update' : 'current'))}</span></td>
           <td>${repository.error ? `<span class="blockers">${escape(repository.error)}</span>${repository.proposalBranch
-            ? `<br><span class="muted">Review <code>${escape(reviewBranchName(repository.proposalBranch))}</code></span>` : ''}`
+            // The full branch name and its link: a person finds and merges it on the Git host [owner, 2026-11-16].
+            ? `<br><span class="muted">Review <code>${escape(repository.proposalBranch)}</code>${repository.compareUrl
+              ? ` · <a href="${escape(repository.compareUrl)}">merge it on the Git host</a>` : ''}</span>` : ''}${repository.route
+            ? `<br><span class="muted">Resolve: <code>${escape(repository.route)}</code></span>` : ''}`
             : `<span class="muted">${escape(repository.files?.length ?? 0)} packaged files
               · ${escape(repository.conflicts?.length ?? 0)} preserved collisions</span>`}
             ${agentsHomeSummary(repository.agentsHome).length ? `<details><summary>${escape(agentsHomeSummary(repository.agentsHome)[0])}</summary><ul>${agentsHomeSummary(repository.agentsHome).slice(1).map((line) => `<li><code>${escape(line)}</code></li>`).join('')}</ul></details>` : ''}</td>

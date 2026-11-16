@@ -83,7 +83,7 @@ test('cleanup keeps squash proposals and refuses authority movement before or du
   }
 });
 
-test('cleanup can lease immutable approved history without updating the configuration branch', async () => {
+test('cleanup reads no history ref: the approved branch guards the deletion, and a history ref neither anchors nor blocks it', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-proposal-history-cleanup-test-'));
   const remote = path.join(base, 'remote.git');
   const checkout = path.join(base, 'checkout');
@@ -110,38 +110,29 @@ test('cleanup can lease immutable approved history without updating the configur
     run('git', ['merge', '--ff-only', branch], { cwd: checkout });
     const approvedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
     run('git', ['push', '-q', 'origin', 'sflow/config'], { cwd: checkout });
+    // An old history ref an earlier build left [owner, 2026-11-16: no history ref is read or written any more].
     const historyRef = `refs/heads/sflow/config-history/${approvedCommit}`;
     run('git', ['push', '-q', 'origin', `${approvedCommit}:${historyRef}`], { cwd: checkout });
 
-    // Even the retained-history guard is leased. If it changes after the first observation,
-    // deletion must not use an unproven history anchor.
+    // Moving that history ref during the push changes nothing: it is not part of the deletion.
     let movedHistory = false;
     const moveHistoryDuringPush = async (args, options) => {
       if (args[0] === 'push' && args.includes(`:refs/heads/${branch}`)) {
         movedHistory = true;
+        assert.equal(args.some((argument) => argument.includes('sflow/config-history')), false, 'no history ref in the push');
         run('git', ['--git-dir', remote, 'update-ref', historyRef, original]);
       }
       return runRemoteGitAsync(args, options);
     };
-    const raced = await cleanupActivatedConfigurationProposal(
+    const result = await cleanupActivatedConfigurationProposal(
       remote, branch, proposalCommit, approvedCommit,
       { proofRoot: checkout, runRemoteCommand: moveHistoryDuringPush }
     );
     assert.equal(movedHistory, true);
-    assert.equal(raced.status, 'retained');
-    assert.equal(raced.reason, 'deletion-refused');
-    assert.equal(run('git', ['--git-dir', remote, 'rev-parse', `refs/heads/${branch}`])
-      .stdout.trim(), proposalCommit);
-    run('git', ['--git-dir', remote, 'update-ref', historyRef, approvedCommit, original]);
-
-    const result = await cleanupActivatedConfigurationProposal(
-      remote, branch, proposalCommit, approvedCommit, { proofRoot: checkout }
-    );
     assert.equal(result.status, 'deleted');
-    assert.equal(result.anchor, 'approved-history');
-    assert.equal(run('git', ['--git-dir', remote, 'rev-parse', historyRef]).stdout.trim(), approvedCommit);
+    assert.equal(result.anchor, 'approved-configuration');
     assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'])
-      .stdout.trim(), approvedCommit);
+      .stdout.trim(), approvedCommit, 'the unchanged guard is never sent as an update');
     assert.equal(run('git', ['--git-dir', remote, 'show-ref', '--verify', '--quiet',
       `refs/heads/${branch}`], { allowFailure: true }).status, 1);
   } finally {

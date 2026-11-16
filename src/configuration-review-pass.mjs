@@ -1,11 +1,14 @@
 /**
- * A new build proposes its packaged configuration as reviews, once per build, from every surface.
+ * A new build brings every registered repository's `sflow/config` to its packaged configuration, once per build,
+ * from every surface [owner, 2026-11-16: "upgrade should ... let them update sflow/config directly without any review
+ * or merge request. It should be one click activity"].
  *
- * VS Code opens them after a new build loads. A terminal has no window to wait in, so a new build's
- * first mutation starts this pass as a detached worker instead: it runs the same review-only refresh
- * over every registered repository, and records what it opened for `singularity-flow product status`.
- * Nothing is applied. A person merges each review, and every machine on the same build joins the one
- * review already open.
+ * VS Code runs it after a new build loads: that one action is the click. A terminal has no window to wait in, so a
+ * new build's first mutation starts this pass as a detached worker instead. Either way it runs the same refresh the
+ * installer runs over each repository whose configuration lags this build, publishes it directly, removes the
+ * repository's superseded history and review branches, and records what it did for `singularity-flow product status`.
+ * Only a repository whose host refuses the push (branch protection) keeps the change on a review branch, recorded
+ * with its full name and a compare link. The build-order fence and the development-build refusal hold as in refresh.
  *
  * One pass runs on a machine at a time: the process doing the work holds an exclusive lease for as
  * long as it runs. A pass that failed, or could not check every repository, is tried again an hour
@@ -109,9 +112,10 @@ async function defaultRefresh(options) {
   return refreshWorkspaceConfigurations(options);
 }
 
-/** Repositories a refresh result could not check or propose, with why. */
+/** Repositories a refresh result could not check or update, with why. A host-refused review is reported apart. */
 function troubled(result) {
   return (result?.results ?? [])
+    .filter((entry) => !(entry.status === 'review-required' && entry.protectedBranch))
     .filter((entry) => entry.error || entry.status === 'failed' || entry.status === 'stale-plan')
     .map((entry) => Object.freeze({
       repository: entry.repository,
@@ -119,12 +123,15 @@ function troubled(result) {
     }));
 }
 
-function passResult(outcome, reviews = [], unfinished = [], reason = null) {
+function passResult(outcome, reviews = [], unfinished = [], reason = null, done = {}) {
   const why = reason ?? (unfinished.length
     ? unfinished.map((entry) => `${entry.repository}: ${entry.reason}`).join('; ') : null);
   return Object.freeze({
     outcome,
     reviews: Object.freeze([...reviews]),
+    ...(done.updated?.length ? { updated: Object.freeze([...done.updated]) } : {}),
+    ...(done.removedRefs?.total ? { removedRefs: Object.freeze({ ...done.removedRefs }) } : {}),
+    ...(done.summary?.length ? { summary: Object.freeze([...done.summary]) } : {}),
     ...(unfinished.length ? { unfinished: Object.freeze([...unfinished]) } : {}),
     ...(why ? { reason: bounded(why) } : {})
   });
@@ -145,9 +152,9 @@ function stalePlan(result) {
 }
 
 /**
- * Open a review for each registered repository whose approved configuration lags this build's
- * packaged configuration: preview, bind the plan to exactly the lagging repositories, then apply it
- * review-only. The same three steps the VS Code check runs through the CLI.
+ * Update each registered repository whose approved configuration lags this build's packaged configuration: preview,
+ * bind the plan to exactly the lagging repositories, then apply it, which publishes directly. The same three steps
+ * the VS Code check runs through the CLI.
  *
  * One unreachable repository stops the refresh's preview before any repository is compared, so the
  * reachable ones are compared on their own; the ones left unchecked keep the pass open for a retry.
@@ -189,15 +196,23 @@ export async function openConfigurationReviews({ registryFile, refresh = default
       return passResult('unavailable', [], [...unreachable, ...troubled(bound)],
         bound?.planId ? null : 'The bound preview returned no plan.');
     }
-    opened = await refresh({ registryFile, repositories: lagging, confirmPlan: bound.planId, reviewOnly: true });
+    opened = await refresh({ registryFile, repositories: lagging, confirmPlan: bound.planId });
     if (!stalePlan(opened)) break;
   }
+  const updated = (opened?.results ?? [])
+    .filter((entry) => entry.status === 'updated' && entry.configurationChanged)
+    .map(({ repository, remote = null, configurationCommit = null }) => Object.freeze({ repository, remote, configurationCommit }));
+  // Only a host that refused the push leaves a review: its full branch name and the link that merges it.
   const reviews = (opened?.results ?? [])
     .filter((entry) => entry.status === 'review-required' && entry.proposalBranch)
-    .map(({ repository, remote = null, proposalBranch }) => Object.freeze({ repository, remote, proposalBranch }));
+    .map(({ repository, remote = null, proposalBranch, compareUrl = null }) => Object.freeze({
+      repository, remote, proposalBranch, compareUrl
+    }));
   const failed = troubled(opened);
-  return passResult(reviews.length ? 'reviews-opened' : failed.length ? 'failed' : 'current',
-    reviews, [...unreachable, ...failed]);
+  const removed = opened?.supersededRefs?.removed ?? null;
+  const removedRefs = removed ? { ...removed, total: Number(opened.supersededRefs.total ?? 0) } : null;
+  return passResult(updated.length ? 'updated' : reviews.length ? 'reviews-opened' : failed.length ? 'failed' : 'current',
+    reviews, [...unreachable, ...failed], null, { updated, removedRefs, summary: opened?.summary ?? [] });
 }
 
 /**
@@ -235,6 +250,9 @@ export async function runConfigurationReviewWorker({
     const entry = {
       status: 'complete', completedAt: new Date().toISOString(),
       outcome: result.outcome, reviews: [...(result.reviews ?? [])].map((review) => ({ ...review })),
+      ...(result.updated?.length ? { updated: result.updated.map((item) => ({ ...item })) } : {}),
+      ...(result.removedRefs?.total ? { removedRefs: { ...result.removedRefs } } : {}),
+      ...(result.summary?.length ? { summary: [...result.summary] } : {}),
       ...(result.unfinished?.length ? { unfinished: result.unfinished.map((item) => ({ ...item })) } : {}),
       ...(result.reason ? { reason: result.reason } : {}), ...(result.code ? { code: result.code } : {})
     };

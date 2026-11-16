@@ -410,7 +410,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'upkeep' | '
   // promotes planning output, materializes Jira/Git state, or commits and pushes. The previous
   // inverse test classified all new subcommands as reads until somebody remembered this adapter.
   if (args[0] === 'configuration') {
-    if (['recreate-sync', 'cleanup-history'].includes(args[1] ?? '')) return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
+    if (args[1] === 'recreate-sync') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
     return READ_ONLY_CONFIGURATION_COMMANDS.has(args[1] ?? '') ? 'read' : 'mutation';
   }
   if (args[0] === 'precheck') {
@@ -1105,7 +1105,7 @@ export class SingularityFlowClient {
     if (args[0] === 'workspace' && args[1] === 'prepare-branch') return WORKSPACE_MUTATION_TIMEOUT_MS;
     // Configuration-only reconstruction still hydrates reviewed assets over the enterprise remote.
     // Do not interrupt its atomic archive/sync transaction at the ordinary two-minute read budget.
-    if (args[0] === 'configuration' && ['recreate-sync', 'reconcile', 'cleanup-history'].includes(args[1] ?? '')) return CAPABILITY_AUTHORITY_TIMEOUT_MS;
+    if (args[0] === 'configuration' && ['recreate-sync', 'reconcile'].includes(args[1] ?? '')) return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     // Engine bounds human browser review at 15 minutes; leave time for its guarded transaction.
     if (args[0] === 'appeal' && args[1] === 'evidence-accept' && enabledBooleanOption(args, 'review-ui')) return 20 * 60_000;
     // The dry-run only inventories bytes and stays under the ordinary bounded read deadline. Once

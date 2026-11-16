@@ -101,16 +101,35 @@ test('a resealed mirror cannot substitute changed bytes for the exact retained s
   await assert.rejects(loadStoryConfigurationSnapshot(await f.publish()), { code: 'STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH' });
 });
 
-test('missing history and wrong source-addressed history OIDs never become compatibility proof', async (t) => {
-  for (const which of ['missing', 'wrong']) await t.test(which, async (child) => {
-    const f = await fixture(child); const authority = await f.publish();
-    git(f.remote, 'update-ref', ...(which === 'missing' ? ['-d', `refs/heads/${f.historyBranch}`]
-      : [`refs/heads/${f.historyBranch}`, authority.commit]));
-    await assert.rejects(loadStoryConfigurationSnapshot(authority), { code: 'STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH' });
+// No history ref is read any more [owner, 2026-11-16]: the proof is the source commit itself, fetched by object, and a
+// commit this repository does not hold, or a receipt that names another, never becomes compatibility proof.
+test('a source commit the repository does not hold, or a mismatched receipt, never becomes compatibility proof', async (t) => {
+  for (const which of ['absent', 'receipt']) await t.test(which, async (child) => {
+    const f = await fixture(child);
+    if (which === 'absent') {
+      const foreign = 'f'.repeat(40);
+      f.manifest.source.commit = foreign;
+      f.manifest.history = { branch: `sflow/config-history/${foreign}`, commit: foreign };
+    } else {
+      f.manifest.history = { ...f.manifest.history, commit: 'e'.repeat(40) };
+    }
+    const authority = await f.publish();
+    await assert.rejects(loadStoryConfigurationSnapshot(authority), (error) =>
+      ['STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH', 'STATE_CONFIGURATION_MIRROR_INVALID'].includes(error.code));
   });
 });
 
 test('legacy exact Git proof refuses oversized selected blobs rather than using live files', async (t) => {
   const f = await fixture(t, { oversized: true });
   await assert.rejects(loadStoryConfigurationSnapshot(await f.publish()), { code: 'STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH' });
+});
+
+// [owner, 2026-11-16] The upgrade deletes every history branch: the legacy proof fetches its source commit by object.
+test('the legacy proof holds after the history branch is gone: it fetches the source commit by object', async (t) => {
+  const f = await fixture(t); const authority = await f.publish();
+  git(f.remote, 'update-ref', '-d', `refs/heads/${f.historyBranch}`);
+  assert.equal(git(f.remote, 'for-each-ref', 'refs/heads/sflow/config-history/'), '');
+  const snapshot = await loadStoryConfigurationSnapshot(authority);
+  assert.equal(snapshot.sourceCommit, authority.sourceCommit);
+  assert.equal(await legacyStateMirrorMatchesRepository(f.mirror, f.remote), true);
 });

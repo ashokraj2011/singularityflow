@@ -8416,10 +8416,10 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
     if (['not-synced', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;
   }
   else if (subcommand === 'cleanup-history') {
-    result = await import('./configuration-history-cleanup.mjs').then(({ cleanupConfigurationHistory }) =>
-      cleanupConfigurationHistory(root, { apply: optionBoolean(options, 'apply'),
-        confirm: optionString(options, 'confirm'), keep: Number(optionString(options, 'keep-recent', '10')) }));
-    if (['not-cleaned', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;
+    // Removed [owner, 2026-11-16]: an upgrade deletes the old history refs itself. Refused by name, saying what replaced it.
+    throw new SingularityFlowError('configuration cleanup-history was removed: an upgrade now deletes every old '
+      + 'sflow/config-history/* branch, its archive tag and every sflow/config-refresh/* review branch itself. Run '
+      + 'singularity-flow workspace refresh-configuration. Nothing was changed.', { code: 'CONFIGURATION_CLEANUP_HISTORY_REMOVED' });
   }
   else if (subcommand === 'explain') result = await import('./initialization/explain.mjs').then(({ explainSmartInitialization }) => (
     explainSmartInitialization(root, { pointer: optionString(options, 'pointer') })
@@ -9303,7 +9303,8 @@ async function workspaceCommand(positionals, options) {
       acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts'),
       resolutions: optionMap(optionStrings(options, 'resolve'), '--resolve'),
       confirmPlan: optionString(options, 'confirm-plan'),
-      // Propose on review branches and never push sflow/config itself: what self-repair runs.
+      // Propose on review branches and never push sflow/config itself, when a person asks for that. Otherwise the
+      // refresh publishes this build's configuration directly [owner, 2026-11-16].
       reviewOnly: optionBoolean(options, 'review-only')
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
@@ -9321,9 +9322,13 @@ async function workspaceCommand(positionals, options) {
         }
         for (const line of agentsHomeLines(item.agentsHome)) console.log(line);
         if (item.proposalBranch) console.log(`    Review branch: ${item.proposalBranch}`);
+        if (item.compareUrl) console.log(`    Merge it here: ${item.compareUrl}`);
         if (item.error) console.log(`    ${item.error}`);
+        if (item.route) console.log(`    Resolve: ${item.route}`);
       }
       for (const warning of result.warnings ?? []) console.log(`  Warning: ${warning}`);
+      // What happened, in one place: the repositories updated and the old refs removed [owner, 2026-11-16].
+      for (const line of result.summary ?? []) console.log(line);
       // A preview's plan is confirmed by its short code, never its plan ID (confirm-code.mjs).
       if (result.dryRun && result.planId) {
         const workspace = positionals[2] ?? optionString(options, 'workspace');
@@ -9338,15 +9343,15 @@ async function workspaceCommand(positionals, options) {
         if (stalePlan) {
           console.log('Do not repeat that confirmation: the plan changed. Remove --confirm-plan, add --dry-run, review the refreshed preview, then confirm it by the code it gives.');
         } else if (['proposed', 'partial'].includes(result.status) && result.results.some((item) => item.agentsHome?.status === 'proposed' && item.proposalBranch)) {
-          // [AGH:REQ-016] the move is approved by merging its review, like any package proposal (SCF:REQ-014).
-          console.log('Merge each review branch into sflow/config to approve it and its agents move: sflow/config changes only then. Re-run this command afterwards to complete the state mirror.');
+          // [AGH:REQ-016] only a host that refused the push leaves the move on a review [owner, 2026-11-16].
+          console.log('Merge each review branch above into sflow/config to land it and its agents move. Re-run this command afterwards to complete the state mirror.');
         } else if (result.status === 'partial') {
-          console.log('Each repository marked failed or needs-newer-build says why, and held up no other. Correct that, then re-run the same command; current repositories become no-ops.');
+          console.log('Each repository above that needs a person says why and what to do, and held up no other. After that, re-run the same command; current repositories become no-ops.');
         } else if (result.status === 'blocked') {
           console.log('Correct the reported blocker, then create a fresh --dry-run preview before applying.');
         } else if (result.status === 'proposed') {
-          // Refresh only proposes (SCF:REQ-014): sflow/config changes when a person approves each review.
-          console.log('Proposed: each review branch above holds this build\'s packaged configuration. sflow/config changes only when a person approves it by merging that branch.');
+          // --review-only: sflow/config changes when a person merges each review branch.
+          console.log('Proposed, as --review-only asked: each review branch above holds this build\'s packaged configuration. sflow/config changes when a person merges it.');
         } else {
           console.log('Configuration and state projections verified.');
         }
@@ -9407,10 +9412,8 @@ async function workspaceCommand(positionals, options) {
       });
       else if (result.status === 'complete') {
         console.log('Framework-seeded configuration assets, configuration state projections, and readable schema versions are current. Capability state was unchanged.');
-      } else if (result.status === 'proposed') {
-        for (const item of result.results ?? []) if (item.proposalBranch) console.log(`  ${item.repository}: review branch ${item.proposalBranch}`);
-        console.log('Proposed: sflow/config changes only when a person approves each review branch above by merging it.');
       }
+      for (const line of result.summary ?? []) console.log(line);
     }
     if (['blocked', 'partial'].includes(result.status)) process.exitCode = 2;
     return result;

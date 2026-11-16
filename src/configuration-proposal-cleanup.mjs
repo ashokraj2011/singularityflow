@@ -2,9 +2,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
-import {
-  CONFIGURATION_BRANCH, stateConfigurationHistoryBranch
-} from './configuration-branch.mjs';
+import { CONFIGURATION_BRANCH } from './configuration-branch.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { frozenRemoteTransport } from './git-remote-diagnostics.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
@@ -41,10 +39,9 @@ export async function cleanupActivatedConfigurationProposal(remote, branch, prop
     const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
     const proposalRef = `refs/heads/${branch}`;
     const approvedRef = `refs/heads/${CONFIGURATION_BRANCH}`;
-    const historyRef = `refs/heads/${stateConfigurationHistoryBranch(approvedCommit)}`;
     session.invalidate(remote);
     const before = await session.observeAsync(remote, {
-      refs: [proposalRef, approvedRef, historyRef], includeHead: false, refresh: true
+      refs: [proposalRef, approvedRef], includeHead: false, refresh: true
     });
     if (!before.ok) return retained('remote-observation-unavailable');
     const currentProposal = before.refs.get(proposalRef) ?? null;
@@ -81,11 +78,9 @@ export async function cleanupActivatedConfigurationProposal(remote, branch, prop
       }
     } catch { return retained('ancestry-unavailable'); }
 
-    // A matching immutable history ref can anchor the approved commit without asking a provider
-    // to accept a no-op update to its protected sflow/config branch. Otherwise the exact approved
-    // ref itself is the atomic no-op guard. In either case the source ref has its own exact lease.
-    const anchored = before.refs.get(historyRef) === approvedCommit;
-    const guardRef = anchored ? historyRef : approvedRef;
+    // The exact approved ref is the atomic no-op guard, and the source ref has its own exact lease. No
+    // history ref anchors it any more [owner, 2026-11-16]: an unchanged guard is never sent as an update.
+    const guardRef = approvedRef;
 
     const pushed = await runRemoteCommand([
       'push', '--porcelain', '--atomic',
@@ -102,8 +97,7 @@ export async function cleanupActivatedConfigurationProposal(remote, branch, prop
     if (!after.ok) return retained('deletion-outcome-unknown');
     const remaining = after.refs.get(proposalRef) ?? null;
     if (remaining == null) return {
-      ...base, status: 'deleted', reconciled: pushed.status !== 0,
-      anchor: anchored ? 'approved-history' : 'approved-configuration'
+      ...base, status: 'deleted', reconciled: pushed.status !== 0, anchor: 'approved-configuration'
     };
     return retained(remaining === proposalCommit ? 'deletion-refused' : 'proposal-moved');
   } catch {

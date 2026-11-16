@@ -173,7 +173,7 @@ export function agentsHomeLines(agentsHome, indent = '    ') {
   if (agentsHome.status === 'proposed') {
     lines.push(`${indent}  Stories already running keep their own agents; new Stories use ${agentsHome.to}.`);
     // [AGH:REQ-030] an earlier build would move them back.
-    lines.push(`${indent}  Before it is approved, every teammate needs a build that reads ${agentsHome.to}; an earlier one moves the agents back.`);
+    lines.push(`${indent}  Every teammate needs a build that reads ${agentsHome.to}; an earlier one's refresh is refused for this repository.`);
   }
   return lines;
 }

@@ -3,26 +3,26 @@
   "specification": "SDA-v1 M0 inventory",
   "summary": {
     "gitSites": {
-      "total": 1435,
-      "read": 818,
-      "write": 351,
+      "total": 1439,
+      "read": 819,
+      "write": 355,
       "remote": 155,
-      "dynamic": 111
+      "dynamic": 110
     },
-    "gitModules": 185,
-    "directLocalGitSitesOutsideGitModules": 983,
-    "localGitReadsOutsideGitModules": 615,
-    "writeSites": 1200,
-    "yamlReadModules": 122,
+    "gitModules": 184,
+    "directLocalGitSitesOutsideGitModules": 984,
+    "localGitReadsOutsideGitModules": 613,
+    "writeSites": 1203,
+    "yamlReadModules": 124,
     "lifetimes": 60,
-    "timeouts": 189,
+    "timeouts": 188,
     "byClass": {
       "shared-state": {
         "modules": 137,
         "gitSites": 704,
-        "gitWrites": 186,
-        "gitRemote": 93,
-        "writeSites": 382
+        "gitWrites": 188,
+        "gitRemote": 91,
+        "writeSites": 384
       },
       "artifact": {
         "modules": 29,
@@ -43,7 +43,7 @@
         "gitSites": 28,
         "gitWrites": 5,
         "gitRemote": 5,
-        "writeSites": 169
+        "writeSites": 170
       },
       "local-operational": {
         "modules": 23,
@@ -61,9 +61,9 @@
       },
       "source-control": {
         "modules": 76,
-        "gitSites": 545,
-        "gitWrites": 128,
-        "gitRemote": 43,
+        "gitSites": 549,
+        "gitWrites": 130,
+        "gitRemote": 45,
         "writeSites": 208
       },
       "surface": {
@@ -197,6 +197,14 @@
           "kind": "lifetime"
         }
       ]
+    },
+    {
+      "module": "agents-home-migration.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 2,
+      "lifetimes": []
     },
     {
       "module": "agents.mjs",
@@ -1280,13 +1288,13 @@
       "module": "configuration-branch.mjs",
       "class": "shared-state",
       "git": {
-        "read": 20,
-        "write": 11,
-        "remote": 13,
+        "read": 19,
+        "write": 14,
+        "remote": 11,
         "dynamic": 3
       },
-      "localReads": 18,
-      "writes": 12,
+      "localReads": 17,
+      "writes": 13,
       "yamlReads": 5,
       "lifetimes": [
         {
@@ -1313,40 +1321,22 @@
       "lifetimes": []
     },
     {
-      "module": "configuration-history-auto-clean.mjs",
-      "class": "shared-state",
-      "git": {
-        "write": 1
-      },
-      "writes": 0,
-      "yamlReads": 0,
-      "lifetimes": []
-    },
-    {
-      "module": "configuration-history-cleanup.mjs",
-      "class": "shared-state",
-      "git": {
-        "read": 1,
-        "write": 1,
-        "dynamic": 1
-      },
-      "localReads": 1,
-      "writes": 0,
-      "yamlReads": 0,
-      "lifetimes": [
-        {
-          "name": "timeoutMs",
-          "value": 15000,
-          "kind": "timeout"
-        }
-      ]
-    },
-    {
       "module": "configuration-intent-replay.mjs",
       "class": null,
       "git": {},
       "writes": 0,
       "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-local-history-prune.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3,
+        "write": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
       "lifetimes": []
     },
     {
@@ -1984,8 +1974,8 @@
         "write": 2
       },
       "localReads": 5,
-      "writes": 21,
-      "yamlReads": 0,
+      "writes": 22,
+      "yamlReads": 1,
       "lifetimes": []
     },
     {
@@ -4289,12 +4279,12 @@
       "class": "source-control",
       "git": {
         "read": 17,
-        "write": 7,
+        "write": 9,
         "dynamic": 5
       },
       "localReads": 16,
       "writes": 10,
-      "yamlReads": 11,
+      "yamlReads": 10,
       "lifetimes": []
     },
     {
@@ -4742,7 +4732,7 @@
         "remote": 1,
         "dynamic": 2
       },
-      "writes": 3,
+      "writes": 2,
       "yamlReads": 1,
       "lifetimes": []
     },
@@ -5564,7 +5554,7 @@
       "class": null,
       "git": {},
       "writes": 0,
-      "yamlReads": 2,
+      "yamlReads": 3,
       "lifetimes": []
     },
     {
@@ -5892,7 +5882,7 @@
       "git": {
         "read": 19,
         "write": 12,
-        "remote": 7
+        "remote": 9
       },
       "localReads": 19,
       "writes": 33,

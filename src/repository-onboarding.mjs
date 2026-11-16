@@ -25,7 +25,6 @@ import {
   capabilityTree, flattenCapabilityTree, loadCapabilities
 } from './capabilities.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
-import { configurationHistoryRefs, retainedConfigurationHistoryRef } from './configuration-history-refs.mjs';
 import {
   CAPABILITY_AUTHORITY_LINK_PATH, validateCapabilityAuthorityLink
 } from './capability-authority-link.mjs';
@@ -178,15 +177,6 @@ function cacheableClassification(state, configuration) {
         && state.validationError == null && (state.seedChanges?.length ?? 0) === 0));
 }
 
-function legacyProofStillObserved(state, observation) {
-  // The classifier proves an unbound legacy mirror from its retained history branch. That branch is
-  // not part of the cache identity, so a reused proof needs the same freshly observed history ref.
-  if (state?.kind !== 'configuration-mirror' || state.subjectBound === true) return true;
-  const branch = state.history?.branch;
-  return typeof branch === 'string' && exactCommit(state.history.commit)
-    && observation.refs.get(`refs/heads/${branch}`) === state.history.commit;
-}
-
 async function readClassificationCache(identity, env, observation) {
   if (!identity) return null;
   try {
@@ -197,9 +187,9 @@ async function readClassificationCache(identity, env, observation) {
         || info.size > CLASSIFICATION_CACHE_MAX_BYTES) return null;
     const stored = JSON.parse(await readFile(file, 'utf8'));
     const { digest, ...record } = stored;
+    // A legacy mirror's proof fetches its source commit by object, which names no ref that could move since.
     if (digest !== `sha256:${recordSha256(record)}`
-        || !cacheableClassification(record.state, record.configuration)
-        || !legacyProofStillObserved(record.state, observation)) return null;
+        || !cacheableClassification(record.state, record.configuration)) return null;
     const { stateCommit: recordedState, ...recordedRest } = record.identity ?? {};
     const { stateCommit: observedState, ...observedRest } = identity;
     // The configuration verdict is keyed by its own exact commit and the executable build.
@@ -1485,51 +1475,6 @@ async function verifyDeliveryLocator(repository, state, { refresh = false } = {}
   }
 }
 
-async function proveLegacyMirrorBinding(repository, state, {
-  env, runRemoteCommand, session, cleanupWarnings = [], cleanupQueueRoot = null
-}) {
-  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
-  if (state.kind !== 'configuration-mirror' || state.subjectBound === true
-      || !state.history?.branch || !state.history?.commit) return state;
-  const historyRefs = configurationHistoryRefs(state.history.commit);
-  const observed = await session.observeAsync(repository, {
-    includeHead: false, refs: [historyRefs.branch, historyRefs.archive]
-  });
-  if (!observed.ok) return state;
-  try { if (!retainedConfigurationHistoryRef(observed.refs, state.history.commit)) return state; }
-  catch (error) {
-    if (error.code === 'STATE_CONFIGURATION_HISTORY_COLLISION') return state;
-    throw error;
-  }
-  const retained = await cloneObservedBranch(
-    repository, state.history.branch, state.history.commit, {
-      env, runRemoteCommand, prefix: 'sflow-onboarding-legacy-proof-', cleanupQueueRoot: queueRoot
-    }
-  );
-  return withDisposableReadSnapshot(retained.scratch, async () => {
-    try {
-      if (!await retainedHistoryMatchesMirror(retained.scratch, state, retained.env)) return state;
-      const portfolioFile = await regularFile(retained.scratch, 'singularity/portfolio.yml');
-      if (!portfolioFile) return state;
-      const portfolio = parseYaml(await readFile(portfolioFile), 'Retained portfolio');
-      const repositoryMatches = Object.values(portfolio?.repositories ?? {})
-        .filter((entry) => sameGitRepository(entry?.url, repository));
-      if (repositoryMatches.length !== 1) return state;
-      return Object.freeze({
-        ...state,
-        repositoryBound: true,
-        legacyBinding: Object.freeze({
-          method: 'retained-history-and-portfolio',
-          branch: state.history.branch,
-          commit: state.history.commit
-        })
-      });
-    } catch {
-      return state;
-    }
-  }, { cleanupWarnings, cleanupQueueRoot: queueRoot });
-}
-
 function deriveAutomaticSetup(state, configuration) {
   if (state.kind === 'invalid') return {
     status: 'state-branch-not-recognized', primaryAction: 'choose-another-state-branch',
@@ -1861,11 +1806,10 @@ export async function inspectRepositoryOnboarding(remote, {
   if (deferredCleanup.retained > 0) cleanupWarnings.push(TEMPORARY_CLEANUP_BACKLOG_WARNING);
   const stateRef = `refs/heads/${branch}`;
   let observation = await session.observeAsync(repository, {
-    includeHead: true, refs: [CONFIGURATION_REF, stateRef,
-      'refs/heads/sflow/config-history/*', 'refs/tags/sflow/config-history/*', `refs/heads/${ONBOARDING_REVIEW_PREFIX}*`]
+    includeHead: true, refs: [CONFIGURATION_REF, stateRef, `refs/heads/${ONBOARDING_REVIEW_PREFIX}*`]
   });
   if (!observation.ok) {
-    // A provider may refuse/overflow retained-history inventory while answering the exact current
+    // A provider may refuse/overflow the review-branch inventory while answering the exact current
     // authorities. A failed broad request is not absence and cannot suppress this narrow retry.
     observation = await session.observeAsync(repository, {
       includeHead: true, refs: [CONFIGURATION_REF, stateRef]
@@ -1910,10 +1854,6 @@ export async function inspectRepositoryOnboarding(remote, {
   const classifiedState = state;
   if (state.kind === 'delivery-locator') {
     state = await verifyDeliveryLocator(repository, state, { refresh });
-  } else if (state.kind === 'configuration-mirror' && state.repositoryBound !== true) {
-    state = await proveLegacyMirrorBinding(repository, state, {
-      env: gitEnv, runRemoteCommand, session, cleanupWarnings, cleanupQueueRoot: queueRoot
-    });
   }
   const configurationCommit = observation.refs.get(CONFIGURATION_REF) ?? null;
   // A matching record's configuration verdict is keyed by this exact configuration commit and
@@ -1930,11 +1870,6 @@ export async function inspectRepositoryOnboarding(remote, {
   const setup = deriveModeSetup(selectedMode, state, configuration);
   const relevantRefs = [CONFIGURATION_REF, stateRef];
   const supplementalRefs = [];
-  if (state.kind === 'configuration-mirror' && state.history?.branch) {
-    const historyRefs = configurationHistoryRefs(state.history.commit);
-    relevantRefs.push(historyRefs.branch, historyRefs.archive);
-    supplementalRefs.push(historyRefs.branch, historyRefs.archive);
-  }
   if (!configurationCommit && setup.effects.some((effect) =>
     effect.kind === 'configuration-recreate' && effect.action === 'create')) {
     if (observation.refs.get('HEAD')) relevantRefs.push('HEAD');
@@ -2417,15 +2352,39 @@ async function retainedHistoryMatchesMirror(root, state, env) {
   return true;
 }
 
-async function restoreConfiguration(remote, plan, context) {
-  const historyBranch = plan.state.history?.branch;
-  const historyCommit = plan.state.history?.commit;
-  if (historyBranch && historyCommit
-      && retainedConfigurationHistoryRef(new Map(Object.entries(plan.observedRefs)), historyCommit)) {
-    const retained = await cloneObservedBranch(remote, historyBranch, historyCommit, {
-      env: context.env, runRemoteCommand: context.runRemoteCommand,
-      prefix: 'sflow-onboarding-history-', cleanupQueueRoot: context.cleanupQueueRoot
+/**
+ * The exact approved commit a state mirror names, fetched from the same repository by its object ID into a disposable
+ * checkout; null when the host no longer has it. No history ref carries it any more [owner, 2026-11-16].
+ */
+async function sourceCommitCheckout(remote, commit, context) {
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env: context.env, root: context.cleanupQueueRoot });
+  const transport = frozenRemoteTransport(remote, { env: context.env });
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-history-'));
+  try {
+    const initialized = run('git', ['init', '--quiet', scratch], { env: transport.env, allowFailure: true });
+    if (initialized.status !== 0) throw new Error('git init failed');
+    const fetched = await (context.runRemoteCommand ?? runRemoteGitAsync)([
+      '-c', 'core.autocrlf=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'protocol.version=2',
+      'fetch', '--quiet', '--no-tags', '--depth', '1', '--', transport.remote,
+      `+${commit}:refs/singularity/onboarding/source`
+    ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+    if (fetched.status !== 0) throw new Error('the source commit is not available by object');
+    await assertSnapshotQuota(scratch);
+    const placed = run('git', ['-c', 'core.autocrlf=false', 'checkout', '--quiet', '--detach', commit], {
+      cwd: scratch, env: transport.env, allowFailure: true
     });
+    if (placed.status !== 0) throw new Error('the source commit could not be checked out');
+    return { scratch, commit, env: transport.env };
+  } catch (error) {
+    try { await cleanupAfterFailure(scratch, error, queueRoot); } catch { /* the mirror reconstruction follows */ }
+    return null;
+  }
+}
+
+async function restoreConfiguration(remote, plan, context) {
+  const historyCommit = plan.state.history?.commit;
+  const retained = exactCommit(historyCommit) ? await sourceCommitCheckout(remote, historyCommit, context) : null;
+  if (retained) {
     const restored = await withDisposableMutationCheckout(retained.scratch, async () => {
       if (await retainedHistoryMatchesMirror(
         retained.scratch, plan.state, retained.env
@@ -2692,8 +2651,7 @@ async function refreshStateProjection(remote, configurationCommit, context) {
     const projection = await publishOrganisationCapabilityMap(remote, {
       expectedConfigurationCommit: configurationCommit,
       initiatingRoot: context.initiatingRoot, initiatingEnv: context.initiatingEnv,
-      publishAuthorityLinks: false, allowConfigurationOnly: true,
-      retainConfigurationHistory: false
+      publishAuthorityLinks: false, allowConfigurationOnly: true
     });
     const pending = !['current', 'updated'].includes(projection.status);
     return {

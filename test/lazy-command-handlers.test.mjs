@@ -1001,6 +1001,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,268,650 (measured 4,268,636): the same, for an open next version [2026-11-16].
   // 4,269,550 (measured 4,269,516): a step name typed by mistake names the Story's steps (util.mjs unknownStepDetails +880)
   // [2026-11-16]. No new eager file.
+  // 4,268,300 (measured 4,268,279): upgrade-direct merged with main 5a1d62130: the upgrade clears each registered clone's
+  // stale history copies through one registered query (git-query.mjs configuration.local-superseded-refs, +510), and
+  // configuration history cleanup and its refs helper are removed [owner, 2026-11-16]. No new eager file.
   assert.ok(current.bytes <= 4_269_550, `session current loads ${current.bytes} source bytes`);
 });
 

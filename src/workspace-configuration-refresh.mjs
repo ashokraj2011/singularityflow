@@ -13,10 +13,10 @@ import { BUILD_INFO } from './build-info.mjs';
 import {
   canonicalConfigurationAssets, configurationAssetPaths, CONFIGURATION_BRANCH,
   configurationAssetPolicyFromDirectory, configurationAssetPolicyFromRef,
-  ensureConfigurationBranch, isConfigurationAsset, prepareConfigurationBootstrapWorktree,
-  retainStateConfigurationHistory,
-  stateConfigurationHistoryBranch
+  ensureConfigurationBranch, isConfigurationAsset, prepareConfigurationBootstrapWorktree
 } from './configuration-branch.mjs';
+import { compareLink, removedRefsSummary, removeSupersededConfigurationRefs } from './configuration-superseded-refs.mjs';
+import { pruneLocalSupersededConfigurationRefs } from './configuration-local-history-prune.mjs';
 import {
   configurationAssetPolicy, configurationAssetSearchRoots, mergeConfigurationAssetPolicies,
   portableConfigurationPath, portableFilesystemPathIdentity
@@ -34,7 +34,8 @@ import { configurationCommitIdentity, refHead } from './git.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
-import { resolvedGitRepositoryComparisonKey } from './git-repository-identity.mjs';
+import { gitRepositoryComparisonKey, resolvedGitRepositoryComparisonKey } from './git-repository-identity.mjs';
+import { recordSha256 } from './records.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
@@ -1981,7 +1982,7 @@ async function prepareBootstrapInspectionCandidate(observation, options, {
     });
     let refresh = await refreshPackagedConfiguration(scratch, options);
     if (options.hardCutover) refresh = await stageStoryHardCutover(scratch, repository, bootstrapCommit, refresh);
-    const desired = await desiredStateProjection(scratch, { env: transport.env });
+    const desired = await desiredStateProjection(scratch, { env: transport.env, repository });
     assertDedicatedStateAuthority(repository, desired);
     const stateCommit = await fetchStateRefAsync(scratch, desired.stateConfig, {
       env: transport.env
@@ -2806,7 +2807,16 @@ async function fetchStateRefAsync(root, config, { env = process.env, observation
   return fetchedCommit;
 }
 
-async function desiredStateProjection(root, { env = process.env } = {}) {
+/**
+ * The repository a state mirror belongs to, as capability publication records it. A mirror that names its repository
+ * needs no history ref to prove it (configuration-branch.mjs), so the refresh writes one and no history ref.
+ */
+function stateMirrorSubject(repository) {
+  const repositoryKey = repository?.remote ? gitRepositoryComparisonKey(repository.remote) : null;
+  return repositoryKey ? { repositoryIdentity: `sha256:${recordSha256({ repositoryKey })}` } : null;
+}
+
+async function desiredStateProjection(root, { env = process.env, repository = null } = {}) {
   const policy = await configurationAssetPolicyFromDirectory(root);
   const paths = await configurationAssetPaths(root, policy);
   const files = {};
@@ -2827,7 +2837,8 @@ async function desiredStateProjection(root, { env = process.env } = {}) {
     assets: Object.fromEntries(Object.entries(assets).sort(([left], [right]) => left.localeCompare(right))),
     approved,
     policy,
-    stateConfig: stateConfiguration(approved)
+    stateConfig: stateConfiguration(approved),
+    subject: stateMirrorSubject(repository)
   };
 }
 
@@ -2880,9 +2891,9 @@ function observeStateProjection(root, desired, sourceCommit, product, {
     && manifest?.layout === 'canonical-paths'
     && manifest?.source?.branch === CONFIGURATION_BRANCH
     && manifest?.source?.commit === sourceCommit
-    && equal(manifest?.history ?? null, {
-      branch: stateConfigurationHistoryBranch(sourceCommit), commit: sourceCommit
-    })
+    // No history ref is retained any more [owner, 2026-11-16]: the mirror names its repository instead.
+    && manifest?.history == null
+    && equal(manifest?.subject ?? null, desired.subject ?? null)
     && manifest?.product?.revision === product.revision
     && equal(manifest?.files ?? {}, desired.hashes)
     && equal(manifest?.assets ?? {}, desired.assets);
@@ -3021,7 +3032,7 @@ async function prepareCandidate(repository, options, { env = process.env } = {})
     const sourceCommit = sourceRef.commit;
     let refresh = await refreshPackagedConfiguration(root, options);
     if (options.hardCutover) refresh = await stageStoryHardCutover(root, repository, sourceCommit, refresh);
-    const desired = await desiredStateProjection(root, { env: gitEnv });
+    const desired = await desiredStateProjection(root, { env: gitEnv, repository });
     assertDedicatedStateAuthority(repository, desired);
     const stateCommit = await fetchStateRefAsync(root, desired.stateConfig, { env: gitEnv });
     assertExistingStateAuthority(root, repository, desired, stateCommit, { env: gitEnv });
@@ -3086,7 +3097,7 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
     });
     let refresh = await refreshPackagedConfiguration(root, options);
     if (options.hardCutover) refresh = await stageStoryHardCutover(root, observation.repository, sourceCommit, refresh);
-    const desired = await desiredStateProjection(root, { env: transport.env });
+    const desired = await desiredStateProjection(root, { env: transport.env, repository: observation.repository });
     assertDedicatedStateAuthority(observation.repository, desired);
     if (desired.stateConfig.branch !== entry.stateBranch) {
       throw new Error('cached state branch no longer matches approved configuration');
@@ -3197,6 +3208,20 @@ function refreshPreflightFailure(observation, error) {
   const conflicts = Array.isArray(error?.details?.conflicts)
     ? error.details.conflicts.filter((entry) => entry && typeof entry.path === 'string')
     : [];
+  // Today's conflict rule keeps the team's own edit and reports it; it blocks only when the team's kept file and this
+  // build's configuration no longer work together. Then one command takes this build's file for each kept path, in
+  // this repository only [owner, 2026-11-16].
+  const preserved = conflicts
+    .filter((entry) => entry.resolution === 'preserved-local' || entry.resolution === 'preserved-local-deletion')
+    .map((entry) => entry.path).sort();
+  // A kept file (an agent, template or prompt) is what stops a contract that is no longer operational; a kept workflow
+  // value is the team's own choice, so the route takes this build's version of the kept files only, when there are any.
+  const keptFiles = preserved.filter((relative) => !relative.startsWith('workflow.'));
+  const resolve = keptFiles.length ? keptFiles : preserved;
+  const route = error?.code === 'CONFIGURATION_REFRESH_INVALID' && resolve.length
+    ? ['singularity-flow', 'workspace', 'refresh-configuration', '--repository', observation.repository.id,
+      ...resolve.flatMap((relative) => ['--resolve', `${relative}=bundled`])].join(' ')
+    : null;
   const repairPaths = conflicts
     .filter((entry) => /^(?:\.github|singularity)\/agents\//u.test(entry.path)
       && (entry.resolution === 'preserved-local' || entry.resolution === 'preserved-local-deletion'))
@@ -3215,6 +3240,7 @@ function refreshPreflightFailure(observation, error) {
       label: 'Restore packaged agents',
       paths: repairPaths
     } : null,
+    ...(route ? { route } : {}),
     error: refreshErrorMessage(error) ?? 'Configuration refresh preflight failed.'
   };
 }
@@ -3278,8 +3304,31 @@ async function openReviewCommit(root, proposal, env) {
 }
 
 /**
- * A review-only refresh proposes each packaged configuration change on a review branch and never
- * pushes `sflow/config` itself. It is what self-repair runs: a person approves the change.
+ * Push a candidate commit to its review branch, or join the same review another machine already opened: the
+ * commit's review name and the commit that branch holds. Throws when neither happened.
+ */
+async function openReviewBranch(candidate, candidateCommit) {
+  const { root, repository, sourceCommit } = candidate;
+  const env = candidate.gitEnv ?? process.env;
+  const proposal = reviewProposal(root, candidateCommit, sourceCommit, env);
+  const pushed = await runRemoteGitAsync([
+    'push', `--force-with-lease=refs/heads/${proposal.branch}:`, 'origin', `HEAD:refs/heads/${proposal.branch}`
+  ], { cwd: root, operation: 'remote-push', env });
+  if (pushed.status === 0) return { candidateCommit, proposalBranch: proposal.branch };
+  // Another machine, or an earlier attempt whose push outcome was lost, opened this exact review.
+  const open = await openReviewCommit(root, proposal, env);
+  if (!open) {
+    throw new SingularityFlowError(
+      `The configuration review for '${repository.displayRemote}' could not be opened. `
+        + remoteFailureMessage(pushed)
+    );
+  }
+  return { candidateCommit: open, proposalBranch: proposal.branch, ...(open === candidateCommit ? {} : { reviewShared: true }) };
+}
+
+/**
+ * `--review-only` proposes each packaged configuration change on a review branch and never pushes `sflow/config`
+ * itself: a person merges it. It is a choice a person makes; an upgrade publishes directly [owner, 2026-11-16].
  */
 async function proposeCandidate(candidate) {
   const { root, repository, refresh, sourceCommit } = candidate;
@@ -3294,51 +3343,108 @@ async function proposeCandidate(candidate) {
   if (!refresh.changed || refresh.productStampOnly) return result('current');
   const candidateCommit = commitRefreshCandidate(root, refresh, env, 'propose packaged configuration', repository);
   if (!candidateCommit) return result('current');
-  const proposal = reviewProposal(root, candidateCommit, sourceCommit, env);
-  const pushed = await runRemoteGitAsync([
-    'push', `--force-with-lease=refs/heads/${proposal.branch}:`, 'origin', `HEAD:refs/heads/${proposal.branch}`
-  ], { cwd: root, operation: 'remote-push', env });
-  if (pushed.status === 0) return result('review-required', { candidateCommit, proposalBranch: proposal.branch });
-  // Another machine, or an earlier attempt whose push outcome was lost, opened this exact review.
-  const open = await openReviewCommit(root, proposal, env);
-  if (!open) {
-    throw new SingularityFlowError(
-      `The configuration review for '${repository.displayRemote}' could not be opened. `
-        + remoteFailureMessage(pushed)
-    );
-  }
-  return result('review-required', {
-    candidateCommit: open, proposalBranch: proposal.branch, ...(open === candidateCommit ? {} : { reviewShared: true })
-  });
+  const review = await openReviewBranch(candidate, candidateCommit);
+  return result('review-required', { ...review, compareUrl: compareLink(repository.remote, CONFIGURATION_BRANCH, review.proposalBranch) });
+}
+
+/**
+ * Recognize the benign publication race where another refresh pushed the same configuration.
+ *
+ * Git correctly rejects the second sibling commit as non-fast-forward even when its complete tree
+ * is byte-identical. Fetch the new authority tip and compare tree objects; only exact identity may
+ * join the winner.
+ */
+async function identicalConcurrentConfiguration(root, candidateCommit, { env = process.env } = {}) {
+  const fetched = await runRemoteGitAsync([
+    'fetch', '--quiet', '--no-tags', '--refmap=', 'origin',
+    `refs/heads/${CONFIGURATION_BRANCH}`
+  ], { cwd: root, operation: 'remote-configuration', env });
+  if (fetched.status !== 0) return null;
+  const approvedCommit = fetchedHeadCommit(root, env, `Fetched ${CONFIGURATION_BRANCH} commit`);
+  if (!EXACT_GIT_OID.test(approvedCommit)) return null;
+  const candidateTree = refHead(root, `${candidateCommit}^{tree}`, { env });
+  return candidateTree && candidateTree === refHead(root, `${approvedCommit}^{tree}`, { env }) ? approvedCommit : null;
+}
+
+/**
+ * The host refused this build's configuration on `sflow/config` itself (branch protection, a ruleset or a hook) while
+ * `sflow/config` stayed where it was read. Only then is the candidate kept on a review branch, with its full name and a
+ * link that opens the host's compare view to merge it [owner, 2026-11-16].
+ */
+async function retainRefusedCandidate(candidate, candidateCommit, refusal) {
+  const { repository, refresh, sourceCommit } = candidate;
+  const review = await openReviewBranch(candidate, candidateCommit);
+  const compareUrl = compareLink(repository.remote, CONFIGURATION_BRANCH, review.proposalBranch);
+  return {
+    status: 'review-required', protectedBranch: true,
+    repository: repository.id, remote: repository.displayRemote, memberships: repository.memberships,
+    sourceCommit, ...review, compareUrl, conflicts: refresh.conflicts,
+    configurationChanged: false, stateChanged: false,
+    ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
+    error: `The host refused the update to ${CONFIGURATION_BRANCH} (${remoteFailureMessage(refusal,
+      'it is protected or a rule refused the push')}). This build's configuration is on review branch `
+      + `${review.proposalBranch}${compareUrl ? `: open ${compareUrl} to merge it` : '; merge it on the Git host'}.`
+  };
 }
 
 async function publishCandidate(candidate) {
-  // Refresh only proposes: every packaged change lands on a review branch a person approves (SCF:REQ-014, UP-F4). The
-  // one thing it still publishes is a first sflow/config created where none existed, and the state projection of an
-  // unchanged approved configuration.
-  if (candidate.reviewOnly || (candidate.refresh.changed && !candidate.bootstrapConfigurationCreated)) return proposeCandidate(candidate);
+  if (candidate.reviewOnly) return proposeCandidate(candidate);
   const { root, repository, refresh, sourceCommit, desired } = candidate;
   const env = candidate.gitEnv ?? process.env;
-  const approvedCommit = sourceCommit;
+  let approvedCommit = sourceCommit;
   // A first-authority candidate was already published as the exact previewed commit.  Report that
   // durable mutation without authoring a second refresh commit.
-  const configurationChanged = candidate.bootstrapConfigurationCreated === true;
+  let configurationChanged = candidate.bootstrapConfigurationCreated === true;
+  // An upgrade publishes this build's packaged configuration straight to sflow/config, in one step: installing, or the
+  // one VS Code action, is the person's click [owner, 2026-11-16, superseding SCF:REQ-014's review-only rule]. The
+  // build-order fence (assertBuildMayPropose), the person's own identity (commitRefreshCandidate) and the refusal for
+  // development builds all held before this point. A difference that is only the build's name changes nothing.
+  if (refresh.changed && !refresh.productStampOnly && !candidate.bootstrapConfigurationCreated) {
+    const candidateCommit = commitRefreshCandidate(root, refresh, env, 'refresh packaged configuration', repository);
+    if (candidateCommit) {
+      const pushed = await runRemoteGitAsync([
+        'push', `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${sourceCommit}`,
+        'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
+      ], { cwd: root, operation: 'remote-push', env });
+      if (pushed.status === 0) {
+        approvedCommit = candidateCommit;
+        configurationChanged = true;
+      } else {
+        const concurrentCommit = await identicalConcurrentConfiguration(root, candidateCommit, { env });
+        if (concurrentCommit) {
+          approvedCommit = concurrentCommit;
+          configurationChanged = true;
+        } else {
+          const observed = await remoteHeads(repository.remote, [CONFIGURATION_BRANCH], { env }).catch(() => null);
+          const current = observed?.get(CONFIGURATION_BRANCH) ?? null;
+          if (observed && current === sourceCommit) return retainRefusedCandidate(candidate, candidateCommit, pushed);
+          // sflow/config moved after it was read (another person's edit) or could not be read back: this repository
+          // changed nothing and holds up no other. Its next refresh merges onto the new commit by today's rules.
+          throw new SingularityFlowError(
+            observed
+              ? `${CONFIGURATION_BRANCH} on '${repository.displayRemote}' changed while this refresh ran, so nothing was published there. `
+                + 'Run the same command again: it merges this build\'s configuration onto the new commit.'
+              : `${CONFIGURATION_BRANCH} on '${repository.displayRemote}' could not be updated or read back. ${remoteFailureMessage(pushed)}`,
+            { code: observed ? 'CONFIGURATION_REFRESH_AUTHORITY_MOVED' : 'CONFIGURATION_REFRESH_PUSH_FAILED' }
+          );
+        }
+      }
+    }
+  }
 
   try {
-  const projection = configurationChanged ? await desiredStateProjection(root, { env }) : desired;
+  const projection = configurationChanged ? await desiredStateProjection(root, { env, repository }) : desired;
   assertDedicatedStateAuthority(repository, projection);
   const stateBefore = observeStateProjection(root, projection, approvedCommit, refresh.product, {
     stateCommit: candidate.stateBefore.stateCommit, env
   });
   const mirrored = { ...projection.files };
-  const history = await retainStateConfigurationHistory(
-    root, projection.stateConfig.remote, approvedCommit, { env }
-  );
+  // The mirror names its repository and retains no history ref [owner, 2026-11-16]; it is never authority (SCF:REQ-001).
   const manifest = {
     format: MIRROR_FORMAT,
     layout: 'canonical-paths',
+    ...(projection.subject ? { subject: projection.subject } : {}),
     source: { branch: CONFIGURATION_BRANCH, commit: approvedCommit },
-    history,
     product: refresh.product,
     files: projection.hashes,
     assets: projection.assets
@@ -3407,9 +3513,17 @@ async function publishCandidate(candidate) {
     throw new SingularityFlowError(`State configuration projection for '${repository.displayRemote}' did not verify after publication.`);
   }
   const changed = configurationChanged || state.changed;
-  // A change retained a history branch; retiring old ones never fails this verified publication.
-  const historyCleanup = changed ? await (await import('./configuration-history-auto-clean.mjs'))
-    .autoCleanConfigurationHistory(root, projection.stateConfig, { env }) : null;
+  // sflow/config now holds this build's configuration, so its history and review branches are superseded and go in
+  // the same upgrade [owner, 2026-11-16]. Never part of the publication: a refusal is reported and holds up nothing.
+  const supersededRefs = await removeSupersededConfigurationRefs(repository.remote, {
+    configurationCommit: approvedCommit, cwd: root, env
+  });
+  // And their copies in this machine's registered clones: tracking refs and fetched archive tags only, never a file.
+  if (Array.isArray(supersededRefs.remaining)) {
+    supersededRefs.local = pruneLocalSupersededConfigurationRefs(repository.localPaths ?? [repository.localPath], repository.remote, {
+      remaining: supersededRefs.remaining
+    });
+  }
   return {
     status: changed ? 'updated' : 'current',
     repository: repository.id,
@@ -3426,7 +3540,7 @@ async function publishCandidate(candidate) {
     conflicts: refresh.conflicts,
     ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {}),
     ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
-    ...(historyCleanup ? { historyCleanup } : {})
+    supersededRefs
   };
   } catch (error) {
     // Configuration and state are two remote publications. If the first succeeded, never report
@@ -3548,6 +3662,10 @@ export async function refreshWorkspaceConfigurations({
     ...(error?.code === 'CONFIGURATION_BUILD_TOO_OLD' ? { requiredBuild: error.details.requiredBuild } : {})
   });
   const heldResult = (error) => (error?.code === 'CONFIGURATION_BUILD_TOO_OLD' ? 'needs-newer-build' : null);
+  // A repository whose own configuration stops it (a kept team edit that no longer works with this build, an invalid
+  // file) is reported with its route and holds up no other [owner, 2026-11-16]; only when none is left is the
+  // refresh blocked.
+  const holdBlocked = (observation, error) => held.push(refreshPreflightFailure(observation, error));
   const unreachable = observations.filter((item) => item.error);
   if (unreachable.length && unreachable.length < observations.length) {
     for (const item of unreachable) hold(item.repository, 'failed', item.error);
@@ -3612,7 +3730,9 @@ export async function refreshWorkspaceConfigurations({
     });
     const planCandidates = prepared.map((entry) => entry.planCandidate).filter(Boolean);
     const results = [...prepared.map((entry) => entry.result).filter(Boolean), ...held];
-    const blocked = results.some((entry) => entry.status === 'blocked');
+    // One repository's blocker holds up no other [owner, 2026-11-16]: the plan covers the rest, and the blocked one
+    // says why with its route. Only when no repository can go is the preview blocked.
+    const blocked = !planCandidates.length && results.some((entry) => entry.status === 'blocked');
     const planId = blocked ? null : refreshPlanId(planCandidates, {
       resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel, hardCutover
     });
@@ -3662,8 +3782,10 @@ export async function refreshWorkspaceConfigurations({
         return { observation, candidate: null, retained: false, bootstrap: false, error };
       }
     });
+    const preparedCount = prepared.filter((entry) => !entry.error).length;
     for (const entry of prepared) {
       if (entry.error && heldResult(entry.error)) hold(entry.observation.repository, heldResult(entry.error), entry.error);
+      else if (entry.error && preparedCount && !entry.bootstrap) holdBlocked(entry.observation, entry.error);
       else if (entry.error) confirmationFailures.push({ observation: entry.observation, error: entry.error });
       else {
         confirmationCandidates.push(entry.candidate);
@@ -3904,7 +4026,10 @@ export async function refreshWorkspaceConfigurations({
   for (const entry of prepared.filter((item) => item.error && heldResult(item.error))) {
     hold(entry.observation.repository, heldResult(entry.error), entry.error);
   }
-  const preparationFailures = prepared.filter((entry) => entry.error && !heldResult(entry.error));
+  const unheld = prepared.filter((entry) => entry.error && !heldResult(entry.error));
+  const anyPrepared = candidates.length > 0 || prepared.some((entry) => !entry.error);
+  if (anyPrepared) for (const entry of unheld) holdBlocked(entry.observation, entry.error);
+  const preparationFailures = anyPrepared ? [] : unheld;
   for (const entry of prepared) {
     if (entry.candidate) candidates.push(entry.candidate);
   }
@@ -4004,9 +4129,12 @@ export async function refreshWorkspaceConfigurations({
     }
   }
   results = [...results, ...held];
-  // A proposal waiting for its person is the refresh's normal outcome, not a failure (SCF:REQ-014).
-  const failed = results.filter((result) => ['failed', 'needs-newer-build'].includes(result.status));
-  const proposed = results.filter((result) => result.status === 'review-required');
+  // A repository the host refused (its review branch waits for a person), one that needs a newer build, one blocked by
+  // its own configuration and one that failed each make the refresh partial; every other repository is done.
+  // A review a person asked for with --review-only is the normal outcome of that choice.
+  const failed = results.filter((result) => ['failed', 'needs-newer-build', 'blocked'].includes(result.status)
+    || (result.status === 'review-required' && result.protectedBranch));
+  const proposed = results.filter((result) => result.status === 'review-required' && !result.protectedBranch);
   const warnings = refreshCleanupWarnings(cleanupPending);
   return {
     status: failed.length ? 'partial' : proposed.length ? 'proposed' : 'complete',
@@ -4015,7 +4143,68 @@ export async function refreshWorkspaceConfigurations({
     updated: results.filter((result) => result.status === 'updated').length,
     proposed: proposed.length,
     failed: failed.length,
+    supersededRefs: supersededRefsTotals(results),
+    summary: refreshSummary(results),
     ...(cleanupPending.length ? { cleanupPending, warnings } : {}),
     results
   };
+}
+
+/** What every repository's removal of superseded refs did, added up. */
+function supersededRefsTotals(results) {
+  const removed = { history: 0, archiveTags: 0, reviews: 0 };
+  const refused = [];
+  let local = 0;
+  for (const result of results) {
+    for (const kind of Object.keys(removed)) removed[kind] += Number(result.supersededRefs?.removed?.[kind] ?? 0);
+    for (const entry of result.supersededRefs?.refused ?? []) refused.push({ repository: result.repository, ...entry });
+    local += Number(result.supersededRefs?.local?.total ?? 0);
+  }
+  return { removed, total: removed.history + removed.archiveTags + removed.reviews, local, refused };
+}
+
+function namesOf(results) {
+  return results.map((result) => result.repository).join(', ');
+}
+
+/**
+ * What the refresh did, in the words a person reads in the terminal, the installer and VS Code [owner, 2026-11-16]:
+ * "Updated sflow/config in billing, catalog, storefront to this build; removed 27 old history and review branches." and one line
+ * for each repository that needs a person.
+ */
+export function refreshSummary(results) {
+  const updated = results.filter((result) => result.configurationChanged
+    && ['updated', 'current'].includes(result.status));
+  const current = results.filter((result) => !result.configurationChanged && ['updated', 'current'].includes(result.status));
+  const totals = supersededRefsTotals(results);
+  const { total, text } = removedRefsSummary(totals.removed);
+  const lines = [];
+  const head = [];
+  if (updated.length) head.push(`Updated ${CONFIGURATION_BRANCH} in ${namesOf(updated)} to this build`);
+  if (current.length) head.push(`${CONFIGURATION_BRANCH} in ${namesOf(current)} already holds this build's configuration`);
+  if (total) head.push(`removed ${text}`);
+  if (totals.local) {
+    head.push(`cleared ${totals.local} stale local cop${totals.local === 1 ? 'y' : 'ies'} of old history and review refs from this machine's clones`);
+  }
+  if (head.length) lines.push(`${head.join('; ')}.`);
+  for (const result of results) {
+    if (result.status === 'review-required' && result.protectedBranch) {
+      lines.push(`${result.repository}: the host refused the update to ${CONFIGURATION_BRANCH}. This build's configuration is on review branch `
+        + `${result.proposalBranch}${result.compareUrl ? `; merge it here: ${result.compareUrl}` : '; merge it on the Git host'}.`);
+    } else if (result.status === 'review-required') {
+      lines.push(`${result.repository}: proposed on review branch ${result.proposalBranch}${result.compareUrl ? ` (${result.compareUrl})` : ''}, as --review-only asked.`);
+    } else if (result.status === 'needs-newer-build') {
+      lines.push(`${result.repository}: ${result.error}`);
+    } else if (result.status === 'blocked') {
+      lines.push(`${result.repository}: nothing changed there. ${result.error}${result.route ? ` To take this build's version of each kept file, run: ${result.route}` : ''}`);
+    } else if (result.status === 'failed') {
+      lines.push(`${result.repository}: nothing changed there. ${result.error}`);
+    }
+    const refused = result.supersededRefs?.refused ?? [];
+    if (refused.length) {
+      lines.push(`${result.repository}: the host refused to delete ${refused.length} old ref${refused.length === 1 ? '' : 's'} `
+        + '(a deletion rule); they are harmless where they are.');
+    }
+  }
+  return lines;
 }

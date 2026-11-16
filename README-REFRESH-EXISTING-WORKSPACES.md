@@ -172,11 +172,12 @@ modelTiers:
 
 ## Protected configuration branches
 
-If a direct push to `sflow/config` is rejected, refresh retains the exact candidate on a branch
-named like:
+Refresh publishes directly to `sflow/config` [owner, 2026-11-16]. Only if the host rejects that push
+(branch protection) does refresh keep the exact candidate on a branch named like the one below; the
+output prints its full name and, for a GitHub remote, a compare link to merge it:
 
 ```text
-sflow/config-refresh/<product>-<source>-<candidate>
+sflow/config-refresh/<approved-commit-8>-<configuration-tree-12>
 ```
 
 Review and merge that branch into `sflow/config` using the repository's normal controls, then rerun
@@ -206,7 +207,8 @@ Settings of the removed registered World Model and architecture intent can remai
 | `stale-plan` | Configuration, state, product revision, or choices changed after preview. | Preview again and use the new plan ID. |
 | `preserved-local` | The repository file/value cannot be proven package-owned. | Keep it or explicitly choose `local`, `bundled`, or offered `merge`. |
 | `CONFIGURATION_REFRESH_INVALID` | Preserved files and the refreshed workflow do not form a valid executable contract. | In VS Code choose **Repair missing or outdated agents**, review the selected packaged files, and preview again. The CLI equivalent is `--resolve .github/agents/<name>.agent.md=bundled`. |
-| `review-required` | Branch protection rejected direct `sflow/config` publication. | Review and merge the reported `sflow/config-refresh/*` branch, then rerun. |
+| `review-required` | Branch protection rejected direct `sflow/config` publication. | Merge the reported `sflow/config-refresh/*` branch through its printed link, then rerun. |
+| `blocked` (one repository) | That repository's kept edit no longer works with this build's files. The others went ahead. | Run the one command the output prints for it (`--repository ID --resolve PATH=bundled`). |
 | `partial` | At least one repository or state projection did not publish. | Correct the named repository failure and rerun; completed repositories are no-ops. |
 | Remote read failure | Git cannot inspect the configuration authority. | Restore normal Git authentication, proxy, certificate, and repository access; do not disable TLS checks. |
 

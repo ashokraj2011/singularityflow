@@ -202,7 +202,7 @@ async function legacyMirror(f) {
   run('git', ['update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: f.repository });
 }
 
-test('legacy onboarding retains its exact plan while history/review coverage uses one advertisement', async (t) => {
+test('legacy onboarding retains its exact plan while review coverage uses one advertisement and no history ref', async (t) => {
   const f = await fixture(t);
   await legacyMirror(f);
   const calls = [];
@@ -215,12 +215,13 @@ test('legacy onboarding retains its exact plan while history/review coverage use
   assert.equal(broad.status, 'ready-to-restore');
   assert.equal(broad.state.legacyBinding.method, 'retained-history-and-portfolio');
   assert.equal(calls.length, 1);
-  assert.ok(calls[0].includes('refs/heads/sflow/config-history/*'));
+  // [owner, 2026-11-16] No history ref is listed: the legacy proof fetches its source commit by object.
+  assert.equal(calls[0].some((argument) => argument.includes('sflow/config-history')), false);
   assert.ok(calls[0].includes('refs/heads/sflow/config-change/onboarding/*'));
   calls.length = 0;
   const narrow = await inspectRepositoryOnboarding(f.repository, {
     ...options, async runRemoteCommand(args, commandOptions) {
-      if (args.includes('refs/heads/sflow/config-history/*')) {
+      if (args.includes('refs/heads/sflow/config-change/onboarding/*') && args.includes('ls-remote')) {
         calls.push(args);
         return { status: 128, stdout: '', stderr: 'Broad inventory unavailable' };
       }
@@ -229,5 +230,5 @@ test('legacy onboarding retains its exact plan while history/review coverage use
   });
   assert.equal(narrow.planId, broad.planId, 'advertisement coverage is not part of the exact plan identity');
   assert.deepEqual(narrow.observedRefs, broad.observedRefs);
-  assert.ok(calls.length > 1, 'broad failure retries exact current/history/review refs');
+  assert.ok(calls.length > 1, 'broad failure retries exact current and review refs');
 });

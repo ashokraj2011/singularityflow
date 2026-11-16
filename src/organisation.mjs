@@ -62,7 +62,7 @@ import {
   canonicalConfigurationAssets, configurationAssetPaths, configurationBranchHead,
   configurationAssetPolicyFromRef, configurationBranchMissingError, configurationTreeEntries,
   ensureConfigurationBranch, isConfigurationAsset, loadStoryConfigurationSnapshot,
-  legacyStateMirrorMatchesRepository, readConfigurationSource, retainStateConfigurationHistory,
+  legacyStateMirrorMatchesRepository, readConfigurationSource,
   stateConfigurationHistoryBranch,
 } from './configuration-branch.mjs';
 import { configurationAssetPolicy, mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
@@ -4702,7 +4702,7 @@ function capabilityMapStateProjection(root, mirror, {
 export async function publishCapabilityMap(root, {
   message = 'Publish the capability map', env = process.env,
   commitIdentity = null, commitSigning = null, allowConfigurationOnly = false,
-  repositoryRemote = null, retainConfigurationHistory = true
+  repositoryRemote = null
 } = {}) {
   const file = path.join(root, CAPABILITIES_PATH);
   if (!existsSync(file) && !allowConfigurationOnly) return {
@@ -4721,9 +4721,8 @@ export async function publishCapabilityMap(root, {
   try {
     const mirror = await capabilityMapMirrorFiles(root, { env });
     const { configurationCommit } = mirror;
-    const history = retainConfigurationHistory
-      ? await retainStateConfigurationHistory(root, ledger.remote, configurationCommit, { env })
-      : null;
+    // The mirror names its repository and retains no history ref [owner, 2026-11-16].
+    const history = null;
     const repositoryKey = capabilityMapMirrorSubject(root, ledger, repositoryRemote, { env });
     // Retire configuration paths removed by the reviewed commit without touching runtime roots.
     const remoteRef = `refs/remotes/${ledger.remote}/${ledger.branch}`;
@@ -4762,11 +4761,7 @@ export async function publishCapabilityMap(root, {
       status: 'current', published: false, branch: result.branch,
       reason: 'it is already current there'
     };
-    // A new mirror may have retained a new history branch; retiring old ones never fails this publication.
-    const historyCleanup = history ? await (await import('./configuration-history-auto-clean.mjs'))
-      .autoCleanConfigurationHistory(root, ledger, { env }) : null;
-    return { status: 'updated', published: true, branch: result.branch, commit: result.commit,
-      ...(historyCleanup ? { historyCleanup } : {}) };
+    return { status: 'updated', published: true, branch: result.branch, commit: result.commit };
   } catch (error) {
     return capabilityProjectionFailure(ledger, error);
   }
@@ -4857,8 +4852,7 @@ export async function publishOrganisationCapabilityMap(url, {
   initiatingRoot = process.cwd(),
   initiatingEnv = process.env,
   publishAuthorityLinks = true,
-  allowConfigurationOnly = false,
-  retainConfigurationHistory = true
+  allowConfigurationOnly = false
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -4967,8 +4961,7 @@ export async function publishOrganisationCapabilityMap(url, {
       commitIdentity: frozenCommitIdentity,
       commitSigning,
       allowConfigurationOnly,
-      repositoryRemote: remote,
-      retainConfigurationHistory
+      repositoryRemote: remote
     });
     const currentConfiguration = await session.observeAsync(remote, {
       includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`], refresh: true
@@ -6787,7 +6780,6 @@ async function publishActivationAtomically(root, {
   const configurationRef = `refs/heads/${CONFIGURATION_BRANCH}`;
   const stateRef = `refs/heads/${ledger.branch}`;
   let audit;
-  let history;
   let projection;
   try {
     // This activation's recovery read refreshed the state tracking ref. It is the build base and
@@ -6798,12 +6790,10 @@ async function publishActivationAtomically(root, {
     if (!audit) return null;
     const mirror = await capabilityMapMirrorFiles(root, { env });
     if (mirror.configurationCommit !== configurationCommit) return null;
-    history = Object.freeze({
-      branch: stateConfigurationHistoryBranch(configurationCommit), commit: configurationCommit
-    });
+    // The mirror names its repository and retains no history ref [owner, 2026-11-16].
     const repositoryKey = capabilityMapMirrorSubject(root, ledger, remote, { env });
     const { configurationFiles, removePaths } = capabilityMapStateProjection(root, mirror, {
-      history, repositoryKey, stateBase: audit.ledgerCommit, env
+      history: null, repositoryKey, stateBase: audit.ledgerCommit, env
     });
     projection = await publishToStateBranch(
       root, ledger, configurationFiles, `Publish reviewed capability map from ${CONFIGURATION_BRANCH}`, {
@@ -6817,11 +6807,10 @@ async function publishActivationAtomically(root, {
     return null;
   }
   const stateTip = projection.changed ? projection.commit : audit.ledgerCommit;
-  const historyRef = `refs/heads/${history.branch}`;
   const session = new GitRemoteSession({
     env, runAsyncCommand: (args, options) => runRemoteCommand(args, { ...options, cwd: root })
   });
-  const named = [configurationRef, stateRef, historyRef, ...(audit.pinRef ? [audit.pinRef] : [])];
+  const named = [configurationRef, stateRef, ...(audit.pinRef ? [audit.pinRef] : [])];
   // One observation of every ref the transaction names. A symbolic ref fails the observation, so
   // no update below can be redirected through one; this replaces the sequential path's brackets.
   const before = await session.observeAsync(remote, {
@@ -6831,9 +6820,9 @@ async function publishActivationAtomically(root, {
   const current = (ref) => before.refs.get(ref) ?? null;
   if (current(configurationRef) !== configurationCommit
       || current(stateRef) !== audit.expectedRemoteSha) return null;
-  // An immutable history ref or event pin that already names the exact commit is already retained.
+  // An event pin that already names the exact commit is already retained.
   const updates = [[stateRef, stateTip, audit.expectedRemoteSha]];
-  for (const [ref, commit] of [[historyRef, configurationCommit], [audit.pinRef, targetCommit]]) {
+  for (const [ref, commit] of [[audit.pinRef, targetCommit]]) {
     if (!ref || current(ref) === commit) continue;
     if (current(ref) !== null) return null;
     updates.push([ref, commit, null]);
@@ -6871,17 +6860,11 @@ async function publishActivationAtomically(root, {
       )
     };
   }
-  // The transaction retained a new history branch; retiring old ones never fails this landing.
-  const historyCleanup = updates.some(([ref]) => ref === historyRef)
-    ? await (await import('./configuration-history-auto-clean.mjs'))
-      .autoCleanConfigurationHistory(root, ledger, { env, runRemoteCommand, endpoint: remote }) : null;
   return {
     ...published,
     state: projection.changed
-      ? { status: 'updated', published: true, branch: ledger.branch, commit: stateTip,
-        ...(historyCleanup ? { historyCleanup } : {}) }
-      : { status: 'current', published: false, branch: ledger.branch, reason: 'it is already current there',
-        ...(historyCleanup ? { historyCleanup } : {}) }
+      ? { status: 'updated', published: true, branch: ledger.branch, commit: stateTip }
+      : { status: 'current', published: false, branch: ledger.branch, reason: 'it is already current there' }
   };
 }
 

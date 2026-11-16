@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 46
+version: 47
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -171,48 +171,75 @@ When `./install.sh` performs a normal source install, it runs `workspace refresh
 against every unique repository registered by every non-archived workspace. Refresh operates in
 isolated clones, so dirty application checkouts and active Story branches are never switched or
 edited. It three-way merges packaged workflow policy and assets against the last examined package
-baseline and proposes the result on a `sflow/config-refresh/*` review branch of its own for each
-repository. It never changes `sflow/config` itself: that happens only when a person approves the
-proposal by merging its review branch, and that applies to the installer, the terminal and
-`/sf-refresh-configuration`, a confirmed `--confirm-plan`, and `workspace reinitialize` alike.
-Creating a first `sflow/config` where none exists is the one exception. Each proposal's commit is
-authored by the person who ran the refresh, from their own Git `user.name` and `user.email`.
+baseline and publishes the result straight to each repository's `sflow/config`: installing is the
+one click, with no review branch and no merge request [owner, 2026-11-16]. The same holds for the
+terminal and `/sf-refresh-configuration`, a confirmed `--confirm-plan`, `workspace reinitialize` and
+VS Code's after-install pass. Each commit is authored by the person who ran the refresh, from their
+own Git `user.name` and `user.email`.
+
+Once a repository's `sflow/config` holds this build's configuration, the same run removes what it
+supersedes on that repository's remote: every `sflow/config-history/*` branch, the archive tags
+history cleanup made of them, and every `sflow/config-refresh/*` review branch. Each is deleted under
+a lease on the commit it was seen at. Nothing needs them: a running Story reads its own pinned copy
+(`singularity/configuration-source.json` and the files it copied), and SFlow no longer writes history
+refs. `sflow/config`, `sflow/config-change/*` proposals (people's own pending edits), `state`, Story
+branches and application branches are never deleted. A ref the host refuses to delete (a deletion
+rule) is reported and holds up nothing. The output says plainly what happened, for example:
+
+```text
+Updated sflow/config in billing, catalog, storefront to this build; removed 27 old history and review branches.
+```
+
+Where the host refuses the push to `sflow/config` itself (branch protection), and only there, the
+change is kept on a `sflow/config-refresh/*` review branch: the output prints its full name and, for
+a GitHub remote, a compare link to merge it. A team's own edit that conflicts with the packaged
+change keeps the team's value and is reported, as before. Where that kept edit no longer works with
+this build's files, that repository changes nothing and prints the one command that takes this
+build's version of each kept file (`workspace refresh-configuration --repository ID --resolve
+PATH=bundled`). An unreachable repository is reported too. None of these holds up another
+repository. The same run clears each registered clone on this machine of its stale copies of those
+refs: the tracking refs of the remotes that are this repository, and the fetched archive tags, each
+deleted against the exact object it held. Only refs change, never a file or the index, so a dirty
+tree is safe; local branches, `sflow/config`, `sflow/config-change/*`, `state`, Story and application
+refs stay. The old `configuration cleanup-history` command was removed; an upgrade does its work.
 
 The package baseline (`singularity/.product/configuration-baseline.yml`, format
 `singularity-flow-configuration-baseline/v2`) records the build that proposed it: its commit and
-build time. Only a clean, stamped build proposes; a development checkout or a dirty tree does not.
-A build older than the one recorded in a repository's approved baseline never proposes over it:
+build time. Only a clean, stamped build publishes; a development checkout or a dirty tree does not.
+A build older than the one recorded in a repository's approved baseline never publishes over it:
 that repository reports that it needs a build from that date or later, with the install route, and
 holds up no other repository. Builds from before this format refuse a v2 baseline in every refresh
 route, naming the v1 format they expect, so an older installation can no longer downgrade a
-repository; upgrade it to propose again.
+repository; upgrade it to publish again.
 Configuration remains at its canonical paths (`singularity/**`, and `.github/agents/**` for a repository whose agents have not moved yet); only the
 projection manifest lives under `configuration/`. Refresh removes stale managed configuration and
 the older `configuration/files/**` layout, while preserving runtime state such as
 `singularity/world-model/**`. Existing Story configuration snapshots remain immutable; new Stories
 use the new authority revision.
 
-After a new build loads, VS Code runs this refresh as a review: for each registered repository whose
-approved configuration lags the build's packaged configuration, it opens a
-`sflow/config-refresh/*` review branch and names it. Nothing changes until someone merges the review.
-The shell form is `singularity-flow product reviews`: the one pass per build, which a window and a
-terminal share through one machine-local record, so it never runs twice or twice at once. Step by
-step, it is `workspace refresh-configuration --confirm-plan <PLAN-ID> --review-only`. A review-only
-refresh never creates a first configuration authority. A review is named by the approved commit it
-starts from and the exact configuration it proposes, so every teammate on the same build joins that
-one review instead of opening another. The proposal records its build in the package baseline, so a
-teammate on another build proposes a review of that build. A repository whose approved configuration
-differs only in the build its package baseline names has nothing to review, and is reported current.
-If the approved configuration or the state branch moves between the pass's preview and its review,
-as when the installer's own refresh publishes the same build, the pass previews once more and
-proposes from that preview; a second move fails the pass, which is tried again an hour later. A
-confirmed `--confirm-plan` refresh still refuses a plan whose authority moved. A window waiting to
-reload onto a newer build opens none; the reloaded build does.
+After a new build loads, VS Code runs this same refresh once: for each registered repository whose
+approved configuration lags the build's packaged configuration, it updates `sflow/config` directly,
+removes the superseded refs, and says so, for example "Updated sflow/config in billing, catalog, storefront
+to this build; removed 27 old history and review branches." That one action is the click. A
+repository whose host refused the push is named with its full review branch and link. The shell form
+is `singularity-flow product reviews`: the one pass per build, which a window and a terminal share
+through one machine-local record, so it never runs twice or twice at once. Step by step, it is
+`workspace refresh-configuration --confirm-plan <PLAN-ID>`. A repository whose approved
+configuration differs only in the build its package baseline names has nothing to change, and is
+reported current. If the approved configuration or the state branch moves between the pass's
+preview and its apply, as when the installer's own refresh publishes the same build, the pass
+previews once more and applies that preview; a second move fails the pass, which is tried again an
+hour later. A confirmed `--confirm-plan` refresh still refuses a plan whose authority moved. A
+window waiting to reload onto a newer build changes nothing; the reloaded build does.
+`--review-only` remains for a person who wants a review instead: it proposes on a
+`sflow/config-refresh/*` review branch, named by the approved commit it starts from and the exact
+configuration it proposes, so every teammate on the same build joins one review. A review-only
+refresh never creates a first configuration authority.
 
 A terminal has no window to wait in, so a new build's first mutation starts the same pass as a
-background worker. `singularity-flow product status` lists the reviews it opened. One pass runs on a
-machine at a time. A registered repository that cannot be reached does not hold up the others: the
-reachable ones are proposed, and the pass is tried again an hour later, by the next window or command,
+background worker. `singularity-flow product status` says what it updated and removed. One pass runs
+on a machine at a time. A registered repository that cannot be reached does not hold up the others:
+the reachable ones are updated, and the pass is tried again an hour later, by the next window or command,
 for the rest. So is a pass that failed. A first mutation that is itself a configuration refresh starts
 no worker beside it. Set `SINGULARITY_FLOW_CONFIGURATION_REVIEWS=off` to switch the background pass off.
 
@@ -222,20 +249,19 @@ changed in parallel with the package are retained and reported. Use repeatable
 `--resolve PATH=local|bundled|merge` choices to decide individual conflicts. A UI preview can bind
 apply to the observed authorities with `--confirm-plan ID`; if either branch moved, apply refuses
 and requires a new preview. `--accept-bundled-conflicts` remains the broad migration boundary for
-explicitly selecting every packaged value. Every proposal is the exact candidate on the reported
-`sflow/config-refresh/*` review branch; every machine proposing the same tree shares one review.
-Reruns are idempotent: an open review is reported again, current repositories become no-ops, and an
-unreachable repository is reported without holding up the others.
+explicitly selecting every packaged value. Reruns are idempotent: current repositories become
+no-ops, a host-refused review is reported again, and an unreachable repository is reported without
+holding up the others.
 
 ### Agents move to singularity/agents
 
 SFlow's step agents now live in `singularity/agents/`, and `.github/agents/` is left to your
 team's own Copilot agents. A repository set up by an earlier build keeps its agents in
-`.github/agents/` and works exactly as before until a person approves the move. The upgrade
-proposes it for you: every `workspace refresh-configuration` and `workspace reinitialize` of
-such a repository carries it in the same candidate as the rest of the package update.
+`.github/agents/` and works exactly as before until the upgrade moves them. The upgrade does it
+for you: every `workspace refresh-configuration` and `workspace reinitialize` of such a repository
+carries it in the same candidate as the rest of the package update.
 
-What the upgrade proposes:
+What the upgrade moves:
 
 - **Moves:** each file in `.github/agents/` that is SFlow's moves to `singularity/agents/` with
   the same name and the same bytes, so Git shows it as a rename. A file is SFlow's when its front
@@ -252,24 +278,25 @@ What the upgrade proposes:
   `singularity/workflow.yml` already names an `agentPromptsRoot` of its own, which the
   configuration carries: remove that key in `sflow/config` to move the agents, then preview again.
 
-How it is approved: like every package update, by a person merging its review. Every refresh
-proposes it on a `sflow/config-refresh/*` review branch (the installer's, the terminal's,
-`/sf-refresh-configuration`, a confirmed `--confirm-plan`, and the review VS Code opens when a new
-build loads), and nothing moves until whoever may merge into `sflow/config` merges that review. Run
-the refresh again after the merge to complete the state mirror; once the configuration records
-`singularity/agents` there is nothing left to move, so running it again changes nothing.
+How it lands: like every package update, straight on `sflow/config` in the same one-click upgrade
+[owner, 2026-11-16]: the installer's refresh, the terminal's, `/sf-refresh-configuration`, a
+confirmed `--confirm-plan`, and the pass VS Code runs when a new build loads. Only where the host
+refuses the push (branch protection) does the move wait on a `sflow/config-refresh/*` review branch,
+printed in full with its link; merge it there and run the refresh again to complete the state
+mirror. Once the configuration records `singularity/agents` there is nothing left to move, so
+running it again changes nothing.
 
-Before you approve it, have every teammate update SFlow. The proposal carries the v2 package
-baseline with the build that proposed it, so once it is approved an older build's refresh is
-refused for that repository and names the build it needs, instead of moving the agents back.
+Have every teammate update SFlow. The move carries the v2 package baseline with the build that made
+it, so an older build's refresh is refused for that repository and names the build it needs,
+instead of moving the agents back.
 
 - **Shell:** `singularity-flow workspace refresh-configuration --dry-run` prints
   `Agents move to singularity/agents:` with a `moves:`, `stays:` or `installs:` line per file, then
-  the route that proposes the plan.
+  the route that applies the plan.
 - **Copilot:** `/sf-refresh-configuration` shows the same moves and stays from the preview's
-  `agentsHome` and asks you to confirm the plan, which proposes it.
+  `agentsHome` and asks you to confirm the plan, which applies it.
 - **VS Code:** **After install → Preview safe reinitialization** lists them before you confirm;
-  a new build's review pass opens the review and names its branch.
+  a new build's pass moves them with the rest of the update and says so.
 
 Stories already running carry on unchanged: each keeps the agents its own pinned configuration
 recorded when it started, finishes with them, and needs nothing from you. New Stories use

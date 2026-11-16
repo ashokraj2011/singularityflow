@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 24
+version: 26
 commands:
   - configuration
   - workflow
@@ -185,16 +185,16 @@ for adoption in the **current code phase** through `singularity-flow story test-
 Authored code/documents are preserved; fresh execution evidence is required. Inspection alone
 does not establish the pre-code failure baseline, accept failures, or alter intake's test-scope choice.
 
-Each approved configuration commit is kept behind its own `sflow/config-history/<commit>` branch, so the
-remote's branch list grows by one per approved change. After a capability activation, a capability map
-publication or a workspace configuration refresh that changes the state mirror, SFlow clears that list
-itself: the current approved commit and the 10 most recent stay as branches, and each older one is archived
-as its exact tag (`refs/tags/sflow/config-history/<commit>`) before its branch is retired, in one leased,
-atomic push of up to 100. Only those history branches are retired; `sflow/config`, `state`, proposals,
-Story and application branches and other tags are never changed. It never fails or holds the publication:
-a refusal or an unknown outcome is a note in the result naming `configuration cleanup-history`, and the
-next publication tries again. `ledger.configurationHistory.autoClear: false` turns it off and
-`keepRecent` (1-100) changes the count kept; the manual command stays for a one-off cleanup.
+SFlow no longer keeps a `sflow/config-history/<commit>` branch per approved commit [owner, 2026-11-16]. A Story
+reads its own pinned copy, and what a Story started from is its pin plus `sflow/config`'s own commit history. An
+upgrade (the installer, VS Code's after-install pass or `workspace refresh-configuration`) removes the old
+`sflow/config-history/*` branches, their archive tags (`refs/tags/sflow/config-history/<commit>`) and
+`sflow/config-refresh/*` review branches once `sflow/config` holds the build's configuration, each under a lease;
+`sflow/config`, `sflow/config-change/*` proposals, `state`, Story and application branches are never changed. A
+ref the host refuses to delete is reported and harmless. The same run clears each registered clone on this machine
+of its stale tracking refs and fetched archive tags for those refs, deleting refs only, never a file.
+`ledger.configurationHistory` stays valid and does nothing. `configuration cleanup-history` was removed
+[owner, 2026-11-16]: an upgrade does its work.
 
 These commands can change repository or machine-local state: `configuration`, `workflow`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 

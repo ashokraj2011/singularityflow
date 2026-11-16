@@ -62,7 +62,8 @@ test('every public skill has a bounded class and output contract', async () => {
   // 2026-11-08 (CQF M2): /sf-appeal leaves them: `appeal prepare` records a departure, so its submit and hash sentence went.
   // 2026-11-13 (CIC:REQ-015): /sf-reject joins them — it shows the amendment's preview before it proposes.
   // 2026-11-15 (SPEC-WIA): /sf-fix-workflow joins them — after the fixes it assesses each step's instructions and applies the person's choices.
-  const overridden = ['sflow-approve', 'sflow-build-workflow', 'sflow-capability-map', 'sflow-code', 'sflow-configuration', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
+  // 2026-11-16 (SPEC-SCF D10): /sf-configuration leaves them: its cleanup-history step went with the history branches.
+  const overridden = ['sflow-approve', 'sflow-build-workflow', 'sflow-capability-map', 'sflow-code', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
     'sflow-fix-workflow', 'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall', 'sflow-reject',
     'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-review-source', 'sflow-run-app', 'sflow-scenario-check', 'sflow-session', 'sflow-specify', 'sflow-start',
     'sflow-story-start', 'sflow-submit', 'sflow-test-setup', 'sflow-verify', 'sflow-workflows'];

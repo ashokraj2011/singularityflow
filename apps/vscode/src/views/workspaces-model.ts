@@ -344,6 +344,8 @@ export interface WorkspaceConfigurationRefreshRepository {
   configurationCommit?: string;
   stateCommit?: string | null;
   proposalBranch?: string;
+  compareUrl?: string | null;
+  route?: string;
   files?: string[];
   missingStatePaths?: string[];
   changedStatePaths?: string[];

@@ -544,20 +544,24 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Alignment stopped at the ${slot(s.surface)} surface: ${slot(s.reason)}`,
     preserves: false
   },
+  'product.configuration-updated': {
+    headline: (s) => slot(s.text, `Updated sflow/config in ${slot(s.count)} repository(ies) to this build.`),
+    preserves: false
+  },
   'product.reviews-opened': {
-    headline: (s) => `Opened ${slot(s.count)} configuration review(s) for this build. Nothing changes until each is merged.`,
+    headline: (s) => `The host refused the update to sflow/config in ${slot(s.count)} repository(ies); \`singularity-flow product status\` names each review branch and its link.`,
     preserves: false
   },
   'product.reviews-recorded': {
-    headline: (s) => `This build already proposed its configuration: ${slot(s.count)} review(s).`,
+    headline: (s) => `This build already updated its configuration: ${slot(s.count)} repository(ies) changed.`,
     preserves: true
   },
   'product.reviews-current': {
-    headline: () => "Every registered repository's approved configuration matches this build.",
+    headline: () => "Every registered repository's sflow/config holds this build's configuration.",
     preserves: true
   },
   'product.reviews-running': {
-    headline: () => "This build's configuration reviews are being opened in the background; `singularity-flow product status` shows them.",
+    headline: () => "This build's configuration is being updated in the background; `singularity-flow product status` shows it.",
     preserves: true
   },
   'product.reviews-incomplete': {
@@ -565,15 +569,15 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'product.reviews-unavailable': {
-    headline: (s) => `Configuration reviews could not check ${slot(s.count)} registered repository(ies) yet; they are tried again after an hour.`,
+    headline: (s) => `This build could not check ${slot(s.count)} registered repository(ies) yet; they are tried again after an hour.`,
     preserves: true
   },
   'product.reviews-development': {
-    headline: () => 'A development checkout proposes no configuration reviews of its own.',
+    headline: () => 'A development checkout never updates packaged configuration of its own.',
     preserves: true
   },
   'product.reviews-failed': {
-    headline: (s) => `Configuration reviews could not be opened: ${slot(s.reason)}`,
+    headline: (s) => `This build's configuration could not be updated: ${slot(s.reason)}`,
     preserves: true
   },
   'fastpath.milestone': {

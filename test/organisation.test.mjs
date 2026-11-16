@@ -4236,11 +4236,11 @@ test('activation publishes its audit and state projection atomically, then retir
   assert.equal(activated.proposalCleanup.status, 'deleted');
   // Authority and prior-audit observations, the checkout clone and its two fetches, the decision
   // push, publication, and exact leased proposal retirement. Cleanup adds two observations and
-  // one push but does not change the atomic audit/state publication transaction. The history
-  // auto-clear after it adds one advertisement: two history branches are within the kept count.
+  // one push but does not change the atomic audit/state publication transaction. No history ref is
+  // retained or cleaned any more [owner, 2026-11-16].
   assert.deepEqual({ push: counters['git.remote.command.push'],
-    advertisements: counters['git.remote.command.ls-remote'] }, { push: 3, advertisements: 7 });
-  assert.deepEqual(activated.projection.historyCleanup, { status: 'current', archived: 0, remaining: 0 });
+    advertisements: counters['git.remote.command.ls-remote'] }, { push: 3, advertisements: 6 });
+  assert.equal(activated.projection.historyCleanup, undefined);
   const clones = counters['git.remote.command.clone'] ?? 0;
   const fetches = counters['git.remote.command.fetch'] ?? 0;
   assert.ok(clones <= 1 && fetches >= 2 && clones + fetches <= 3,
@@ -4250,7 +4250,8 @@ test('activation publishes its audit and state projection atomically, then retir
   const [configurationPush, publication, cleanupPush, ...rest] = await pushes();
   assert.deepEqual(configurationPush, ['refs/heads/sflow/config']);
   assert.deepEqual(rest, [], 'there was one publication transaction and one cleanup transaction');
-  assert.ok(publication.includes('refs/heads/state') && publication.includes(history));
+  assert.ok(publication.includes('refs/heads/state'));
+  assert.equal(publication.includes(history), false, 'no history ref is retained [owner, 2026-11-16]');
   assert.ok(publication.some((ref) => ref.startsWith('refs/singularity/pins/organisation/')));
   assert.ok(cleanupPush.includes(`refs/heads/${proposed.branch}`),
     'the later cleanup transaction only retires the exact completed proposal');
@@ -4264,12 +4265,13 @@ test('activation publishes its audit and state projection atomically, then retir
   assert.equal(run('git', ['rev-parse', `${activated.audit.ledgerCommit}^`], {
     cwd: org.platform
   }).stdout.trim(), stateBefore);
-  assert.equal(run('git', ['rev-parse', history], { cwd: org.platform }).stdout.trim(), merge);
+  assert.equal(run('git', ['rev-parse', '--verify', '--quiet', history], { cwd: org.platform, allowFailure: true }).status, 1);
   const manifest = JSON.parse(run('git', ['show', 'state:configuration/manifest.json'], {
     cwd: org.platform
   }).stdout);
   assert.deepEqual(manifest.source, { branch: 'sflow/config', commit: merge });
-  assert.deepEqual(manifest.history, { branch: `sflow/config-history/${merge}`, commit: merge });
+  assert.equal(manifest.history, undefined, 'the mirror names its repository instead of a history ref');
+  assert.match(manifest.subject.repositoryIdentity, /^sha256:[0-9a-f]{64}$/u);
   const [event] = activationEvents(org.platform, proposed.commit);
   assert.equal(event.transport.pinRef.startsWith('refs/singularity/pins/organisation/'), true);
   assert.equal(run('git', ['rev-parse', event.transport.pinRef], { cwd: org.platform }).stdout.trim(), merge);
@@ -4277,9 +4279,8 @@ test('activation publishes its audit and state projection atomically, then retir
   assert.deepEqual(event.payload.protection, activated.protection);
 });
 
-test('an activation auto-clears configuration history beyond the current and the 10 most recent, as tags', async () => {
+test('an activation retains no history ref and changes none an earlier build left [owner, 2026-11-16]', async () => {
   const { org, proposed } = await activationFixture();
-  // Twelve older approved snapshots beside the one the first publication retained.
   const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
   const seeded = [];
   for (let index = 0; index < 12; index++) {
@@ -4293,21 +4294,14 @@ test('an activation auto-clears configuration history beyond the current and the
   }
   const histories = () => run('git', ['for-each-ref', '--format=%(refname:lstrip=4)', 'refs/heads/sflow/config-history/'], {
     cwd: org.platform }).stdout.trim().split('\n').filter(Boolean);
-  const before = new Set(histories());
-  assert.equal(before.size, 13);
+  const before = histories();
   const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
     confirm: proposed.commit, acknowledgeUnprotected: true });
   assert.equal(activated.status, 'activated');
-  assert.deepEqual(activated.projection.historyCleanup, { status: 'cleaned', archived: 4, remaining: 0 });
-  const after = new Set(histories());
-  assert.equal(after.size, 10);
-  assert.ok(after.has(activated.targetCommit), 'the current approved snapshot stays a branch');
-  for (const commit of seeded.slice(0, 4)) {
-    assert.equal(after.has(commit), false);
-    assert.equal(run('git', ['rev-parse', `refs/tags/sflow/config-history/${commit}`], { cwd: org.platform })
-      .stdout.trim(), commit);
-  }
-  for (const commit of before) if (!seeded.slice(0, 4).includes(commit)) assert.ok(after.has(commit));
+  assert.equal(activated.projection.historyCleanup, undefined, 'no automatic history cleanup runs');
+  assert.deepEqual(histories(), before, 'the upgrade removes old history; an activation neither adds nor archives any');
+  assert.equal(histories().includes(activated.targetCommit), false);
+  assert.equal(run('git', ['for-each-ref', 'refs/tags/sflow/config-history/'], { cwd: org.platform }).stdout.trim(), '');
 });
 
 test('a refused atomic activation publication falls back to the sequential pushes', async () => {
@@ -4332,7 +4326,9 @@ exit 0
   assert.equal(activated.projection.published, true);
   assert.equal(activated.proposalCleanup.status, 'deleted');
   const counts = (await readFile(log, 'utf8')).trim().split('\n').map(Number);
-  assert.deepEqual(counts, [1, 3, 1, 1, 1, 1, 1],
+  // The atomic publication names the state branch and the event pin, and the sequential recovery no longer pushes a
+  // history ref: no history ref is retained [owner, 2026-11-16].
+  assert.deepEqual(counts, [1, 2, 1, 1, 1, 1],
     'one refused publication, sequential recovery, then a separate proposal cleanup');
   assert.equal(activationEvents(org.platform, proposed.commit).length, 1);
   assert.equal(run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim(),

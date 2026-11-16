@@ -1053,7 +1053,6 @@ Usage:
                                                         drop drafts: a number from the list with that list's --listing, or a draft ID
   singularity-flow configuration approve [<PROPOSAL>] [--yes] [--json]  Show what a proposal changes, confirm, and activate exactly that revision
   singularity-flow configuration recreate-sync [--apply --confirm sha256:<PREVIEW>] [--json]  Preview lists every proposal it replays (teammates' unreviewed ones too) and its confirmation; apply replays only that reviewed list and refuses if it changed
-  singularity-flow configuration cleanup-history [--keep-recent 10] [--apply --confirm <HASH>] [--json]  Preview exact snapshot branches; archive commits as tags before retiring old branch refs (up to 100 per confirmed batch); also runs after each publication unless ledger.configurationHistory.autoClear is false
   singularity-flow configuration transactions [--json]     Inspect retained configuration operations; the journal grants no authority
   singularity-flow configuration reconcile <CFT-ID> [--json]  Reconcile a committed operation and finish reference sync; never retry a push blindly
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]
@@ -1442,8 +1441,9 @@ Usage:
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
     [--resolve PATH=local|bundled|merge] [--accept-bundled-conflicts]
     [--confirm-plan PLAN-ID] [--review-only] [--json]
-    (--review-only proposes each change on a sflow/config-refresh/* review branch and never pushes
-     sflow/config itself)
+    (publishes each repository's packaged configuration straight to sflow/config and removes its
+     old sflow/config-history/* and sflow/config-refresh/* refs; a host that refuses the push gets a
+     review branch with its link; --review-only proposes on a review branch instead)
   singularity-flow workspace reinitialize [WORKSPACE] [--repository ID]
     [--hard-cutover] [--dry-run | --confirm-plan PLAN-ID] [--json]
     (--hard-cutover explicitly retires known existing Stories, preserving their bytes read-only;

@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 15 November 2026
-**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026); stages 2 to 5 are not.
+**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026); stages 2 to 5 are not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct).
 **Namespace:** SCF. No other document uses it.
 **Source baseline:** main bd90bcc46. File references are to that commit.
 **Inputs:** the four analyses of 2026-11-15 (workspaces, upgrades, editing and review, configuration history).
@@ -33,8 +33,9 @@ Six rules.
    require a second person.
 3. **History is Git's own.** What a Story started from is its pin plus `sflow/config`'s commit history, which
    SFlow only ever moves forward. There are no history branches, archive tags or cleanup.
-4. **Upgrades are proposals.** A build proposes its packaged changes and never publishes them. A build older than
-   the one that last upgraded a repository is told to upgrade; it never proposes or publishes over it.
+4. **Upgrades are one click.** A build publishes its packaged changes straight to `sflow/config` when it is
+   installed or its one VS Code action runs (D10, superseding "upgrades are proposals"). A build older than the one
+   that last upgraded a repository is told to upgrade; it never publishes over it.
 5. **One identity.** A person is their Git name and email, plus their GitHub login when signed in, resolved for
    whoever runs the command. A repository is its canonical repository key. Every configuration commit says who
    proposed it and who approved it.
@@ -84,7 +85,11 @@ not counted on either side: they stay, and each one now ends in a proposal.
   commit and the problem, and give one route: a restore proposal (D7) or a repair proposal. `workflow fix` MUST
   work on a `sflow/config` that does not load.
 - **[SCF:REQ-003]** SFlow MUST NOT write the `state` configuration copy, `sflow/config-history/*` branches or tags,
-  or Recreate & sync backup tags. Those that exist stay, and are never read as authority.
+  or Recreate & sync backup tags. Those that exist stay, and are never read as authority. D10 changes the history
+  refs: SFlow writes none from 16 November 2026, and an upgrade deletes the existing `sflow/config-history/*`
+  branches, their archive tags and the `sflow/config-refresh/*` review branches once `sflow/config` holds the
+  build's configuration. Until stage 4, the refresh and capability publication still write the `state` copy, now
+  naming its repository (`subject.repositoryIdentity`) instead of a history ref.
 
 ### One way in
 
@@ -125,13 +130,19 @@ not counted on either side: they stay, and each one now ends in a proposal.
 
 ### Upgrades
 
-- **[SCF:REQ-014]** A build MUST only propose its packaged configuration, as a package proposal. The installer,
-  `workspace refresh-configuration`, `workspace reinitialize`, `product reviews` and the VS Code pass all propose
-  and nothing else. Each repository gets its own proposal; an unreachable one holds up no other.
+- **[SCF:REQ-014]** ~~A build MUST only propose its packaged configuration, as a package proposal.~~ Superseded for
+  upgrades by D10 (owner, 16 November 2026): the installer, `workspace refresh-configuration`,
+  `/sf-refresh-configuration`, `workspace reinitialize`, `product reviews` and the VS Code pass publish this build's
+  packaged configuration straight to each repository's `sflow/config`, authored by the person's own Git identity
+  (REQ-018), with no review branch, merge request or extra confirmation. Only where the host refuses the push
+  (branch protection) is the candidate kept on a `sflow/config-refresh/*` review branch, reported by its full name
+  with a compare link. `--review-only` still proposes when a person asks for it. Each repository is its own
+  publication; an unreachable one, one that needs a newer build, and one whose kept team edit conflicts hold up no
+  other.
 - **[SCF:REQ-015]** The package baseline (`singularity/.product/configuration-baseline.yml`) MUST move to format v2
-  and record the proposing build's commit and `builtAt`. A build MUST NOT propose over a baseline from a newer
-  build (D1). A build without a clean stamp (a development checkout or a dirty tree) MUST NOT propose packaged
-  configuration. A build MUST NOT trust ownership entries that an older build wrote.
+  and record the proposing build's commit and `builtAt`. A build MUST NOT propose or publish over a baseline from a
+  newer build (D1). A build without a clean stamp (a development checkout or a dirty tree) MUST NOT propose or
+  publish packaged configuration. A build MUST NOT trust ownership entries that an older build wrote.
 - **[SCF:REQ-016]** The approved baseline's build is the repository's minimum build. On an older build, a command
   that reads or writes that repository's `sflow/config` (Story start, propose, approve) MUST refuse with "this
   repository needs a build from <date> or later" and the install route. Work inside a running Story is not gated.
@@ -187,6 +198,11 @@ not counted on either side: they stay, and each one now ends in a proposal.
 | **One-click activation in VS Code.** Review and activate, Finish and activate, Save and activate (`apps/vscode/src/extension.ts:8384`, `apps/vscode/src/views/configuration-save.ts:130`). | Authoring in Studio and Configuration Center. | Propose, then the one approve view, with self-approval shown. | Low. |
 | **The working-tree shortcut outside a Story checkout** (`src/approved-configuration-reader.mjs:511`). | Approved reads that do not ask for the authority, including `doctor` (`src/doctor.mjs:248-304`) and `configuration validate` (`src/cli.mjs:8411`). | In a Story checkout, its pin; elsewhere, `sflow/config`. | Medium: an offline read in an application checkout needs a fetched `origin/sflow/config`. |
 
+D10 (16 November 2026) changes two rows above: the installer's and refresh's direct push stays (now authored by the
+person, fenced by build order, one repository at a time), and `sflow/config-refresh/*` reviews go except where the
+host refuses the push. The history-branch row is done in the upgrade itself, `configuration cleanup-history` and
+VS Code's "Clean configuration history" included (removed, D10 answers 5).
+
 Docs that describe removed behaviour change with the stage that removes it: `docs/topics/configuration.md:188-190`,
 `docs/topics/capability-management.md:170-177,325-348,409`, `docs/topics/installation-and-upgrades.md:174,214-221`,
 `docs/CONFIGURATION-RECREATE-SYNC.md`, `docs/CONFIGURATION-CENTER.md`, `ARCHITECTURE.md:282` and
@@ -205,8 +221,10 @@ Nothing is rewritten (SPEC-CIC D3).
   appear in the one list and are approved by the new rules.
 - Existing Story checkouts keep their place and their links. `reset-all` keeps them (SCF:REQ-021); new ones follow
   the new placement.
-- Old history refs: `doctor` and `product status` offer one previewed "remove old history refs" step, done in pages
-  under leases. It never runs by itself, and leaving the refs is harmless.
+- Old history refs: ~~`doctor` and `product status` offer one previewed "remove old history refs" step, done in pages
+  under leases. It never runs by itself, and leaving the refs is harmless.~~ Superseded by D10: the upgrade itself
+  removes them, under leases and in pushes that fit a command line; a ref the host refuses to delete is reported
+  and harmless.
 
 **Older builds on the team**
 
@@ -255,7 +273,10 @@ one list; VS Code's activate buttons become propose and approve; drafts kept as 
 (SCF:REQ-004, REQ-010 to REQ-013, D4, D5). Fixes ER-F3, F4, F8, F10, and part of F9. Risk: medium; it touches Story
 start and VS Code flows. D4 changes regulated repositories, so the release notes say so.
 
-**Stage 4 — Remove the old machinery.** Stop writing the `state` copy and history refs; delete auto-clean,
+**Stage 4 — Remove the old machinery.** (D10 pulled part of it into the upgrade on 16 November 2026: history refs are
+no longer written; auto-clean is deleted; the upgrade deletes the old history and review refs; onboarding, SGOS,
+proposal cleanup and the legacy-mirror proof fetch a source commit by object instead of reading a history ref.)
+Stop writing the `state` copy and history refs; delete auto-clean,
 cleanup-history and the history-ref paths in onboarding, SGOS and proposal cleanup; the restore proposal (D7);
 `doctor` and `validate` read the authority; the unbounded ancestry fetch, with proof v2 once the minimum build allows;
 the one-time removal step; the docs (SCF:REQ-002, REQ-003, REQ-020). Fixes CH-F2, F4, F5, F7, F8, and parts of CH-F9
@@ -295,6 +316,27 @@ the decision; D2's Git 2.29 minimum is confirmed when stage 5 is built.
 - **D9. After a rewrite of `sflow/config` outside SFlow, can a running Story still adopt new approvers?** Recommended:
   yes, in the same step, by an approver's confirmation recorded as "adopted without ancestry". The refusal names
   the cause and this route.
+
+Decided 16 November 2026, by the owner after installing main 04a6f2adc (stage 1), whose after-install pass opened a
+review branch in each of three repositories that could not be found:
+
+- **D10. Upgrades publish directly and remove the old history.** The owner: "upgrade should delete all the history
+  branches and let them update sflow/config directly without any review or merge reqest .It should be one click
+  actiivty". It supersedes REQ-014's review-only rule for upgrades and pulls stage 4's history removal into the
+  upgrade. Kept from stage 1: the v2 baseline and its build stamp, the build-order fence (needs-newer-build holds up
+  no other repository), "an unreachable repository holds up no other", the person's own identity in the commit,
+  and the refusal for development and dirty builds. Only a host refusal of the push leaves a review branch, with
+  its full name and a compare link. A conflict with the team's own edits follows today's rules (the team's value
+  is kept and reported); where that no longer works, that repository prints its one-command route and holds up no
+  other. Deleted: `sflow/config-history/*` branches, their archive tags, `sflow/config-refresh/*` review branches.
+  Never deleted: `sflow/config`, `sflow/config-change/*`, the state branch, Story and application branches.
+  The owner's answers to the build's six questions, the same day ("take the suggestions"): (1) a conflict with the
+  team's own edit keeps today's rule, and only a result that will not load stops that repository; (2) a difference
+  that is only the build's stamp publishes nothing; (3) a terminal user's first command after a new build may publish
+  in the background, since the build fence makes it safe; (4) the protected-branch fallback leaves the run partial and
+  the installer's "did not finish" warning, with the review link; (5) `configuration cleanup-history` and VS Code's
+  "Clean configuration history" are removed; (6) the upgrade also clears each registered clone of its stale tracking
+  refs and fetched archive tags for those refs, locally, refs only and never a file.
 
 ## Appendix A — The findings
 

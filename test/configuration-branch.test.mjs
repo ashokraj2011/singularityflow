@@ -18,7 +18,6 @@ import {
   materializeConfigurationSnapshot, readConfigurationSource, resolveConfigurationRemote,
   portableConfigurationTraversalPath,
   resolveRemoteStoryConfigurationAuthority, resolveStoryConfigurationAuthority,
-  retainStateConfigurationHistory, stateConfigurationHistoryBranch,
   STATE_CONFIGURATION_BRANCH, STATE_CONFIGURATION_MANIFEST,
   withStoryConfigurationSnapshotRead, withStoryConfigurationTransaction, takeStoryConfigurationCheckout
 } from '../src/configuration-branch.mjs';
@@ -975,100 +974,6 @@ test('configuration authority discovery uses the exact checkout-local URL instea
     assert.equal(calls.length, 1);
     assert.equal(calls[0].remote, fixture.remote,
       'authority identity comes from the exact repository-local config value');
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('state configuration history refuses a symbolic immutable authority without moving its target', async () => {
-  const fixture = await repositoryFixture();
-  try {
-    run('git', ['remote', 'add', 'origin', fixture.remote], { cwd: fixture.source });
-    const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: fixture.source }).stdout.trim();
-    const historyRef = `refs/heads/${stateConfigurationHistoryBranch(sourceCommit)}`;
-    const mainBefore = run('git', ['rev-parse', 'refs/heads/main'], {
-      cwd: fixture.remote
-    }).stdout.trim();
-    run('git', ['symbolic-ref', historyRef, 'refs/heads/main'], { cwd: fixture.remote });
-
-    await assert.rejects(
-      () => retainStateConfigurationHistory(fixture.source, 'origin', sourceCommit),
-      (error) => error?.code === 'STATE_CONFIGURATION_HISTORY_INVALID'
-        && error?.details?.symbolic === true
-    );
-    assert.equal(run('git', ['symbolic-ref', historyRef], {
-      cwd: fixture.remote
-    }).stdout.trim(), 'refs/heads/main');
-    assert.equal(run('git', ['rev-parse', 'refs/heads/main'], {
-      cwd: fixture.remote
-    }).stdout.trim(), mainBefore, 'the symbolic target remains unchanged');
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('state configuration history refuses ambiguous push authorities before creating a ref', async () => {
-  const fixture = await repositoryFixture();
-  const alternate = path.join(fixture.root, 'alternate.git');
-  try {
-    run('git', ['init', '-q', '--bare', alternate], { cwd: fixture.root });
-    run('git', ['remote', 'add', 'origin', fixture.remote], { cwd: fixture.source });
-    run('git', ['remote', 'set-url', '--add', '--push', 'origin', fixture.remote], {
-      cwd: fixture.source
-    });
-    run('git', ['remote', 'set-url', '--add', '--push', 'origin', alternate], {
-      cwd: fixture.source
-    });
-    const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: fixture.source }).stdout.trim();
-    const historyRef = `refs/heads/${stateConfigurationHistoryBranch(sourceCommit)}`;
-
-    await assert.rejects(
-      () => retainStateConfigurationHistory(fixture.source, 'origin', sourceCommit),
-      (error) => error?.code === 'STATE_CONFIGURATION_HISTORY_INVALID'
-    );
-    for (const remote of [fixture.remote, alternate]) {
-      assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', historyRef], {
-        cwd: remote, allowFailure: true
-      }).status, 0, 'no candidate push authority receives the immutable ref');
-    }
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('state configuration history ignores ambient repository selectors and uses the supplied environment', async () => {
-  const fixture = await repositoryFixture();
-  const divertedRemote = path.join(fixture.root, 'diverted.git');
-  const selectorRepository = path.join(fixture.root, 'selector');
-  try {
-    run('git', ['init', '-q', '--bare', divertedRemote], { cwd: fixture.root });
-    run('git', ['init', '-q', selectorRepository], { cwd: fixture.root });
-    run('git', ['remote', 'add', 'origin', divertedRemote], { cwd: selectorRepository });
-    run('git', ['remote', 'add', 'origin', fixture.remote], { cwd: fixture.source });
-    const sourceCommit = run('git', ['rev-parse', 'HEAD'], {
-      cwd: fixture.source
-    }).stdout.trim();
-    const historyRef = `refs/heads/${stateConfigurationHistoryBranch(sourceCommit)}`;
-    const hostileEnv = {
-      ...process.env,
-      GIT_DIR: path.join(selectorRepository, '.git'),
-      git_work_tree: selectorRepository,
-      GIT_CONFIG_COUNT: '1',
-      GIT_CONFIG_KEY_0: `url.${divertedRemote}.insteadOf`,
-      GIT_CONFIG_VALUE_0: fixture.remote,
-      gIt_TrAcE: path.join(fixture.root, 'git-trace.log')
-    };
-
-    await retainStateConfigurationHistory(fixture.source, 'origin', sourceCommit, {
-      env: hostileEnv
-    });
-
-    assert.equal(run('git', ['show-ref', '--verify', '--quiet', historyRef], {
-      cwd: fixture.remote, allowFailure: true
-    }).status, 0, 'the reviewed checkout origin receives the immutable ref');
-    assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', historyRef], {
-      cwd: divertedRemote, allowFailure: true
-    }).status, 0, 'supplied Git selectors and url.* rewrites cannot redirect publication');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

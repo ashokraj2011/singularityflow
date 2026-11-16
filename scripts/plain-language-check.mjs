@@ -15,7 +15,8 @@
  *   (b) length: a cap per kind (KINDS), set from the measured distribution so the worst fail;
  *   (c) required parts: a refusal names a way out that is not generic help (unless the command
  *       itself was malformed), and a decision item recommends something;
- *   (d) no counts without names: "2 still need a decision" says which two, or lists them.
+ *   (d) no counts without names: "2 still need a decision" says which two, or lists them;
+ *   (e) a step's generation is a "version", never a "draft" (DRAFT_FOR_VERSION).
  * A text that may keep a term or its length says so in EXCEPTIONS, with a reason.
  *
  * Existing violations are the committed baseline (benchmarks/plain-language/baseline.json), which may
@@ -68,8 +69,8 @@ export const KINDS = Object.freeze({
  * names its exception in EXCEPTIONS.
  */
 export const JARGON = Object.freeze([
-  ['generation', /\bgenerations?\b/iu, 'say "draft" ("draft 2", "the published draft")'],
-  ['successor', /\bsuccessors?\b/iu, 'say "the next draft"'],
+  ['generation', /\bgenerations?\b/iu, 'say "version" ("version 2", "the published version", "a new version")'],
+  ['successor', /\bsuccessors?\b/iu, 'say "the next version"'],
   ['retained', /\bretain(?:ed|s|ing)?\b|\bretention\b/iu, 'say "kept" or "saved"'],
   ['binding', /\bbindings?\b/iu, 'say which Story or session it is tied to'],
   ['packet', /\bpackets?\b/iu, 'say what it holds: "the review", "the answers"'],
@@ -80,8 +81,8 @@ export const JARGON = Object.freeze([
   ['provenance', /\bprovenance\b/iu, 'say "where it came from"'],
   ['ledger', /\bledgers?\b/iu, 'say "record"'],
   ['sidecar', /\bsidecars?\b/iu, 'say what the file is for'],
-  ['staging', /\bstag(?:ing|ed)\b/iu, 'say "draft" or "not saved yet"'],
-  ['published generation', /\bpublished generation\b/iu, 'say "the published draft"'],
+  ['staging', /\bstag(?:ing|ed)\b/iu, 'say "not saved yet"'],
+  ['published generation', /\bpublished generation\b/iu, 'say "the published version"'],
   ['aggregate', /\baggregates?\b/iu, 'say "the Story\'s record"'],
   ['invariant', /\binvariants?\b/iu, 'say what must stay true'],
   ['envelope', /\benvelopes?\b/iu, 'say what it holds'],
@@ -99,6 +100,14 @@ export const JARGON = Object.freeze([
   ['oracle', /\boracles?\b/iu, 'say "check"']
 ].map(([term, pattern, instead]) => Object.freeze({ term, pattern, instead })));
 
+/**
+ * A step's generation is a "version" ("version 2", "the published version"); a "draft" is only the private,
+ * unpublished working copy (2026-11-16). "draft 2", "draft {generation}", "draft N+1" and "the
+ * published draft" use the one word for the other. The verb ("cannot draft {step}") and other drafts
+ * ("discard draft {#number}" of configuration) are not matched.
+ */
+export const DRAFT_FOR_VERSION = /\bdraft\s+(?:\d+\b|N(?:\+1)?\b|\{#?[^}]*(?:generation|next)[^}]*\})|\bpublished\s+drafts?\b/iu;
+
 /** Codes whose refusal is about the command's own words: help with the command's forms is the way out. */
 export const MALFORMED_COMMAND = /(?:^|_)(?:USAGE|ARGUMENTS?|OPTIONS?|FLAGS?|UNKNOWN_SUBCOMMAND|UNKNOWN_COMMAND|COMMAND_UNKNOWN|UNKNOWN_OPTION|ID_INVALID)(?:_|$)/u;
 /** The fallback steps every refusal gets when nothing names its way out. */
@@ -110,8 +119,8 @@ const ROUTE_DETAILS = new Set(['diagnosticAction', 'nextAction', 'discardAction'
 
 /**
  * Texts that may keep what a rule flags, each with why. `file` and `includes` find the text; `rules`
- * are the rule IDs it may keep (jargon:<term>, a space as a hyphen; length; count-without-name). An
- * exception that no longer matches a text fails the test, so this list stays exact.
+ * are the rule IDs it may keep (jargon:<term>, a space as a hyphen; length; count-without-name;
+ * draft-for-version). An exception that no longer matches a text fails the test, so this list stays exact.
  */
 export const EXCEPTIONS = Object.freeze([
   ...[['src/commands/secrets.mjs', 'check what is staged before each commit'],
@@ -389,6 +398,9 @@ export function textViolations(entry, { routedCodes = new Set() } = {}) {
   for (const { term, pattern } of JARGON) if (pattern.test(reading)) found.push(`jargon:${term.replaceAll(' ', '-')}`);
   const cap = KINDS[entry.kind]?.cap;
   if (cap && entry.text.length > cap) found.push('length');
+  if ([entry.text, ...(entry.variants ?? []), ...(entry.pieces ?? [])].some((value) => DRAFT_FOR_VERSION.test(value.replace(/`[^`]*`/gu, ' ')))) {
+    found.push('draft-for-version');
+  }
   // (d) A count of what waits on the person with nothing named: no list, no ": {name}", not followed by its list.
   const counts = [entry.text, ...(entry.variants ?? [])].some((variant) => [...variant.matchAll(/\{#\w+\}/gu)].some((count) => {
     // The sentence the count is in names them: a list, ": {name}", "(…)", or it ends in ":" before its list.

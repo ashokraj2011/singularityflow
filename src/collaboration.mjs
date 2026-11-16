@@ -149,7 +149,7 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
     applicationPaths, applicationScope,
     preserved: ['working-tree bytes', 'Git index', 'published generations', 'approval history'],
     detail: carried
-      ? `This is the code ${phase.id}'s draft held when ${phase.scopePin?.closedChangeSet ? phase.scopePin.amendment : 'an amendment'} closed it. Start the step's next draft to carry it into the amended scope; do not commit it or set it aside. Recovery keeps these edits.`
+      ? `This is the code ${phase.id}'s version held when ${phase.scopePin?.closedChangeSet ? phase.scopePin.amendment : 'an amendment'} closed it. Start the step's next version to carry it into the amended scope; do not commit it or set it aside. Recovery keeps these edits.`
       : guided && applicationPaths.length
       ? successorRequired
         ? `Review the exact listed application diff since published generation ${applicationScope.publishedGeneration}, then use the returned confirmed rollover command. The prior publication stays immutable; recovery does not commit, stash or discard these edits.`
@@ -397,7 +397,7 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
   if (holdAt >= 0 && asideAt > holdAt) actions.splice(holdAt, 0, ...actions.splice(asideAt, 1));
   if (!actions.length) actions.push({
     id: 'none', safe: true, automatic: false, mode: 'informational', confirmation: 'none', command: null,
-    detail: 'Recovery found nothing to repair: publications, branches, sync, documents and drafts are in order.'
+    detail: 'Recovery found nothing to repair: publications, branches, sync, documents and versions are in order.'
   });
   const revision = recoveryRevision(root, config, workflow, worktreeInspection);
   const core = {

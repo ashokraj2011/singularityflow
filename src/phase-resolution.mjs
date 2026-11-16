@@ -171,10 +171,10 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       'Preserve the exact pending evidence. Continue only admitted draft repairs; the plan authority must review its contract before publication. The preview offers a guided local browser review or human terminal. No visual pass or test waiver is implied.', '/sf-appeal');
   } else if (code.startsWith('generation_publication')) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
-      'Check the saved publication and its files. Restore them as published, or return the step for a reviewed new draft; refreshing configuration or accepting a risk cannot make changed files valid.', '/sf-doctor');
+      'Check the saved publication and its files. Restore them as published, or return the step for a reviewed new version; refreshing configuration or accepting a risk cannot make changed files valid.', '/sf-doctor');
   } else if (code === 'phase_quality_risk_pending_tests') {
     resolution = route('submission-evidence', phase.id, submitRoute(workflow, phase).command.replace(/^singularity-flow /u, '').split(' '),
-      'Run fresh tests on the published draft and record what they show before the quality risk is reviewed. No test or evidence is waived.', '/sf-submit');
+      'Run fresh tests on the published version and record what they show before the quality risk is reviewed. No test or evidence is waived.', '/sf-submit');
   } else if (code === 'generation.document.published-changed') {
     resolution = phase.status === 'awaiting_approval'
       ? route('published-document-return', 'phase-approval-authority',
@@ -185,7 +185,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (code === 'specification_claim_map_binding_stale'
       || code === 'specification_claim_map_binding_required') {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
-      'Check the record of the clauses this step\'s published draft covers. If it is damaged, restore the published files or redo the step; refreshing configuration or accepting a risk cannot fix it.', '/sf-doctor');
+      'Check the record of the clauses this step\'s published version covers. If it is damaged, restore the published files or redo the step; refreshing configuration or accepting a risk cannot fix it.', '/sf-doctor');
   } else if (code === 'phase_repair_recheck_required') {
     resolution = route('repair-resume', phase.id, ['appeal', 'repair-resume', '--phase', phase.id, '--json'],
       'Resume the same durable attempt and rerun its gates. Do not start a new budget or blindly repeat the interrupted operation.', '/sf-appeal');
@@ -205,7 +205,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = recovery;
   } else if (category === 'appeal' || code.includes('appeal')) {
     resolution = route('human-review', 'plan-approval-authority', ['appeal', 'list', '--phase', phase.id, '--json'],
-      'Review the saved appeal, or ask for corrections and prepare a new draft. This neither approves the step nor waives a risk.', '/sf-appeal');
+      'Review the saved appeal, or ask for corrections and prepare a new version. This neither approves the step nor waives a risk.', '/sf-appeal');
   } else if (/dirty|worktree|working.tree|staged|index.conflict/u.test(code) || category === 'worktree'
       // Files outside this step's documents: a person's set-aside or move, never a draft edit.
       || code === 'phase_artifact_only_changes' || code === 'phase_source_change_ungoverned') {
@@ -316,7 +316,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       && phaseCorrectionTargets(phase).includes(phase.id)) {
     resolution = route('current-phase-correction', 'phase-approval-authority',
       ['reject', phase.id, '--work-id', workId, '--to', phase.id, '--reason', '<reason>'],
-      'An approver of this step asks for corrections. The submitted work stays as it is; its author fixes and tests a new draft. Earlier approvals stay.', '/sf-reject');
+      'An approver of this step asks for corrections. The submitted work stays as it is; its author fixes and tests a new version. Earlier approvals stay.', '/sf-reject');
   }
   // When the author has delivered everything and the check still misreads it, the step's approvers
   // can accept the exact finding as an exception on evidence [recoverable-findings M2].

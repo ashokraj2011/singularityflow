@@ -1305,7 +1305,7 @@ export const REASONS = Object.freeze({
     render: (s) => `the phase requires ${slot(s.path)}, which is not present`
   },
   'generation.not-published': {
-    render: (s) => `${slot(s.phase)} has no published draft yet`
+    render: (s) => `${slot(s.phase)} has no published version yet`
   },
   'approval.authority-required': {
     render: (s) => `approval needs ${slot(s.authority)}, and your identity is not in it`
@@ -1320,7 +1320,7 @@ export const REASONS = Object.freeze({
     render: (s) => `the capability record has ${slot(s.pending)} change(s) not sent yet`
   },
   'grounding.not-ready': {
-    render: (s) => `the world-model grounding policy is '${slot(s.mode)}' and this draft's prompt is not composed yet`
+    render: (s) => `the world-model grounding policy is '${slot(s.mode)}' and this version's prompt is not composed yet`
   },
   'docs.no-such-topic': {
     render: (s) => `'${slot(s.query)}' is not a topic id, an alias, or the prefix of one`

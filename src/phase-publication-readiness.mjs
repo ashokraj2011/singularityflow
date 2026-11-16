@@ -171,7 +171,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   // and so does this route, so nobody answers into a record that is refused.
   add('clarification', 'clarification', clarification.errors, {
     command: `singularity-flow clarification status ${phase.id} --json`,
-    detail: `${clarification.composition?.command ? `First compose this draft's prompt (${clarification.composition.command}). Then a` : 'A'}sk the person the checkpoint questions and record their answers. Ask again if a saved answer is out of date; never make up or copy an approval.`
+    detail: `${clarification.composition?.command ? `First compose this version's prompt (${clarification.composition.command}). Then a` : 'A'}sk the person the checkpoint questions and record their answers. Ask again if a saved answer is out of date; never make up or copy an approval.`
   }, { code: clarification.sourceCode ?? 'PHASE_CLARIFICATION_NOT_READY', file: clarification.path });
 
   const mcpEvidence = await capture(() => verifyPhaseMcpRequirements(root, workflow, phase, {
@@ -179,7 +179,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   }));
   add('mcp-evidence', 'external-evidence', mcpEvidence.errors, {
     command: `singularity-flow phase show ${phase.id} --json`,
-    detail: 'Run the required tools for this draft through the allowed MCP host and save what they return. A missing or invalid record cannot be replaced by a written claim or by another draft\'s evidence.'
+    detail: 'Run the required tools for this version through the allowed MCP host and save what they return. A missing or invalid record cannot be replaced by a written claim or by another version\'s evidence.'
   }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED' });
 
   // The design source and the visual captures are bound to the generation this publication creates,

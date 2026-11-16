@@ -12,6 +12,7 @@
  },
  "totals": {
   "count-without-name": 33,
+  "draft-for-version": 15,
   "generic-route": 6437,
   "jargon": 1414,
   "length": 702,
@@ -2756,8 +2757,29 @@
    "148ceefd7341": "length",
    "905948ef385a": "length"
   },
+  "plugin/skills/sflow-code/SKILL.md": {
+   "350c33921cb6": "draft-for-version"
+  },
+  "plugin/skills/sflow-design/SKILL.md": {
+   "350c33921cb6": "draft-for-version"
+  },
+  "plugin/skills/sflow-document-intake/SKILL.md": {
+   "350c33921cb6": "draft-for-version"
+  },
   "plugin/skills/sflow-epic-story-draft/SKILL.md": {
    "2b43883d313e": "length"
+  },
+  "plugin/skills/sflow-phase/SKILL.md": {
+   "350c33921cb6": "draft-for-version"
+  },
+  "plugin/skills/sflow-release/SKILL.md": {
+   "350c33921cb6": "draft-for-version"
+  },
+  "plugin/skills/sflow-requirements/SKILL.md": {
+   "350c33921cb6": "draft-for-version"
+  },
+  "plugin/skills/sflow-scenario-check/SKILL.md": {
+   "350c33921cb6": "draft-for-version"
   },
   "src/acceptance-owner-check.mjs": {
    "14be2ea24511": "length",
@@ -2935,9 +2957,10 @@
    "0e75b1a92e4e": "jargon:binding"
   },
   "src/changes-after-publication.mjs": {
-   "96e41fffab11": "length",
-   "a0083bb394d7": "length",
-   "a2fba0b0147f": "length"
+   "96e41fffab11": "draft-for-version length",
+   "a0083bb394d7": "draft-for-version length",
+   "a2fba0b0147f": "draft-for-version length",
+   "b58615c64021": "draft-for-version"
   },
   "src/choices.mjs": {
    "28b1f62f7b45": "jargon:binding",
@@ -3960,7 +3983,7 @@
    "e558de61efd5": "jargon:idempotent length"
   },
   "src/own-correction-rollover.mjs": {
-   "09b696a0d95d": "jargon:generation",
+   "09b696a0d95d": "draft-for-version jargon:generation",
    "508aec8ccfd5": "jargon:generation length"
   },
   "src/owner-step-evidence.mjs": {
@@ -4271,9 +4294,11 @@
   },
   "src/requested-successor.mjs": {
    "41909f1ea329": "jargon:generation",
+   "48d5373c5c01": "draft-for-version",
    "562147324f2a": "jargon:generation",
    "65607d0c886d": "jargon:generation length",
    "c159c117355d": "jargon:generation length",
+   "ebce126bafb2": "draft-for-version",
    "ebe1debca8e6": "jargon:generation"
   },
   "src/revision/interactive-service.mjs": {
@@ -4590,6 +4615,7 @@
    "b5bdb803e5d7": "2× jargon:successor"
   },
   "src/submission-readiness.mjs": {
+   "abdaa39bf72b": "draft-for-version",
    "bcd90242e010": "count-without-name"
   },
   "src/test-baseline-risk.mjs": {

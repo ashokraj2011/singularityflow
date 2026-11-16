@@ -81,6 +81,15 @@ test('caps are measured per kind and a label is one line', () => {
   for (const [kind, { cap, what }] of Object.entries(KINDS)) assert.ok(Number.isInteger(cap) && cap >= 60 && what, kind);
 });
 
+test('a step\'s generation is a version: "draft" stays the unpublished working copy', () => {
+  const label = (text) => textViolations({ kind: 'next-label', file: 'src/x.mjs', text }).includes('draft-for-version');
+  const [template] = textsOfSource('src/x.mjs', 'const next = { command: c, label: `Start draft ${next} of ${id}` };');
+  assert.equal(textViolations(template).includes('draft-for-version'), true, 'draft {next}');
+  assert.deepEqual(['Start draft 2 of Implementation', 'start draft N+1 for this change', 'Test the published draft'].map(label), [true, true, true]);
+  assert.deepEqual(['Start version 2 of Implementation', 'Write the prepared draft, then check it', 'Discard draft {#number} of the configuration',
+    '{agent} cannot draft {label}'].map(label), [false, false, false, false]);
+});
+
 test('jargon is read from the words, never from a command, a flag, a path or a slot', () => {
   const reason = (text) => ({ kind: 'next-reason', file: 'src/x.mjs', text });
   assert.deepEqual(textViolations(reason('Run singularity-flow phase show --generation 2 to see it.')), []);

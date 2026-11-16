@@ -102,7 +102,7 @@ function invalid(snapshot, code, target = null) {
 
 function shapeProblem(snapshot) {
   if (!snapshot || typeof snapshot !== 'object') return 'SNAPSHOT_SHAPE_INVALID';
-  if (snapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION) return 'SNAPSHOT_VERSION_UNSUPPORTED';
+  if (snapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION) return 'SNAPSHOT_VERSION_UNSUPPORTED'; // schema-transient: never stored
   const { subject, step, story, actor } = snapshot;
   if (!subject || typeof subject.workId !== 'string' || !subject.workId || text(subject.workId) === undefined
       || [subject.requestedPhaseId, subject.currentPhaseId, subject.projectId].some((value) => text(value) === undefined)) return 'SNAPSHOT_SHAPE_INVALID';

@@ -2163,7 +2163,7 @@ async function publishedReviewerStart(payload, record, delegations) {
       || !contract.workId || !contract.phaseId || !contract.repositoryRoot) return false;
   // The bound Story record only, never a Story load with Git on the pre-tool path [OSA:REQ-041, decision inventory a12].
   let workflow;
-  try { workflow = JSON.parse(await readFile(value.binding?.workflowFile, 'utf8')); } catch { return false; }
+  try { workflow = readRecord('story-workflow', await readFile(value.binding?.workflowFile, 'utf8')).record; } catch { return false; }
   const phase = workflow?.phases?.[contract.phaseId];
   const generation = Number(phase?.generation);
   if (workflow?.workItem?.id !== contract.workId || workflow.currentPhase !== contract.phaseId || phase?.status !== 'in_progress'

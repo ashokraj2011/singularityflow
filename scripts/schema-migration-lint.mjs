@@ -21,6 +21,8 @@ const TRANSIENT_SCHEMA_CONSTANTS = new Set([
   'src/gateway/result.mjs',
   'src/gateway/tools.mjs',
   'src/impact-config.mjs',
+  // SPEC-OSA's StepSnapshot/v1 and StepDecision/v1: in-memory contract versions between adapters and the kernel, never stored.
+  'src/kernel/step-state.mjs',
   'src/narration/command-result.mjs',
   'src/personalization.mjs',
   'src/workspace-logs.mjs',

@@ -1845,7 +1845,7 @@ export async function storyAdjudicateCommand(positionals, options) {
   const open = items.filter((item) => !decided.has(item.id));
   if (open.length) {
     const named = open.slice(0, 8).map((item) => `${item.id}${item.paths?.length ? ` ${item.paths.join(', ')}` : ''}`);
-    console.log(`${open.length} of ${items.length} still need a decision: ${named.join('; ')}${open.length > named.length ? `; and ${open.length - named.length} more` : ''}.`);
+    console.log(`${open.length} of ${items.length} still ${open.length === 1 ? 'needs' : 'need'} a decision: ${named.join('; ')}${open.length > named.length ? `; and ${open.length - named.length} more` : ''}.`);
   } else if (items.length) console.log(`All ${items.length} decided.`);
   if (projection.unresolvedBlockers.length) console.log(`Blocking findings: ${projection.unresolvedBlockers.join(', ')}`);
   const nextActions = projection.allowedNext.filter((action) => action !== 'adjudicate');

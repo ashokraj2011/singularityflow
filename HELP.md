@@ -4121,9 +4121,11 @@ singularity-flow review-source context|status <specification|planning> [--json]
 singularity-flow review-source check <phase> --report-file GIT-PRIVATE-FILE --for-agent --json
 singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
 singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
-singularity-flow decisions [WORK-ID] [--phase PHASE] [--json]
+singularity-flow decisions [WORK-ID] [--phase PHASE] [--probe|--no-probe] [--probe-wait SECONDS] [--json]
 singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] --confirm sha256:DIGEST
 # Everything people must decide before the step can move, in plain words with choices; recorded with one confirmation.
+# Each item is a question, why in one sentence, and "Recommended: ...". Where the answer depends on a check SFlow can run
+# itself (whether the tests pass on another Node), it runs it first, read-only and bounded, and recommends from the result.
 # In an interactive terminal, decisions record [WORK-ID] asks for each choice, shows a summary and asks y/N.
 # What the agent or SFlow settled with its evidence is listed as "Settled for you"; undoing one makes it your question again.
 singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT]

@@ -12,6 +12,7 @@ import test from 'node:test';
 
 import { REASON_RULES } from '../src/copilot-answer-binding.mjs';
 import { decisionChatSteps, decisionPacket } from '../src/decision-list.mjs';
+import { withPlainWords } from '../src/decision-plain.mjs';
 import { DEPARTURE_REASON } from '../src/departures.mjs';
 import { packetText } from '../src/commands/decisions.mjs';
 import { registerPersonCounts, presencePinKey } from '../src/presence/counted.mjs';
@@ -38,9 +39,9 @@ function packetOf(workflow, { held = true, recommend = 'unchanged', namedPaths =
   const row = { code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: 'AMD-001', phase: 'fix-design', producer: 'intake',
     message: 'fix-design read intake before AMD-001 amended it.', command: ROW,
     ...(held ? { reason: 'prompt-held', clauses: ['D-1:AC-001'], recommend, namedPaths, consumers: [] } : {}) };
-  return decisionPacket(workflow, { phaseId: 'implement', endsStory: false, gaps: [], issues: [], evidence: [], visual: [], testRisks: [], testCommands: [],
+  return withPlainWords(workflow, decisionPacket(workflow, { phaseId: 'implement', endsStory: false, gaps: [], issues: [], evidence: [], visual: [], testRisks: [], testCommands: [],
     scopePhase: 'intake', approvalCheck: null, pending: { forwardAmendments: [row] }, state: null },
-  { authorities: workflow.resolution.approvalAuthorities, actor, at: AT });
+  { authorities: workflow.resolution.approvalAuthorities, actor, at: AT }));
 }
 const rowOf = (packet) => packet.items.find((item) => item.kind === 'revalidation');
 const hosts = (packet) => [['terminal', packetText(packet)], ['VS Code', decideHtml({ ...packet, packetSha256: 'sha256:x', repositoryPath: '/repo' }).replaceAll('&#39;', '\'')],
@@ -70,11 +71,11 @@ test('a "still holds" row is a yes or no in chat: yes still holds, no redoes it,
   const renamed = story();
   renamed.phases['fix-design'].label = 'Design notes';
   assert.match(rowOf(packetOf(renamed)).yesNo.question, /^Does Design notes \(fix-design\) still hold after AMD-001\?/u);
-  // An SCS row: the same yes and no; SFlow has no recommendation, and the question says what to weigh.
+  // An SCS row: the same yes and no; no one answer is right whatever the facts, so it recommends which one when [owner, 2026-11-16].
   const scs = rowOf(packetOf(story(), { held: false }));
   assert.equal(scs.chatYesNo, true);
   assert.deepEqual([scs.yesNo.yes, scs.yesNo.no], ['still-holds', 'return-step']);
-  assert.match(scs.yesNo.question, /^Does Fix design still hold after AMD-001\? No recommendation: whether Fix design still holds under the amended document/u);
+  assert.match(scs.yesNo.question, /^Does Fix design still hold after AMD-001\? Recommended: Say Fix design still holds if what it was built and checked against reads the same under the amended document\./u);
   // Never settled for the person.
   assert.equal(row.settled ?? false, false);
   assert.equal((packet.settled ?? []).length, 0);
@@ -87,8 +88,8 @@ test('every host says the row may also be answered yes or no in chat', () => {
   assert.equal(row.answer.words, 'Answer it on the Decide card: /sf-decide D-1 opens it, or answer yes or no in chat (/sf-decide D-1).');
   assert.equal(row.answer.also, 'Or answer yes or no in chat (/sf-decide D-1).');
   for (const [host, text] of hosts(packet)) assert.ok(text.includes('yes or no in chat (/sf-decide D-1)'), `${host}: ${text}`);
-  // The Copilot CLI card's row says it beside its forms.
-  assert.ok(decisionsTable(packet).includes('Your decision, on the forms below. Or answer yes or no in chat (/sf-decide D-1).'), decisionsTable(packet));
+  // The Copilot CLI card says it under the question, in one line.
+  assert.ok(decisionsTable(packet).includes('\nOr answer yes or no in chat (/sf-decide D-1).\n'), decisionsTable(packet));
 });
 
 test('under SF Guard the row stays a signed step in the approver\'s own terminal: no chat asks it, and every host says so', () => {

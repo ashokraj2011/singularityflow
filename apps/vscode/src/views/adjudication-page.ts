@@ -108,7 +108,7 @@ export function adjudicationHtml(list: AdjudicationList, { error = null as strin
   const acceptable = list.items.filter((item) => item.acceptAll).length;
   return `<main class="adj">
     <header><h1>Decide · ${escape(list.workId)} · ${escape(list.phase ?? 'Convergence')}</h1>
-      <p class="muted">${list.items.length ? `${escape(list.decidedBy?.words ?? '')} ${list.open} of ${list.items.length} still need a decision.` : 'Nothing here needs a decision.'}</p></header>
+      <p class="muted">${list.items.length ? `${escape(list.decidedBy?.words ?? '')} ${list.open} of ${list.items.length} still ${list.open === 1 ? 'needs' : 'need'} a decision.` : 'Nothing here needs a decision.'}</p></header>
     ${error ? `<p class="adj-error" role="alert">${escape(error)}</p>` : ''}
     ${allowed && acceptable ? `<section class="adj-all"><label for="adj-all-reason">Accept all ${acceptable} changed file${acceptable === 1 ? '' : 's'} with one reason</label>
       <input id="adj-all-reason" maxlength="1000"><button type="button" data-accept-all>Accept all</button></section>` : ''}

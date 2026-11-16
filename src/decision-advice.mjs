@@ -6,9 +6,12 @@
  * `chatYesNo` and `yesNo`.
  *
  * Deterministic and model-free: a recommendation is read from the facts the item was built from (its
- * kind, details and options), never guessed. Where SFlow cannot tell, it says so: "No recommendation: <what
- * the person must weigh>". Nothing here chooses, preselects or records anything, and nothing enters the
- * list's digest: what a person confirms is the option they pick, under the same checks as before.
+ * kind, details and options), never guessed. Every item recommends [owner, 2026-11-16]: where no one option
+ * is right whatever the facts, it says which one to pick when ("Recommended: fix the code if the clause says
+ * what the product should do; otherwise update the spec"), and where the answer depends on a check SFlow can
+ * run itself (decision-probes.mjs), it recommends from that check's result, or "Check first" until it has one.
+ * Nothing here chooses, preselects or records anything, and nothing enters the list's digest: what a person
+ * confirms is the option they pick, under the same checks as before.
  */
 import { stepName } from './upstream-routes.mjs';
 
@@ -89,7 +92,7 @@ export function optionDoes(workflow, item, entry) {
       return `${listWords(words).replace(/^./u, (first) => first.toUpperCase())}; the code and its tests stay as they are, and no step is reset.`;
     }
     case 'node-pin':
-      return `${effect.replaces ? `Changes ${effect.file} from ${effect.replaces} to Node ${effect.version}` : `Creates ${effect.file} holding Node ${effect.version}`} and lists it in the plan; the tests then run on that Node, and the code stays as it is.`;
+      return `${effect.replaces ? `Changes ${effect.file} from ${effect.replaces} to Node ${effect.version}` : `Creates ${effect.file} with Node ${effect.version}`} and adds it to the plan; the code stays the same.`;
     case 'obligation-risk':
       return `The evidence reads as excepted ${until(entry)}; the verdict does not change, and a changed result needs a new decision.`;
     case 'scope-disposition':
@@ -150,7 +153,10 @@ const rec = (item, optionId, why) => {
 };
 // A step that is not one of the choices, said as what to do first.
 const first = (why) => ({ option: null, why, words: `Recommended first: ${why}` });
-const none = (why) => ({ option: null, why, words: `No recommendation: ${why}` });
+// No one choice is right whatever the facts: which one, when [owner, 2026-11-16]. Still a recommendation.
+const lean = (advice) => ({ option: null, why: advice, words: `Recommended: ${advice.replace(/^./u, (letter) => letter.toUpperCase())}` });
+// The answer depends on a check SFlow runs itself, which has no result for this code yet: the check comes first.
+const checkFirst = (why) => ({ option: null, check: true, why, words: `Recommended: Check first. ${why}` });
 const live = (item) => item.options.filter((entry) => entry.available !== false);
 
 /**
@@ -164,7 +170,7 @@ export function itemRecommendation(workflow, item) {
   const details = item.details ?? {};
   const marked = options.find((entry) => entry.recommended === true);
   const only = options.length === 1 ? options[0] : null;
-  if (!options.length) return none(item.options[0]?.words ? firstSentence(item.options[0].words) : 'nothing can be answered yet.');
+  if (!options.length) return lean(item.options[0]?.words ? firstSentence(item.options[0].words) : 'answer it once it can be answered.');
   switch (item.kind) {
     case 'conformance-gap': {
       if (marked?.id === 'reuse' && details.reuse) {
@@ -173,12 +179,12 @@ export function itemRecommendation(workflow, item) {
       if (options.some((entry) => entry.id === 'correct-report')) return rec(item, 'correct-report', 'The recorded evidence reads every clause satisfied, so the report is what to look at again, not the step before it.');
       if (details.draft && options.some((entry) => entry.id === 'update-spec')) return rec(item, 'update-spec', 'A draft of the spec change for these clauses is already written; writing it as the code does it and proposing it is next.');
       if (details.differences?.length) {
-        return none(`whether the code or the clause is right. Fix the code if the clause says what the product should do; update the spec if the code does. Accept it for now only if both can differ until a date.`);
+        return lean('fix the code if the clause says what the product should do; otherwise update the spec. Accept it for now only if both can differ until a date.');
       }
       if (options.some((entry) => entry.id === 'return')) {
-        return rec(item, 'return', `The report marks it ${listWords(details.verdicts ?? [])} and no recorded run covers it, so ${stepName(workflow, details.owner)} delivers it again; accept it as a risk only if the Story may ship without it until a date.`);
+        return rec(item, 'return', `The report marks it ${listWords(details.verdicts ?? [])} and no recorded run covers it, so ${stepName(workflow, details.owner)} delivers it again. Accept it as a risk only if the Story may ship without it until a date.`);
       }
-      return none(`whether the Story may ship with ${listWords((details.clauses ?? []).map((id) => clauseName(workflow, id)))} ${listWords(details.verdicts ?? [])} until a date, or the gap is not real.`);
+      return lean(`accept it as a risk only if the Story may ship with ${listWords((details.clauses ?? []).map((id) => clauseName(workflow, id)))} ${listWords(details.verdicts ?? [])} until a date; dismiss it if the gap is not real.`);
     }
     case 'upstream-issue': {
       if (marked?.id === 'accept-risk') return rec(item, 'accept-risk', 'The recorded run already accepted for a later step covers it; nothing is left unproven.');
@@ -187,105 +193,124 @@ export function itemRecommendation(workflow, item) {
       if (details.status === 'expired' && options.some((entry) => entry.id === 'return')) {
         return rec(item, 'return', `Its accepted risk ended and the problem is still open, so ${stepName(workflow, details.phase)} corrects it.`);
       }
-      return none(`whether the reported problem is real. Return the work if it is, dismiss it if it is not; accept it as a risk only if the Story may ship with it until a date.`);
+      return lean('return the work if the reported problem is real, and dismiss it if it is not; accept it as a risk only if the Story may ship with it until a date.');
     }
     case 'visual-profile':
       return options.some((entry) => entry.id === 'capture')
-        ? rec(item, 'capture', 'A screenshot at this size is the evidence the visual check asks for; say it does not apply only if the change never ships at this size.')
-        : none('whether the change ships at this screen size at all.');
+        ? rec(item, 'capture', 'A screenshot at this size is the evidence the visual check asks for. Say it does not apply only if the change never ships at this size.')
+        : lean('say it does not apply only if the change never ships at this screen size.');
     case 'node-pin':
-      return details.tried === true ? rec(item, 'pin-node', `The tests passed on Node ${details.version} here, on a throwaway copy of this checkout.`)
-        : details.tried === false ? none(`the tests did not pass on Node ${details.version} here: pinning it may not help. Installing the Node the tests ask for needs no choice.`)
-          : none(`whether the tests pass on Node ${details.version} is not known yet; try it first (singularity-flow tests node), which records nothing.`);
-    case 'test-run-risk':
+      // From SFlow's own check of this code on that Node (decision-probes.mjs), never from the Node's number.
+      return details.tried === true ? rec(item, 'pin-node', `Tests pass on Node ${details.version} (checked).`)
+        : details.tried === false ? lean(`leave it: tests fail on Node ${details.version} too (checked), so the Node is not the cause.`)
+          : checkFirst(details.probe?.cutShort ? `The check did not finish within ${details.probe.seconds} second${details.probe.seconds === 1 ? '' : 's'}.`
+            : `Whether the tests pass on Node ${details.version} is not known yet.`);
+    case 'test-run-risk': {
+      // From SFlow's own run of the same command on the commit this Story started from (`tests base`) [owner, 2026-11-16].
+      const base = details.base;
+      const step = stepName(workflow, details.phase);
+      if (base?.status === 'checked' && base.verdict === 'fails-on-base') {
+        return rec(item, 'accept-test-risk', 'It fails without this change too (checked), so the change is not the cause.');
+      }
+      if (base?.status === 'checked' && base.verdict === 'passes-on-base') {
+        return lean(`don't accept it: it passes without this change (checked), so repair it in ${step}.`);
+      }
+      if (base?.status === 'checked' && base.verdict === 'partly-on-base') {
+        return lean(`repair what fails only with this change in ${step}; the rest fails without it too (checked).`);
+      }
+      if (base && base.status !== 'checked') {
+        return checkFirst(base.cutShort ? `The check did not finish within ${base.seconds} second${base.seconds === 1 ? '' : 's'}.`
+          : `Whether it fails without this change too is not known yet.`);
+      }
       return first(`fix the environment and run ${details.commandId ?? 'the tests'} again. Accept it only if this environment cannot run them before the date: the run stays failed either way.`);
+    }
     case 'test-narrowing':
       return first(`remove the narrowing and run ${details.commandId ?? 'the tests'} again. Accept it only if the narrowed run covers everything this step changed.`);
     case 'test-command': {
       if (options.some((entry) => entry.id === 'return-step-first')) return rec(item, 'return-step-first', 'Accepting it while the step awaits approval would make that review stale.');
-      if (details.repin?.dropped) return none(`the changed command drops tests (${firstSentence(details.repin.dropped)}); accept it only if those tests no longer apply.`);
+      if (details.repin?.dropped) return lean(`accept it only if the tests it drops no longer apply (${firstSentence(details.repin.dropped).replace(/\.$/u, '')}).`);
       if (details.repin) return rec(item, 'accept-test-command', 'Only this Story\'s pin changes, and its tests must still pass.');
-      return none(`whether ${details.command?.id ?? 'this command'} runs the tests that prove this step; accepting it makes them this step's tests for this Story.`);
+      return lean(`accept it if ${details.command?.id ?? 'this command'} runs the tests that prove this step.`);
     }
     case 'evidence-obligation': {
       const sign = options.find((entry) => entry.action?.humanReview || /^witness-/u.test(entry.id));
       if (sign) return rec(item, sign.id, 'Looking at the evidence and signing it off proves the criterion; a risk leaves it unproven until the date.');
-      return none('which risk category fits: the verdict stays as written whichever you choose.');
+      return lean('choose the risk category that fits; the verdict stays as written whichever you choose.');
     }
     case 'owed-decision': {
       if (details.responsibility) {
         return details.declaredReason
           ? rec(item, 'does-not-apply', `The workflow says why: ${firstSentence(details.declaredReason).replace(/\.+$/u, '')}. Record it if that holds for this Story.`)
-          : none(`whether ${details.responsibility} truly does not apply to this Story.`);
+          : lean(`record it only if ${details.responsibility} truly does not apply to this Story.`);
       }
       if (details.scopeItem) {
-        return none('whether a clause of this Story states it (Included, naming the clause), the product already does it (Already in the product), or it is outside this Story (Exclude or Defer).');
+        return lean('included, naming its clause, if this Story delivers it; already in the product if it did that before; otherwise exclude or defer it.');
       }
       const sign = options.find((entry) => entry.id === 'witness');
-      return sign ? rec(item, 'witness', 'Looking at the file and signing it off is the only way this criterion is proven for this change.')
-        : none('it can be signed off only once its evidence is published.');
+      return sign ? rec(item, 'witness', 'It is the only way this criterion is proven for this change.')
+        : lean('sign it off once its evidence is published.');
     }
     case 'plan-accounting': {
       const supporting = options.find((entry) => entry.id === 'supporting');
       if (supporting) return rec(item, 'supporting', 'It is a supporting file (its kind serves no single requirement), so it belongs in the plan as a supporting change.');
       if (only) return rec(item, only.id, 'The plan has one row it can join.');
-      return none(`which requirement ${details.path ?? 'it'} serves: add it to that row.`);
+      return lean(`add ${details.path ?? 'it'} to the row of the requirement it serves.`);
     }
     case 'departure': {
-      if (details.status === 'reopened') return none('it changed again after it was accepted: whether the change still belongs in this Story.');
+      if (details.status === 'reopened') return lean('it changed again after it was accepted: accept it only if the change still belongs in this Story.');
       const accept = options.find((entry) => entry.id === 'accept');
       if (accept && details.departureKind === 'finding') return rec(item, 'accept', 'It fixes findings from the register; rejecting it opens them again.');
       if (accept && details.departureKind === 'supporting') return rec(item, 'accept', 'It is a supporting file the change needs; accepting lists it in the plan, and no step is reset.');
       if (accept && details.departureKind === 'path' && details.clauses?.length) {
         return rec(item, 'accept', `The code step names ${listWords(details.clauses.map((id) => clauseName(workflow, id)))} as what it serves; accepting adds it to the plan, and no step is reset.`);
       }
-      return none('whether the approved documents should say this. Accept it if the change belongs in this Story; reject it to undo it.');
+      return lean('accept it if the change belongs in this Story; reject it to undo it.');
     }
     case 'convergence-item': {
       const found = ['absent-observed-claim', 'failing-bound-test', 'missing-bound-test', 'missing-required-evidence', 'stale-claim-binding'];
       if ((details.itemKinds ?? []).length && details.itemKinds.every((kind) => found.includes(kind)) && options.some((entry) => entry.id === 'rework')) {
         return rec(item, 'rework', 'Convergence found it in the records themselves: the code does not show what the approved documents say.');
       }
-      return none('whether the code or the approved documents are right: send it back to fix the code, or change the spec, or accept it as is with a reason.');
+      return lean('send it back to fix if the approved documents are right; change the spec if the code is.');
     }
     case 'convergence-answer':
-      return none('it is already answered; change it only if you disagree.');
+      return lean('keep it: it is already answered; change it only if you disagree.');
     case 'convergence-settled':
-      return none('the approved plan accounts for it; answer only if you disagree.');
+      return lean('keep what the approved plan says; answer only if you disagree.');
     case 'scope-completeness':
-      return none('nothing waits on this review; record it only after you looked for what is missing, ambiguous or unmeasurable.');
+      return lean('record it only after you looked for what is missing, ambiguous or unmeasurable; nothing waits on it.');
     case 'asked-for':
-      return only ? rec(item, only.id, 'What the person typed must be accounted for before the step\'s approval; only its author can.') : none('who accounts for it.');
+      return only ? rec(item, only.id, 'What the person typed must be accounted for before the step\'s approval; only its author can.') : lean('its author accounts for it.');
     case 'routing-decision': {
       const routes = options.filter((entry) => /^choose-/u.test(entry.id));
-      if (details.reason === 'limit') return none('all its rounds are used: whether another round is worth it, or the Story moves on as it is.');
+      if (details.reason === 'limit') return lean('move on as it is unless another round would clearly help: all its rounds are used.');
       if (routes.length === 1) return rec(item, routes[0].id, 'It is the route the recorded values choose.');
-      return none(`which route fits: ${listWords(routes.map((entry) => `"${entry.label}"`))}.`);
+      return lean(`choose the route the Story's state fits: ${listWords(routes.map((entry) => `"${entry.label}"`))}.`);
     }
     case 'intent-amendment': {
       if (details.status === 'approved') return rec(item, 'acknowledge', 'It is approved already; acknowledging it lets the steps it reopened revalidate.');
       if (marked?.id === 'refresh') return rec(item, 'refresh', 'The Story moved on after it was proposed, so it cannot be approved as it is; refreshing proposes the same change against the step as it is now.');
-      return none('whether the approved clauses should change as shown; approving reopens the steps that cite them.');
+      return lean('approve it only if the approved clauses should change as shown; approving reopens the steps that cite them.');
     }
     case 'forward-amendment':
-      return only ? rec(item, only.id, 'Only an approver of that step decides it; the Story cannot end until they do.') : none('whether the corrected document is right.');
+      return only ? rec(item, only.id, 'Only an approver of that step decides it; the Story cannot end until they do.') : lean('approve it if the corrected document is right.');
     case 'revalidation':
       // D1 [CIC:REQ-021]: still holds when its document names neither the changed clauses its prompt held nor their paths, else redo.
       if (details.reason === 'prompt-held') return rec(item, details.recommend === 'return' ? 'return-step' : 'still-holds', details.because);
-      return none(`whether ${stepName(workflow, details.phase)} still holds under the amended document: say it holds if what it was built and checked against reads the same.`);
+      return lean(`say ${stepName(workflow, details.phase)} still holds if what it was built and checked against reads the same under the amended document.`);
     case 'appeal':
-      return only ? rec(item, only.id, 'An approver of the plan reviews the exact diff; nothing else accounts for the scope.') : none('whether the changes belong in scope.');
+      return only ? rec(item, only.id, 'An approver of the plan reviews the exact diff; nothing else accounts for the scope.') : lean('review the exact diff; account for it only if the changes belong in scope.');
     case 'generation-rollover':
       return details.requested ? rec(item, 'start-next-generation', 'The person asked for this change after the step was published.')
-        : (details.paths ?? []).length === 1 ? none(`whether ${details.paths[0]} belongs in this step: keep it in a new generation, or set it aside.`)
-          : none(`whether ${listWords(details.paths ?? []) || 'the changed files'} belong in this step: keep them in a new generation, or set them aside.`);
+        : (details.paths ?? []).length === 1 ? lean(`keep ${details.paths[0]} in a new generation if it belongs in this step; otherwise set it aside.`)
+          : lean(`keep ${listWords(details.paths ?? []) || 'the changed files'} in a new generation if they belong in this step; otherwise set them aside.`);
     case 'approval':
       return details.ready ? rec(item, 'approve', 'Nothing on this list holds it, and its checks are recorded: review the documents and approve.')
         : first(`decide ${listWords(details.heldBy ?? [])} above; the approval waits for ${details.heldBy?.length === 1 ? 'it' : 'them'}.`);
     default:
       // A refusal's own route, what SFlow publishes itself, a person's own step: the one way forward.
       return only ? rec(item, only.id, firstSentence(item.why) || 'It is the one way this clears.') : marked ? rec(item, marked.id, firstSentence(marked.words) || 'SFlow marks it recommended.')
-        : none('each choice below says what it does to the Story.');
+        : lean('pick the choice whose effect below fits this Story.');
   }
 }
 

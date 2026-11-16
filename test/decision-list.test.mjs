@@ -13,6 +13,7 @@ import test from 'node:test';
 
 import { agentAct } from '../src/agent-output.mjs';
 import { promptDecisionAnswers } from '../src/commands/decisions.mjs';
+import { withPlainWords } from '../src/decision-plain.mjs';
 import { DECISION_LIST_CHAT_OPTIONS } from '../src/copilot-mutation-guard.mjs';
 import { effectWords,
   decisionGroups, decisionPacket, decisionRecordCommand, decisionRecordPlan, decisionRefusalLead, ISSUE_ONLY_OPTIONS, parseDecisionAnswers, runDecisionPlan
@@ -286,7 +287,8 @@ test('a failure part way names exactly what was recorded and what remains', asyn
 
 test('an interactive terminal asks item by item with defaults, shows a summary and asks y/N', async () => {
   const workflow = story();
-  const packet = packetOf(workflow, { gaps: [gap('BIN-501:REQ-001'), gap('BIN-501:REQ-007', null)] });
+  // As `decisions` reads it: with every item's plain words (decision-list-reads.mjs).
+  const packet = withPlainWords(workflow, packetOf(workflow, { gaps: [gap('BIN-501:REQ-001'), gap('BIN-501:REQ-007', null)] }));
   const input = Readable.from(['\n', '\n', 'Implementation\'s run stands for Verification on the same code.\n', '2\n', '\n', 'y\n']);
   input.isTTY = true;
   const output = new PassThrough();
@@ -301,8 +303,9 @@ test('an interactive terminal asks item by item with defaults, shows a summary a
   assert.equal(plan.steps[0].values.expires, '2026-11-18');
   assert.equal(await prompt.confirm(['d1. REQ-001 is partial in the Release report: reuse.', 'd2. REQ-007: dismiss.']), true);
   prompt.close();
-  assert.match(shown, /^Release can't be approved yet: 2 decisions needed\.\n/u);
-  assert.match(shown, /1\. REQ-001 is partial in the Release report\n {3}The Release report marks REQ-001 partial/u);
+  // In plain words: the questions counted, each asked as a question [owner, 2026-11-16].
+  assert.match(shown, /^Decide BIN-501 · Release\. 3 questions for you\.\n/u);
+  assert.match(shown, /1\. Accept REQ-001 as partial, or send it back\?\n {3}The Release report marks REQ-001 partial/u);
   assert.match(shown, / {3}1\) Accept Implementation's recorded run \(33 of 33 passed\) for Verification {2}\[recommended\]\n/u);
   assert.match(shown, / {3}5\) Not now\n {3}Choose 1-5 \[1\]: /u);
   assert.match(shown, / {3}Until \(YYYY-MM-DD, at most 2027-01-17\) \[2026-11-18\]: /u);

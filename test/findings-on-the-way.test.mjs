@@ -195,9 +195,10 @@ test('the model fixes the two eligible items through the CLI, a person accepts t
   assert.match(shown[1].why, /^It fixes TLM-7 "quillmark-parse 2\.4\.1 → 2\.4\.3" from the findings register\./u);
   assert.match(shown[0].options.find((option) => option.id === 'accept').words, /SEC-101 is fixed, awaiting proof in the findings register once/u);
   const card = await import('../plugin/extensions/decisions/card.mjs');
-  assert.match(card.decisionsTable(packet), /\| src\/value\.mjs \| It fixes SEC-101 "Lookup value built from request text" from the findings register\./u);
+  // Its question names the register item it fixes, and why says which one, first [owner, 2026-11-16].
+  assert.match(card.decisionsTable(packet), /\*\*1\. Keep the fix for SEC-101 \(DEP-001\)\?\*\*\nIt fixes SEC-101 "Lookup value built from request text" from the findings register\./u);
   const titles = card.rowForms(shown).flatMap((page) => Object.values(page.form.requestedSchema.properties).map((field) => field.title));
-  assert.ok(titles.some((title) => title.startsWith('package.json: It fixes TLM-7 "quillmark-parse 2.4.1 → 2.4.3" from the findings register.')), JSON.stringify(titles));
+  assert.ok(titles.includes('Keep the fix for TLM-7 (DEP-002)?'), JSON.stringify(titles));
   const { decideHtml } = await import('../apps/vscode/src/views/decide-card-page.ts');
   assert.match(decideHtml(packet), /It fixes SEC-101 &quot;Lookup value built from request text&quot; from the findings register\./u);
   const rows = await decideAll(repo, 'accept', 'Both fixes are small, safe and belong with this change.');

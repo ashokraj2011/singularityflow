@@ -2,10 +2,17 @@
  * Everything a step waits on, as one table on one page: each thing, its choices, and each answer's own
  * reason, or one answer for all that offer it. Pure, so a test can read every word. The engine's list
  * and record own every rule; a page never preselects a choice or fills in a reason.
+ *
+ * In plain words, the same as Copilot CLI's card and the terminal [owner, 2026-11-16]: each row its question, why in
+ * one sentence and "Recommended: …", then its options, recommended first; a check SFlow runs itself offered first until
+ * it has a result; what nobody can answer yet on one "Later:" line; what was settled one line each, its evidence behind
+ * a detail.
  */
 import { escape } from './webview.ts';
 import type { InboundMessage } from './messages.ts';
-import { optionRow, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
+import { checkOf, laterOf, optionRow, plainWords, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
+
+export { checkOf, laterOf, plainWords };
 
 /** What the person has entered, by the item's title: IDs are renumbered when the list changes. A render never loses it. */
 export type DecideDraft = ReadonlyMap<string, { option: string; reason: string; cause: string; expires: string; clause: string; article: DecisionArticleAnswer[] }>;
@@ -13,6 +20,13 @@ export type DecideDraft = ReadonlyMap<string, { option: string; reason: string; 
 const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
 const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const witnesses = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
+
+/** The checks this page's read waits on, in words ("run the tests on Node 22"). */
+export const checkNames = (packet: DecisionPacket): string[] => decideRows(packet).filter((item) => checkOf(item) && item.decidedBy?.allowed)
+  .map((item) => checkOf(item)!.label.replace(/^Check first: /u, ''));
+/** The recommended option first, then the rest in the list's order. */
+const recommendedFirst = (item: DecisionItemPacket, options: DecisionOptionPacket[]) => [...options]
+  .sort((left, right) => Number(item.recommended?.option === right.id) - Number(item.recommended?.option === left.id));
 
 /** Every open decision: the approval is reviewed on its own page, which its row here opens. */
 export const openRows = (packet: DecisionPacket): DecisionItemPacket[] => packet.items.filter((item) => item.kind !== 'approval');
@@ -30,15 +44,24 @@ export const settledRows = (packet: DecisionPacket): DecisionItemPacket[] => dec
 export const approvalRows = (packet: DecisionPacket): DecisionItemPacket[] => packet.items.filter((item) => item.kind === 'approval');
 
 /**
- * The recommended answer and what each choice does to the Story, in the engine's words [owner, 2026-11-13]: under why
- * it waits, on every row, whether the person decides it or not. Shown, never preselected.
+ * The recommendation, then the options with what each does, recommended first, the check first of all [owner, 2026-11-16]:
+ * under the question and why, on every row, whether the person decides it or not. Shown, never preselected. What was
+ * settled shows its one line, and its evidence behind a detail.
  */
 function adviceHtml(item: DecisionItemPacket): string {
-  const choices = item.options.filter((option) => option.available !== false && option.does);
-  const evidence = [item.evidence ?? item.details?.evidence].flat().filter((line): line is string => typeof line === 'string' && line.trim().length > 0);
-  return `${evidence.length ? `<ul class="dc-ev-list">${evidence.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}${item.recommended?.words
-    ? `<p class="dc-rec">${escape(item.recommended.words)}</p>` : ''}${choices.length ? `<ul class="dc-does">${choices.map((option) => `<li><strong>${escape(option.label.replace(/[.!?]+$/u, ''))}</strong>${
-    item.recommended?.option === option.id ? ' <span class="dc-tag">recommended</span>' : ''}: ${escape(option.does!)}</li>`).join('')}</ul>` : ''}`;
+  const plain = plainWords(item);
+  if (item.settled) {
+    const evidence = [item.evidence ?? item.details?.evidence].flat().filter((line): line is string => typeof line === 'string' && line.trim().length > 0);
+    const undo = item.options.find((option) => option.available !== false && option.does);
+    return evidence.length || undo ? `<details class="dc-detail"><summary>What it rests on</summary><ul class="dc-ev-list">${evidence.map((line) => `<li>${escape(line)}</li>`).join('')}${
+      undo ? `<li><strong>${escape(undo.label.replace(/[.!?]+$/u, ''))}</strong>: ${escape(undo.does!)}</li>` : ''}</ul></details>` : '';
+  }
+  const choices = recommendedFirst(item, item.options.filter((option) => option.available !== false && option.does));
+  const check = checkOf(item);
+  const tag = ' <span class="dc-tag">recommended</span>';
+  return `${plain.recommended ? `<p class="dc-rec">${escape(plain.recommended)}</p>` : ''}${choices.length || check ? `<ul class="dc-does">${check
+    ? `<li><strong>${escape(check.label)}</strong>${item.recommended?.check ? tag : ''}: ${escape(check.does)}</li>` : ''}${choices.map((option) => `<li><strong>${escape(option.label.replace(/[.!?]+$/u, ''))}</strong>${
+    item.recommended?.option === option.id ? tag : ''}: ${escape(option.does!)}</li>`).join('')}</ul>` : ''}`;
 }
 
 /**
@@ -97,16 +120,21 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   // An intent amendment shows each clause it changes, who proposed it and what it reaches: what its approver decides [owner, 2026-11-13].
   const text = (key: string) => (typeof item.details?.[key] === 'string' ? `<p class="muted dc-why">${escape(item.details[key] as string)}</p>` : '');
   const lines = Array.isArray(item.details?.lines) ? item.details.lines as string[] : [];
-  const what = `${file ? `<button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>` : `<strong>${escape(item.title)}</strong>`}
-    <div class="muted dc-why">${escape(item.why)}</div>${diff ? `<details class="dc-diff"><summary>The change</summary><pre>${escape(diff)}</pre></details>` : ''}${lines.length
+  const plain = plainWords(item);
+  const heading = item.settled ? `<strong>${escape(plain.settled ?? item.title)}</strong>` : `<strong>${escape(plain.question ?? item.title)}</strong>`;
+  const what = `${heading}${file ? ` <button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>` : ''}
+    ${plain.why ? `<div class="muted dc-why">${escape(plain.why)}</div>` : ''}${diff ? `<details class="dc-diff"><summary>The change</summary><pre>${escape(diff)}</pre></details>` : ''}${lines.length
       ? `<ul class="dc-ev-list">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}${text('proposedBy')}${text('reach')}${adviceHtml(item)}${
       // Where else its decider may answer it: yes or no in chat, or their own terminal when SF Guard signs it [owner, 2026-11-14].
       item.decidedBy?.allowed && item.answer?.also ? `<p class="muted">${escape(item.answer.also)}</p>` : ''}`;
   if (!item.decidedBy?.allowed) {
     return `<tr data-other="${escape(item.id)}"><td>${what}</td><td colspan="2"><span class="muted">${escape(item.decidedBy?.words ?? '')}</span>${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</td></tr>`;
   }
-  const choices = item.options.filter(decidable);
-  const select = choices.length ? `<select data-choice aria-label="Decision for ${escape(item.title)}"><option value="">Choose…</option>${choices.map((option) => {
+  const choices = recommendedFirst(item, item.options.filter(decidable));
+  // SFlow's own check, first and on a button of its own: it runs, then the row recommends from its result [owner, 2026-11-16].
+  const check = checkOf(item);
+  const checking = check ? `<div class="dc-own"><button type="button"${item.recommended?.check ? '' : ' class="secondary"'} data-check="${escape(item.id)}">${escape(check.label)}</button></div>` : '';
+  const select = choices.length ? `<select data-choice aria-label="Decision for ${escape(plain.question ?? item.title)}"><option value="">Choose…</option>${choices.map((option) => {
     const needs = Object.keys(option.needs ?? {}).join(' ');
     return `<option value="${escape(option.id)}" data-needs="${escape(needs)}"${option.oneByOne ? ' data-one="1"' : ''}${entered?.option === option.id ? ' selected' : ''}>${escape(option.label)}${item.recommended?.option === option.id ? ' (recommended)' : ''}</option>`;
   }).join('')}</select>` : '';
@@ -122,7 +150,7 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   const terminal = choices.filter((option) => option.terminal).map((option) => `<div class="dc-own"><span class="muted">Or in your own terminal:</span>
       <code>${escape(option.terminal!)}</code><button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   return `<tr data-item="${escape(item.id)}" data-title="${escape(item.title)}">
-    <td>${what}</td><td>${select}${reviews}${own}${terminal}</td><td class="dc-fields">${choices.length ? fieldsHtml(item, entered) : ''}</td></tr>`;
+    <td>${what}</td><td>${checking}${select}${reviews}${own}${terminal}</td><td class="dc-fields">${choices.length ? fieldsHtml(item, entered) : ''}</td></tr>`;
 }
 
 /** Files the evidence names: the page opens these beside it, as it opens a row's file. */
@@ -184,22 +212,25 @@ export function evidenceHtml(packet: DecisionPacket): string {
 
 /** The approval's row: what holds it, its recommendation, and a button that opens the approval page with its documents. */
 function approvalHtml(packet: DecisionPacket): string {
-  return approvalRows(packet).map((item) => `<section class="dc-approval" aria-label="${escape(item.title)}"><h2>${escape(item.title)}</h2>
-    <p class="muted dc-why">${escape(item.why)}</p>${item.recommended?.words ? `<p class="dc-rec">${escape(item.recommended.words)}</p>` : ''}
+  return approvalRows(packet).map((item) => ({ item, plain: plainWords(item) })).map(({ item, plain }) => `<section class="dc-approval" aria-label="${escape(item.title)}"><h2>${escape(plain.question ?? item.title)}</h2>
+    ${plain.why ? `<p class="muted dc-why">${escape(plain.why)}</p>` : ''}${plain.recommended ? `<p class="dc-rec">${escape(plain.recommended)}</p>` : ''}
     ${item.decidedBy?.allowed ? `<div class="dc-own"><button type="button" data-approval="${escape(item.id)}">Review and approve</button>
       <span class="muted">Opens the approval page with the documents to review; nothing is approved until you confirm there.</span></div>`
     : `<p class="muted">${escape(item.decidedBy?.words ?? '')}${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</p>`}</section>`).join('');
 }
 
 export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined, route = null as string | null } = {}): string {
-  const rows = decideRows(packet).filter((item) => !item.settled);
+  const open = decideRows(packet).filter((item) => !item.settled);
+  // What nobody can answer yet is one line, never a row [owner, 2026-11-16].
+  const later = [...open, ...approvalRows(packet)].map(laterOf).filter((line): line is string => Boolean(line));
+  const rows = open.filter((item) => !laterOf(item));
   const settled = settledRows(packet);
   const shared = sharedAnswers(packet);
   // An Undo under "Settled for you" is recorded like any answer, so it alone enables the review [owner, 2026-11-13].
   const yours = [...rows, ...settled].some((item) => item.decidedBy?.allowed && item.options.some(decidable));
   return `<main class="dc" data-digest="${escape(packet.packetSha256)}">
     <header><h1>Decide · ${escape(packet.workId)} · ${escape(packet.phaseLabel)}</h1>
-      <p class="muted">${escape(packet.headline)} Nothing is recorded until you review the list and confirm it.</p></header>
+      <p class="muted">${escape(packet.plain?.headline ?? packet.headline)} Nothing is recorded until you review the list and confirm it.</p></header>
     ${error ? `<p class="dc-error" role="alert">${escape(error)}</p>` : ''}
     ${notice ? `<p class="dc-notice" role="status">${escape(notice)}</p>` : ''}
     ${route ? `<div class="dc-own"><code>${escape(route)}</code><button type="button" data-route>Put it in a terminal</button></div>` : ''}
@@ -207,13 +238,13 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
       <select id="dc-all-choice"><option value="">Choose…</option>${shared.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.label)} (${entry.rows} rows)</option>`).join('')}</select>
       <input id="dc-all-reason" aria-label="One reason for all of them" placeholder="One reason" maxlength="1000"><button type="button" data-apply-all>Apply to all</button>
       ${shared.filter((entry) => entry.others).map((entry) => `<p class="muted">"${escape(entry.label)}" covers only the rows you decide; ${entry.others === 1 ? '1 more stays' : `${entry.others} more stay`} listed for their own approvers.</p>`).join('')}</section>` : ''}
-    ${rows.length || !settled.length ? `<div class="dc-table"><table>
-      <thead><tr><th>What it is</th><th>Your decision</th><th>Your reason</th></tr></thead>
+    ${rows.length || (!settled.length && !later.length) ? `<div class="dc-table"><table>
+      <thead><tr><th>The question</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${rows.map((item) => rowHtml(item, draft)).join('')}</tbody>
     </table></div>` : ''}
+    ${later.map((line) => `<p class="dc-later">Later: ${escape(line)}</p>`).join('')}
     ${settled.length ? `<section class="dc-settled" aria-label="Settled for you"><h2>Settled for you</h2>
-      <p class="muted">SFlow settled these from its records. Choose Undo on any of them to decide it yourself.</p>
-      <div class="dc-table"><table><thead><tr><th>What it is</th><th>Your decision</th><th>Your reason</th></tr></thead>
+      <div class="dc-table"><table><thead><tr><th>What SFlow chose</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${settled.map((item) => rowHtml(item, draft)).join('')}</tbody></table></div></section>` : ''}
     ${approvalHtml(packet)}
     ${evidenceHtml(packet)}
@@ -331,6 +362,8 @@ export const DECIDE_STYLE = `
 .dc-settled h2, .dc-approval h2 { margin:0 0 .25rem; font-size:1.05em; }
 .dc-approval { border-left:3px solid var(--sf-border-color, var(--vscode-panel-border)); padding:.1rem 0 .1rem .75rem; }
 .dc-notice { margin:0; }
+.dc-later { margin:0; overflow-wrap:anywhere; }
+.dc-detail summary { cursor:pointer; font-size:.9em; }
 `;
 
 export const DECIDE_SCRIPT = `
@@ -373,6 +406,8 @@ document.addEventListener('click', (event) => {
     return vscode.postMessage({ type, item: row.dataset.item, option: step.dataset.terminal ?? step.dataset.copy ?? step.dataset.witness, rows: answers() });
   }
   if (event.target.closest('[data-route]')) return vscode.postMessage({ type: 'decide.route' });
+  const check = event.target.closest('[data-check]');
+  if (check) return vscode.postMessage({ type: 'decide.check', item: check.dataset.check, rows: answers() });
   if (event.target.closest('[data-approval]')) return vscode.postMessage({ type: 'decide.approval' });
   if (event.target.closest('[data-cancel]')) return vscode.postMessage({ type: 'decide.cancel' });
   if (event.target.closest('[data-apply-all]')) {

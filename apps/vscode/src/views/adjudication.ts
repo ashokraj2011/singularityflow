@@ -92,7 +92,7 @@ export async function reviewAdjudications(client: SingularityFlowClient, target:
           const remaining = result.remaining ?? [];
           const made = adjudicationDecided(list, answers, result.recorded ?? []);
           finish({ status: 'recorded', recorded: result.recorded ?? [], decided: made, unchanged: result.unchanged ?? [], remaining, next: result.next,
-            message: `${(result.recorded ?? []).length} recorded.${made.length ? ` ${made.join('. ')}.` : ''}${remaining.length ? ` ${remaining.length} still need a decision.` : ' All decided.'}` });
+            message: `${(result.recorded ?? []).length} recorded.${made.length ? ` ${made.join('. ')}.` : ''}${remaining.length ? ` ${remaining.length} still ${remaining.length === 1 ? 'needs' : 'need'} a decision.` : ' All decided.'}` });
         } catch (error) {
           busy = false;
           list = await readList(client, workId).catch(() => list);

@@ -660,7 +660,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (phase-mutation-contract.mjs), the step's work command on its refusals and task routes (generation-boundary.mjs,
     // source-review-lifecycle.mjs, code-delivery-policy.mjs opensCodeVersion, safe-command-guidance.mjs, command-skills.mjs)
     // and no containment beside a refusal that writes the step (refusal-remediation.mjs) [OSA Stage 1]. No new eager file.
-    assert.ok(closure.bytes <= 9_694_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,696,800 (measured 9,696,783): SPEC-SCF stage 5, movable workspaces and one repository key (+2,235): the registered
+    // Git queries `workspace repair` reads (git-query.mjs repository.ref-holds, worktree.staged-paths, git.version and the
+    // worktree list's branch, +1,922), its three worktree mutations (git.mjs +1,091), the missing Story checkout's route on
+    // the folder-gone refusal (util.mjs +526) and a workspace reference's refusals moved out to workspace-relink.mjs, which
+    // stays lazy (workspace-context.mjs +641) [2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_696_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -769,7 +774,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // (866,439 there) [2026-11-16]. No new eager file.
   // 869,150 (measured 869,135): a step name typed by mistake names the Story's steps (util.mjs unknownStepDetails +880)
   // [2026-11-16]. No new eager file.
-  assert.ok(root.bytes <= 869_150, `root dispatch loads ${root.bytes} source bytes`);
+  // 870,250 (measured 870,201): SPEC-SCF stage 5: a moved active workspace's refusal names `workspace repair` (built in
+  // workspace-relink.mjs, which stays lazy), `workspace repair <CLONE>` leases a clone in no workspace (cli-entry.mjs +941)
+  // and the folder-gone refusal names repair for a Story checkout (util.mjs +526) [2026-11-16]. No new eager file.
+  assert.ok(root.bytes <= 870_250, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1026,7 +1034,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,273,400 (measured 4,273,377): SPEC-OSA stage 1 (+1,915): the one "being written" test (phase-generation-need.mjs),
   // the open-version helper (code-delivery-policy.mjs) and the step's work command on the task's own entry
   // (workflow-task-store.mjs, phase-authoring-progress.mjs) [OSA Stage 1]. No new eager file.
-  assert.ok(current.bytes <= 4_273_400, `session current loads ${current.bytes} source bytes`);
+  // 4,278,500 (measured 4,278,480): SPEC-SCF stage 5 (+5,103): `workspace repair`'s registered Git queries (git-query.mjs
+  // +1,922) and worktree mutations (git.mjs +1,091), the folder-gone refusal's route (util.mjs +526) and one repository key
+  // for a clone's origin with a workspace reference's ID first (workspace-context.mjs +641) [2026-11-16]. No new eager file.
+  assert.ok(current.bytes <= 4_278_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

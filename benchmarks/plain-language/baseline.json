@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 30,
   "draft-for-version": 15,
-  "generic-route": 6372,
+  "generic-route": 6371,
   "jargon": 1404,
-  "length": 701
+  "length": 700
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -2050,7 +2050,7 @@
   "src/workspace-branch-checkout.mjs": 4,
   "src/workspace-branch-locations.mjs": 3,
   "src/workspace-configuration-refresh.mjs": 37,
-  "src/workspace-context.mjs": 8,
+  "src/workspace-context.mjs": 6,
   "src/workspace-impact.mjs": 22,
   "src/workspace-logs.mjs": 5,
   "src/workspace-manifest.mjs": 29,
@@ -4548,7 +4548,6 @@
   },
   "src/story-worktree.mjs": {
    "03e399678167": "jargon:retained",
-   "87c7ec15e124": "length",
    "892e235675c4": "length",
    "99e10fedaaac": "jargon:retained",
    "d296747ea161": "jargon:retained",

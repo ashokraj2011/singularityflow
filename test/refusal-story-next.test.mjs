@@ -200,6 +200,24 @@ test('reopening an open Story, cancelling a closed one, and finalizing an unfini
   routed(error, ['cancel', 'PLAN-0', '--reason', 'Done.'], { code: 'STORY_CLOSED', route: storyRoute(closed) });
 });
 
+// While a step's next version is open, writing it is the Story's next step (guide.mjs phaseHandoff, main 95e25ed06):
+// the Story's guidance alone said to submit the version before it [design review, 2026-11-16].
+test('with a code step\'s version 2 open, a refusal about the Story routes to writing version 2 (/sf-code), never a submission', async (t) => {
+  const workflow = unwrittenPlan({ currentPhase: 'implementation', phases: { planning: { status: 'approved', generation: 1 },
+    implementation: { status: 'in_progress', generation: 1, generationIntent: { status: 'open', generation: 2 } } } });
+  const WRITE_VERSION_2 = { shell: 'singularity-flow prepare implementation', copilot: '/sf-code' };
+  const { act } = routed(sourceReviewStepNotCurrent(workflow, workflow.phases.planning, 'stage'),
+    ['review-source', 'stage', 'planning', '--report-json', '{}'], { code: 'SOURCE_REVIEW_STEP_NOT_CURRENT', route: WRITE_VERSION_2 });
+  assert.equal(act.do.reason, 'Next for this Story: Write version 2 of implementation, then publish it.');
+  const root = await gitRepository(t);
+  const error = await refusalOf(() => approvalReviewBinding(root, {}, workflow));
+  const { envelope } = routed(error, ['choices', 'begin', 'approve', 'PLAN-0', '--json'], { code: 'APPROVAL_PHASE_NOT_AWAITING', route: WRITE_VERSION_2 });
+  assert.doesNotMatch(JSON.stringify(envelope.remediationPlan), /singularity-flow submit|\/sf-submit|review-source/u);
+  // A decision the Story waits for still comes first.
+  const waiting = { ...workflow, pendingDecision: { label: 'implementation', reason: 'limit', by: ['leads'], key: 'k-1' } };
+  assert.equal(storyNextDetails(waiting).nextAction.skill, '/sf-decide');
+});
+
 test('a refusal that is not about the Story\'s state keeps command help, and the route never fails to build', () => {
   const plain = refusalEnvelope(Object.assign(new Error('Unknown flag --frobnicate.'), { code: 'SOME_USAGE_REFUSAL' }), ['review-source', 'context', '--frobnicate']);
   assert.equal(plain.remediationPlan.steps[0].command, 'singularity-flow help review-source');

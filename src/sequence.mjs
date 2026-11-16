@@ -16,7 +16,7 @@ import {
 } from './manual-authorship.mjs';
 import { operationContext } from './operation-context.mjs';
 import { cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
-import { phaseNeedsGeneration } from './phase-generation-need.mjs';
+import { phaseNeedsGeneration, successorGenerationOpen } from './phase-generation-need.mjs';
 
 export { phaseNeedsGeneration };
 
@@ -128,10 +128,23 @@ export function sequenceGuidance(workflow) {
 export function storyNextDetails(workflow) {
   // Building the refusal never fails on what it describes: a Story the guidance cannot read keeps the plain plan.
   let guidance = null;
-  try { guidance = sequenceGuidance(workflow); } catch { /* the refusal itself still stands */ }
+  try { guidance = openVersionGuidance(workflow) ?? sequenceGuidance(workflow); } catch { /* the refusal itself still stands */ }
   const next = guidance?.actions.find((entry) => entry.command);
   return { ...(workflow?.workItem?.id ? { workId: workflow.workItem.id } : {}), ...(next ? { storyNext: true,
     nextAction: { command: next.command, skill: next.skill, label: `Next for this Story: ${guidance.summary}` } } : {}) };
+}
+
+/**
+ * While the current step's next version is open, writing it is the Story's next step, as guide.mjs phaseHandoff says:
+ * never a review or a submission of the version before it [owner, 2026-11-16]. A decision the Story waits for comes first.
+ */
+function openVersionGuidance(workflow) {
+  const step = workflow?.currentPhase;
+  const phase = workflow?.pendingDecision ? null : workflow?.phases?.[step];
+  if (phase?.status !== 'in_progress' || !successorGenerationOpen(phase)) return null;
+  const skill = generationSkillForPhase(phase, workflow);
+  return skill ? { summary: `Write version ${phase.generationIntent.generation} of ${step}, then publish it.`,
+    actions: [copilotAction({ skill, command: `singularity-flow prepare ${step}` })] } : null;
 }
 
 /** A closed Story has no step in progress to cancel: its own next step (landing it), or a reopen. */

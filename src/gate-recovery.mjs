@@ -5,6 +5,7 @@ import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import { canonicalJson } from './records.mjs';
 import { raiseUpstreamIssueRoute, reopenAuthorityStep } from './upstream-routes.mjs';
 import { run } from './util.mjs';
+import { stepRoute } from './step-decision.mjs';
 
 /**
  * Deterministic gate-to-recovery classification.
@@ -99,6 +100,7 @@ function categoryForCode(code) {
 }
 
 const reopenAllowed = (completion) => completion?.approvalPolicy?.changeRequests?.reopenCompleted !== false;
+const finalPhaseRoute = (workflow, id) => workflow.phases?.[id] && stepRoute(workflow, workflow.phases[id]);
 
 /**
  * The final phase and its real status while an ending is pending. A pending transition judges the
@@ -125,12 +127,11 @@ function openStoryRecovery(workflow, code, ownerPhase, openStory, about = null) 
   const submitted = openStory.status === 'awaiting_approval';
   const reason = `"Final gate: ${code}"`;
   if (ownerPhase === finalId) {
-    if (!submitted) return {
-      mode: 'guided', ownerPhase, requiresReopen: false,
-      command: `singularity-flow recover ${workId} --phase ${finalId}`,
-      detail: `${finalId} owns this evidence and is still in progress: repair it there, then submit again.`
-    };
-    if (allowed.includes(finalId)) return {
+    // In progress: repaired in its own work, by the step's own next action [OSA:REQ-011].
+    const own = !submitted && finalPhaseRoute(workflow, finalId);
+    if (own) return { mode: 'guided', ownerPhase, requiresReopen: false, command: own.command, skill: own.skill,
+      detail: `${finalId} owns this evidence and is still in progress: repair it there, then submit again.` };
+    if (submitted && allowed.includes(finalId)) return {
       mode: 'guided', ownerPhase, requiresReopen: false,
       command: `singularity-flow reject ${finalId} --work-id ${workId} --to ${finalId} --reason ${reason}`,
       detail: `${finalId} owns this evidence. An authorized approver returns the submitted ${finalId} to itself to repair it; the Story is open, so no reopen applies.`
@@ -252,12 +253,17 @@ function storyRecovery(workflow, code, ownerPhase, path, openStory = null, conte
     command: `singularity-flow next ${workId}`,
     detail: `Resume the current lifecycle and complete ${ownerPhase ?? 'the outstanding phase'} before rerunning the terminal gate.`
   };
+  // Never recovery for healthy work [D4]: an approved owner's approvers decide the issue raised against it; otherwise the
+  // owner's own next action (the current step's, for one not reached), or the Story's next steps when no owner is known.
+  const raised = workflow.phases?.[ownerPhase]?.status === 'approved' && raiseUpstreamIssueRoute(workflow, ownerPhase, workflow.currentPhase);
+  const own = raised ? { ...raised, command: raised.command.replace('<clause-or-section>', context.about ?? '<clause-or-section>') }
+    : ownerPhase && finalPhaseRoute(workflow, ownerPhase);
   return {
     mode: 'guided', ownerPhase, requiresReopen: false,
-    command: ownerPhase ? `singularity-flow recover ${workId} --phase ${ownerPhase}` : `singularity-flow recover ${workId}`,
+    command: own?.command ?? `singularity-flow nextsteps ${workId} --json`, skill: own?.skill ?? null,
     detail: ownerPhase
-      ? `Repair or regenerate the evidence owned by ${ownerPhase}; approvals and published generations are not edited in place.`
-      : 'Inspect the recovery plan before changing lifecycle state.'
+      ? `Repair or write again the evidence owned by ${ownerPhase}; approvals and published versions are not edited in place.${raised ? ` ${raised.label}` : ''}`
+      : 'See where the Story stands before changing lifecycle state; nothing is changed.'
   };
 }
 

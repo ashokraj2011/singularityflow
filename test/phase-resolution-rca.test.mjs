@@ -18,7 +18,9 @@ test('coverage risk guidance exposes the registered Copilot route in any custom 
   assert.equal(risk.commandGuidance?.skill, '/sf-appeal');
   assert.match(risk.copilotCommand ?? '', /^\/sf-appeal/);
   assert.match(risk.detail, /soft mode alone is no waiver/);
-  assert.ok(result.choices.some(choice => /^\/sf-recover/.test(choice.copilotCommand ?? '')));
+  // The read beside every finding is the step's own next action, never a recovery of healthy work [D4, OSA:REQ-011].
+  assert.ok(result.choices.some(choice => choice.command === 'singularity-flow nextsteps CUSTOM-1 --json' && choice.copilotCommand === '/sf-nextsteps'));
+  assert.equal(result.choices.some(choice => /^\/sf-recover/.test(choice.copilotCommand ?? '')), false);
   const integrity = phaseResolutionChoices(workflow, phase, { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE' });
   assert.equal(integrity.choices.some(choice => choice.kind === 'pilot-risk-review'), false);
 });

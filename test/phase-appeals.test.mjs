@@ -493,9 +493,12 @@ test('rejected code successors submit fresh evidence, including old-writer histo
         assert.ok(documentRecovery.blockers.some(finding => finding.code === 'generation.document.published-changed'
           && finding.generation === 1));
         assert.ok(documentRecovery.actions.some(action => action.id === 'published-document-successor:intake'));
-        // Publishing the edit as the next generation is offered first; that one command works (2026-10-28).
+        // Keeping the edit as the next version is offered first: its preview asks the person, and nothing opens or publishes
+        // before their yes (Stage 3 completion, b11) [D3, OSA:REQ-014, REQ-030].
         assert.equal(documentRecovery.actions.find(action => action.id.startsWith('published-document-'))?.id, 'published-document-new-generation:intake');
-        assert.match(documentRecovery.actions.find(action => action.id === 'published-document-new-generation:intake').command, /^singularity-flow phase publish intake$/u);
+        assert.equal(documentRecovery.actions.find(action => action.id === 'published-document-new-generation:intake').command,
+          'singularity-flow phase rollover intake --reason "<what to change>" --json');
+        assert.doesNotMatch(JSON.stringify(documentRecovery.actions), /phase publish intake|--show-artifact/u);
         // The last commit still holds the published bytes, so the person can restore exactly them.
         assert.ok(documentRecovery.blockers.some(finding => finding.code === 'generation.document.published-changed'
           && finding.details.headMatchesPublication === true));

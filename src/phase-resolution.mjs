@@ -9,6 +9,9 @@ import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
 import { latestStepBefore } from './phase-roles.mjs';
+import { stepRoute } from './step-decision.mjs';
+import { versionFactsOf } from './phase-generation-need.mjs';
+import { versionNumbers } from './kernel/step-versions.mjs';
 
 const UPSTREAM_INPUT_CODES = new Set(['phase_inputs_not_ready', 'phase.inputs.not-ready',
   'specification_index_untrusted', 'convergence_upstream_artifact_stale']);
@@ -17,7 +20,8 @@ const AGENT_BRIEF_CODES = new Set(['agent_brief_summary_required', 'agent_brief_
   'agent_brief_maximum_bytes_exceeded', 'agent_brief_heading_ambiguous', 'artifact_comment_unclosed']);
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
-const route = (kind, owner, argv, detail, skill = '/sf-recover') => {
+// The command's own skill unless one is given; recovery is never a default [D4, OSA:REQ-011].
+const route = (kind, owner, argv, detail, skill = null) => {
   // Guidance consumes a registered command line, not a platform-executable string with a
   // quoted executable (or PowerShell '&'). Quote only literal values that need it; placeholders
   // remain display-only and safeCommandGuidance supplies platform forms for copyable actions.
@@ -44,7 +48,7 @@ const SAFE_ARGUMENT = /^[A-Za-z0-9._:/-]+$/u;
  * runner that cannot be inferred to test setup and a reviewed policy amendment, and a test that ran
  * and failed back to its author. No route marks a test passed.
  */
-function testFindingRoute(workflow, phase, finding, code) {
+function testFindingRoute(workflow, phase, finding, code, author) {
   const workId = workflow.workItem.id;
   const diagnosedFailure = finding.details?.requiredTestExecution?.failure?.kind;
   const repairableFailure = ['failed-tests', 'missing-launcher', 'missing-dependency', 'timeout',
@@ -52,7 +56,7 @@ function testFindingRoute(workflow, phase, finding, code) {
   if (!repairableFailure && (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true)) {
     return route('risk-inspection', 'validation-approval-authority',
       ['story', 'test-policy', 'risks', '--phase', phase.id, '--operation', 'publish', '--json'],
-      'Inspect eligible, exact observed risks and runner repair. Unsupported or stale evidence is not a pass.', '/sf-recover');
+      'Inspect eligible, exact observed risks and runner repair. Unsupported or stale evidence is not a pass.');
   }
   const runRisk = finding.details?.testRunRisk;
   const renewal = (finding.details?.testRunRiskRenewals ?? [])[0];
@@ -73,14 +77,16 @@ function testFindingRoute(workflow, phase, finding, code) {
       + '(kind: test, argv, workingDirectory, affectedRoots and a result adapter) is adopted for this Story through a reviewed '
       + '`story test-policy amend --reason <why>`. Tests still run; nothing is marked passed.', '/sf-test-setup');
   }
+  // A test that did not run or failed is the step's own repair: no recovery beside it (owner, 2026-11-17) [OSA:REQ-003].
+  const recheck = ['phase', 'prepublish', phase.id, '--for-agent', '--json', '--publish-if-ready'];
   if (finding.details?.requiredTestExecution?.failure?.kind === 'model-policy-skipped') {
-    return route('test-rerun', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
+    return route('test-rerun', phase.id, recheck,
       'A required test command was not run. When it declares no modelPolicy it is skipped while models are disabled: rerun with the model enabled, '
-      + 'or have approved configuration declare modelPolicy: never for it and adopt it with story test-policy amend --reason <why>.');
+      + 'or have approved configuration declare modelPolicy: never for it and adopt it with story test-policy amend --reason <why>.', author());
   }
-  return route('test-repair', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
+  return route('test-repair', phase.id, recheck,
     'Read the saved test output (singularity-flow logs --level error --tail 20), repair the failing test, the implementation or the repository-owned test reporter within this step, then recheck. '
-    + 'A test that ran and failed is fixed, never accepted.');
+    + 'A test that ran and failed is fixed, never accepted.', author());
 }
 
 /** Closed dispositions, including an honest owner route for an unknown/unsupported blocker. */
@@ -98,7 +104,11 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   const workId = workflow.workItem.id;
   const code = phaseFindingCode(finding).toLowerCase();
   const category = String(finding.category ?? '').toLowerCase();
-  const recovery = route('inspect', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
+  let skill;
+  const author = () => (skill === undefined ? (skill = generationSkillForPhase(phase, workflow)) : skill);
+  // Where the step stands and its own next action, recovery only for real damage; changed published bytes are damage.
+  const recovery = route('inspect', phase.id, ['nextsteps', workId, '--json'], `See where ${phase.id} stands; nothing is committed, discarded, approved or retried.`);
+  const damage = route('inspect', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
     'Inspect the exact preserved state. No automatic commit, discard, approval or retry.');
   const basePolicy = phaseFindingPolicy(finding);
   const foreignApproved = affectedPhase && affectedPhase.id !== phase.id && affectedPhase.status === 'approved';
@@ -144,10 +154,10 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       : legal ? route('upstream-owner', `${affectedPhase.id}-approval-authority`,
         legal.command.split(' ').slice(1), legal.label, legal.skill)
       : route('owner-escalation', `${affectedPhase.id}-approval-authority`,
-        ['recover', workId, '--phase', phase.id, '--json'], 'Preserve the current phase. The approved input owner must provide an authenticated correction or reviewed amendment.');
+        ['nextsteps', workId, '--json'], 'Preserve the current phase. The approved input owner must provide an authenticated correction or reviewed amendment.');
     // What this draft may itself have wrong stays its author's to correct, beside the earlier step's route.
     if (finding.details?.repairScope === 'current-draft') gapRoutes = [route('author-correction', phase.id, ['phase', 'show', phase.id, '--show-artifact'],
-      `If ${phase.id}'s own draft is what is wrong, correct it there and recheck; ${affectedPhase.id} keeps its approved output.`, generationSkillForPhase(phase, workflow))];
+      `If ${phase.id}'s own draft is what is wrong, correct it there and recheck; ${affectedPhase.id} keeps its approved output.`, author())];
   } else if (code === 'conformance.verdict-incomplete') {
     // Keep the honest verdict. Resolve the issue's actual owner, including evidence/plan/scope
     // defects, rather than assigning every partial clause to its code-producing step.
@@ -202,7 +212,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'Preserve the exact file. Split an oversized review, or use a qualified owner review for binary, rename, deletion or link changes; ordinary scope accounting cannot approve it.', '/sf-doctor');
   } else if (/appeal.*lifecycle/u.test(code)) {
-    resolution = recovery;
+    resolution = damage;
   } else if (category === 'appeal' || code.includes('appeal')) {
     resolution = route('human-review', 'plan-approval-authority', ['appeal', 'list', '--phase', phase.id, '--json'],
       'Review the saved appeal, or ask for corrections and prepare a new version. This neither approves the step nor waives a risk.', '/sf-appeal');
@@ -239,26 +249,26 @@ export function phaseResolutionChoices(workflow, phase, finding) {
         'Preview exact missing coverage. An authorized human may accept it for this pilot phase with an expiry; soft mode alone is no waiver. Tests, review and integrity stay enforced.', '/sf-appeal');
     const deliver = policy.repairableByProducer ? route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
       'Deliver the clauses this finding lists in the open generation: implement each in its planned source with its @clause comment, bind a planned file that already holds it, and add its planned tests; then recheck.',
-      generationSkillForPhase(phase, workflow)) : null;
-    resolution = deliver ?? scope ?? route('author-correction', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
+      author()) : null;
+    resolution = deliver ?? scope ?? route('author-correction', phase.id, ['nextsteps', workId, '--json'],
       'Repair unaccounted scope or invalid evidence through a reviewed successor or plan amendment. Pilot risk cannot waive integrity.');
     gapRoutes = [scope, risk].filter((choice) => choice && choice !== resolution);
   } else if (code === 'code_delivery_retained_evidence_missing') {
     // A planned evidence file is this step's deliverable. Say how to make it from this checkout.
     resolution = route('capture-retained-evidence', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
       `Produce ${finding.path ?? 'the planned evidence file'} from this checkout with the tool the plan names (a browser on a loopback port you confirmed free, a simulator or emulator, or a command-line run), bring it to the planned state, save the file at exactly that path, then recheck. A test that captures it saves under its runner's output (for example test-results/) and the file is copied to that path once: a test that saves straight to the path replaces the published file on every later run. Never use a server or device session another checkout runs and never fabricate evidence; the file is not a visual pass, and a person witnesses it after submission.`,
-      generationSkillForPhase(phase, workflow));
+      author());
   } else if (code === 'code_delivery_evidence_required') {
     resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
       'Finish the delivery this finding lists in the open generation (source, tests, clause tags or planned evidence), then recheck. The test runner is resolved from the change set: no test configuration, amendment or risk review is needed for it.',
-      generationSkillForPhase(phase, workflow));
+      author());
   } else if (code === 'code_delivery_test_command_required') {
     resolution = route('runner-setup', phase.id, ['capability', 'test-setup', '--json'],
       'No supported structured test command can be inferred. Read the suggestions, repair the repository-owned test script within this step\'s approved scope, then recheck; an explicit command needs a reviewed policy amendment.', '/sf-test-setup');
   } else if (AGENT_BRIEF_CODES.has(code)) {
     resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
       'Write the Agent brief (or summary) as visible text under its heading, outside any <!-- --> template comment, close every comment, then recheck.',
-      generationSkillForPhase(phase, workflow));
+      author());
   } else if (/unclaimed|outside.*scope/u.test(code) || category === 'coverage') {
     resolution = openScopeAppeal(workflow, phase, phaseRequiresCodeDelivery(phase))
       ? route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
@@ -270,9 +280,9 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     // review: the word "test" in its code sent plan rows to the test-run routes [owner policy 2026-11-10].
     resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
       'Correct the cited row or test in this step\'s own draft or open generation, then recheck; prepublish lists every remaining finding at once.',
-      generationSkillForPhase(phase, workflow));
+      author());
   } else if (/test|validation|coverage/u.test(code) || ['test', 'tests', 'validation'].includes(category)) {
-    resolution = testFindingRoute(workflow, phase, finding, code);
+    resolution = testFindingRoute(workflow, phase, finding, code, author);
   } else if (/host|remote|transport|integration|dependency/u.test(code)
       || ['host', 'integration', 'transport', 'external-evidence'].includes(category)) {
     resolution = route('external-owner', 'repository-or-integration-owner',
@@ -282,13 +292,12 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       ['wm', 'compose', '--phase', phase.id, '--work-id', workId],
       'Refresh the current pending composition from trusted inputs; retain the prior context and review the existing draft. Authenticated-record tampering still requires restoration.', '/sf-worldmodel');
   } else if (code === 'phase.generation-intent.required' || code === 'generation_intent_required') {
-    resolution = phase.status === 'in_progress' && phase.generationIntent?.status !== 'consumed'
-      ? route('prepare-current-generation', phase.id,
-        ['phase', 'begin', phase.id, '--work-id', workId, '--json'],
-        'Open the current generation without discarding its work. Honor the returned adoption preview and exact human confirmation; never fabricate an intent or overwrite published evidence.', '/sf-code')
-      : recovery;
+    // The kernel's route opens it: version 1 directly, a next version on the person's yes [D3, OSA:REQ-030].
+    const next = stepRoute(workflow, phase);
+    resolution = next?.argv ? route('prepare-current-generation', phase.id, next.argv,
+      `${next.detail} Honor the returned adoption preview and exact human confirmation; never fabricate an intent or overwrite published evidence.`, next.skill) : recovery;
   } else if (code === 'generation_intent_already_consumed' || code === 'generation.intent.consumed-changed') {
-    resolution = recovery;
+    resolution = damage;
   } else if (policy.repairableByProducer) {
     resolution = route('author-correction', phase.id,
       ['appeal', 'repair-plan', '--work-id', workId, '--phase', phase.id, '--json'],
@@ -416,7 +425,7 @@ export function phaseResolutionProjection(workflow, phase, findings = [], { advi
     // finding because repository-controlled error hints say blocking:false.
     issues,
     repairContinuation: repairContinuationForIssues({ workId: workflow.workItem.id, phaseId: phase.id, phaseStatus: phase.status,
-      generation: phase.generationIntent?.status === 'open' ? phase.generationIntent.generation : phase.generation,
+      generation: (({ ok, writing }) => (ok ? writing : null))(versionNumbers(versionFactsOf(workflow, phase))) ?? phase.generation,
       intentId: phase.generationIntent?.id ?? null, issues, transition }),
     advisories: advisories.map(advisory => advisoryProjection(workflow, phase, advisory)),
     retry: { maximumAttempts: 3, requiresChangedCondition: true, autoAcceptRisk: false,

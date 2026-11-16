@@ -199,7 +199,9 @@ test('failure inside recovery diagnoses its prerequisite instead of recommending
   assert.doesNotMatch(JSON.stringify(unknown.steps), /show no-such-phase|recover.*no-such-phase/);
 });
 
-test('every phase lifecycle verb retains recovery for a custom workflow phase', () => {
+// A healthy refusal names the step's own next action, read from the kernel's decision, never a recovery detour; the
+// read names recovery only for a damaged step [D4, OSA:REQ-003, REQ-011, REQ-022].
+test('every phase lifecycle verb keeps a phase-local next-step read for a custom workflow phase, never recovery', () => {
   for (const argv of [
     ...['begin', 'rollover', 'draft-check', 'prepublish', 'show', 'publish', 'submit', 'approve']
       .map(operation => ['phase', operation, 'team-custom-step']),
@@ -208,7 +210,9 @@ test('every phase lifecycle verb retains recovery for a custom workflow phase', 
     const plan = refusalRemediationPlan(Object.assign(new Error('Future validator refused'), {
       code: 'FUTURE_PHASE_VALIDATOR', details: { workId: 'WORK-1' }
     }), argv);
-    assert.equal(plan.steps[0].command, 'singularity-flow recover WORK-1 --phase team-custom-step --json', argv.join(' '));
+    assert.equal(plan.steps[0].command, 'singularity-flow nextsteps WORK-1 --json', argv.join(' '));
+    assert.equal(plan.steps[0].id, 'inspect-current-phase', argv.join(' '));
+    assert.equal(plan.steps.some((entry) => /^singularity-flow recover\b/u.test(entry.command ?? '') || entry.skill === '/sf-recover'), false, argv.join(' '));
     assert.equal(plan.retry.automatic, false);
     assert.ok(plan.steps.every(entry => entry.execution === 'user-reviewed'));
     assert.doesNotMatch(JSON.stringify(plan.steps), /--skip|--force|accept-risk|phase publish/);
@@ -818,7 +822,8 @@ test('amended epoch refusal preserves publication and separates fresh validation
   assert.equal(plan.steps[1].command, 'singularity-flow explain test-recovery');
   assert.equal(plan.retry.automatic, false);
   assert.ok(plan.steps.slice(0, 2).every(entry => entry.kind === 'diagnostic'));
-  assert.equal(plan.steps[2].command, 'singularity-flow recover --phase implementation --json');
+  // The step's own next-step read, never a recovery of a healthy step [D4].
+  assert.equal(plan.steps[2].command, 'singularity-flow nextsteps --json');
   assert.ok(plan.steps.every(entry => !entry.argv.includes('--apply')));
 });
 
@@ -846,8 +851,9 @@ test('incomplete authoring refusals lead with a read-only prepublish check and b
   assert.ok(plan.steps.every((entry) => entry.execution === 'user-reviewed'));
   assert.equal(plan.retry.automatic, false);
   assert.match(plan.retry.label, /prepublish check reports ready/);
-  assert.equal(plan.steps[2].command, 'singularity-flow recover --phase planning --json');
-  assert.equal(plan.steps[2].skill, '/sf-recover');
+  // Then the step's own next-step read: an unfinished draft is healthy work, never recovered [D4].
+  assert.equal(plan.steps[2].command, 'singularity-flow nextsteps --json');
+  assert.equal(plan.steps[2].skill, '/sf-nextsteps');
   assert.equal(plan.context.scope, 'phase');
   assert.equal(plan.context.strategy, 'repair-current-phase');
   assert.equal(plan.context.historyRewrite, false);
@@ -869,7 +875,7 @@ test('incomplete code authoring preserves the engine-selected code correction ro
   assert.equal(plan.retry.command, null);
 });
 
-test('phase remediation preserves an exact safe producer retry without replacing phase recovery', () => {
+test('phase remediation preserves an exact safe producer retry without replacing the phase-local read', () => {
   const retry = 'singularity-flow phase publish implementation --authored governed-agent --channel copilot-host';
   const plan = refusalRemediationPlan(Object.assign(new Error('Implementation needs correction.'), {
     code: 'ARTIFACT_AUTHORING_INCOMPLETE',
@@ -884,8 +890,8 @@ test('phase remediation preserves an exact safe producer retry without replacing
   // (e759274f), while the author's repair step keeps its authoring skill.
   assert.equal(plan.retry.skill, '/sf-publish');
   assert.equal(plan.steps[0].skill, '/sf-code');
-  assert.ok(plan.steps.some((entry) => entry.command ===
-    'singularity-flow recover CODE-9 --phase implementation --json'));
+  assert.ok(plan.steps.some((entry) => entry.command === 'singularity-flow nextsteps CODE-9 --json'));
+  assert.equal(plan.steps.some((entry) => entry.skill === '/sf-recover'), false, 'no recovery beside a draft being corrected');
 });
 
 test('incomplete authoring remediation derives a safe phase from lifecycle argv forms', () => {
@@ -929,8 +935,8 @@ test('approval authoring failures end the approval turn and route to governed ph
     assert.equal(plan.context.strategy, 'new-turn-repair');
     assert.equal(plan.retry.turn, 'new-turn');
     assert.match(plan.retry.label, /Do not retry approval in this turn/);
-    assert.equal(plan.steps[0].command,
-      `singularity-flow recover${argv.includes('WORK-7') ? ' WORK-7' : ''} --phase ${phase} --json`);
+    // The step's own next action, read in a new turn; the approval turn ends [D4, OSA:REQ-050].
+    assert.equal(plan.steps[0].command, `singularity-flow nextsteps${argv.includes('WORK-7') ? ' WORK-7' : ''} --json`);
     assert.equal(plan.steps[0].turn, 'new-turn');
     assert.equal(plan.steps[1].command, null);
     assert.match(plan.steps[1].label, /use \/sf-reject in a new turn/);
@@ -954,8 +960,7 @@ test('approval containment rejects stale approval retries and cannot be displace
   }), ['approve', 'verification', '--work-id', 'WORK-9']);
 
   assert.equal(plan.steps.length, 3);
-  assert.equal(plan.steps[0].command,
-    'singularity-flow recover WORK-9 --phase verification --json');
+  assert.equal(plan.steps[0].command, 'singularity-flow nextsteps WORK-9 --json');
   assert.equal(plan.steps[1].command, null);
   assert.match(plan.steps[1].label, /use \/sf-reject in a new turn/);
   assert.equal(plan.steps[2].command, 'singularity-flow phase show verification --json');
@@ -963,15 +968,13 @@ test('approval containment rejects stale approval retries and cannot be displace
   assert.doesNotMatch(JSON.stringify(plan.steps), /doctor|recommend/);
 });
 
-test('an uncoded phase refusal receives bounded phase-local recovery instead of generic doctor guidance', () => {
+test('an uncoded phase refusal receives the step\'s own next-step read instead of generic doctor guidance or recovery', () => {
   const plan = refusalRemediationPlan(Object.assign(new Error('Future phase validator refused.'), {
     code: 'FUTURE_PHASE_VALIDATOR',
     details: { phase: 'planning', workId: 'WORK-8' }
   }), ['phase', 'publish', 'planning']);
-  assert.deepEqual(plan.steps.map((entry) => entry.command), [
-    'singularity-flow recover WORK-8 --phase planning --json',
-    'singularity-flow phase show planning --json'
-  ]);
+  // One read of the step's own next action as the kernel decides it: no recovery of healthy work, no document view [D4].
+  assert.deepEqual(plan.steps.map((entry) => entry.command), ['singularity-flow nextsteps WORK-8 --json']);
   assert.equal(plan.context.scope, 'phase');
   assert.doesNotMatch(JSON.stringify(plan), /doctor|recommend/);
 });

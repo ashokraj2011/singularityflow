@@ -108,7 +108,10 @@ test('test findings route to what can act without a test-recovery agreement', ()
   assert.equal(first({ code: 'CODE_TEST_FAILED' }, { ...workflow, testRecovery: { id: 'TRA-1' } }).kind, 'risk-inspection');
   const failing = first({ code: 'code.delivery.incomplete', details: { sourceCode: 'CODE_TEST_FAILED' } });
   assert.equal(failing.kind, 'test-repair');
-  assert.equal(failing.command, 'singularity-flow recover ENV-2 --phase implement --json');
+  // A test that ran and failed is repaired and rechecked in its own step, never recovered (owner, 2026-11-17) [OSA:REQ-003].
+  assert.equal(failing.command, 'singularity-flow phase prepublish implement --for-agent --json --publish-if-ready');
+  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'code.delivery.incomplete', details: { sourceCode: 'CODE_TEST_FAILED' } })
+    .choices.some((choice) => /^singularity-flow recover\b/u.test(choice.command ?? '')), false, 'no recovery beside a failed test');
   assert.doesNotMatch(JSON.stringify(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED' }).choices), /test-policy risks/u);
 
   const route = testRunRiskRoute(story(), { phaseId: 'implement', attempt: skippedRun(), at: AT });

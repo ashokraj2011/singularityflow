@@ -1233,7 +1233,8 @@ test('recovery exposes the same authored-byte findings and a bounded Copilot ret
   assert.deepEqual(action.retry, {
     maximumAttempts: 1,
     requiresFingerprintChange: true,
-    beforeRetry: 'singularity-flow recover PREFLIGHT-1 --phase intake --json',
+    // The step's own recheck before the retry, never a recovery read of an unfinished draft (Stage 3 completion) [D4].
+    beforeRetry: 'singularity-flow phase prepublish intake --for-agent --json',
     command: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host'
   });
   // An unpublished draft's blockers go back to its drafting skill, which rechecks and lists each one;
@@ -3044,7 +3045,9 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   const bounded = unavailableBaseline.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.equal(bounded.mode, 'guided');
   assert.match(bounded.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
-  assert.equal(bounded.skill, '/sf-recover');
+  // Keeping the changed files is the next version, asked of the person by the step's own work command, never /sf-recover
+  // (Stage 3 completion, b34) [D3, OSA:REQ-014].
+  assert.equal(bounded.skill, '/sf-code');
   await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
 
   await writeFile(
@@ -3067,7 +3070,7 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.ok(renewal, 'recovery did not offer a new generation boundary');
   assert.equal(renewal.mode, 'guided');
   assert.match(renewal.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
-  assert.equal(renewal.skill, '/sf-recover');
+  assert.equal(renewal.skill, '/sf-code');
   const recoveryRoute = safeCommandGuidance(renewal);
   assert.ok(recoveryRoute, 'the phase-scoped rollover must have a validated Shell/Copilot pair');
   assert.equal(recoveryRoute.copilotCommand, `/sf-confirm ${confirmCode(renewal.command)}`);
@@ -3455,7 +3458,7 @@ test('an in-scope README edit after code publication routes through recovery, th
   const rollover = recovery.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.equal(recovery.requiresRecovery, true);
   assert.equal(rollover?.mode, 'guided');
-  assert.equal(rollover?.skill, '/sf-recover');
+  assert.equal(rollover?.skill, '/sf-code', 'the step\'s own work command asks the person (b34)');
   assert.equal(safeCommandGuidance(rollover)?.copilotCommand, `/sf-confirm ${confirmCode(rollover.command)}`);
   const workingTree = recovery.actions.find((entry) => entry.id === 'working-tree');
   assert.equal(workingTree?.mode, 'guided');
@@ -3484,7 +3487,7 @@ test('an in-scope README edit after code publication routes through recovery, th
   const preview = JSON.parse(flow(context.root, ['phase', 'rollover', 'implementation', '--json']).stdout);
   assert.equal(preview.mutates, false);
   assert.equal(preview.command, rollover.command);
-  assert.equal(preview.skill, '/sf-recover');
+  assert.equal(preview.skill, '/sf-code');
   assert.equal(preview.copilotCommand, `/sf-confirm ${confirmCode(preview.command)}`);
   assert.deepEqual(preview.argv,
     ['phase', 'rollover', 'implementation', '--confirm', preview.confirmation]);

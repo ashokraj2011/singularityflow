@@ -153,7 +153,10 @@ test('a refusal whose own route writes the step adds no recover or phase show; o
   const rolled = refusalRemediationPlan(consumed, ['prepare', 'implement']);
   assert.equal(rolled.steps[0].command, 'singularity-flow phase rollover implement --json');
   assert.doesNotMatch(JSON.stringify(rolled.steps), /singularity-flow recover\b|\/sf-recover/u);
-  // A refusal whose own route is not the step's writing keeps the step's containment, as before.
+  // A refusal whose own route is not the step's writing keeps a containment: the step's own next-step read, which names
+  // recovery only for a damaged step, never recovery itself or a document view (Stage 3 completion) [D4, OSA:REQ-011].
   const other = new SingularityFlowError('The phase artifact is missing.', { code: 'ARTIFACT_MISSING_FOR_TEST', details: { phase: 'implement' } });
-  assert.match(JSON.stringify(refusalRemediationPlan(other, ['phase', 'publish', 'implement']).steps), /singularity-flow recover --phase implement/u);
+  const contained = refusalRemediationPlan(other, ['phase', 'publish', 'implement']).steps;
+  assert.deepEqual(contained.map((entry) => [entry.id, entry.command]), [['inspect-current-phase', 'singularity-flow nextsteps --json']]);
+  assert.doesNotMatch(JSON.stringify(contained), /singularity-flow recover\b|\/sf-recover|phase show\b/u);
 });

@@ -162,12 +162,16 @@ test('feature workflows assign missing planned tests to implementation-spec befo
   assert.equal(finding.code, 'gate.acceptance.planned-test-missing');
   assert.equal(finding.phase, 'implementation-spec');
   assert.equal(finding.recovery.ownerPhase, 'implementation-spec');
-  assert.match(finding.recovery.command, /recover REC-1 --phase implementation-spec/);
+  // A step not reached yet has nothing to recover: the current step's own next action, as the kernel decides it (here the
+  // published requirements' submission readiness) [§5 precedence 11, D4, OSA:REQ-011].
+  assert.equal(finding.recovery.command, 'singularity-flow status REC-1 --submission-readiness --json');
 });
 
 test('future workflow recovery uses its pinned planned-claim owner instead of phase-name guesses', () => {
   const workflow = story(['intent', 'test-plan', 'delivery', 'proof']);
   workflow.currentPhase = 'delivery';
+  for (const id of ['intent', 'test-plan']) workflow.phases[id].status = 'approved';
+  workflow.phases.delivery.status = 'in_progress';
   workflow.resolution = {
     plannedClaims: {
       mode: 'required', clausePhases: ['intent'], owners: { delivery: 'test-plan' }
@@ -177,7 +181,8 @@ test('future workflow recovery uses its pinned planned-claim owner instead of ph
     coded('gate.acceptance.planned-test-missing', 'clause REC-1:AC-001 has no planned test')
   ]);
   assert.equal(finding.phase, 'test-plan');
-  assert.match(finding.recovery.command, /recover REC-1 --phase test-plan/);
+  // An approved owner is never repaired in place: the issue for its approvers, about the finding's own clause [D4].
+  assert.equal(finding.recovery.command, 'singularity-flow upstream-issue raise --work-id REC-1 --phase test-plan --about REC-1:AC-001 --problem <what-is-wrong>');
 });
 
 test('multi-delivery workflow recovery selects the relevant latest planning owner', () => {
@@ -202,7 +207,7 @@ test('multi-delivery workflow recovery selects the relevant latest planning owne
     coded('gate.acceptance.planned-test-missing', 'clause REC-1:AC-002 has no planned test')
   ]);
   assert.equal(downstream.phase, 'plan-b');
-  assert.match(downstream.recovery.command, /recover REC-1 --phase plan-b/);
+  assert.equal(downstream.recovery.command, 'singularity-flow upstream-issue raise --work-id REC-1 --phase plan-b --about REC-1:AC-002 --problem <what-is-wrong>');
 });
 
 test('a completed Story previews a hash-bound gate recovery when ordinary rejectTo omits the owner', () => {

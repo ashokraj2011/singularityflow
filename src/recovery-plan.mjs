@@ -1,6 +1,7 @@
-import { submitRoute } from './submit-route.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { versionFactsOf } from './phase-generation-need.mjs';
+import { beingWritten, consumedByPublishedVersion, needsVersion, publishedVersionRecorded, versionNumbers } from './kernel/step-versions.mjs';
+import { stepRoute } from './step-decision.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -28,10 +29,8 @@ import { unreconciledCandidatePaths } from './candidate-scope.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
-import { phaseNeedsGeneration } from './sequence.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { phaseResolutionChoices } from './phase-resolution.mjs';
-import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
 
 // Runner findings only an approved test command resolves: no supported runner, two build systems,
@@ -42,6 +41,25 @@ const TEST_CONFIGURATION_DEPENDENCIES = new Set(['TEST_MODULE_AMBIGUOUS', 'TEST_
 function generationSkill(phase, workflow) {
   return directCopilotSkill(generationSkillForPhase(phase, workflow));
 }
+
+/** The step's version as the kernel reads it, never its raw opening [OSA:REQ-002]. */
+function versionOf(workflow, phase) {
+  const facts = versionFactsOf(workflow, phase), numbers = versionNumbers(facts), writing = beingWritten(facts);
+  return { facts, writing, opening: facts?.opening?.status ?? null, consumed: consumedByPublishedVersion(facts), needs: needsVersion(facts),
+    recorded: publishedVersionRecorded(facts), proposed: numbers.ok ? numbers.next : null,
+    inspection: writing && numbers.ok ? numbers.next : Number(phase.generation ?? 0),
+    next: () => { if (!numbers.ok) throw new SingularityFlowError(`${phase.id}'s version counters cannot be read.`, { code: numbers.code }); return numbers.next; } };
+}
+
+/** The step's own next action as every view names it: recovery only for real damage [D4, OSA:REQ-011]. */
+function kernelAction(workflow, phase, id, detail, mode = 'guided') {
+  const route = phase && stepRoute(workflow, phase, { exactSubmit: true });
+  return route ? action({ id, mode, detail: detail ?? route.detail, command: route.command, skill: route.skill ?? null }) : null;
+}
+
+/** Changed content kept as the step's next version, opened only on the person's yes [D3, OSA:REQ-014, REQ-030]. */
+const successorPreview = (workflow, phase, id, detail, evidence) => action({ id, detail, evidence, skill: generationSkill(phase, workflow),
+  command: `singularity-flow phase rollover ${phase.id}${phaseRequiresCodeDelivery(phase) ? '' : ' --reason "<what to change>"'} --json` });
 
 function action({ id, mode = 'guided', detail, command = null, skill = null, authoringSkill = null, evidence = null, retry = null }) {
   return {
@@ -56,12 +74,10 @@ function action({ id, mode = 'guided', detail, command = null, skill = null, aut
 function artifactActions(workflow, phase, findings, { modelEnabled = true } = {}) {
   const first = findings[0];
   if (!first) return [];
-  if (hasPublishedPhaseGeneration(phase) && !requiresProspectivePhaseInspection(workflow, phase)) return [action({
-    id: `restore-published-artifact:${phase.id}`,
-    detail: 'Preserve the retained generation. Restore its exact reviewed artifact bytes, or use an authorized return/successor before authoring changed content. Do not overwrite or republish this generation in place.',
-    command: `singularity-flow phase show ${phase.id} --show-artifact`, skill: '/sf-phase-documents',
-    evidence: { path: first.path, line: first.line }
-  })];
+  const version = versionOf(workflow, phase);
+  if (version.recorded && !version.writing) return [successorPreview(workflow, phase, `restore-published-artifact:${phase.id}`,
+    `Version ${phase.generation} stays as published. To keep changed content, preview the next version and ask the person; to drop it, a person sets it aside with recovery, which keeps a copy.`,
+    { path: first.path, line: first.line })];
   if (first.code === 'artifact.required.missing') return [action({
     id: `prepare-artifact:${phase.id}`,
     detail: `Create the required ${phase.id} artifact at ${first.path}.`,
@@ -80,7 +96,7 @@ function artifactActions(workflow, phase, findings, { modelEnabled = true } = {}
     retry: {
       maximumAttempts: 1,
       requiresFingerprintChange: true,
-      beforeRetry: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
+      beforeRetry: `singularity-flow phase prepublish ${phase.id} --for-agent --json${modelEnabled === false ? ' --no-model' : ''}`,
       command: phasePublicationCommandForProducer(phase,
         effectivePhasePublicationProducer(phase, { modelEnabled }), { noModel: modelEnabled === false })
     }
@@ -96,8 +112,7 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
   if (!phaseRequiresCodeDelivery(phase) || phase?.id !== workflow.currentPhase
       || !['in_progress', 'awaiting_approval'].includes(phase.status) || phase.writeScope !== 'source-and-artifact') return null;
   try {
-    const consumed = phase.generationIntent?.status === 'consumed'
-      && Number(phase.generationIntent.generation) === Number(phase.generation);
+    const version = versionOf(workflow, phase), consumed = version.consumed;
     if (phase.status === 'awaiting_approval' && !consumed) return null;
     let baseCommit;
     let closed = false;
@@ -109,14 +124,14 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
         itemDirectory: path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id) });
       // A generation an approved amendment closed unpublished (SPEC-CIC switch 2): what it changed is in scope from its
       // baseline until `phase begin` opens the next one, which carries it (generation-boundary.mjs).
-      closed = phase.generationIntent?.status === 'superseded' && Number(phase.generationIntent.generation) === nextPhaseGeneration(phase);
+      closed = version.opening === 'superseded' && Number(version.facts.opening.version) === version.next();
       const intent = closed ? phase.generationIntent : await verifyOpenGenerationIntent(root, workflow, phase);
       baseCommit = intent?.baseline?.commit;
       if (!baseCommit) return null;
     }
     const changeSet = applicationChangeSetProjection(await buildRepositoryChangeSet(root, {
       baseCommit, subject: { workId: workflow.workItem.id, phase: phase.id,
-        generation: nextPhaseGeneration(phase), generationIntentId: consumed ? null : phase.generationIntent.id }
+        generation: version.next(), generationIntentId: consumed ? null : phase.generationIntent.id }
     }), applicationPathContext(config, workflow));
     const protectedPaths = new Set(evaluateProtectedPaths(changeSet, [
       ...(config.governance?.protectedPaths ?? []),
@@ -135,7 +150,7 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
     const closedCarry = closed ? (await import('./amended-drafts.mjs')).carriesExactlyClosedCode(config, workflow, phase, changeSet) : null;
     return { status: 'verified', basis: consumed ? 'published-generation' : closed ? 'closed-generation' : 'open-generation', excludedChanges,
       ...(closed ? { closedCarry } : {}),
-      phaseId: phase.id, generation: nextPhaseGeneration(phase), baseCommit,
+      phaseId: phase.id, generation: version.next(), baseCommit,
       changeSetDigest: changeSet.digest, paths,
       protectedPaths: [...protectedPaths].sort(), outsideBoundaryPaths: [...outsideBoundaryPaths].sort(),
       publishedGeneration: consumed ? Number(phase.generation) : null };
@@ -149,9 +164,8 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
  * outside every plan (they never enter its digest): `phase rollover` starts the next draft with them (N7).
  */
 export async function generationRecovery(root, workflow, phase, generationDigest, { unboundChanges = false } = {}) {
-  if (!phaseRequiresCodeDelivery(phase)
-      || phase.generationIntent?.status !== 'consumed'
-      || Number(phase.generationIntent.generation) !== Number(phase.generation)) return null;
+  const version = versionOf(workflow, phase);
+  if (!phaseRequiresCodeDelivery(phase) || !version.consumed) return null;
   const digest = await generationDigest(root, phase);
   const unchanged = digest === phase.generationIntent.publication?.resultDigest;
   if (unchanged && !unboundChanges) return null;
@@ -177,7 +191,7 @@ export async function generationRecovery(root, workflow, phase, generationDigest
       const changeSet = await buildRepositoryChangeSet(root, {
         baseCommit,
         subject: {
-          workId: workflow.workItem.id, phase: phase.id, generation: nextPhaseGeneration(phase),
+          workId: workflow.workItem.id, phase: phase.id, generation: version.next(),
           generationIntentId: null
         }
       });
@@ -240,9 +254,9 @@ export async function generationRecovery(root, workflow, phase, generationDigest
             : 'Published bytes changed, but the exact prior generation commit is unavailable. Preserve the work and repair publication authority before beginning another generation.'
         : submitted
           ? 'New edits cannot be approved as the old submitted packet. Commit reviewed authoring bytes if desired, then have an authorized human return this submission to a permitted phase using reject; re-author, test and submit the successor. Published evidence stays immutable. Direct rollover is not legal while awaiting approval.'
-          : 'Review the exact current artifact and application changes, then begin a successor generation without changing the published generation. Use /sf-recover for this phase-scoped rollover; /sf-code resumes only after recovery clears.',
+          : `Files changed after version ${phase.generation} was published. To keep them, the step's own work command previews version ${version.proposed} with them and asks the person; only on their yes is this confirmation run.`,
       command: mode === 'manual' ? 'singularity-flow doctor --json' : command,
-      skill: mode === 'manual' ? '/sf-doctor' : submitted ? '/sf-reject' : '/sf-recover',
+      skill: mode === 'manual' ? '/sf-doctor' : submitted ? '/sf-reject' : generationSkill(phase, workflow),
       evidence: { path: phase.generationIntent.path ?? null, line: null,
         ...(submitted ? { permittedTargets: phaseCorrectionTargets(phase) } : {}) }
     })
@@ -265,9 +279,8 @@ function approvedPhaseActions(workflow, phase) {
       : null
   ].filter(Boolean).join(' ');
   return [
-    action({ id: `approved-phase:${phase.id}`, mode: 'informational', detail: explanation,
-      command: current ? `singularity-flow recover ${workflow.workItem.id} --phase ${current} --json` : null,
-      skill: current ? '/sf-recover' : null }),
+    kernelAction(workflow, workflow.phases?.[current], `approved-phase:${phase.id}`, explanation, 'informational')
+      ?? action({ id: `approved-phase:${phase.id}`, mode: 'informational', detail: explanation }),
     ...change.routes.map((route) => action({ id: `${route.kind}:${phase.id}`, mode: 'guided',
       command: route.command, skill: route.skill, detail: route.label }))
   ];
@@ -302,7 +315,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   }
   const blockers = [];
   const actions = [];
-  const inspectionGeneration = phaseInspectionGeneration(workflow, phase);
+  const version = versionOf(workflow, phase);
+  const inspectionGeneration = version.inspection;
   const governance = phaseGovernanceHold(workflow, phase);
   if (governance) {
     // Historical reviewer authorship needs an honestly authored successor, not a blanket ban on
@@ -322,9 +336,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
 
   // An already published generation needs submission/rollover, not a new prompt at the same identity.
   // Check prospective publication dependencies only while authoring an unpublished generation.
-  const dependencies = publicationReadiness ?? (phase.status === 'in_progress'
-      && phase.generationIntent?.status !== 'consumed'
-      && (phaseNeedsGeneration(workflow, phase) || phase.generationIntent?.status === 'open')
+  const dependencies = publicationReadiness ?? (phase.status === 'in_progress' && version.opening !== 'consumed'
+      && (version.needs || version.opening === 'open')
     ? await inspectPhasePublicationReadiness(root, config, workflow, phase, { modelEnabled }) : null);
   if (dependencies) {
     blockers.push(...dependencies.blockers);
@@ -340,8 +353,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   }
 
   const deterministicConvergence = isConvergencePhase(phase);
-  if (!phaseRequiresCodeDelivery(phase) && !deterministicConvergence
-      && hasPublishedPhaseGeneration(phase) && !requiresProspectivePhaseInspection(workflow, phase)) {
+  if (!phaseRequiresCodeDelivery(phase) && !deterministicConvergence && version.recorded && !version.writing) {
     const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
       phase.requiredArtifact.path);
     try {
@@ -360,21 +372,15 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           phase: phase.id, generation: phase.generation, path: relative,
           details: { message: 'Published document content changed. Restore the exact reviewed bytes (recover lists set-aside-worktree for it) or prepare an authorized successor; the old publication remains immutable.',
             headMatchesPublication: Boolean(headBytes) && authoredArtifactFingerprint(headBytes.toString('utf8')) === authoredArtifactFingerprint(bytes.toString('utf8')) } });
-        // A step still being authored publishes the edit as its next generation; the plan offered only
-        // restoring, returning or setting it aside, though that one command works (2026-10-28).
-        if (phase.status === 'in_progress') actions.push(action({ id: `published-document-new-generation:${phase.id}`, mode: 'guided',
-          command: `singularity-flow phase publish ${phase.id}`, skill: '/sf-publish',
-          detail: `Publish the edited draft as generation ${Number(phase.generation) + 1} and submit that; publication ${commit} stays as it was.`,
-          evidence: { path: relative, publicationCommit: commit } }));
-        actions.push(action({ id: `published-document-successor:${phase.id}`, mode: 'guided',
-          command: phase.status === 'awaiting_approval'
-            ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to <phase> --reason <reason>`
-            : `singularity-flow phase show ${phase.id} --show-artifact`,
-          skill: phase.status === 'awaiting_approval' ? '/sf-reject' : '/sf-phase-documents',
-          detail: phase.status === 'awaiting_approval'
-            ? 'Have an authorized human return this submission to an allowed phase before changing its evidence.'
-            : `Preserve the new draft separately, then restore the exact reviewed authored bytes from publication ${commit}. Submit that preserved publication for authorized return/rework if the new content is needed; do not treat prepare as an opened successor or overwrite publication history.`,
-          evidence: { path: relative, publicationCommit: commit } }));
+        // Keeping the edit opens the next version on the person's yes; publishing it in place opened one with nobody asked.
+        const evidence = { path: relative, publicationCommit: commit }, submitted = phase.status === 'awaiting_approval';
+        if (!submitted) actions.push(successorPreview(workflow, phase, `published-document-new-generation:${phase.id}`,
+          `To keep the edit, preview version ${version.proposed} and ask the person; publication ${commit} stays as it was.`, evidence));
+        actions.push(action({ id: `published-document-successor:${phase.id}`, mode: submitted ? 'guided' : 'manual', evidence,
+          command: submitted ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to <phase> --reason <reason>` : null,
+          skill: submitted ? '/sf-reject' : null,
+          detail: submitted ? 'Have an authorized human return this submission to an allowed phase before changing its evidence.'
+            : `To drop the edit, a person restores the bytes of publication ${commit} with recovery's set-aside action, which keeps a copy.` }));
       }
     } catch (error) {
       blockers.push({ code: error.code ?? 'GENERATION_PUBLICATION_INVALID', category: 'integrity', blocking: true,
@@ -428,8 +434,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       actions.push(action({
         id: `repair-agent-brief-source:${phase.id}`,
         detail: `${error.message} Use the configured producer ${generationSkill(phase, workflow)} to edit only the authored source; approved managed inputs and existing published briefs remain preserved.`,
-        command: `singularity-flow phase show ${phase.id} --show-artifact`,
-        skill: '/sf-phase-documents', authoringSkill: generationSkill(phase, workflow),
+        command: `singularity-flow phase prepublish ${phase.id} --for-agent --json`,
+        skill: generationSkill(phase, workflow), authoringSkill: generationSkill(phase, workflow),
         evidence: {
           path: `${itemRelative}/${phase.requiredArtifact.path}`,
           line: error.details?.lines?.[0] ?? null
@@ -440,11 +446,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   }
 
   // Runner availability is a separate observation from prose/coverage readiness.
-  const publishedCodeGeneration = phaseRequiresCodeDelivery(phase)
-    && phase.generationIntent?.status === 'consumed';
-  if (phaseRequiresCodeDelivery(phase)
-      && ((phase.generationIntent?.status === 'open' && !generation)
-        || publishedCodeGeneration)) {
+  const publishedCodeGeneration = phaseRequiresCodeDelivery(phase) && version.opening === 'consumed';
+  if (phaseRequiresCodeDelivery(phase) && ((version.opening === 'open' && !generation) || publishedCodeGeneration)) {
     let testCommands = [];
     const deliveryErrors = [];
     try {
@@ -687,7 +690,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
 
   // Inspect retained submission evidence, not an imaginary next draft. Pending evidence has a
   // real submit route; genuine corruption has an owning integrity route and cannot be waived.
-  if (phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !generation) {
+  if (publishedCodeGeneration && !generation) {
     const { inspectPhaseQualityGate } = await import('./phase-quality-risk.mjs');
     const quality = await inspectPhaseQualityGate(root, config, workflow, phase);
     for (const finding of quality.findings) {
@@ -698,17 +701,13 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
     }
   }
 
-  if (generationDigest && phaseRequiresCodeDelivery(phase)
-      && phase.generationIntent?.status === 'consumed' && !generation
+  if (generationDigest && publishedCodeGeneration && !generation
       && phase.status === 'in_progress' && blockers.length === 0
-      && testExecution.status === 'not-run' && !phaseNeedsGeneration(workflow, phase)) {
-    const route = submitRoute(workflow, phase);
-    actions.push(action({
-      id: `submit-published-generation:${phase.id}`,
-      detail: 'This published generation still matches its retained bytes. Submit it after resolving any reported test environment or runtime failure; submission re-executes required checks. Do not republish unchanged code or retry an unchanged failing test.',
-      command: route.command,
-      skill: route.skill
-    }));
+      && testExecution.status === 'not-run' && !version.needs) {
+    // Its review when one is owed, else its submission, as every view names it.
+    const next = kernelAction(workflow, phase, `submit-published-generation:${phase.id}`,
+      'This published generation still matches its retained bytes. Submit it after resolving any reported test environment or runtime failure; submission re-executes required checks. Do not republish unchanged code or retry an unchanged failing test.');
+    if (next) actions.push(next);
   }
 
   // A person's one choice leads over another read (bin-opr2), never over the author's own repair: the pin
@@ -730,7 +729,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
     warnings: dependencies?.warnings ?? [],
     requiresLifecycleRecovery: blockers.some((finding) => finding.category === 'lifecycle'),
     testExecution: { ...testExecution, handoff: testExecutionHandoff(testExecution, {
-      published: phase.generationIntent?.status === 'consumed'
+      published: version.opening === 'consumed'
     }) }
   };
 }

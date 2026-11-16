@@ -56,7 +56,9 @@ test('recover on an approved phase explains how it changes and offers only the r
   const result = await inspectPhaseRecovery(packageRoot, {}, submitted, submitted.phases.implementation);
   assert.equal(result.blockers.length, 0);
   assert.match(result.actions[0].detail, /implementation is approved\. An approved phase is never edited or repaired in place/);
-  assert.equal(result.actions[0].command, 'singularity-flow recover DEAD-1 --phase conformance --json');
+  // Nothing to recover on an approved step: the current step's own next action, as the kernel decides it (conformance is
+  // submitted, so its approval) [D4, OSA:REQ-011].
+  assert.equal(result.actions[0].command, 'singularity-flow approve conformance --work-id DEAD-1 --fetch');
   assert.deepEqual(result.actions.slice(1).map(action => action.command), [
     'singularity-flow reject conformance --work-id DEAD-1 --to implementation --reason <reason>',
     'singularity-flow upstream-issue raise --work-id DEAD-1 --phase implementation --about <clause-or-section> --problem <what-is-wrong>'
@@ -89,12 +91,16 @@ test('the final gate on an open Story never offers reopen, only routes legal fro
   assert.equal(owned.recovery.command, 'singularity-flow reject conformance --work-id DEAD-1 --to implementation --reason "Final gate: gate.acceptance-criteria.unbound"');
   assert.equal(own.recovery.command, 'singularity-flow reject conformance --work-id DEAD-1 --to conformance --reason "Final gate: gate.conformance.stale"');
 
-  const submitting = classifyStoryGateFailures(approving, findings, { openStory: { phase: 'conformance', status: 'in_progress' } });
+  // Submitting: the final step's record is still in progress.
+  const inProgress = story(ORDER, { code: ['implementation'] });
+  inProgress.phases.conformance.requiredArtifact.kind = 'conformance-report';
+  const submitting = classifyStoryGateFailures(inProgress, findings, { openStory: { phase: 'conformance', status: 'in_progress' } });
   // No return reaches implementation while conformance is in progress; raising the issue does.
   assert.equal(submitting[0].recovery.mode, 'guided');
   assert.match(submitting[0].recovery.command, /^singularity-flow upstream-issue raise --work-id DEAD-1 --phase implementation /);
   assert.match(submitting[0].recovery.detail, /implementation's approvers/);
-  assert.equal(submitting[1].recovery.command, 'singularity-flow recover DEAD-1 --phase conformance');
+  // Evidence the final step owns is repaired in its own work, by its next action as the kernel names it, never by recovery.
+  assert.equal(submitting[1].recovery.command, 'singularity-flow status DEAD-1 --submission-readiness --json');
 
   const narrow = story(ORDER, { code: ['implementation'], currentStatus: 'awaiting_approval', rejectTo: ['conformance'] });
   const [disallowed] = classifyStoryGateFailures(narrow, findings.slice(0, 1), { openStory: { phase: 'conformance', status: 'awaiting_approval' } });

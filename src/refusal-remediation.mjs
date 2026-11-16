@@ -223,6 +223,9 @@ function routesToWritingTheStep(error, phaseId) {
     || (argv[0] === 'phase' && ['begin', 'enter', 'rollover'].includes(argv[1]) && argv[2] === phaseId);
 }
 
+/** Every action the Story (or Epic) can take now, read from its decision; nothing is changed. */
+const storyNextRead = (workId, epic = false) => `singularity-flow ${epic ? 'initiative next' : 'nextsteps'}${workId ? ` ${workId}` : ''} --json`;
+
 function phaseContainmentSteps(context) {
   if (!context) return [];
   // If inspection itself failed, sending the reader to the identical recover command is a loop,
@@ -235,32 +238,30 @@ function phaseContainmentSteps(context) {
       'Keep authored work and retained evidence. Have the responsible repository or configuration owner repair the reported prerequisite; do not repeat an unchanged recovery command or discard work.',
       null, 'remediation')
   ];
-  const recover = step(
+  // The step's own next action, read from its decision as the Story stands now: it names recovery only for a step the
+  // kernel finds damaged, so a healthy refusal never detours through recovery or a document view [D4, OSA:REQ-003,
+  // REQ-011, REQ-022]. The refusal's own routes come first; an unknown state is this read, never a guess.
+  const next = step(
     'inspect-current-phase',
-    `Inspect and repair only phase '${context.phaseId}'; prior publications and authored work remain preserved.`,
-    context.recoveryCommand,
-    'remediation',
-    '/sf-recover'
-  );
-  const show = step(
-    'inspect-current-phase-evidence',
-    `Review the bounded '${context.phaseId}' evidence before changing or retrying it.`,
-    `singularity-flow phase show ${context.phaseId} --json`,
+    `See what '${context.phaseId}' needs next as the Story stands now: its own next action, which names recovery only for real damage. Nothing is changed; prior publications and authored work stay as they are.`,
+    storyNextRead(context.workId),
     'diagnostic'
   );
   if (context.turn === 'new-turn') {
     return [
-      recover ? Object.freeze({ ...recover, turn: 'new-turn' }) : null,
+      Object.freeze({ ...next, turn: 'new-turn' }),
       step(
         'leave-approval-turn',
         'End this approval-only turn. If submitted evidence must change, use /sf-reject in a new turn to choose an allowed repair target and provide the human reason; author, submit, and approve again from fresh evidence.',
         null,
         'remediation'
       ),
-      show ? Object.freeze({ ...show, turn: 'new-turn' }) : null
-    ].filter(Boolean);
+      // The approver's own read of the submitted evidence, which is the approval turn's work.
+      Object.freeze({ ...step('inspect-current-phase-evidence', `Review the bounded '${context.phaseId}' evidence before changing or retrying it.`,
+        `singularity-flow phase show ${context.phaseId} --json`, 'diagnostic'), turn: 'new-turn' })
+    ];
   }
-  return [recover, show].filter(Boolean);
+  return [next];
 }
 
 const shellWord = (word) => (/^[A-Za-z0-9_./:@%+=,<>-]+$/u.test(word) ? word : `'${String(word).replaceAll("'", `'"'"'`)}'`);
@@ -1071,8 +1072,9 @@ const KNOWN = Object.freeze({
       ? step('accept-quality-risk', `An approver of ${phase} may accept the remaining coverage gap for this pilot step, with an expiry; tests, review and integrity stay enforced.`,
         `singularity-flow appeal risk-prepare --phase ${phase} --gate-mode soft --expires <YYYY-MM-DD> --reason <why> --json`, 'remediation', '/sf-appeal')
       : null;
-    const inspect = typeof details.diagnosticCommand === 'string'
-      ? step('inspect-coverage', 'Inspect the exact source and test obligations still open.', details.diagnosticCommand, 'diagnostic', '/sf-recover') : null;
+    // The author's own recheck lists every obligation still open; a recovery read of healthy work is no route [D4, OSA:REQ-011].
+    const inspect = typeof details.diagnosticCommand === 'string' && !/^singularity-flow recover\b/u.test(details.diagnosticCommand)
+      ? step('inspect-coverage', 'Inspect the exact source and test obligations still open.', details.diagnosticCommand, 'diagnostic') : null;
     // A row the plan put in the wrong place is the plan's to correct, never more code [PHR:REQ-003]: its
     // approvers' plan correction, and the upstream issue to them.
     return [list, author, risk, inspect, ...planCorrectionSteps(decision?.complete ? [] : details.planCorrections)].filter(Boolean);
@@ -2165,7 +2167,7 @@ function remediationPlanFor(error, argv = []) {
   // An Epic's own list is `initiative next` (initiative-next.mjs initiativeNextDetails); a Story's is nextsteps.
   const epic = error?.details?.subjectKind === 'initiative';
   const ordered = storyNext || writingStep ? [...nonDuplicateExplicit, ...known, step('recommended-next', `Every action this ${epic ? 'Epic' : 'Story'} can take now, in order.`,
-    `singularity-flow ${epic ? 'initiative next' : 'nextsteps'}${storyWorkId ? ` ${storyWorkId}` : ''} --json`)]
+    storyNextRead(storyWorkId, epic))]
     : conformanceGapBlocked ? gapSteps
     : scopeDispositionBlocked ? scopeSteps
     : configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]

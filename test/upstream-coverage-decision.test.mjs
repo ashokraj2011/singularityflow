@@ -40,7 +40,10 @@ test('prepublish, the refusal plan and the approval hold all route to the decisi
   assert.equal(plan.steps.some((entry) => entry.id === 'deliver-missing-clauses'), false, 'never more code for a clause that waits');
   const partial = refusalRemediationPlan({ code: 'SPEC_COVERAGE_INCOMPLETE', message: 'incomplete',
     details: details(false, { qualityRisk: { eligible: true } }) }, ['phase', 'publish', 'implementation']);
-  assert.deepEqual(partial.steps.map((entry) => entry.id).slice(0, 3), ['deliver-missing-clauses', 'accept-quality-risk', 'inspect-coverage']);
+  // The author's recheck lists every open obligation, so the recovery read beside it is gone; the step's own next-step read
+  // follows (Stage 3 completion) [D4, OSA:REQ-011].
+  assert.deepEqual(partial.steps.map((entry) => entry.id).slice(0, 3), ['deliver-missing-clauses', 'accept-quality-risk', 'inspect-current-phase']);
+  assert.doesNotMatch(JSON.stringify(partial.steps), /singularity-flow recover\b|\/sf-recover/u);
   assert.match(partial.steps[0].label, /Leave US-1:REQ-002 to the open upstream issue's decision/u);
 
   assert.equal(approvalHoldOwner({ code: 'SPEC_COVERAGE_INCOMPLETE', details: details(true) }), 'someone-decides');

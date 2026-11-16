@@ -95,6 +95,11 @@ export function stepDecisionOf(workflow, phase = workflow?.phases?.[workflow?.cu
   return phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode: 'view', review: reviewFactOf(phase, review), reviewOwed: true, opening, task })) : null;
 }
 
+/** The step's own next action as a planner names it: the first route of its decision, or null on any doubt. */
+export function stepRoute(workflow, phase, options) {
+  try { return decisionRoutes(stepDecisionOf(workflow, phase), workflow, phase, options).find((entry) => entry?.command) ?? null; } catch { return null; }
+}
+
 /** What a step's task waits for, in the person's words: its original code is kept, and nothing is retried meanwhile. */
 function taskOutcomeWords(inputs, phase) {
   const code = inputs.code ? ` (${inputs.code})` : '';
@@ -160,6 +165,9 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
     case 'refresh-authority': return [next.inputs.source === 'lifecycle'
       ? route(['refresh-branch'], 'Bring in what the shared Story branch holds now; this checkout\'s view of the step is old.')
       : route(['session', 'current', '--for-agent', '--json'], 'Run this read in this turn: it binds the turn to the Story as it is now.')];
+    // A commit retained here [OSA:REQ-012].
+    case 'publish-version': if (next.inputs.pending) return [route(['sync'], `${phase.id}'s commit is made here and has not reached the shared Story branch: sync sends that exact commit. Nothing is written again.`)];
+    // falls through
     default: return [route(['phase', 'show', phase.id, '--json'], `Inspect ${phase.id} as it is (${next.reasonCodes.join(', ') || 'no action'}); nothing is written now.`)];
   }
 }

@@ -144,7 +144,7 @@ test('the intent-amendment crosswalk routes only drafting and proposing, to /sf-
   }
 });
 
-test('commits of any other kind keep the existing recover and new-turn reject routes', () => {
+test('commits of any other kind keep the step\'s own next-step read and the new-turn reject routes', () => {
   for (const details of [
     { blockingCommitCount: 1, blockingCommits: [{ commit: '2555541e97d0', subject: 'Unrelated empty commit', kind: 'commit' }] },
     // A decided amendment whose commits record more than its proposal and rejection waits for no one:
@@ -157,7 +157,8 @@ test('commits of any other kind keep the existing recover and new-turn reject ro
   ]) {
     const plan = refusalRemediationPlan(refusal(details), APPROVE);
     assert.deepEqual(plan.steps.map((step) => step.id), EXISTING_ROUTES);
-    assert.equal(plan.steps[0].command, `singularity-flow recover ${WORK} --phase planning --json`);
+    // The submitted step's own next action, read in a new turn; recovery only for a damaged step [D4, OSA:REQ-011].
+    assert.equal(plan.steps[0].command, `singularity-flow nextsteps ${WORK} --json`);
     assert.equal(plan.context.strategy, 'new-turn-repair');
   }
 });

@@ -14,12 +14,12 @@ import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
-import { consumedOpeningMismatch, reopenedByReturn } from './kernel/step-versions.mjs';
+import { consumedOpeningMismatch } from './kernel/step-versions.mjs';
+import { ACTION_SKILLS, actionCommandLine } from './action-command-map.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { exactFileAtObject, changes } from './git.mjs';
 import { workingTreeAction } from './collaboration.mjs';
 import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
-import { submissionReadiness } from './submission-readiness.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { authoredArtifactFingerprint, authoredArtifactText } from './publication-preflight.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
@@ -388,16 +388,13 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
         code: 'phase.generation-intent.required', category: 'code-delivery', path: null, line: null,
         message: error.message, details: { sourceCode: error.code ?? null }
       });
-      // Recover only positive damage; a returned or published code step opens its next version [OSA:REQ-003, C1].
-      const facts = versionFactsOf(workflow, phase);
-      const damaged = consumedOpeningMismatch(facts);
-      const preview = !damaged && phase.generationIntent?.status === 'consumed' && !reopenedByReturn(facts);
-      actions.push({ command: damaged ? `singularity-flow recover ${id} --phase ${phase.id} --json`
-        : preview ? `singularity-flow phase rollover ${phase.id} --json` : `singularity-flow phase begin ${phase.id}`,
-        skill: damaged ? '/sf-recover' : '/sf-code', detail: damaged
-          ? 'Inspect the guarded phase rollover in recovery; do not overwrite a published result or route back to /sf-code before recovery clears.'
-          : preview ? `Preview ${phase.id}'s next version and ask the person to confirm it; the published one stays.`
-            : 'Open the code generation before changing source, then recheck.' });
+      // Recover only positive damage; a returned or published code step opens its next version as the kernel names it on
+      // every surface (version 1 directly, a next version on the person's yes) [OSA:REQ-003, REQ-020, C1].
+      const damaged = consumedOpeningMismatch(versionFactsOf(workflow, phase));
+      const opening = damaged ? null : (await import('./step-decision.mjs')).stepRoute(workflow, phase);
+      actions.push(opening ? { command: opening.command, skill: opening.skill ?? null, detail: opening.detail }
+        : { command: actionCommandLine('recover-operation', 'recover', { step: phase.id, workId: id }), skill: ACTION_SKILLS.recover,
+          detail: 'Inspect the guarded phase rollover in recovery; do not overwrite a published result or route back to /sf-code before recovery clears.' });
     }
   }
   // A step that delivers no code meets its publication's change-scope refusal here, from the same
@@ -578,7 +575,8 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
       if (!bytes || authoredArtifactFingerprint(bytes.toString('utf8')) !== draft.artifact.fingerprint) {
         throw new Error('The current authored artifact differs from its retained publication. Restore reviewed bytes or open an authorized successor; do not republish in place.');
       }
-      retainedReadiness = await submissionReadiness(root, config, workflow, { phaseId: phase.id });
+      // Only a retained publication reads readiness here; the readiness module (and the kernel it renders) loads then.
+      retainedReadiness = await (await import('./submission-readiness.mjs')).submissionReadiness(root, config, workflow, { phaseId: phase.id });
       if (!retainedReadiness.lifecycleReady) blockers.push({
         code: retainedReadiness.reasonCode, category: 'lifecycle', path: null,
         message: retainedReadiness.reason ?? 'Follow the retained generation\'s required review or recovery route.'
@@ -651,10 +649,13 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
     .map((entry) => [entry.command, { command: entry.command, skill: entry.skill ?? null, detail: entry.detail ?? entry.reason ?? null }])).values()];
   // With no bound agent author, a person chooses: the withdrawal of a return the generation left unchanged leads.
   const personChoice = recovery.actions.find((entry) => entry.id === `withdraw-return:${phase.id}`) ?? null;
+  // Changed files after a retained publication: the recovery plan's own route leads (the step's work command previews the
+  // next version with them and asks the person), never a recovery read before it [OSA:REQ-014, b39].
+  const retainedRoute = retained && recovery.requiresLifecycleRecovery ? recovery.actions.find((entry) => entry?.command) ?? null : null;
   const action = !lifecycleReady
     ? {
         command: draft.commands.recover,
-        skill: '/sf-recover',
+        skill: ACTION_SKILLS.recover,
         detail: 'The phase is not current and in progress. Inspect lifecycle recovery before changing evidence.'
       }
     // Own repair leads: the draft's own correction, else the first own route, else this producer's recheck.
@@ -668,7 +669,8 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
       // A retained packet can be individually ready while changed application bytes require a
       // reviewed successor. Recovery owns that boundary; never advertise submission first.
       : retained && recovery.requiresLifecycleRecovery
-        ? { command: draft.commands.recover, skill: '/sf-recover',
+        ? retainedRoute ? { command: retainedRoute.command, skill: retainedRoute.skill ?? null, detail: retainedRoute.detail ?? null }
+          : { command: draft.commands.recover, skill: ACTION_SKILLS.recover,
             detail: 'Inspect the reported lifecycle recovery and its exact successor/return plan before submitting this retained generation.' }
       : actions[0] ?? personChoice ?? recovery.actions[0] ?? null;
   const needsHumanClarification = [...blockers, ...recovery.blockers].some((entry) => entry.category === 'clarification');

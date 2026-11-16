@@ -250,7 +250,11 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     : [];
   // The open version's acceptance and writer as this checkout observed them, from files only [OSA:REQ-031, REQ-034, REQ-041].
   const opening = phase?.versionOpening ? (await import('./story-version-acceptance.mjs')).observeOpening(root, workflow, phase) : null;
-  const contract = deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence, opening });
+  // The step's task stage, from private files only: a spent repair budget or a wait stops this turn's writes through the
+  // kernel, as it stops every view [§8, OSA:REQ-010, REQ-012, REQ-041]. Read once per turn record, never per tool call.
+  const taskStage = mode === 'authoring' ? await (await import('./workflow-task-outcome.mjs')).readGuardTaskOutcome(root, workflow, phase)
+    .catch(() => ({ task: null, files: [] })) : { task: null, files: [] };
+  const contract = deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence, opening, task: taskStage.task });
   if (mode === 'read' && requestedMode !== 'read') {
     contract.summary = 'The phase changed during this turn. Preserve work, end this turn, and start the configured author in a new turn.';
   }
@@ -258,10 +262,9 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const gitIdentity = await identity(root);
   // An open version's acceptance and writer, read from files: when either changes (a settled opening, a takeover), the
   // turn's grant is derived again, never kept from before [OSA:REQ-031, REQ-034].
-  if (opening) {
-    for (const file of opening.files ?? []) {
-      gitIdentity.stamps.push({ file, sha256: digest(await readFile(file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) });
-    }
+  // So is the task record: a repair spent, or a wait recorded, after this turn began derives its grant again.
+  for (const file of [...(opening?.files ?? []), ...taskStage.files]) {
+    gitIdentity.stamps.push({ file, sha256: digest(await readFile(file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) });
   }
   // Issued staging is scoped to the exact phase/generation. Never use a wildcard private path.
   const samePhase = previous?.contract?.phaseId === contract.phaseId && previous.contract.generation === contract.generation;

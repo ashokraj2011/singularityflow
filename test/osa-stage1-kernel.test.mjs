@@ -246,7 +246,7 @@ test('unavailable, stale, missing and corrupt sources never become an empty reco
 
 test('each named publication predicate agrees with its independent definition, including version 1 published while 2 is open [OSA:AC-007]', async () => {
   const wrappers = await import('../src/phase-generation-need.mjs');
-  const { nextPhaseGeneration, consumedByPublishedGeneration } = await import('../src/phase-generation.mjs');
+  const { nextPhaseGeneration } = await import('../src/phase-generation.mjs');
   for (const published of [0, 1, 2, 3]) for (const watermark of [undefined, 0, 2, 5]) for (const opening of [null, 1, 2, 3, 4, 6]) for (const status of ['open', 'consumed']) {
     const facts = { published, ...(watermark === undefined ? {} : { recordedHighWatermark: watermark }), opening: opening === null ? null : { status, version: opening } };
     // Section 4.3, written out independently.
@@ -263,7 +263,8 @@ test('each named publication predicate agrees with its independent definition, i
       ...(opening === null ? {} : { generationIntent: { status, generation: opening } }) };
     assert.equal(wrappers.successorGenerationOpen(phase), writing !== null, `successorGenerationOpen ${where}`);
     assert.equal(nextPhaseGeneration(phase), base + 1, `nextPhaseGeneration ${where}`);
-    assert.equal(consumedByPublishedGeneration(phase), status === 'consumed' && published > 0 && opening === published, `consumedByPublishedGeneration ${where}`);
+    // Stage 5 deleted the unused P-10 wrapper (consumedByPublishedGeneration); the kernel's predicate is its one owner.
+    assert.equal(kernel.consumedByPublishedVersion(facts), status === 'consumed' && published > 0 && opening === published, `consumedByPublishedVersion ${where}`);
   }
   // The example of section 4.3: version 1 published, version 2 open.
   const example = { published: 1, opening: { status: 'open', version: 2 } };

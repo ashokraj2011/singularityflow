@@ -14,7 +14,7 @@
   "count-without-name": 27,
   "draft-for-version": 13,
   "generic-route": 6360,
-  "jargon": 1371,
+  "jargon": 1370,
   "length": 681
  },
  "unroutedCodes": [
@@ -3928,7 +3928,6 @@
    "1713d016353f": "length",
    "96b9d6cc9f73": "jargon:generation",
    "a51a0e379bf0": "jargon:binding jargon:generation",
-   "b6df4d84c297": "jargon:generation",
    "f55206871e44": "jargon:staging length"
   },
   "src/phase-publication-readiness.mjs": {

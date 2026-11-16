@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { invariant, posix, SingularityFlowError } from './util.mjs';
-import { consumedByPublishedVersion, versionNumbers } from './kernel/step-versions.mjs';
+import { versionNumbers } from './kernel/step-versions.mjs';
 import { counters } from './phase-generation-need.mjs';
 
 /** Pure selection, shared with the persistence API without importing that API. */
@@ -15,10 +15,6 @@ export function currentPhase(workflow) {
 export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
   return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
 }
-
-/** A consumed intent that is simply the published version's receipt (a return for rework leaves this): kernel P-10. */
-export const consumedByPublishedGeneration = (phase) => consumedByPublishedVersion(phase ? { published: phase.generation,
-  opening: phase.generationIntent ? { status: phase.generationIntent.status, version: phase.generationIntent.generation } : null } : null);
 
 /** max(generation, high-watermark, used reservation) + 1, validated: the kernel's one version arithmetic (§4.3). */
 export function nextPhaseGeneration(phase) {

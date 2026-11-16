@@ -1,7 +1,8 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { action as narrationAction } from '../../narration/command-result.mjs';
 import { convergencePreparationState } from './convergence-preparation-state.mjs';
-import { generationSkillForPhase, phaseKernelOwned } from '../../code-delivery-policy.mjs';
+import { phaseKernelOwned } from '../../code-delivery-policy.mjs';
+import { actionCommandLine, actionSkill } from '../../action-command-map.mjs';
 import { phasePublicationCommandForProducer, phasePublicationContract } from '../../manual-authorship.mjs';
 
 const ITEMS_NAMED = 8;
@@ -16,9 +17,11 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
   });
   const convergence = convergencePreparationState(prepared.convergence);
   // After preparation: the check, and for a step SFlow builds its publication once ready, by the step's own work command.
+  // The kernel's publish-version, in the action-to-command map's form for who built the draft [OSA:REQ-021].
   const ownedBy = phaseKernelOwned(phase);
-  const check = `singularity-flow phase prepublish ${phase.id}${prepared.publicationProducer !== 'deterministic' ? ''
-    : ownedBy ? ' --for-agent --json --publish-if-ready' : ' --for-agent --json'}`;
+  const check = actionCommandLine('publish-version', prepared.publicationProducer !== 'deterministic' ? 'draft' : ownedBy ? 'prepublish' : 'check',
+    { step: phase.id, workId: workflow.workItem.id });
+  const author = actionSkill('publish-version', { phase, workflow });
   if (!convergence) return [
     narrationAction({
       id: 'prepare.author',
@@ -33,7 +36,7 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
         ? 'Check what SFlow prepared, and publish it once its checks pass'
         : 'Author the prepared draft (preparation is not completed authoring), then check it with prepublish',
       command: check,
-      skill: generationSkillForPhase(phase, workflow)
+      skill: author
     }),
     inputs
   ];
@@ -91,7 +94,7 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
       // build-version then publish-version, one route for the agent and every view [D5, OSA:REQ-020, REQ-026].
       command: prepared.publicationProducer === 'deterministic' && ownedBy ? check
         : phasePublicationCommandForProducer(phase, prepared.publicationProducer ?? phasePublicationContract(phase).producer),
-      skill: generationSkillForPhase(phase, workflow)
+      skill: author
     }),
     inputs
   ];

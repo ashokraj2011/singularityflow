@@ -7,6 +7,7 @@ import { copilotAction } from './copilot-guidance.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { consumedOpeningMismatch, versionNeed, versionNumbers } from './kernel/step-versions.mjs';
 import { versionProposal } from './story-version-proposal.mjs';
+import { ACTION_SKILLS, actionCommandLine } from './action-command-map.mjs';
 
 const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AMENDMENT: 'amendment', AUTHOR_CONFLICT: 'author-conflict' });
 
@@ -29,11 +30,11 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
   const facts = workflow.currentPhase === phase.id && phase.status === 'in_progress' ? versionFactsOf(workflow, phase) : null;
   const numbers = facts ? versionNumbers(facts) : null;
   if (numbers && (!numbers.ok || numbers.opening === 'ahead' || numbers.opening === 'invalid')) return {
-    status: 'attention-required', reason: 'opening-not-applicable', actions: [copilotAction({ command: `singularity-flow phase show ${phase.id} --json`,
+    status: 'attention-required', reason: 'opening-not-applicable', actions: [copilotAction({ command: actionCommandLine('inspect', 'show', { step: phase.id }),
       reason: `Inspect ${phase.id}: its open version's number is past the next one or unreadable, so nothing is written until a person resolves it.` })] };
   if (facts && phaseRequiresCodeDelivery(phase) && consumedOpeningMismatch(facts)) return {
-    status: 'attention-required', reason: 'successor-boundary-damaged', actions: [copilotAction({ skill: '/sf-recover',
-      command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
+    status: 'attention-required', reason: 'successor-boundary-damaged', actions: [copilotAction({ skill: ACTION_SKILLS.recover,
+      command: actionCommandLine('recover-operation', 'recover', { step: phase.id, workId: workflow.workItem.id }),
       reason: 'Keep the published version and the current edits, and let recovery check what went wrong before any code changes.' })] };
   const hold = phaseGovernanceHold(workflow, phase);
   if (hold) return { status: 'attention-required', reason: hold.classification, actions: hold.actions };
@@ -56,7 +57,7 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
     const opened = versionNumbers(versionFactsOf(workflow, phase));
     const legacy = opened.ok && opened.writing > 1 && versionFactsOf(workflow, phase).opening?.record === 'legacy';
     if (opened.ok && (!deterministic || phaseRequiresCodeDelivery(phase)) && (legacy || (opened.writing === null && opened.published >= 1))) {
-      const route = legacy ? copilotAction({ command: `singularity-flow phase rollover ${phase.id} --json` }) : sourceReviewContinuation(workflow, phase).actions[0];
+      const route = legacy ? copilotAction({ command: actionCommandLine('open-version', 'preview', { step: phase.id }) }) : sourceReviewContinuation(workflow, phase).actions[0];
       return successorAsk(workflow, phase, { route, reason: legacy ? 'legacy-promotion' : NEED_REASONS[versionNeed(versionFactsOf(workflow, phase))] ?? 'requested-change' });
     }
     return { status: 'authoring-entry' };
@@ -65,7 +66,7 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
   // A retained review asked a published code step for corrections: its next version is the person's one yes, asked here
   // with the host's question tool, and the same turn goes straight on to the fix (owner, 2026-11-16). Never automatic.
   if (continuation?.classification === 'successor-publication-required' && reviewAsksForCorrection(review)
-      && continuation.nextCommand === `singularity-flow phase rollover ${phase.id} --json`) {
+      && continuation.nextCommand === actionCommandLine('open-version', 'preview', { step: phase.id })) {
     return successorAsk(workflow, phase, { route: continuation.actions[0], reason: 'review-corrections', findings: reviewCorrection(review, phase.generation)?.findings ?? [] });
   }
   if (continuation?.classification === 'successor-publication-required'

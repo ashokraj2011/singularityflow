@@ -1,4 +1,4 @@
-import { submitRoute } from './submit-route.mjs';
+import { submitRoute } from './action-command-map.mjs';
 /** Publication is not submission: a successor must collect its own observed/test evidence. */
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';

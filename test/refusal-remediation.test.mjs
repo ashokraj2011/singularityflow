@@ -237,8 +237,9 @@ test('unavailable-runner refusal names exact risk inspection without accepting o
 
 test('pending risk publication and unsupported adapters preserve exact recovery boundaries', () => {
   const pending = refusalRemediationPlan(Object.assign(new Error('Pending'), { code: 'TRP_PUBLICATION_PENDING' }), ['story', 'test-policy', 'accept-risk']);
-  assert.equal(pending.steps[0].command, 'singularity-flow recover --json');
-  assert.match(pending.steps[0].label, /existing pending/u);
+  // OSA Stage 5: the pending publication is sent as it is by sync, its continuation; it is not damage [D4, OSA:REQ-011].
+  assert.equal(pending.steps[0].command, 'singularity-flow sync');
+  assert.match(pending.steps[0].label, /pending Story publication as it is/u);
   const unsupported = refusalRemediationPlan(Object.assign(new Error('Unsupported'), { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' }), ['phase', 'publish', 'implementation']);
   assert.match(unsupported.steps[0].label, /do not reinterpret a failed test as unavailable/u);
   assert.equal(unsupported.steps[0].command, 'singularity-flow explain test-recovery');
@@ -772,7 +773,8 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
     } }
   ), ['phase', 'publish', 'implementation']);
   assert.equal(malformed.context.strategy, 'pinned-test-policy-prerequisite');
-  assert.equal(malformed.steps[0].command, 'singularity-flow recover --json');
+  // OSA Stage 5: a configuration defect is read from the Story's pinned test policy, never recovery [OSA:REQ-011].
+  assert.equal(malformed.steps[0].command, 'singularity-flow story test-policy show --json');
   assert.equal(malformed.steps[1].command, 'singularity-flow explain test-recovery');
   assert.match(malformed.steps[1].label, /active published phase retains its publication/);
   assert.match(malformed.steps[1].label, /story test-policy amend --reason TEXT/);

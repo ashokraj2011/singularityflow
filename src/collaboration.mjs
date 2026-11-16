@@ -21,7 +21,6 @@ import { setAsideWorktreeAction } from './recovery-set-aside.mjs';
 import { heldForLaterCode, inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { reviewedWorktreeCommitAction, submittedWorktreeCorrectionAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
-import { stepRoute } from './step-decision.mjs';
 import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
 import { inspectDraftEvidenceHold } from './draft-evidence-hold.mjs';
 import { withWorktreeReadScope } from './read-scope.mjs';
@@ -397,7 +396,7 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
   const asideAt = actions.findIndex(entry => entry.id === 'set-aside-worktree');
   if (holdAt >= 0 && asideAt > holdAt) actions.splice(holdAt, 0, ...actions.splice(asideAt, 1));
   // Healthy work: nothing to recover, and the step's real next action [D4; §10 /sf-recover].
-  const next = !actions.length && activePhase ? stepRoute(workflow, activePhase, { exactSubmit: true }) : null;
+  const next = !actions.length && activePhase ? (await import('./step-decision.mjs')).stepRoute(workflow, activePhase, { exactSubmit: true }) : null;
   if (!actions.length) actions.push({
     id: 'none', safe: true, automatic: false, mode: 'informational', confirmation: 'none', command: next?.command ?? null, skill: next?.skill ?? null,
     detail: `Recovery found nothing to repair: publications, branches, sync, documents and versions are in order.${next ? ` Next: ${next.detail}` : ''}`

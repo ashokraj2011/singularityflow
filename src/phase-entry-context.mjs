@@ -69,11 +69,14 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   const opening = phase?.versionOpening ? (await import('./story-version-acceptance.mjs')).observeOpening(root, workflow, phase) : null;
   const sharedAuthority = opening ? await (await import('./story-version-opening.mjs')).sharedAuthorityAt(root, definition, workflow).catch(() => null) : null;
   const sources = sharedAuthority?.status === 'stale' ? { lifecycle: { status: 'stale', diagnostic: sharedAuthority.diagnostic } } : {};
+  // The task stage the edit guard reads, so the entry's permission and the guard's grant stand on one basis [OSA:REQ-010].
+  const task = turnMode === 'authoring' ? (await (await import('./workflow-task-outcome.mjs')).readGuardTaskOutcome(root, workflow, phase)
+    .catch(() => ({ task: null }))).task : null;
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     repositoryChecks: repositoryCheckStatus(root),
     personalization: resolvePersonalization({ root }), ...binding,
     // The same decision and basis the edit guard derives its permission from: one grant and one next [OSA:REQ-010, C7].
-    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence, opening, sources })),
+    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence, opening, sources, task })),
     // Advisory and labelled: what this entry read of the shared Story branch; the guard never reads it per tool call.
     ...(sharedAuthority ? { sharedAuthority: { status: sharedAuthority.status, ...(sharedAuthority.diagnostic ? { diagnostic: sharedAuthority.diagnostic } : {}) } } : {}),
     authoringContract: phaseAuthoringContract(definition, workflow, phase),

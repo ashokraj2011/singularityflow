@@ -397,8 +397,10 @@ export function submissionReadinessSnapshot(workflow, {
   if (convergenceRoute) return result(workflow, phase, {
     ...draft, ...convergenceRoute, nextSkill: directCopilotSkill(convergenceRoute.skill)
   });
-  // Its task stopped at a boundary its author cannot cross alone: that wait is the next step, as every view says [§8].
-  const waiting = writing && taskOutcome ? stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome }) : null;
+  // Its task stopped at a boundary its author cannot cross alone, or its execution still runs after publication (a
+  // submission's tests): that wait is the next step, as every view says [§5 `waiting`, §8, OSA:REQ-051].
+  const waiting = (writing || taskOutcome?.outcome === 'running') && taskOutcome
+    ? stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome }) : null;
   if (waiting?.state === 'waiting') {
     const [route] = decisionRoutes(waiting, workflow, phase);
     return result(workflow, phase, { ...draft, classification: 'task-waiting', lifecycleReady: false, command: route?.command ?? null,

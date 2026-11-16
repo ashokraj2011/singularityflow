@@ -334,6 +334,10 @@ export function stepState(snapshot) {
       reasonCodes: ['VERSION_OPEN', ...(advisory ? ['OPENING_UNOBSERVED'] : [])], then: after(false) }),
     { ...base, edit: editFor(snapshot, 'writing', numbers, target(numbers.writing)), obligations });
   }
+  // A published step with no version open whose execution still runs (a submission's tests under the Story's lease) is
+  // observed, never submitted, reviewed or opened again meanwhile; it writes nothing [§5 `waiting`, §8, OSA:REQ-051].
+  const executing = numbers.published >= 1 && facts.task?.outcome === 'running' ? taskWait(facts.task, target(numbers.published)) : null;
+  if (executing) return decision(snapshot, 'waiting', executing.next, { ...base, edit: NO_EDIT([executing.code]), obligations, task: executing.task });
   if (numbers.published === 0 && needsVersion(facts)) {
     const initial = numbers.proposedNext === 1;
     const consent = initial ? 'not-required' : 'required';

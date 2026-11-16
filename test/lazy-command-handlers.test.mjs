@@ -696,7 +696,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,772,850 (measured 9,772,838 for phase-lifecycle.mjs): OSA v1.1 Stage 4 (+6,124 alone: the action-to-command map in
     // step-decision.mjs, the writing aliases' target rule, review delegation's bound handoff) merged into the 11-17 landing
     // above. Files: submit.mjs 473 of 473. No new eager file.
-    assert.ok(closure.bytes <= 9_772_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,740,950 (measured 9,740,923 for submit.mjs, which is now the largest; was 9,772,838 for phase-lifecycle.mjs): SPEC-OSA
+    // v1.1 Stage 5 lowers it to what it measures. The reducer and its renderer load lazily behind the planners' refusal
+    // and rarely used paths: recovery's kernel route (recovery-plan.mjs, collaboration.mjs), finding resolution
+    // (phase-resolution.mjs), gate recovery's reopen check (state.mjs), and prepublish's retained-publication readiness
+    // (submission-readiness.mjs, source-review-continuation.mjs). phase-lifecycle.mjs falls by 94,745 to 9,678,093 (452
+    // files); submit.mjs rises by 3,685 for the action-to-command map (action-command-map.mjs, which took in
+    // submit-route.mjs, so its files stay 473). The reducer stays eager where a command's own narration names the next
+    // step (start, submit, approve, prepare, review-source, inputs) and through sequence.mjs's synchronous refusal details.
+    assert.ok(closure.bytes <= 9_740_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1089,7 +1097,9 @@ test('the common session projection does not import attach, state stores or publ
   // WORK_COMMANDS, isWorkCommand), the command validator reading them (safe-command-guidance.mjs) and the card's yes
   // narrated (narration/messages.mjs). The map's renderer and the alias adapter stay out of this closure. No new eager file.
   // 4,288,950 (measured 4,288,926): OSA v1.1 Stage 4 (+1,148 alone) merged into the 11-17 landing above. No new eager file.
-  assert.ok(current.bytes <= 4_288_950, `session current loads ${current.bytes} source bytes`);
+  // 4,288,050 (measured 4,288,014, -912): SPEC-OSA v1.1 Stage 5 lowers it to what it measures: the unused predicate
+  // wrappers it deleted (code-delivery-policy.mjs opensCodeVersion, phase-generation.mjs consumedByPublishedGeneration).
+  assert.ok(current.bytes <= 4_288_050, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

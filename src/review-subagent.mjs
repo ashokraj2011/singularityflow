@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { actionCommandLine } from './action-command-map.mjs';
 
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 // Copilot CLI (1.0.109) names a plugin's agents after the plugin: SFlow's reviewer arrives as
@@ -193,12 +194,13 @@ const digestOf = (value) => `sha256:${createHash('sha256').update(JSON.stringify
 export function reviewDelegation({ workId, phase, generation, reviewerAgent, reviewerSha256 = null }) {
   if (!workId || !phase || !NAME.test(String(reviewerAgent ?? '')) || !Number.isSafeInteger(Number(generation)) || Number(generation) < 1) return null;
   const version = Number(generation);
-  const review = (verb, rest = '') => `singularity-flow review-source ${verb} ${phase}${rest}`;
+  // The review's packet and retention, as the action-to-command map names them [OSA:REQ-021].
+  const review = (form) => actionCommandLine('start-review', form, { step: phase, workId });
   const binding = { workId, phase, version, role: 'reviewer', reviewer: { agent: reviewerAgent, sha256: reviewerSha256 ?? null },
-    packet: { command: review('context', ' --for-agent --json'), version,
+    packet: { command: review('context'), version,
       rule: 'the report copies this packet\'s binding; a report for another version or another packet is refused at retention' },
     context: 'fresh: the review prompt alone, never the author\'s conversation', staging: 'the review packet\'s issued staging path only',
-    report: { version, reviewer: reviewerAgent, retainedBy: review('submit') } };
+    report: { version, reviewer: reviewerAgent, retainedBy: review('retain') } };
   return { schema: REVIEW_DELEGATION_SCHEMA, status: 'delegate', binding, digest: digestOf(binding),
     modes: Object.keys(REVIEW_DISPATCH_MODES), parent: { role: 'author', gains: [] },
     fallback: { status: 'fresh-conversation', copilotCommand: `/sf-review-source ${phase}`, prerequisite: 'independent-context',
@@ -258,7 +260,7 @@ export function reviewDelegationAfter(payload, { failure = false } = {}) {
 export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent, reviewerSha256 = null }) {
   if (!workId || !phase || !NAME.test(String(reviewerAgent ?? ''))) return null;
   const prompt = `/sf-review-source ${phase}`;
-  const status = `singularity-flow review-source status ${phase} --work-id ${workId} --for-agent --json`;
+  const status = actionCommandLine('start-review', 'status', { step: phase, workId });
   const delegation = reviewDelegation({ workId, phase, generation, reviewerAgent, reviewerSha256 });
   return {
     agent: reviewerAgent, phase, generation, prompt, reviewStatus: status, ...(delegation ? { delegation } : {}),

@@ -18,6 +18,7 @@ import {
 } from './safe-command-guidance.mjs';
 import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 import { nearestNames, parseArgs } from './util.mjs';
+import { actionCommandLine } from './action-command-map.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -1542,9 +1543,10 @@ const KNOWN = Object.freeze({
   TRP_RISK_REVIEW_STALE: () => [step('refresh-risk-review',
     'Candidate, environment, observation or authority changed. Preview the exact risk again; old confirmation is not consent for the new candidate.',
     'singularity-flow story test-policy risks --json', 'diagnostic')],
+  // A pending publication is sent as it is by sync, its continuation; it is not damage [OSA:REQ-011, REQ-012].
   TRP_PUBLICATION_PENDING: () => [step('resume-exact-risk-publication',
-    'Resume the existing pending Story publication. A local decision that has not reached its required remote cannot authorize advancement.',
-    'singularity-flow recover --json', 'diagnostic', '/sf-recover')],
+    'Send the pending Story publication as it is. A local decision that has not reached its required remote cannot authorize advancement.',
+    actionCommandLine('publish-version', 'pending'), 'remediation')],
   TRP_RISK_ADAPTER_UNAVAILABLE: () => [step('inspect-risk-adapter-limit',
     'This case has no qualified risk adapter. Preserve work and inspect the supported runner-repair or reviewed command-amendment route; do not reinterpret a failed test as unavailable.',
     'singularity-flow explain test-recovery', 'diagnostic')],
@@ -1564,9 +1566,10 @@ const KNOWN = Object.freeze({
   QUALITY_COMMAND_SOURCE_MUTATION: (argv, error) => requiredTestFailureSteps(argv, error),
   CODE_TEST_RESULT_REQUIRED: (argv, error) => error?.details?.configurationDependency !== true
     ? requiredTestFailureSteps(argv, error) : [
+    // A configuration defect, not damage: the Story's pinned test policy is read, never recovery [OSA:REQ-011].
     step('inspect-pinned-test-command',
-      'Inspect the malformed configured test-command contract; do not print argv containing potential secrets.',
-      'singularity-flow recover --json', 'diagnostic', '/sf-recover'),
+      'Inspect the malformed configured test-command contract in the Story\'s pinned test policy; do not print argv containing potential secrets.',
+      'singularity-flow story test-policy show --json', 'diagnostic'),
     step('stop-unchanged-pinned-command',
       'The current Story command is sealed in its accepted policy. An authorized reviewer can preview story test-policy amend --reason TEXT to adopt a corrected structured test command from the original approved configuration authority. An active published phase retains its publication and requires fresh epoch validation and submission. Completed Stories, legacy string runners and unrelated policy changes are not supported. Do not edit the Story pin or retry unchanged policy.',
       'singularity-flow explain test-recovery', 'diagnostic')
@@ -1582,8 +1585,8 @@ const KNOWN = Object.freeze({
   ],
   TCA_PUBLICATION_PENDING: () => [
     step('recover-test-command-publication',
-      'Recover the exact pending Story publication before requesting another amendment. Do not create duplicate review records.',
-      'singularity-flow recover --json', 'diagnostic', '/sf-recover')
+      'Send the pending Story publication as it is before requesting another amendment. Do not create duplicate review records.',
+      actionCommandLine('publish-version', 'pending'), 'remediation')
   ],
   TCA_SOURCE_DRAFT_UNCOMMITTED: () => [
     step('review-source-before-command-amendment',

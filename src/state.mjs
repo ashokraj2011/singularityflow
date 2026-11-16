@@ -148,7 +148,6 @@ import {
   resolveLifecycleCapability
 } from './capability-context.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
-import { verifyGateRecoveryReopenPlan } from './gate-recovery.mjs';
 import {
   clearPendingPublication,
   completePendingStoryBranchPromotion,
@@ -2116,8 +2115,7 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
           evidenceCommit, coverage: owed, ...routes.details,
           repairCommand: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --reason <REASON>`,
           recoveryCommands: await Promise.all(owed.unimplemented.slice(0, 3).map(async (id) => ({ label: 'Or a person who may accept this risk records it, with its category and expiry.',
-            command: `singularity-flow decision risk --obligation ${(await import('./evidence/vocabulary.mjs')).obligationId(workflow.workItem.id, 'implement', id)} --category <category> --expires <YYYY-MM-DD> --reason "<why>"` }))),
-          diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } }
+            command: `singularity-flow decision risk --obligation ${(await import('./evidence/vocabulary.mjs')).obligationId(workflow.workItem.id, 'implement', id)} --category <category> --expires <YYYY-MM-DD> --reason "<why>"` }))) } }
       );
     }
     const advisory = lines.map((line) => `${line}; ${ownerCheck ? `approving ${phase.id} refuses it until it is delivered or its risk is accepted`
@@ -9864,7 +9862,8 @@ export async function reopenWorkflow(root, config, workflow, {
   const targetId = target ?? completionPhase.id;
   const allowed = completionPhase.approvalPolicy.rejectTo ?? [completionPhase.id];
   const gateRecoveryAuthorized = gateRecovery?.targetPhase === targetId
-    && verifyGateRecoveryReopenPlan(root, workflow, gateRecovery);
+    // Gate recovery (and the step routes it names) loads only on this reopen path.
+    && (await import('./gate-recovery.mjs')).verifyGateRecoveryReopenPlan(root, workflow, gateRecovery);
   if (!allowed.includes(targetId) && !gateRecoveryAuthorized) {
     throw new SingularityFlowError(`Closed Story '${workflow.workItem.id}' cannot be reopened to '${targetId}'. Allowed: ${allowed.join(', ')}.`);
   }

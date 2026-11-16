@@ -6,74 +6,37 @@
   "exempt": "src/kernel/ is the decision owner and holds no counted site by design.",
   "exceptions": [
     {
-      "module": "phase-authoring-entry.mjs",
-      "family": "lifecycleCommands",
-      "stage0": 3,
-      "ceiling": 5,
-      "kind": "renderer",
-      "owner": "Stage 3, entry classification (b1)",
-      "deletion": "Stage 3: phaseAuthoringEntry takes the kernel's rendered next",
-      "why": "the recover and phase show commands of those two classifications"
-    },
-    {
-      "module": "phase-prepublish.mjs",
-      "family": "lifecycleCommands",
-      "stage0": 9,
-      "ceiling": 10,
-      "kind": "renderer",
-      "owner": "Stage 3, prepublish's lead action (b39)",
-      "deletion": "Stage 3: prepublish leads with the decision's rendered next",
-      "why": "Stage 0 finding 5: a returned code step opens its next version (begin, or the person's rollover preview) instead of recovery"
-    },
-    {
       "module": "step-decision.mjs",
       "family": "predicateCalls",
       "stage0": 0,
       "ceiling": 1,
       "kind": "normalizer",
-      "owner": "Stage 3, the kernel's record adapter (stepSnapshotOf, OSA:REQ-040)",
-      "deletion": "none while the Story record names its producers: the adapter classifies who builds the step, as the kernel's `kind` fact",
-      "why": "stepSnapshotOf moved here from phase-mutation-contract.mjs so every surface builds the kernel's snapshot the same way; phaseKernelOwned classifies the step's execution owner from its configuration"
+      "final": true,
+      "owner": "final owner set: the kernel's record adapter (stepSnapshotOf, OSA:REQ-040)",
+      "deletion": "none: permanent while the Story record names its producers; the adapter classifies who builds the step, as the kernel's `kind` fact",
+      "why": "phaseKernelOwned classifies the step's execution owner from its configuration, the one place a surface's snapshot is built"
     },
     {
-      "module": "step-decision.mjs",
+      "module": "action-command-map.mjs",
       "family": "skillChooserCalls",
       "stage0": 0,
       "ceiling": 1,
       "kind": "renderer",
-      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
-      "deletion": "Stage 5: kept while step-decision.mjs is the central action-to-command map (Stage 4 put the map beside decisionRoutes, its one renderer); deleted if the map moves out",
-      "why": "decisionRoutes, the one rendering of the kernel's decision every surface shares (moved from phase-mutation-contract.mjs), names the step's work command"
+      "final": true,
+      "owner": "final owner set: the one action-to-command map (OSA:REQ-021, plan section 7 'Mappings')",
+      "deletion": "none: permanent; the map names the step's work command from its configured author, the one chooser call left",
+      "why": "workCommandOf reads the step's configured author (generationSkillForPhase) for every route the map renders"
     },
     {
-      "module": "step-decision.mjs",
-      "family": "lifecycleCommands",
-      "stage0": 0,
-      "ceiling": 2,
-      "kind": "renderer",
-      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
-      "deletion": "Stage 5: kept while step-decision.mjs is the central action-to-command map (Stage 4 put the map beside decisionRoutes, its one renderer); deleted if the map moves out",
-      "why": "decisionRoutes renders the kernel's approve-step as the approve and reject commands (moved from phase-mutation-contract.mjs)"
-    },
-    {
-      "module": "step-decision.mjs",
+      "module": "action-command-map.mjs",
       "family": "skillLiterals",
       "stage0": 0,
       "ceiling": 1,
       "kind": "renderer",
-      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
-      "deletion": "Stage 5: kept while step-decision.mjs is the central action-to-command map (Stage 4 put the map beside decisionRoutes, its one renderer); deleted if the map moves out",
-      "why": "decisionRoutes renders the kernel's recover-operation for positive damage as /sf-recover (moved from phase-mutation-contract.mjs)"
-    },
-    {
-      "module": "commands/shared/prepared-phase-next-actions.mjs",
-      "family": "routeObjects",
-      "stage0": 1,
-      "ceiling": 2,
-      "kind": "renderer",
-      "owner": "Stage 4, the central action-to-command map (b25, OSA:REQ-021, REQ-026)",
-      "deletion": "Stage 4: the post-preparation route is the kernel's build-version then publish-version, rendered by the central map",
-      "why": "after a kernel-built step is prepared, its check-and-publish route names the step's own work command (its chooser) instead of handing the publication to /sf-publish (C9); at Stage 0 the same route hid the chooser in a conditional with the /sf-publish literal, which the scanner did not count"
+      "final": true,
+      "owner": "final owner set: the one action-to-command map (OSA:REQ-021)",
+      "deletion": "none: permanent; /sf-recover is the map's fixed Copilot command for positive damage, written once",
+      "why": "ACTION_SKILLS.recover: the only place the recovery skill is named for a step route"
     },
     {
       "module": "command-skills.mjs",
@@ -81,24 +44,19 @@
       "stage0": 0,
       "ceiling": 2,
       "kind": "renderer",
-      "owner": "Stage 4, D1: the work command's two names (WORK_COMMANDS), the one list the command validator and the central map read",
-      "deletion": "Stage 5: permanent as the one list of the work command's names; a copy of the two names anywhere else is a new competing route",
-      "why": "/sf-code and /sf-phase are one work command (D1, OSA:REQ-024); safe-command-guidance.mjs reads the list instead of adding /sf-code itself (its count fell 3 -> 2), and writingAlias names the work command through it"
-    },
-    {
-      "module": "review-subagent.mjs",
-      "family": "lifecycleCommands",
-      "stage0": 1,
-      "ceiling": 2,
-      "kind": "renderer",
-      "owner": "Stage 4, the qualified review delegation adapter (reviewDelegation, OSA:REQ-052, AC-018)",
-      "deletion": "Stage 5: the delegation's packet and retention commands are rendered by the central map's start-review and review-version entries",
-      "why": "the delegation binds the exact review packet command and the retention command its report identity names; one template renders both"
+      "final": true,
+      "owner": "final owner set: the one list of the work command's names (D1, OSA:REQ-024)",
+      "deletion": "none: permanent as the one list of the work command's names; a copy of the two names anywhere else is a new competing route",
+      "why": "WORK_COMMANDS names /sf-code and /sf-phase once; the validator and the map read it"
     }
   ],
   "ceilings": {
     "acceptance-owner-check.mjs": {
       "lifecycleCommands": 1
+    },
+    "action-command-map.mjs": {
+      "skillChooserCalls": 1,
+      "skillLiterals": 1
     },
     "agent-hooks.mjs": {
       "intentReads": 1,
@@ -198,8 +156,8 @@
       "lifecycleCommands": 8
     },
     "code-delivery-policy.mjs": {
-      "intentReads": 2,
-      "predicateCalls": 7,
+      "intentReads": 1,
+      "predicateCalls": 6,
       "skillChooserCalls": 4,
       "skillLiterals": 7
     },
@@ -283,10 +241,7 @@
       "lifecycleCommands": 1
     },
     "commands/shared/prepared-phase-next-actions.mjs": {
-      "predicateCalls": 1,
-      "skillChooserCalls": 2,
-      "routeObjects": 2,
-      "lifecycleCommands": 1
+      "predicateCalls": 1
     },
     "commands/start.mjs": {
       "skillChooserCalls": 1,
@@ -549,9 +504,8 @@
     },
     "phase-authoring-entry.mjs": {
       "predicateCalls": 2,
-      "routeObjects": 2,
-      "lifecycleCommands": 5,
-      "skillLiterals": 1
+      "routeObjects": 1,
+      "lifecycleCommands": 1
     },
     "phase-authoring-progress.mjs": {
       "predicateCalls": 3,
@@ -611,7 +565,6 @@
       "predicateCalls": 1
     },
     "phase-generation.mjs": {
-      "intentReads": 1,
       "predicateCalls": 1
     },
     "phase-governance-routing.mjs": {
@@ -639,12 +592,12 @@
       "lifecycleCommands": 1
     },
     "phase-prepublish.mjs": {
-      "intentReads": 2,
+      "intentReads": 1,
       "predicateCalls": 2,
       "skillChooserCalls": 4,
-      "routeObjects": 8,
-      "lifecycleCommands": 10,
-      "skillLiterals": 9
+      "routeObjects": 6,
+      "lifecycleCommands": 7,
+      "skillLiterals": 5
     },
     "phase-prompt-composer.mjs": {
       "predicateCalls": 8
@@ -720,8 +673,8 @@
     },
     "refusal-remediation.mjs": {
       "routeObjects": 1,
-      "lifecycleCommands": 28,
-      "skillLiterals": 21
+      "lifecycleCommands": 25,
+      "skillLiterals": 18
     },
     "reinstall.mjs": {
       "skillChooserCalls": 1
@@ -747,8 +700,7 @@
     },
     "review-subagent.mjs": {
       "predicateCalls": 1,
-      "versionArithmetic": 1,
-      "lifecycleCommands": 2
+      "versionArithmetic": 1
     },
     "revision/interactive-service.mjs": {
       "skillChooserCalls": 1,
@@ -802,22 +754,16 @@
     "source-review-staging.mjs": {
       "lifecycleCommands": 1
     },
-    "spec-coverage-preview.mjs": {
-      "lifecycleCommands": 1
-    },
     "state.mjs": {
       "intentReads": 3,
       "predicateCalls": 27,
       "skillChooserCalls": 5,
       "versionArithmetic": 4,
       "routeObjects": 6,
-      "lifecycleCommands": 22
+      "lifecycleCommands": 21
     },
     "step-decision.mjs": {
-      "predicateCalls": 1,
-      "skillChooserCalls": 1,
-      "lifecycleCommands": 2,
-      "skillLiterals": 1
+      "predicateCalls": 1
     },
     "story-paths.mjs": {
       "predicateCalls": 1
@@ -834,10 +780,6 @@
       "routeObjects": 8,
       "lifecycleCommands": 3,
       "skillLiterals": 1
-    },
-    "submit-route.mjs": {
-      "routeObjects": 2,
-      "lifecycleCommands": 1
     },
     "summary-step-changes.mjs": {
       "intentReads": 2
@@ -922,6 +864,405 @@
       "predicateCalls": 1,
       "skillChooserCalls": 1,
       "skillLiterals": 1
+    }
+  },
+  "stage5": {
+    "description": "Stage 5 families (scripts/osa-inventory.mjs STAGE5_FAMILIES): the spellings the Stage 0 families could not see. Baseline: their count at Stage 5 (osa-v11-s5); like every family, a module's count may only fall.",
+    "families": [
+      "kernelImports",
+      "kernelPredicateCalls",
+      "mapRoutes",
+      "argvRoutes",
+      "computedCommands",
+      "altSkillLiterals",
+      "routeFields"
+    ],
+    "ceilings": {
+      "action-command-map.mjs": {
+        "computedCommands": 1
+      },
+      "action-plans.mjs": {
+        "argvRoutes": 1
+      },
+      "agent-output.mjs": {
+        "argvRoutes": 2
+      },
+      "agent-result-keeper.mjs": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/actions.ts": {
+        "argvRoutes": 2,
+        "computedCommands": 3
+      },
+      "apps/vscode/src/cli/client.ts": {
+        "argvRoutes": 1
+      },
+      "apps/vscode/src/decisions.ts": {
+        "argvRoutes": 1
+      },
+      "apps/vscode/src/extension.ts": {
+        "argvRoutes": 3,
+        "computedCommands": 24
+      },
+      "apps/vscode/src/lifecycle-chat.ts": {
+        "argvRoutes": 2
+      },
+      "apps/vscode/src/sflow-chat.ts": {
+        "argvRoutes": 2,
+        "computedCommands": 3
+      },
+      "apps/vscode/src/views/approval-review.ts": {
+        "argvRoutes": 1
+      },
+      "apps/vscode/src/views/bootstrap-panel.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/decision-list.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/environment-files.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/intake-panel.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/run-and-test.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/sf-guard-model.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/spec-studio-model.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/spec-studio-split.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/spec-studio.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/story-test-recovery.ts": {
+        "argvRoutes": 2
+      },
+      "apps/vscode/src/views/workflow-delete-panel.ts": {
+        "computedCommands": 1
+      },
+      "apps/vscode/src/views/workflow-studio.ts": {
+        "computedCommands": 4
+      },
+      "apps/vscode/src/views/workspace-panel.ts": {
+        "computedCommands": 2
+      },
+      "apps/vscode/src/views/workspace-runtime.ts": {
+        "argvRoutes": 1
+      },
+      "asked-for.mjs": {
+        "altSkillLiterals": 4
+      },
+      "authoring-skills.mjs": {
+        "altSkillLiterals": 2
+      },
+      "auto/auto-executor.mjs": {
+        "argvRoutes": 10
+      },
+      "cli-entry.mjs": {
+        "argvRoutes": 4,
+        "computedCommands": 1
+      },
+      "cli.mjs": {
+        "argvRoutes": 9
+      },
+      "code-delivery-policy.mjs": {
+        "argvRoutes": 2
+      },
+      "code-submission-evidence.mjs": {
+        "routeFields": 1
+      },
+      "command-registry.mjs": {
+        "argvRoutes": 10
+      },
+      "command-skills.mjs": {
+        "altSkillLiterals": 17
+      },
+      "commands/appeal.mjs": {
+        "argvRoutes": 3
+      },
+      "commands/approval-packet.mjs": {
+        "argvRoutes": 1
+      },
+      "commands/capability-projects.mjs": {
+        "computedCommands": 1
+      },
+      "commands/check.mjs": {
+        "argvRoutes": 1
+      },
+      "commands/environment-files.mjs": {
+        "computedCommands": 5
+      },
+      "commands/phase-lifecycle.mjs": {
+        "argvRoutes": 3
+      },
+      "commands/phase-opening.mjs": {
+        "kernelImports": 2,
+        "kernelPredicateCalls": 4,
+        "argvRoutes": 3
+      },
+      "commands/phase-publish-if-ready.mjs": {
+        "argvRoutes": 2
+      },
+      "commands/review-source.mjs": {
+        "argvRoutes": 1
+      },
+      "commands/shared/prepared-phase-next-actions.mjs": {
+        "mapRoutes": 2
+      },
+      "commands/shared/session-storage-refusal.mjs": {
+        "computedCommands": 1
+      },
+      "commands/story.mjs": {
+        "argvRoutes": 4,
+        "routeFields": 1
+      },
+      "commands/submit-if-ready.mjs": {
+        "argvRoutes": 2
+      },
+      "commands/submit.mjs": {
+        "argvRoutes": 1
+      },
+      "convergence-context.mjs": {
+        "argvRoutes": 1
+      },
+      "copilot-answer-binding.mjs": {
+        "argvRoutes": 2
+      },
+      "copilot-missing-program.mjs": {
+        "computedCommands": 2
+      },
+      "copilot-mutation-guard.mjs": {
+        "kernelPredicateCalls": 2,
+        "argvRoutes": 12,
+        "computedCommands": 2
+      },
+      "copilot-repository-boundary.mjs": {
+        "altSkillLiterals": 6
+      },
+      "copilot-review-completion.mjs": {
+        "argvRoutes": 2
+      },
+      "copilot-story-follow.mjs": {
+        "altSkillLiterals": 3
+      },
+      "delivery-evidence.mjs": {
+        "routeFields": 1
+      },
+      "epic-review.mjs": {
+        "argvRoutes": 2
+      },
+      "epic-subject.mjs": {
+        "argvRoutes": 1
+      },
+      "first-run-guide.mjs": {
+        "argvRoutes": 10,
+        "computedCommands": 2
+      },
+      "gateway/planners/developer-next.mjs": {
+        "argvRoutes": 2
+      },
+      "git.mjs": {
+        "routeFields": 2
+      },
+      "help-intents.mjs": {
+        "argvRoutes": 1
+      },
+      "help-pages.mjs": {
+        "argvRoutes": 13,
+        "computedCommands": 7
+      },
+      "help-service.mjs": {
+        "computedCommands": 1
+      },
+      "local-work-journal.mjs": {
+        "argvRoutes": 1
+      },
+      "model-free-commands.mjs": {
+        "argvRoutes": 1
+      },
+      "native-copilot-sessions.mjs": {
+        "altSkillLiterals": 2
+      },
+      "outcome-review.mjs": {
+        "argvRoutes": 3
+      },
+      "owner-step-evidence.mjs": {
+        "routeFields": 1
+      },
+      "person-step-catalog.mjs": {
+        "argvRoutes": 3
+      },
+      "phase-appeals.mjs": {
+        "routeFields": 1
+      },
+      "phase-authoring-entry.mjs": {
+        "kernelPredicateCalls": 4,
+        "mapRoutes": 5
+      },
+      "phase-authoring-progress.mjs": {
+        "kernelPredicateCalls": 2,
+        "argvRoutes": 8
+      },
+      "phase-continuation-runtime.mjs": {
+        "argvRoutes": 3
+      },
+      "phase-evidence-amendment.mjs": {
+        "argvRoutes": 1
+      },
+      "phase-execution-evidence.mjs": {
+        "argvRoutes": 2
+      },
+      "phase-generation-need.mjs": {
+        "kernelPredicateCalls": 5
+      },
+      "phase-generation.mjs": {
+        "kernelPredicateCalls": 1
+      },
+      "phase-governance-routing.mjs": {
+        "kernelPredicateCalls": 1
+      },
+      "phase-journey.mjs": {
+        "argvRoutes": 1
+      },
+      "phase-mutation-contract.mjs": {
+        "kernelImports": 2,
+        "argvRoutes": 6
+      },
+      "phase-prepublish.mjs": {
+        "kernelPredicateCalls": 1,
+        "mapRoutes": 4,
+        "routeFields": 1
+      },
+      "phase-quality-risk.mjs": {
+        "argvRoutes": 1
+      },
+      "phase-resolution.mjs": {
+        "kernelPredicateCalls": 1,
+        "argvRoutes": 16
+      },
+      "presence/repository-step-routes.mjs": {
+        "argvRoutes": 1
+      },
+      "presence/repository-steps.mjs": {
+        "computedCommands": 1
+      },
+      "recovery-plan.mjs": {
+        "kernelPredicateCalls": 5
+      },
+      "recovery-set-aside.mjs": {
+        "routeFields": 3
+      },
+      "recovery-worktree-commit.mjs": {
+        "routeFields": 3
+      },
+      "refusal-remediation.mjs": {
+        "mapRoutes": 2,
+        "argvRoutes": 4,
+        "computedCommands": 2
+      },
+      "requested-successor.mjs": {
+        "kernelPredicateCalls": 1,
+        "argvRoutes": 1
+      },
+      "retained-skill-instructions.mjs": {
+        "computedCommands": 1
+      },
+      "review-subagent.mjs": {
+        "mapRoutes": 2
+      },
+      "safe-command-guidance.mjs": {
+        "argvRoutes": 1
+      },
+      "sequence.mjs": {
+        "kernelPredicateCalls": 1
+      },
+      "session-opening.mjs": {
+        "argvRoutes": 1
+      },
+      "session-read-service.mjs": {
+        "argvRoutes": 1
+      },
+      "source-review-decision.mjs": {
+        "argvRoutes": 1,
+        "routeFields": 1
+      },
+      "source-review-progress.mjs": {
+        "argvRoutes": 1
+      },
+      "source-review-staging.mjs": {
+        "argvRoutes": 2
+      },
+      "state.mjs": {
+        "kernelPredicateCalls": 1,
+        "argvRoutes": 4,
+        "routeFields": 4
+      },
+      "step-decision.mjs": {
+        "kernelImports": 2,
+        "mapRoutes": 10,
+        "computedCommands": 1
+      },
+      "story-test-risk.mjs": {
+        "argvRoutes": 1
+      },
+      "story-version-opening.mjs": {
+        "kernelPredicateCalls": 2
+      },
+      "story-version-proposal.mjs": {
+        "kernelPredicateCalls": 1
+      },
+      "upstream-routes.mjs": {
+        "argvRoutes": 1
+      },
+      "util.mjs": {
+        "computedCommands": 1
+      },
+      "verification/witness-records.mjs": {
+        "argvRoutes": 2
+      },
+      "workflow-step-people.mjs": {
+        "argvRoutes": 1
+      },
+      "workflow-task-store.mjs": {
+        "argvRoutes": 3
+      },
+      "workflow-task.mjs": {
+        "argvRoutes": 3
+      },
+      "workflow-walk/walk.mjs": {
+        "argvRoutes": 15,
+        "computedCommands": 1
+      }
+    }
+  },
+  "owners": {
+    "description": "SPEC-OSA v1.1 plan section 7: the final owner set. Only these modules decide or render a step's state, permission and next action; every other module reads the decision through step-decision.mjs (stepDecisionOf, decisionRoutes, stepRoute). test/osa-ratchet.test.mjs holds the reducer's imports to them.",
+    "decision": [
+      "kernel/step-state.mjs",
+      "kernel/step-versions.mjs"
+    ],
+    "adapter": [
+      "step-decision.mjs",
+      "phase-generation-need.mjs"
+    ],
+    "map": [
+      "action-command-map.mjs",
+      "command-skills.mjs"
+    ],
+    "validator": [
+      "safe-command-guidance.mjs"
+    ],
+    "reducerReaders": {
+      "step-decision.mjs": "the one surface adapter and renderer",
+      "phase-mutation-contract.mjs": "the edit guard's and the entry's permission (one basis, OSA:REQ-010)",
+      "commands/phase-opening.mjs": "the opening operation's coordinator (OSA:REQ-031)"
     }
   }
 }

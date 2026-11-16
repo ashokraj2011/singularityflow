@@ -255,6 +255,11 @@ export async function attachWorkflowTaskProgress(root, workflow, phase) {
   }
 }
 
+/** The local record file of a step's author task, which the edit guard stamps so its turn is derived again when it changes. */
+export function workflowTaskRecordFile(root, workflow, phase) {
+  return fileFor(root, workflowTaskIdentity(workflow, phase, 'author').id);
+}
+
 export async function readWorkflowTask(root, workflow, phase, { role = 'author', generation = null } = {}) {
   const identity = workflowTaskIdentity(workflow, phase, role, generation);
   const local = await localRecord(root, identity);

@@ -125,7 +125,7 @@ function caseInsensitiveCheckout(root) {
 }
 
 export function deriveMutationContract({ root = null, definition, workflow, phase = workflow?.phases?.[workflow.currentPhase],
-  turnMode = 'authoring', staging = [], evidence = [], opening = null, sources = {} }) {
+  turnMode = 'authoring', staging = [], evidence = [], opening = null, sources = {}, task = null }) {
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
@@ -136,7 +136,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   // [OSA:REQ-001, REQ-010]; this module renders it and keeps the path checks.
   // `opening`: the open version's acceptance and writer as the caller observed them on this checkout (a few file reads,
   // never Git: story-version-acceptance.mjs) [OSA:REQ-041]; without it an operation's opening grants nothing.
-  const decision = phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode, opening, sources })) : null;
+  // `task`: the step's durable task stage as the caller read it (workflow-task-outcome.mjs readGuardTaskOutcome): a spent
+  // repair budget, or a wait for a person, input or environment, grants this turn nothing, as every view says [§8, OSA:REQ-010].
+  const decision = phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode, opening, sources, task })) : null;
   const openGeneration = code && decision?.publication.hasOpenVersion === true;
   const editable = decision?.edit.authoring === true;
   const deterministic = onlyDeterministic(phase);

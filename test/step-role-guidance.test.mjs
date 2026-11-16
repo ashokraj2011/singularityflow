@@ -5,7 +5,7 @@ import { fastPathProfile, milestoneReached } from '../src/fast-path.mjs';
 import { milestonePhases, requiredInitiativeMilestone } from '../src/initiative-milestones.mjs';
 import { readSourceReviewStatus } from '../src/source-review-lifecycle.mjs';
 import { sourceReviewRequired } from '../src/source-review-policy.mjs';
-import { submitRoute } from '../src/submit-route.mjs';
+import { submitRoute } from '../src/action-command-map.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 
 /**

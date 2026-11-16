@@ -163,7 +163,8 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
     `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}.${waiting.text} `
     + `Inspect these exact source/test obligations while this generation is editable. Add a binding only where the approved behavior is actually implemented; an incorrect location needs a reviewed plan correction.${corrections.text} Preserve application code and approved maps. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.`,
     { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id,
-      coverage, claimGaps, planningOwner: owner, diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
+      // The author's own recheck lists every obligation still open; no recovery read of healthy work [D4, OSA:REQ-011].
+      coverage, claimGaps, planningOwner: owner,
       ...waiting.details, ...(corrections.routes.length ? { planCorrections: corrections.routes } : {}) } });
   return coverage;
 }

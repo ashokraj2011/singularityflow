@@ -1,7 +1,7 @@
 /** Shared, read-only recovery choices. A route is not authority or a successful check. */
 import { createHash } from 'node:crypto';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { submitRoute } from './submit-route.mjs';
+import { submitRoute } from './action-command-map.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { planCorrectsFirst, coverageScopeReviewPaths, repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';

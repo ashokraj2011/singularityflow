@@ -44,7 +44,6 @@ import { currentPhase } from './phase-generation.mjs';
 import { workflowBranchAllowed, workDir } from './story-paths.mjs';
 import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
-import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicationPathContext } from './work-intervals.mjs';
@@ -91,7 +90,7 @@ import { openUpstreamIssues } from './upstream-issues.mjs';
 export { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
-import { submitRoute } from './submit-route.mjs';
+import { submitRoute } from './action-command-map.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
@@ -1480,10 +1479,10 @@ async function returnCommand(positionals, options) {
     console.log(`Returned from ${plan.freshness} evidence.`);
     console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
+  // The step's own next action as the kernel names it on every surface, not a fixed `prepare` [OSA:REQ-020, REQ-011].
   const active = currentPhase(workflow);
-  if (active && !json) {
-    console.log(phasePreparationCommandLines(active, 'Next', workflow).join('\n'));
-  }
+  const next = active && !json ? (await import('./step-decision.mjs')).stepRoute(workflow, active, { exactSubmit: true }) : null;
+  if (next) printCommandRoutes(next.command, { skill: next.skill, label: 'Next' });
   emitCommandResult(commandResult({
     operation: { id: 'return', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },

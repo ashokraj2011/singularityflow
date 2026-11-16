@@ -229,12 +229,13 @@ test('a missing local attachment waits for the person; a missing file and a perm
   assert.deepEqual(notFound.steps.map((entry) => entry.command), ['singularity-flow prepare implement', `singularity-flow nextsteps ${W} --json`]);
 
   // A write the turn may not make (another step's artifact) is refused by the real guard with its code, before any byte
-  // changes, and leads with the step's own next action [OSA:REQ-010, AC-010].
+  // changes, and leads with the step's own next action [OSA:REQ-010, AC-010]. Since Stage 5 the guard reads the task stage
+  // too, so while the task waits for the input that next action is the wait's, as on every view above.
   const turn = await f.enter('/sf-code');
   const denied = await f.write(turn, `singularity/work-items/${W}/artifacts/verify/report.md`);
   assert.equal(denied.permissionDecision, 'deny');
   assert.match(denied.permissionDecisionReason, /^PHASE_MUTATION_PATH_DENIED/u);
-  assert.equal(denied.next[0].command, 'singularity-flow prepare implement');
+  assert.equal(denied.next[0].command, `singularity-flow documents readiness --phase implement --work-id ${W} --json`);
   assert.equal(existsSync(path.join(f.root, `singularity/work-items/${W}/artifacts/verify/report.md`)), false);
 });
 

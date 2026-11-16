@@ -308,7 +308,8 @@ test('prepublish refuses a code phase before its governed generation begins', as
   assert.equal(result.status, 'correction-required');
   assert.equal(result.readiness.knownRecoveryBlockers, false);
   assert.equal(result.commands.publish, null);
-  assert.equal(result.commands.next, 'singularity-flow phase begin implementation');
+  // OSA Stage 5: the kernel's route for the step, as every other surface names it (it used to be chosen here, without --json).
+  assert.equal(result.commands.next, 'singularity-flow phase begin implementation --json');
   assert.ok(result.findings.some((finding) => finding.code === 'phase.generation-intent.required'));
 });
 

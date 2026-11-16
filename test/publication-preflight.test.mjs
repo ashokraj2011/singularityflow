@@ -3479,9 +3479,10 @@ test('an in-scope README edit after code publication routes through recovery, th
     context.phase, { session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' } });
   assert.equal(prepublish.testExecution.status, 'not-run');
   assert.deepEqual(prepublish.testExecution.commands, recovery.testExecution.commands);
-  assert.equal(prepublish.commands.next,
-    'singularity-flow recover DELIVERY-1 --phase implementation --json');
-  assert.equal(prepublish.correction.skill, '/sf-recover');
+  // OSA Stage 5 (b39): prepublish leads with the recovery plan's own route, the step's work command, which previews the
+  // next version with the changed files and asks the person; it named a recovery read before that plan.
+  assert.equal(prepublish.commands.next, rollover.command);
+  assert.equal(prepublish.correction.skill, '/sf-code');
 
   await sharedOrigin(context.root);
   const preview = JSON.parse(flow(context.root, ['phase', 'rollover', 'implementation', '--json']).stdout);

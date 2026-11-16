@@ -360,7 +360,7 @@ whether a check applied, and read-only questions refused on steps they did not c
   - `stack status`, `receipt show`, `adhoc status`, `browser plan|status`, `wm show-prompt`;
   - the source-review agent context and visual coverage.
 - **Routes follow roles.**
-  - One submit route (`src/submit-route.mjs`) serves `next`, `run`, recovery plans, `doctor` and
+  - One submit route (`src/action-command-map.mjs` `submitRoute`) serves `next`, `run`, recovery plans, `doctor` and
     phase resolution. A step that owes a source review goes through submission readiness, which
     reports the review and its exact route.
   - The pinned source-review list counts only for a step that defines the scope or plans the

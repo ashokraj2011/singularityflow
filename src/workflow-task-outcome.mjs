@@ -122,3 +122,27 @@ export async function readTaskOutcome(root, workflow, phase, { pending } = {}) {
     return taskOutcomeOf(await readWorkflowTask(root, workflow, phase), workflow);
   } catch { return null; }
 }
+
+/**
+ * The same task fact for the edit guard and the phase entry [OSA:REQ-010]: one basis with every view, read from private
+ * files only, never Git or history [OSA:REQ-041]. `files`: the task record file it stands on, which the guard stamps, so a
+ * spent repair budget recorded later derives the turn again and stops its writes through the kernel. A publication left
+ * pending is not read here: the views name `sync`, and the CLI's publication gate refuses the next lifecycle mutation.
+ */
+export async function readGuardTaskOutcome(root, workflow, phase) {
+  if (!phase || phase.id !== workflow?.currentPhase || phase.status !== 'in_progress') return { task: null, files: [] };
+  let task = null, files = [];
+  try {
+    const [store, { workflowTaskApplies, workflowTaskHasGeneration }] = await Promise.all([import('./workflow-task-store.mjs'), import('./workflow-task.mjs')]);
+    if (workflowTaskApplies(phase) && workflowTaskHasGeneration(workflow, phase)) {
+      files = [store.workflowTaskRecordFile(root, workflow, phase)];
+      task = taskOutcomeOf(await store.readWorkflowTask(root, workflow, phase), workflow);
+    }
+  } catch { task = null; }
+  if (task) return { task, files };
+  try {
+    const running = runningExecutionFact(await (await import('./subject-lock.mjs')).inspectSubjectLease(root, { kind: 'story', id: workflow.workItem.id }));
+    if (running) return { task: running, files };
+  } catch { /* no execution observed */ }
+  return { task: null, files };
+}

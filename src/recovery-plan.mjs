@@ -1,7 +1,6 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { beingWritten, consumedByPublishedVersion, needsVersion, publishedVersionRecorded, versionNumbers } from './kernel/step-versions.mjs';
-import { stepRoute } from './step-decision.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -30,7 +29,6 @@ import { directCopilotSkill } from './copilot-guidance.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
-import { phaseResolutionChoices } from './phase-resolution.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
 
 // Runner findings only an approved test command resolves: no supported runner, two build systems,
@@ -51,9 +49,12 @@ function versionOf(workflow, phase) {
     next: () => { if (!numbers.ok) throw new SingularityFlowError(`${phase.id}'s version counters cannot be read.`, { code: numbers.code }); return numbers.next; } };
 }
 
-/** The step's own next action as every view names it: recovery only for real damage [D4, OSA:REQ-011]. */
-function kernelAction(workflow, phase, id, detail, mode = 'guided') {
-  const route = phase && stepRoute(workflow, phase, { exactSubmit: true });
+/**
+ * The step's own next action as every view names it: recovery only for real damage [D4, OSA:REQ-011]. The kernel and its
+ * renderer load here, on the planner's own path, not with every command that imports the planner.
+ */
+async function kernelAction(workflow, phase, id, detail, mode = 'guided') {
+  const route = phase && (await import('./step-decision.mjs')).stepRoute(workflow, phase, { exactSubmit: true });
   return route ? action({ id, mode, detail: detail ?? route.detail, command: route.command, skill: route.skill ?? null }) : null;
 }
 
@@ -268,7 +269,7 @@ export async function generationRecovery(root, workflow, phase, generationDigest
  * work to it, or through a reviewed intent amendment of the scope step. Say so, and list exactly
  * the routes the CLI accepts from where the Story stands, instead of "nothing was found".
  */
-function approvedPhaseActions(workflow, phase) {
+async function approvedPhaseActions(workflow, phase) {
   const change = upstreamChangeRoutes(workflow, phase.id);
   const current = workflow.currentPhase;
   const explanation = [
@@ -279,7 +280,7 @@ function approvedPhaseActions(workflow, phase) {
       : null
   ].filter(Boolean).join(' ');
   return [
-    kernelAction(workflow, workflow.phases?.[current], `approved-phase:${phase.id}`, explanation, 'informational')
+    await kernelAction(workflow, workflow.phases?.[current], `approved-phase:${phase.id}`, explanation, 'informational')
       ?? action({ id: `approved-phase:${phase.id}`, mode: 'informational', detail: explanation }),
     ...change.routes.map((route) => action({ id: `${route.kind}:${phase.id}`, mode: 'guided',
       command: route.command, skill: route.skill, detail: route.label }))
@@ -309,7 +310,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
 } = {}) {
   if (!phase || !['in_progress', 'awaiting_approval'].includes(phase.status)) {
     return { phaseId: phase?.id ?? null, blockers: [],
-      actions: phase?.status === 'approved' ? approvedPhaseActions(workflow, phase) : [],
+      actions: phase?.status === 'approved' ? await approvedPhaseActions(workflow, phase) : [],
       requiresLifecycleRecovery: false,
       testExecution: { status: phase && phaseRequiresCodeDelivery(phase) ? 'unavailable' : 'not-required', commands: [] } };
   }
@@ -695,7 +696,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
     const quality = await inspectPhaseQualityGate(root, config, workflow, phase);
     for (const finding of quality.findings) {
       blockers.push({ ...finding, blocking: true, phase: phase.id, generation: phase.generation });
-      const route = phaseResolutionChoices(workflow, phase, finding).choices[0];
+      const route = (await import('./phase-resolution.mjs')).phaseResolutionChoices(workflow, phase, finding).choices[0];
       actions.push(action({ id: `submission-evidence:${phase.id}:${finding.code}`, mode: 'guided',
         command: route.command, skill: route.skill, detail: route.detail }));
     }
@@ -705,7 +706,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       && phase.status === 'in_progress' && blockers.length === 0
       && testExecution.status === 'not-run' && !version.needs) {
     // Its review when one is owed, else its submission, as every view names it.
-    const next = kernelAction(workflow, phase, `submit-published-generation:${phase.id}`,
+    const next = await kernelAction(workflow, phase, `submit-published-generation:${phase.id}`,
       'This published generation still matches its retained bytes. Submit it after resolving any reported test environment or runtime failure; submission re-executes required checks. Do not republish unchanged code or retry an unchanged failing test.');
     if (next) actions.push(next);
   }

@@ -61,6 +61,30 @@ export const LIFECYCLE_SKILLS = Object.freeze(['/sf-code', '/sf-phase', '/sf-rec
 
 export const ROUTE_SKILLS = Object.freeze(['/sf-recover', '/sf-code', '/sf-phase', '/sflow-recover', '/sflow-code', '/sflow-phase']);
 
+/*
+ * Stage 5 (plan section 7, "Ratchet"): the families that close the spellings the Stage 0 families could not see. Their
+ * baseline is their Stage 5 count (benchmarks/osa/ratchet.json `stage5`), and like the others they may only fall.
+ *   - kernelImports: an import of the reducer (kernel/step-state.mjs, static or dynamic) or a call of `stepState`: a module
+ *     that decides from the kernel itself instead of reading the decision through step-decision.mjs;
+ *   - kernelPredicateCalls: a call of one of the kernel's version predicates (KERNEL_PREDICATES), by any import path;
+ *   - mapRoutes: a call of the action-to-command map's renderers (MAP_RENDERERS) or a read of its tables outside the map and
+ *     its renderer: a module choosing a route's form itself;
+ *   - argvRoutes: an array literal that starts a lifecycle command as argv (`['recover', id, …]`, `['phase', 'begin', …]`);
+ *   - computedCommands: a command line whose verb is computed (`` `singularity-flow ${verb} …` ``, `'singularity-flow ' + verb`);
+ *   - altSkillLiterals: a route skill in its other spellings: its bare id (`sf-recover`, `sflow-code`), any case;
+ *   - routeFields: a renamed route field (ROUTE_FIELDS) holding a lifecycle command or a step skill.
+ */
+export const KERNEL_PREDICATES = Object.freeze(['versionNumbers', 'hasPublishedVersion', 'hasOpenVersion', 'currentVersionPublished',
+  'needsVersion', 'versionNeed', 'beingWritten', 'consumedByPublishedVersion', 'consumedOpeningMismatch', 'publishedVersionRecorded',
+  'explicitlyReopened', 'reopenedByReturn', 'noProgress']);
+export const MAP_RENDERERS = Object.freeze(['actionCommand', 'actionCommandLine', 'actionRoute', 'actionSkill', 'workCommandOf']);
+const MAP_TABLES = new Set(['ACTION_COMMANDS', 'ACTION_SKILLS']);
+export const ROUTE_FIELDS = Object.freeze(['commandLine', 'recoveryCommand', 'repairCommand', 'diagnosticCommand', 'nextCommandLine',
+  'authoringSkill', 'successorSkill', 'recoverySkill', 'routeCommand', 'routeSkill', 'fallbackCommand', 'fallbackSkill']);
+const ALT_SKILLS = ROUTE_SKILLS.map((skill) => skill.slice(1));
+const ARGV_VERBS = [['prepare'], ['phase', 'begin'], ['phase', 'rollover'], ['phase', 'enter'], ['phase', 'publish'], ['phase', 'prepublish'],
+  ['phase', 'show'], ['phase', 'opening'], ['recover'], ['submit'], ['approve'], ['reject'], ['review-source'], ['nextsteps']];
+
 const LIFECYCLE_VERBS = [
   ['prepare', /^singularity-flow prepare\b/u],
   ['phase begin', /^singularity-flow phase begin\b/u],
@@ -199,6 +223,17 @@ export function scanModule(relative, text, kind) {
   const sites = [];
   const line = (node) => file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
   const add = (node, metric, detail = null) => sites.push({ line: line(node), metric, ...(detail ? { detail } : {}) });
+  // The map's renderers and tables as this module imported them (from the map, or from step-decision.mjs, which re-exports it).
+  const mapNames = new Set();
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)
+        || !/(?:^|\/)(?:action-command-map|step-decision)\.mjs$/u.test(statement.moduleSpecifier.text)) continue;
+    for (const element of statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings)
+      ? statement.importClause.namedBindings.elements : []) {
+      const imported = (element.propertyName ?? element.name).text;
+      if (MAP_RENDERERS.includes(imported) || MAP_TABLES.has(imported)) mapNames.add(element.name.text);
+    }
+  }
   const scopes = [new Map()];
   const declare = (name, intent) => { scopes.at(-1).set(name, intent); };
   const bound = (name) => {
@@ -284,6 +319,43 @@ export function scanModule(relative, text, kind) {
       });
       if (commands.length && skills.length && (lifecycleCommand || stepSkill)) add(node, 'routeObjects');
     }
+    // Stage 5 families.
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)
+        && /(?:^|\/)kernel\/step-state\.mjs$/u.test(node.moduleSpecifier.text)) add(node, 'kernelImports', 'static');
+    if (ts.isCallExpression(node)) {
+      const callee = unwrap(node.expression);
+      const name = callee && ts.isIdentifier(callee) ? callee.text : callee && ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
+      if (callee?.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])
+          && /(?:^|\/)kernel\/step-state\.mjs$/u.test(node.arguments[0].text)) add(node, 'kernelImports', 'dynamic');
+      if (name === 'stepState') add(node, 'kernelImports', 'call');
+      if (name && KERNEL_PREDICATES.includes(name)) add(node, 'kernelPredicateCalls', name);
+      // A renderer called through its import, or through a dynamic import of the map's module.
+      const dynamicMap = callee && ts.isPropertyAccessExpression(callee) && /import\(['"][^'"]*(?:action-command-map|step-decision)\.mjs['"]\)/u.test(callee.expression.getText(file));
+      if (name && MAP_RENDERERS.includes(name) && ((ts.isIdentifier(callee) && mapNames.has(name)) || dynamicMap)) add(node, 'mapRoutes', name);
+    }
+    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && ts.isIdentifier(node.expression)
+        && mapNames.has(node.expression.text)) add(node, 'mapRoutes', node.expression.text);
+    if (ts.isArrayLiteralExpression(node)) {
+      const words = [];
+      for (const element of node.elements.slice(0, 2)) {
+        if (!(ts.isStringLiteral(element) || ts.isNoSubstitutionTemplateLiteral(element))) break;
+        words.push(element.text);
+      }
+      if (ARGV_VERBS.some((verb) => verb.every((word, index) => words[index] === word))) add(node, 'argvRoutes', words.slice(0, 2).join(' '));
+    }
+    if (ts.isTemplateExpression(node) && /(?:^|\s)singularity-flow $/u.test(node.head.text)) add(node, 'computedCommands', 'template');
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = unwrap(node.left);
+      if (left && (ts.isStringLiteral(left) || ts.isNoSubstitutionTemplateLiteral(left)) && /(?:^|\s)singularity-flow $/u.test(left.text)) add(node, 'computedCommands', 'concatenation');
+    }
+    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && ALT_SKILLS.includes(node.text.toLowerCase())) add(node, 'altSkillLiterals', node.text);
+    if (ts.isPropertyAssignment(node) && ROUTE_FIELDS.includes(propertyName(node))) {
+      const head = unwrap(node.initializer);
+      const text = head && (ts.isStringLiteral(head) || ts.isNoSubstitutionTemplateLiteral(head)) ? head.text
+        : head && ts.isTemplateExpression(head) ? head.head.text : null;
+      if (text !== null && (LIFECYCLE_VERBS.some(([, pattern]) => pattern.test(text))
+        || LIFECYCLE_SKILLS.some((skill) => text === skill || text.startsWith(`${skill} `) || text === skill.replace('/sf-', '/sflow-')))) add(node, 'routeFields', propertyName(node));
+    }
     const literal = literalText(node);
     if (literal) {
       if (literal.head) {
@@ -310,7 +382,7 @@ export function moduleCounts(module, sites) {
   for (const site of sites) {
     if (site.metric === 'intentStatus.direct' || site.metric === 'intentStatus.aliased') {
       bump(entry.intentStatus ??= {}, site.metric.split('.')[1]);
-    } else if (['predicateCalls', 'skillChooserCalls', 'lifecycleCommands'].includes(site.metric)) {
+    } else if (['predicateCalls', 'skillChooserCalls', 'lifecycleCommands', ...STAGE5_FAMILIES].includes(site.metric)) {
       bump(entry[site.metric] ??= {}, site.detail);
     } else if (site.metric === 'skillLiterals') {
       const [skill, form] = site.detail.split(' ');
@@ -360,6 +432,8 @@ export function summarize(modules) {
     routeObjects: { modules: modules.filter((entry) => entry.routeObjects).length, sites: sum(modules.map((entry) => entry.routeObjects ?? 0)) },
     lifecycleCommands: nested(modules, 'lifecycleCommands'),
     skillLiterals: Object.fromEntries(Object.entries(skills).sort(([a], [b]) => a.localeCompare(b))),
+    stage5: Object.fromEntries(STAGE5_FAMILIES.map((family) => [family, { modules: modules.filter((entry) => entry[family]).length,
+      sites: sum(modules.map((entry) => total(entry[family]))) }])),
     roles: Object.fromEntries(['policy', 'mapping', 'renderer', 'validator', 'record', 'unclassified']
       .map((role) => [role, modules.filter((entry) => entry.role === role).length]))
   };
@@ -371,15 +445,27 @@ export function summarize(modules) {
  */
 export const FAMILIES = Object.freeze(['intentReads', 'intentWrites', 'predicateCalls', 'skillChooserCalls', 'versionArithmetic',
   'routeObjects', 'lifecycleCommands', 'skillLiterals']);
+/** The Stage 5 families (above): held to their own Stage 5 baseline, not to Stage 0, which never counted them. */
+export const STAGE5_FAMILIES = Object.freeze(['kernelImports', 'kernelPredicateCalls', 'mapRoutes', 'argvRoutes', 'computedCommands',
+  'altSkillLiterals', 'routeFields']);
 const total = (object) => sum(Object.values(object ?? {}).map((value) => typeof value === 'number' ? value : total(value)));
 export function familyCounts(entry) {
   return { intentReads: total(entry.intentStatus), intentWrites: entry.intentWrites ?? 0, predicateCalls: total(entry.predicateCalls),
     skillChooserCalls: total(entry.skillChooserCalls), versionArithmetic: entry.versionArithmetic ?? 0, routeObjects: entry.routeObjects ?? 0,
     lifecycleCommands: total(entry.lifecycleCommands), skillLiterals: total(entry.skillLiterals) };
 }
+export function stage5Counts(entry) {
+  return Object.fromEntries(STAGE5_FAMILIES.map((family) => [family, total(entry[family])]));
+}
 /** The ratchet's ceilings: each module's nonzero family counts. */
 export function ratchetCeilings(modules) {
   return Object.fromEntries(modules.map((entry) => [entry.module, Object.fromEntries(Object.entries(familyCounts(entry)).filter(([, value]) => value > 0))])
+    .filter(([, counts]) => Object.keys(counts).length).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** The Stage 5 families' ceilings: each module's nonzero Stage 5 counts. */
+export function stage5Ceilings(modules) {
+  return Object.fromEntries(modules.filter((entry) => !entry.module.startsWith('kernel/')).map((entry) => [entry.module, Object.fromEntries(Object.entries(stage5Counts(entry)).filter(([, value]) => value > 0))])
     .filter(([, counts]) => Object.keys(counts).length).sort(([a], [b]) => a.localeCompare(b)));
 }
 
@@ -398,7 +484,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (process.argv.includes('--ratchet')) {
     const file = path.join(packageRoot, 'benchmarks', 'osa', 'ratchet.json');
     const current = JSON.parse(await readFile(file, 'utf8'));
-    await writeFile(file, `${JSON.stringify({ ...current, ceilings: ratchetCeilings(modules) }, null, 2)}\n`);
+    await writeFile(file, `${JSON.stringify({ ...current, ceilings: ratchetCeilings(modules),
+      stage5: { ...current.stage5, families: [...STAGE5_FAMILIES], ceilings: stage5Ceilings(modules) } }, null, 2)}\n`);
   }
   const output = process.argv.find((argument) => argument.startsWith('--output='))?.slice('--output='.length);
   if (output) await writeFile(output, `${JSON.stringify(report, null, 2)}\n`);

@@ -454,6 +454,10 @@
           "type": "integer", "default": 30, "minimum": 1, "maximum": 10080, "scope": "resource",
           "description": "Maximum age of successful routine verification in Cached mode. Use Singularity Flow: Check Repository Now or @sflow /check to refresh immediately."
         },
+        "singularityFlow.chat.prefillNextCommand": {
+          "type": "boolean", "default": true,
+          "description": "Put the selected Story's next command in Copilot Chat's input box when SFlow's record shows a new next step, without sending it. It goes to the chat you used last, a Copilot CLI session included. Only a /sf- or @sflow command of your own next step is put there, once per Story state; no model is asked. VS Code moves the cursor to the chat box when it does, so it waits while you type, never replaces text you wrote there and only fills a chat that is open. Off, the Next button in the status bar still puts it there."
+        },
         "singularityFlow.outcomeReview.suggest": {
           "type": "boolean", "default": true,
           "description": "Open Check the Outcome once for each published code generation, including custom code phases: try the Story application, inspect criterion-linked test results and request repairs before approval. Starts no application and records no acceptance. Existing application-review and approval policies are unchanged."
@@ -1413,6 +1417,11 @@
         "command": "singularityFlow.prefillStoryPhaseGeneration",
         "title": "Singularity Flow: Generate and Publish Current Story Phase in Copilot",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "singularityFlow.prefillNextCommand",
+        "title": "Singularity Flow: Put the Next Command in Copilot Chat",
+        "icon": "$(comment-discussion)"
       },
       {
         "command": "singularityFlow.approve",

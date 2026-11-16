@@ -1,0 +1,270 @@
+/**
+ * The next SFlow command, put in Copilot Chat's input box (apps/vscode/src/chat-prefill.ts).
+ *
+ * The model reads the journey's next action from a snapshot; the controller decides when to fill.
+ * Both run here against a stub host with a hand-driven clock, so every guard is pinned: a fill per
+ * changed state and no repeat, nothing for a terminal-only or someone else's step, the setting,
+ * the button, typing, the person's own text in the chat box, an @sflow answer still running and
+ * a prompt the extension sent itself. vscode-host.test.mjs drives the shipped bundle end to end.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const {
+  CHAT_INPUT_SCHEMES, ChatPrefill, isChatRoute, nextChatPrefill, participantRequestEnded, participantRequestStarted, PREFILL_COMMAND, PREFILL_SETTING
+} = await import(pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', 'chat-prefill.ts')).href);
+
+const phase = (id, label, status, generation) => ({ id, label, status, generation, artifacts: [], approvals: [] });
+const BASE = { lifecycleReady: false, draftExists: false, draftModified: false, publicationRecorded: false, currentGeneration: 0, publishedGeneration: null };
+
+function story({ id = 'STORY-1', current = 'code', status = 'in_progress', generation = 0, readiness = {}, workflow = {} } = {}) {
+  return {
+    included: ['repository', 'lifecycle'],
+    workflow: {
+      workItem: { id, title: 'Prefill', branch: id }, currentPhase: current, phaseOrder: [current],
+      phases: { [current]: phase(current, current[0].toUpperCase() + current.slice(1), status, generation) },
+      status: 'in_progress', ...workflow
+    },
+    submissionReadiness: { ...BASE, phaseId: current, ...readiness }
+  };
+}
+
+const generation = (extra = {}) => story({ readiness: {
+  classification: 'generation-required', reasonCode: 'PHASE_GENERATION_REQUIRED', nextSkill: '/sf-code', nextCommand: 'singularity-flow prepare code'
+}, ...extra });
+const submit = () => story({ generation: 1, readiness: {
+  lifecycleReady: true, publicationRecorded: true, publishedGeneration: 1, currentGeneration: 1, classification: 'ready-to-attempt',
+  reasonCode: 'SUBMISSION_READY', nextSkill: '/sf-submit', nextCommand: 'singularity-flow submit code --work-id STORY-1'
+} });
+const awaiting = (sheet) => story({ status: 'awaiting_approval', generation: 1, readiness: {
+  publicationRecorded: true, classification: 'already-submitted', reasonCode: 'PHASE_ALREADY_SUBMITTED',
+  nextCommand: 'singularity-flow approve code --work-id STORY-1 --fetch', nextSkill: '/sf-approve', sheet
+} });
+const terminalOnly = () => story({ generation: 1, readiness: {
+  publicationRecorded: true, classification: 'publication-record-missing', reasonCode: 'PHASE_PUBLICATION_RECORD_MISSING',
+  nextCommand: 'singularity-flow doctor --json', nextSkill: null
+} });
+
+test('the next command comes from the journey and the engine crosswalk, never from a guess', () => {
+  const code = nextChatPrefill(generation());
+  assert.equal(code.command, '/sf-code');
+  assert.equal(code.head, '/sf-code');
+  assert.equal(code.freshChat, false);
+  assert.match(code.label, /Generate and publish/);
+  const submission = nextChatPrefill(submit());
+  assert.equal(submission.command, '/sf-submit');
+  assert.equal(submission.freshChat, true, 'submission reads its own packet: the button says a new chat costs less');
+  assert.notEqual(submission.stateKey, code.stateKey, 'a new step state is a new key');
+  const approval = nextChatPrefill(awaiting({
+    next: { effect: 'approves', available: true, where: { copilot: '/sf-approve code --work-id STORY-1' } }, waitingFor: null
+  }));
+  assert.equal(approval.command, '/sf-approve code --work-id STORY-1', 'the person may approve now, and a chat takes it');
+  assert.equal(approval.head, '/sf-approve');
+});
+
+test('nothing is filled for a terminal-only step, someone else\'s step, or no Story', () => {
+  assert.equal(nextChatPrefill(terminalOnly()), null, 'a step whose only route is the terminal');
+  assert.equal(nextChatPrefill(awaiting({
+    next: { effect: 'approves', available: true, where: { copilot: null, terminal: true } }, waitingFor: null
+  })), null, 'an approval signed in the person\'s own terminal');
+  assert.equal(nextChatPrefill(awaiting({
+    next: { effect: 'reads', available: true, where: { copilot: '/sf-decide STORY-1' } }, waitingFor: { words: 'The approvers' }
+  })), null, 'the approval is someone else\'s');
+  assert.equal(nextChatPrefill(story({ generation: 1, readiness: {
+    classification: 'decisions-required', reasonCode: 'DECISIONS_REQUIRED', nextCommand: 'singularity-flow decisions STORY-1',
+    sheet: { next: { effect: 'reads', available: true, where: { copilot: null, terminal: true, vscode: 'singularityFlow.decisions' } }, waitingFor: null }
+  } })), null, 'the decision list\'s step that only the terminal or the card takes');
+  assert.equal(nextChatPrefill(null), null);
+  assert.equal(nextChatPrefill({ workflow: null }), null);
+  assert.equal(nextChatPrefill({ ...generation(), included: ['repository'] }), null, 'a snapshot without the lifecycle says nothing');
+  const ended = generation();
+  ended.workflow.currentPhase = null;
+  assert.equal(nextChatPrefill(ended), null, 'a Story with no current step');
+});
+
+test('only a /sf- skill or an @sflow command with plain arguments is a chat route', () => {
+  for (const route of ['/sf-code', '/sf-approve code --work-id STORY-1', '/sf-confirm K7Q2-M8DX', '@sflow /next', '/sf-decide STORY-1']) {
+    assert.equal(isChatRoute(route), true, route);
+  }
+  for (const route of ['singularity-flow submit code', '/sf-code; rm -rf /', '/sf-code\nsend', '@other /next', '/sf-code $(id)', '', null, `/sf-${'a'.repeat(300)}`]) {
+    assert.equal(isChatRoute(route), false, String(route));
+  }
+});
+
+/** A host whose clock, timers, chat inputs and setting the test moves by hand. */
+function harness({ enabled = true, inputs = undefined, memento = new Map() } = {}) {
+  let now = 1_000;
+  const timers = [];
+  const state = { snapshot: null, enabled, inputs, chatDisabled: false };
+  const executed = [];
+  const shown = [];
+  const said = [];
+  const host = {
+    executeCommand: async (id, ...args) => { executed.push({ id, args }); },
+    enabled: () => state.enabled,
+    chatDisabled: () => state.chatDisabled,
+    chatInputs: () => (state.inputs === undefined ? null : state.inputs),
+    current: () => (state.snapshot ? { snapshot: state.snapshot, repository: '/work/repo' } : null),
+    memento: { get: (key) => memento.get(key), update: async (key, value) => { memento.set(key, value); } },
+    status: { show: (action) => shown.push(action.head), hide: () => shown.push(null) },
+    inform: (message) => said.push(message),
+    now: () => now,
+    setTimer: (callback, ms) => { const timer = { callback, at: now + ms }; timers.push(timer); return timer; },
+    clearTimer: (timer) => { const index = timers.indexOf(timer); if (index >= 0) timers.splice(index, 1); }
+  };
+  const prefill = new ChatPrefill(host, { settleMs: 500, quietMs: 4_000 });
+  const advance = async (ms) => {
+    now += ms;
+    for (;;) {
+      const due = timers.filter((timer) => timer.at <= now).sort((a, b) => a.at - b.at)[0];
+      if (!due) break;
+      timers.splice(timers.indexOf(due), 1);
+      due.callback();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+  const show = async (snapshot) => { state.snapshot = snapshot; prefill.observe(); await advance(500); };
+  const fills = () => executed.filter((entry) => entry.id === 'workbench.action.chat.open').map((entry) => entry.args[0]);
+  return { prefill, state, executed, shown, said, memento, advance, show, fills };
+}
+
+test('a changed next action is filled once, never sent, and not again for the same state', async () => {
+  const run = harness();
+  await run.show(generation());
+  assert.deepEqual(run.fills(), [{ query: '/sf-code ', isPartialQuery: true }]);
+  assert.equal(run.prefill.last, 'filled');
+  assert.deepEqual(run.shown, ['/sf-code'], 'the Next button shows the command');
+  await run.show(generation());
+  await run.show(generation());
+  assert.equal(run.fills().length, 1, 'the same Story state is filled once');
+  await run.show(submit());
+  assert.deepEqual(run.fills().map((fill) => fill.query), ['/sf-code ', '/sf-submit '], 'a new state fills its own command');
+  assert.equal(run.executed.some((entry) => entry.id === 'workbench.action.chat.newChat'), false,
+    'the automatic fill never replaces the chat, which may still be answering');
+
+  // A reloaded window reads what it filled from workspace state.
+  const reloaded = harness({ memento: run.memento });
+  await reloaded.show(submit());
+  assert.deepEqual(reloaded.fills(), [], 'no fill after a reload for a state already filled');
+  assert.equal(reloaded.prefill.last, 'same');
+});
+
+test('a terminal-only next step fills nothing and hides the button', async () => {
+  const run = harness();
+  await run.show(terminalOnly());
+  assert.deepEqual(run.fills(), []);
+  assert.deepEqual(run.shown, [null]);
+  await run.prefill.fillNow();
+  assert.deepEqual(run.fills(), [], 'the button has nothing to fill either');
+  assert.match(run.said.at(-1), /no next command for Copilot Chat/);
+});
+
+test('the setting off stops the automatic fill; the button still fills', async () => {
+  const run = harness({ enabled: false });
+  await run.show(generation());
+  assert.deepEqual(run.fills(), []);
+  assert.equal(run.prefill.last, 'off');
+  assert.deepEqual(run.shown, ['/sf-code'], 'the button is still offered');
+  assert.equal(await run.prefill.fillNow(), true);
+  assert.deepEqual(run.fills(), [{ query: '/sf-code ', isPartialQuery: true }]);
+  assert.equal(PREFILL_SETTING, 'chat.prefillNextCommand');
+  assert.deepEqual(CHAT_INPUT_SCHEMES, ['chatSessionInput', 'sessions-chat'], 'the chat input documents VS Code 1.146 gives extensions');
+  assert.equal(PREFILL_COMMAND, 'singularityFlow.prefillNextCommand');
+});
+
+test('the button fills again after an automatic fill, in the chat the person used last', async () => {
+  const run = harness();
+  await run.show(generation());
+  await run.prefill.fillNow();
+  await run.prefill.fillNow();
+  assert.deepEqual(run.fills().map((fill) => fill.query), ['/sf-code ', '/sf-code ', '/sf-code ']);
+  await run.show(submit());
+  run.executed.length = 0;
+  await run.prefill.fillNow();
+  // VS Code's New Chat can start another kind of session than the person's Copilot CLI one: the
+  // fill goes to their own chat, and a cheaper new chat is only advice (the button's tooltip).
+  assert.deepEqual(run.executed.map((entry) => entry.id), ['workbench.action.chat.open']);
+  assert.equal(nextChatPrefill(submit()).freshChat, true);
+});
+
+test('the fill waits while the person types, and fills once they stop', async () => {
+  const run = harness();
+  run.prefill.noteActivity();
+  await run.show(generation());
+  assert.deepEqual(run.fills(), [], 'no fill a moment after a keystroke');
+  assert.equal(run.prefill.last, 'typing');
+  await run.advance(2_000);
+  run.prefill.noteActivity();
+  await run.advance(3_000);
+  assert.deepEqual(run.fills(), [], 'typing again keeps it waiting');
+  await run.advance(1_500);
+  assert.deepEqual(run.fills().map((fill) => fill.query), ['/sf-code ']);
+});
+
+test('text the person wrote in the chat box is never replaced; the fill\'s own text is', async () => {
+  const run = harness({ inputs: ['What does this step do?'] });
+  await run.show(generation());
+  assert.deepEqual(run.fills(), []);
+  assert.equal(run.prefill.last, 'composing');
+  run.state.inputs = [''];
+  await run.show(generation());
+  assert.deepEqual(run.fills(), [], 'that state is left to the button once the person had text there');
+
+  const own = harness({ inputs: [''] });
+  await own.show(generation());
+  own.state.inputs = ['/sf-code '];
+  own.prefill.noteChatInput('/sf-code ');
+  await own.show(submit());
+  assert.deepEqual(own.fills().map((fill) => fill.query), ['/sf-code ', '/sf-submit '],
+    'the fill replaced its own unsent text, and its own change was not counted as typing');
+});
+
+test('no chat open, or chat turned off, fills nothing automatically', async () => {
+  const closed = harness({ inputs: [] });
+  await closed.show(generation());
+  assert.deepEqual(closed.fills(), []);
+  assert.equal(closed.prefill.last, 'no-chat');
+  const off = harness();
+  off.state.chatDisabled = true;
+  await off.show(generation());
+  assert.deepEqual(off.fills(), []);
+});
+
+test('an @sflow answer still running holds the fill until it ends', async () => {
+  const run = harness();
+  participantRequestStarted();
+  try {
+    await run.show(generation());
+    assert.deepEqual(run.fills(), []);
+    assert.equal(run.prefill.last, 'busy');
+  } finally { participantRequestEnded(); }
+  await run.advance(0);
+  assert.deepEqual(run.fills().map((fill) => fill.query), ['/sf-code ']);
+  run.prefill.dispose();
+});
+
+test('a prompt the extension sent itself keeps its state unfilled; the next state fills', async () => {
+  const run = harness();
+  run.prefill.noteRequestSent();
+  await run.show(generation());
+  assert.deepEqual(run.fills(), [], 'the handoff\'s chat is not filled over');
+  assert.equal(run.prefill.last, 'held');
+  await run.show(submit());
+  assert.deepEqual(run.fills().map((fill) => fill.query), ['/sf-submit ']);
+});
+
+test('the setting and the command are contributed, and the setting is documented', async () => {
+  const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
+  const setting = manifest.contributes.configuration.properties['singularityFlow.chat.prefillNextCommand'];
+  assert.equal(setting.type, 'boolean');
+  assert.equal(setting.default, true, 'on unless the person turns it off');
+  assert.match(setting.description, /without sending it/);
+  assert.ok(manifest.contributes.commands.some((entry) => entry.command === PREFILL_COMMAND));
+  const topic = await readFile(path.join(packageRoot, 'docs', 'topics', 'copilot-and-surfaces.md'), 'utf8');
+  assert.match(topic, /singularityFlow\.chat\.prefillNextCommand/);
+});

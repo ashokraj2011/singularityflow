@@ -1,0 +1,308 @@
+/**
+ * The next SFlow command, put in Copilot Chat's input box and never sent (owner, 2026-11-16).
+ *
+ * The command is the Story's next action as the journey already computes it from the engine's own
+ * readiness, decision and step-sheet fields, through the engine's command crosswalk. Nothing here
+ * chooses a command, and no model is asked: the fill is `workbench.action.chat.open` with
+ * `isPartialQuery`, which only sets the input's text.
+ *
+ * Only a chat route is filled: a `/sf-*` skill or an `@sflow` command. A next action with no chat
+ * route (terminal only), or one someone else takes, fills nothing.
+ *
+ * VS Code 1.146 fills the chat the person focused last, whatever kind of session it holds: the
+ * Copilot agent's, or a Copilot CLI session (`copilotcli:`) in the Chat view or an editor. Only with
+ * no chat focused yet does it open the Chat view. It always focuses that chat's input when it does,
+ * and it replaces whatever the input held. So the automatic fill waits while the person types in an
+ * editor or in a chat input, never replaces text they wrote there, fills only where a chat is open,
+ * and waits for an `@sflow` request to finish. VS Code offers no way to see whether a Copilot request
+ * is running, so that alone cannot be waited for.
+ *
+ * No `vscode` import: extension.ts supplies the host, so tests drive this in plain Node.
+ */
+import type { RepositorySnapshot } from './cli/snapshot.ts';
+import { routedCommandGuidance } from './copilot-command.ts';
+import { buildJourney } from './views/journey-model.ts';
+import { startsFreshChat } from './views/submission-presentation.ts';
+
+/** The setting that turns the automatic fill off; the status-bar button keeps working. */
+export const PREFILL_SETTING = 'chat.prefillNextCommand';
+export const PREFILL_COMMAND = 'singularityFlow.prefillNextCommand';
+/** The documents VS Code gives extensions for chat inputs: a window's chats, and the Agents window's. */
+export const CHAT_INPUT_SCHEMES: readonly string[] = Object.freeze(['chatSessionInput', 'sessions-chat']);
+const FILLED_KEY = 'singularityFlow.chatPrefill.filled';
+
+/** A `/sf-*` skill or an `@sflow` command, with plain arguments. Anything else is not filled. */
+const CHAT_ROUTE = /^(?:\/sf-[a-z0-9]+(?:-[a-z0-9]+)*|@sflow \/[a-z0-9]+(?:-[a-z0-9]+)*)(?: [A-Za-z0-9._:/=@,+#-]+)*$/u;
+
+export interface ChatPrefillAction {
+  /** Exactly what goes in the chat input, before the trailing space. */
+  command: string;
+  /** The skill or participant command alone, for the status bar. */
+  head: string;
+  label: string;
+  reason: string;
+  workId: string;
+  /** The Story state this action belongs to: one automatic fill per state. */
+  stateKey: string;
+  /**
+   * Review, submission and approval cost less from a new chat (startsFreshChat). Said, never done:
+   * a new chat from here could change the session's kind, and the fill belongs in the person's own.
+   */
+  freshChat: boolean;
+}
+
+export function isChatRoute(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 200 && CHAT_ROUTE.test(value);
+}
+
+interface SheetView { next: { effect?: unknown; available?: unknown; where?: { copilot?: unknown } | null } | null; waitingFor: unknown }
+
+function sheetOf(value: unknown): SheetView | null {
+  if (!value || typeof value !== 'object') return null;
+  const sheet = value as { next?: unknown; waitingFor?: unknown };
+  const next = sheet.next && typeof sheet.next === 'object' ? sheet.next as SheetView['next'] : null;
+  return { next, waitingFor: sheet.waitingFor ?? null };
+}
+
+/**
+ * The person's next action in this snapshot as a chat command, or null when there is none to fill.
+ *
+ * The journey's next action covers generation, source review, submission, after-step deliveries
+ * and decisions. A step awaiting approval has none there; the step sheet says whether this person
+ * may approve now, and the engine's approve command gives its route. When the sheet names someone
+ * else as the one who clears what the step waits on, the action is theirs and nothing is filled.
+ */
+export function nextChatPrefill(snapshot: RepositorySnapshot | null | undefined): ChatPrefillAction | null {
+  const workflow = snapshot?.workflow;
+  const workId = workflow?.workItem?.id;
+  const phaseId = workflow?.currentPhase;
+  if (!workflow || !workId || !phaseId) return null;
+  if (snapshot.included && !snapshot.included.includes('lifecycle')) return null;
+  const phase = workflow.phases?.[phaseId];
+  if (!phase) return null;
+  const readiness = snapshot.submissionReadiness?.phaseId === phaseId ? snapshot.submissionReadiness : null;
+  const sheet = sheetOf(readiness?.sheet);
+  if (sheet?.waitingFor) return null;
+
+  const next = buildJourney(snapshot).nextAction;
+  // The decision list is next because the sheet says so; where its step has no chat route, only the
+  // person's terminal or the Decide card takes it.
+  if (next?.execution === 'decide-list' && sheet?.next && !isChatRoute(sheet.next.where?.copilot)) return null;
+  let command: string | null = isChatRoute(next?.copilotCommand) ? next.copilotCommand : null;
+  let label = next?.label ?? next?.reason ?? '';
+  let reason = next?.reason ?? '';
+  // The sheet says whether this approval is the person's and whether a chat takes it (a signature
+  // in their own terminal has no chat route); the engine's approve command gives the route itself.
+  if (!next && phase.status === 'awaiting_approval' && sheet?.next?.effect === 'approves' && sheet.next.available !== false
+      && isChatRoute(sheet.next.where?.copilot)) {
+    const approve = routedCommandGuidance({ command: readiness?.nextCommand, skill: '/sf-approve' });
+    if (approve && isChatRoute(approve.copilotCommand)) {
+      command = approve.copilotCommand;
+      label = `Review and approve ${phase.label}`;
+      reason = `${phase.label} waits for your approval.`;
+    }
+  }
+  if (!command) return null;
+  const stateKey = JSON.stringify([workId, phaseId, phase.status, phase.generation,
+    workflow.pendingDecision?.key ?? null, command]);
+  const head = command.split(' ').slice(0, command.startsWith('@sflow ') ? 2 : 1).join(' ');
+  return { command, head, label, reason, workId, stateKey, freshChat: startsFreshChat(command) };
+}
+
+// --- @sflow requests in flight ------------------------------------------------------------------
+
+/**
+ * VS Code says nothing to an extension about Copilot's requests, but SFlow's own participant knows
+ * when it is answering. sflow-chat.ts brackets each request; the fill waits until none is running.
+ */
+const participant = { running: 0, listeners: new Set<() => void>() };
+
+export function participantRequestStarted(): void { participant.running += 1; }
+
+export function participantRequestEnded(): void {
+  participant.running = Math.max(0, participant.running - 1);
+  if (!participant.running) for (const listener of participant.listeners) listener();
+}
+
+export function participantRequestRunning(): boolean { return participant.running > 0; }
+
+function onParticipantIdle(listener: () => void): { dispose(): void } {
+  participant.listeners.add(listener);
+  return { dispose: () => { participant.listeners.delete(listener); } };
+}
+
+// --- The controller -----------------------------------------------------------------------------
+
+export interface ChatPrefillHost {
+  executeCommand(id: string, ...args: unknown[]): PromiseLike<unknown>;
+  /** The automatic fill's setting; only `true` turns it on. */
+  enabled(): boolean;
+  /** Chat is turned off in this window (`chat.disableAIFeatures`). */
+  chatDisabled(): boolean;
+  /** The text of every open chat input; null when the host cannot tell. */
+  chatInputs(): string[] | null;
+  /** The latest confirmed snapshot of the selected repository, and that repository. */
+  current(): { snapshot: RepositorySnapshot | null; repository: string } | null;
+  memento: { get<T>(key: string): T | undefined; update(key: string, value: unknown): PromiseLike<void> };
+  status: { show(action: ChatPrefillAction): void; hide(): void };
+  /** Said when the button is pressed with nothing to fill. */
+  inform(message: string): void;
+  now?: () => number;
+  setTimer?: (callback: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+}
+
+export interface ChatPrefillOptions {
+  /** How long a record change settles before its action is read again. */
+  settleMs?: number;
+  /** Quiet time after the last keystroke the fill waits for. */
+  quietMs?: number;
+}
+
+export type PrefillOutcome = 'filled' | 'off' | 'none' | 'same' | 'held' | 'busy' | 'typing' | 'composing' | 'no-chat' | 'failed';
+
+export class ChatPrefill {
+  private readonly host: ChatPrefillHost;
+  private readonly now: () => number;
+  private readonly setTimer: (callback: () => void, ms: number) => unknown;
+  private readonly clearTimer: (handle: unknown) => void;
+  private readonly settleMs: number;
+  private readonly quietMs: number;
+  private readonly filled: string[];
+  private seen: string | null = null;
+  private timer: unknown = null;
+  private activityAt = Number.NEGATIVE_INFINITY;
+  private ours: string | null = null;
+  /** A prompt the extension sent itself: the state it was sent in is that chat's, not a fill's. */
+  private hold: { key: string | null } | null = null;
+  private readonly idle: { dispose(): void };
+  /** What the last evaluation decided, for tests and the output channel. */
+  last: PrefillOutcome | null = null;
+
+  constructor(host: ChatPrefillHost, options: ChatPrefillOptions = {}) {
+    this.host = host;
+    this.now = host.now ?? Date.now;
+    this.setTimer = host.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
+    this.clearTimer = host.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    this.settleMs = options.settleMs ?? 500;
+    this.quietMs = options.quietMs ?? 4_000;
+    const stored = host.memento.get<unknown>(FILLED_KEY);
+    this.filled = Array.isArray(stored) ? stored.filter((entry): entry is string => typeof entry === 'string').slice(-50) : [];
+    this.idle = onParticipantIdle(() => { if (this.seen) this.schedule(0); });
+  }
+
+  private keyOf(repository: string, action: ChatPrefillAction): string {
+    return JSON.stringify([repository, action.stateKey]);
+  }
+
+  private action(): { action: ChatPrefillAction; key: string } | null {
+    const current = this.host.current();
+    const action = current ? nextChatPrefill(current.snapshot) : null;
+    return current && action ? { action, key: this.keyOf(current.repository, action) } : null;
+  }
+
+  /** A confirmed snapshot: show the button, and fill once when the next action changed. */
+  observe(): void {
+    const next = this.action();
+    if (next) this.host.status.show(next.action); else this.host.status.hide();
+    if (!next) { this.seen = null; this.cancel(); return; }
+    if (next.key === this.seen) return;
+    this.seen = next.key;
+    this.schedule(this.settleMs);
+  }
+
+  /** Someone typed in an editor or in the chat input. */
+  noteActivity(): void { this.activityAt = this.now(); }
+
+  /** A chat input changed: the fill's own text is not the person typing. */
+  noteChatInput(text: string): void {
+    if (this.ours !== null && text.trim() === this.ours.trim()) return;
+    this.noteActivity();
+  }
+
+  /** The extension sent a whole prompt itself (a Copilot handoff): no fill over it. */
+  noteRequestSent(): void {
+    this.hold = { key: this.action()?.key ?? null };
+  }
+
+  private cancel(): void {
+    if (this.timer !== null) this.clearTimer(this.timer);
+    this.timer = null;
+  }
+
+  private schedule(ms: number): void {
+    this.cancel();
+    this.timer = this.setTimer(() => { this.timer = null; void this.evaluate(); }, ms);
+  }
+
+  private remember(key: string): void {
+    if (this.filled.includes(key)) return;
+    this.filled.push(key);
+    this.filled.splice(0, Math.max(0, this.filled.length - 50));
+    void Promise.resolve(this.host.memento.update(FILLED_KEY, [...this.filled])).then(undefined, () => undefined);
+  }
+
+  /** The automatic fill, after a change has settled. */
+  async evaluate(): Promise<PrefillOutcome> {
+    const outcome = await this.decide();
+    this.last = outcome;
+    return outcome;
+  }
+
+  private async decide(): Promise<PrefillOutcome> {
+    const next = this.action();
+    if (!next) return 'none';
+    if (this.host.enabled() !== true) return 'off';
+    if (this.filled.includes(next.key)) return 'same';
+    if (this.hold) {
+      if (this.hold.key === null) this.hold.key = next.key;
+      if (this.hold.key === next.key) { this.remember(next.key); return 'held'; }
+      this.hold = null;
+    }
+    if (participantRequestRunning()) return 'busy';
+    const quiet = this.now() - this.activityAt;
+    if (quiet < this.quietMs) { this.schedule(this.quietMs - quiet); return 'typing'; }
+    if (this.host.chatDisabled()) return 'no-chat';
+    const inputs = this.host.chatInputs();
+    // No chat input open: opening the Chat view unasked would be the disruption. The button still fills.
+    if (inputs && !inputs.length) return 'no-chat';
+    // Text the person wrote is theirs. This state is not filled; the button still is.
+    if (inputs?.some((text) => text.trim() && (this.ours === null || text.trim() !== this.ours.trim()))) {
+      this.remember(next.key);
+      return 'composing';
+    }
+    return await this.fill(next) ? 'filled' : 'failed';
+  }
+
+  private async fill(next: { action: ChatPrefillAction; key: string }): Promise<boolean> {
+    const query = `${next.action.command} `;
+    this.remember(next.key);
+    try {
+      this.ours = query;
+      await this.host.executeCommand('workbench.action.chat.open', { query, isPartialQuery: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The button: fill again now, whatever was filled before, in the chat the person used last. It
+   * opens no new chat, even for a step that costs less from one: VS Code's New Chat can start a
+   * session of another kind than the person's Copilot CLI session, and the chat may still be answering.
+   */
+  async fillNow(): Promise<boolean> {
+    const next = this.action();
+    if (!next) {
+      this.host.inform('Singularity Flow has no next command for Copilot Chat right now. Its next step, if any, is not a chat command or is someone else\'s.');
+      return false;
+    }
+    this.cancel();
+    return this.fill(next);
+  }
+
+  dispose(): void {
+    this.cancel();
+    this.idle.dispose();
+  }
+}

@@ -20,7 +20,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 39
+version: 40
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into a Story. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -41,6 +41,12 @@ Instructions already loaded in a chat cannot be unloaded by a CLI preference. Sw
 A result too long for the host stays whole in `.sflow/out/`. `agentOutput.read` lists the line ranges this step needs, and a `textFiles` entry marked `need` is a file it needs. A result whose `act` names no fields is read whole. The other `omittedFields` are listed so that a later step can open them by line. The same path holds the same bytes, so a path already read in this chat is not read again.
 
 Source review, submission and approval each read their own packet, so they cost less from a new chat. SFlow's replies suggest one, and VS Code's next-step button opens one for source review. It is advice: each step also works from the chat you are in.
+
+## The next command, waiting in VS Code's chat box
+
+When SFlow's record shows a new next step for the selected Story (a step published, submitted, approved or decided, a Story started or switched to), VS Code puts that step's command in Copilot Chat's input box, such as `/sf-code ` or `/sf-submit `, and sends nothing. The command is the one the journey and **Next** show; no model chooses it and none is asked. Only a `/sf-` or `@sflow` command of your own next step is put there, once per Story state. A step only your terminal takes, or one waiting on someone else, puts nothing there.
+
+It goes to the chat you used last in that window, whatever its kind: a Copilot agent chat, or a Copilot CLI session in the Chat view or an editor. VS Code moves the cursor to that chat box when it fills it, so SFlow waits while you type in an editor or a chat box, never replaces text you wrote there, fills only a chat that is open, and waits for an `@sflow` answer to finish. VS Code does not say when a Copilot answer is running, so a fill can arrive while one is. The status-bar **Next: /sf-…** button fills it again on a click. Neither opens a new chat; for source review, submission and approval the button's tooltip says a new one costs less. Turn the automatic fill off with `singularityFlow.chat.prefillNextCommand`; the button keeps working. Copilot CLI in a terminal has no chat box to fill: its step results already end with the next command.
 
 ## Copilot extensions
 

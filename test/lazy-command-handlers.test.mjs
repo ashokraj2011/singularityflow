@@ -646,21 +646,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // version's review is not inspected again (phase-generation-need.mjs, guide.mjs, source-review-lifecycle.mjs) [2026-11-16].
     // 9,679,650 (measured 9,679,625): a step name typed by mistake names the Story's steps and the same command with one
     // (util.mjs unknownStepDetails +880, its callers in phase-lifecycle, submit, prepare and phase-show) [2026-11-16]. No new eager file.
-    // 9,678,100 (measured 9,678,093): the registered worktree list a reset reads for each workspace clone's linked
-    // worktrees (git-query.mjs repository.worktrees, +520; SCF:REQ-021, D10) [2026-11-16]. No new eager file.
-    // 9,683,250 (measured 9,683,207): a review's next step in SFlow's own words and one turn [owner, 2026-11-16]: its
-    // "Now — <label>" block, plain labels and the findings the next version is authored with (source-review-continuation.mjs
-    // +3,661), `phase rollover` as the step author's route (code-delivery-policy.mjs +457, copilot-guidance.mjs +466,
-    // command-skills.mjs +326, safe-command-guidance.mjs +260, phase-governance-routing.mjs +132, commands/phase-lifecycle.mjs
-    // +50, state.mjs +15) and the code author's route for an undelivered code step (recovery-plan.mjs +267) add 5,634.
-    // No new eager file.
-    // 9,679,700 (measured 9,679,678): a refusal about where the Story stands names the Story's own next step
-    // (sequence.mjs storyNextDetails and storyClosedRefusal +1,301) at its throw sites in state.mjs (+57),
-    // story-lineage.mjs (+126) and phase-lifecycle.mjs (+230), and an Epic's its own (initiative-state.mjs +391, which
-    // loads initiative-next.mjs only when it refuses) [owner, 2026-11-16]. No new eager file.
-    // 9,678,350 (measured 9,678,348): a step the kernel builds is routed straight to its generator, with no agent to select
-    // first (commands/nextsteps.mjs) and no appeal inspection at its entry [journey B, 2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_688_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,688,200 (measured 9,688,174): the 2026-11-16 batch on main 56dfa031e (9,679,625), each as measured on its own
+    // branch: a reset's registered worktree list (git-query.mjs repository.worktrees, +520); a review's next step in
+    // SFlow's own words and one turn, with `phase rollover` as the step author's route (source-review-continuation.mjs
+    // +3,661, code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs
+    // +260, recovery-plan.mjs +267 and smaller, +5,634); a refusal about where the Story stands names the Story's or the
+    // Epic's own next step (sequence.mjs storyNextDetails and storyClosedRefusal +1,301, its throw sites in state.mjs,
+    // story-lineage.mjs, phase-lifecycle.mjs and initiative-state.mjs, +2,105), which writes an open next version first;
+    // and a step the kernel builds routed straight to its generator (commands/nextsteps.mjs, +300). No new eager file.
+    assert.ok(closure.bytes <= 9_688_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1015,11 +1009,11 @@ test('the common session projection does not import attach, state stores or publ
   // 4,268,650 (measured 4,268,636): the same, for an open next version [2026-11-16].
   // 4,269,550 (measured 4,269,516): a step name typed by mistake names the Story's steps (util.mjs unknownStepDetails +880)
   // [2026-11-16]. No new eager file.
-  // 4,268,700 (measured 4,268,681): the same registered worktree list (git-query.mjs +520) [2026-11-16]. No new eager file.
-  // 4,269,700 (measured 4,269,670): `phase rollover` as the step author's route, with its step in the Copilot route
-  // (code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs +260)
-  // adds 1,509 [owner, 2026-11-16]. No new eager file.
-  assert.ok(current.bytes <= 4_271_550, `session current loads ${current.bytes} source bytes`);
+  // 4,271,500 (measured 4,271,462): the 2026-11-16 batch on main 56dfa031e (4,269,516): the same registered worktree list
+  // (git-query.mjs +520) and `phase rollover` as the step author's route, with its step in the Copilot route
+  // (code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs +260,
+  // +1,509). No new eager file.
+  assert.ok(current.bytes <= 4_271_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

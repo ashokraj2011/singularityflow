@@ -14,7 +14,7 @@
   "count-without-name": 30,
   "draft-for-version": 15,
   "generic-route": 6374,
-  "jargon": 1409,
+  "jargon": 1408,
   "length": 701
  },
  "unroutedCodes": [
@@ -3975,7 +3975,6 @@
    "3f32bd3dce91": "jargon:retained",
    "6572d5112aa7": "jargon:generation",
    "a253cc79f31c": "jargon:binding",
-   "ba52ebaaa1a3": "jargon:successor",
    "cc3571cb84f3": "jargon:kernel",
    "d9c2a7b36623": "jargon:packet jargon:staging"
   },

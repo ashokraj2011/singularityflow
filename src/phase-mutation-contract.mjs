@@ -104,6 +104,21 @@ function route(argv, detail, skill = null) {
     modelFreeStatus: guidance?.modelFreeCommand ? 'available' : 'unavailable' };
 }
 
+/**
+ * The way on for a step not being written: the caller's handoff (the entry passes the Story's next action, the one every
+ * refusal about the Story's state leads with), else the planner's list. Never recover: every healthy published step was
+ * sent to /sf-recover by its edit permission, and from there round recover, the documents view and review [OSA:REQ-011, C1].
+ */
+function stepHandoff(handoff) {
+  const routes = (Array.isArray(handoff) ? handoff : []).map((action) => {
+    const guidance = action?.command ? safeCommandGuidance({ command: action.command, ...(action.skill ? { skill: action.skill } : {}) }) : null;
+    return guidance ? { detail: action.reason ?? action.label ?? action.detail ?? 'Take the step\'s next action.', ...guidance, commandGuidance: guidance,
+      modelFreeStatus: guidance.modelFreeCommand ? 'available' : 'unavailable' } : null;
+  }).filter(Boolean);
+  return routes.length ? routes
+    : [route(['nextsteps', '--json'], 'This step is not being written, so nothing is edited now: take its next action from this list.')];
+}
+
 function caseInsensitiveCheckout(root) {
   if (!root) return false;
   const base = path.basename(root);
@@ -118,7 +133,7 @@ function caseInsensitiveCheckout(root) {
 }
 
 export function deriveMutationContract({ root = null, definition, workflow, phase = workflow?.phases?.[workflow.currentPhase],
-  turnMode = 'authoring', staging = [], evidence = [] }) {
+  turnMode = 'authoring', staging = [], evidence = [], handoff = null }) {
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
@@ -175,18 +190,20 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]
     : ['approval-only', 'session-only', 'read', 'read-only-review', 'import-team', 'build-workflow', 'fix-workflow', 'confirm', 'run-and-test', 'spec-studio'].includes(turnMode)
       ? [route(['nextsteps', '--json'], 'End this turn. Inspect the next action in a new turn; do not author now.')]
-      // A step returned for rework opens its successor with begin (phase-authoring-progress.mjs).
-      : code && phase.generationIntent?.status === 'consumed' && !(editable && consumedByPublishedGeneration(phase))
+      // A step not being written: its own way on, never recover [OSA:REQ-011, C1].
+      : !editable ? stepHandoff(handoff)
+      // Damage only: a consumed intent that is not the published version's receipt. A step returned for rework opens its
+      // successor with begin (phase-authoring-progress.mjs).
+      : code && phase.generationIntent?.status === 'consumed' && !consumedByPublishedGeneration(phase)
         ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')]
-      : code && !openGeneration && editable
+      : code && !openGeneration
         ? [route(['phase', 'begin', phase.id, '--json'], 'Open the exact code generation before application edits.', generationSkillForPhase(phase, workflow))]
-        : !editable
-          ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes; inspect the reviewed successor or return route.')]
-          : [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', generationSkillForPhase(phase, workflow))];
+        : [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', generationSkillForPhase(phase, workflow))];
   const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`singularity-flow story intent-amendment status\` and \`singularity-flow story intent-amendment draft\`, stay open.`
     : turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
     : turnMode !== 'authoring' ? `${turnMode}: no direct repository edits; only explicitly issued staging files and permitted kernel operations.`
-      : !editable || (deterministic && !code) ? 'No direct edits to this retained or deterministic generation. Use the returned kernel/recovery action.'
+      : !editable ? 'No direct edits: this step is not being written now. Take its returned next action.'
+      : deterministic && !code ? 'No direct edits to this deterministic generation. Use the returned kernel action.'
         : deterministic && application ? 'May edit application paths within pinned policy; the summary is built by `singularity-flow prepare` from what changed, never edited by hand.'
         : deterministic && code ? 'No edits until its code version is open: open it with the returned action. The summary is built by `singularity-flow prepare` from what changed, never edited by hand.'
         : application ? `May edit this phase's artifacts and ${phase.sourceBoundary === 'test-automation' ? 'test-automation' : 'application'} paths within pinned policy; protected and governed state remain kernel-owned.`
@@ -266,8 +283,9 @@ export function mutationContractPresentation(contract) {
     phaseId: contract.phaseId, generation: contract.generation, summary: contract.summary,
     policy: contract.policy, artifacts: contract.allow.artifacts, applicationEdits: contract.allow.application,
     codeAuthoringReady: contract.policy.requiresOpenGeneration && contract.allow.application,
-    sourceEditPrerequisite: contract.turnMode === 'authoring' && contract.policy.requiresOpenGeneration && !contract.allow.application
-      ? contract.next[0] ?? null : null,
+    // Only while the step is being written: a published step has no edit to wait for [OSA:REQ-011, C1].
+    sourceEditPrerequisite: contract.turnMode === 'authoring' && contract.policy.requiresOpenGeneration && contract.policy.editable
+      && !contract.allow.application ? contract.next[0] ?? null : null,
     enforcement: contract.enforcement, toolProtocol: mutationToolProtocol(contract), next: contract.next };
 }
 

@@ -54,3 +54,45 @@ test('a code step returned for rework is written in its own entry: author, with 
   assert.equal(contract.next[0].copilotCommand.split(' ')[0], '/sf-code');
 });
 
+// ------------------------------------------------------------------------------------------- item 3: no recover fallback
+
+test('a step not being written is never sent to recover by its edit permission; its next is the step\'s own way on [OSA:REQ-011, C1]', () => {
+  const states = {
+    'published, no review owed': codeStory(),
+    'submitted': codeStory({ status: 'awaiting_approval' }),
+    'published document': (() => { const w = codeStory({ generationPolicy: { requirement: 'required', task: 'document' }, writeScope: 'artifact-only' });
+      delete w.phases.implement.generationIntent; return w; })()
+  };
+  for (const [name, workflow] of Object.entries(states)) {
+    const phase = workflow.phases.implement;
+    assert.equal(stepBeingWritten(workflow, phase), false, name);
+    // With no handoff given (the edit guard), the planner's list; with the Story's next action (the entry), that action.
+    const bare = deriveMutationContract({ definition: {}, workflow });
+    assert.doesNotMatch(JSON.stringify(bare.next), /\brecover\b|\/sf-recover/u, name);
+    assert.equal(bare.next[0].command, 'singularity-flow nextsteps --json', name);
+    const handed = deriveMutationContract({ definition: {}, workflow,
+      handoff: [{ skill: '/sflow-submit', command: 'singularity-flow submit implement --work-id OSA-2', reason: 'Submit published implement.' }] });
+    assert.equal(handed.next[0].command, 'singularity-flow submit implement --work-id OSA-2', name);
+    assert.match(handed.summary, /not being written/u, name);
+    // Nothing to wait for before editing a step that is not being written.
+    assert.equal(mutationContractPresentation(handed).sourceEditPrerequisite, null, name);
+  }
+});
+
+test('recover stays only where something is damaged: a consumed intent that is not the published version\'s [OSA:REQ-003, D4]', () => {
+  // Being written (returned for rework), with a consumed intent of another version than the published one.
+  const workflow = codeStory({ generation: 2, generationIntent: { status: 'consumed', generation: 1 }, reworkRevalidation: { generation: 2 } });
+  const contract = deriveMutationContract({ definition: {}, workflow });
+  assert.equal(contract.policy.editable, true);
+  assert.match(contract.next[0].command, /^singularity-flow recover OSA-2 --phase implement\b/u);
+});
+
+test('phase show\'s continuation never names recover when the readiness read fails: it gives the planner\'s own next action [OSA:REQ-011, C1]', async () => {
+  const { reviewContinuation } = await import('../src/review-continuation.mjs');
+  const workflow = codeStory();
+  // A checkout that does not exist: every read here fails, which shows nothing damaged.
+  const continuation = await reviewContinuation('/nonexistent/osa-stage-1', { workItemRoot: 'singularity/work-items' }, workflow, workflow.phases.implement);
+  assert.ok(continuation.nextCommand, JSON.stringify(continuation).slice(0, 800));
+  assert.doesNotMatch(JSON.stringify(continuation.actions), /singularity-flow recover\b|\/sf-recover/u);
+});
+

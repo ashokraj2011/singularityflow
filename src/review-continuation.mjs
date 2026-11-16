@@ -40,9 +40,13 @@ export async function reviewContinuation(root, config, workflow, phase, { change
     } });
     return phaseContinuation(workflow);
   } catch {
-    return phaseContinuation(workflow, { primary: {
-      command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
-      skill: '/sf-recover', reason: 'The next action could not be verified. Inspect this phase’s recovery diagnostics; preserve the reviewed files and do not submit or approve unchanged.'
-    } });
+    // The readiness read failed, which shows no damage: the planner's own next action, never recover for a step nothing
+    // shows broken. Recovery leads only where its plan says so, above [OSA:REQ-011, C1].
+    try { return phaseContinuation(workflow); } catch {
+      return phaseContinuation(workflow, { primary: {
+        command: `singularity-flow nextsteps ${workflow.workItem.id} --json`, skill: '/sf-nextsteps',
+        reason: 'The next action could not be read here. See every action this Story can take now; do not submit or approve unchanged.'
+      } });
+    }
   }
 }

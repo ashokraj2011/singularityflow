@@ -1,10 +1,10 @@
 import { constants, lstatSync, openSync, closeSync, fstatSync, readSync } from 'node:fs';
-import { lstat, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { withRegistryFileLease } from './file-lease.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { replaceWithSharingRetry, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { resolvePersonalization } from './personalization.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
@@ -180,4 +180,59 @@ export function asSflowCommand(command, powershell = false) {
 /** Whether a command names the verified entry anywhere: inside a chain or wrapper it is still the kernel. */
 export function mentionsHookCli(command) {
   return Boolean(launched) && typeof command === 'string' && command.includes(launched.cli);
+}
+
+/**
+ * How long an explicit Copilot turn's permissions last: 30 minutes from its prompt, or from the person's last answer in
+ * it [owner, 2026-11-16]. The window bounds what an agent does unattended. A person answering inside the turn, in its
+ * question tool or on the decisions card it opened, is there, so the window starts again from that answer; an agent's own
+ * call never moves it. The answer is one small file beside the turn's record, bound to the turn's ID, and a reader opens
+ * it only once the window from the prompt has passed, so a live turn's hooks read nothing more.
+ */
+export const TURN_WINDOW_MS = 30 * 60 * 1000;
+const TURN_RENEWAL = 'copilot-turn-renewal';
+
+/** The file beside a session's turn record (`<sha256>.json` or `<sha256>.mutation.json`) noting the person's answers. */
+export function turnRenewalFile(recordFile) {
+  return typeof recordFile === 'string' && /\.json$/u.test(recordFile) ? recordFile.replace(/(?:\.mutation)?\.json$/u, '.renewal.json') : null;
+}
+
+/** When the turn's window started: its prompt, or the person's last answer in it. */
+export function turnWindowStart(record) {
+  return Number.isFinite(record?.renewedAt) && record.renewedAt > record.recordedAt ? record.renewedAt : record?.recordedAt;
+}
+
+/** What is noted for a session's turn, or null. One bounded read of a regular file. */
+export async function readTurnRenewal(file) {
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.size > 4096) return null;
+    const value = JSON.parse(await readFile(file, 'utf8'));
+    return value?.kind === TURN_RENEWAL && typeof value.turnId === 'string' && typeof value.sessionId === 'string' ? value : null;
+  } catch { return null; }
+}
+
+/** The turn record with `renewedAt`, the person's last answer in this same turn, once the window from its prompt has passed. */
+export async function withTurnRenewal(record, recordFile, now = Date.now()) {
+  if (!Number.isFinite(record?.recordedAt) || now - record.recordedAt <= TURN_WINDOW_MS) return record;
+  const noted = await readTurnRenewal(turnRenewalFile(recordFile));
+  const at = noted?.turnId === record.turnId && noted.sessionId === record.sessionId ? noted.renewedAt : null;
+  return Number.isFinite(at) && at > record.recordedAt && at <= now ? { ...record, renewedAt: at } : record;
+}
+
+/**
+ * Notes `fields` on the turn `record` holds (its session's current one): `renewedAt`, a person's answer, or `card`, the
+ * decisions card it opened. What was noted for an earlier turn of the session is dropped. Written aside and renamed.
+ */
+export async function noteTurnRenewal(recordFile, record, fields) {
+  const file = turnRenewalFile(recordFile);
+  if (!file || typeof record?.turnId !== 'string' || typeof record.sessionId !== 'string') return;
+  const earlier = await readTurnRenewal(file);
+  const same = earlier?.turnId === record.turnId && earlier.sessionId === record.sessionId ? earlier : {};
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify({ ...same, ...fields, kind: TURN_RENEWAL, sessionId: record.sessionId, turnId: record.turnId }), { flag: 'wx', mode: 0o600 });
+    // A reader on Windows can hold the file a moment, as with the turn's own records.
+    await replaceWithSharingRetry(temporary, file);
+  } finally { await unlink(temporary).catch(() => {}); }
 }

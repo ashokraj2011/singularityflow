@@ -4378,6 +4378,8 @@ async function decisionWitnessCommand(positionals, options) {
       })
     }
   );
+  // A person's sign-off, which no chat may give, renews the Copilot turn whose decisions card asked for it [owner, 2026-11-16].
+  await import('./copilot-mutation-guard.mjs').then((guard) => guard.renewTurnAfterCardAnswer(root, id)).catch(() => {});
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded ${record.id}: the ${record.method} of ${record.file} ${record.outcome === 'met' ? 'witnesses' : 'does not witness'} ${record.clauseId} slot ${record.slot}, bound to its current bytes.`);
     console.log(publication.pushed

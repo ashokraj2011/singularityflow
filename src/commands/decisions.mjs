@@ -667,6 +667,8 @@ async function record(root, options, workId, io) {
     // An answers file is what VS Code's and Copilot CLI's decisions cards write; the terminal asks or takes flags.
     const channel = optionString(options, 'answers') ? 'decisions-card' : 'terminal';
     const outcome = await runDecisionPlan(plan, (effect, step, produced) => applyEffect(root, config, workflow, effect, step, produced, { actor, agent, channel }));
+    // The person's answer on the card restarts the window of the Copilot turn that opened it [owner, 2026-11-16].
+    if (channel === 'decisions-card') await import('../copilot-mutation-guard.mjs').then((guard) => guard.renewTurnAfterCardAnswer(root, workflow.workItem.id)).catch(() => {});
     const isDraft = (entry) => entry.kind === 'intent-amendment-draft';
     // The same convergence answer again records nothing [SCS:REQ-034]: said so, never counted as recorded.
     const stepOf = (item) => plan.steps.find((step) => step.item === item);

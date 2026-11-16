@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, rm, stat as fileStat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
-import { copilotModeFile, hookCliLine, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
+import { copilotModeFile, hookCliLine, mentionsHookCli, readCopilotMode, TURN_WINDOW_MS, turnWindowStart, withTurnRenewal } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { platformPathWithin } from './util.mjs';
@@ -17,7 +17,7 @@ const FAMILY = 'copilot-repository-boundary';
  * that could not record a turn keeps failing closed until a working one handles the next prompt.
  */
 export const RUNTIME_UNAVAILABLE_MARKER = 'runtime-unavailable';
-const MAX_AGE_MS = 30 * 60 * 1000;
+const MAX_AGE_MS = TURN_WINDOW_MS;
 const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent']);
 const BUNDLED_AGENTS = new Set(['sflow-workflow', 'sflow-utility', 'sflow-source-reviewer']);
 // The turns whose typed words are kept as what the person asked for (asked-for.mjs ASKED_FOR_SKILLS).
@@ -124,6 +124,7 @@ async function removeMutationRecord(file) {
   const mutation = file.replace(/\.json$/u, '.mutation.json');
   await removeRecord(mutation);
   await removeRecord(file.replace(/\.json$/u, '.answers.json'));
+  await removeRecord(file.replace(/\.json$/u, '.renewal.json'));
   // A scanner holding an advisory hint must not block native chat or reopen an ended turn.
   // The authority record is already gone; the next explicit capture retries this cleanup.
   await rm(`${mutation}.issued`, { recursive: true, force: true }).catch(() => {});
@@ -410,8 +411,10 @@ async function currentTurn(payload, now = Date.now()) {
     if (record.sessionId !== sessionId(payload) || typeof record.skill !== 'string'
         || explicitSflowSkill(`/${record.skill}`) !== record.skill
         || record.modeChangedAt !== mode.changedAt || !Number.isFinite(record.recordedAt)
-        || now < record.recordedAt || now - record.recordedAt > MAX_AGE_MS) return null;
-    return record;
+        || now < record.recordedAt) return null;
+    // From its prompt, or from the person's last answer in it (copilot-mode.mjs TURN_WINDOW_MS).
+    const renewed = await withTurnRenewal(record, file, now);
+    return now - turnWindowStart(renewed) > MAX_AGE_MS ? null : renewed;
   } catch { return null; }
 }
 

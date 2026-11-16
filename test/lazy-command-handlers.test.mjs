@@ -1026,7 +1026,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,273,400 (measured 4,273,377): SPEC-OSA stage 1 (+1,915): the one "being written" test (phase-generation-need.mjs),
   // the open-version helper (code-delivery-policy.mjs) and the step's work command on the task's own entry
   // (workflow-task-store.mjs, phase-authoring-progress.mjs) [OSA Stage 1]. No new eager file.
-  assert.ok(current.bytes <= 4_273_400, `session current loads ${current.bytes} source bytes`);
+  // 4,273,500 (measured 4,273,495): that stage merged with main f43ff5615 (+118 on the stage's own 4,273,377): main's
+  // git-query.mjs +510, command-registry.mjs -401, ledger-config.mjs +9. No new eager file.
+  assert.ok(current.bytes <= 4_273_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

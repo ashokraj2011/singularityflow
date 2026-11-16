@@ -6,6 +6,7 @@ import { phaseHandoff, requestedSuccessorAction, requestedSuccessorEligible } fr
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
+import { successorGenerationOpen } from './phase-generation-need.mjs';
 import { reviewContinuation } from './review-continuation.mjs';
 import { phaseAuthoringEntry } from './phase-authoring-entry.mjs';
 
@@ -28,6 +29,7 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
   }
   let reviewError = null;
   const sourceReviewEvidence = phase.status === 'in_progress' && phase.generation > 0 && sourceReviewRequired(workflow, phase.id)
+    && !successorGenerationOpen(phase)
     ? await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phase.id).catch(error => {
       reviewError = { code: error.code ?? null, message: error.message }; return null;
     }) : null;

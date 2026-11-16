@@ -7,6 +7,16 @@
  */
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 
+/**
+ * Whether the step's next version is open: confirmed and being written, not yet published. Its published version's
+ * review asked for it and is already carried into it, so that review is not inspected or offered again.
+ */
+export function successorGenerationOpen(phase) {
+  const intent = phase?.generationIntent;
+  return intent?.status === 'open' && Number.isSafeInteger(Number(intent.generation))
+    && Number(intent.generation) > Number(phase.generation ?? 0);
+}
+
 export function phaseNeedsGeneration(workflow, phase) {
   if (sourceReviewAuthorConflict(workflow, phase)) return true;
   // A reviewed skill-version amendment invalidates only its affected phases. Their earlier

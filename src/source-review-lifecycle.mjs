@@ -72,10 +72,10 @@ async function checkedFile(root, relative, label, expectedSha256 = null, { maxBy
   }
   let bytes = await readFile(secured.absolute);
   const committed = committedSourceReviewFile(root, relative);
-  // A checkout that rewrote line endings (core.autocrlf) differs from Git only in CR bytes; the
-  // committed bytes are the ones the catalog pinned, so review those.
-  if (committed.status === 0 && Buffer.isBuffer(committed.stdout) && !committed.stdout.equals(bytes)
-      && sameIgnoringLineEndings(committed.stdout, bytes)) bytes = committed.stdout;
+  // A review reads what was published: the committed bytes. The checkout's copy may lawfully differ: line endings
+  // rewritten on checkout (core.autocrlf), or the step's next version already being written after a review asked
+  // for corrections [real Story, 2026-11-16]. A file the commit does not hold still stops below.
+  if (committed.status === 0 && Buffer.isBuffer(committed.stdout) && !committed.stdout.equals(bytes)) bytes = committed.stdout;
   if (bytes.length > maxBytes) throw new SingularityFlowError(`${label} exceeds the review source byte limit.`, {
     code: 'SOURCE_REVIEW_INPUT_TOO_LARGE'
   });

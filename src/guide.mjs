@@ -2,6 +2,7 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import { decisionsCardAction, intentAmendmentProposable } from './intent-amendment-pause.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
+import { successorGenerationOpen } from './phase-generation-need.mjs';
 import { copilotAction, directCopilotSkill } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -85,6 +86,13 @@ export function phaseHandoff(workflow, phase, {
   }) : null;
   const withView = (actions) => view ? [...actions, view] : actions;
   const noApproval = phase.approvalPolicy?.mode === 'none';
+  // The step's next version is open: writing it is the next step. Its published version's review is already carried
+  // into it, so that review is not offered again [real Story, 2026-11-16].
+  if (workflow.currentPhase === phase.id && phase.status === 'in_progress' && successorGenerationOpen(phase)) {
+    const skill = generationSkillForPhase(phase, workflow);
+    if (skill) return withView([copilotAction({ skill, command: `singularity-flow prepare ${phase.id}`,
+      reason: `Write version ${phase.generationIntent.generation} of ${phase.id}, then publish it.` })]);
+  }
   const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
   if (convergenceRoute) return withView([copilotAction(convergenceRoute)]);
   // A phase document display must not send reopened authoring back to its old review.

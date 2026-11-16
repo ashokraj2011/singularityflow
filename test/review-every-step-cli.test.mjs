@@ -145,6 +145,17 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   const entry = sflowJson('phase', 'enter', 'implement', '--compose');
   assert.doesNotMatch(JSON.stringify(entry.value), /SOURCE_REVIEW_RECORD_UNPUBLISHED/u, JSON.stringify(entry.value).slice(0, 3000));
   assert.doesNotMatch(JSON.stringify(entry.value), /attention-required/u, JSON.stringify(entry.value.act ?? entry.value).slice(0, 3000));
+  // Its author prepares version 2, which rewrites the step's summary in the checkout; a new chat's next step is
+  // still to write version 2, and the code step's entry is still not held [incident 2026-11-16, 13:50].
+  sflow('prepare', 'implement');
+  const prepared = sflowJson('phase', 'enter', 'implement', '--compose');
+  assert.doesNotMatch(JSON.stringify(prepared.value), /SOURCE_REVIEW_INPUT_UNPUBLISHED|SOURCE_REVIEW_RECORD_UNPUBLISHED|attention-required/u,
+    JSON.stringify(prepared.value.authoring?.entry ?? prepared.value.act ?? null).slice(0, 3000));
+  const session = sflowJson('nextsteps', 'QF-1');
+  assert.doesNotMatch(JSON.stringify(session.value.act ?? session.value).slice(0, 4000), /review-source/u,
+    `with version 2 open, the next step writes it; version 1 is not offered for review again: ${JSON.stringify(session.value.actions?.[0] ?? null)}`);
+  const status = sflowJson('review-source', 'status', 'implement');
+  assert.doesNotMatch(JSON.stringify(status.value), /SOURCE_REVIEW_INPUT_UNPUBLISHED/u, JSON.stringify(status.value).slice(0, 3000));
 
   // Generation 2 corrects it; its own review is ready, and the step submits.
   await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 — return the approved value 2, as the intake asks\nexport const value = 2;\n');

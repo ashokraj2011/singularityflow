@@ -283,7 +283,7 @@ Each cell is backed by the file and line in §3 (b1–b41). The rows marked "not
 | C5 open work has no task | **Fixed** (`13066fe33`; `5baaba5d1` for kernel-built) | `step-being-written:99` |
 | C6 sflow-code text routes to recover | **Fixed** (`322fca509`) | `sflow-code/SKILL.md:21` |
 | C7 entry and guard use different tests | **Fixed** for the grant (`13066fe33`, `f749b5fed`) | Remains: the guard's `next` without a handoff (§6 finding 1) |
-| C8 correction after rework: no consent | **Open**, stage 2 | Journey F KNOWN_BAD `osa-stage-2` |
+| C8 correction after rework: no consent | **Fixed**, stage 2 ([stage2.md](stage2.md) §6 item 2) | Journey F checks 2 and 3; the KNOWN_BAD `osa-stage-2` entry is removed |
 | C9 kernel-built step: competing routes | Partly (`5baaba5d1`) | b25 /sf-publish, b18 `phase enter --compose` |
 | C10 typed name decides the turn | **Open**, stage 4 | `sflow-phase` L20, `sflow-next` L21 ([alias-matrix.md](alias-matrix.md)) |
 | C11 one refusal, several skills | Partly | Changed bytes: the refusal says /sf-code but the preview says /sf-recover (b34, b23); b13; b39 |
@@ -292,7 +292,7 @@ Each cell is backed by the file and line in §3 (b1–b41). The rows marked "not
 | C14 rollover offered while submitted | **Open** | `phase-governance-routing.mjs:42-46` |
 | C15 phase changes during the turn | Now the adopted rule (D7, REQ-050) | `copilot-mutation-guard.mjs:237-243`; prefill in a new turn |
 | C16 window expires during work | **Fixed** for a person's answers (`7436ec3ff`) | Long runs: REQ-051, stage 3 |
-| C17 local vs shared opening | **Open**, stage 2 | `saveStoryDraft`: `phase-lifecycle.mjs:196`, :225; `requested-successor.mjs:143`, :154; `own-correction-rollover.mjs:106`, :112 |
+| C17 local vs shared opening | **Fixed**, stage 2 ([stage2.md](stage2.md) §3) | Every opening is one committed and pushed operation (`story-version-opening.mjs`); a legacy local opening is promoted on the person's yes (§5) |
 | C18 last phase with an open successor | **Fixed** (`13066fe33`) | `step-being-written:155` |
 | C19 agent-guard hook | **Open** | `agent-hooks.mjs:459-470` |
 | C20 author conflict: an impossible route | **Open** | `phase-governance-routing.mjs:47-49` |

@@ -3,6 +3,7 @@
 These are the implementation records for [SPEC-OSA v1.1](../SPEC-OSA-ONE-STEP-AUTHOR-v1.1.md):
 - **Stage 0** (section 13; plan section 2), on branch `osa-s0`, from `d7a976821`. It records the baseline.
 - **Stage 1** (plan section 3), on branch `osa-v11-s1`, from `293a2e9a8`: [stage1.md](stage1.md) and [stage1-perf.md](stage1-perf.md). See "Stage 1" at the end.
+- **Stage 2** (plan section 4), on branch `osa-v11-s2`, from `90e7095cc`: [stage2.md](stage2.md). See "Stage 2" at the end.
 
 ## The records
 
@@ -25,8 +26,8 @@ The fixture ids follow SPEC-OSA v1 §1. Each expected action is written by hand 
 |---|---|---|---|---|
 | OSA-INC-1 | A review asked for before writing went to help | `not-started`: open version 1, agent, no consent | C | passing |
 | OSA-INC-2 | The card's wait ended the 30-minute window | `writing`: the turn goes on after the answer | E (D for the card) | passing; long runs are Stage 3 |
-| OSA-INC-3 | Corrections were sent to `/sf-recover` | `review-corrections`: the person's consent for version 2 | B | passing; the receipt is Stage 2 |
-| OSA-INC-4 | Version 2 was held as "review record unpublished" | `writing` version 2 | B | passing; promotion of the local opening is Stage 2 |
+| OSA-INC-3 | Corrections were sent to `/sf-recover` | `review-corrections`: the person's consent for version 2 | B | passing; Stage 2 records the person's consent receipt |
+| OSA-INC-4 | Version 2 was held as "review record unpublished" | `writing` version 2 | B | passing; Stage 2 promotes a legacy local opening on the person's yes |
 | OSA-INC-5 | Held again, and `/sf-session` offered version 1's review | `writing` version 2, the same on every surface | B, plus `review-every-step-cli` | in part: `session open` is not among the journey's views (Stage 3) |
 | OSA-INC-6 | The entry said author while the permission said recover, and it looped | `writing` version 2; entry, permission and guard agree | B (and F, G through the guard) | passing; the guard's `next` lacks the handoff |
 | OSA-INC-7 | A kernel-built step was sent to a skill that would not build it | `kernel-build`: the deterministic build | B (Verify), A | in part: `osa-stage-3-c9` `/sf-publish`, session resume |
@@ -34,8 +35,8 @@ The fixture ids follow SPEC-OSA v1 §1. Each expected action is written by hand 
 
 | Journey | Covers | Stage |
 |---|---|---|
-| H | A shared opening becomes visible after another checkout refreshes | 2 |
-| I | The same consent rule for document corrections | 2 |
+| H | A shared opening becomes visible after another checkout refreshes | 2: `test/osa-stage2-journey-h.test.mjs` |
+| I | The same consent rule for document corrections | 2, in part: the rule and its operation are tested (journey H opens a document successor; `requested-successor-document-cli`), the review-driven walk is not |
 | J | A fresh-chat `/sf-next` does the step's work without a relay | 4 |
 
 ## Exit gate
@@ -142,3 +143,24 @@ Node 22.14.0, through the isolated runner at concurrency 2. No touched set and n
 **A red the stage fixed:** `publication-preflight`, "prepare refuses a consumed code generation", red at `293a2e9a8` ([stage1.md](stage1.md) §7).
 
 **Not run:** the full suite and the weekly Node 26 run, which are the owner's heavy run at the end.
+
+## Stage 2
+
+| # | Deliverable | Where |
+|---|---|---|
+| 1 | The proposal, the consent receipt and the guard's grant | [stage2.md](stage2.md) §2 |
+| 2 | The one opening operation and its checkpoints | [stage2.md](stage2.md) §3 |
+| 3 | The writer fence and the verified takeover | [stage2.md](stage2.md) §4 |
+| 4 | Legacy local openings | [stage2.md](stage2.md) §5 |
+| 5 | Findings and the decisions taken | [stage2.md](stage2.md) §6 |
+| 6 | Ratchet, budgets, compatibility and acceptance rows | [stage2.md](stage2.md) §7–§9 |
+
+**Exit gate (plan section 4).**
+
+| Gate item | Result |
+|---|---|
+| REQ-030–REQ-034 and AC-015–AC-017 pass | **Met** ([stage2.md](stage2.md) §9), with one owner question: the own correction opens settled, without a yes (§6 item 1) |
+| No opening or consent manufactured from local JSON | **Met:** receipts, grants and checkpoints are sealed per clone; a hand-written pointer grants nothing |
+| Journey F's `osa-stage-2` KNOWN_BAD removed | **Met:** journey F passes all four checks, journey G passes |
+
+The targeted runs are listed in [stage2.md](stage2.md) §10. **Not run:** the full suite and the weekly Node 26 run, which are the owner's heavy run at the end.

@@ -648,7 +648,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (util.mjs unknownStepDetails +880, its callers in phase-lifecycle, submit, prepare and phase-show) [2026-11-16]. No new eager file.
     // 9,678,100 (measured 9,678,093): the registered worktree list a reset reads for each workspace clone's linked
     // worktrees (git-query.mjs repository.worktrees, +520; SCF:REQ-021, D10) [2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_680_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,683,250 (measured 9,683,207): a review's next step in SFlow's own words and one turn [owner, 2026-11-16]: its
+    // "Now — <label>" block, plain labels and the findings the next version is authored with (source-review-continuation.mjs
+    // +3,661), `phase rollover` as the step author's route (code-delivery-policy.mjs +457, copilot-guidance.mjs +466,
+    // command-skills.mjs +326, safe-command-guidance.mjs +260, phase-governance-routing.mjs +132, commands/phase-lifecycle.mjs
+    // +50, state.mjs +15) and the code author's route for an undelivered code step (recovery-plan.mjs +267) add 5,634.
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_685_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1004,7 +1010,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,269,550 (measured 4,269,516): a step name typed by mistake names the Story's steps (util.mjs unknownStepDetails +880)
   // [2026-11-16]. No new eager file.
   // 4,268,700 (measured 4,268,681): the same registered worktree list (git-query.mjs +520) [2026-11-16]. No new eager file.
-  assert.ok(current.bytes <= 4_270_050, `session current loads ${current.bytes} source bytes`);
+  // 4,269,700 (measured 4,269,670): `phase rollover` as the step author's route, with its step in the Copilot route
+  // (code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs +260)
+  // adds 1,509 [owner, 2026-11-16]. No new eager file.
+  assert.ok(current.bytes <= 4_271_550, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

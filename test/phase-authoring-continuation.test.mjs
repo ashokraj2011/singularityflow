@@ -102,12 +102,14 @@ test('human dispositions, stale bindings and submitted phases never become autom
 });
 
 test('code and sign-off phases never receive implicit document successor preparation', () => {
-  for (const change of [p => { p.generationPolicy.task = 'code'; p.generationIntent = { status: 'consumed', generation: 1 }; },
-    p => { p.generationPolicy.requirement = 'none'; }]) {
+  // A code step asks the person to start its next version instead (owner, 2026-11-16); neither prepares a document successor.
+  for (const [change, status] of [[p => { p.generationPolicy.task = 'code'; p.generationIntent = { status: 'consumed', generation: 1 }; }, 'successor-confirmation-required'],
+    [p => { p.generationPolicy.requirement = 'none'; }, 'retained-generation']]) {
     const workflow = story('custom-step'), phase = workflow.phases['custom-step']; change(phase);
     const entry = phaseAuthoringEntry(workflow, phase, { review: { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] } });
-    assert.equal(entry.status, 'retained-generation');
+    assert.equal(entry.status, status);
     assert.equal(entry.preparation, undefined);
+    assert.equal(entry.successor?.preparation, undefined);
   }
 });
 

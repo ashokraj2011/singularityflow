@@ -2638,9 +2638,10 @@ test('recovery reports an unsupported native test runner before publication is a
   const action = plan.actions.find((entry) =>
     entry.id === 'repair-repository-test-runner:implementation');
   assert.equal(action?.mode, 'guided');
-  assert.equal(action?.command, 'singularity-flow phase show implementation --json');
-  assert.equal(action?.skill, '/sf-phase-documents');
-  assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-phase-documents implementation');
+  // The runner is repaired by the code author, in scope: a view of the step's documents repaired nothing (owner, 2026-11-16).
+  assert.equal(action?.command, 'singularity-flow prepare implementation');
+  assert.equal(action?.skill, '/sf-code');
+  assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-code');
   assert.match(action.detail, /repository-owned test script/);
   assert.match(action.detail, /authorized reviewer can preview story test-policy amend/);
   assert.match(action.detail, /original configuration authority/);

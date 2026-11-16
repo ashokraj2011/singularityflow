@@ -120,6 +120,8 @@ export async function reviewSourceCommand(positionals, options) {
     if (status.reportSha256) console.log(`Report: kept in ${reportFolder(status.reportPath)}`);
     for (const finding of status.findings) console.log(`- ${finding.code}: ${finding.message}`);
     for (const pending of status.pendingDispositions) console.log(`- Human decision pending: ${pending.id} — ${pending.reason}`);
+    // The next step in SFlow's own words, "Now — <label>" and its routes (owner, 2026-11-16).
+    if (status.continuation?.presentation) console.log(`\n${status.continuation.presentation.replaceAll('`', '')}`);
     return emitReview('status', noop('source-review.status-reported', {
       workId: workflow.workItem.id, phase: phaseId, status: status.status
     }), false, status);
@@ -235,6 +237,7 @@ export async function reviewSourceCommand(positionals, options) {
     console.log(`Source review retained for ${workflow.workItem.id} ${phaseId} generation ${phase.generation}, in ${reportFolder(retained.path)}`);
     console.log(`Committed${publication.pushed ? ' and pushed' : ' locally'}.`);
     console.log(`Status: ${status.status}; ${status.findings.length} finding(s), ${status.pendingDispositions.length} human decision(s) pending.`);
+    if (status.continuation?.presentation) console.log(`\n${status.continuation.presentation.replaceAll('`', '')}`);
     return emitReview('submit', succeeded('source-review.submitted', {
       workId: workflow.workItem.id, phase: phaseId, reportSha256: retained.reportSha256
     }), true, result);

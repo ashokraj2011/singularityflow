@@ -304,7 +304,9 @@ function plannedNextSteps(workflow, {
       : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : index > 0 ? 'then' : 'now',
     item.skill,
     item.command,
-    item.reason, item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {}
+    item.reason, { ...(item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {}),
+      // A plain label its producer gave ("Fix the review's findings (version 2)") is what the person reads.
+      ...(item.label ? { label: item.label } : {}) }
   ));
   const held = decisionHold(workflow, phase, pendingDecisions);
   if (phase.status === 'awaiting_approval') {

@@ -380,9 +380,11 @@ export function safeCommandGuidance(value) {
   const allowedSkills = new Set([canonicalSkill]);
   const phaseId = safe.argv[0] === 'prepare'
     ? safe.argv[1]
-    : safe.argv[0] === 'phase' && ['begin', 'publish', 'draft-check', 'prepublish', 'show'].includes(safe.argv[1])
+    : safe.argv[0] === 'phase' && ['begin', 'publish', 'draft-check', 'prepublish', 'show', 'rollover'].includes(safe.argv[1])
       ? safe.argv[2]
       : null;
+  // A confirmed rollover is also the recovery plan's own route (`recover` returns it for changed published bytes).
+  if (safe.argv[0] === 'phase' && safe.argv[1] === 'rollover' && safe.argv.includes('--confirm')) allowedSkills.add('/sf-recover');
   // A repository names its steps freely, and names confer no authority: a step called anything may
   // deliver code or be the engine's convergence step, and only its pinned structure says which.
   // `/sf-code`, `/sf-converge` and every listed authoring skill re-read the step's verified route

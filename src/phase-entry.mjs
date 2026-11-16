@@ -24,10 +24,12 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const result = await completePhaseEntry(entry, base, { compose, modelEnabled });
   const taskCompletion = (await import('./phase-authoring-progress.mjs')).phaseTaskCompletion(result);
   const { resumeWorkflowTask } = await import('./workflow-task-store.mjs');
+  // A published generation, also while the person is asked to start its next one.
+  const published = ['retained-generation', 'successor-confirmation-required'].includes(result.authoring?.entry?.status);
   const taskResume = await resumeWorkflowTask(entry.root, entry.workflow, entry.phase, {
-    generation: taskCompletion?.generation ?? (result.authoring?.entry?.status === 'retained-generation' ? entry.phase.generation : base.inspectionGeneration),
+    generation: taskCompletion?.generation ?? (published ? entry.phase.generation : base.inspectionGeneration),
     progress: taskCompletion,
-    published: result.authoring?.entry?.status === 'retained-generation',
+    published,
     blocked: taskCompletion?.state === 'blocked' ? { code: result.documentReadiness?.status === 'ready'
       ? 'PHASE_ENTRY_NOT_ADMITTED' : result.documentReadiness ? 'DOCUMENT_REUPLOAD_REQUIRED' : 'PHASE_ENTRY_NOT_ADMITTED',
     nextAction: taskCompletion.nextAction } : null

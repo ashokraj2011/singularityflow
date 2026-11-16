@@ -19,7 +19,7 @@ import { phasePrepublish, prepublishTestExecutionLines } from '../phase-prepubli
 import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { phaseDraftCheck } from '../phase-draft-check.mjs';
 import { operationContext } from '../operation-context.mjs';
-import { phaseRequiresCodeDelivery, generationSkillForPhase, applicationReviewOffer, codeOutcomeReviewOffer } from '../code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery, generationSkillForPhase, applicationReviewOffer, codeOutcomeReviewOffer, successorSkillForPhase } from '../code-delivery-policy.mjs';
 import { agentPublicationProducer, effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact, importManualArtifact, buildGenerationAuthorship } from '../manual-authorship.mjs';
 import { isConvergencePhase } from '../phase-roles.mjs';
 import { assertIntentAmendmentNotPausing } from '../phase-governance-routing.mjs';
@@ -132,7 +132,7 @@ async function phaseSubcommand(positionals, options) {
     // changed since publication, or once a review or an approval exists, the rollover stays the person's.
     if (options.correction !== undefined) {
       if (plan) throw new SingularityFlowError(`Files changed after ${phase.id} generation ${phase.generation} was published, so starting the next generation is the person's to confirm. Preview it: singularity-flow phase rollover ${phase.id} --json.`,
-        { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`, skill: '/sf-recover' } } });
+        { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`, skill: successorSkillForPhase(phase, workflow) } } });
       return (await import('../own-correction-rollover.mjs')).ownCorrectionRollover(root, config, workflow, phase, options);
     }
     // Unchanged published bytes: the next generation opens for a change the person asks for.

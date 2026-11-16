@@ -721,6 +721,27 @@ async function carriedUnreadableDecisions(root, config, workflow, phaseId, input
   return carried;
 }
 
+/**
+ * The retained review of the step's published generation, as the author of its next one reads it: its report, or null.
+ * Once the next generation is open the status no longer carries it (a successor is reviewed after its publication), and
+ * a /sf-code turn opened for the review's findings had none to fix (owner, 2026-11-16). Guidance for the author, never
+ * authority: the committed pointer and record, by their own hashes, without the lifecycle event check that reads the
+ * Story's workflow, which the open generation's draft changes until it is published.
+ */
+export async function retainedReviewReport(root, config, workflow, phaseId) {
+  try {
+    return await withSourceReviewSnapshot(root, async () => {
+      const pointerFile = pointerPath(root, config, workflow, phaseId);
+      if (!(await exists(pointerFile))) return null;
+      const pointer = checkedRecord(await readCommittedJson(root, pointerFile, 'Source review pointer'), 'Source review pointer', 'source-review-pointer');
+      const record = checkedRecord(await readCommittedJson(root, sourceReviewReportPath(root, config, workflow, phaseId, pointer.reportSha256),
+        'Source review record'), 'Source review record', 'source-review-record');
+      return record.reportSha256 === pointer.reportSha256 && recordSha256(record.report) === record.reportSha256
+        && record.phase === phaseId && record.generation === workflow.phases[phaseId].generation ? record.report : null;
+    });
+  } catch { return null; }
+}
+
 /** Read current review and decisions, then recompute all source and artifact bindings. */
 export async function readSourceReviewStatus(root, config, workflow, phaseId) {
   return withSourceReviewSnapshot(root, () => loadSourceReviewStatus(root, config, workflow, phaseId));

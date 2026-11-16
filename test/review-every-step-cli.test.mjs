@@ -13,6 +13,7 @@ import test from 'node:test';
 
 import { repository } from './helpers/run-and-test-fixture.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { agentAct } from '../src/agent-output.mjs';
 
 const INTAKE = ['# QF-1 — Quick fix scope and plan', '', '## Problem and fix', '', 'The value must be 2; change the exported constant.', '',
   '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', '| [QF-1:AC-001] | The exported value equals 2. |', '',
@@ -124,6 +125,19 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   assert.equal(corrected.status, 'correction-required');
   assert.ok(corrected.findings.some((entry) => entry.code === 'reviewer-blocker'));
   assert.ok(!corrected.findings.some((entry) => /name-the-constant/u.test(entry.message)), 'an advisory design note does not hold the step');
+  // Its next step in SFlow's own words, ready to relay, and one turn: /sf-code, never /sf-recover (owner, 2026-11-16).
+  assert.deepEqual([corrected.continuation.nextSkill, corrected.continuation.copilotCommand], ['/sf-code', '/sf-code implement']);
+  assert.equal(corrected.continuation.presentation, ["Now — Fix the review's findings (version 2)", '- Copilot: `/sf-code implement`',
+    '- Shell: `singularity-flow phase rollover implement`', '- VS Code (model-free): not available for this action'].join('\n'));
+  assert.equal(agentAct(corrected).show, corrected.continuation.presentation, 'a review turn ends on it');
+  assert.match(sflow('review-source', 'status', 'implement'), /Now — Fix the review's findings \(version 2\)\n- Copilot: \/sf-code implement\n/u);
+  // /sf-code's entry asks the person to start version 2, with the review's findings and where each points.
+  const asking = sflowJson('phase', 'enter', '--compose', '--for-agent').value;
+  assert.equal(asking.status, 'successor-confirmation-required', JSON.stringify(asking).slice(0, 3000));
+  assert.equal(asking.successor.question, "Start version 2 to fix the review's findings? Version 1 and its tests stay.");
+  assert.deepEqual(asking.successor.findings.map((entry) => [entry.id, entry.check, entry.at]), [['explain-the-value', 'plan', 'src/value.mjs:1']]);
+  const ask = (asking.act ?? agentAct(asking));
+  assert.deepEqual([ask.state, ask.ask.question, ask.do.shell], ['confirm', asking.successor.question, 'singularity-flow phase rollover implement --json']);
 
   // The refusal leads with the in-step route: the reviewed rollover to generation 2, with the review as its reason.
   const held = sflowJson('submit', 'implement');
@@ -140,6 +154,16 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   const opened = sflowJson('phase', 'rollover', 'implement', '--confirm', preview.value.confirmation);
   assert.equal(opened.status, 0, JSON.stringify(opened.value));
   assert.equal(opened.value.generationIntent.generation, 2);
+  // Version 2 is authored with the review of version 1 loaded, and its act says to fix each finding.
+  const fixing = sflowJson('phase', 'enter', '--compose', '--for-agent').value;
+  assert.deepEqual(fixing.reviewCorrection, { generation: 1, findings: asking.successor.findings }, JSON.stringify(fixing).slice(0, 3000));
+  // Recovery right after the rollover, before anything changed (owner's run, 11:00): nothing changed yet is expected, and
+  // the route is the code author, never a view of the step's documents.
+  const recovery = sflowJson('recover', 'QF-1', '--phase', 'implement').value;
+  const routes = [...(recovery.actions ?? []), ...(recovery.act ? [recovery.act.do ?? {}] : [agentAct(recovery)?.do ?? {}])];
+  assert.ok(!JSON.stringify(routes).includes('/sf-phase-documents'), JSON.stringify(routes).slice(0, 3000));
+  const delivery = (recovery.actions ?? []).find((entry) => entry.id === 'complete-code-delivery:implement');
+  assert.deepEqual([delivery?.skill, delivery?.command], ['/sf-code', 'singularity-flow prepare implement'], JSON.stringify(recovery.actions).slice(0, 3000));
   // The rollover changed the Story record in the checkout, uncommitted; the entry to generation 2 still reads
   // generation 1's review from the commit, so the code step is not held as unverifiable [incident 2026-11-16].
   const entry = sflowJson('phase', 'enter', 'implement', '--compose');

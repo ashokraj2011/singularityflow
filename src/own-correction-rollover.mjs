@@ -52,7 +52,7 @@ const subjectOf = (phase) => `${phase.id} generation ${Number(phase.generation)}
  * with the person's route when it is not the author's alone.
  */
 export async function ownCorrectionRollover(root, config, workflow, phase, options) {
-  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }] = await Promise.all([import('./util.mjs'), import('./code-delivery-policy.mjs')]);
+  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery, successorSkillForPhase }] = await Promise.all([import('./util.mjs'), import('./code-delivery-policy.mjs')]);
   const correction = String(optionString(options, 'correction') ?? '').replace(/\s+/gu, ' ').trim();
   if (correction.length < MINIMUM || correction.length > MAXIMUM) {
     refuse(`--correction says what the published draft gets wrong and what it contradicts, in ${MINIMUM} to ${MAXIMUM} characters.`, 'GENERATION_CORRECTION_REASON_REQUIRED');
@@ -63,7 +63,7 @@ export async function ownCorrectionRollover(root, config, workflow, phase, optio
   const hold = await ownCorrectionHold(root, config, workflow, phase);
   if (hold) refuse(`${hold.words} Preview the next generation for it and ask the person: singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json.`, hold.code, {
     phase: phase.id, generation: phase.generation,
-    nextAction: { command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`, skill: '/sf-recover',
+    nextAction: { command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`, skill: successorSkillForPhase(phase, workflow),
       label: `Preview generation ${Number(phase.generation) + 1} of ${phase.id} for the correction, then ask the person to confirm it.` } });
   const code = phaseRequiresCodeDelivery(phase);
   const from = Number(phase.generation);

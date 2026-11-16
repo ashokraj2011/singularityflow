@@ -4,7 +4,7 @@ import { commandArgv } from '../commands.ts';
 export type GenerationSkill = `/sf-${string}`;
 
 export interface PhaseSubmissionPresentation {
-  kind: 'generation-required' | 'source-review-required' | 'step-action-required' | 'ready-to-submit' | 'unavailable';
+  kind: 'generation-required' | 'source-review-required' | 'task-waiting' | 'step-action-required' | 'ready-to-submit' | 'unavailable';
   statusLabel: string;
   detail: string;
   generation: number | null;
@@ -109,6 +109,17 @@ export function phaseSubmissionPresentation(
     };
   }
   const skill = generationSkill(exact?.nextSkill);
+  // The step's task waits for a person, its environment or an input (SPEC-OSA §8): the engine's route for that wait,
+  // the one every other view names [OSA:REQ-020].
+  if (exact?.classification === 'task-waiting') {
+    return {
+      kind: 'task-waiting',
+      statusLabel: `${phase.label} waits before it goes on`,
+      detail: exact.reason ?? 'its task waits for a person, its environment or an input',
+      generation: exact.currentGeneration,
+      skill
+    };
+  }
   if (exact && skill && (exact.classification === 'generation-required'
       || exact.reasonCode === 'PHASE_GENERATION_REQUIRED')) {
     return {
@@ -124,12 +135,17 @@ export function phaseSubmissionPresentation(
   if (exact?.publicationRecorded && exact.lifecycleReady === false
       && exact.classification === 'source-review-required') {
     const published = exact.publishedGeneration ?? phase.generation;
+    // The engine's route is kept whatever skill it names: a review that asked corrections starts the next version in
+    // the step's own work command, on the person's yes (SPEC-OSA b27, S4b, S10) [OSA:REQ-020].
+    const corrections = Boolean(skill) && skill !== '/sf-review-source';
     return {
       kind: 'source-review-required',
-      statusLabel: `Published generation ${published} — source review required`,
-      detail: 'independent source review must be recorded before submission',
+      statusLabel: corrections ? `Published generation ${published} — its review asked for corrections`
+        : `Published generation ${published} — source review required`,
+      detail: corrections ? 'the next version starts only on your yes; the published one stays as it is'
+        : 'independent source review must be recorded before submission',
       generation: published,
-      skill: skill === '/sf-review-source' ? skill : null
+      skill
     };
   }
   if (exact?.publicationRecorded) {

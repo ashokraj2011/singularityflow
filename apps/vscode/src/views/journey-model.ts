@@ -263,7 +263,7 @@ function storyJourneyOf(
     ? routedCommandGuidance({ command: readiness.nextCommand, skill: '/sf-submit' })
     : presentation?.kind === 'generation-required' && presentation.skill && readiness?.nextCommand
       ? routedCommandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
-      : presentation?.kind === 'source-review-required' && presentation.skill && readiness?.nextCommand
+      : (presentation?.kind === 'source-review-required' || presentation?.kind === 'task-waiting') && presentation.skill && readiness?.nextCommand
         ? routedCommandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
       : presentation?.kind === 'step-action-required' && readiness?.nextCommand
         ? routedCommandGuidance({ command: readiness.nextCommand, skill: readiness.nextSkill ?? '/sf-integrations' })
@@ -372,7 +372,20 @@ function storyJourneyOf(
               copyable: actionRoutes.copyable,
               ...(actionRoutes.modelFreeCommand ? { modelFreeCommand: actionRoutes.modelFreeCommand } : {}),
               reason: presentation.statusLabel,
-              label: `Review ${currentStage?.label ?? 'current phase'} against its sources`,
+              label: presentation.skill === '/sf-review-source' ? `Review ${currentStage?.label ?? 'current phase'} against its sources`
+                : `Start the next version of ${currentStage?.label ?? 'the current phase'} for its review's findings`,
+              execution: 'prefill', skill: actionRoutes.skill
+            }
+        : presentation?.kind === 'task-waiting' && actionRoutes
+          ? {
+              command: actionRoutes.command,
+              executable: actionRoutes.executable,
+              argv: actionRoutes.argv,
+              copilotCommand: actionRoutes.copilotCommand,
+              copyable: actionRoutes.copyable,
+              ...(actionRoutes.modelFreeCommand ? { modelFreeCommand: actionRoutes.modelFreeCommand } : {}),
+              reason: presentation.detail,
+              label: `Go on with ${currentStage?.label ?? 'the current phase'}`,
               execution: 'prefill', skill: actionRoutes.skill
             }
         : null,

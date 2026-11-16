@@ -869,11 +869,25 @@ function storyPhaseActions(
     description: presentation.detail, icon: 'statusWaiting'
   }, ...(presentation.skill ? [{
     kind: 'action' as const, id: `story:${phase.id}:review-source`,
-    label: `Review ${phase.label} against its sources`,
+    label: presentation.skill === '/sf-review-source' ? `Review ${phase.label} against its sources` : `Start the next version of ${phase.label} for its review's findings`,
     description: `prefill ${presentation.skill} for your review`, icon: 'sparkle',
     runCommand: 'singularityFlow.prefillStoryPhaseGeneration',
     prefill: presentation.skill,
     contextValue: 'sflow.story.sourceReview'
+  }] : [])];
+
+  // The step's task waits (SPEC-OSA §8): its own route, prefilled for the person to read and send, never sent.
+  if (presentation.kind === 'task-waiting') return [{
+    kind: 'message', id: `story:${phase.id}:task-waiting`,
+    label: presentation.statusLabel,
+    description: presentation.detail, icon: 'statusWaiting'
+  }, ...(presentation.skill ? [{
+    kind: 'action' as const, id: `story:${phase.id}:task-waiting-route`,
+    label: `Go on with ${phase.label}`,
+    description: `prefill ${presentation.skill} for your review`, icon: 'sparkle',
+    runCommand: 'singularityFlow.prefillStoryPhaseGeneration',
+    prefill: presentation.skill,
+    contextValue: 'sflow.story.taskWaiting'
   }] : [])];
 
   if (presentation.kind === 'step-action-required') {

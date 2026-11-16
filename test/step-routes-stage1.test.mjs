@@ -96,3 +96,32 @@ test('phase show\'s continuation never names recover when the readiness read fai
   assert.doesNotMatch(JSON.stringify(continuation.actions), /singularity-flow recover\b|\/sf-recover/u);
 });
 
+// ------------------------------------------------------------------------------------------- item 4: the step's work command
+
+test('a step\'s own commands take its work command: `phase begin` is /sf-code\'s, and `phase enter` accepts the step\'s skill [OSA:REQ-021, C4]', async () => {
+  const { skillForCommandLine } = await import('../src/command-skills.mjs');
+  const { safeCommandGuidance } = await import('../src/safe-command-guidance.mjs');
+  assert.equal(skillForCommandLine('singularity-flow phase begin implement --json'), 'sf-code');
+  const entry = safeCommandGuidance({ argv: ['phase', 'enter', 'implement', '--compose', '--for-agent', '--json'], skill: '/sflow-code' });
+  assert.ok(entry, 'the code step\'s entry by its own work command is a valid route');
+  assert.match(entry.copilotCommand, /^\/sf-code\b/u);
+});
+
+test('the refusals that name writing a code step carry its work command, never /sf-phase or recover [OSA:REQ-021, C4, C11]', async () => {
+  const { requireOpenGenerationIntent } = await import('../src/generation-boundary.mjs');
+  const { refusalRemediationPlan } = await import('../src/refusal-remediation.mjs');
+  const workflow = codeStory({ generation: 0, generationIntent: undefined, generationPublications: [] });
+  let refused = null;
+  try { requireOpenGenerationIntent(workflow, workflow.phases.implement); } catch (error) { refused = error; }
+  assert.equal(refused?.code, 'GENERATION_INTENT_REQUIRED');
+  assert.equal(refused.details.nextAction.skill, '/sflow-code');
+  const [first] = refusalRemediationPlan(refused, ['phase', 'publish', 'implement']).steps;
+  assert.equal(first.command, 'singularity-flow phase begin implement --json');
+  assert.match(first.copilotCommand, /^\/sf-code\b/u);
+  // The task a resumed chat is given for a code step names its work command too.
+  const { workflowTaskResume } = await import('../src/workflow-task.mjs');
+  const open = codeStory({ generation: 1, generationIntent: { status: 'open', generation: 2 } });
+  const resume = workflowTaskResume(open, open.phases.implement, { published: false });
+  assert.match(resume?.nextAction?.copilotCommand ?? '', /^\/sf-code\b/u, JSON.stringify(resume?.nextAction ?? resume));
+});
+

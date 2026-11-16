@@ -3,6 +3,7 @@ import { recordSha256 } from './records.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { readRecord, currentSchemaVersion } from './schema-migrations.mjs';
 
 const ROLES = new Set(['author', 'source-reviewer']);
@@ -203,14 +204,18 @@ export function workflowTaskResume(workflow, phase, { role = 'author', generatio
     // Authors still need a fresh read-only draft check: generic recover did not clear the request
     // marker, so its clean entry route returned here forever. A draft check records its findings
     // without replaying publication or bypassing the later prepublish/fresh binding checks.
-    const inspection = role === 'author' ? safeCommandGuidance({ argv: ['phase', 'draft-check', phase.id,
-      '--work-id', identity.workId, '--for-agent', '--json'] }) : null;
+    const check = ['phase', 'draft-check', phase.id, '--work-id', identity.workId, '--for-agent', '--json'];
+    const skill = role === 'author' ? generationSkillForPhase(phase, workflow) : null;
+    // By the step's own work command, never /sf-phase on a code step [OSA:REQ-021, C4].
+    const inspection = role === 'author' ? (skill ? safeCommandGuidance({ argv: check, skill }) : null) ?? safeCommandGuidance({ argv: check }) : null;
     state = 'inspect-interrupted-operation';
     next = inspection ? { ...inspection, copilotCommand: null, reason: 'Inspect the current draft without publishing; follow its fresh findings.' } : recovery;
   }
-  if (!next && !complete) next = safeCommandGuidance({ argv: role === 'author'
-    ? ['phase', 'enter', phase.id, '--work-id', identity.workId, '--compose', '--for-agent', '--json']
-    : ['review-source', 'context', phase.id, '--for-agent', '--json'] });
+  // The author's entry by the step's work command, never /sf-phase on a code step [OSA:REQ-021, C4].
+  const author = role === 'author' ? generationSkillForPhase(phase, workflow) : null;
+  const entry = role === 'author' ? ['phase', 'enter', phase.id, '--work-id', identity.workId, '--compose', '--for-agent', '--json']
+    : ['review-source', 'context', phase.id, '--for-agent', '--json'];
+  if (!next && !complete) next = (author ? safeCommandGuidance({ argv: entry, skill: author }) : null) ?? safeCommandGuidance({ argv: entry });
   return { schemaVersion: 1, operationId: identity.id, role, generation: identity.generation, state, complete,
     resumed: Boolean(record), inputChanged, authority: 'progress-only',
     nextAction: complete ? null : next,

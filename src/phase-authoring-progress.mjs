@@ -6,6 +6,13 @@ import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
 
+/** The entry that loads the step's context, by its own work command, never /sf-phase on a code step [OSA:REQ-021, C4]. */
+function entryGuidance(result) {
+  const argv = ['phase', 'enter', result.phase, '--work-id', result.workId, '--compose', '--for-agent', '--json'];
+  const skill = result.authoring?.effectiveAuthoringSkill ?? null;
+  return (skill ? safeCommandGuidance({ argv, skill }) : null) ?? safeCommandGuidance({ argv });
+}
+
 /** The current task, not a promise that reading or preparation completed its deliverable. */
 export function phaseTaskCompletion(result) {
   const successor = result?.status === 'successor-preparation-required' && result.successor?.preparation;
@@ -27,8 +34,7 @@ export function phaseTaskCompletion(result) {
     phaseId: result.phase, generation: successor ? result.successor.targetGeneration : generate ? result.inspectionGeneration : result.authoringProgress.generation,
     complete: false, state: successor ? 'prepare-successor' : generate ? 'author-draft' : loadContext ? 'load-context' : allowed ? state : 'blocked',
     checkpoint: 'published-generation', publicationVerified: false,
-    nextAction: compact(successor || generate || (loadContext ? safeCommandGuidance({ argv: ['phase', 'enter', result.phase,
-      '--work-id', result.workId, '--compose', '--for-agent', '--json'] })
+    nextAction: compact(successor || generate || (loadContext ? entryGuidance(result)
       : allowed ? result.authoringProgress.next : result.next?.[0])),
     recheck: compact(safeCommandGuidance({ argv: ['phase', 'prepublish', result.phase, '--work-id', result.workId,
       '--for-agent', '--json', '--publish-if-ready'] })),

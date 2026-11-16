@@ -20,6 +20,7 @@ import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseNeedsGeneration, storyNextDetails } from './sequence.mjs';
 import { successorGenerationOpen } from './phase-generation-need.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding, sourceReviewScenarioIds } from './source-grounded-review.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
@@ -68,9 +69,11 @@ function checkPublishedGeneration(workflow, phaseId) {
   const phase = workflow.phases?.[phaseId];
   if (phase && successorGenerationOpen(phase)) {
     const version = phase.generationIntent.generation;
+    // Writing it is its own work command's, never a skill named from the command text [OSA:REQ-021, C4].
     throw new SingularityFlowError(`Version ${version} of ${phaseId} is being written; review it after it is published.`, {
       code: 'SOURCE_REVIEW_SUCCESSOR_OPEN',
-      details: { nextAction: `singularity-flow prepare ${phaseId}`, phase: phaseId, version }
+      details: { nextAction: { command: `singularity-flow prepare ${phaseId}`, skill: generationSkillForPhase(phase, workflow),
+        label: `Write version ${version} of ${phaseId}, then publish it` }, phase: phaseId, version }
     });
   }
   if (!phase || !['in_progress', 'awaiting_approval', 'approved'].includes(phase.status)

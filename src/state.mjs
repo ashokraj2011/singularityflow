@@ -116,7 +116,7 @@ import {
   reviewCodeSource, reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
-import { generationSkillForPhase, pinCodeDeliveryTask, storyTestScope, TEST_SCOPES } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, pinCodeDeliveryTask, storyTestScope, successorSkillForPhase, TEST_SCOPES } from './code-delivery-policy.mjs';
 import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
 import { prospectiveTestCommandAmendment, verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
@@ -2382,12 +2382,14 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       && phase.generationIntent?.status === 'consumed'
       && Number(phase.generationIntent.generation) === Number(phase.generation)
       && !explicitlyReopened) {
+    // A published version changes only by its next version, which the step's work command asks the person to start.
+    // Recovery found nothing to repair for unchanged bytes and ran nothing [OSA:REQ-011, REQ-021, C11].
     throw new SingularityFlowError(
-      `Phase '${phase.id}' generation ${phase.generation} is already published. `
-      + `Run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json, `
-      + 'then execute its exact phase-begin action before preparing the next generation.',
+      `Version ${phase.generation} of ${phase.id} is already published. To change it, start version ${Number(phase.generation) + 1}: `
+      + `${successorSkillForPhase(phase, workflow)} asks the person first (singularity-flow phase rollover ${phase.id} --json).`,
       { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: {
-        nextAction: { command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, skill: '/sf-recover' }
+        nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`, skill: successorSkillForPhase(phase, workflow),
+          label: `Start version ${Number(phase.generation) + 1} of ${phase.id} to change it` }
       } }
     );
   }
@@ -3769,7 +3771,8 @@ export async function publishGeneration(root, config, workflow, {
         && await generationResultMatches(root, config, workflow, phase)) return phase;
     throw new SingularityFlowError(
       `Generation intent ${phase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phase.id} to preview the exact guarded next-generation command.`,
-      { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: `singularity-flow phase rollover ${phase.id}` } }
+      { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`,
+        skill: successorSkillForPhase(phase, workflow), label: `Start the next version of ${phase.id} with the changed files` } } }
     );
   }
   // SPEC-CIC switch 2 [CIC:REQ-009]: a reopened step's draft from before the amendment is refused, and written again in this step.
@@ -6286,7 +6289,8 @@ async function submitPhaseTransition(root, config, workflow, {
     if (!interval || interval.phaseId !== phase.id || interval.status !== 'open') {
       throw new SingularityFlowError(
         `Phase '${phase.id}' has no open work interval. Run singularity-flow prepare ${phase.id} before changing source or submitting.`
-      , { details: { nextAction: { executable: 'singularity-flow', argv: ['phase', 'enter', phase.id, '--for-agent', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
+      , { details: { nextAction: { executable: 'singularity-flow', argv: ['phase', 'enter', phase.id, '--for-agent', '--json'],
+        skill: generationSkillForPhase(phase, workflow), label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
     }
     const reconciliation = await reconcileWorkInterval(root, config, workflow, {
       phaseId: phase.id,

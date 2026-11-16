@@ -16,6 +16,7 @@ import { SingularityFlowError } from './util.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
 
 const directory = root => path.join(gitCommonDir(root), 'singularity-flow', 'workflow-tasks');
 const fileFor = (root, id, base = directory(root)) => path.join(base, `${id}.json`);
@@ -112,10 +113,16 @@ export async function quarantineWorkflowTaskProgress(root, workflow, phase, { ro
     await writeMutablePrivateSidecar(root, fileFor(root, identity.id), Buffer.from(JSON.stringify(record)), { maximumBytes: 65536, renameAttempts: 4 });
     await spendAllTaskClaims(root, identity.id);
     return { ...preview, status: 'quarantined', backupPath, localFilesChanged: true, filesChanged: true,
-      commandGuidance: safeCommandGuidance({ argv: role === 'author'
-        ? ['phase', 'enter', phase.id, '--work-id', identity.workId, '--compose', '--for-agent', '--json']
-        : ['review-source', 'context', phase.id, '--for-agent', '--json'] }) };
+      commandGuidance: taskEntryGuidance(workflow, phase, identity, role) };
   });
+}
+
+/** A task's own entry: the author's by the step's work command, never /sf-phase on a code step [OSA:REQ-021, C4]. */
+function taskEntryGuidance(workflow, phase, identity, role) {
+  if (role !== 'author') return safeCommandGuidance({ argv: ['review-source', 'context', phase.id, '--for-agent', '--json'] });
+  const argv = ['phase', 'enter', phase.id, '--work-id', identity.workId, '--compose', '--for-agent', '--json'];
+  const skill = generationSkillForPhase(phase, workflow);
+  return (skill ? safeCommandGuidance({ argv, skill }) : null) ?? safeCommandGuidance({ argv });
 }
 
 const sharedTaskPath = identity => `workflow-tasks/${identity.storyIdentity}/${identity.id}.json`;
@@ -156,15 +163,11 @@ export async function shareWorkflowTaskProgress(root, workflow, phase, { role = 
   const identity = workflowTaskIdentity(workflow, phase, role);
   const local = await readWorkflowTask(root, workflow, phase, { role });
   if (!local) throw new SingularityFlowError('Enter the task once before sharing its progress.', {
-    code: 'WORKFLOW_TASK_CHECKPOINT_MISSING', details: { nextAction: role === 'author'
-      ? `singularity-flow phase enter ${phase.id} --work-id ${identity.workId} --compose --for-agent --json`
-      : `singularity-flow review-source context ${phase.id} --for-agent --json` }
+    code: 'WORKFLOW_TASK_CHECKPOINT_MISSING', details: { nextAction: taskEntryGuidance(workflow, phase, identity, role) }
   });
   const raw = workflow.resolution?.ledger;
   const effects = { sourceShared: false, attachmentsShared: false, phaseAdvanced: false, approved: false };
-  const commandGuidance = safeCommandGuidance({ argv: role === 'author'
-    ? ['phase', 'enter', phase.id, '--work-id', identity.workId, '--compose', '--for-agent', '--json']
-    : ['review-source', 'context', phase.id, '--for-agent', '--json'] });
+  const commandGuidance = taskEntryGuidance(workflow, phase, identity, role);
   if (!raw?.enabled || workflow.resolution?.git?.publish === 'off') return {
     schemaVersion: 1, resultType: 'workflow-task-checkpoint', status: 'local-only', shared: false,
     operationId: identity.id, recordSha256: local.recordSha256, effects, commandGuidance,

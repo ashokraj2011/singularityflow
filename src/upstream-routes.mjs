@@ -59,7 +59,7 @@ export function upstreamChangeRoutes(workflow, producerId, { currentPhaseId = wo
     routes.push({
       kind: 'return', phase: producerId, legal: true, skill: '/sf-reject',
       command: `singularity-flow reject ${current.id} --work-id ${workId} --to ${producerId} --reason <reason>`,
-      label: `An authorized approver returns ${current.id} to ${producerId}. ${producerId} then publishes an amended generation for review, and the phases after it run again.`
+      label: `An approver returns ${current.id} to ${producerId}; the steps after it run again`
     });
   } else if (returnable && active && current.status === 'in_progress') {
     notes.push(`Once ${current.id} is submitted, an authorized approver can return it to ${producerId} with: singularity-flow reject ${current.id} --to ${producerId}.`);

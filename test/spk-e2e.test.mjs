@@ -893,7 +893,7 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   const handEdited = sflow(root, ['phase', 'publish', 'convergence', '--authored', 'deterministic',
     '--channel', 'kernel-generator'], { allowFailure: true });
   assert.notEqual(handEdited.status, 0, 'a hand-edited deterministic convergence artifact was published');
-  assert.match(handEdited.output, /CONVERGENCE_ARTIFACT_MISMATCH|no longer matches the reviewed deterministic projection/i);
+  assert.match(handEdited.output, /CONVERGENCE_ARTIFACT_MISMATCH|no longer matches what SFlow built/i);
   const repaired = sflow(root, ['prepare', 'convergence']);
   assert.match(repaired.output, /advance-to-verification|publish convergence/i);
   sflow(root, ['artifact', 'scan', '--phase', 'convergence']);

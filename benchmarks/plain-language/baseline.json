@@ -11,10 +11,10 @@
   "skill-line": 120
  },
  "totals": {
-  "count-without-name": 34,
+  "count-without-name": 33,
   "generic-route": 6437,
-  "jargon": 1465,
-  "length": 721,
+  "jargon": 1414,
+  "length": 702,
   "no-recommendation": 30
  },
  "unroutedCodes": [
@@ -2783,8 +2783,7 @@
   "src/amended-drafts.mjs": {
    "220105e97409": "length",
    "31111370e93c": "jargon:generation length",
-   "5fb0cdca79c8": "jargon:generation",
-   "e0475fa38e16": "jargon:generation length"
+   "5fb0cdca79c8": "jargon:generation"
   },
   "src/amendment-class.mjs": {
    "08f072011b22": "length"
@@ -2945,11 +2944,7 @@
    "5503a65400a5": "jargon:packet",
    "5d5f578fa3fc": "jargon:packet"
   },
-  "src/clarification-guidance.mjs": {
-   "7a5afc2a6a72": "jargon:generation length"
-  },
   "src/clarifications.mjs": {
-   "28d741b37324": "jargon:generation length",
    "7cb14958b8bc": "jargon:durable",
    "900b59224ddb": "jargon:binding"
   },
@@ -3022,9 +3017,7 @@
    "684323d05518": "length",
    "77e74c48559f": "jargon:retained length",
    "cf7c5e3c71a5": "jargon:retained",
-   "d55a87e4d32e": "jargon:generation jargon:projection",
-   "e24ee577de42": "jargon:staging length",
-   "eec592802795": "jargon:generation length"
+   "e24ee577de42": "jargon:staging length"
   },
   "src/commands/appeal.mjs": {
    "374cfb13d41c": "jargon:retained",
@@ -3144,12 +3137,8 @@
    "8e9ce6ba971d": "jargon:canonical"
   },
   "src/commands/shared/prepared-phase-next-actions.mjs": {
-   "03d3d98df142": "jargon:generation length",
-   "06763ca0d9c7": "jargon:deterministic jargon:projection",
    "14ce9a297fa4": "length",
-   "468f43ae5a91": "length",
-   "88f0da42de9d": "jargon:deterministic jargon:projection",
-   "e9185f06452b": "jargon:deterministic"
+   "468f43ae5a91": "length"
   },
   "src/commands/shared/start-context.mjs": {
    "94b50bf293ab": "jargon:canonical",
@@ -3167,7 +3156,6 @@
   },
   "src/commands/start.mjs": {
    "002c8d10eabd": "3× length",
-   "25bc9c24d4e1": "jargon:retained length",
    "3a28d285708f": "jargon:digest length",
    "9f3520892a4b": "length",
    "c5599f568412": "jargon:retained length"
@@ -3238,8 +3226,7 @@
    "21d118c01d6a": "jargon:deterministic"
   },
   "src/comprehension/xpl2/command.mjs": {
-   "562c8b816410": "length",
-   "e35f224e9d9f": "jargon:retained length"
+   "562c8b816410": "length"
   },
   "src/config.mjs": {
    "16427c637b0b": "jargon:retained",
@@ -3353,7 +3340,6 @@
    "ef0846d2b697": "jargon:generation jargon:retained length"
   },
   "src/convergence.mjs": {
-   "3777e8dcae7e": "jargon:canonical jargon:deterministic jargon:projection",
    "68c66af1851c": "jargon:deterministic",
    "801b5a749c66": "jargon:projection",
    "ccda8cff3e6e": "jargon:kernel length"
@@ -3590,7 +3576,6 @@
   },
   "src/generation-boundary.mjs": {
    "38ad33e3daaf": "jargon:generation length",
-   "3e1bfce28841": "jargon:generation length",
    "44166c003c1e": "jargon:generation",
    "4f3841f01dd4": "jargon:generation length",
    "5fb0cdca79c8": "jargon:generation",
@@ -3886,10 +3871,8 @@
   "src/narration/messages.mjs": {
    "04b5ba1b8deb": "jargon:ledger jargon:packet",
    "095a3764be9f": "jargon:generation",
-   "0dd2abe5c3df": "jargon:ledger",
    "0f3595b37018": "jargon:generation",
    "12bdf14a4e0f": "jargon:digest",
-   "1cc714e15e71": "count-without-name jargon:transport length",
    "1cd0cd0664f3": "jargon:retained",
    "1f1f9b7751b0": "jargon:digest length",
    "290e9ab6c61e": "jargon:ledger",
@@ -3898,10 +3881,8 @@
    "4655c144fb29": "length",
    "4cfd1fe076ee": "jargon:durable",
    "57916992d00a": "length",
-   "5878cb6ab924": "jargon:generation",
    "5f20b12faf69": "count-without-name length",
    "751ee23db718": "jargon:staging",
-   "77a6ad692df4": "jargon:durable",
    "89b3f1f18714": "length",
    "8c65a2e83c22": "jargon:transport",
    "8d38908e1205": "jargon:retained",
@@ -3909,7 +3890,6 @@
    "9372f155dc6b": "jargon:admission",
    "93edafa55bca": "jargon:binding jargon:oracle",
    "a4ae098b6630": "length",
-   "ad7c845dac33": "jargon:generation",
    "b1e2635e7521": "jargon:generation",
    "b3649add4f9f": "count-without-name",
    "c41b602773da": "jargon:transport",
@@ -3926,7 +3906,6 @@
    "ddfdb388f279": "count-without-name",
    "e071feafc09f": "jargon:generation",
    "e36d4bb5433e": "jargon:deterministic",
-   "e96e5af04338": "jargon:aggregate",
    "ec4e33997f6c": "jargon:generation",
    "f4dc47dbf8a1": "jargon:oracle",
    "f624e730e5cf": "jargon:durable",
@@ -4027,7 +4006,6 @@
    "96b9d6cc9f73": "jargon:generation",
    "a51a0e379bf0": "jargon:binding jargon:generation",
    "b6df4d84c297": "jargon:generation",
-   "d343a852b829": "jargon:generation jargon:retained",
    "f55206871e44": "jargon:staging length"
   },
   "src/phase-publication-readiness.mjs": {
@@ -4035,13 +4013,10 @@
    "28524e9ec5e8": "jargon:retained",
    "292b88c058b6": "jargon:binding length",
    "4237a6bc22f1": "jargon:digest",
-   "a0fda0c9be0a": "jargon:durable jargon:generation length",
-   "b6f693c8e120": "jargon:generation",
-   "d00612e5f0f8": "jargon:binding jargon:generation length"
+   "b6f693c8e120": "jargon:generation"
   },
   "src/phase-repair-journal.mjs": {
-   "2759f3f50aa1": "jargon:generation jargon:successor",
-   "b7cd1350011a": "jargon:digest length"
+   "2759f3f50aa1": "jargon:generation jargon:successor"
   },
   "src/phase-resolution.mjs": {
    "09187b26bac6": "jargon:retained",
@@ -4050,14 +4025,10 @@
    "1eee7c8bbca7": "length",
    "1efb14654d4a": "length",
    "220bdfa410a5": "jargon:retained",
-   "25d7ceb22b84": "jargon:generation jargon:published-generation",
-   "392f7326c02a": "jargon:retained length",
    "39af19db5078": "jargon:successor",
    "450847f43c8d": "jargon:generation length",
    "49c7155ca20c": "length",
    "71d52f9b6db3": "jargon:retained",
-   "781dc2c4363c": "jargon:retained jargon:successor",
-   "816ca95b0b89": "jargon:generation jargon:packet jargon:successor",
    "8b53d582c83e": "length",
    "90bc5dfc8004": "length",
    "96b0c3128509": "jargon:durable",
@@ -4070,13 +4041,8 @@
    "c9c5d009c27b": "jargon:admission length",
    "e7ef8b48c0bc": "jargon:successor",
    "ed19db2cc914": "length",
-   "ed877ec26388": "jargon:binding jargon:generation length",
    "f3eee6446685": "length",
    "f4eb38b2e1ce": "jargon:generation length"
-  },
-  "src/phase-transition-routes.mjs": {
-   "16aafe0d492b": "jargon:deterministic jargon:projection",
-   "c225a52ddb72": "jargon:deterministic jargon:digest"
   },
   "src/plan-clause-gaps.mjs": {
    "67169c4fb711": "length",
@@ -4104,7 +4070,7 @@
   "src/prompt-audit.mjs": {
    "40378196e336": "jargon:durable",
    "4fbe06296eae": "jargon:retained",
-   "99e10fedaaac": "3× jargon:retained"
+   "99e10fedaaac": "2× jargon:retained"
   },
   "src/prompt-budget.mjs": {
    "5f821ce608f4": "jargon:kernel",
@@ -4138,7 +4104,6 @@
   "src/publication-retry-refusals.mjs": {
    "13485f522356": "jargon:retained",
    "5eeb50fabcca": "jargon:retained",
-   "6c2ac3bf0999": "jargon:retained length",
    "9ca1fb75c4ab": "jargon:retained"
   },
   "src/publication-unit-of-work.mjs": {
@@ -4352,7 +4317,6 @@
    "a347ea2aad36": "length"
   },
   "src/session-remote-url-discovery.mjs": {
-   "39051b545c8d": "jargon:ledger length",
    "41ac2e54584d": "jargon:ledger length",
    "78d4f9392635": "jargon:ledger",
    "8eecee7acee1": "jargon:ledger",
@@ -4591,7 +4555,6 @@
    "a0cf5868e5ee": "3× jargon:retained"
   },
   "src/story-start.mjs": {
-   "25bc9c24d4e1": "jargon:retained length",
    "c5599f568412": "jargon:retained length"
   },
   "src/story-state-normalization.mjs": {
@@ -4610,7 +4573,6 @@
    "03e399678167": "jargon:retained",
    "87c7ec15e124": "length",
    "892e235675c4": "length",
-   "93dac1e7d37b": "jargon:retained length",
    "99e10fedaaac": "jargon:retained",
    "d296747ea161": "jargon:retained",
    "e566c11f9571": "jargon:retained",
@@ -4683,7 +4645,6 @@
    "f0763b278229": "jargon:transport"
   },
   "src/upstream-routes.mjs": {
-   "03f951d32820": "jargon:generation length",
    "3de93b96397d": "length",
    "e5464c664d06": "length"
   },

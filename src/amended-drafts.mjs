@@ -211,7 +211,7 @@ export function assertCarriesClosedCode(config, workflow, phase, changeSet, deta
     code: 'GENERATION_DIRTY_START',
     details: { ...details, phase: phase.id, changedSinceClosure: moved, closedBy: phase.scopePin.amendment,
       nextAction: { command: `singularity-flow recover ${workflow.workItem.id} --json`, skill: '/sf-recover',
-        label: `Review what changed since ${phase.scopePin.amendment} closed ${phase.id}'s generation, then put it back or set it aside.` } }
+        label: `Review changes since ${phase.scopePin.amendment} closed ${phase.id}: restore or set them aside` } }
   });
 }
 

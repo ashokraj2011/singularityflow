@@ -688,7 +688,7 @@ export function rollbackFailedStoryWorktree(
       {
         code: originalError.code ?? 'STORY_WORKTREE_RECOVERY_REQUIRED',
         details: { ...(originalError.details ?? {}),
-          diagnosticAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect the retained checkout; preserve the original failure and recovery action.' },
+          diagnosticAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Check the kept checkout; keep the original error and its recovery step' },
           repositoryPath: recovery.repositoryPath, ...(dirty ? {
           reason: recovery.reason, changedPaths, changedEntries: recovery.changedEntries
         } : {}) },

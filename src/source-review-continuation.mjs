@@ -1,5 +1,6 @@
 /** Read-only author/reviewer handoff. A draft is never evidence of publication. */
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
+import { stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
@@ -65,10 +66,18 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     classification = 'lifecycle-review-required';
     actions = [action('/sf-nextsteps', `singularity-flow nextsteps ${workflow.workItem.id} --json`,
       'Inspect the current lifecycle. Submitted evidence requires an authorized return before authoring a successor.', 'See where the Story stands')];
-  } else if (!phaseNeedsGeneration(workflow, phase) && reviewUpstreamRoute(workflow, phase, review)) {
+  } else if (!stepBeingWritten(workflow, phase) && reviewUpstreamRoute(workflow, phase, review)) {
     const route = reviewUpstreamRoute(workflow, phase, review);
     classification = 'upstream-issue-required';
     actions = [action(route.skill, route.command, route.label)];
+  } else if (successorGenerationOpen(phase)) {
+    // Its next version is open: writing it is the next step. The published version's review is carried into it, so
+    // that review is never offered again, nor its submission [OSA:REQ-032, C2]. Only its own work command writes it.
+    classification = 'successor-publication-required';
+    generation = Number(phase.generationIntent.generation);
+    actions = [action(generationSkillForPhase(phase, workflow), `singularity-flow prepare ${phase.id}`,
+      `Write version ${generation} of ${phase.id}, then publish it; ${sourceReviewRequired(workflow, phase.id) ? 'its review follows its publication' : 'its submission follows its publication'}.`,
+      `Write version ${generation} of ${phase.label ?? phase.id}`)];
   } else if (phaseNeedsGeneration(workflow, phase) || reviewAsksForCorrection(review)) {
     classification = 'successor-publication-required'; generation = nextPhaseGeneration(phase);
     // The review's corrections, in plain words: the person gives one yes to start the next version (owner, 2026-11-16).

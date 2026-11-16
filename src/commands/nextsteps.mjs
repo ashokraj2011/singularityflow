@@ -9,6 +9,7 @@ import { nextStepsSnapshot, nextStepsText } from '../nextsteps.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
 import { exists, optionBoolean, readJson } from '../util.mjs';
 import { phaseNeedsGeneration } from '../sequence.mjs';
+import { stepBeingWritten } from '../phase-generation-need.mjs';
 import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
@@ -251,7 +252,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   const visualCoverageHold = active?.status === 'in_progress' && isVisualVerificationPhase(active)
     && workflow.resolution?.verification?.coverage === 'enforce'
     ? await (await import('../visual-coverage.mjs')).visualCoverageHold(root, workflow, active, {
-      itemDirectory: path.join(root, path.dirname(selected.location.path)), published: !phaseNeedsGeneration(workflow, active)
+      itemDirectory: path.join(root, path.dirname(selected.location.path)), published: !stepBeingWritten(workflow, active)
     }).catch(() => null) : null;
   // A step that needs an MCP server refuses prepare, publish and submit until its host, warm proof,
   // attestation, authorized origin and smoke hold here; name what is missing instead of a refusing
@@ -300,7 +301,8 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     ...(sheet ? { sheet } : {})
   };
   if (active) snapshot.taskResume = await (await import('../workflow-task-store.mjs')).readWorkflowTaskResume(root, workflow, active, {
-    published: !phaseNeedsGeneration(workflow, active), pendingPublication: listPublication,
+    // Published only when no version is being written: an open next version's task is not complete [OSA:REQ-012, C5].
+    published: !stepBeingWritten(workflow, active), pendingPublication: listPublication,
     nextAction: snapshot.actions.find(action => action.timing === 'now'),
     progress: { state: authoringProgress?.draft?.draftModified ? 'repair-draft' : 'load-context' }
   });

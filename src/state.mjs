@@ -75,6 +75,7 @@ import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents
 import {
   assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration, phasePublicationCommandForMode, storyClosedRefusal, storyNextDetails
 } from './sequence.mjs';
+import { successorGenerationOpen } from './phase-generation-need.mjs';
 import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { answeredMarkerHashes, resolvedClarificationPolicy } from './clarifications.mjs';
 import {
@@ -5605,6 +5606,15 @@ async function submitPhaseTransition(root, config, workflow, {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
+  // While its next version is open, the version before it is never submitted, soft gate or not: the way on is writing
+  // the open version (sequence.mjs storyNextDetails), in this step [OSA:REQ-032, C2].
+  if (successorGenerationOpen(phase)) {
+    const version = Number(phase.generationIntent.generation);
+    throw new SingularityFlowError(`Version ${version} of ${phase.id} is being written, so version ${phase.generation} cannot be submitted; `
+      + `write version ${version} and publish it, then submit.`, {
+      code: 'PHASE_VERSION_BEING_WRITTEN', details: { phase: phase.id, version, publishedVersion: Number(phase.generation ?? 0), ...storyNextDetails(workflow) }
+    });
+  }
   const { assertPhaseRepairSettled } = await import('./phase-repair-journal.mjs');
   await assertPhaseRepairSettled(root, workflow, phase);
   const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');

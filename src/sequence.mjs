@@ -16,7 +16,7 @@ import {
 } from './manual-authorship.mjs';
 import { operationContext } from './operation-context.mjs';
 import { cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
-import { phaseNeedsGeneration, successorGenerationOpen } from './phase-generation-need.mjs';
+import { phaseNeedsGeneration, stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
 
 export { phaseNeedsGeneration };
 
@@ -92,7 +92,10 @@ export function sequenceGuidance(workflow) {
     ],
     alternativeSecond: true
   };
-  if (phase.status === 'in_progress' && phaseNeedsGeneration(workflow, phase)) {
+  // The step being written: its open next version is written, never the version before it reviewed or submitted [OSA:REQ-032, C2, C21].
+  const open = stepBeingWritten(workflow, phase) ? openVersionGuidance(workflow) : null;
+  if (open) return open;
+  if (stepBeingWritten(workflow, phase)) {
     const convergence = isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase);
     // The publication named here follows the run's model mode, as the planner's does (nextsteps.mjs).
     const publication = convergence ? null : phasePublicationCommandForMode(phase);
@@ -106,7 +109,7 @@ export function sequenceGuidance(workflow) {
       ]
     };
   }
-  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
+  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: stepBeingWritten(workflow, phase) });
   if (convergenceRoute) return { summary: convergenceRoute.reason, actions: [copilotAction(convergenceRoute)] };
   if (phase.status === 'in_progress') return {
     summary: phase.approvalPolicy?.mode === 'none'
@@ -128,7 +131,7 @@ export function sequenceGuidance(workflow) {
 export function storyNextDetails(workflow) {
   // Building the refusal never fails on what it describes: a Story the guidance cannot read keeps the plain plan.
   let guidance = null;
-  try { guidance = openVersionGuidance(workflow) ?? sequenceGuidance(workflow); } catch { /* the refusal itself still stands */ }
+  try { guidance = sequenceGuidance(workflow); } catch { /* the refusal itself still stands */ }
   const next = guidance?.actions.find((entry) => entry.command);
   return { ...(workflow?.workItem?.id ? { workId: workflow.workItem.id } : {}), ...(next ? { storyNext: true,
     nextAction: { command: next.command, skill: next.skill, label: `Next for this Story: ${guidance.summary}` } } : {}) };

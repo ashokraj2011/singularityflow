@@ -1,6 +1,6 @@
 /** Pinned phase permissions, not a filesystem sandbox or a new lifecycle authority. */
 import path from 'node:path';
-import { successorGenerationOpen } from './phase-generation-need.mjs';
+import { stepBeingWritten } from './phase-generation-need.mjs';
 import { lstatSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -8,7 +8,6 @@ import { applicationPathContext, isApplicationPath } from './application-paths.m
 import { isCopilotHooksPath } from './governed-roots.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
-import { phaseNeedsGeneration } from './phase-generation-need.mjs';
 import { sourceReviewKind } from './phase-roles.mjs';
 import { intentAmendmentPause, intentAmendmentPauseReason } from './intent-amendment-pause.mjs';
 import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -129,7 +128,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const openGeneration = code && phase?.generationIntent?.status === 'open'
     && Number(phase.generationIntent.generation) === nextPhaseGeneration(phase);
   // A next version the person opened (rollover) is written now, like a step that needs its first [real Story, 2026-11-16].
-  const editable = phase?.status === 'in_progress' && (phaseNeedsGeneration(workflow, phase) || successorGenerationOpen(phase));
+  // The one "being written" test, the same the entry's `author` follows [OSA:REQ-010, C7].
+  const editable = stepBeingWritten(workflow, phase);
   const deterministic = phase?.generationPolicy?.allowedProducers?.length === 1
     && phase.generationPolicy.allowedProducers[0] === 'deterministic';
   const ownsCode = (workflow?.phaseOrder ?? []).slice(0, (workflow?.phaseOrder ?? []).indexOf(phase?.id))

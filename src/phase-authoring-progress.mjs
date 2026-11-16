@@ -1,7 +1,7 @@
 /** Read-only drafting milestones. Neither source changes nor tests imply publication. */
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
 import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
-import { phaseNeedsGeneration } from './sequence.mjs';
+import { stepBeingWritten } from './phase-generation-need.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
@@ -46,9 +46,13 @@ export function phaseTaskHeldForAnswers(result) {
   return route ? { held: 'clarification', answers: { command: route, copilotCommand: null, modelFreeCommand: null } } : {};
 }
 
+/**
+ * The task of the version being written (stepBeingWritten), null for a step not being written. An open next version
+ * has a task as much as version 1: with none, the turn could end after reading and the next chat said "complete" [OSA:REQ-012, C5].
+ */
 export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null } = {}) {
   if (!phase || phase.status !== 'in_progress' || workflow.currentPhase !== phase.id
-      || !phaseNeedsGeneration(workflow, phase) || phaseUsesDeterministicGeneration(phase)) return null;
+      || !stepBeingWritten(workflow, phase) || phaseUsesDeterministicGeneration(phase)) return null;
   const code = phaseRequiresCodeDelivery(phase);
   const generation = nextPhaseGeneration(phase);
   const open = code && phase.generationIntent?.status === 'open'

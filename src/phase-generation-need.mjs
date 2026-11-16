@@ -35,3 +35,13 @@ export function phaseNeedsGeneration(workflow, phase) {
   return !(workflow.history ?? []).some((event) =>
     event.phase === phase.id && event.event === 'phase_generated' && event.at > phase.rejectedAt);
 }
+
+/**
+ * Whether the step is being written now: in progress, and it needs a version or its next version is open [OSA:REQ-002,
+ * Stage 1]. The one answer the edit permission, the step's entry, its authoring task, the review continuation,
+ * submission readiness, the sequence guidance and next steps give. Six tests disagreed about an open version 2: one
+ * said "write it", another "review version 1" or "ready to submit", and the agent went round them [real Story, 2026-11-16].
+ */
+export function stepBeingWritten(workflow, phase) {
+  return phase?.status === 'in_progress' && (phaseNeedsGeneration(workflow, phase) || successorGenerationOpen(phase));
+}

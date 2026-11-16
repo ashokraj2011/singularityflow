@@ -1,5 +1,6 @@
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
-import { phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
+import { sequenceGateMode } from './sequence.mjs';
+import { stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand, approvalHoldContinuation } from './copilot-guidance.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
@@ -376,14 +377,17 @@ export function submissionReadinessSnapshot(workflow, {
 
   const publication = currentPublication(phase);
   const publicationRecorded = publicationIsRecorded(publication);
-  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
+  // Before the publication check: a step being written is never "ready to submit" or "review version N" while version
+  // N+1 is open, and an open version is never submitted past a soft gate either [OSA:REQ-032, C2].
+  const writing = stepBeingWritten(workflow, phase);
+  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: writing });
   if (convergenceRoute) return result(workflow, phase, {
     ...draft, ...convergenceRoute, nextSkill: directCopilotSkill(convergenceRoute.skill)
   });
   const authoringProgress = phaseAuthoringProgress(workflow, phase, { draftEvidence });
-  if (phaseNeedsGeneration(workflow, phase)) return result(workflow, phase, {
+  if (writing) return result(workflow, phase, {
     ...draft,
-    ...(sequenceGateMode(workflow, 'freshGeneration') === 'soft'
+    ...(!successorGenerationOpen(phase) && sequenceGateMode(workflow, 'freshGeneration') === 'soft'
         && (publicationRecorded || sequenceGateMode(workflow, 'generationCommit') === 'soft')
       ? {
           classification: 'soft-sequence-confirmation-required',

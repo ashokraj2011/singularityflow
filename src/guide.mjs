@@ -2,7 +2,7 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import { decisionsCardAction, intentAmendmentProposable } from './intent-amendment-pause.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
-import { successorGenerationOpen } from './phase-generation-need.mjs';
+import { stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
@@ -148,7 +148,8 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {
       reason: `Request an authorized correction within ${phase.id}; prior phase approvals remain unchanged.` })] : [])
   ];
   const regenerate = phaseNeedsGeneration(workflow, phase);
-  if (regenerate && (authoringProgress ?? (phase.generationIntent ? phaseAuthoringProgress(workflow, phase) : null))?.next) {
+  // The version being written, version 1 or an open next one, has its task: its next stage leads [OSA:REQ-012, C5].
+  if (stepBeingWritten(workflow, phase) && (authoringProgress ?? (phase.generationIntent ? phaseAuthoringProgress(workflow, phase) : null))?.next) {
     const progress = authoringProgress ?? phaseAuthoringProgress(workflow, phase);
     return [copilotAction({ ...progress.next, reason: progress.instruction,
       authoringStage: progress.stage, preserveExistingWork: true })];

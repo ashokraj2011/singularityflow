@@ -33,10 +33,12 @@ const from = object({ revision: integer, snapshotHash: digest, policySha256: dig
 const to = object({ revision: { type: 'integer', minimum: 2 }, policySha256: digest,
   configurationCommit: oid, commandInventorySha256: digest, validationEpoch: integer });
 const reference = object({ path: string, sha256: digest });
-const ancestry = object({ schemaVersion: { const: 1 }, kind: { const: 'skill-configuration-ancestry' },
+const ancestryChain = (version, bound) => object({ schemaVersion: { const: version }, kind: { const: 'skill-configuration-ancestry' },
   repository: string, ancestorCommit: oid, descendantCommit: oid, objectFormat: { enum: ['sha1', 'sha256'] },
-  commits: { type: 'array', minItems: 1, maxItems: 128,
+  commits: { type: 'array', minItems: 1, ...bound,
     items: object({ oid, bytesBase64: { type: 'string', minLength: 1, maxLength: 87384 } }) } });
+// v1 holds at most 128 commits; v2 (SCF:REQ-020) any number, bounded to 1 MiB by verifySkillConfigurationAncestry.
+const ancestry = { anyOf: [ancestryChain(1, { maxItems: 128 }), ancestryChain(2, {})] };
 const common = (kind) => ({ schemaVersion: { const: 1 }, kind: { const: kind }, id, workId: string, phaseId: string });
 const v1Schemas = {
   'test-command-adoption-review': object({ ...common('test-command-adoption-review'),

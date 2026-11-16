@@ -15,23 +15,24 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
     rank: 'LATER'
   });
   const convergence = convergencePreparationState(prepared.convergence);
+  // After preparation: the check, and for a step SFlow builds its publication once ready, by the step's own work command.
+  const check = `singularity-flow phase prepublish ${phase.id}${prepared.publicationProducer !== 'deterministic' ? ''
+    : phaseKernelOwned(phase) ? ' --for-agent --json --publish-if-ready' : ' --for-agent --json'}`;
   if (!convergence) return [
     narrationAction({
       id: 'prepare.author',
       // After preparation the next step is authoring, never preparation again: the Copilot route is
       // the step's authoring skill, and the terminal route checks the draft once it is written.
       // A deterministic code step still has its code to write; only its summary is kernel-built.
+      // A step SFlow builds is checked and published by its own work command in the same turn, as the kernel's
+      // build-version then publish-version says [D5, OSA:REQ-020, REQ-026, C9]: never handed to another skill.
       label: prepared.publicationProducer === 'deterministic' && !phaseKernelOwned(phase)
         ? 'Write the planned code and tests; SFlow rebuilds the summary'
         : prepared.publicationProducer === 'deterministic'
-        ? 'Check what SFlow prepared before publishing it'
+        ? 'Check what SFlow prepared, and publish it once its checks pass'
         : 'Author the prepared draft (preparation is not completed authoring), then check it with prepublish',
-      command: prepared.publicationProducer === 'deterministic'
-        ? `singularity-flow phase prepublish ${phase.id} --for-agent --json`
-        : `singularity-flow phase prepublish ${phase.id}`,
-      skill: prepared.publicationProducer === 'deterministic' && phaseKernelOwned(phase)
-        ? '/sf-publish'
-        : generationSkillForPhase(phase, workflow)
+      command: check,
+      skill: generationSkillForPhase(phase, workflow)
     }),
     inputs
   ];

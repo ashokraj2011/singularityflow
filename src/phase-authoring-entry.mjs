@@ -41,10 +41,12 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
     status: 'retained-generation', reason: 'lifecycle-review-required',
     actions: sourceReviewContinuation(workflow, phase).actions
   };
+  // A review that could not be read is an unknown fact, not damage: its own read again, with the original error kept
+  // [§5 precedence 1, OSA:REQ-003, REQ-022, b1].
   if (reviewError) return { status: 'attention-required', reason: 'source-review-inspection-required',
-    actions: [copilotAction({ skill: '/sf-recover',
-      command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
-      reason: `Source review could not be verified (${reviewError.code ?? 'inspection failed'}). Preserve the publication and inspect recovery before authoring.` })],
+    actions: [copilotAction({ skill: '/sf-review-source',
+      command: `singularity-flow review-source status ${phase.id} --json`,
+      reason: `Source review could not be read (${reviewError.code ?? 'inspection failed'}). Read its status again; the publication stays as it is, and nothing is written before it reads.` })],
     diagnostic: reviewError };
   const deterministic = phaseUsesDeterministicGeneration(phase);
   if (requiresProspectivePhaseInspection(workflow, phase)) {

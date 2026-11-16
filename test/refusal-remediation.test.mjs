@@ -550,7 +550,8 @@ test('failed-test refusal points to saved diagnostics and permits same source on
   assert.equal(plan.steps[0].skill, '/sf-code');
   assert.match(plan.steps[0].label, /Install the repository-declared test dependencies/u);
   const commands = plan.steps.map((step) => step.command);
-  assert.ok(commands.includes('singularity-flow recover STORY-1 --phase implementation --json'));
+  // A failed test is a repair outcome, not damage: no recovery beside its repair [§5, OSA:REQ-003, REQ-011].
+  assert.ok(!commands.some((command) => /^singularity-flow recover\b/u.test(command ?? '')), JSON.stringify(commands));
   assert.match(plan.retry.label, /same source may then be rechecked/u);
   assert.equal(plan.retry.automatic, false);
   assert.equal(envelope.error.requiredTestExecution.report.gateEligible, false);

@@ -235,8 +235,11 @@ test('prepared seeded phases route to authoring, not premature publication; dete
         assert.equal(next.copilotCommand, '/sf-code', `${workType}/${phase.id}`);
         assert.match(next.label, /Write the planned code and tests/);
       } else if (producer === 'deterministic') {
-        assert.equal(next.command, `singularity-flow phase prepublish ${phase.id} --for-agent --json`);
-        assert.equal(next.copilotCommand, `/sf-publish ${phase.id}`);
+        // A step SFlow builds is checked and published by its own work command in the same turn, never handed to
+        // /sf-publish [D5, OSA:REQ-020, REQ-026, C9].
+        assert.equal(next.command, `singularity-flow phase prepublish ${phase.id} --for-agent --json --publish-if-ready`);
+        assert.equal(next.copilotCommand, safeCommandGuidance({ command: next.command, skill: generationSkillForPhase(phase, workflow) }).copilotCommand);
+        assert.doesNotMatch(next.copilotCommand, /^\/sf-publish\b/);
       } else {
         // Never the preparation that just ran: re-running it would loop a one-action caller.
         assert.equal(next.command, `singularity-flow phase prepublish ${phase.id}`, `${workType}/${phase.id}`);

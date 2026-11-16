@@ -112,6 +112,11 @@ export class GitPublicationUnitOfWork {
     const suppliedPublicationAuthority = publication.mode === 'off'
       ? null
       : publication.authority ?? null;
+    // No remote to publish to at all is not a remote that changed: it is said plainly, with its way on [OSA Stage 3,
+    // Stage 2 finding 13]. An observed URL that no longer matches stays PUBLICATION_REMOTE_AUTHORITY_CHANGED.
+    if (publication.mode !== 'off' && !configuredPublicationAuthority?.url && !suppliedPublicationAuthority?.url) {
+      throw missingPublicationRemote(publicationRemote);
+    }
     if (suppliedPublicationAuthority) {
       const authorityMatches = Object.isFrozen(suppliedPublicationAuthority)
         && suppliedPublicationAuthority.remote === publicationRemote
@@ -930,4 +935,16 @@ export class GitPublicationUnitOfWork {
     };
   }));
   }
+}
+
+/**
+ * The refusal for a Story whose publication is required when this checkout has no remote to publish to: nothing was
+ * changed, and the person adds the remote (or turns the Story's publication off) before running the same command again.
+ */
+function missingPublicationRemote(remote) {
+  return new SingularityFlowError(
+    `This Story is shared through the remote '${remote}', and this checkout has no remote of that name to publish to. Nothing was changed. `
+      + `Add it in your own terminal (git remote add ${remote} <url>), then run the same command again; for a Story kept on this laptop only, turn its publication off in the workflow configuration.`,
+    { code: 'PUBLICATION_REMOTE_AUTHORITY_MISSING', details: { remote, owner: 'person',
+      nextAction: { command: `git remote add ${remote} <url>`, label: `Add the remote '${remote}' this Story is published to, then run the same command again` } } });
 }

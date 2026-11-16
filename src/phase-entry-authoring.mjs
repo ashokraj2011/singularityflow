@@ -58,6 +58,9 @@ async function composedPromptFile(root, workItemRoot, workId, phaseId, generatio
 }
 
 /** Loaded only after the binding owner has admitted the current phase/agent. */
+/** The kernel's holds on an open version's writing, whose route the edit permission names (kernel/step-state.mjs). */
+const KERNEL_HOLDS = Object.freeze(['OPENING_PENDING', 'OPENING_UNKNOWN', 'OPENING_REFUSED', 'OPENING_UNOBSERVED', 'WRITER_FENCED', 'SOURCE_STALE']);
+
 export async function completePhaseEntry(entry, base, { compose, modelEnabled }) {
   const { root, definition, workflow, phase, session } = entry;
   const actualId = workflow.workItem.id;
@@ -212,6 +215,15 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   let next = preparationAdmitted ? authoring.entry.actions
     : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
     : ['retained-generation', 'successor-confirmation-required'].includes(status) ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;
+  // The kernel holds the step's writing on its opening's shared acceptance, its writer fence or a stale Story branch: the
+  // entry leads with the route the edit permission names (settle the same opening, take it over, refresh), one route
+  // for both, never an inspection or a recovery of the retained commit first [OSA:REQ-010, REQ-020, REQ-033; Stage 2
+  // finding 8]. Reconciling settles the retained commit under its original lease, as its sync would.
+  const kernelHold = status === 'attention-required' && authoring.entry?.status === 'authoring-entry'
+    && KERNEL_HOLDS.some((code) => base.mutationContract?.policy?.step?.reasons?.includes(code)) && base.mutationContract?.next?.length > 0;
+  if (kernelHold) next = base.mutationContract.next.filter((route) => route?.command).map((route, index) => ({
+    id: `kernel-route:${phase.id}:${index}`, safe: true, automatic: false, confirmation: 'none', scope: 'kernel-route',
+    command: route.command, skill: route.skill ?? null, detail: route.detail }));
   // Its own skill runs the generator; recovery's guided "create the artifact" is that same command.
   if (status === 'deterministic-generation') next = [{
     id: `generate:${phase.id}`, safe: true, automatic: false, confirmation: 'none', scope: 'deterministic-generation',
@@ -239,7 +251,7 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   const inputsBlocked = contextAdmission.blockers.some(item => item.code === 'PHASE_CONTEXT_INPUTS_NOT_READY')
     // A hold a person can settle (keep the files or set them aside) leads with that route, not the read-only inspection.
     || recovery.actions.some(action => action.id === 'set-aside-worktree');
-  if (!canCompose && !deterministicGeneration && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions[inputsBlocked ? 'push' : 'unshift'](recoveryActionGuidance({
+  if (!kernelHold && !canCompose && !deterministicGeneration && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions[inputsBlocked ? 'push' : 'unshift'](recoveryActionGuidance({
     id: `inspect-continuation:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',
     detail: 'Inspect one preserved-work journey and its exact repair/human/owner route. This inspection changes nothing and cannot grant authoring or publication permission.'

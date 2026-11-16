@@ -350,10 +350,7 @@ function requiredTestFailureSteps(argv, error) {
     testRunRiskStep(error),
     ...(!pin && other && context?.workId ? [tryNode(other.version)] : []),
     baseComparisonStep(argv, error, context),
-    step('recover-required-test',
-      'Inspect the refused phase and its saved test evidence before changing or retrying it.',
-      context?.recoveryCommand ?? 'singularity-flow recover --json',
-      'diagnostic', '/sf-recover'),
+    // A failed test is a repair outcome, not damage: no recovery detour beside its repair [§5, OSA:REQ-003, REQ-011].
     step('read-saved-test-log',
       'Read the saved error log for the exact failed execution; do not reconstruct a secret-bearing configured command.',
       'singularity-flow logs --level error --tail 20',

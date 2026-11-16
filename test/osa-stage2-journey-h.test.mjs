@@ -102,9 +102,11 @@ test('journey H: an opening is shared on refresh, a stale checkout is told so, a
     const lost = a.flow([...preview.argv, '--json']);
     assert.notEqual(lost.status, 0, `the reply was lost\n${lost.stdout.slice(-1500)}\n${lost.stderr.slice(-1500)}`);
     assert.equal(json(lost).error.code, 'VERSION_OPENING_OUTCOME_UNKNOWN', lost.stdout.slice(0, 1200));
-    // Uncertain: the step grants nothing and names settling the same operation, never a replacement version. Its act may
-    // name the retained publication's own recovery first (the same commit, under its original lease).
+    // Uncertain: the step grants nothing and names settling the same operation, never a replacement version. The entry's
+    // act and the edit permission name one route for it, `phase opening --reconcile`, which settles the retained commit
+    // under its original lease (Stage 3, Stage 2 finding 8) [OSA:REQ-010, REQ-033].
     const uncertain = await entered(a);
+    assert.match(JSON.stringify(uncertain.act?.do ?? null), /phase opening intake --reconcile/u, JSON.stringify(uncertain.act ?? null).slice(0, 1200));
     assert.deepEqual(uncertain.mutationContract.artifacts, [], 'nothing of the step is writable while its opening is uncertain');
     assert.equal(uncertain.mutationContract.applicationEdits, false);
     assert.deepEqual(uncertain.mutationContract.policy.step.reasons, ['OPENING_UNKNOWN']);

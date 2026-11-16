@@ -59,7 +59,10 @@ test('code publication hands to outcome review while preserving the unchanged su
   assert.equal(result.afterReview.commandGuidance.command, shown.continuation.nextCommand);
   assert.equal(afterPublication({}, shown).next.commandGuidance.command, shown.continuation.nextCommand);
   const act = agentAct({ resultType: 'sflow-phase-publication', status: 'published', outcomeReview: offer });
-  assert.equal(act.do.copilot, '/sf-outcome TRY-1');
+  // Read and asked in the same turn, as the work command's own step says: no hand-off to another skill, so the step's
+  // next action stays the one every view names [OSA:REQ-020, b38].
+  assert.equal(act.state, 'read');
+  assert.equal(act.do.copilot, null);
   assert.equal(act.do.shell, offer.agentCommand, 'Copilot reads the structured packet rather than terminal prose');
   const combined = agentAct({ publishIfReady: { published: true, ...result } });
   assert.equal(combined.do.shell, offer.agentCommand);

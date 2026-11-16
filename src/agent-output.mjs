@@ -448,10 +448,14 @@ export function agentAct(result) {
     how: 'Ask the person now and only once. Never start the application yourself: on Start, hand off to /sf-run-app start; on Not now, give the step\'s next routes.' },
     do: null, read: result.publishIfReady?.published ? ['publishIfReady.applicationStart', 'publishIfReady.outcomeReview'] : ['applicationStart', 'outcomeReview'],
     said: 'Code published and its tests pass. Ask the person whether to start the application to try it now; the outcome review stays available.' };
-  if (codeOffer) return withRoute({
-    state: 'next', do: null, read: result.publishIfReady?.published ? ['publishIfReady.outcomeReview', 'publishIfReady.afterReview'] : ['outcomeReview', ...(result.applicationReview ? ['applicationReview'] : [])],
-    said: `${start?.words ? `${start.words} ` : ''}Code published. Read the returned outcome once, then ask its validation.question with the returned choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. A summary without that question is not the human handoff. Opening the review starts no app and records no acceptance or approval.`
-  }, { ...codeOffer, command: codeOffer.agentCommand ?? codeOffer.command });
+  // The outcome review is read in this same turn, as the work command's own step says (sflow-code step 10), and its
+  // question asked here: it is no hand-off to another skill. The step's next action (afterReview) is unchanged, so every
+  // view names the same next step [OSA:REQ-020, b38].
+  if (codeOffer) return {
+    state: 'read', read: result.publishIfReady?.published ? ['publishIfReady.outcomeReview', 'publishIfReady.afterReview'] : ['outcomeReview', ...(result.applicationReview ? ['applicationReview'] : [])],
+    do: { reason: oneLine(codeOffer.reason), copilot: null, shell: codeOffer.agentCommand ?? codeOffer.command, vscode: null },
+    said: `${start?.words ? `${start.words} ` : ''}Code published. Run do.shell once in this turn, then ask its validation.question with the returned choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. A summary without that question is not the human handoff. Opening the review starts no app and records no acceptance or approval.`
+  };
   if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
     state: 'await-human', do: null, read: ['data.outcome'],
     ...(result.data.outcome.validation ? { ask: { kind: 'choice', question: result.data.outcome.validation.question,

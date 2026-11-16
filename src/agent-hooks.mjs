@@ -337,7 +337,7 @@ function isConsumedGenerationTerminalCallAllowed(payload, phase) {
     `^${flow} recover ${id}(?: --phase ${id})?(?: --json)?$`,
     `^${flow} phase begin ${phase.id}(?: --adopt-existing --confirm sha256:[a-f0-9]{64})?(?: --json)?$`,
     `^${flow} phase rollover ${phase.id}(?: --json| --confirm sha256:[a-f0-9]{64})?$`,
-    // The author's own correction of its unreviewed generation, settled by the engine or refused there [owner, 2026-11-13].
+    // The preview of the author's own correction of its unreviewed generation, which the person then confirms (owner, 2026-11-17).
     `^${flow} phase rollover ${phase.id} --correction (?:"[^"\\\\]{20,1000}"|'[^']{20,1000}') --json$`,
     `^${flow} phase show ${phase.id}(?: --json| --show-artifact){0,2}$`,
     `^${flow} submit ${phase.id}(?: --work-id ${id})?(?: --skip-checks)?(?: --json)?$`,
@@ -461,9 +461,13 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
     && Number(phase.generationIntent.generation) === Number(phase.generation);
   if (consumedCodeGeneration && calls.some((call) => isCopilotRepositoryMutation(call)
       || !isConsumedGenerationTerminalCallAllowed(call, phase))) {
+    // The step's next action is the kernel's, as the Copilot guard and every view name it: never recovery for a healthy
+    // published step; its next version opens only on the person's yes [OSA:REQ-010, REQ-011, C19, a7].
+    const { decisionRoutes, stepDecisionOf } = await import('./step-decision.mjs');
+    const [route] = decisionRoutes(stepDecisionOf(workflow, phase), workflow, phase, { exactSubmit: true });
     return {
       permissionDecision: 'deny',
-      permissionDecisionReason: `Generation ${phase.generation} of '${phase.id}' is already published and immutable. Do not change repository bytes or run ad-hoc commands. Run 'singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json' and follow its returned action: submission when the bytes are unchanged, otherwise review its exact digest and begin the next generation before editing.`
+      permissionDecisionReason: `Generation ${phase.generation} of '${phase.id}' is already published and immutable. Do not change repository bytes or run ad-hoc commands. Its next action: '${route?.command ?? 'the Story\'s next steps'}'${route?.detail ? ` (${route.detail})` : ''}. A next version opens only on the person's yes, through its preview.`
     };
   }
   const status = await agentSessionStatus(root, definition, workflow);

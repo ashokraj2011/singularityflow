@@ -4,6 +4,7 @@ These are the implementation records for [SPEC-OSA v1.1](../SPEC-OSA-ONE-STEP-AU
 - **Stage 0** (section 13; plan section 2), on branch `osa-s0`, from `d7a976821`. It records the baseline.
 - **Stage 1** (plan section 3), on branch `osa-v11-s1`, from `293a2e9a8`: [stage1.md](stage1.md) and [stage1-perf.md](stage1-perf.md). See "Stage 1" at the end.
 - **Stage 2** (plan section 4), on branch `osa-v11-s2`, from `90e7095cc`: [stage2.md](stage2.md). See "Stage 2" at the end.
+- **Stage 3** (plan section 5), on branch `osa-v11-s3`, from `91dac87bb`: [stage3.md](stage3.md). See "Stage 3" at the end.
 
 ## The records
 
@@ -164,3 +165,25 @@ Node 22.14.0, through the isolated runner at concurrency 2. No touched set and n
 | Journey F's `osa-stage-2` KNOWN_BAD removed | **Met:** journey F passes all four checks, journey G passes |
 
 The targeted runs are listed in [stage2.md](stage2.md) §10. **Not run:** the full suite and the weekly Node 26 run, which are the owner's heavy run at the end.
+
+## Stage 3
+
+| # | Deliverable | Where |
+|---|---|---|
+| 1 | One decision for every surface, and the common-basis comparison | [stage3.md](stage3.md) §2 |
+| 2 | Durable task outcomes and no-progress detection | [stage3.md](stage3.md) §3 |
+| 3 | Refusals, recovery and handoffs | [stage3.md](stage3.md) §4 |
+| 4 | The owner's decision of 2026-11-17: the own correction asks the person | [stage3.md](stage3.md) §5 |
+| 5 | Findings and decisions for the owner | [stage3.md](stage3.md) §6 |
+| 6 | Ratchet, budgets, performance and acceptance rows | [stage3.md](stage3.md) §7–§9 |
+
+**Exit gate (plan section 5).**
+
+| Gate item | Result |
+|---|---|
+| All listed surfaces agree at the same basis | **Met** for sequence guidance, the guide and next steps, the review continuation, readiness, phase show, the session's task resume and the VS Code views (0 differences in 7,400 readings; every journey's views agree). **Not met** for session listing and selection, which were not moved ([stage3.md](stage3.md) §11) |
+| The original incidents have named, passing journeys | **Met:** journeys A–G and I pass in the slow lane with KNOWN_BAD empty ([stage3.md](stage3.md) §10) |
+| Human boundaries and damaged operations keep their own routes | **Met:** damage leads before holds; a waiting task names the person's decision; an uncertain opening keeps its reconciliation |
+| No generic work command broadens a source, review or approval permission | **Met:** the guard's grants are unchanged (`osa-stage1-guard`); a view is `turnMode: view` and grants nothing |
+
+The targeted runs are listed in [stage3.md](stage3.md) §10. **Not run:** the full suite and the weekly Node 26 run, which are the owner's heavy run at the end.

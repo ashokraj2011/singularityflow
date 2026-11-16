@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 27
+version: 28
 commands:
   - configuration
   - workflow
@@ -55,6 +55,53 @@ approved proposal finishes whatever an interruption left, and never blindly repe
 with `singularity-flow configuration transactions --json`. See
 [Configuration State Service](../CONFIGURATION-STATE-SERVICE.md) for scope and rollout limitations.
 
+### One way in
+
+Every change to `sflow/config` is a proposal a person approves, of one of these kinds: workflow, people, package,
+capability or onboarding (`sflow/config-change/<kind>/*`). `singularity-flow configuration proposals` is the one list:
+drafts saved on this machine, every waiting proposal with its author and its state (draft, proposed, needs a choice),
+capability and setup proposals, and an upgrade the Git host would not take directly. `configuration approve` lands
+workflow, people and package proposals; it is the person's signed step on every surface. VS Code's buttons are
+**Review and approve**, **Finish and approve** and **Save and approve**: each proposes, then asks once, saying when it
+is a self-approval. `workflow activate <BRANCH> --confirm <REVISION>` is the same approval.
+
+`approvalSecurity.allowSelfApproval` governs configuration approvals as it governs Story steps. With it `false` (the
+`regulated` default), the author of a proposal cannot approve it: someone else does. A team repository allows it, and
+the approval commit records it (`Self-approved: yes`); a `poc` repository approves its own changes and says so. Only
+workflow approvals are added to `singularity/configuration-transactions.json`; a people or package approval is recorded
+by its approval commit (`Sflow-Proposal`, `Proposed-by`, `Approved-by`), so older builds keep reading that file.
+
+People and approval policy change by proposal too. A newcomer's first Story start enrolls them as a people proposal:
+where the repository allows self-approval, and an approved change never removed them from those groups, they approve it
+in the same step, as a self-approval, and the start says so. Otherwise the Story starts without them as an approver and
+the proposal waits, once, for someone who may approve configuration. A person a reviewed change removed from a group is
+never added back to it at Story start, and an approval that would add its own approver back to it is refused.
+`configuration add-current-identity` and its policy options (`--solo`, `--self-approval`, `--auto-enroll`) make a people
+proposal; approve it with `configuration approve`.
+
+An approval is refused when it would give a workflow a problem that `workflow validate` reports and the current
+`sflow/config` did not have: fix it and propose it again.
+
+Workflow Studio keeps unpublished changes as edits against the configuration they were read from, never a full copy.
+When `sflow/config` moves, open or kept, they move onto it and Studio names any value both changed; nothing is
+discarded.
+
+### When sflow/config is missing or does not load
+
+`doctor`, `configuration validate` and `workflow fix` check `sflow/config` itself outside a Story checkout, never the
+checkout's own `singularity/` files, and say which commit they checked; a Story checkout checks its pin. A
+`sflow/config` an outside edit broke is named, with its commit and the problem, wherever new work refuses.
+`singularity-flow configuration restore` shows what restoring would do and changes nothing:
+
+- `sflow/config` does not load: it proposes going back to the newest commit in its own history that loads, as a normal
+  proposal (`--confirm <COMMIT>`), which `configuration approve` lands. `workflow fix` drafts a repair instead.
+- `sflow/config` is missing: it recreates it from the newest copy this machine holds (this clone's
+  `origin/sflow/config`, else the newest Story pin, else the copy an earlier build kept on the `state` branch, checked
+  against its own manifest), with every file listed first. `--confirm <SOURCE>` pushes one commit only while
+  `sflow/config` is still absent, and records who approved it.
+
+Restoring is a person's step: an agent is refused.
+
 ### Test setup
 
 Test commands are the repository's, not a workflow step's. They sit in one `tests:` list at the top
@@ -65,7 +112,9 @@ from each command's affected directories, as before. A step only says whether it
 run fewer: `testLevels: [unit]` or `testIds: [e2e-local]` on the step or in its workflow's override
 (with both, a command runs when its level or its ID is listed). A step's own test commands replace the
 repository's for that step only. A Story keeps the commands it started with; once newer ones are
-activated, a person who approves its step may adopt them (`story test-policy amend`).
+activated, a person who approves its step may adopt them (`story test-policy amend`). If `sflow/config`
+was rewritten outside SFlow since the Story started, that adoption is refused with that cause: restore its history on
+the Git host, or start a new Story on today's configuration.
 
 One suite run against different targets is several setups with their own IDs, for example `e2e-local`
 with `env: { PLAYWRIGHT_BASE_URL: http://localhost:3000 }` and `e2e-relay` with `environment: relay`.
@@ -78,8 +127,8 @@ Open **Capabilities → Test setup**, **Configuration Center → Test setup**, o
 repository** unless you choose **Only this step**. Tick the suggestions to use and add them together, or
 enter an exact argv array, module directory, result adapter/report path, affected directories, timeout,
 level, variables and environment. A command with an ID the list already holds replaces it. **Save for
-review** makes the ordinary reviewed `sflow/config` proposal; **Save and activate** also activates it at
-once, the same activation as Workflow Studio → Changes → Review and activate. Where the server protects
+review** makes the ordinary reviewed `sflow/config` proposal; **Save and approve** also approves it at
+once, the same approval as Workflow Studio → Changes → Review and approve. Where the server protects
 `sflow/config`, it says that a merge through the repository's review is needed and names the branch.
 Workflow Studio lists the repository's tests and shows which of them each step runs.
 
@@ -180,10 +229,9 @@ adoption once the proposal is activated. For a command one Story needs before th
 accepts a Story-only command (`decision test-command`, see test-recovery).
 
 `workflow proposal <BRANCH>` shows a waiting proposal and, while it is valid and not merged, the exact
-`workflow activate <BRANCH> --confirm <COMMIT> --acknowledge-unprotected` line and Workflow Studio →
-Changes → Review and activate. `--acknowledge-unprotected` accepts that SFlow updates `sflow/config`
-itself; where the server protects that branch the update is refused, nothing changes, and the proposal is
-merged through the repository's review. A proposal that changes only `tests:` reads as **Repository
+`configuration approve <BRANCH> --confirm <COMMIT>` line and Workflow Studio → Changes → Review and approve,
+and whether approving it would be your own self-approval. Where the server protects `sflow/config` the update is
+refused, nothing changes, and the proposal is merged through the repository's review. A proposal that changes only `tests:` reads as **Repository
 tests**, in the terminal and in Workflow Studio → Changes, whose count shows no number until it has
 checked the proposals.
 
@@ -200,7 +248,10 @@ upgrade (the installer, VS Code's after-install pass or `workspace refresh-confi
 `sflow/config-refresh/*` review branches once `sflow/config` holds the build's configuration, each under a lease;
 `sflow/config`, `sflow/config-change/*` proposals, `state`, Story and application branches are never changed. A
 ref the host refuses to delete is reported and harmless. The same run clears each registered clone on this machine
-of its stale tracking refs and fetched archive tags for those refs, deleting refs only, never a file.
+of its stale tracking refs and fetched archive tags for those refs, and of the private refs that kept a configuration
+commit for a retryable upload once `sflow/config` holds that commit, deleting refs only, never a file. SFlow no
+longer writes a copy of the configuration to the `state` branch; a copy an earlier build wrote stays, is never
+authority, and is only the last source `configuration restore` offers.
 `ledger.configurationHistory` stays valid and does nothing. `configuration cleanup-history` was removed
 [owner, 2026-11-16]: an upgrade does its work.
 

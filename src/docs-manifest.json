@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "d7a9768219061209516626948958e4b63ebb854a",
+  "sourceCommit": "9a477aed6d4423d9621db63fe5f502e9849bdc03",
   "topicCount": 93,
-  "contentSha256": "1fc02a3480630f9a7b5c3ba56908761f1ad0d802c4dbba80b82ee592ca4feff0",
+  "contentSha256": "67c5e44b3ea6cae8eeeb96bc093b77e6ca696e71630ac3d7a1431994879784d4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -56,8 +56,8 @@
     {
       "id": "approvals",
       "title": "Approvals",
-      "version": 24,
-      "sha256": "57cb17edb294e4f9c889ee554c991a2754c9897d6285389d2ff4d043ff7481d7",
+      "version": 25,
+      "sha256": "5f5fa974acb57f1d15fe3af93ee812f96a69a198d087e304d6dbc085ace7d7f8",
       "routingSha256": "85a95a3a36e07139ed38692e07cbb4cace9e5c4581d595e45769611fc93f6698",
       "file": "approvals.md"
     },
@@ -96,8 +96,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 29,
-      "sha256": "5fde62cb7cc02ab30c8791fa706926f7ced89daa53dbc10af705246252770682",
+      "version": 30,
+      "sha256": "00fa81ec9c545a8f04c49229a207f344ad3d39e7a8420c348882258788539d6e",
       "routingSha256": "6874a23d15e217eb6dd79f5fbdd5ca670345c6cce3d0cbd1ca82ccfaf8d94049",
       "file": "capability-management.md"
     },
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 27,
-      "sha256": "61419bb1965ca40345aa680d2980ae1beb494f53c3f73d6c20457638c0402ecc",
+      "version": 28,
+      "sha256": "5c952b4ff0e52031d6e4ab12206713f56d7b6eeed95966bfb090e827f2efa42c",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -240,8 +240,8 @@
     {
       "id": "fast-onboarding",
       "title": "Fast onboarding and safe Git acceleration",
-      "version": 6,
-      "sha256": "0dddeb8f47c5e8431360b47b3ca7c0fcf4987b4042ad4e449b2d575907b1f797",
+      "version": 7,
+      "sha256": "8026bf5d74e8aa318a85a23619e14fb8c7fa3922354f44ce3af213e28d93482b",
       "routingSha256": "1b974adeca63866a9427f8f6325ac1f7e1c633b3d0fb5573538e6d8f6cc25473",
       "file": "fast-onboarding.md"
     },
@@ -344,8 +344,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 47,
-      "sha256": "a676052e149c8d2c109849b83617ee44cd38c4ea3bc4d97df25aa7cab2860a77",
+      "version": 48,
+      "sha256": "3187adb7c2506369425c7b60b714cf74134b5f266d7f201d4885479dfb899a52",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
@@ -664,8 +664,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 44,
-      "sha256": "c8b2dec268ab3f2e178ed64d3e285f2fe0471122de51f3eeef6407aa6b37bc68",
+      "version": 45,
+      "sha256": "a0f7a7fa2bcf2bf30b08c86f23800c719f8e4de3713de994aaff48514b40379a",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },
@@ -704,8 +704,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 106,
-      "sha256": "cf63ab64305b2fe549c3b01596982dbf32a3570d632a9e4455b0446d4ad321d9",
+      "version": 107,
+      "sha256": "98ae7a059dd42ad00d862f84fb3b8d4c60e32e8c6dc9bc1d0c93289feb2828ed",
       "routingSha256": "38bb5bce292c6f41c7f3a7b688849a3b0342eeeddb14286a50488eead607e0c2",
       "file": "workflow-authoring.md"
     },

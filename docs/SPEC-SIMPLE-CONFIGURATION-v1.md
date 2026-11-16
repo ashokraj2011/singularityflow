@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 15 November 2026
-**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026). Stage 2 is built (branch scf-stage2, 16 November 2026), with two pieces of stage 3 the owner asked for with it: a proposal ID per proposer (ER-F9) and a kept Studio draft moved onto a newer configuration (ER-F10). Stages 3 to 5 are not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct). Stage 1e was extended to fresh-install and local-reset the same day (D11).
+**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026). Stage 2 is built (branch scf-stage2, 16 November 2026), with two pieces of stage 3 the owner asked for with it: a proposal ID per proposer (ER-F9) and a kept Studio draft moved onto a newer configuration (ER-F10). Stages 3 and 4 are built (branch scf-stage3, 16 November 2026); stage 5 is not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct); stage 3's package proposals follow D10 (see stage 3 below). Stage 1e was extended to fresh-install and local-reset the same day (D11).
 **Namespace:** SCF. No other document uses it.
 **Source baseline:** main bd90bcc46. File references are to that commit.
 **Inputs:** the four analyses of 2026-11-15 (workspaces, upgrades, editing and review, configuration history).
@@ -301,6 +301,38 @@ one list; VS Code's activate buttons become propose and approve; drafts kept as 
 (SCF:REQ-004, REQ-010 to REQ-013, D4, D5). Fixes ER-F3, F4, F8, F10, and part of F9. Risk: medium; it touches Story
 start and VS Code flows. D4 changes regulated repositories, so the release notes say so.
 
+Built 16 November 2026 (branch scf-stage3):
+- 3a. People proposals. Story-start enrollment, `add-current-identity` and every approval-policy edit are people
+  proposals (`sflow/config-change/people/*`). At Story start, where self-approval is allowed and `sflow/config`'s own
+  history shows the person was never in a group they are not in now, the starter approves their enrollment in the same
+  step: one approval commit (sflow/config first, the proposal second) with `Self-approved: yes`, and the start says so
+  (D5). Otherwise it waits, once per person, and the Story starts without them. Groups an approved change removed the
+  person from are never added back at Story start, and an approval that would add its own approver back is refused
+  (SCF:REQ-012, ER-F3). History that cannot be read decides against the person.
+- 3b. One engine for workflow, people and package proposals; only workflow approvals are appended to
+  `singularity/configuration-transactions.json`, so the receipt older builds check is unchanged; a people or package
+  approval is recorded by its approval commit (`Sflow-Proposal`, `Proposed-by`, `Approved-by`).
+- 3c. The second-person policy: `approvalSecurity.allowSelfApproval` governs configuration approvals (D4), and the approve
+  view says when an approval is a self-approval or needs someone else (SCF:REQ-011, ER-F4). The release notes must say
+  that a regulated repository now needs a second person for configuration changes.
+- 3d. The one list, `configuration proposals`: drafts, workflow, people and package proposals, capability and setup
+  proposals and host-kept upgrade reviews, each with author, state and next step (SCF:REQ-010).
+- 3e. VS Code: Review and approve, Finish and approve and Save and approve propose, then approve through the signed
+  `configuration approve`, with one acknowledgement that names a self-approval (ER-F4); `workflow activate --confirm` is
+  the same approval.
+- 3f. Workflow Studio keeps drafts as edits against the configuration they were read from, never a full copy, and moves
+  them onto a newer one on reopen; the discard-only reload is gone (SCF:REQ-013, ER-F8). A build session already keeps
+  its moves, and `/sf-fix-workflow` its change set, as operations bound to the configuration they read (stage 2, ER-F12).
+- 3g. Approval refuses a change that gives a workflow a `workflow validate` problem the current `sflow/config` did not
+  have (ER-F7, from Appendix A's third list).
+- 3h. Package proposals, as D10 leaves them: an upgrade publishes directly. `--review-only` now makes a package proposal
+  (`sflow/config-change/package/upgrade-*`) that `configuration approve` lands; `--rollback` lets an older stamped build
+  propose going back (`.../rollback-to-<date>-*`), listing what it removes (D8). An approval refuses a package proposal
+  from a build older than `sflow/config`'s baseline unless it is a rollback. Where the host refuses the direct push, the
+  candidate stays on a `sflow/config-refresh/*` review branch for a merge there, as D10 says. Conflict with this stage's
+  first text: "package proposals under `sflow/config-change/package/` through the same engine" would have put every
+  upgrade through a proposal; D10 wins, so only a person's `--review-only` or `--rollback` makes one.
+
 **Stage 4 — Remove the old machinery.** (D10 pulled part of it into the upgrade on 16 November 2026: history refs are
 no longer written; auto-clean is deleted; the upgrade deletes the old history and review refs; onboarding, SGOS,
 proposal cleanup and the legacy-mirror proof fetch a source commit by object instead of reading a history ref.)
@@ -309,6 +341,26 @@ cleanup-history and the history-ref paths in onboarding, SGOS and proposal clean
 `doctor` and `validate` read the authority; the unbounded ancestry fetch, with proof v2 once the minimum build allows;
 the one-time removal step; the docs (SCF:REQ-002, REQ-003, REQ-020). Fixes CH-F2, F4, F5, F7, F8, and parts of CH-F9
 and ER-F5. Risk: medium; it deletes code that others call, and section 4 lists each caller.
+Built 16 November 2026 (branch scf-stage3):
+- 4a. The `state` copy is no longer written: the refresh and capability activation and `capability publish` write
+  nothing to `state`'s configuration copy; organisation reads use `sflow/config` only; the statuses
+  `activation-complete-projection-pending`, `activated-without-projection` and `ready-state-refresh-pending` and the
+  copy retry are gone from the CLI and VS Code (SCF:REQ-003).
+- 4b. The restore proposal (D7, SCF:REQ-002): `configuration restore` shows, and with `--confirm <SOURCE>` does, the one
+  route. A `sflow/config` that does not load gets a repair proposal back to its newest commit that loads, approved
+  like any other; a missing one is recreated from the newest copy (a clone's `<remote>/sflow/config`, the newest Story
+  pin this machine holds, then the `state` copy checked against its manifest), pushed only while still absent, with
+  `Approved-by`. Every refusal for a missing or unloadable `sflow/config` names it, its commit and the problem, and this
+  route. A repair proposal can be approved over a `sflow/config` that does not load.
+- 4c. `doctor`, `configuration validate` and `workflow fix` read `sflow/config` (refreshed, as its files are) outside a
+  Story checkout and name the commit they read; a Story checkout keeps its pin (ER-F5).
+- 4d. The unbounded commits-only ancestry fetch; proof v2, bounded at 1 MiB, written only where the repository's minimum
+  build reads it (builds stamped from 2026-11-17); D9's adoption without ancestry for `story approvers refresh`
+  (`--adopt-without-ancestry`); skill and test-command amendments refuse a rewrite with its cause and route (SCF:REQ-020,
+  CH-F2). The date is when v2 readers start; set it to the day this lands on main.
+- 4e. What D10 left of the one-time removal: the upgrade's local pass also removes each clone's private upload refs
+  (`refs/singularity/transport/configuration*`) for commits `sflow/config` already holds (CH-F9, in part). Recreate &
+  sync backup tags stay, as SCF:REQ-003 says.
 
 **Stage 5 — Movable workspaces and one repository key.** Placement for a clone outside any workspace (D3);
 `workspace repair` re-links, prunes and recreates; the ambiguous-ID message; the canonical repository key everywhere

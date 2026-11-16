@@ -16,7 +16,7 @@ commands:
 related:
   - getting-started
   - starting-work
-version: 6
+version: 7
 ---
 Fast onboarding attaches an existing Git checkout to one exact reviewed configuration authority.
 It performs no clone, source scan, AST or World-Model build, model call, application checkout, or
@@ -25,7 +25,7 @@ application-branch commit. The verified authority pin is machine-local and Story
 ## Purpose and prerequisites
 
 Use this topic for an existing checkout. Ordinarily the repository already advertises reviewed
-`sflow/config` or a verified `state` projection. An explicitly unmanaged repository can instead
+`sflow/config`; when it lost it, `singularity-flow configuration restore` recreates it from the newest copy. An explicitly unmanaged repository can instead
 use the package-approved local-only bootstrap preset. With multiple remotes, choose one explicitly;
 `origin` is never assumed to be more authoritative. Credential-bearing and external-helper
 remote forms are refused before persistence or network access.

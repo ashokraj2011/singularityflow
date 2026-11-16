@@ -17,7 +17,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 29
+version: 30
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -166,8 +166,9 @@ The mode names have narrow meanings:
   source is already valid workflow schema v2. It preserves user-created and byte-modified
   workflows, agents, templates, prompts, and artifacts. It does **not** migrate workflow v1.
 - `--recreate` builds the installed workflow-v2 packaged configuration and carries forward the
-  stable portable organisation data that can be verified from current `sflow/config`, a
-  repository-bound state mirror, or its retained history. Its preview lists exact omitted paths.
+  stable portable organisation data that can be verified from current `sflow/config`, or a copy an
+  earlier build kept on the `state` branch. Its preview lists exact omitted paths. To restore a
+  missing `sflow/config` itself, use `singularity-flow configuration restore`.
 - `--reset-local` works offline and removes only matching capability lead-registry entries and
   organisation-cache files, including equivalent URL spellings. It does not clear workspace
   registrations, the active workspace/session, FOS pins, clones, or remote refs.
@@ -211,7 +212,6 @@ Confirmed application may return one of three resumable partial statuses:
 | --- | --- | --- |
 | `configuration-review-required` | A leased repository-setup proposal was preserved; `sflow/config` is not ready | Inspect and explicitly activate the named setup proposal (or use the repository's external review path), then preview onboarding again |
 | `local-registration-pending` | Completed remote writes are preserved; this machine did not record the lead | Follow the returned preview/confirmation without republishing configuration; also honor any nested state-refresh retry |
-| `ready-state-refresh-pending` | `sflow/config` is ready; only its portable state projection is pending | Run the returned `capability publish` retry; do not repeat configuration publication |
 
 Normal UI and Copilot output show effects, preserved data, and the returned next actions. Authority
 pins, object IDs, cache leases, and other Git internals remain under diagnostics. A valid delivery
@@ -242,7 +242,7 @@ release. Normal repository setup entry points use `capability onboard`.
 6. If inspection reports independent approved authorities, preview `sflow capability reconcile <DELIVERY-URL> --canonical-lead <URL> --json`. Review its exact commits, map digests, and single state-link write, then repeat with the returned `--confirm-plan` only after choosing the canonical authority. Reconciliation never deletes the competing map.
 7. Use `sflow capability fsck --repository <DELIVERY-URL> --json` to verify portable discovery from a delivery repository. Add `--search-known` only when no state link exists and an explicit compatibility search is intended.
 8. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
-9. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
+9. Verify the returned target commit and activation-ledger receipt. Refresh the organisation view afterward.
 
 ## Onboard a team atomically
 
@@ -275,8 +275,8 @@ external review, merge through the normal provider controls and rerun the exact 
 Use the same matching team ID in a later proposal to add children without recreating the team.
 After activation, `/sf-workspace` is a separate journey and may select capabilities across teams.
 
-Run `singularity-flow capability fsck --lead <URL>` whenever proposal history or
-the state projection looks inconsistent, or a workspace says its selected capability
+Run `singularity-flow capability fsck --lead <URL>` whenever proposal history
+looks inconsistent, or a workspace says its selected capability
 does not exist. It checks every registered workspace binding against the approved map
 and returns exact branches, commits, issue classifications, and remediation commands
 without changing a ref. An unrelated-history proposal cannot be reviewed or merged.
@@ -322,7 +322,7 @@ To remove a capability that still has children, choose where those direct childr
 
 ## State and safety
 
-The approved map lives on `sflow/config`; its orphan state-branch copy is a read mirror, not an independent write authority. Changes use proposal branches and exact activation. Activation uses an exact leased update and appends a tamper-evident event containing proposer, approver, proposal and target commits, changed files, and the protection result. A provider rejection leaves the proposal available for its normal pull-request path; only explicit pull-request, review, or protection evidence is classified as review-required.
+The approved map lives on `sflow/config`, the only authority; SFlow writes no copy of it to the `state` branch. Changes use proposal branches and exact activation. Activation uses an exact leased update and appends a tamper-evident event containing proposer, approver, proposal and target commits, changed files, and the protection result. A provider rejection leaves the proposal available for its normal pull-request path; only explicit pull-request, review, or protection evidence is classified as review-required.
 
 Activation is staged, so a failure after the configuration ref advances is reported as partial
 completion rather than rolled back or called complete:
@@ -331,21 +331,19 @@ completion rather than rolled back or called complete:
 | --- | --- | --- |
 | `activation-pending` | Proposal retained; approved configuration unchanged | Repair the reported Git failure and retry the exact activation |
 | `CAPABILITY_ACTIVATION_AUDIT_PENDING` | Configuration active; activation audit absent | Re-run the returned activation command so SFlow proves and records the original accepted target |
-| `activation-complete-projection-pending` | Configuration and audit active; state mirror incomplete | Run the returned `capability publish` command |
-| `activation-complete-portability-pending` | Configuration, audit, and map projection active; one or more delivery links incomplete | Run the returned `capability publish` command and verify delivery links |
-| `activated` | Configuration, audit, projection, and required portability links complete | Refresh the organisation view |
+| `activation-complete-portability-pending` | Configuration and audit active; one or more delivery links incomplete | Run the returned `capability publish` command and verify delivery links |
+| `activated` | Configuration, audit, and required portability links complete | Refresh the organisation view |
 
 Recovery binds the original proposal and accepted target commits. It never substitutes a newer
 `sflow/config` head, invents an approver, duplicates the audit after an uncertain push, or overwrites
-a newer state projection. `activated: true` means configuration authority advanced; inspect
-`status`, `audit`, `projection`, and `portability` before treating the whole operation as complete.
+a newer delivery link. `activated: true` means configuration authority advanced; inspect
+`status`, `audit` and `portability` before treating the whole operation as complete.
 
 The same information appears in several places for different reasons:
 
 | Location | Purpose | Authority |
 | --- | --- | --- |
 | Lead repository `sflow/config:singularity/capabilities.yml` | Reviewed capability and repository membership | **Authoritative** |
-| Lead repository `state` configuration mirror | Exact, manifest-bound read copy of the approved configuration | Verified projection only |
 | Delivery repository `state:singularity/capability-authority.json` | Tells a new laptop which lead and capability IDs to verify | Routing link only |
 | Story branch `singularity/capabilities.yml` | Immutable configuration pinned when that Story started | Authority for that Story only |
 | Workspace manifest, lead registry, and organisation cache | Navigation and performance | Disposable local projection |
@@ -360,9 +358,9 @@ After upgrading SFlow, use `singularity-flow workspace reinitialize --dry-run` t
 configuration reconciliation. Apply only the returned exact plan with
 `singularity-flow workspace reinitialize --confirm-plan <PLAN-ID>`. It refreshes packaged workflow,
 templates, prompts, and agents through the existing reviewed plan, verifies schema readability,
-and refreshes the approved configuration state projection. It does
+and publishes them to `sflow/config`. It does
 not run capability-specific publication or repair delivery routing links; user-owned capability
-definitions remain unchanged in the approved configuration mirror. Use the explicit
+definitions remain unchanged in the approved configuration. Use the explicit
 `singularity-flow capability publish --lead <URL> --json` journey when capability publication is
 actually intended.
 Missing or exact registered framework workflow IDs are restored with their framework-owned
@@ -406,7 +404,7 @@ request** only after neither is found. A replacement mapping uses the exact atom
 boundary automatically. A late authority change remains an engine-level conflict; the UI does
 not overwrite or silently forget it.
 
-Organisation reads prefer the state mirror, fall back to `sflow/config`, and keep a derived cache keyed to the exact observed configuration commit. Read-only screens may reuse that cache; operations that clone, attach, detach, or otherwise mutate state force a fresh authoritative Git read. When the remote is unavailable, a cached result is marked `stale` and carries its age and remote error. `--refresh` bypasses a current cache entry; it cannot manufacture connectivity.
+Organisation reads come from `sflow/config` only, and keep a derived cache keyed to the exact observed configuration commit. Read-only screens may reuse that cache; operations that clone, attach, detach, or otherwise mutate state force a fresh authoritative Git read. When the remote is unavailable, a cached result is marked `stale` and carries its age and remote error. `--refresh` bypasses a current cache entry; it cannot manufacture connectivity.
 
 ## Troubleshooting
 
@@ -415,14 +413,13 @@ Organisation reads prefer the state mirror, fall back to `sflow/config`, and kee
 - If repository inspection is `unreachable` or `inconclusive`, repair access and retry with `--refresh`; a failed lookup is not evidence that the repository is new.
 - If onboarding reports `configuration-review-required`, use `capability setup-proposal` for the exact named onboarding branch, explicitly activate or obtain external review, and preview again. `capability proposals` will not list it; configuration is not ready merely because the proposal was published.
 - If onboarding reports `local-registration-pending`, retry the returned onboarding preview/confirmation. Completed remote writes are preserved and are not republished; also follow any nested state-refresh retry.
-- If onboarding reports `ready-state-refresh-pending`, run the returned `capability publish` action. Do not recreate or migrate `sflow/config` again.
 - If onboarding refuses `REPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED`, reduce the selected branch snapshot below the documented file/byte quotas or repair a server that ignored filtering; do not bypass the limit.
 - If `not-onboarded` has no checked leads, select or register a lead before deciding whether to create a mapping.
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If activation reports `CAPABILITY_ACTIVATION_AUDIT_PENDING`, do not recreate the proposal. Correct the named commit-identity or signing problem and rerun its exact activation command; SFlow reuses only the proven original activation event.
-- If activation is complete but projection or portability is pending, run the returned `capability publish` action. Do not merge or reset `sflow/config` again.
+- If activation is complete but portability is pending, run the returned `capability publish` action. Do not merge or reset `sflow/config` again.
 - If recovery reports `CAPABILITY_ACTIVATION_RECOVERY_CONFLICT`, fetch or restore the exact authority/ledger history named in the diagnostic. A newer branch head is not evidence of the original approval.
 - If a push is reported as `outcome-unknown`, run the returned exact proposal inspection before retrying. Do not delete or recreate the branch based only on a timeout.
 - If Map reports `CAPABILITY_AUTHOR_IDENTITY_REQUIRED`, configure both values explicitly with `git config --global user.name "Your Name"` and `git config --global user.email you@example.com`, then retry. The operating-system account name is not Git authorship.

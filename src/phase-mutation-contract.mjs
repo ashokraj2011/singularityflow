@@ -13,6 +13,7 @@ import { sourceReviewKind } from './phase-roles.mjs';
 import { intentAmendmentPause, intentAmendmentPauseReason } from './intent-amendment-pause.mjs';
 import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
+import { WRITING_ALIASES } from './writing-aliases.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
@@ -82,21 +83,20 @@ export function mutationTurnMode(skill) {
   // proposal file; a person accepts each proposal (specStudioGuard, SPEC-SPA v1.3 §4.1).
   if (name === 'spec-author') return 'spec-studio';
   if (AUTHORING_SKILL_DECLARATION[`sflow-${name}`]) return 'authoring';
-  // /sf-specify, /sf-plan and /sf-verify run `prepare` and write the current step's artifacts, and
-  // /sf-implement, /sf-call and /sf-scenario-repair run /sf-code (/sf-call a document step through
-  // /sf-phase) in the same turn. No step names them as its author, but they author like /sf-phase,
-  // bound to the current step's own policy; a read turn refused what their instructions do. Every
-  // delegation skill takes the turn of the skill it delegates to (phase-mutation-contract.test.mjs).
-  // /sf-converge writes the step's document at a model-generation checkpoint; a deterministic step's
-  // contract still grants no edits (deriveMutationContract), so its kernel-built publication is unchanged.
-  // /sf-code-docs writes doc comments into the code the open generation changed, under that step's
-  // own policy like /sf-code; a closed or published generation grants it no source edits. /sf-run runs
-  // the guided `run` (`next` and `submit`) and then the returned canonical author in the same turn.
-  if (['specify', 'plan', 'verify', 'implement', 'call', 'scenario-repair', 'converge', 'code-docs', 'run'].includes(name)) return 'authoring';
-  // /sf-next does the current step's own agent work in its turn (D2, SPEC-OSA v1.1 Stage 4) [OSA:REQ-025]: the kernel's
-  // decision still grants its writes, so where the step's next action is a person's, or not this step's, it writes nothing,
-  // and its other actions (sync, a relayed decision, a chat reset) are the registered commands every authoring turn runs.
-  if (name === 'next') return 'authoring';
+  // Every writing alias, from the one table that names them (writing-aliases.mjs) [OSA:REQ-027, AC-019]. /sf-specify,
+  // /sf-plan and /sf-verify run `prepare` and write the current step's artifacts, and /sf-implement, /sf-call and
+  // /sf-scenario-repair run /sf-code (/sf-call a document step through /sf-phase) in the same turn. No step names them as
+  // its author, but they author like /sf-phase, bound to the current step's own policy; a read turn refused what their
+  // instructions do. Every delegation skill takes the turn of the skill it delegates to (phase-mutation-contract.test.mjs).
+  // /sf-converge writes the step's document at a model-generation checkpoint; a deterministic step's contract still grants
+  // no edits (deriveMutationContract), so its kernel-built publication is unchanged. /sf-code-docs writes doc comments into
+  // the code the open generation changed, under that step's own policy like /sf-code; a closed or published generation
+  // grants it no source edits. /sf-run runs the guided `run` (`next` and `submit`) and then the step's work command in the
+  // same turn. /sf-next does the current step's own agent work in its turn (D2, SPEC-OSA v1.1 Stage 4) [OSA:REQ-025]: the
+  // kernel's decision still grants its writes, so where the step's next action is a person's, or not this step's, it
+  // writes nothing, and its other actions (sync, a relayed decision, a chat reset) are the registered commands every
+  // authoring turn runs.
+  if (Object.hasOwn(WRITING_ALIASES, name)) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
   if (KERNEL_ONLY_SKILLS.has(name)) return 'kernel-only';
   // Every other skill only reads. Each registry skill's own SFlow commands are held to its turn by

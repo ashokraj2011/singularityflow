@@ -164,7 +164,9 @@ export function nextOf(act, result = {}) {
   const command = lead ? act.do[lead] : null;
   const state = String(act.state ?? 'read');
   const choices = Array.isArray(act.ask?.choices) && act.ask.question ? act.ask.choices.map((choice) => choice?.label).filter(Boolean) : [];
-  const line = !command && choices.length ? `${state}: ask the person: ${oneLine(act.ask.question, 300)} (${choices.join(' / ')})`
+  // A retained review's next step is the person's (act.show); its route is run only in the step author's turn.
+  const line = act.show && command ? `${state}: end your reply with act.show for the person; only the step's author runs ${command}`
+    : !command && choices.length ? `${state}: ask the person: ${oneLine(act.ask.question, 300)} (${choices.join(' / ')})`
     : !command ? `${state}: ${oneLine(act.said ?? 'read act at the top of this result', 300)}`
     : PERSON_STATES.has(state) ? `${state}: show the person ${command}; never run it`
       : act.ask || state === 'confirm' ? `${state}: ask the person in this chat, and only on an explicit yes run ${command}`
@@ -472,11 +474,19 @@ export function agentAct(result) {
     if (result.status === 'documents-required') return { state: 'ask-person', do: null,
       read: ['documentReadiness', 'next'],
       said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
-    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: [...(result.authoring ? ['authoring'] : []), 'mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : []),
+    // A review asked the published code for corrections: one yes from the person starts the next version, and this same
+    // turn fixes the findings. Asked with the host's question tool, never answered by the agent [owner, 2026-11-16].
+    if (result.status === 'successor-confirmation-required' && result.successor?.question) return withRoute({ state: 'confirm', do: null,
+      read: ['successor', 'next'],
+      ask: { kind: 'choice', question: result.successor.question, choices: (result.successor.choices ?? ['Yes', 'No']).map((label) => ({ label })),
+        how: 'Show the person successor.findings in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and fix the findings in this same turn. On No, or with no question tool, give the person next and end; never answer it yourself.' },
+      said: oneLine(`The review of ${result.phase ?? 'this step'} asked for corrections: ask the person whether to start version ${result.successor.targetGeneration ?? 'N+1'} to fix them, and on their Yes do it now.`) },
+    result.successor.preview);
+    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: [...(result.authoring ? ['authoring'] : []), 'mutationContract', ...(result.reviewCorrection ? ['reviewCorrection'] : []), ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : []),
       ...openUpstream(result), ...(result.clarification?.checkpoint?.newQuestionAction ? ['clarification.checkpoint.newQuestionAction'] : []),
       ...(result.recovery?.requiresRecovery ? ['recovery'] : result.generatesCode ? [...(result.recovery?.blockers?.length ? ['recovery.blockers'] : []), 'recovery.testExecution'] : []), ...(result.generatesCode ? ['intent'] : []),
       ...(result.fixOnTheWay?.fix?.length ? ['fixOnTheWay'] : [])],
-      said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay, and a draft not yet written is this turn's work, never a reason to stop.${result.planChanges?.length ? ` The plan changed: ${result.planChanges.map((entry) => entry.words).join(' ')}` : ''}${result.fixOnTheWay?.fix?.some((entry) => !entry.departure) ? ` Also fix on the way: ${result.fixOnTheWay.fix.filter((entry) => !entry.departure).map((entry) => entry.id).join(', ')}; each fixOnTheWay.fix row has its record command.` : ''}` };
+      said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay, and a draft not yet written is this turn's work, never a reason to stop.${result.reviewCorrection ? ` Fix each of reviewCorrection.findings (the review of version ${result.reviewCorrection.generation}) in this version.` : ''}${result.planChanges?.length ? ` The plan changed: ${result.planChanges.map((entry) => entry.words).join(' ')}` : ''}${result.fixOnTheWay?.fix?.some((entry) => !entry.departure) ? ` Also fix on the way: ${result.fixOnTheWay.fix.filter((entry) => !entry.departure).map((entry) => entry.id).join(', ')}; each fixOnTheWay.fix row has its record command.` : ''}` };
     // The questions are one stage of this step: without what the task still owes, the turn ended at them.
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null,
       read: ['clarification', 'context', ...(result.authoring ? ['authoring'] : []), ...(result.authoringProgress ? ['authoringProgress'] : []), ...(result.taskCompletion ? ['taskCompletion'] : []), ...openUpstream(result)],
@@ -484,6 +494,15 @@ export function agentAct(result) {
       // ended at the questions (agent-text audit, 2026-11-11). It waits only on these answers.
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.${result.taskCompletion
         ? ' taskCompletion is blocked only on these answers: once they are given, record them and author this step in this same turn.' : ''}`) };
+    // A step the kernel builds: its generator is this turn's command to run, so `do` names no skill to type. With the
+    // route that brought the turn here (/sf-phase), a relaying agent handed the same route back [journey B, 2026-11-16].
+    if (result.status === 'deterministic-generation') {
+      const generate = firstNow(result.next);
+      return withRoute({ state: 'next', do: null, read: ['next', ...(result.taskCompletion ? ['taskCompletion'] : [])],
+        said: oneLine(`${result.phase ?? 'This step'} is built by the kernel, never written by hand: run do.shell, its generator, now in this turn, then`
+          + ` \`singularity-flow phase prepublish ${result.phase ?? '<phase>'} --for-agent --json --publish-if-ready\`. It is this turn's own work, not a route to relay.`) },
+      generate && { command: generate.commandGuidance?.command ?? generate.command, copilotCommand: null, reason: generate.detail });
+    }
     return withRoute({ state: 'next', said: oneLine(result.reason ?? `Phase entry status: ${result.status}.`), do: null }, firstNow(result.next));
   }
   if (result.resultType === 'sflow-phase-prepublish') {
@@ -537,7 +556,9 @@ export function agentAct(result) {
   }
   if (result.resultType === 'source-review-agent-context' && result.canReview) {
     const progress = result.progress;
-    if (progress?.complete) return { state: 'review-complete', do: null, read: ['progress', 'continuation'], said: progress.instruction };
+    // Already retained: the same next step its retention returned, ready to relay (owner, 2026-11-16).
+    if (progress?.complete) return { state: 'review-complete', do: null, read: ['progress', 'continuation'], said: progress.instruction,
+      ...(result.continuation?.presentation ? { show: result.continuation.presentation } : {}) };
     if (progress?.state === 'retain-report') return withRoute({ state: 'retain', do: null,
       read: ['progress', 'stagingProtocol'], said: progress.instruction }, progress.nextAction);
     if (progress?.state === 'read-error' || progress?.state === 'reload-context') return { state: 'blocked', do: null,
@@ -560,8 +581,11 @@ export function agentAct(result) {
   // continuation (the author's successor, submission, or a person's disposition); never retain it again.
   if (result.resultType === 'source-review-status' && result.reportSha256 && Array.isArray(result.continuation?.actions) && result.continuation.actions.length) {
     const [next] = result.continuation.actions;
+    // The person's next step, in SFlow's own words: a review turn ends on it, never on the findings alone (owner, 2026-11-16).
     return withRoute({ state: 'next', do: null, read: ['status', 'findings', 'pendingDispositions', 'continuation'],
-      said: oneLine(`The review is retained (${result.status}). ${next.reason ?? ''} Never run review-source submit for it again.`) }, next);
+      ...(result.continuation.presentation ? { show: result.continuation.presentation } : {}),
+      said: oneLine(`The review is retained (${result.status}). ${next.reason ?? ''} Never run review-source submit for it again.${result.continuation.presentation
+        ? ' A review turn ends its reply with act.show exactly as given, after the findings; only a reviewer SFlow started as the author\'s sub-agent (reviewDispatch: author-turn) ends on the status and findings.' : ''}`, 700) }, next);
   }
   if (result.resultType === 'source-review-check') {
     if (!result.retentionReady && result.incomplete?.instruction) return { state: 'blocked', do: null, read: ['incomplete', 'findings'],

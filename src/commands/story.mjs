@@ -1830,6 +1830,8 @@ export async function storyAdjudicateCommand(positionals, options) {
   const answers = answersFile ? await adjudicationAnswers(answersFile) : null;
   const itemIds = answers ? answers.map((entry) => entry.itemId) : [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
   const result = await writeAdjudications(root, config, options, { answers, itemIds, expect: optionString(options, 'expect') });
+  // The person's answers from the decisions page renew the Copilot turn that opened it [owner, 2026-11-16].
+  if (answers) await import('../copilot-mutation-guard.mjs').then((guard) => guard.renewTurnAfterCardAnswer(root, accepted.workflow.workItem.id)).catch(() => {});
   const { decisions, unchanged, earlier, projection, authority, phaseId } = result;
 
   if (answers) return console.log(JSON.stringify(answersRecorded(result), null, 2));
@@ -1845,7 +1847,7 @@ export async function storyAdjudicateCommand(positionals, options) {
   const open = items.filter((item) => !decided.has(item.id));
   if (open.length) {
     const named = open.slice(0, 8).map((item) => `${item.id}${item.paths?.length ? ` ${item.paths.join(', ')}` : ''}`);
-    console.log(`${open.length} of ${items.length} still need a decision: ${named.join('; ')}${open.length > named.length ? `; and ${open.length - named.length} more` : ''}.`);
+    console.log(`${open.length} of ${items.length} still ${open.length === 1 ? 'needs' : 'need'} a decision: ${named.join('; ')}${open.length > named.length ? `; and ${open.length - named.length} more` : ''}.`);
   } else if (items.length) console.log(`All ${items.length} decided.`);
   if (projection.unresolvedBlockers.length) console.log(`Blocking findings: ${projection.unresolvedBlockers.join(', ')}`);
   const nextActions = projection.allowedNext.filter((action) => action !== 'adjudicate');
@@ -2590,7 +2592,8 @@ export async function recordIntentAmendmentDecision(root, config, workflow, prop
 export async function refreshIntentAmendment(root, config, workflow, proposalId, { channel = 'terminal' } = {}) {
   const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
   if (summary?.status !== 'proposed') {
-    throw new SingularityFlowError(`Intent amendment '${proposalId}' is not awaiting a decision, so there is nothing to refresh.`, { code: 'INTENT_AMENDMENT_NOT_PENDING' });
+    throw new SingularityFlowError(`Intent amendment '${proposalId}' is not awaiting a decision, so there is nothing to refresh.`, {
+      code: 'INTENT_AMENDMENT_NOT_PENDING', details: (await import('../sequence.mjs')).storyNextDetails(workflow) });
   }
   const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
   const { intentAmendmentStaleness } = await import('../state-stores.mjs');

@@ -3,7 +3,7 @@ import { requiresProspectivePhaseInspection } from './code-submission-evidence.m
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
-import { sourceReviewContinuation } from './source-review-continuation.mjs';
+import { reviewAsksForCorrection, reviewCorrection, sourceReviewContinuation } from './source-review-continuation.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 
 /** Read-only entry classification. Only explicit prepare can reserve a document successor. */
@@ -25,11 +25,21 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
         actions: [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: `singularity-flow prepare ${phase.id}`,
           reason: `This code step was ${phase.skillAmendmentRevalidation?.state === 'affected' ? 'reopened by a skill amendment' : 'returned for rework'}: prepare its next generation; the published one stays preserved.` })] }
       : { status: 'attention-required', reason: 'code-rollover-required',
-        actions: [copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
-          reason: 'Review the guarded code successor boundary; preserve the published generation and its tests.' })] };
+        actions: [copilotAction({ skill: '/sf-code', command: `singularity-flow phase rollover ${phase.id} --json`,
+          reason: `Preview starting version ${Number(phase.generation ?? 0) + 1} of ${phase.id} and ask the person to confirm it; version ${phase.generation} and its tests stay as published.` })] };
     return { status: 'authoring-entry' };
   }
   const continuation = review ? sourceReviewContinuation(workflow, phase, review) : null;
+  // A retained review asked a published code step for corrections: its next version is the person's one yes, asked here
+  // with the host's question tool, and the same turn goes straight on to the fix (owner, 2026-11-16). Never automatic.
+  if (continuation?.classification === 'successor-publication-required' && phaseRequiresCodeDelivery(phase)
+      && reviewAsksForCorrection(review) && continuation.nextCommand === `singularity-flow phase rollover ${phase.id} --json`) {
+    const to = continuation.targetGeneration;
+    return { status: 'successor-confirmation-required', reason: 'retained-review-correction', targetGeneration: to,
+      successor: { question: `Start version ${to} to fix the review's findings? Version ${to - 1} and its tests stay.`, choices: ['Yes', 'No'],
+        preview: continuation.actions[0], findings: reviewCorrection(review, phase.generation)?.findings ?? [] },
+      actions: continuation.actions };
+  }
   if (continuation?.classification === 'successor-publication-required'
       && !phaseRequiresCodeDelivery(phase) && !phaseUsesDeterministicGeneration(phase)
       && phase.generationPolicy?.requirement !== 'none') return {

@@ -44,13 +44,13 @@ import { PACKAGE_ROOT } from '../package-root.mjs';
 import { assertConfirmation, copySlip } from '../text-lines.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card']);
+const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card', 'probe', 'probe-wait']);
 const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch']);
 const UNDO_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'settled', 'reason', 'fetch']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
 export const DECISIONS_USAGE = [
-  'Usage: singularity-flow decisions [WORK-ID] [--phase PHASE] [--no-card] [--json]',
+  'Usage: singularity-flow decisions [WORK-ID] [--phase PHASE] [--no-card] [--probe|--no-probe] [--probe-wait SECONDS] [--json]',
   '       singularity-flow decisions [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT] [--clause ITEM=IDS] [--json]',
   '       singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [...]   (your own terminal shows the summary and asks)',
   '       singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [...] --confirm sha256:DIGEST [--json]   (a script or a /sf-decide turn)',
@@ -59,7 +59,10 @@ export const DECISIONS_USAGE = [
   '       singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT]   (what was settled for you becomes your question again)',
   'Lists what people must decide before the step can move, in plain words with choices, and records the',
   'choices with one confirmation. Each choice is checked against the deciding person\'s approval group and',
-  'written as the same records its own command writes. Options with a recommendation are shown first.'
+  'written as the same records its own command writes. Options with a recommendation are shown first.',
+  'Where the right answer depends on a check SFlow can run itself (whether the tests pass on another Node), it runs',
+  'that check first, read-only and for at most --probe-wait seconds (60 by default), and recommends from the result.',
+  'Your own terminal checks by default; --json checks only with --probe.'
 ].join('\n');
 
 function refused(message, code, details = undefined) {
@@ -96,6 +99,21 @@ async function approvalEvidenceOf(root, config, workflow, packet, at) {
 export async function readDecisionPacket(root, config, workflow, { phaseId = null, at = nowIso(), card = true } = {}) {
   return (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId, at, card });
 }
+
+/**
+ * The list after SFlow ran the checks its items' answers depend on (decision-probes.mjs), within `seconds`, read
+ * again when any ran [owner, 2026-11-16]: the card recommends from what they found. The checks record nothing.
+ */
+async function checkedPacket(root, config, workflow, packet, { seconds, phaseId, card = true, say }) {
+  const probes = await import('../decision-probes.mjs');
+  if (!probes.itemsToCheck(packet).length) return packet;
+  const { ran } = await probes.runDecisionProbes(root, packet, { seconds: probes.probeSeconds(seconds), say });
+  return ran.length ? readDecisionPacket(root, config, workflow, { phaseId, at: nowIso(), card }) : packet;
+}
+
+/** Whether this read runs the checks: a person's own terminal does unless told not to, a script only when asked. */
+const probing = (options, { json }) => optionBoolean(options, 'probe', !json);
+const toStderr = (line) => process.stderr.write(`${line}\n`);
 
 async function answersFrom(options) {
   const file = optionString(options, 'answers');
@@ -173,40 +191,57 @@ async function previewOf(workflow, packet, plan) {
   };
 }
 
+/**
+ * An item's words on every host [owner, 2026-11-16]: its question, why in one sentence and "Recommended: …", from the
+ * engine's `plain` (decision-plain.mjs). A packet from an engine before it, or built by hand, reads its own title, the
+ * first sentence of its why and its recommendation instead.
+ */
+export function plainWords(item) {
+  if (item.plain && (item.plain.question || item.plain.later || item.plain.settled)) return item.plain;
+  const why = String(item.why ?? '').replace(/\s+/gu, ' ').trim();
+  if (item.settled) return { settled: `${String(item.title ?? '').replace(/[.!?]+$/u, '')}. Undo if wrong.` };
+  return { question: item.title, why: why.split(/(?<=[.!?])\s+/u)[0] ?? why, recommended: item.recommended?.words ?? null };
+}
+
+/** The check an item's answer waits on, offered first, or null once SFlow has its result. */
+export const checkOf = (item) => (item.check && item.check.status !== 'checked' ? item.check : null);
+
+/** An item nobody can answer yet: one "Later:" line, never a question [owner, 2026-11-16]. */
+export const laterOf = (item) => plainWords(item).later ?? null;
+
 function itemLines(item, index, { numbered = false } = {}) {
+  const plain = plainWords(item);
   // An intent amendment shows what it changes and reaches, so a person decides it from the same words on every host [owner, 2026-11-13].
   const amendment = [...(item.details?.lines ?? []).map((line) => `     - ${line}`), ...(item.details?.proposedBy ? [`   ${item.details.proposedBy}`] : []),
     ...(item.details?.reach ? [`   ${item.details.reach}`] : [])];
-  // What was settled for the person is no question: its evidence and where it is undone, not who decides or what it holds.
-  const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, ...amendment,
-    ...(item.settled ? settledEvidenceLines(item) : []),
-    // Its recommended answer, from the facts SFlow has, or what to weigh when it has none [owner, 2026-11-13].
-    ...(item.recommended?.words ? [`   ${item.recommended.words}`] : []), ...(item.settled ? [] : [`   ${item.decidedBy.words}`]),
-    // What it holds back and where it is answered, on every item [decision map, findings 1 and 11].
-    ...(item.holdsWords && !item.settled ? [`   ${item.holdsWords}`] : []), ...(item.answer?.words ? [`   ${item.answer.words}`] : [])];
-  if (!item.decidedBy.allowed && item.decidedBy.share) lines.push(`   Share this with them: ${item.decidedBy.share}`);
+  if (item.settled) {
+    // What was settled for the person is no question: one line, and its Undo.
+    const undo = item.options.find((option) => option.available !== false);
+    return [`${numbered ? `${index + 1}. ` : `${item.id}. `}${plain.settled}`,
+      ...(undo && !numbered ? [`   ${undo.id}: ${undo.label}`, ...(undo.terminal ? [`      or in your own terminal: ${undo.terminal}`] : [])] : [])];
+  }
+  const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${plain.question}`, ...(plain.why ? [`   ${plain.why}`] : []), ...amendment,
+    ...(plain.recommended ? [`   ${plain.recommended}`] : [])];
+  if (!item.decidedBy.allowed) lines.push(`   ${item.decidedBy.words}${item.decidedBy.share ? ` Share this with them: ${item.decidedBy.share}` : ''}`);
+  // Where else it is answered: yes or no in chat, or the person's own terminal when SF Guard signs it.
+  if (item.decidedBy.allowed && item.answer?.also) lines.push(`   ${item.answer.also}`);
+  const check = checkOf(item);
+  // The check SFlow runs itself, first: never a command the person is told to run [owner, 2026-11-16].
+  if (check) lines.push(`   ${numbered ? '1)' : 'check:'} ${check.label}${item.recommended?.check ? '  [recommended]' : ''}`, `      ${check.does}`);
+  const offset = check ? 1 : 0;
   item.options.forEach((option, position) => {
     // An author's own step (accounting for what the person typed) is never the reader's to do.
     const yours = option.action ? (option.decidedBy?.author ? '  (its author\'s step; never recorded here)' : '  (yours to do; never recorded here)')
       : option.available === false ? '  (not available)' : '';
     // The label alone: the option's outcome is data for every host, and beside the label it only repeated it in other words.
     const recommended = option.recommended || item.recommended?.option === option.id;
-    lines.push(`   ${numbered ? `${position + 1})` : `${option.id}:`} ${option.label}${recommended ? '  [recommended]' : ''}${yours}`);
+    lines.push(`   ${numbered ? `${position + 1 + offset})` : `${option.id}:`} ${option.label}${recommended ? '  [recommended]' : ''}${yours}`);
     // What the choice does to the Story, in one line [owner, 2026-11-13].
     if (option.does) lines.push(`      ${option.does}`);
     // The option's own command, for a person who decides it in their terminal instead.
     if (option.terminal && option.available !== false && !numbered) lines.push(`      or in your own terminal: ${option.terminal}`);
   });
   return lines;
-}
-
-/**
- * What a settled item rests on, one line per fact: shown under "Settled for you", each with its Undo [owner,
- * 2026-11-13]. The records and the settling are the settled-decisions reader's; this only shows them.
- */
-function settledEvidenceLines(item) {
-  const evidence = [item.evidence ?? item.details?.evidence].flat().filter((line) => typeof line === 'string' && line.trim());
-  return evidence.map((line) => `   - ${line}`);
 }
 
 /** Every item SFlow settled for the person, from the list and anything it carries beside it. */
@@ -220,15 +255,23 @@ const VSCODE_DECISIONS_CARD = VSCODE_DECIDE_CARD;
 
 /** The list as a terminal prints it. Exported for its test. */
 export function packetText(packet) {
-  const lines = [packet.headline, ...(packet.recorded?.length ? ['', 'Recorded plan accounting (separate from visual sign-off):',
+  // The headline in plain words when the engine gives them: what is asked, counted, never what holds what.
+  const headline = packet.plain?.headline ? `Decide ${packet.workId} · ${packet.phaseLabel ?? packet.phase}. ${packet.plain.headline}` : packet.headline;
+  const lines = [headline, ...(packet.recorded?.length ? ['', 'Recorded plan accounting (separate from visual sign-off):',
     ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : [])];
   if (!packet.items.length && !packet.offered?.length && !packet.settled?.length) return `${lines.join('\n')}\n`;
   lines.push('');
   const settled = settledItems(packet);
-  for (const [index, item] of packet.items.entries()) if (!settled.includes(item)) lines.push(...itemLines(item, index), '');
-  for (const [index, item] of (packet.offered ?? []).entries()) if (!settled.includes(item)) lines.push(...itemLines(item, index), '');
+  const later = [];
+  for (const [index, item] of [...packet.items, ...(packet.offered ?? [])].entries()) {
+    if (settled.includes(item)) continue;
+    if (laterOf(item)) later.push(laterOf(item));
+    else lines.push(...itemLines(item, index), '');
+  }
+  // What nobody can answer yet, one line each, never a question of its own.
+  if (later.length) lines.push(...later.map((line) => `Later: ${line}`), '');
   if (settled.length) {
-    lines.push('Settled for you (undo any of them below):', '');
+    lines.push('Settled for you:', '');
     for (const [index, item] of settled.entries()) lines.push(...itemLines(item, index), '');
   }
   if (packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind))) lines.push(packet.rule);
@@ -312,8 +355,9 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
   };
   const values = { choose: {}, reason: {}, expires: {}, cause: {}, clause: {}, article: {} };
   const together = new Set();
+  const later = [];
   try {
-    say(packet.headline);
+    say(packet.plain?.headline ? `Decide ${packet.workId} · ${packet.phaseLabel ?? packet.phase}. ${packet.plain.headline}` : packet.headline);
     // Departures one answer may accept, files and wording that names no clause [CQF:REQ-024]: asked once.
     // The rest, and each of these when the person says no, are asked one by one below.
     const accepting = packet.items.filter((item) => item.kind === 'departure' && item.details?.acceptAll === true && item.decidedBy.allowed
@@ -332,6 +376,8 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
     }
     for (const [index, item] of [...packet.items, ...(packet.offered ?? [])].entries()) {
       if (together.has(item.id)) continue;
+      // Nobody can answer it yet: one line at the end, never a question.
+      if (laterOf(item)) { later.push(laterOf(item)); continue; }
       say('');
       for (const line of itemLines(item, index, { numbered: true })) say(line);
       if (!item.decidedBy.allowed) continue;
@@ -340,18 +386,24 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
         for (const option of item.options.filter((entry) => entry.action?.command)) say(`   Run it yourself: ${option.action.command}`);
         continue;
       }
-      const skip = item.options.length + 1;
+      // The check SFlow runs itself comes first [owner, 2026-11-16]: chosen, it runs and the list is asked again.
+      const check = checkOf(item) ? 1 : 0;
+      const skip = item.options.length + check + 1;
       say(`   ${skip}) Not now`);
-      const preferred = item.options.findIndex((entry) => entry.recommended && entry.decidedBy.allowed) + 1 || skip;
+      const preferred = check && item.recommended?.check ? 1 : (item.options.findIndex((entry) => entry.recommended && entry.decidedBy.allowed) + 1 + check) || skip;
       let chosen = null;
       while (chosen === null) {
-        const pick = await ask(`   Choose 1-${skip} [${preferred}]: `);
-        const number = pick === '' ? preferred : Number(pick);
+        const pick = await ask(`   Choose 1-${skip} [${preferred > item.options.length + check ? skip : preferred}]: `);
+        const number = pick === '' ? (preferred > item.options.length + check ? skip : preferred) : Number(pick);
         if (Number.isInteger(number) && number >= 1 && number <= skip) chosen = number;
         else say(`   Type a number from 1 to ${skip}.`);
       }
       if (chosen === skip) continue;
-      const option = item.options[chosen - 1];
+      if (check && chosen === 1) {
+        reader.close();
+        return { check: item.id };
+      }
+      const option = item.options[chosen - 1 - check];
       if (option.recordable === false) {
         say(`   ${option.words}${option.action?.command ? ` Run it yourself: ${option.action.command}` : ''}`);
         continue;
@@ -398,6 +450,7 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
     if (error.ended) { say('\nInput ended; nothing was recorded.'); return null; }
     throw error;
   }
+  for (const line of later) say(`\nLater: ${line}`);
   if (!Object.keys(values.choose).length) {
     reader.close();
     say(`\n${nothingChosen}`);
@@ -609,11 +662,15 @@ async function record(root, options, workId, io) {
   }
   const phaseId = optionString(options, 'phase') ?? null;
   const at = nowIso();
-  const packet = await readDecisionPacket(root, config, workflow, { phaseId, at });
+  let packet = await readDecisionPacket(root, config, workflow, { phaseId, at });
   let answers = await answersFrom(options);
   let confirm = answers.confirm ?? optionString(options, 'confirm') ?? null;
   const terminal = !confirm && !optionBoolean(options, 'json') && io.input.isTTY === true && io.output.isTTY === true;
   const interactive = terminal && !answered(answers);
+  // A person asked in their own terminal sees what SFlow's checks found first, as on the card [owner, 2026-11-16].
+  if (interactive && probing(options, { json: false })) {
+    packet = await checkedPacket(root, config, workflow, packet, { seconds: optionString(options, 'probe-wait', null), phaseId, say: (line) => io.output.write(`${line}\n`) });
+  }
   const { decisionRecordPlan, runDecisionPlan, effectWords, ISSUE_ONLY_OPTIONS: chatOptions } = await import('../decision-list.mjs');
   let prompt = null;
   // Choices named on the command line, in a person's own terminal: the summary and a y/N, bound to the
@@ -628,6 +685,16 @@ async function record(root, options, workId, io) {
       return;
     }
     prompt = await promptDecisionAnswers(packet, io);
+    // "Check first": SFlow runs the check, with the time the person asked for, and asks the list again once.
+    if (prompt?.check) {
+      const { LONGEST_SECONDS } = await import('../decision-probes.mjs');
+      packet = await checkedPacket(root, config, workflow, packet, { seconds: LONGEST_SECONDS, phaseId, say: (line) => io.output.write(`${line}\n`) });
+      prompt = await promptDecisionAnswers(packet, io);
+      if (prompt?.check) {
+        io.output.write('The check did not finish in time; nothing was recorded.\n');
+        return;
+      }
+    }
     if (!prompt) return;
     answers = prompt.answers;
   }
@@ -667,6 +734,8 @@ async function record(root, options, workId, io) {
     // An answers file is what VS Code's and Copilot CLI's decisions cards write; the terminal asks or takes flags.
     const channel = optionString(options, 'answers') ? 'decisions-card' : 'terminal';
     const outcome = await runDecisionPlan(plan, (effect, step, produced) => applyEffect(root, config, workflow, effect, step, produced, { actor, agent, channel }));
+    // The person's answer on the card restarts the window of the Copilot turn that opened it [owner, 2026-11-16].
+    if (channel === 'decisions-card') await import('../copilot-mutation-guard.mjs').then((guard) => guard.renewTurnAfterCardAnswer(root, workflow.workItem.id)).catch(() => {});
     const isDraft = (entry) => entry.kind === 'intent-amendment-draft';
     // The same convergence answer again records nothing [SCS:REQ-034]: said so, never counted as recorded.
     const stepOf = (item) => plan.steps.find((step) => step.item === item);
@@ -736,8 +805,13 @@ async function show(root, options, workId) {
   const { config, workflow } = await storyContext(root, workId, { record: false });
   const phaseId = optionString(options, 'phase') ?? null;
   const at = nowIso();
-  const packet = await readDecisionPacket(root, config, workflow, { phaseId, at, card: options.card !== false });
   const answers = await answersFrom(options);
+  const json = optionBoolean(options, 'json');
+  const read = await readDecisionPacket(root, config, workflow, { phaseId, at, card: options.card !== false });
+  // A preview shows the choices against the list as read; only a read a person answers runs the checks first.
+  const packet = probing(options, { json }) && !answered(answers)
+    ? await checkedPacket(root, config, workflow, read, { seconds: optionString(options, 'probe-wait', null), phaseId, card: options.card !== false, say: json ? () => {} : toStderr })
+    : read;
   if (answered(answers)) {
     const { decisionRecordPlan } = await import('../decision-list.mjs');
     const preview = await previewOf(workflow, packet, decisionRecordPlan(packet, answers, { at }));

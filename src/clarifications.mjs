@@ -201,7 +201,7 @@ function promptNotComposed(workflow, phase, message) {
     code: 'CLARIFICATION_PROMPT_NOT_COMPOSED',
     details: { workId: workflow.workItem.id, phase: phase.id, nextAction: {
       command: `singularity-flow wm compose --phase ${phase.id}`,
-      label: `Compose the ${phase.id} prompt for this generation, then record the clarification again; the record is bound to that prompt.`
+      label: `Compose the ${phase.id} prompt, then record the clarification again`
     } }
   });
 }

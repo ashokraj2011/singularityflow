@@ -1,4 +1,9 @@
-/** The decision list page: each item in plain words, its choices as buttons, and its editable needs. */
+/**
+ * The decision list page: each item in plain words, its choices as buttons, and its editable needs. The same words as
+ * the Decide card and the terminal [owner, 2026-11-16]: its question, why in one sentence, "Recommended: …", the check
+ * SFlow runs itself first until it has a result, what nobody can answer yet as one "Later:" line, and what was settled
+ * as one line with its evidence behind a detail.
+ */
 import { brandLockup, escape, icon } from './webview.ts';
 import type { DecisionItemRow, DecisionListView, DecisionOptionRow } from './decision-list-model.ts';
 
@@ -38,7 +43,8 @@ function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
   const recommended = option.recommended ? '<span class="pill ok">Recommended</span>' : '';
   // What it does to the Story, then its own words on when to choose it [owner, 2026-11-13].
   const does = option.does ? `<small class="dl-does">${escape(option.does)}</small>` : '';
-  const when = option.words && option.words !== option.does ? option.words : '';
+  // Its own words only when they add to what it does: never the same sentence twice.
+  const when = option.words && !(option.does ?? '').includes(option.words) ? option.words : '';
   if (option.yours) {
     return `<div class="dl-option yours" data-yours="${escape(option.id)}">
       <strong>${escape(option.label)}</strong>${recommended}${does}<small>${escape(option.notChoosable ?? '')} ${escape(when)}</small>
@@ -56,16 +62,20 @@ function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
   const pressed = item.chosen?.option === option.id;
   // The answer's outcome, the same word set on every item [decision map, recommendation 3].
   return `<button type="button" class="dl-option" data-option="${escape(option.id)}" aria-pressed="${pressed}">
-    ${option.outcome ? `<span class="dl-outcome">${escape(option.outcome)}</span>` : ''}<strong>${escape(option.label)}</strong>${recommended}${does}${when ? `<small>${escape(when)}</small>` : ''}</button>`;
+    ${option.outcome && option.outcome !== option.label ? `<span class="dl-outcome">${escape(option.outcome)}</span>` : ''}<strong>${escape(option.label)}</strong>${recommended}${does}${when ? `<small>${escape(when)}</small>` : ''}</button>`;
 }
 
 function itemHtml(item: DecisionItemRow): string {
-  const heading = `<header class="dl-item-head"><span class="dl-id">${escape(item.id)}</span><h2>${escape(item.title)}</h2></header>
-    <p class="dl-why">${escape(item.why)}</p>${item.facts?.length ? `<ul class="dl-why">${item.facts.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}
-    ${item.evidence.length ? `<ul class="dl-why dl-evidence">${item.evidence.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}
-    ${item.recommended ? `<p class="dl-rec">${icon('ok')}<span>${escape(item.recommended)}</span></p>` : ''}
-    <p class="dl-who">${icon('team')}<span>${escape(item.who)}</span></p>
-    ${item.holds || item.answerWhere ? `<p class="dl-holds">${escape([item.holds, item.answerWhere].filter(Boolean).join(' '))}</p>` : ''}`;
+  // Who decides it only when that is news: someone else, or only some of its choices.
+  const who = !item.settled && (!item.allowed || !/^You may decide this\b/u.test(item.who));
+  const heading = `<header class="dl-item-head"><span class="dl-id">${escape(item.id)}</span><h2>${escape(item.question)}</h2></header>
+    ${item.why ? `<p class="dl-why">${escape(item.why)}</p>` : ''}${item.facts?.length ? `<ul class="dl-why">${item.facts.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}
+    ${item.evidence.length ? `<details class="dl-detail"><summary>What it rests on</summary><ul class="dl-why dl-evidence">${item.evidence.map((line) => `<li>${escape(line)}</li>`).join('')}</ul></details>` : ''}
+    ${item.recommended && !item.settled ? `<p class="dl-rec">${icon('ok')}<span>${escape(item.recommended)}</span></p>` : ''}
+    ${who ? `<p class="dl-who">${icon('team')}<span>${escape(item.who)}</span></p>` : ''}
+    ${item.allowed && item.also ? `<p class="dl-holds">${escape(item.also)}</p>` : ''}
+    ${item.allowed && item.check ? `<div class="dl-check"><button type="button" class="compact-action${item.check.recommended ? '' : ' secondary'}" data-check-item="${escape(item.id)}">${escape(item.check.label)}${
+      item.check.recommended ? ' <span class="pill ok">Recommended</span>' : ''}</button><small>${escape(item.check.does)}</small></div>` : ''}`;
   if (!item.allowed) {
     return `<article class="dl-item not-yours" data-item="${escape(item.id)}" data-allowed="false">${heading}
       <div class="dl-share"><span>Share this with them:</span> <code>${escape(item.share ?? '')}</code>
@@ -116,7 +126,8 @@ export function decisionListHtml(view: DecisionListView): string {
     ${view.unavailable.map((line) => `<div class="notice warning">${icon('warning')}${escape(line)}</div>`).join('')}
     ${view.recorded?.length ? `<details class="notice"><summary>Recorded plan accounting (${view.recorded.length})</summary><ul>${view.recorded.map(line => `<li>${escape(line)}</li>`).join('')}</ul><p>This accounting does not record visual sign-off. Pending reviews appear below.</p></details>` : ''}
     <div class="dl-items">${items}</div>
-    ${settled.length ? `<section class="dl-settled" aria-label="Settled for you"><h2>Settled for you</h2><p class="muted">SFlow settled these from its records. Undo any of them here.</p>
+    ${view.later.map((line) => `<p class="dl-later">Later: ${escape(line)}</p>`).join('')}
+    ${settled.length ? `<section class="dl-settled" aria-label="Settled for you"><h2>Settled for you</h2>
       <div class="dl-items">${settled.map(itemHtml).join('')}</div></section>` : ''}
     ${view.rule ? `<p class="muted dl-rule">${escape(view.rule)}</p>` : ''}
     ${yours ? `<div class="dl-actions"><p class="muted" data-progress aria-live="polite"></p>
@@ -137,6 +148,10 @@ export const DECISION_LIST_STYLE = `
 .dl-rec { display:flex; gap:.4rem; align-items:flex-start; margin:0; font-weight:600; overflow-wrap:anywhere; }
 .dl-option small.dl-does { color:var(--vscode-foreground); }
 .dl-settled h2 { margin:1rem 0 .25rem; font-size:1.05rem; }
+.dl-later { margin:0 0 .4rem; overflow-wrap:anywhere; }
+.dl-check { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }
+.dl-check small { color:var(--sf-dim); }
+.dl-detail summary { cursor:pointer; color:var(--sf-dim); }
 .dl-outcome { display:block; font-size:.78em; letter-spacing:.04em; text-transform:uppercase; color:var(--sf-dim); }
 .dl-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(16rem,100%),1fr)); gap:.6rem; }
 .dl-option { display:grid; grid-template-columns:minmax(0,1fr); justify-content:stretch; gap:.3rem; text-align:left; padding:.7rem .8rem; min-width:0; border:var(--sf-border); border-radius:var(--sf-radius);
@@ -216,6 +231,8 @@ export const DECISION_LIST_SCRIPT = `
     if (open) { api.postMessage({ type: 'decisions.open', item: open.dataset.openItem, option: open.dataset.openOption }); return; }
     const approval = event.target.closest('[data-approval-open]');
     if (approval) { api.postMessage({ type: 'decisions.approval', item: approval.dataset.approvalOpen }); return; }
+    const check = event.target.closest('[data-check-item]');
+    if (check) { api.postMessage({ type: 'decisions.check', item: check.dataset.checkItem }); return; }
     const copy = event.target.closest('[data-copy-item]');
     if (copy) { api.postMessage({ type: 'decisions.copy', item: copy.dataset.copyItem, option: copy.dataset.copyOption || '' }); return; }
     const action = event.target.closest('[data-action="refresh"]');

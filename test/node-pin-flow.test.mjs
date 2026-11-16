@@ -75,8 +75,9 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   assert.match(early.headline, /has 1 open decision: it holds nothing yet\./u, 'it stops nothing');
   assert.equal(offered.options.length, 1, 'one choice');
   assert.equal(offered.options[0].id, 'pin-node');
-  assert.match(offered.options[0].label, /^Pin Node 22: create \.nvmrc and amend the plan$/u);
-  assert.match(offered.options[0].words, /Creates \.nvmrc holding 22 in this checkout and lists it in the plan as a supporting change \(build-configuration\) with your reason/u, 'names what it does before they confirm');
+  assert.match(offered.options[0].label, /^Pin Node 22$/u);
+  assert.equal(offered.options[0].does, 'Creates .nvmrc with Node 22 and adds it to the plan; the code stays the same.', 'names what it does before they confirm');
+  assert.equal(offered.options[0].effects[0].class, 'build-configuration', 'a supporting change of its class, as the plan records it');
   const recovered = json('recover', 'QF-1', '--phase', 'implement').value;
   assert.equal(recovered.actions[0].id, 'pin-node-version:implement', 'recovery leads with it, not a read');
   assert.equal(recovered.actions[0].skill, '/sf-decide');
@@ -97,6 +98,28 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   // Counted wherever a person looks, on the read paths that resolve no test command unless a run failed.
   const nextSteps = json('nextsteps').value;
   assert.match(JSON.stringify(nextSteps), /\/sf-decide QF-1|singularity-flow decisions QF-1/u, 'next steps lead to it');
+
+  // SFlow checks it itself before the card asks [owner, 2026-11-16]: until then the item recommends "Check first", and
+  // never tells the person to run a command.
+  assert.equal(item.check.status, 'unknown');
+  assert.deepEqual([item.recommended.check, item.recommended.option], [true, null]);
+  assert.doesNotMatch(JSON.stringify([item.why, item.plain]), /singularity-flow tests node/u);
+  const record = path.join(root, 'singularity/work-items/QF-1/workflow.json');
+  const recordBytes = await readFile(record, 'utf8');
+  const probed = json('decisions', 'QF-1', '--probe').value.data.items.find((entry) => entry.kind === 'node-pin');
+  assert.equal(probed.check, undefined, 'checked: nothing left to check');
+  assert.equal(probed.recommended.option, 'pin-node');
+  assert.equal(probed.plain.recommended, 'Recommended: Pin Node 22. Tests pass on Node 22 (checked).');
+  assert.equal(probed.plain.question, 'Run Implement\'s tests on Node 22?');
+  // Read-only: no file, no record; its answer is kept beside the Git data, with the code it was found on.
+  await assert.rejects(stat(path.join(root, '.nvmrc')), 'checking it creates nothing');
+  assert.equal(await readFile(record, 'utf8'), recordBytes, 'nothing recorded');
+  const keptAt = path.join(root, '.git', 'singularity-flow', 'test-node-runs', 'QF-1.json');
+  const kept = JSON.parse(await readFile(keptAt, 'utf8'));
+  assert.match(kept.state, /^sha256:[a-f0-9]{64}$/u);
+  // The same code is never checked twice.
+  json('decisions', 'QF-1', '--probe');
+  assert.equal(JSON.parse(await readFile(keptAt, 'utf8')).at, kept.at, 'the same code was checked again');
 
   // Whether it passes can be asked, with nothing recorded and the checkout as it was.
   const tried = json('tests', 'node', '--work-id', 'QF-1', '--phase', 'implement', '--node', '22');
@@ -144,7 +167,9 @@ test('a .nvmrc naming a Node not installed here offers to change it to one that 
   assert.ok(offered, JSON.stringify(before.items.map((item) => item.kind)));
   assert.equal(offered.details.replaces, '18');
   assert.equal(offered.details.version, '22');
-  assert.equal(offered.options[0].label, 'Change .nvmrc from 18 to Node 22 and amend the plan');
+  assert.equal(offered.options[0].label, 'Change .nvmrc from 18 to Node 22');
+  assert.equal(offered.plain.question, 'Change .nvmrc to Node 22 for Implement\'s tests?');
+  assert.match(offered.plain.why, /^\.nvmrc asks for Node 18, which is not installed here; Node 22\.14\.0 is\.$/u);
   assert.match(offered.why, /\.nvmrc asks for Node 18, and no installed Node matches\./u);
   assert.match(offered.why, /or install Node 18 and there is nothing to choose/u);
 

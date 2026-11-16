@@ -681,6 +681,8 @@ export async function load(url, context, next) {
     ['boundary-turn', { sessionId: 'bundled-hook', cwd: repo, prompt: '/sf-code' }],
     ['boundary-guard', { sessionId: 'bundled-hook', cwd: repo, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } }],
     ['boundary-after', { sessionId: 'bundled-hook', cwd: repo }],
+    // The agent's stop closes the turn's open marker (chat prefill) within the same file budget.
+    ['boundary-stop', { sessionId: 'bundled-hook', cwd: repo }],
     ['boundary-end', { sessionId: 'bundled-hook', cwd: repo }]
   ]) {
     const results = [];

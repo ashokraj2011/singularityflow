@@ -514,14 +514,23 @@ function evidenceItem(workflow, context, entry) {
   };
 }
 
-/** One item for a test command of a step whose latest run the environment stopped, by its classified cause. */
+/**
+ * One item for a test command of a step whose latest run the environment stopped, by its classified cause. Whether it
+ * fails without this change too is SFlow's own run on the base commit (`tests base`), run before the card asks
+ * (decision-probes.mjs) [owner, 2026-11-16]; until it has that answer the item carries `check`, offered first.
+ */
 function testRiskItem(workflow, context, risk) {
   const name = stepName(workflow, risk.phase);
   const stopped = risk.status === 'blocked' ? 'was blocked' : 'failed';
   const exit = Number.isInteger(risk.exitCode) ? ` (exit code ${risk.exitCode})` : '';
   const because = risk.causeClass ? `: ${testRunCauseWords(risk.causeClass)} (${risk.causeClass})` : '';
+  const base = risk.base ?? null;
   return {
     kind: 'test-run-risk',
+    ...(base && base.status !== 'checked' ? { check: { kind: 'base-tests', status: base.status, label: `Check first: run ${risk.commandId} without this change`,
+      does: 'SFlow runs them once on the commit this Story started from; nothing is recorded.',
+      command: `singularity-flow tests base --work-id ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId}`,
+      ...(base.cutShort ? { cutShort: true, seconds: base.seconds } : {}) } } : {}),
     title: `${name}'s tests could not run here (${risk.commandId})`,
     why: `The latest run of ${risk.commandId} ${stopped}${exit} from the environment${because}, so it says nothing about the change.`
       + `${risk.lapsed ? ` An earlier acceptance ${risk.lapsed === 'expired' ? 'expired' : 'was revoked'}.` : ''}`
@@ -536,7 +545,7 @@ function testRiskItem(workflow, context, risk) {
         expires: expiryNeed(context.at, { endOfDay: true }) }
     })],
     details: { phase: risk.phase, commandId: risk.commandId, attemptId: risk.attemptId ?? null, status: risk.status, exitCode: risk.exitCode ?? null,
-      causeClass: risk.causeClass ?? null,
+      causeClass: risk.causeClass ?? null, ...(base ? { base } : {}),
       commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId}${risk.causeClass ? ` --cause-class ${risk.causeClass}` : ''} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
   };
 }
@@ -545,24 +554,34 @@ function testRiskItem(workflow, context, risk) {
  * One choice for a Node that does not suit the tests: a person pins an installed one, and that one
  * answer creates the file and accounts for it in the plan (src/node-pin.mjs). Before any run it is listed
  * and stops nothing; after a failed run it is what the step waits on.
+ *
+ * Whether the tests pass on that Node is SFlow's own check, run before the card shows it (decision-probes.mjs) and
+ * kept for this code: never a command the person is told to run [owner, 2026-11-16]. Until it has a result for this
+ * code the item carries `check`, which every host offers first.
  */
 function nodePinItem(workflow, context, pin) {
   const name = stepName(workflow, pin.phase);
   const workId = workflow.workItem.id;
   const tryIt = `singularity-flow tests node --work-id ${workId} --phase ${pin.phase} --node ${pin.version}`;
   const { replaces = null } = pin;
+  const probe = pin.probe ?? { status: pin.tried ? 'checked' : 'unknown' };
   return {
     kind: 'node-pin',
     title: `${name}'s tests need another Node`,
-    why: `${pin.words}${pin.words.includes(`Node ${pin.node}`) ? '' : ` Node ${pin.node} is installed here.`} ${pin.tried?.words ?? `Whether the tests pass on it is not known yet: ${tryIt} finds out and records nothing as evidence.`} ${replaces ? `Changing ${pin.file} to it amends the plan, or install Node ${replaces} and there is nothing to choose` : `Pinning it creates ${pin.file} and amends the plan`}; the code and its tests stay as they are.`,
+    why: `${pin.words}${pin.words.includes(`Node ${pin.node}`) ? '' : ` Node ${pin.node} is installed here.`} ${pin.tried?.words ?? `Whether the tests pass on it is not known yet; SFlow checks it before asking, and records nothing as evidence.`} ${replaces ? `Changing ${pin.file} to it amends the plan, or install Node ${replaces} and there is nothing to choose` : `Pinning it creates ${pin.file} and amends the plan`}; the code and its tests stay as they are.`,
+    ...(probe.status === 'checked' ? {} : { check: { kind: 'node-tests', status: probe.status, label: `Check first: run the tests on Node ${pin.version}`,
+      does: 'SFlow runs them once on a copy of this checkout; nothing is recorded.',
+      command: tryIt, ...(probe.cutShort ? { cutShort: true, seconds: probe.seconds } : {}) } }),
     options: [option(workflow, context, {
-      id: 'pin-node', label: replaces ? `Change ${pin.file} from ${replaces} to Node ${pin.version} and amend the plan` : `Pin Node ${pin.version}: create ${pin.file} and amend the plan`,
-      words: `${replaces ? `Replaces ${replaces} with ${pin.version} in ${pin.file}` : `Creates ${pin.file} holding ${pin.version}`} in this checkout and lists it in the plan as a supporting change (${NODE_PIN_CLASS}) with your reason. SFlow then runs this repository's tests on Node ${pin.node}.`,
+      id: 'pin-node', label: replaces ? `Change ${pin.file} from ${replaces} to Node ${pin.version}` : `Pin Node ${pin.version}`,
+      // Its effect is in `does`; these are the words a person weighs on its own form, with nothing internal in them.
+      words: `Your reason goes into the plan with it, and SFlow then runs this repository's tests on Node ${pin.node}.`,
       effects: [{ kind: 'node-pin', phase: pin.phase, file: pin.file, version: pin.version, class: NODE_PIN_CLASS, ...(replaces ? { replaces } : {}) }],
       needs: { reason: textNeed('', SUPPORTING_REASON) }
     })],
     details: { phase: pin.phase, file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, stage: pin.stage, commandId: pin.commandId ?? null, ...(replaces ? { replaces } : {}),
-      ...(pin.tried ? { tried: pin.tried.passed === true } : {}),
+      ...(pin.tried ? { tried: pin.tried.passed === true } : {}), probe: { status: probe.status, ...(probe.cutShort ? { cutShort: true, seconds: probe.seconds } : {}) },
+      ...(pin.cause ? { cause: pin.cause } : {}),
       commands: [`singularity-flow decisions record ${workId}`, tryIt] }
   };
 }
@@ -1032,7 +1051,7 @@ function scopeItem(workflow, context, entry) {
       effects: [{ kind: 'scope-disposition', item: entry.id, disposition, groups: entry.groups }],
       needs: { ...(linked ? { clause: { known: entry.clauses ?? [] } } : {}), reason: textNeed('', REASON) } }),
     chat: { command: `singularity-flow decision scope ${workId} --fetch --item ${entry.id} --as ${disposition}${linked ? ' --clause <CLAUSES>' : ''} --reason "<REASON>"` } })),
-    details: { scopeItem: entry.id, ...(entry.source ? { source: entry.source } : {}) }, subject: `scope:${entry.id}`
+    details: { scopeItem: entry.id, ...(entry.text ? { statement: entry.text } : {}), ...(entry.source ? { source: entry.source } : {}) }, subject: `scope:${entry.id}`
   };
 }
 
@@ -1085,7 +1104,9 @@ function owedItem(workflow, context, entry) {
         files: entry.files, owners: entry.owners, contextBinding: entry.contextBinding } } : {}) },
     ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
       words: 'Only a person records it; an agent never answers it.' }] : [])],
-    details: witness ? { clause: entry.clauseId, slot: entry.slot, contextBinding: entry.contextBinding } : { scopeItem: entry.id }
+    // Whose delivery publishes its evidence and what it is: a sign-off nobody can give yet says when it can [owner, 2026-11-16].
+    details: witness ? { clause: entry.clauseId, slot: entry.slot, contextBinding: entry.contextBinding, owners: entry.owners ?? [], files: entry.files ?? [], method: entry.method ?? null }
+      : { scopeItem: entry.id, ...(entry.text ? { statement: entry.text } : {}) }
   });
   // The steps that answer for a sign-off: with owner-step checks, the approval of each is refused until it is given.
   return witness ? { ...item, owners: entry.owners ?? [], subject: `sign-off:${entry.clauseId}` } : { ...item, subject: `scope:${entry.id}` };
@@ -1545,7 +1566,8 @@ function settledItems(workflow, context) {
       why: `${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. Undo it only if it is wrong.`,
       options: [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
         effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo }],
-      details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence,
+      // What it changed, for its one line on every host (decision-plain.mjs) [owner, 2026-11-16].
+      details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence, ...(entry.effect ? { effect: entry.effect } : {}),
         reraised: route, commands: [undo] }
     };
   });

@@ -11,7 +11,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { baseComparison, runOnBase, storyBaseCommit } from '../src/verification/base-run.mjs';
+import { baseCheckFacts, baseComparison, baseRunKey, runOnBase, storyBaseCommit } from '../src/verification/base-run.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -47,6 +47,29 @@ test('a base run that cannot check out the commit says why and is not kept', asy
     { baseCommit: 'f'.repeat(40), gateRun: async () => assert.fail('nothing runs') });
   assert.equal(result.status, 'not-run');
   assert.match(result.why, /could not check out the base commit/u);
+});
+
+test('a base run its time cut short is noted, never kept as an answer, and the next full run is kept [owner, 2026-11-16]', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-base-run-cut-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => { const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
+  git('init', '-q', '-b', 'main');
+  await writeFile(path.join(root, 'a.txt'), 'a\n');
+  git('add', 'a.txt');
+  git('-c', 'user.name=Base', '-c', 'user.email=base@example.invalid', 'commit', '-qm', 'base');
+  const baseCommit = git('rev-parse', 'HEAD');
+  const command = { id: 'unit', argv: ['npm', 'test'], workingDirectory: '.', result: { adapter: 'node-tap' } };
+  const kept = path.join(root, '.git', 'singularity-flow', 'test-base-runs');
+  const key = baseRunKey(baseCommit, command, '22.14.0');
+  const cut = await runOnBase(root, command, { baseCommit, nodeVersion: '22.14.0', within: 60, gateRun: async () => ({ cutShort: true, why: 'it did not finish within 60 seconds' }) });
+  assert.deepEqual([cut.status, cut.cutShort, cut.why], ['not-run', true, 'it did not finish within 60 seconds']);
+  assert.deepEqual((await readdir(kept)).sort(), [`${key}.cut.json`], 'noted, and no answer kept');
+  assert.equal(JSON.parse(await readFile(path.join(kept, `${key}.cut.json`), 'utf8')).within, 60);
+  const full = await runOnBase(root, command, { baseCommit, nodeVersion: '22.14.0', gateRun: async () => ({ check: { status: 'failed', exitCode: 1 }, parsed: null, reportError: null }) });
+  assert.equal(full.status, 'failed');
+  assert.ok((await readdir(kept)).includes(`${key}.json`), 'the full run is the answer kept');
+  assert.equal((await runOnBase(root, command, { baseCommit, nodeVersion: '22.14.0', gateRun: async () => assert.fail('it ran twice') })).reused, true);
+  assert.equal(spawnSync('git', ['worktree', 'list', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.match(/^worktree /gmu).length, 1, 'every throwaway worktree is removed');
 });
 
 test('tests base: a real Story\'s failures, compared with its base commit, change nothing and run once', slowLane({ timeout: 600_000 }), async (t) => {
@@ -119,6 +142,11 @@ test('tests base: a real Story\'s failures, compared with its base commit, chang
   // The same question again is not a second run.
   const again = JSON.parse(sflow('tests', 'base', '--work-id', 'QF-1', '--json'));
   assert.equal(again.results[0].reused, true);
+  // What the decisions card reads of it before it recommends on a test-run risk [owner, 2026-11-16]: the kept answer's verdict.
+  const { loadAcceptedStoryExecution } = await import('../src/accepted-story-execution.mjs');
+  const story = await loadAcceptedStoryExecution(root, 'QF-1');
+  const facts = await baseCheckFacts(root, story.definition, story.workflow, story.workflow.phases.implement, [result.commandId, 'not-a-command']);
+  assert.deepEqual(Object.fromEntries(facts), { [result.commandId]: { status: 'checked', verdict: 'partly-on-base' } });
   assert.deepEqual(again.results[0].alsoOnBase, ['already broken']);
   assert.match(sflow('tests', 'base', '--work-id', 'QF-1'), /not evidence and refuses nothing[\s\S]*already run on this base/u);
   // A Story step is what it compares: a capability has no base commit.

@@ -37,13 +37,15 @@ function person(replies, lists = [packet()]) {
 const accept = (content) => ({ action: 'accept', content });
 const mine = [{ item: 'd1', title: 'Say where a.js belongs', option: 'row-2', reason: 'Its own reason, long enough.' }];
 
-test('the table shows every open decision and who answers it, and the approval as its own row that /sf-approve opens', () => {
+test('the card shows every open decision as its question and who answers it, and the approval as its own question that /sf-approve opens', () => {
   const table = decisionsTable(packet());
-  assert.match(table, /a\.js \| a\.js changed \\\| and no row names it\./u);
-  assert.match(table, /Stays in your terminal: `singularity-flow recover PAY-1 --json`/u);
-  assert.match(table, /The Leads decide this\. Share: \/sf-decide PAY-1/u);
-  // One place [owner, 2026-11-13]: the approval is a row of the card, reviewed with its documents, never on a form.
-  assert.match(table, /\| Approve Code \| Waits\. \| Review its documents and approve with \/sf-approve --work-id PAY-1; or in your terminal: `singularity-flow approve implementation` \|/u);
+  // One layout, no table below it repeating it [owner, 2026-11-16].
+  assert.doesNotMatch(table, /\| What it is \|/u);
+  assert.match(table, /\*\*1\. Say where a\.js belongs\*\*\na\.js changed \| and no row names it\.\n- Add to REQ-001\n- Add to REQ-002/u);
+  assert.match(table, /- Clear it, in your terminal: `singularity-flow recover PAY-1 --json`/u);
+  assert.match(table, /The Leads decide this\. Share this with them: \/sf-decide PAY-1/u);
+  // One place [owner, 2026-11-13]: the approval is on the card, reviewed with its documents, never on a form.
+  assert.match(table, /\*\*6\. Approve Code\*\*\nWaits\.\n- Approve: \/sf-approve --work-id PAY-1 opens its documents; or in your terminal: `singularity-flow approve implementation`\./u);
   assert.equal(cardRows(packet()).length, 5);
 });
 
@@ -55,22 +57,26 @@ test('a row with a form still names each step that stays in the terminal, and a 
     options: [own('approve', 'Approve it.', 'singularity-flow upstream-issue decide-amendment FAM-001 --decision approve'), own('reject', 'Reject it', 'singularity-flow upstream-issue decide-amendment FAM-001 --decision reject')] };
   const table = decisionsTable(packet({ items: [gap, amendment] }));
   // VS Code shows these beside the choices; a /decide that showed only the forms hid "Fix the code".
-  assert.ok(table.includes('Your decision, on the forms below; or in your terminal: `singularity-flow reject conformance --work-id PAY-1 --to implementation --reason <reason>`'), table);
-  assert.ok(table.includes('Stays in your terminal: Approve it: `singularity-flow upstream-issue decide-amendment FAM-001 --decision approve`; Reject it: `singularity-flow upstream-issue decide-amendment FAM-001 --decision reject`'), table);
+  assert.ok(table.includes('- Fix the code: return to Code, in your terminal: `singularity-flow reject conformance --work-id PAY-1 --to implementation --reason <reason>`'), table);
+  assert.ok(table.includes('- Accept for now'), table);
+  assert.ok(table.includes('- Approve it, in your terminal: `singularity-flow upstream-issue decide-amendment FAM-001 --decision approve`'), table);
+  assert.ok(table.includes('- Reject it, in your terminal: `singularity-flow upstream-issue decide-amendment FAM-001 --decision reject`'), table);
   // An intent amendment is decided on the forms now, each choice with its own terminal command beside it [owner, 2026-11-13].
   const decide = (decision) => `singularity-flow story intent-amendment decide AMD-001 --decision ${decision} --confirm AMD-001 --work-id PAY-1`;
   const intent = { id: 'd3', kind: 'intent-amendment', title: 'Decide intent amendment AMD-001', why: 'It proposes a change.', decidedBy: allowed,
     options: [{ ...choice('reject', 'Reject AMD-001'), terminal: decide('reject') }, { ...choice('approve', 'Approve AMD-001'), terminal: decide('approve') }],
     details: { lines: ['AC-001 is revised from "1" to "2"'], proposedBy: 'Story Author proposed it.', reach: 'If it is approved: Plan is reopened: it cites AC-001.' } };
   const decided = decisionsTable(packet({ items: [intent] }));
-  assert.ok(decided.includes(`Your decision, on the forms below; or in your terminal: Reject AMD-001: \`${decide('reject')}\`; Approve AMD-001: \`${decide('approve')}\``), decided);
-  assert.ok(decided.includes('**Decide intent amendment AMD-001.** Story Author proposed it.\n- AC-001 is revised from "1" to "2"\n- If it is approved: Plan is reopened: it cites AC-001.'), decided);
+  assert.ok(decided.includes(`- Reject AMD-001. Or in your terminal: \`${decide('reject')}\`.`), decided);
+  assert.ok(decided.includes(`- Approve AMD-001. Or in your terminal: \`${decide('approve')}\`.`), decided);
+  assert.ok(decided.includes('**Decide intent amendment AMD-001**\nIt proposes a change.\nStory Author proposed it.\n- AC-001 is revised from "1" to "2"\n- If it is approved: Plan is reopened: it cites AC-001.'), decided);
 });
 
 test('nothing is preselected: no default on any field, and a person must choose', () => {
   const [{ form, items }] = rowForms(cardRows(packet()).slice(0, 3));
   for (const property of Object.values(form.requestedSchema.properties)) assert.equal(property.default, undefined);
-  assert.equal(form.requestedSchema.properties.decision0.enum[0], LEAVE);
+  // The options in the list's order, recommended first, and Leave undecided last [owner, 2026-11-16].
+  assert.deepEqual(form.requestedSchema.properties.decision0.enum, ['Add to REQ-001', 'Add to REQ-002', LEAVE]);
   const risk = items[2].options[0];
   const details = detailForm(items[2], risk).requestedSchema.properties;
   for (const property of Object.values(details)) assert.equal(property.default, undefined);
@@ -326,7 +332,7 @@ test('the table shows the same evidence as the VS Code card, in the engine\'s wo
   const list = packet({ approvalEvidence: evidence });
   const table = decisionsTable(list);
   for (const words of evidenceWords(evidence)) assert.ok(table.includes(words), `missing: ${words}`);
-  assert.ok(table.indexOf('| A dirty checkout |') < table.indexOf('**Evidence for this approval.**'), 'after the decisions');
+  assert.ok(table.indexOf('**4. A dirty checkout**') < table.indexOf('**Evidence for this approval.**'), 'after the decisions');
   assert.ok(table.includes(`Stays in your terminal: \`${HOLD_COMMAND}\``));
   assert.match(evidenceLines(packet({ approvalEvidence: approvalEvidence({ allowed: false }) })).join('\n'), /Share this with them: \/sf-decide PAY-1/u);
   assert.ok(!evidenceLines(packet({ approvalEvidence: approvalEvidence({ allowed: false }) })).join('\n').includes(HOLD_COMMAND), 'no command for someone who may not accept it');
@@ -336,7 +342,7 @@ test('the table shows the same evidence as the VS Code card, in the engine\'s wo
     options: [{ id: 'route', label: 'Accept it', recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: HOLD_COMMAND } }] };
   const once = decisionsTable(packet({ items: [holdRow], approvalEvidence: evidence }));
   assert.equal(once.split('singularity-flow decision finding-risk').length - 1, 1);
-  assert.match(once, /Its command is on the hold's row above\./u);
+  assert.match(once, /Its command is on the hold's item above\./u);
   // The forms are the list's alone: the evidence adds no question and no answer.
   assert.deepEqual(firstForm(list), firstForm(packet()));
   assert.deepEqual(rowForms(cardRows(list)), rowForms(cardRows(packet())));
@@ -384,8 +390,9 @@ test('answers given and settled files wait behind "Change an answer or overrule 
   const { form, change } = firstForm(list);
   assert.equal(change, `${CHANGE} (7)`);
   assert.deepEqual(form.requestedSchema.properties.choice.enum, [EACH, `${CHANGE} (7)`, NOT_NOW]);
-  assert.match(form.message, /^1 still need a decision from you\. 7 are offered beside the list: an answer already given, or a file the plan settled, which you may change if you disagree\.$/u);
-  assert.match(decisionsTable(list), /\| d3\.json \| config d3: settled by the plan\. \| Yours to change if you disagree: "Change an answer or overrule the plan" on the first form below \|/u);
+  // Named, never counted, and in grammar [owner, 2026-11-16].
+  assert.match(form.message, /^One question for you: 1\. REQ-002: no recorded trace\. 7 are offered beside the list: an answer already given, or a file the plan settled, which you may change if you disagree\.$/u);
+  assert.match(decisionsTable(list), /\*\*Already answered or settled by the plan\.\*\* Keep them, or change one with "Change an answer or overrule the plan" on the first form\.\n- d2\.json: REQ-001: answered Decide later\.\n- d3\.json: config d3: settled by the plan\./u);
   // Deciding each one asks only the open row.
   const each = person([accept({ choice: EACH }), accept({ decision0: 'Decide later' }), accept({ reason: 'Waits for the next Story.' }), accept({ confirm: RECORD })], [list, { ...list, items: [] }]);
   await runCard(each.ui);
@@ -406,7 +413,7 @@ test('answers given and settled files wait behind "Change an answer or overrule 
 test('with nothing open, the first form offers only the change or Not now, and Not now or Esc keeps what was answered', async () => {
   const list = { ...converging(settledFiles), items: [] };
   assert.deepEqual(firstForm(list).form.requestedSchema.properties.choice.enum, [`${CHANGE} (7)`, NOT_NOW]);
-  assert.match(firstForm(list).form.message, /^Nothing here waits on a decision from you\. 7 are offered/u);
+  assert.match(firstForm(list).form.message, /^Nothing waits on you now\. 7 are offered/u);
   const notNow = person([accept({ choice: NOT_NOW })], [list]);
   assert.equal((await runCard(notNow.ui)).status, 'cancelled');
   assert.deepEqual(notNow.seen.recorded, []);

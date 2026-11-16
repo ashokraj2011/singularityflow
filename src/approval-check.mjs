@@ -684,6 +684,10 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   TCA_AMENDMENT_STALE: 'machine',
   STORY_PUBLICATION_PENDING: 'machine',
   PHASE_ALREADY_APPROVED: 'machine',
+  // Story-state refusals of other commands in modules approval reads (cancel, finalize): SFlow reports a closed Story;
+  // the steps still open are finished by their own people [refusal next step, 2026-11-16].
+  STORY_CLOSED: 'machine',
+  STORY_NOT_COMPLETE: 'someone-decides',
   DECISION_REQUIRED: 'someone-decides',
   PHASE_REPAIR_RECHECK_REQUIRED: 'author-repairs',
   PHASE_REPAIR_JOURNAL_INVALID: 'author-repairs',

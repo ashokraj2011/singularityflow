@@ -433,8 +433,11 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
       const here = requested.status === 'not-installed' && requested.file === '.nvmrc' ? await installedNodeVersions(environment).catch(() => []) : [];
       const asks = parsedManifest(await reads.read(joined(directory, 'package.json')))?.engines?.node;
       const newest = here.find((version) => typeof asks !== 'string' || nodeRangeAccepts(asks, version) !== false);
+      // `cause`: the same fact in a line a person reads on the decisions card [owner, 2026-11-16].
       found.push(check('node-version', nodeVersionNote(requested), `Install the version it asks for, or change ${requested.file}.`,
-        { file: requested.file, ...(newest ? { pin: { file: '.nvmrc', version: String(major(newest)), node: newest, replaces: requested.wanted } } : {}) }));
+        { file: requested.file, ...(newest ? { pin: { file: '.nvmrc', version: String(major(newest)), node: newest, replaces: requested.wanted,
+          cause: requested.status === 'not-installed' ? `${requested.file} asks for Node ${requested.wanted}, which is not installed here; Node ${newest} is`
+            : `${requested.file} names no Node version SFlow can read; Node ${newest} is installed here` } } : {}) }));
       continue;
     }
     // SFlow runs tests on what a version file asks for, so the Node below is only for a repository with none.
@@ -455,12 +458,14 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
       const offered = pin(accepted[0]);
       found.push(check('node-version', `${joined(directory, 'package.json')} asks for Node ${range}, and tests here would run on Node ${version}.${offer}`,
         'Switch Node before starting, or a person pins it: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.',
-        { node: version, installed, ...(offered.pin ? { pin: { ...offered.pin, ...named } } : {}) }));
+        { node: version, installed, ...(offered.pin ? { pin: { ...offered.pin, ...named,
+          cause: `${joined(directory, 'package.json')} asks for Node ${range}, but this machine runs Node ${version}; Node ${offered.pin.node} is installed` } } : {}) }));
       continue;
     }
     if (major(version) >= 25 && await usesVitestDomStorage(root, directory, node, reads)) {
       found.push(check('node-version', `Tests here would run on Node ${version}, whose own localStorage stands in front of the DOM environment's under Vitest. Tests that use localStorage then fail with errors such as "Cannot read properties of undefined (reading 'clear')", and the change is not the cause.${offer}`,
-        'Do not stub localStorage to get past it. Switch Node before starting, or a person pins an earlier one: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.', { node: version, installed, ...pin(others.find((other) => major(other) < 25)) }));
+        'Do not stub localStorage to get past it. Switch Node before starting, or a person pins an earlier one: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.',
+        { node: version, installed, ...((earlier) => (earlier ? { pin: { ...pin(earlier).pin, cause: `Node ${version} here breaks tests that use localStorage; Node ${earlier} is installed` } } : {}))(others.find((other) => major(other) < 25)) }));
     }
   }
   return found;

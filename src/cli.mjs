@@ -52,7 +52,7 @@ import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { prepareTelemetryLaunch, setTelemetryCapture, TELEMETRY_DISCLOSURE, TELEMETRY_DISCLOSURE_CONFIRMATION } from './telemetry-provision.mjs';
 import { clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit, repairPromptAudits, setPromptAudit, setPromptAuditRetention } from './prompt-audit.mjs';
 import { clearHelpMetrics, helpMetricsStatus, setHelpMetrics } from './help-metrics.mjs';
-import { assertPhaseSequence, phasePublicationCommandForMode, sequenceConfirmationRequired, withConfirmationPort } from './sequence.mjs';
+import { assertPhaseSequence, phasePublicationCommandForMode, sequenceConfirmationRequired, storyClosedRefusal, storyNextDetails, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin, verifyPluginInstallation } from './plugin.mjs';
@@ -607,12 +607,14 @@ function renderLocalResetPlan(plan) {
   const forgetOnly = plan.mode === 'forget-only';
   console.log(`Singularity Flow local reset — ${forgetOnly ? 'forget machine state' : 'delete workspaces'} — ${plan.completed ? 'complete' : 'preview'}`);
   if (!forgetOnly) {
-    console.log('\nWARNING: this mode permanently deletes every validated registered workspace directory and its repository clones.');
+    console.log('\nWARNING: this mode permanently deletes every validated registered workspace directory and its repository clones,'
+      + ' except a workspace that holds a Story checkout, which it keeps whole.');
   }
-  console.log(`\nRegistered workspace directories (${forgetOnly ? 'preserved' : 'deleted'}): ${plan.workspaces.length}`);
+  console.log(`\nRegistered workspace directories (${forgetOnly ? 'preserved' : 'deleted, or kept whole while one holds a Story checkout'}): ${plan.workspaces.length}`);
   if (plan.workspaces.length) {
     for (const workspace of plan.workspaces) {
-      console.log(`- [${workspace.disposition}] ${workspace.name} (${workspace.id}): ${workspace.path}`);
+      console.log(`- [${workspace.disposition}] ${workspace.name} (${workspace.id}): ${workspace.path}`
+        + `${workspace.disposition === 'kept' ? ` (holds ${workspace.storyCheckouts} Story checkout(s); only its registration is forgotten)` : ''}`);
     }
   } else {
     console.log('- none');
@@ -635,6 +637,11 @@ function renderLocalResetPlan(plan) {
     console.log(forgetOnly
       ? '\nLocal Singularity registrations and personalization are forgotten. Workspace and repository bytes were preserved.'
       : '\nLocal Singularity state is clean. The installed product remains ready to create a new workspace.');
+    // A workspace kept for its Story checkouts (SCF:REQ-021) is forgotten; opening it registers it again.
+    for (const workspace of plan.workspaces.filter((entry) => entry.disposition === 'kept')) {
+      printCommandRoutes({ executable: 'singularity-flow', argv: ['workspace', 'open', workspace.path] },
+        { label: `Kept workspace '${workspace.name}' with its Story checkouts; to use it again` });
+    }
     console.log('Next: open VS Code and choose or create a workspace.');
   }
 }
@@ -1170,8 +1177,15 @@ export async function disposeFreshInstallSource(staging) {
 
 function renderFreshInstallPlan(plan) {
   console.log(`Singularity Flow fresh-install reset — ${plan.completed ? 'complete' : 'preview'}`);
-  console.log(`Registered workspaces to delete: ${plan.workspaces.length}`);
-  for (const workspace of plan.workspaces) console.log(`- ${workspace.name}: ${workspace.path}`);
+  // A workspace that holds a Story checkout is kept whole (SCF:REQ-021); the Kept list below says why.
+  const deleted = plan.workspaces.filter((workspace) => workspace.disposition !== 'kept');
+  const kept = plan.workspaces.filter((workspace) => workspace.disposition === 'kept');
+  console.log(`Registered workspaces to delete: ${deleted.length}`);
+  for (const workspace of deleted) console.log(`- ${workspace.name}: ${workspace.path}`);
+  if (kept.length) {
+    console.log(`Registered workspaces kept whole, each holding a Story checkout: ${kept.length}`);
+    for (const workspace of kept) console.log(`- ${workspace.name}: ${workspace.path}`);
+  }
   if (plan.missingRegistrations.length) {
     console.log(`Already-missing registrations: ${plan.missingRegistrations.length}`);
     for (const target of plan.missingRegistrations) console.log(`- ${target}`);
@@ -1181,9 +1195,11 @@ function renderFreshInstallPlan(plan) {
     for (const target of plan.installerGeneratedPaths) console.log(`- ${target}`);
   }
   console.log('Additional reset targets:');
-  for (const target of plan.remove.slice(plan.installerGeneratedPaths.length + plan.workspaces.length)) {
+  for (const target of plan.remove.slice(plan.installerGeneratedPaths.length + deleted.length)) {
     console.log(`- ${target}`);
   }
+  console.log('Kept:');
+  for (const item of plan.preserve) console.log(`- ${item}`);
   if (!plan.completed) {
     console.log('\nPreview only: nothing was deleted. Review the paths above, then add --yes.');
   }
@@ -4387,6 +4403,8 @@ async function decisionWitnessCommand(positionals, options) {
       })
     }
   );
+  // A person's sign-off, which no chat may give, renews the Copilot turn whose decisions card asked for it [owner, 2026-11-16].
+  await import('./copilot-mutation-guard.mjs').then((guard) => guard.renewTurnAfterCardAnswer(root, id)).catch(() => {});
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded ${record.id}: the ${record.method} of ${record.file} ${record.outcome === 'met' ? 'witnesses' : 'does not witness'} ${record.clauseId} slot ${record.slot}, bound to its current bytes.`);
     console.log(publication.pushed
@@ -4503,8 +4521,8 @@ async function decisionChooseCommand(positionals, options) {
   const pending = workflow.pendingDecision ?? null;
   if (!pending) {
     throw new SingularityFlowError(
-      `Story ${workflow.workItem.id} is not waiting for a decision. See its decisions with singularity-flow decision show ${workflow.workItem.id}.`,
-      { code: 'DECISION_NOT_PENDING' }
+      `Story ${workflow.workItem.id} is not waiting for a decision, so there is nothing to choose.`,
+      { code: 'DECISION_NOT_PENDING', details: storyNextDetails(workflow) }
     );
   }
   const option = optionString(options, 'option') ?? null;
@@ -4707,7 +4725,7 @@ async function cancelCommand(positionals, options) {
   // Every value the event needs comes from the state before the mutation, so the envelope is built
   // here and the cancellation itself happens in the transition.
   const cancelPhase = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
-  if (!cancelPhase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no active phase to cancel.`);
+  if (!cancelPhase) throw storyClosedRefusal(workflow);
   const cancelSession = await loadSession(root, { required: false }) ?? { actor: actionActor(root), agent: null };
   const { value: result, publication } = await transactStory(
     root,

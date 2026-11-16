@@ -145,7 +145,7 @@ export async function assertPhaseRepairSettled(root, workflow, phase) {
     // Name the route that clears it. `doctor` was offered here and does not read this journal.
     throw new SingularityFlowError(error.message, { code: error.code, cause: error.cause ?? error, details: { ...error.details,
       phase: phase.id, recoveryCommand: { command: `singularity-flow appeal repair-quarantine --work-id ${workflow.workItem.id} --phase ${phase.id} --json`,
-        skill: '/sf-appeal', label: 'Preview the corrupt repair journal; confirm its exact digest to move it to private quarantine. Nothing is deleted and no budget is refunded.' } } });
+        skill: '/sf-appeal', label: 'Preview moving the damaged repair record aside; nothing is deleted' } } });
   }
   if (state.active) throw new SingularityFlowError('A reserved phase repair has not been rechecked. Resume the exact recorded attempt; do not start a fresh budget or repeat publication.',
     { code: 'PHASE_REPAIR_RECHECK_REQUIRED', details: { repairLoop: state, recoveryCommand: state.commands.resume, skill: '/sf-appeal' } });

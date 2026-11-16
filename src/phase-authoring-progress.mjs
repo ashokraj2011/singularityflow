@@ -9,8 +9,10 @@ import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
 /** The current task, not a promise that reading or preparation completed its deliverable. */
 export function phaseTaskCompletion(result) {
   const successor = result?.status === 'successor-preparation-required' && result.successor?.preparation;
+  // A kernel-built step's task is its generator then its publication; with none, its resume pointed back to the entry.
+  const generate = result?.status === 'deterministic-generation' && result.next?.[0];
   if (result?.resultType !== 'sflow-phase-entry' || !result.ready || result.paused
-      || !result.workId || !result.phase || !successor && (!result.authoringProgress
+      || !result.workId || !result.phase || !successor && !generate && (!result.authoringProgress
       || result.authoring?.entry?.status !== 'authoring-entry')) return null;
   const allowed = result.authoringAllowed === true && result.contextAdmission?.allowed !== false;
   const loadContext = allowed && result.contextComposition === 'not-requested';
@@ -22,10 +24,10 @@ export function phaseTaskCompletion(result) {
       modelFreeCommand: value.modelFreeCommand ?? null } : null;
   };
   return { revision: 'workflow-task-completion-v1', kind: 'phase-authoring', workId: result.workId,
-    phaseId: result.phase, generation: successor ? result.successor.targetGeneration : result.authoringProgress.generation,
-    complete: false, state: successor ? 'prepare-successor' : loadContext ? 'load-context' : allowed ? state : 'blocked',
+    phaseId: result.phase, generation: successor ? result.successor.targetGeneration : generate ? result.inspectionGeneration : result.authoringProgress.generation,
+    complete: false, state: successor ? 'prepare-successor' : generate ? 'author-draft' : loadContext ? 'load-context' : allowed ? state : 'blocked',
     checkpoint: 'published-generation', publicationVerified: false,
-    nextAction: compact(successor || (loadContext ? safeCommandGuidance({ argv: ['phase', 'enter', result.phase,
+    nextAction: compact(successor || generate || (loadContext ? safeCommandGuidance({ argv: ['phase', 'enter', result.phase,
       '--work-id', result.workId, '--compose', '--for-agent', '--json'] })
       : allowed ? result.authoringProgress.next : result.next?.[0])),
     recheck: compact(safeCommandGuidance({ argv: ['phase', 'prepublish', result.phase, '--work-id', result.workId,

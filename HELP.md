@@ -274,10 +274,12 @@ There are five intentionally different reset and replacement boundaries:
   personalization while preserving every workspace and repository byte.
 - `singularity-flow local-reset --dry-run` previews the destructive compatibility
   mode: every validated registered workspace directory and local Singularity state
-  is removed, while installed product surfaces remain ready to use.
+  is removed, while installed product surfaces remain ready to use. A workspace
+  that holds a Story checkout is kept whole and only forgotten.
 - `singularity-flow fresh-install` previews a true fresh machine install. After
   reviewing the exact paths, `singularity-flow fresh-install --yes` deletes all
-  validated registered workspace roots and clones, clears Singularity local and
+  validated registered workspace roots and clones, except a workspace that holds a
+  Story checkout, which it keeps whole and only forgets, clears Singularity local and
   managed Copilot state, uninstalls old product copies, and reinstalls the CLI,
   VS Code extension, Copilot plugin, and `/sf-*` skills.
 - `singularity-flow reinstall --checkout <path> --dry-run` replaces only installed
@@ -286,6 +288,11 @@ There are five intentionally different reset and replacement boundaries:
 
 The full reset will not delete an existing registered path unless a regular,
 valid `workspace.json` proves that the path is a Singularity-managed workspace.
+No reset deletes a Story checkout, which includes every linked worktree of a
+workspace clone: each preview lists them, and the reset refuses while one holds
+uncommitted work or commits no remote has (`RESET_STORY_CHECKOUT_HAS_WORK`). It
+refuses the same way for a workspace clone with a Story's branch checked out in it. `singularity-flow workspace open <DIRECTORY>`
+registers a kept workspace again.
 It preserves the installer checkout, unregistered repositories, and personal
 skills. A one-time marker makes the reinstalled extension clear its Singularity
 Flow SecretStorage credentials, onboarding profile, and global state on first
@@ -3498,8 +3505,9 @@ singularity-flow local-reset --confirm "RESET LOCAL"
 ```
 
 This does not modify an application repository in place; it removes the complete
-validated workspace root containing its clones and documents. Run the command
-from a directory outside those workspace roots.
+validated workspace root containing its clones and documents. A workspace that
+holds a Story checkout is kept whole, and only its registration is forgotten. Run
+the command from a directory outside those workspace roots.
 
 ```bash
 singularity-flow recover WORK-123 --fetch
@@ -4115,9 +4123,11 @@ singularity-flow review-source context|status <specification|planning> [--json]
 singularity-flow review-source check <phase> --report-file GIT-PRIVATE-FILE --for-agent --json
 singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
 singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
-singularity-flow decisions [WORK-ID] [--phase PHASE] [--json]
+singularity-flow decisions [WORK-ID] [--phase PHASE] [--probe|--no-probe] [--probe-wait SECONDS] [--json]
 singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] --confirm sha256:DIGEST
 # Everything people must decide before the step can move, in plain words with choices; recorded with one confirmation.
+# Each item is a question, why in one sentence, and "Recommended: ...". Where the answer depends on a check SFlow can run
+# itself (whether the tests pass on another Node), it runs it first, read-only and bounded, and recommends from the result.
 # In an interactive terminal, decisions record [WORK-ID] asks for each choice, shows a summary and asks y/N.
 # What the agent or SFlow settled with its evidence is listed as "Settled for you"; undoing one makes it your question again.
 singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT]

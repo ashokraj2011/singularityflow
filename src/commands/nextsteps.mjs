@@ -13,6 +13,7 @@ import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
+import { phaseKernelOwned } from '../code-delivery-policy.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
 import { requiresProspectivePhaseInspection } from '../phase-inspection-generation.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
@@ -94,7 +95,9 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   } else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) {
     prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
   }
-  if (authoring && !activeSessionAgent && !deterministicConvergence) prerequisites.push({
+  // A step the kernel builds binds no agent (session.mjs clears it), so there is none to select: the hand-off to
+  // /sf-resume changed nothing before its route to the step [journey B, 2026-11-16].
+  if (authoring && !activeSessionAgent && !deterministicConvergence && !phaseKernelOwned(active)) prerequisites.push({
     timing: 'now', skill: '/sf-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
     reason: 'Select the agent that will remain active for this terminal session before generation.'
   });

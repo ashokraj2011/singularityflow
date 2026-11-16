@@ -84,14 +84,21 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   }));
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');
+  const kernelBuilt = phaseKernelOwned(phase);
   const contextAdmission = phaseContextAdmission({ authoring, recovery, references,
-    deterministic: phaseKernelOwned(phase) });
+    deterministic: kernelBuilt });
   if (documentReadiness.status !== 'ready') {
     contextAdmission.allowed = false;
     contextAdmission.blockers.push({ code: 'DOCUMENT_REUPLOAD_REQUIRED', message: documentReadiness.instruction,
       documents: documentReadiness.missing.map(({ id, name, sha256 }) => ({ id, name, sha256 })) });
   }
   const canCompose = contextAdmission.allowed;
+  // A step the kernel builds (quick-fix Verify, POC Lite's document steps) is never composed or written: its
+  // generator, `prepare`, builds it. When that is the only reason composition is refused, running the generator
+  // in this turn is the step's own work. Reported as attention-required, the entry led to a read-only appeal
+  // inspection and the step was never built (journey B, 2026-11-16).
+  const deterministicGeneration = kernelBuilt && authoring.entry?.status === 'authoring-entry'
+    && contextAdmission.blockers.every(blocker => blocker.code === 'PHASE_CONTEXT_DETERMINISTIC');
   let context = null;
   if (compose && canCompose) {
     // The existing composer owns pinned inputs, immutable reuse, authority replay and locking.
@@ -197,12 +204,21 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   // reported as attention-required, a skill relayed itself as the next action and stopped.
   const status = documentReadiness.status !== 'ready' ? 'documents-required'
     : authoring.entry?.status === 'retained-generation' ? 'retained-generation'
+    // A review asked for corrections: the person's yes to the next version comes first, in this turn [owner, 2026-11-16].
+    : authoring.entry?.status === 'successor-confirmation-required' ? 'successor-confirmation-required'
     : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry'
       : canCompose && authoring.entry?.status === 'authoring-entry' && checkpoint.questioningAllowed ? 'clarification-required'
-        : 'attention-required';
+        : deterministicGeneration ? 'deterministic-generation' : 'attention-required';
   let next = preparationAdmitted ? authoring.entry.actions
     : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
-    : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;
+    : ['retained-generation', 'successor-confirmation-required'].includes(status) ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;
+  // Its own skill runs the generator; recovery's guided "create the artifact" is that same command.
+  if (status === 'deterministic-generation') next = [{
+    id: `generate:${phase.id}`, safe: true, automatic: false, confirmation: 'none', scope: 'deterministic-generation',
+    skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
+    detail: `${phase.id} is built by its deterministic generator: run this in this turn, then publish it with `
+      + `singularity-flow phase prepublish ${phase.id} --for-agent --json --publish-if-ready. Never write or edit its artifact.`
+  }, ...next.filter(action => action.id !== `prepare-artifact:${phase.id}`)];
   if (authoringAllowed && contextAdmission.pendingEvidence) next = [{
     id: `continue-draft:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
@@ -223,7 +239,7 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   const inputsBlocked = contextAdmission.blockers.some(item => item.code === 'PHASE_CONTEXT_INPUTS_NOT_READY')
     // A hold a person can settle (keep the files or set them aside) leads with that route, not the read-only inspection.
     || recovery.actions.some(action => action.id === 'set-aside-worktree');
-  if (!canCompose && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions[inputsBlocked ? 'push' : 'unshift'](recoveryActionGuidance({
+  if (!canCompose && !deterministicGeneration && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions[inputsBlocked ? 'push' : 'unshift'](recoveryActionGuidance({
     id: `inspect-continuation:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',
     detail: 'Inspect one preserved-work journey and its exact repair/human/owner route. This inspection changes nothing and cannot grant authoring or publication permission.'
@@ -246,12 +262,22 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   const askedForRecords = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href);
   const askedFor = base.generatesCode ? await (await askedForRecords()).askedForSummary(root, workflow, phase)
     : isConformancePhase(phase) && workflow.askedFor?.length ? (await askedForRecords()).askedForConformanceInput(workflow, phase) : null;
-  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}), ...(fixOnTheWay ? { fixOnTheWay } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  // The next generation of a code step a review asked to correct is authored with that review's findings [owner, 2026-11-16],
+  // read from the retained record itself, so a status the open generation cannot read yet does not hide them.
+  const reviewCorrection = base.generatesCode && phase.status === 'in_progress' && phase.generationIntent?.status === 'open'
+    && Number(phase.generation) > 0 && Number(phase.generationIntent.generation) === Number(phase.generation) + 1
+    && (await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id)
+    ? (await import('./source-review-continuation.mjs')).reviewCorrection({ report: await (await import('./source-review-lifecycle.mjs'))
+      .retainedReviewReport(root, definition, workflow, phase.id) }, phase.generation) : null;
+  return { ...base, ...(reviewCorrection ? { reviewCorrection } : {}), ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}), ...(fixOnTheWay ? { fixOnTheWay } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
+    ...(status === 'successor-confirmation-required' ? { successor: { targetGeneration: authoring.entry.targetGeneration,
+      ...authoring.entry.successor, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),
     references, documentReadiness, clarification, context,
-    contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
+    // A kernel-built step has no prompt to compose: "not-admitted" told /sf-phase to relay and stop.
+    contextComposition: deterministicGeneration ? 'not-needed' : !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
     next: clarificationAction ? [checkpoint.nextAction, ...nextActions.filter(action =>
       action.id !== `resolve-clarification:${phase.id}`)] : checkpoint.rebindAction ? [checkpoint.rebindAction, ...nextActions] : nextActions,
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,

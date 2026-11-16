@@ -1052,8 +1052,8 @@ export const MESSAGES = Object.freeze({
   'transport.reported': {
     headline: (s) => s.intentId
       ? `Transport ${slot(s.intentId)} is ${slot(s.status)}; commit ${slot(s.commit)} remains addressable.${transportFault(s)}`
-      : `Found ${slot(s.count, '0')} pending transport intent(s).${s.damaged
-        ? ` ${slot(s.damaged)} saved push record(s) failed their integrity check and never authorize a push; --json names each file, which only you move out of the outbox.` : ''}`,
+      : `Found ${slot(s.count, '0')} push(es) waiting to be sent.${s.damaged
+        ? ` ${slot(s.damaged)} damaged push record(s) will never be sent; --json names their files, for you to move out of the outbox.` : ''}`,
     preserves: true
   },
   'integrations.listed': {
@@ -1279,7 +1279,7 @@ export const REASONS = Object.freeze({
     render: (s) => `the plan was built from the ${slot(s.mode)} configuration${s.branch ? ` on ${slot(s.branch)}` : ''}, exported into a scratch directory; the checkout and its branches were not touched`
   },
   'approvals.from-pinned-state': {
-    render: () => 'the phase order, documents, authority groups, and decisions came from the pinned Story aggregate'
+    render: () => 'the step order, documents, approval groups and decisions came from the Story\'s own record'
   },
   'fastpath.phase-not-owned': {
     render: (s) => `this Story is at a phase this verb does not route${s.phase ? ` (${slot(s.phase)})` : ''}`
@@ -1309,7 +1309,7 @@ export const REASONS = Object.freeze({
     render: (s) => `the phase requires ${slot(s.path)}, which is not present`
   },
   'generation.not-published': {
-    render: (s) => `no generation of ${slot(s.phase)} has been published yet`
+    render: (s) => `${slot(s.phase)} has no published version yet`
   },
   'approval.authority-required': {
     render: (s) => `approval needs ${slot(s.authority)}, and your identity is not in it`
@@ -1321,10 +1321,10 @@ export const REASONS = Object.freeze({
     render: () => 'a previous publication committed but did not push, so the Story is mid-transition'
   },
   'ledger.behind': {
-    render: (s) => `the capability ledger has ${slot(s.pending)} unpublished intent(s)`
+    render: (s) => `the capability record has ${slot(s.pending)} change(s) not sent yet`
   },
   'grounding.not-ready': {
-    render: (s) => `the world-model grounding policy is '${slot(s.mode)}' and no composition exists for this generation`
+    render: (s) => `the world-model grounding policy is '${slot(s.mode)}' and this version's prompt is not composed yet`
   },
   'docs.no-such-topic': {
     render: (s) => `'${slot(s.query)}' is not a topic id, an alias, or the prefix of one`
@@ -1336,7 +1336,7 @@ export const REASONS = Object.freeze({
     render: () => 'no work item resolves here, so only the concept could be served'
   },
   'recommend.from-durable-state': {
-    render: () => 'the recommendation was reconstructed from durable workspace, repository, lifecycle, and evidence records'
+    render: () => 'the recommendation was rebuilt from the saved workspace, repository, Story and evidence records'
   },
   'goal.from-workspace-state': {
     render: (s) => `the Goal came from the personal durable record for workspace ${slot(s.workspace)}`

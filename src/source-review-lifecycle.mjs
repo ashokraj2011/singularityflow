@@ -18,7 +18,7 @@ import { clarificationRecordRelative } from './story-paths.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
-import { phaseNeedsGeneration } from './sequence.mjs';
+import { phaseNeedsGeneration, storyNextDetails } from './sequence.mjs';
 import { successorGenerationOpen } from './phase-generation-need.mjs';
 import { phaseRequiresCodeDelivery as phaseNeedsCode } from './code-delivery-policy.mjs';
 import { documentMimeType, effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
@@ -44,15 +44,26 @@ function actorIdentity(actor) { return {
 }; }
 function itemRelative(config, workId) { return posix(path.join(config.workItemRoot ?? 'singularity/work-items', workId)); }
 
+/** A step the Story lacks, or one its review does not cover: with its steps and the Story's next action. */
+export function sourceReviewStepRefusal(workflow, phaseId) {
+  return workflow.phases?.[phaseId]
+    ? new SingularityFlowError(`Source review applies only to a step the Story's review covers; '${phaseId}' is not one.`,
+      { code: 'SOURCE_REVIEW_NOT_APPLICABLE', details: { phase: phaseId, ...storyNextDetails(workflow) } })
+    : new SingularityFlowError(`Story '${workflow.workItem.id}' has no '${phaseId}' step; its steps are ${(workflow.phaseOrder ?? []).join(', ')}.`,
+      { code: 'SOURCE_REVIEW_STEP_UNKNOWN', details: { requestedPhase: phaseId, ...storyNextDetails(workflow) } });
+}
+
 export function sourceReviewDirectory(root, config, workflow, phaseId) {
-  if (!sourceReviewKind(workflow, phaseId)) {
-    throw new SingularityFlowError(`Source review applies only to a step the Story's review covers; '${phaseId}' is not one.`);
-  }
-  const phase = workflow.phases?.[phaseId];
-  if (!phase) throw new SingularityFlowError(`Story has no '${phaseId}' phase.`);
+  if (!sourceReviewKind(workflow, phaseId)) throw sourceReviewStepRefusal(workflow, phaseId);
+  const phase = workflow.phases[phaseId];
   return path.join(root, itemRelative(config, workflow.workItem.id), 'context', 'reviews',
     phaseId, `gen-${phase.generation}`);
 }
+
+/** A step reviewed only while it is the Story's current one, in progress: an earlier, later or submitted step waits for the Story's next action. */
+export const sourceReviewStepNotCurrent = (workflow, phase, action) => new SingularityFlowError(
+  `Source review ${action} needs '${phase.id}' to be the Story's current step, in progress; it is ${phase.status}${workflow.currentPhase && workflow.currentPhase !== phase.id ? ` and the Story is at '${workflow.currentPhase}'` : ''}.`,
+  { code: 'SOURCE_REVIEW_STEP_NOT_CURRENT', details: { phase: phase.id, phaseStatus: phase.status, ...storyNextDetails(workflow) } });
 
 function checkPublishedGeneration(workflow, phaseId) {
   const phase = workflow.phases?.[phaseId];
@@ -65,8 +76,9 @@ function checkPublishedGeneration(workflow, phaseId) {
   }
   if (!phase || !['in_progress', 'awaiting_approval', 'approved'].includes(phase.status)
       || !Number.isSafeInteger(phase.generation) || phase.generation < 1) {
-    throw new SingularityFlowError(`Phase '${phaseId}' must have a published generation before source review.`, {
-      code: 'SOURCE_REVIEW_GENERATION_REQUIRED'
+    // Nothing is published to review yet: the Story's next step (writing it, or an earlier step) is the way on.
+    throw new SingularityFlowError(`'${phaseId}' has no published generation yet, so there is nothing to review; review it once it is published.`, {
+      code: 'SOURCE_REVIEW_GENERATION_REQUIRED', details: { phase: phaseId, ...storyNextDetails(workflow) }
     });
   }
   return phase;
@@ -359,7 +371,7 @@ async function loadSourceReviewInput(root, config, workflow, phaseId) {
   const approved = kind === 'planning'
     ? latestStepBefore(workflow, phaseId, (candidate) => stepResponsibilities(workflow, candidate.id).includes('scope')) : null;
   if (kind === 'planning' && approved?.status !== 'approved') throw new SingularityFlowError(
-    'Planning review requires an approved specification.', { code: 'SOURCE_REVIEW_SPEC_NOT_APPROVED' }
+    'Planning review requires an approved specification.', { code: 'SOURCE_REVIEW_SPEC_NOT_APPROVED', details: storyNextDetails(workflow) }
   );
   const base = itemRelative(config, workflow.workItem.id);
   await prefetchSourceReviewFiles(root, [`${base}/source.json`, `${base}/USER-STORY.md`, `${base}/documents.json`,
@@ -766,6 +778,27 @@ async function carriedUnreadableDecisions(root, config, workflow, phaseId, input
   return carried;
 }
 
+/**
+ * The retained review of the step's published generation, as the author of its next one reads it: its report, or null.
+ * Once the next generation is open the status no longer carries it (a successor is reviewed after its publication), and
+ * a /sf-code turn opened for the review's findings had none to fix (owner, 2026-11-16). Guidance for the author, never
+ * authority: the committed pointer and record, by their own hashes, without the lifecycle event check that reads the
+ * Story's workflow, which the open generation's draft changes until it is published.
+ */
+export async function retainedReviewReport(root, config, workflow, phaseId) {
+  try {
+    return await withSourceReviewSnapshot(root, async () => {
+      const pointerFile = pointerPath(root, config, workflow, phaseId);
+      if (!(await exists(pointerFile))) return null;
+      const pointer = checkedRecord(await readCommittedJson(root, pointerFile, 'Source review pointer'), 'Source review pointer', 'source-review-pointer');
+      const record = checkedRecord(await readCommittedJson(root, sourceReviewReportPath(root, config, workflow, phaseId, pointer.reportSha256),
+        'Source review record'), 'Source review record', 'source-review-record');
+      return record.reportSha256 === pointer.reportSha256 && recordSha256(record.report) === record.reportSha256
+        && record.phase === phaseId && record.generation === workflow.phases[phaseId].generation ? record.report : null;
+    });
+  } catch { return null; }
+}
+
 /** Read current review and decisions, then recompute all source and artifact bindings. */
 export async function readSourceReviewStatus(root, config, workflow, phaseId) {
   return withSourceReviewSnapshot(root, () => loadSourceReviewStatus(root, config, workflow, phaseId));
@@ -1106,7 +1139,7 @@ export async function retainSourceReviewDecision(root, config, workflow, phaseId
   actor, authority, publicationEvent) {
   const pending = status.pendingDispositions?.find((entry) => entry.id === id);
   if (!pending) throw new SingularityFlowError(`No pending source review disposition '${id}' exists.`, {
-    code: 'SOURCE_REVIEW_DISPOSITION_NOT_PENDING'
+    code: 'SOURCE_REVIEW_DISPOSITION_NOT_PENDING', details: storyNextDetails(workflow)
   });
   if (typeof reason !== 'string' || !reason.trim()) throw new SingularityFlowError(
     'A human-authored reason is required for a source review disposition.',

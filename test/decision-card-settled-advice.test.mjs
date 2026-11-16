@@ -13,8 +13,9 @@ import YAML from 'yaml';
 
 import { packetText } from '../src/commands/decisions.mjs';
 import { decisionPacket } from '../src/decision-list.mjs';
+import { withPlainWords } from '../src/decision-plain.mjs';
 import { recordSettledDecision } from '../src/settled-decisions.mjs';
-import { decisionsTable, firstForm, NOT_NOW, UNDO_SETTLED } from '../plugin/extensions/decisions/card.mjs';
+import { decisionsTable, directForm, firstForm, KEEP_SETTLED, NOT_NOW, UNDO_SETTLED } from '../plugin/extensions/decisions/card.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
 import { buildDecisionListView, decisionAnswersDocument, decisionAnswersFromChoices } from '../apps/vscode/src/views/decision-list-model.ts';
 import { decisionListHtml } from '../apps/vscode/src/views/decision-list-page.ts';
@@ -34,8 +35,8 @@ test('a card holding only what was settled still records its Undo on every host,
     resolution: { approvalAuthorities: authorities }, history: [] };
   recordSettledDecision(workflow, { kind: 'story-selection', subject: 'STL-1 on stl-1', answer: 'Opened STL-1: the only Story on this branch.',
     evidence: [{ what: 'stl-1 is STL-1\'s own branch', where: 'workflow.json on stl-1' }], by: 'sflow', at: AT });
-  const packet = { ...decisionPacket(workflow, { phaseId: 'implement', gaps: [], issues: [], pending: {}, state: {} },
-    { authorities, actor: { name: 'Person', email: 'person@example.invalid' }, at: AT }), phaseLabel: 'Implement' };
+  const packet = { ...withPlainWords(workflow, decisionPacket(workflow, { phaseId: 'implement', gaps: [], issues: [], pending: {}, state: {} },
+    { authorities, actor: { name: 'Person', email: 'person@example.invalid' }, at: AT })), phaseLabel: 'Implement' };
   assert.deepEqual([packet.items.length, packet.settled.length, packet.settled[0].id], [0, 1, 'd1']);
   // VS Code: its Undo alone enables the review, under "Settled for you", with no empty table above it.
   const html = decideHtml(packet);
@@ -44,7 +45,8 @@ test('a card holding only what was settled still records its Undo on every host,
   // Copilot CLI: nothing waits, so the first form offers the undo or Not now, never "Decide each one".
   const { form } = firstForm(packet);
   assert.deepEqual(form.requestedSchema.properties.choice.enum, [`${UNDO_SETTLED} (1)`, NOT_NOW]);
-  assert.equal(form.message, 'Nothing here waits on a decision from you. 1 is settled for you, which you may undo if it is wrong.');
+  // It names what was settled, in one line, instead of counting it [owner, 2026-11-16].
+  assert.equal(form.message, 'Nothing waits on you now. Settled for you: SFlow opened STL-1 because its branch is the one checked out here. Undo if wrong.');
   assert.doesNotMatch(decisionsTable(packet), /\| What it is \|/u);
   // The terminal: the Decide card is the route, and nothing says "not available".
   const text = packetText(packet);
@@ -84,7 +86,7 @@ test('a settled item and an advised one on the same card; Undo from the card han
   assert.ok(departure, JSON.stringify(card.items.map((item) => item.kind)));
   assert.equal(card.items.some((item) => item.kind === 'test-command' || item.settled), false, 'nobody is asked about the settled command');
   // The advised item: its recommended answer (or what to weigh), and what each choice does.
-  assert.match(departure.recommended.words, /^(?:Recommended|No recommendation)/u);
+  assert.match(departure.recommended.words, /^Recommended/u);
   assert.ok(departure.options.filter((option) => option.available !== false).every((option) => typeof option.does === 'string' && option.does), JSON.stringify(departure.options));
   // The settled item: its evidence as lines, an Undo that says what it does, nothing recommended, and no chat yes-or-no.
   const settled = card.settled.find((item) => item.details.settledId === settledId);
@@ -99,17 +101,18 @@ test('a settled item and an advised one on the same card; Undo from the card han
   // Every host shows it once, under its own heading, and the advised item with its recommendation.
   const terminal = sflow('decisions', 'QF-1');
   assert.equal(count(terminal, 'Settled for you'), 1, terminal);
-  assert.ok(terminal.includes(departure.recommended.words), terminal);
-  assert.ok(terminal.indexOf(departure.recommended.words) < terminal.indexOf('Settled for you'), 'what waits comes first');
+  assert.ok(terminal.includes(departure.plain.recommended), terminal);
+  assert.ok(terminal.indexOf(departure.plain.recommended) < terminal.indexOf('Settled for you'), 'what waits comes first');
   const html = decideHtml(card);
   assert.equal(count(html, '<h2>Settled for you</h2>'), 1);
   assert.ok(html.includes('Makes it your question again'), 'the Undo says what it does');
   const table = decisionsTable(card);
   assert.equal(count(table, '**Settled for you.**'), 1, table);
-  // Copilot CLI's forms ask what waits; the settled one only once the person chooses to undo it.
-  const first = firstForm(card).form;
-  assert.match(first.message, /^1 still need a decision from you\. 1 is settled for you, which you may undo if it is wrong\.$/u);
-  assert.ok(first.requestedSchema.properties.choice.enum.includes(`${UNDO_SETTLED} (1)`));
+  // Copilot CLI asks the one question that waits directly [owner, 2026-11-16]; the settled one sits beside it, kept unless undone.
+  const { form: first } = directForm(card);
+  assert.equal(first.requestedSchema.properties.decision0.title, departure.plain.question);
+  assert.deepEqual(first.requestedSchema.required, ['decision0']);
+  assert.deepEqual(first.requestedSchema.properties.settled0.enum, [KEEP_SETTLED, 'Undo: ask me instead']);
   assert.equal(count(decisionListHtml(buildDecisionListView(card)), '<h2>Settled for you</h2>'), 1);
 
   // Undo, chosen on VS Code's card and recorded from its answers file, as the card records any answer.
@@ -128,7 +131,7 @@ test('a settled item and an advised one on the same card; Undo from the card han
   assert.equal(after.settled, undefined);
   const asked = after.items.find((item) => item.kind === 'test-command');
   assert.ok(asked, JSON.stringify(after.items.map((item) => item.kind)));
-  assert.match(asked.recommended.words, /^(?:Recommended|No recommendation)/u);
+  assert.match(asked.recommended.words, /^Recommended/u);
   assert.ok(asked.options.filter((option) => option.available !== false).every((option) => typeof option.does === 'string' && option.does), JSON.stringify(asked.options));
   assert.ok(after.items.some((item) => item.kind === 'departure' && item.recommended?.words), 'the departure is still advised');
   // A card still showing the undone settlement is refused: the list it was read from changed.

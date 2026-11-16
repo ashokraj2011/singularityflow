@@ -73,7 +73,7 @@ import {
 } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
 import {
-  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration, phasePublicationCommandForMode
+  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration, phasePublicationCommandForMode, storyClosedRefusal, storyNextDetails
 } from './sequence.mjs';
 import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { answeredMarkerHashes, resolvedClarificationPolicy } from './clarifications.mjs';
@@ -5652,7 +5652,7 @@ async function submitPhaseTransition(root, config, workflow, {
       const continuation = await import('./source-review-continuation.mjs');
       const [first] = continuation.sourceReviewContinuation(workflow, phase, review).actions ?? [];
       const nextAction = continuation.reviewUpstreamRoute(workflow, phase, review)
-        ?? (first?.command ? { command: first.command, skill: first.skill, label: first.reason ?? null }
+        ?? (first?.command ? { command: first.command, skill: first.skill, label: first.label ?? first.reason ?? null }
           : { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' });
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be submitted until its independent review is ready (${review.status}). Next, in this step: ${nextAction.command}. `
@@ -8151,7 +8151,7 @@ export async function decideStory(root, config, workflow, {
   await assertNoPendingPublication(root, config, workflow, 'decide');
   const pending = workflow.pendingDecision ?? null;
   if (!pending || workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(`Story ${workflow.workItem.id} is not waiting for a decision.`, { code: 'DECISION_NOT_PENDING' });
+    throw new SingularityFlowError(`Story ${workflow.workItem.id} is not waiting for a decision.`, { code: 'DECISION_NOT_PENDING', details: storyNextDetails(workflow) });
   }
   if (expectedKey && expectedKey !== pending.key) {
     throw new SingularityFlowError(
@@ -8680,7 +8680,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   const summary = intentAmendmentSummary(workflow, proposal?.id);
   if (!summary || summary.status !== 'proposed' || proposal?.status !== 'proposed') {
     throw new SingularityFlowError(`Intent amendment '${proposal?.id ?? 'unknown'}' is not awaiting a decision.`, {
-      code: 'INTENT_AMENDMENT_NOT_PENDING'
+      code: 'INTENT_AMENDMENT_NOT_PENDING', details: storyNextDetails(workflow)
     });
   }
   if (summary.proposalSha256 !== proposal.proposalSha256) {
@@ -9832,7 +9832,8 @@ export async function reopenWorkflow(root, config, workflow, {
   await assertNoPendingPublication(root, config, workflow, 'reopen completed work');
   if (workflow.status === 'cancelled') throw cancelledStoryRefusal(workflow);
   if (workflow.status !== 'closed' || workflow.currentPhase != null) {
-    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not closed; use reject while a phase is awaiting approval.`);
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not closed, so there is nothing to reopen; a step awaiting approval is returned with reject.`,
+      { code: 'STORY_NOT_CLOSED', details: storyNextDetails(workflow) });
   }
   const completionPhase = completionPhaseOf(workflow);
   if (completionPhase.approvalPolicy.changeRequests?.reopenCompleted === false) {
@@ -10388,13 +10389,11 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
   if (workflow.status === 'cancelled') {
     throw new SingularityFlowError(`Story '${workflow.workItem.id}' is already cancelled and archived.`);
   }
-  if (workflow.status === 'closed' || workflow.currentPhase == null) {
-    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is closed; use reopen when it needs changes after closing.`);
-  }
+  if (workflow.status === 'closed' || workflow.currentPhase == null) throw storyClosedRefusal(workflow);
   const comment = String(reason ?? '').trim();
   if (!comment) throw new SingularityFlowError('A cancellation reason is required.');
   const phase = currentPhase(workflow);
-  if (!phase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no active phase to cancel.`);
+  if (!phase) throw storyClosedRefusal(workflow);
   // A step SFlow runs itself (a verification, a convergence) ends the agent session, and cancel then
   // refused with "No active agent session"; the person's Git identity cancels, as reject does.
   const session = chosenSession ?? await loadSession(root, { required: false }) ?? { actor: identity(root), agent: null };

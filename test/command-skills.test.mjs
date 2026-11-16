@@ -253,17 +253,24 @@ test('standalone publication has a dedicated route even when the producer suppli
   assert.equal(guidance.copilotCommand, '/sf-publish build-api');
 });
 
-test('phase rollover has a dedicated recovery route, not the code-authoring route', () => {
+test('phase rollover is the step author\'s route; a confirmed one is also its recovery plan\'s', () => {
   const command = `singularity-flow phase rollover implementation --confirm sha256:${'a'.repeat(64)}`;
-  assert.equal(skillForCommandLine(command), 'sf-recover');
+  // /sf-code previews the next generation and asks the person; /sf-recover, handed an unchanged step's rollover,
+  // found nothing to recover and ran nothing (owner, 2026-11-16).
+  assert.equal(skillForCommandLine(command), 'sf-code');
+  const preview = safeCommandGuidance({ command: 'singularity-flow phase rollover implementation --json' });
+  assert.deepEqual([preview.skill, preview.copilotCommand], ['/sf-code', '/sf-code implementation']);
+  assert.equal(safeCommandGuidance({ command: 'singularity-flow phase rollover implementation --json', skill: '/sf-recover' }), null);
+  assert.equal(safeCommandGuidance({ command: 'singularity-flow phase rollover intake --reason "<what to change>" --json', skill: '/sf-phase' })?.copilotCommand,
+    '/sf-phase intake <what to change>', 'a document step\'s own drafting skill, with what to change');
   const guidance = safeCommandGuidance({ command, skill: '/sf-recover' });
   assert.ok(guidance);
   // The reviewed digest travels with the route, so following it confirms instead of previewing again.
   assert.equal(guidance.copilotCommand, `/sf-confirm ${confirmCode(`singularity-flow phase rollover implementation --confirm sha256:${'a'.repeat(64)}`)}`);
   assert.deepEqual(guidance.argv,
     ['phase', 'rollover', 'implementation', '--confirm', `sha256:${'a'.repeat(64)}`]);
-  assert.equal(safeCommandGuidance({ command, skill: '/sf-code' }), null,
-    'a consumed-generation recovery must not route back to the code skill that stops on recovery');
+  assert.equal(safeCommandGuidance({ command, skill: '/sf-code' })?.copilotCommand, guidance.copilotCommand,
+    'the code author confirms the same digest, by the same short code');
   const custom = safeCommandGuidance({
     command: `singularity-flow phase rollover build-api --confirm sha256:${'b'.repeat(64)}`,
     skill: '/sf-recover'

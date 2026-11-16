@@ -7,7 +7,8 @@ import { navigateTo } from './navigate.ts';
 import { enumField, registerMessageRouter, stringField } from './messages.ts';
 import { resetExecuteArgs, resetPlanFingerprint, resetPreviewArgs, type ResetMode } from './surface-contracts.ts';
 
-interface ResetWorkspace { id?: string; name?: string; path?: string; disposition?: 'preserved' | 'deleted' }
+// 'kept': a destructive reset keeps a workspace that holds a Story checkout whole (SCF:REQ-021); its Preserve line says why.
+interface ResetWorkspace { id?: string; name?: string; path?: string; disposition?: 'preserved' | 'deleted' | 'kept'; storyCheckouts?: number }
 interface ResetTarget { path?: string; type?: string; label?: string }
 interface ResetPlan { schemaVersion?: number; mode?: ResetMode; confirmation?: string; completed?: boolean; cancelled?: boolean; workspaces?: ResetWorkspace[]; missingRegistrations?: string[]; remove?: string[]; preserve?: string[]; machineTargets?: ResetTarget[]; installerGeneratedPaths?: string[]; registryWarning?: string | null; capabilityState?: { registryFile?: string; cacheRoot?: string }; journalState?: { root?: string; remoteSync?: string }; vscodeReset?: { marker?: string; reset?: string[] } }
 

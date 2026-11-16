@@ -171,7 +171,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   // and so does this route, so nobody answers into a record that is refused.
   add('clarification', 'clarification', clarification.errors, {
     command: `singularity-flow clarification status ${phase.id} --json`,
-    detail: `${clarification.composition?.command ? `First compose this generation's prompt (${clarification.composition.command}): the clarification record is bound to it and refused without it. Then a` : 'A'}sk the human checkpoint questions and record the actual answers against this generation. If a saved answer is stale, inspect its binding before obtaining a new response; never fabricate or copy an approval.`
+    detail: `${clarification.composition?.command ? `First compose this version's prompt (${clarification.composition.command}). Then a` : 'A'}sk the person the checkpoint questions and record their answers. Ask again if a saved answer is out of date; never make up or copy an approval.`
   }, { code: clarification.sourceCode ?? 'PHASE_CLARIFICATION_NOT_READY', file: clarification.path });
 
   const mcpEvidence = await capture(() => verifyPhaseMcpRequirements(root, workflow, phase, {
@@ -179,7 +179,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   }));
   add('mcp-evidence', 'external-evidence', mcpEvidence.errors, {
     command: `singularity-flow phase show ${phase.id} --json`,
-    detail: 'Collect the exact required tools and durable outputs for this phase generation using the authorized MCP host. A missing or invalid receipt cannot be replaced by a prose claim or another generation\'s evidence.'
+    detail: 'Run the required tools for this version through the allowed MCP host and save what they return. A missing or invalid record cannot be replaced by a written claim or by another version\'s evidence.'
   }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED' });
 
   // The design source and the visual captures are bound to the generation this publication creates,

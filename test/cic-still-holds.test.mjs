@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { decisionPacket } from '../src/decision-list.mjs';
+import { withPlainWords } from '../src/decision-plain.mjs';
 import { packetText } from '../src/commands/decisions.mjs';
 import { scopeStaleness, staleClausesOf } from '../src/scope/revisions.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
@@ -84,9 +85,10 @@ function stillHoldsPacket({ recommend = 'unchanged', namedPaths = [], consumers 
     reason: 'prompt-held', clauses: ['D-1:AC-001'], recommend, namedPaths, consumers };
   const holds = hold ? [{ code: 'AMENDMENT_STILL_HOLDS_REQUIRED', owner: 'someone-decides', summary: 'implement waits for fix-design.',
     clearedBy: { kind: 'approvers', steps: ['fix-design'] }, stillHolds: [{ amendment: 'AMD-001', phase: 'fix-design', generation: 1, clauses: ['D-1:AC-001'] }] }] : [];
-  return decisionPacket(workflow, { phaseId: workflow.currentPhase, endsStory: false, gaps: [], issues: [], evidence: [], visual: [], testRisks: [], testCommands: [],
+  // As `decisions` reads it: with every item's plain words (decision-list-reads.mjs).
+  return withPlainWords(workflow, decisionPacket(workflow, { phaseId: workflow.currentPhase, endsStory: false, gaps: [], issues: [], evidence: [], visual: [], testRisks: [], testCommands: [],
     scopePhase: 'intake', approvalCheck: awaiting ? { advisory: true, ready: !hold, holds } : null, pending: { forwardAmendments: [row] }, state: null },
-  { authorities: workflow.resolution.approvalAuthorities, actor: { name: 'Tester', email: 'tester@example.invalid' }, at: AT });
+  { authorities: workflow.resolution.approvalAuthorities, actor: { name: 'Tester', email: 'tester@example.invalid' }, at: AT }));
 }
 
 test('a still-holds question is the same item on every host: it recommends, says why in one line, and is never settled [CIC:REQ-021]', () => {
@@ -102,10 +104,11 @@ test('a still-holds question is the same item on every host: it recommends, says
   assert.equal((packet.settled ?? []).some((entry) => entry.details?.phase === 'fix-design'), false, 'never settled for the person');
   assert.equal(item.holds, 'approval-later', 'the step that reads it waits at its approval');
   assert.equal(stillHoldsPacket({ consumers: [] }).items.find((entry) => entry.kind === 'revalidation').holds, 'story-end', 'one that reads nothing of it holds only the Story\'s end');
-  // The same words on the terminal, the VS Code Decide card and the Copilot CLI card.
+  // The same words on the terminal, the VS Code Decide card and the Copilot CLI card: the question in plain words [owner, 2026-11-16].
+  assert.equal(item.plain.question, 'Does Fix design still hold after AMD-001?');
   for (const [host, text] of [['terminal', packetText(packet)], ['VS Code', decideHtml({ ...packet, packetSha256: 'sha256:x', repositoryPath: '/repo' }).replaceAll('&#39;', '\'')],
     ['Copilot CLI', decisionsTable(packet)]]) {
-    assert.ok(text.includes('Say whether Fix design still holds after AMD-001'), `${host}: the question`);
+    assert.ok(text.includes('Does Fix design still hold after AMD-001?'), `${host}: the question`);
     assert.ok(text.includes('Fix design\'s document names neither AC-001 nor any path it expects.'), `${host}: why it is recommended`);
   }
   // Its document names a path the changed clause expects: redo it.

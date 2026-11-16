@@ -1357,8 +1357,8 @@ const PAGES = Object.freeze({
       ['singularity-flow tests run', 'Runs this capability\'s tests as a local preview and prints totals.'],
       ['singularity-flow tests run --command integration-tests --environment qa', 'Runs one command against qa.'],
       ['singularity-flow tests summary --json', 'Every test case of the latest run, with its requirement tags.'],
-      ['singularity-flow tests base --work-id ID', 'Runs each command once on the Story\'s base commit and says which failures here also fail without the change. Never evidence; kept per base commit, command and Node.'],
-      ['singularity-flow tests node --work-id ID --node 22', 'Runs each command once on another installed Node, on a throwaway copy of this checkout, and says whether it passes. Never evidence. A person pins it on the decision list.'],
+      ['singularity-flow tests base --work-id ID', 'Runs each command once on the Story\'s base commit and says which failures here also fail without the change. Never evidence; kept per base commit, command and Node. The decision list runs it itself for a test-run risk before it recommends (--within SECONDS bounds it).'],
+      ['singularity-flow tests node --work-id ID --node 22', 'Runs each command once on another installed Node, on a throwaway copy of this checkout, and says whether it passes. Never evidence. A person pins it on the decision list, whose card runs this check itself before it asks (--within SECONDS bounds it).'],
       ['singularity-flow tests run --work-id PAY-12', 'Stages a local run of the current code step\'s tests.']
     ],
     seeAlso: ['app', 'env', 'evidence', 'capability']
@@ -2583,6 +2583,9 @@ const PAGES = Object.freeze({
       '',
       'Without `--forget-only`, the compatibility mode deletes each workspace directory only after',
       'its registry entry and regular workspace manifest prove the exact deletion boundary.',
+      'A workspace that holds a Story checkout is kept whole and only forgotten (`workspace open`',
+      'registers it again). The reset refuses while a Story checkout it lists holds uncommitted',
+      'or unpublished work.',
       'Interactive terminals preview and ask for an exact mode-bound phrase. Scripts and JSON callers',
       'must preview with `--dry-run`, then provide `--confirm` in a separate invocation.'
     ],

@@ -1,8 +1,9 @@
 /**
- * Everything a step waits on as Copilot CLI forms: a table, one answer for all that offer it, then each
- * row that is left, then each sign-off. The same `decisions --json` list and `decisions record --answers`
- * write as the VS Code page, and what a person enters is the only input. Pure, so a test can read every
- * word without Copilot.
+ * Everything a step waits on as Copilot CLI forms, in plain words [owner, 2026-11-16]: each open item as its question,
+ * why in one sentence and "Recommended: …", then its options, recommended first; what nobody can answer yet on one
+ * "Later:" line; what SFlow settled for the person one line each, with its Undo. One open item is asked directly; several
+ * are named on the first form. The same `decisions --json` list and `decisions record --answers` write as the VS Code
+ * page, and what a person enters is the only input. Pure, so a test can read every word without Copilot.
  */
 import { askUntilRight, DATE_PATTERN, refusedWords, textField } from './form-rounds.mjs';
 
@@ -13,15 +14,19 @@ export const NOT_NOW = 'Not now';
 export const CHANGE = 'Change an answer or overrule the plan';
 // What SFlow settled for the person waits the same way: undone only if they say it is wrong [owner, 2026-11-13].
 export const UNDO_SETTLED = 'Undo what was settled for you';
+// Beside one question asked directly, each settled line is kept unless the person undoes it.
+export const KEEP_SETTLED = 'Keep it';
 export const CHANGEABLE_KINDS = Object.freeze(['convergence-answer', 'convergence-settled', 'settled']);
 export const RECORD = 'Record these decisions';
 export const SIGN = 'Record this review';
 export const FORM_SIZE = 5;
+// How long the card's first read checks before it asks, and how long "Check first" waits (decision-probes.mjs).
+export const CHECK_SECONDS = 60;
+export const CHECK_FIRST_SECONDS = 900;
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
 
-const cell = (value) => String(value ?? '').replace(/[\r\n]+/gu, ' ').replaceAll('|', '\\|');
 const clip = (value) => String(value ?? '').slice(0, 200);
-// A row's title on a form holds what fits as whole sentences: a host cuts the rest off, and the table above it has every word.
+// A title on a form holds what fits as whole sentences: a host cuts the rest off, and the card above it has every word.
 const clipSentences = (value) => {
   const text = String(value ?? '');
   if (text.length <= 200) return text;
@@ -34,6 +39,25 @@ const reviews = (item) => item.options.filter((option) => option.action?.humanRe
   && (option.action.humanReview.files ?? []).length > 0);
 const ownSteps = (item) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const itemName = (item) => item.details?.path ?? item.title;
+const line = (value) => String(value ?? '').replace(/[\r\n]+/gu, ' ').trim();
+const bare = (value) => line(value).replace(/[.!?]+$/u, '');
+const more = (count) => (count ? [`  - And ${count} more.`] : []);
+
+/**
+ * An item's plain words, from the engine (decision-plain.mjs): `{ question, why, recommended }`, `{ later }` or
+ * `{ settled }`. A list from an engine before them reads its title, the first sentence of its why and its
+ * recommendation instead.
+ */
+export function plainWords(item) {
+  if (item?.plain && (item.plain.question || item.plain.later || item.plain.settled)) return item.plain;
+  if (item?.settled) return { settled: `${bare(item.title)}. Undo if wrong.` };
+  const why = line(item?.why);
+  return { question: item?.title ?? '', why: why.split(/(?<=[.!?])\s+/u)[0] ?? why, recommended: item?.recommended?.words ?? null };
+}
+/** The check SFlow runs itself before an item whose answer depends on it, offered first; null once it has a result. */
+export const checkOf = (item) => (item?.check && item.check.status !== 'checked' ? item.check : null);
+/** Whether nobody can answer it yet: it is a "Later:" line, never a question or a form [owner, 2026-11-16]. */
+export const laterOf = (item) => plainWords(item).later ?? null;
 
 /** Every open decision: the approval is a row of its own, opened with /sf-approve. */
 export const openRows = (packet) => packet.items.filter((item) => item.kind !== 'approval');
@@ -51,36 +75,47 @@ export const settledRows = (packet) => cardRows(packet).filter((item) => item.se
 export const approvalRows = (packet) => packet.items.filter((item) => item.kind === 'approval');
 const decidable = (packet) => cardRows(packet).filter((item) => item.decidedBy?.allowed && item.options.some(choosable));
 const changeable = (item) => CHANGEABLE_KINDS.includes(item.kind);
+/** The items the card asks now, as questions: open, offered and the approval, never what waits for later or was settled. */
+const askedRows = (packet) => [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)].filter((item) => !laterOf(item));
 
-function howWords(item, packet) {
-  if (!item.decidedBy?.allowed) return `${item.decidedBy?.words ?? ''}${item.decidedBy?.share ? ` Share: ${item.decidedBy.share}` : ''}`;
+/** The recommended option first, then the rest in the list's order. */
+const recommendedFirst = (item, options) => [...options].sort((left, right) => Number(item.recommended?.option === right.id) - Number(item.recommended?.option === left.id));
+/** A choice as a form lists it: its label, marked when SFlow recommends it. Never preselected. */
+const choiceWord = (item, option) => (item.recommended?.option === option.id ? `${option.label} (recommended)` : option.label);
+/** The check as a form lists it: first, and marked when it is what SFlow recommends. */
+const checkWord = (item) => `${checkOf(item).label}${item.recommended?.check ? ' (recommended)' : ''}`;
+
+/** The options under an item, recommended first, each with what it does; where it is answered when not on the forms. */
+function optionLines(item, packet) {
+  if (!item.decidedBy?.allowed) return [`${line(item.decidedBy?.words)}${item.decidedBy?.share ? ` Share this with them: ${item.decidedBy.share}` : ''}`];
   if (item.kind === 'approval') {
     const command = item.options[0]?.action?.command;
     const phase = item.details?.phase ?? packet?.phase;
-    return `Review its documents and approve with /sf-approve${phase ? ` ${phase}` : ''} --work-id ${packet?.workId}${command ? `; or in your terminal: \`${command}\`` : ''}`;
+    return [`- ${bare(item.options[0]?.label ?? 'Review and approve')}: /sf-approve${phase ? ` ${phase}` : ''} --work-id ${packet?.workId} opens its documents${command ? `; or in your terminal: \`${command}\`` : ''}.`];
   }
-  const words = rowHowWords(item);
-  // Where else its decider may answer it: yes or no in chat, or their own terminal when SF Guard signs it [owner, 2026-11-14].
-  const also = item.answer?.also;
-  return also ? (words ? `${words.replace(/[.!?]+$/u, '')}. ${also}` : also) : words;
+  const check = checkOf(item);
+  const live = recommendedFirst(item, item.options.filter((option) => option.available !== false && option.decidedBy?.allowed));
+  // Many choices: their names, one line each; what each does is on its own form once chosen.
+  const terse = live.length > 3;
+  return [...(check ? [`- ${checkWord(item)}: ${line(check.does)}`] : []),
+    ...live.map((option) => {
+      const name = `${bare(option.label)}${item.recommended?.option === option.id ? ' (recommended)' : ''}`;
+      const own = option.action?.command && !option.action.humanReview ? `, in your terminal: \`${option.action.command}\`` : null;
+      const does = terse || own ? '' : bare(option.does);
+      // A choice recorded here may also be made in the person's own terminal, with its exact command (SF Guard signs it there).
+      const terminal = option.terminal ? `${own || does ? ' ' : '. '}Or in your terminal: \`${option.terminal}\`.` : '';
+      return `- ${name}${own ?? (does ? `: ${does}.` : '')}${terminal}`;
+    })];
 }
 
-function rowHowWords(item) {
-  // Every step that stays in the person's terminal, as the VS Code card shows them: a row with a form hid
-  // "Fix the code", and an amendment's row showed only its first command.
-  const own = ownSteps(item);
-  // A choice recorded here keeps its exact terminal command beside it: an intent amendment's decide, which SF Guard signs there [owner, 2026-11-13].
-  const steps = [...own.map((option) => [option.label, option.action.command]), ...item.options.filter((option) => choosable(option) && option.terminal).map((option) => [option.label, option.terminal])];
-  const terminal = steps.length === 1 ? `\`${steps[0][1]}\``
-    : steps.map(([label, command]) => `${label.replace(/[.!?]+$/u, '')}: \`${command}\``).join('; ');
-  if (changeable(item) && item.options.some(choosable)) return `Yours to change if you disagree: "${CHANGE}" on the first form below`;
-  if (item.options.some(choosable)) return `Your decision, on the forms below${steps.length ? `; or in your terminal: ${terminal}` : ''}`;
-  if (reviews(item).length) return `Your sign-off, on the forms below${steps.length ? `; or in your terminal: ${terminal}` : ''}`;
-  return own.length ? `Stays in your terminal: ${terminal}` : (item.options[0]?.words ?? '');
+/** One open item: its question, why and recommendation, what an amendment changes, then its options. */
+function itemBlock(item, packet, number) {
+  const plain = plainWords(item);
+  const amendment = item.kind === 'intent-amendment' ? [...(item.details?.proposedBy ? [line(item.details.proposedBy)] : []),
+    ...(item.details?.lines ?? []).map((entry) => `- ${line(entry)}`), ...(item.details?.reach ? [`- ${line(item.details.reach)}`] : [])] : [];
+  return ['', `**${number ? `${number}. ` : ''}${line(plain.question)}**`, ...(plain.why ? [line(plain.why)] : []), ...(plain.recommended ? [line(plain.recommended)] : []),
+    ...amendment, ...(item.decidedBy?.allowed && item.answer?.also ? [line(item.answer.also)] : []), ...optionLines(item, packet)];
 }
-
-const line = (value) => String(value ?? '').replace(/[\r\n]+/gu, ' ').trim();
-const more = (count) => (count ? [`  - And ${count} more.`] : []);
 
 /**
  * What the step's records say beside its decisions, in the engine's words, as the VS Code card shows them
@@ -91,10 +126,10 @@ export function evidenceLines(packet) {
   const evidence = packet.approvalEvidence;
   if (!evidence) return [];
   const { coverage, proof, findings, hold, requiredChecks, askedFor, carried } = evidence;
-  // A held package whose command a row above already offers is not offered twice.
+  // A held package whose command an item above already offers is not offered twice.
   const offered = new Set(cardRows(packet).filter((item) => item.decidedBy?.allowed).flatMap((item) => ownSteps(item).map((option) => option.action.command)));
   const holdStep = (entry) => (!entry.allowed ? `    Share this with them: /sf-decide ${packet.workId}`
-    : offered.has(entry.command) ? '    Its command is on the hold\'s row above.' : `    Stays in your terminal: \`${line(entry.command)}\``);
+    : offered.has(entry.command) ? '    Its command is on the hold\'s item above.' : `    Stays in your terminal: \`${line(entry.command)}\``);
   return ['', `**Evidence for this approval.** ${line(evidence.words)}`, '',
     // Evidence counted on a step's approvers' "still holds", never silent [SCS:REQ-022].
     ...(carried ? [`- **Carried by "still holds".** ${line(carried.words)}`, ...carried.entries.map((entry) => `  - ${line(entry.words)}`), ...more(carried.more)] : []),
@@ -109,44 +144,31 @@ export function evidenceLines(packet) {
     ...(requiredChecks ? [`- **GitHub required checks.** ${line(requiredChecks.words ?? requiredChecks.checks.map((check) => `${check.name} ${check.status}`).join(' · '))}`] : [])];
 }
 
-/**
- * What each intent amendment on the list changes, who proposed it and what it reaches, under the table: what its
- * approver decides, in the engine's words, as the VS Code card shows them [owner, 2026-11-13]. [] when none.
- */
-export function amendmentLines(packet) {
-  return cardRows(packet).filter((item) => item.kind === 'intent-amendment' && (item.details?.lines?.length || item.details?.reach)).flatMap((item) => ['',
-    `**${line(item.title)}.**${item.details.proposedBy ? ` ${line(item.details.proposedBy)}` : ''}`, ...(item.details.lines ?? []).map((entry) => `- ${line(entry)}`),
-    ...(item.details.reach ? [`- ${line(item.details.reach)}`] : [])]);
-}
-
-/**
- * Each item's recommended answer, and what each of its choices does to the Story, in the engine's words
- * [owner, 2026-11-13]: the forms below ask only for the choice, so every word a person weighs is here first.
- */
-export function adviceLines(packet) {
-  return [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)].flatMap((item) => {
-    const choices = item.options.filter((option) => option.available !== false && option.does);
-    return item.recommended?.words || choices.length ? ['', `**${line(itemName(item))}.** ${line(item.recommended?.words ?? '')}`.trimEnd(),
-      ...choices.map((option) => `- ${line(option.label)}${item.recommended?.option === option.id ? ' (recommended)' : ''}: ${line(option.does)}`)] : [];
-  });
-}
-
-/** What SFlow settled for the person, with what each rests on; each one's Undo is on the forms below. [] when none. */
+/** What SFlow settled for the person, one line each: what it chose, because of what, and its Undo. [] when none. */
 export function settledLines(packet) {
   const rows = settledRows(packet);
-  return rows.length ? ['', '**Settled for you.** SFlow settled these from its records; undo any of them on the forms below.',
-    ...rows.flatMap((item) => [`- ${line(itemName(item)).replace(/[.!?]+$/u, '')}: ${line(item.why)}`,
-      ...[item.evidence ?? item.details?.evidence].flat().filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => `  - ${line(entry)}`)])] : [];
+  if (!rows.length) return [];
+  return rows.length === 1 ? ['', `**Settled for you.** ${line(plainWords(rows[0]).settled)}`]
+    : ['', '**Settled for you.**', ...rows.map((item) => `- ${line(plainWords(item).settled)}`)];
 }
 
+/** Answers given and files the plan settled, one line each: kept unless the person chooses to change them. */
+function changeableLines(packet) {
+  const rows = cardRows(packet).filter((item) => changeable(item) && !item.settled && !laterOf(item));
+  return rows.length ? ['', `**Already answered or settled by the plan.** Keep them, or change one with "${CHANGE}" on the first form.`,
+    ...rows.map((item) => `- ${line(itemName(item))}: ${bare(plainWords(item).why ?? item.why)}.`)] : [];
+}
+
+/** The card: every open item in plain words, then what waits for later, what was settled, and the approval's evidence. */
 export function decisionsTable(packet) {
-  // What each holds back sits with why it is asked [decision map, finding 1], and its recommended answer beside it [owner, 2026-11-13].
-  const rows = [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)]
-    .map((item) => `| ${cell(itemName(item))} | ${cell([item.why, item.holdsWords, item.recommended?.words].filter(Boolean).join(' '))} | ${cell(howWords(item, packet))} |`);
-  // Only what was settled for the person: no empty table above "Settled for you".
-  return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${packet.headline} Nothing is recorded until you confirm the list.`,
-    ...(rows.length ? ['', '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows] : []),
-    ...adviceLines(packet), ...settledLines(packet), ...amendmentLines(packet), ...evidenceLines(packet)].join('\n');
+  const asked = askedRows(packet).filter((item) => !changeable(item));
+  const later = [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)].map(laterOf).filter(Boolean);
+  const headline = packet.plain?.headline ?? packet.headline;
+  return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${line(headline)} Nothing is recorded until you confirm.`,
+    ...asked.flatMap((item, index) => itemBlock(item, packet, asked.length > 1 ? index + 1 : null)),
+    ...changeableLines(packet),
+    ...(later.length ? ['', ...later.map((entry) => `Later: ${line(entry)}`)] : []),
+    ...settledLines(packet), ...evidenceLines(packet)].join('\n');
 }
 
 /**
@@ -174,22 +196,66 @@ const othersWords = ({ word, others = [] }) => (others.length
   ? ` "${word}" covers only the rows you decide; ${others.length === 1 ? '1 more stays' : `${others.length} more stay`} listed for their own approvers (${others.map(itemName).join('; ')}).`
   : '');
 
+/** The one open item the card asks directly, or null: exactly one waits, with no answer for all and nothing to change. */
+export function directItem(packet) {
+  const open = decidable(packet).filter((item) => !changeable(item));
+  const offered = decidable(packet).filter((item) => changeable(item) && !item.settled);
+  return open.length === 1 && !sharedAnswers(packet).length && !offered.length ? open[0] : null;
+}
+
 /**
- * How the person wants to decide: one answer for all that share it, each one, or, when the list offers answers given or files
- * the plan settled, changing those. `change` is that choice's words, null when there is nothing to change.
+ * One open item, asked as its own question [owner, 2026-11-16]: its recommended option first (after the check, when
+ * SFlow could not finish it), and "How do you want to decide?" never asked. Each settled line sits beside it, kept
+ * unless the person undoes it. Nothing is preselected.
+ */
+export function directForm(packet, item = directItem(packet)) {
+  const plain = plainWords(item);
+  const settled = decidable(packet).filter((row) => row.settled);
+  const words = [plain.why, plain.recommended].filter(Boolean).map(line);
+  return { item, settled, form: { message: [...words, ...settled.map((row) => `Settled for you: ${line(plainWords(row).settled)}`)].join('\n'),
+    requestedSchema: { type: 'object', required: ['decision0'], properties: {
+      decision0: { type: 'string', title: clipSentences(line(plain.question)),
+        enum: [...(checkOf(item) ? [checkWord(item)] : []), ...recommendedFirst(item, item.options.filter(choosable)).map((option) => choiceWord(item, option)), LEAVE] },
+      ...Object.fromEntries(settled.map((row, index) => [`settled${index}`, { type: 'string', title: clipSentences(line(plainWords(row).settled)),
+        enum: [KEEP_SETTLED, ...row.options.filter(choosable).map((option) => option.label)] }])) } } } };
+}
+
+/** The direct form's answers: the item's choice or its check, and any settled line undone. */
+export function directChoices(item, settled, content) {
+  const word = content?.decision0;
+  if (checkOf(item) && word === checkWord(item)) return { picks: [], check: item, problem: null };
+  const { picks, problem } = choicesFromRows([item], { decision0: word });
+  if (problem) return { picks: [], problem };
+  for (const [index, row] of settled.entries()) {
+    const chosen = content?.[`settled${index}`];
+    if (!chosen || chosen === KEEP_SETTLED) continue;
+    const option = row.options.filter(choosable).find((entry) => entry.label === chosen);
+    if (!option) return { picks: [], problem: `That is not a choice SFlow knows for what was settled: ${bare(plainWords(row).settled)}.` };
+    picks.push({ item: row, option });
+  }
+  return { picks, problem: null };
+}
+
+/**
+ * Several items: how the person wants to decide, naming each one: one answer for all that share it, each one, or,
+ * when the list offers answers given or files the plan settled, changing those. `change` is that choice's words, null
+ * when there is nothing to change.
  */
 export function firstForm(packet) {
   const shared = sharedAnswers(packet).map((entry) => ({ ...entry, word: `${entry.label} for all ${entry.items.length}, with one reason` }));
-  const open = decidable(packet).filter((item) => !changeable(item)).length;
+  const open = decidable(packet).filter((item) => !changeable(item));
   const later = decidable(packet).filter(changeable).length;
-  const settled = decidable(packet).filter((item) => item.settled === true).length;
-  const change = later ? `${settled === later ? UNDO_SETTLED : CHANGE} (${later})` : null;
-  const offered = settled === later ? `settled for you, which you may undo if ${later === 1 ? 'it is' : 'one is'} wrong`
-    : `offered beside the list: an answer already given${settled ? ', a file the plan settled, or what SFlow settled for you' : ', or a file the plan settled'}, which you may change if you disagree`;
-  return { shared, change, form: { message: `${open ? `${open} still need a decision from you.` : 'Nothing here waits on a decision from you.'}${later
-    ? ` ${later} ${later === 1 ? 'is' : 'are'} ${offered}.` : ''}${shared.map(othersWords).join('')}`,
-  requestedSchema: { type: 'object', required: ['choice'], properties: {
-    choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), ...(open ? [EACH] : []), ...(change ? [change] : []), NOT_NOW] } } } } };
+  const settled = decidable(packet).filter((item) => item.settled === true);
+  const change = later ? `${settled.length === later ? UNDO_SETTLED : CHANGE} (${later})` : null;
+  // Named, never counted: "1. Run Implementation's tests on Node 22? 2. …" [owner, 2026-11-16].
+  const asked = (item) => line(plainWords(item).question).replace(/([^.!?])$/u, '$1.');
+  const named = open.length ? `${open.length === 1 ? 'One question for you' : `${open.length} questions for you`}: ${open.map((item, index) => `${index + 1}. ${asked(item)}`).join(' ')}`
+    : 'Nothing waits on you now.';
+  const offered = settled.length === later ? `Settled for you: ${settled.map((item) => line(plainWords(item).settled)).join(' ')}`
+    : `${later === 1 ? '1 is' : `${later} are`} offered beside the list: an answer already given${settled.length ? ', a file the plan settled, or what SFlow settled for you' : ', or a file the plan settled'}, which you may change if you disagree.`;
+  return { shared, change, form: { message: `${named}${later ? ` ${offered}` : ''}${shared.map(othersWords).join('')}`,
+    requestedSchema: { type: 'object', required: ['choice'], properties: {
+      choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), ...(open.length ? [EACH] : []), ...(change ? [change] : []), NOT_NOW] } } } } };
 }
 
 /** The one reason an answer for all needs, under the tightest rule of the rows it covers. */
@@ -202,18 +268,17 @@ export function sharedReasonForm(entry) {
     requestedSchema: { type: 'object', required: ['reason'], properties: { reason: textField('One reason for all of them', { minimum, maximum }) } } };
 }
 
-/** A choice as a form lists it: its label, marked when SFlow recommends it. Never preselected. */
-const choiceWord = (item, option) => (item.recommended?.option === option.id ? `${option.label} (recommended)` : option.label);
-
-/** Each row's choice, and nothing else: what a choice needs is asked once it is chosen, so a date is asked only of a risk. */
+/** Each row's choice, and nothing else: its question, its options recommended first; what a choice needs is asked once it is chosen. */
 export function rowForms(items) {
   const pages = [];
   for (let at = 0; at < items.length; at += FORM_SIZE) pages.push(items.slice(at, at + FORM_SIZE));
   return pages.map((page, index) => ({ items: page, form: {
     message: `Decide each one (${index + 1} of ${pages.length}). What a choice needs is asked next.`,
     requestedSchema: { type: 'object', required: page.map((_, row) => `decision${row}`), properties: Object.fromEntries(page.map((item, row) =>
-      // The recommended choice says so in the list itself; the table above has why and what each choice does [owner, 2026-11-13].
-      [`decision${row}`, { type: 'string', title: clipSentences(`${itemName(item)}: ${item.why}`), enum: [LEAVE, ...item.options.filter(choosable).map((option) => choiceWord(item, option))] }])) } } }));
+      // The recommended choice says so in the list itself, first; the card above has why and what each choice does.
+      // An answer given or what the plan settled is named by its file, with what it says now.
+      [`decision${row}`, { type: 'string', title: clipSentences(changeable(item) ? `${itemName(item)}: ${line(plainWords(item).why ?? item.why)}` : line(plainWords(item).question)),
+        enum: [...(checkOf(item) ? [checkWord(item)] : []), ...recommendedFirst(item, item.options.filter(choosable)).map((option) => choiceWord(item, option)), LEAVE] }])) } } }));
 }
 
 /** What one choice needs, and only that; empty when it needs nothing. */
@@ -240,17 +305,22 @@ export function detailForm(item, option) {
     required: Object.keys(properties).filter((name) => !name.startsWith('why-') && properties[name].minLength !== 0), properties } };
 }
 
-/** The rows a person chose on one form, or what is wrong with them. Nothing here is chosen for the person. */
+/**
+ * The rows a person chose on one form, or what is wrong with them; `check` is an item whose check they chose to run
+ * first. Nothing here is chosen for the person.
+ */
 export function choicesFromRows(items, content) {
   const picks = [];
+  let check = null;
   for (const [row, item] of items.entries()) {
     const word = content?.[`decision${row}`];
     if (!word || word === LEAVE) continue;
+    if (checkOf(item) && word === checkWord(item)) { check ??= item; continue; }
     const option = item.options.filter(choosable).find((entry) => entry.label === word || choiceWord(item, entry) === word);
     if (!option) return { picks: [], problem: `That is not a decision SFlow knows for ${itemName(item)}.` };
     picks.push({ item, option });
   }
-  return { picks, problem: null };
+  return { picks, problem: null, ...(check ? { check } : {}) };
 }
 
 /** One choice's answers from its form, or what is wrong with them. */
@@ -365,7 +435,32 @@ const reviewOn = (packet, key) => cardRows(packet).flatMap(reviews).map((option)
   .find((review) => review.clauseId === key.clauseId && review.slot === key.slot) ?? null;
 
 /** Every answer the person gives before they confirm: `{ answers }`, `{ cancelled: true }` or `{ refused: problem }`. */
+/** What each pick needs, asked one form at a time, as answers; or the cancel or refusal that ended it. */
+async function detailsOf(ask, picks, answers) {
+  for (const { item, option } of picks) {
+    const given = hasNeeds(option) ? await askUntilRight(ask, detailForm(item, option), (content) => valuesFromForm(item, option, content)) : { values: {} };
+    if (given.cancelled) return answers.length ? { answers } : { cancelled: true };
+    if (given.refused) return given;
+    answers.push({ item: item.id, title: item.title, option: option.id, ...given.values });
+  }
+  return null;
+}
+
+/**
+ * Every answer the person gives before they confirm: `{ answers }`, `{ cancelled: true }`, `{ refused: problem }`, or
+ * `{ check: item }` when they chose to have SFlow check first.
+ */
 async function askRows(packet, ask) {
+  // One open item: its own question, never "How do you want to decide?" [owner, 2026-11-16].
+  if (directItem(packet)) {
+    const { item, settled, form } = directForm(packet);
+    const chosen = await askUntilRight(ask, form, (content) => directChoices(item, settled, content));
+    if (chosen.cancelled) return { cancelled: true };
+    if (chosen.refused) return chosen;
+    if (chosen.check) return { check: chosen.check };
+    const answers = [];
+    return await detailsOf(ask, chosen.picks, answers) ?? { answers };
+  }
   const { shared, change, form } = firstForm(packet);
   let answers = [];
   let changing = false;
@@ -395,26 +490,34 @@ async function askRows(packet, ask) {
     const chosen = await askUntilRight(ask, page.form, (content) => choicesFromRows(page.items, content));
     if (chosen.cancelled) return answers.length ? { answers } : { cancelled: true };
     if (chosen.refused) return chosen;
-    for (const { item, option } of chosen.picks) {
-      const given = hasNeeds(option) ? await askUntilRight(ask, detailForm(item, option), (content) => valuesFromForm(item, option, content)) : { values: {} };
-      if (given.cancelled) return answers.length ? { answers } : { cancelled: true };
-      if (given.refused) return given;
-      answers.push({ item: item.id, title: item.title, option: option.id, ...given.values });
-    }
+    // Checked first, then the whole list asked again with what the check found.
+    if (chosen.check) return { check: chosen.check };
+    const ended = await detailsOf(ask, chosen.picks, answers);
+    if (ended) return ended;
   }
   return { answers };
 }
 
+/** The items whose answer waits on a check SFlow runs itself, in words: "run the tests on Node 22". */
+const checkNames = (packet) => cardRows(packet).filter((item) => checkOf(item) && item.decidedBy?.allowed).map((item) => checkOf(item).label.replace(/^Check first: /u, ''));
+
 /**
  * The whole conversation with one person. `ask(form)` answers `{ action, content }`, `show(text)` prints,
- * `read()` reads the list, `record(packet, document)` writes the choices, `witness(packet, review, answer)`
- * writes one sign-off and `inspect(packet, file)` puts a file in front of the person. The caller passes
- * these in, so a test can run every route and no route can be answered by anything but `ask`.
+ * `read({ probe })` reads the list (with `probe`, after SFlow ran its checks for at most that many seconds),
+ * `record(packet, document)` writes the choices, `witness(packet, review, answer)` writes one sign-off and
+ * `inspect(packet, file)` puts a file in front of the person. The caller passes these in, so a test can run every
+ * route and no route can be answered by anything but `ask`.
  */
 export async function runCard({ ask, show, read, record, witness, inspect, askedInChat = false }) {
   let packet = await read();
   // A chat that asked carries on when nothing waits: only a person who typed /decide sees a review nothing waits on.
   if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
+  // What an answer depends on, SFlow checks before it asks, read-only and bounded [owner, 2026-11-16].
+  if (checkNames(packet).length) {
+    await show(`Checking first: ${checkNames(packet).join('; ')} (up to ${CHECK_SECONDS} seconds; nothing is recorded).`);
+    // A read that fails here asks from the list as first read: the check is then offered first.
+    packet = await read({ probe: CHECK_SECONDS }).catch(() => packet);
+  }
   await show(decisionsTable(packet));
   const recorded = [];
   // What was decided, in its own words: this is what the agent reports back, and a record's ID does not say it.
@@ -423,7 +526,15 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
   const drafted = [];
   // A pin or plan amendment that changed the open code step after its summary was written [owner, 2026-11-13].
   let summaryUpdate = null;
-  const asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
+  let asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
+  // "Check first": SFlow runs it with the time the person chose to give it, then asks again once with what it found.
+  for (let round = 0; asked.check && round < 2; round += 1) {
+    if (round === 1) return { status: 'cancelled', recorded, remaining: [], message: 'The check gave no answer in time; nothing was recorded.' };
+    await show(`Checking: ${checkOf(asked.check).label.replace(/^Check first: /u, '')} (up to ${CHECK_FIRST_SECONDS / 60} minutes; nothing is recorded).`);
+    packet = await read({ probe: CHECK_FIRST_SECONDS });
+    await show(decisionsTable(packet));
+    asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
+  }
   if (asked.cancelled) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
   if (asked.refused) return { status: 'refused', recorded, remaining: [], message: refusedWords(asked.refused) };
   let { answers } = asked;

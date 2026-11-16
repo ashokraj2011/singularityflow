@@ -19,7 +19,7 @@ related:
   - installation-and-upgrades
   - recovery
   - secrets
-version: 12
+version: 14
 ---
 Reset commands have deliberately different scopes. Preview the exact scope and use the confirmation printed by that same mode.
 
@@ -64,9 +64,9 @@ content on the caller's behalf.
 
 ## Guided workflow
 
-1. Choose the boundary. Use product uninstall to remove installed SFlow surfaces while retaining machine registrations and every repository. Use `local-reset --forget-only` to forget this machine while preserving physical workspaces. Use `local-reset` with no mode flag only when the workspace directories and all their clones must be deleted.
+1. Choose the boundary. Use product uninstall to remove installed SFlow surfaces while retaining machine registrations and every repository. Use `local-reset --forget-only` to forget this machine while preserving physical workspaces. Use `local-reset` with no mode flag only when the workspace directories and all their clones must be deleted; a workspace that holds a Story checkout is kept whole.
 2. In a script or JSON client, preview the exact mode first: `singularity-flow local-reset --forget-only --dry-run --json` or `singularity-flow local-reset --dry-run --json`.
-3. Review `mode`, each workspace `disposition`, capability registry/cache targets, the VS Code reset marker, `remove`, and `preserve`.
+3. Review `mode`, each workspace `disposition` (`deleted`, `kept` for one that holds a Story checkout, or `preserved` in forget-only), the `storyCheckouts`, capability registry/cache targets, the VS Code reset marker, `remove`, and `preserve`.
 4. Apply the identical mode with the previewed phrase. Forget-only requires `--forget-only --confirm "FORGET LOCAL"`; deletion requires `--confirm "RESET LOCAL"`. The phrases cannot authorize the other mode.
 5. In an interactive terminal, omit `--dry-run` and `--confirm` to receive the same preview and an exact prompt in one invocation. Entering anything else, EOF, or cancellation changes nothing.
 6. Reopen VS Code so the marker clears Singularity Flow SecretStorage credentials, global state, acknowledgements, handoffs, onboarding, favorites, persona, and global extension settings.
@@ -107,7 +107,7 @@ Destructive local reset retains the existing stricter boundary: run it outside e
 
 A pending publication is the only record of a commit the remote does not hold yet, and a backup never carries it. `factory-reset`, `reset-all`, destructive `local-reset` and the `fresh-install` reset each refuse while one waits in what they would delete (`FACTORY_RESET_PUBLICATION_PENDING`). The preview names each one, with the clone it waits in and its sync. Run that sync in the named clone, or preview and reset with `--discard-pending-publications` to delete them with the reset. Forget-only deletes no clone, so it never refuses.
 
-Story checkouts are never deleted by `reset-all`, `local-reset` or the `fresh-install` reset. Each preview lists them: the Story worktrees in every workspace, each one the Story index names, and those an earlier build made in `~/.singularity-flow/story-worktrees` for a clone sitting directly in the home folder, a folder the reset otherwise clears. The reset refuses while one holds changed or new files, or commits no remote has yet (`RESET_STORY_CHECKOUT_HAS_WORK`), because afterwards nothing records where it is: commit and publish the work there (`singularity-flow sync <WORK-ID>` in that checkout), or remove what is not needed, then preview again. A Story checkout inside a workspace that destructive `local-reset` or `fresh-install` deletes goes with its clone once it holds no such work. New Story checkouts are never made in the state folder: starting an isolated Story from a clone directly in the home folder is refused (`STORY_WORKTREE_IN_STATE_FOLDER`); move the clone into a folder of its own, or start the Story in the clone itself.
+Story checkouts are never deleted by `reset-all`, `local-reset` or the `fresh-install` reset. Each preview lists them: the Story worktrees in every workspace, every other linked worktree of a workspace clone (an Auto flight's among them), each one the Story index names, and those an earlier build made in `~/.singularity-flow/story-worktrees` for a clone sitting directly in the home folder, a folder the reset otherwise clears. The reset refuses while one holds changed or new files, or commits no remote has yet (`RESET_STORY_CHECKOUT_HAS_WORK`), because afterwards nothing records where it is: commit and publish the work there (`singularity-flow sync <WORK-ID>` in that checkout), or remove what is not needed, then preview again. Nothing is removed until then. Destructive `local-reset` and the `fresh-install` reset keep a workspace whole when it holds a Story checkout, or the clone one belongs to, since a checkout's Git lives in its clone: the workspace keeps its clones, documents and Story checkouts, and only its registration is forgotten, as forget-only does. The preview marks it `kept` and names the command that registers it again, `singularity-flow workspace open <DIRECTORY>`. Every other workspace is deleted as before. A workspace clone with a Story's branch checked out in it, with no checkout of its own, is that Story's checkout too: the reset refuses while it holds such work, and once it holds none it goes with its workspace. New Story checkouts are never made in the state folder: starting an isolated Story from a clone directly in the home folder is refused (`STORY_WORKTREE_IN_STATE_FOLDER`); move the clone into a folder of its own, or start the Story in the clone itself.
 
 Product uninstall is separate from both reset modes. Uninstall removes executable product surfaces
 and preserves local registrations and bytes; forget-only removes registrations and

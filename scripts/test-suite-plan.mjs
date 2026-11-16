@@ -6,6 +6,12 @@ import path from 'node:path';
 export const TEST_SUITES = Object.freeze(['all', 'cli', 'vscode', 'slow']);
 export const SLOW_LANE_IMPORT = /from ['"]\.\/helpers\/slow-lane\.mjs['"]/u;
 
+// Every landing runs these, whatever it changed [owner, 2026-11-16]. A landing's touched set picks tests by the files a
+// change reaches through imports or names, and the journeys reach SFlow only through the CLI and the skill files they
+// follow, so no change would select them; the whole route path breaks unseen that way. Touched-set selectors append
+// this list; the full journeys in it run in the slow lane (SINGULARITY_FLOW_TEST_SLOW=1).
+export const ALWAYS_SELECTED_TESTS = Object.freeze(['test/journey-routes.test.mjs', 'test/journey-stories.test.mjs']);
+
 // These files perform full Story/worktree/remote/model-transport or durable-runtime journeys.
 // Source bytes radically understate that cost. Reviewed scheduling weights keep them out of the
 // ordinary lanes; the values affect scheduling only and can never change coverage or a receipt

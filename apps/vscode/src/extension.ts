@@ -43,6 +43,8 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedA
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
+import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns } from './chat-prefill.ts';
+import { copilotTurnDirectory } from '../../../src/copilot-mode.mjs';
 import {
   phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
 } from './views/submission-presentation.ts';
@@ -1287,7 +1289,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.openPhaseArtifacts', 'singularityFlow.openStoryIntake', 'singularityFlow.runAction',
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
-    'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
+    'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration', 'singularityFlow.prefillNextCommand',
     'singularityFlow.reviewStoryTestRecovery', 'singularityFlow.changeTestScope', 'singularityFlow.resolvePhaseIssues',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openInvestigation', 'singularityFlow.openContextReceipt', 'singularityFlow.openHandoff', 'singularityFlow.openProgress',
@@ -6029,6 +6031,81 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }));
 
   /**
+   * The Story's next command, waiting in Copilot Chat's input box and never sent (chat-prefill.ts).
+   *
+   * Filled when a confirmed snapshot shows a new next action, which the repository watchers bring
+   * as soon as SFlow's records change: a step published, submitted, approved or decided, a Story
+   * started or switched to. It goes to the chat the person focused last, a Copilot CLI session
+   * included. The status-bar item fills it again on a click.
+   */
+  const nextCommandStatus = vscode.window.createStatusBarItem('singularityFlow.nextCommand', vscode.StatusBarAlignment.Left, 99.5);
+  nextCommandStatus.name = 'Singularity Flow: Next command';
+  nextCommandStatus.command = PREFILL_COMMAND;
+  context.subscriptions.push(nextCommandStatus);
+  // VS Code gives an extension each chat input as a document of its own scheme. Until one has been
+  // seen in this window, an empty list may only mean this VS Code does not, so the fill cannot tell.
+  let chatInputSeen = false;
+  const chatPrefill = new ChatPrefill({
+    executeCommand: (id, ...args) => vscode.commands.executeCommand(id, ...args),
+    enabled: () => vscode.workspace.getConfiguration('singularityFlow').get<boolean>(PREFILL_SETTING, true) === true,
+    chatDisabled: () => vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false) === true,
+    chatInputs: () => {
+      if (!Array.isArray(vscode.workspace.textDocuments)) return null;
+      const inputs = vscode.workspace.textDocuments.filter((document) => CHAT_INPUT_SCHEMES.includes(document.uri?.scheme))
+        .map((document) => document.getText());
+      if (inputs.length) chatInputSeen = true;
+      return chatInputSeen ? inputs : null;
+    },
+    // The open-turn markers SFlow's prompt and stop hooks keep: no fill while Copilot is still answering.
+    turnOpen: () => copilotTurnOpen(copilotTurnDirectory(), repository),
+    current: () => {
+      const state = store.current;
+      return state.snapshot && !state.stale && !state.error ? { snapshot: state.snapshot, repository } : null;
+    },
+    memento: context.workspaceState,
+    status: {
+      show: (action) => {
+        nextCommandStatus.text = `$(comment-discussion) Next: ${action.head}`;
+        nextCommandStatus.tooltip = `${action.label || action.reason}\nPut ${action.command} in the chat you used last. Nothing is sent.`
+          + (action.freshChat ? '\nThis step reads its own packet, so it costs less from a new chat.' : '');
+        nextCommandStatus.show();
+      },
+      hide: () => nextCommandStatus.hide()
+    },
+    inform: (message) => { void showCompactInformationMessage(message); }
+  });
+  context.subscriptions.push(chatPrefill);
+  handlers.set(PREFILL_COMMAND, () => chatPrefill.fillNow());
+  context.subscriptions.push(store.onDidChange((state, change) => {
+    if (state.error) { nextCommandStatus.hide(); return; }
+    if (change.kind === 'snapshot' && state.snapshot && !state.stale) chatPrefill.observe();
+  }));
+  // A turn that ends removes its marker: the state it ended on is filled then. Watched from the machine folder,
+  // which exists, as the Copilot Story follower watches its own; window focus re-checks a missed event.
+  const turnDirectory = copilotTurnDirectory();
+  // A crashed turn's marker is never removed by a stop: this repository's older than a day go when the window starts.
+  void removeOldCopilotTurns(turnDirectory, repository).catch(() => 0);
+  const turnWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
+    vscode.Uri.file(path.dirname(turnDirectory)), `${path.basename(turnDirectory)}/*`));
+  context.subscriptions.push(turnWatcher,
+    turnWatcher.onDidCreate(() => chatPrefill.turnChanged()),
+    turnWatcher.onDidChange(() => chatPrefill.turnChanged()),
+    turnWatcher.onDidDelete(() => chatPrefill.turnChanged()),
+    vscode.window.onDidChangeWindowState((state) => { if (state.focused) chatPrefill.turnChanged(); }));
+  if (typeof vscode.workspace.onDidChangeTextDocument === 'function') {
+    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((event) => {
+      if (!event.contentChanges.length) return;
+      if (CHAT_INPUT_SCHEMES.includes(event.document.uri.scheme)) { chatInputSeen = true; chatPrefill.noteChatInput(event.document.getText()); }
+      else if (vscode.window.activeTextEditor?.document === event.document) chatPrefill.noteActivity();
+    }));
+  }
+  if (typeof vscode.window.onDidChangeTextEditorSelection === 'function') {
+    context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection((event) => {
+      if (event.kind === vscode.TextEditorSelectionChangeKind.Keyboard) chatPrefill.noteActivity();
+    }));
+  }
+
+  /**
    * Follow the chosen workspace, in place.
    *
    * Everything that knows which repository this window acts on is re-pointed here, in one list, so
@@ -7934,6 +8011,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
     const prompt = await client.runText(['wm', 'show-prompt', '--record-audit']);
+    // A prompt sent now runs in that chat: the next command is not filled over it (chat-prefill.ts).
+    chatPrefill.noteRequestSent();
     await vscode.commands.executeCommand('workbench.action.chat.newChat');
     await vscode.commands.executeCommand('workbench.action.chat.open', {
       // `wm show-prompt --record-audit` returns and records this complete host handoff. Do not add
@@ -7956,6 +8035,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       'Do not treat the checked-out Story or the only available Story as an implicit selection.',
       'Do not inspect or modify another repository merely because it was open in the previous chat.'
     ].join('\n');
+    chatPrefill.noteRequestSent();
     await vscode.commands.executeCommand('workbench.action.chat.newChat');
     await vscode.commands.executeCommand('workbench.action.chat.open', {
       query: handoff,

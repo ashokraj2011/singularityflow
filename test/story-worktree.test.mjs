@@ -51,6 +51,16 @@ test('parallel Story checkout is bounded and never overrides explicit Git policy
     runCommand: read({ status: 0, stdout: 'checkout.thresholdforparallelism 50\n' }) }), ['-c', 'checkout.workers=4']);
 });
 
+/**
+ * A test that gives SFlow a workspace registry of its own keeps the Story index beside it, as SFlow does when the index
+ * is not redirected (src/story-index.mjs). The runner's index is shared by every test file in the run, and an
+ * unpublished Story checkout this file indexed there made a reset in another file refuse (SCF:REQ-021).
+ */
+function ownStoryIndex(env) {
+  return env.SINGULARITY_FLOW_WORKSPACE_REGISTRY && !env.SINGULARITY_FLOW_STORY_INDEX
+    ? { SINGULARITY_FLOW_STORY_INDEX: path.join(path.dirname(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY), 'story-index.json') } : {};
+}
+
 function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {
     cwd,
@@ -59,6 +69,7 @@ function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
       ...process.env,
       NODE_ENV: 'test',
       SINGULARITY_FLOW_TEST_IDENTITY: 'Worktree Story Tester',
+      ...ownStoryIndex(env),
       ...env
     }
   });
@@ -110,7 +121,8 @@ function git(root, args) {
 async function withMachineWorkspace(selection, registry, operation) {
   const keys = {
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
-    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
+    ...ownStoryIndex({ SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry })
   };
   const previous = Object.fromEntries(Object.keys(keys).map((key) => [key, process.env[key]]));
   Object.assign(process.env, keys);

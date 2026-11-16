@@ -15,8 +15,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { directCopilotSkill } from './copilot-guidance.mjs';
+import { phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
 import { requestedSuccessorAction, requestedSuccessorEligible } from './guide.mjs';
 
 export { requestedSuccessorAction, requestedSuccessorEligible };
@@ -84,12 +83,12 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     ...(review ? [review] : [])])];
   const next = nextPhaseGeneration(phase);
   const code = phaseRequiresCodeDelivery(phase);
-  const skill = code ? '/sf-code' : directCopilotSkill(generationSkillForPhase(phase, workflow)) ?? '/sf-phase';
+  const skill = successorSkillForPhase(phase, workflow);
   if (!requests.length) throw new SingularityFlowError(
     `${phase.id} generation ${phase.generation} is published and unchanged; its next generation opens for a change the person asks for. `
     + `Say what to change: ${skill} ${phase.id} <what to change>, or singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json. Or submit it as it is.`,
     { code: 'GENERATION_CHANGE_NOT_REQUESTED', details: { phase: phase.id, generation: phase.generation, toGeneration: next,
-      nextAction: { command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`, skill: '/sf-recover',
+      nextAction: { command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`, skill,
         label: `Say what to change (or type it after ${skill} ${phase.id}); generation ${phase.generation} stays as published.` } } });
   // A document's published draft is bound by its authored text: the next draft opens over exactly what the person saw.
   const resultDigest = !code ? await documentDraftDigest(root, config, workflow, phase)
@@ -97,7 +96,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
       ? phase.generationIntent.publication.resultDigest : generationResultDigest(root, config, workflow, phase);
   const expected = requestedSuccessorConfirmation(workflow, phase, resultDigest, requests);
   const confirmArgv = ['phase', 'rollover', phase.id, ...(reason && typedFocusOff(workflow) ? ['--reason', reason] : []), '--confirm', expected];
-  const route = safeCommandGuidance({ argv: confirmArgv, skill: '/sf-recover' });
+  const route = safeCommandGuidance({ argv: confirmArgv, skill });
   const preview = {
     schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'requested-change',
     workId: workflow.workItem.id, phase: phase.id, fromGeneration: phase.generation, toGeneration: next,
@@ -126,7 +125,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
       if (answer !== 'yes') return console.log('Nothing was changed.');
       supplied = expected;
     } else {
-      printCommandRoutes(safeCommandGuidance({ argv: confirmArgv.slice(0, confirmArgv.indexOf('--confirm')), skill: '/sf-recover' }),
+      printCommandRoutes(safeCommandGuidance({ argv: confirmArgv.slice(0, confirmArgv.indexOf('--confirm')), skill }),
         { label: 'To start it, run this in your own terminal, which asks you to confirm, or ask Copilot' });
       return console.log('Nothing was changed.');
     }

@@ -60,8 +60,15 @@ export interface DecisionItemPacket {
   options: DecisionOptionPacket[];
   decidedBy: DecisionDecidedBy;
   details?: Record<string, unknown>;
-  /** The answer SFlow recommends from its facts, or what to weigh when it has none [owner, 2026-11-13]. */
-  recommended?: { option: string | null; why: string; words: string };
+  /** The answer SFlow recommends from its facts [owner, 2026-11-13]; `check` when it is "Check first" [owner, 2026-11-16]. */
+  recommended?: { option: string | null; why: string; words: string; check?: boolean };
+  /**
+   * The item in plain words, the same on every host [owner, 2026-11-16]: its question, why and "Recommended: …"; `later`
+   * for one nobody can answer yet; `settled` for what SFlow settled for the person.
+   */
+  plain?: { question?: string; why?: string; recommended?: string | null; check?: string; later?: string; settled?: string };
+  /** A read-only check SFlow runs itself before the answer is recommended, offered first until it has a result. */
+  check?: { kind: string; status: string; label: string; does: string; command?: string; cutShort?: boolean; seconds?: number };
   /** A chat may ask it as a plain yes or no, bound to the person's own typed answer. */
   chatYesNo?: boolean; yesNo?: { question: string; yes: string; no: string | null; route: string };
   /** SFlow settled it for the person: shown under "Settled for you", with its evidence and an Undo. */
@@ -100,6 +107,8 @@ export interface DecisionPacket {
   recorded?: Array<{ id: string; kind: string; summary: string; at?: string }>;
   status: 'decisions-needed' | 'nothing-to-decide' | string;
   headline: string; rule?: string;
+  /** The headline in plain words, and what nobody can answer yet, one line each [owner, 2026-11-16]. */
+  plain?: { headline: string; later: string[] };
   items: DecisionItemPacket[];
   /** Offered beside what waits: on the list's digest and record, in nobody's count. */
   offered?: DecisionItemPacket[];
@@ -147,7 +156,14 @@ export interface DecisionOptionRow {
 }
 
 export interface DecisionItemRow {
+  /** `why` is one sentence in plain words, as every host says it [owner, 2026-11-16]. */
   id: string; kind: string; title: string; why: string;
+  /** What is asked, as a question; for what SFlow settled, its one line ("… Undo if wrong."). */
+  question: string;
+  /** Where else it is answered: yes or no in chat, or the person's own terminal when SF Guard signs it. */
+  also: string;
+  /** The check SFlow runs itself before it recommends, offered first; null once it has a result. */
+  check: { label: string; does: string; recommended: boolean } | null;
   /** What it holds back, and where it can be answered. */
   holds: string; answerWhere: string;
   /** Its recommended answer, in the engine's words; '' when the engine gave none. */
@@ -184,6 +200,10 @@ export interface DecisionListView {
   headline: string; rule: string | null; digest: string | null;
   nothingToDecide: boolean;
   items: DecisionItemRow[];
+  /** What nobody can answer yet, one line each, never an item of its own [owner, 2026-11-16]. */
+  later: string[];
+  /** Whether a check SFlow runs itself is still pending on an item this person decides. */
+  checking: boolean;
   unavailable: string[];
   chosen: number;
   notice: string | null; error: string | null;
@@ -219,6 +239,22 @@ export function decisionPreviewFrom(result: unknown): DecisionPreview | null {
   if (!preview || !Array.isArray(preview.steps) || !Array.isArray(preview.refused) || !Array.isArray(preview.summary)) return null;
   return preview as unknown as DecisionPreview;
 }
+
+type PlainWords = NonNullable<DecisionItemPacket['plain']>;
+/**
+ * An item's plain words from the engine (src/decision-plain.mjs), the same on every host [owner, 2026-11-16]; from an
+ * engine before them, its title, the first sentence of its why and its recommendation.
+ */
+export function plainWords(item: DecisionItemPacket): PlainWords {
+  if (item.plain && (item.plain.question || item.plain.later || item.plain.settled)) return item.plain;
+  if (item.settled) return { settled: `${item.title.replace(/[.!?]+$/u, '')}. Undo if wrong.` };
+  const why = String(item.why ?? '').replace(/\s+/gu, ' ').trim();
+  return { question: item.title, why: why.split(/(?<=[.!?])\s+/u)[0] ?? why, recommended: item.recommended?.words ?? null };
+}
+/** The check SFlow runs itself before it recommends, offered first; null once it has a result. */
+export const checkOf = (item: DecisionItemPacket) => (item.check && item.check.status !== 'checked' ? item.check : null);
+/** Nobody can answer it yet: a "Later:" line, never a row. */
+export const laterOf = (item: DecisionItemPacket): string | null => plainWords(item).later ?? null;
 
 /** Recommended first, then in the engine's order (the engine sorts too; a page never reorders choices otherwise). */
 function ordered(options: DecisionOptionPacket[]): DecisionOptionPacket[] {
@@ -263,18 +299,25 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
 } = {}): DecisionListView {
   if (!packet) {
     return { available: false, workId: null, phase: null, phaseLabel: null, headline: '', rule: null, digest: null,
-      nothingToDecide: false, items: [], unavailable: [], chosen: 0, notice, error, outcome, busy };
+      nothingToDecide: false, items: [], later: [], checking: false, unavailable: [], chosen: 0, notice, error, outcome, busy };
   }
   const extra = (packet.settled ?? []).filter((item) => item?.settled === true && !packet.items.some((listed) => listed.id === item.id));
-  const items = [...packet.items, ...extra].map((item): DecisionItemRow => {
+  // What nobody can answer yet is one "Later:" line, the same words as the Decide card and the terminal.
+  const later = packet.items.map(laterOf).filter((line): line is string => Boolean(line));
+  const items = [...packet.items, ...extra].filter((item) => !laterOf(item)).map((item): DecisionItemRow => {
     const options = ordered(item.options).map((option) => ({ ...optionRow(option), recommended: option.recommended === true || item.recommended?.option === option.id }));
     // Theirs when they may choose an option here or take one of its steps themselves (a command to run).
     const allowed = item.decidedBy?.allowed === true && options.some((option) => option.choosable || option.yours !== null);
     const facts = [...(Array.isArray(item.details?.lines) ? item.details.lines : []), item.details?.proposedBy, item.details?.reach].filter((line): line is string => typeof line === 'string');
+    const plain = plainWords(item);
+    const check = checkOf(item);
     return {
-      id: item.id, kind: item.kind, title: item.title, why: item.why,
+      id: item.id, kind: item.kind, title: item.title, why: plain.why ?? '',
+      question: (item.settled ? plain.settled : plain.question) ?? item.title,
+      also: typeof item.answer?.also === 'string' ? item.answer.also : '',
+      check: check ? { label: check.label, does: check.does, recommended: item.recommended?.check === true } : null,
       holds: typeof item.holdsWords === 'string' ? item.holdsWords : '', answerWhere: typeof item.answer?.words === 'string' ? item.answer.words : '',
-      recommended: typeof item.recommended?.words === 'string' ? item.recommended.words : '',
+      recommended: plain.recommended ?? (typeof item.recommended?.words === 'string' ? item.recommended.words : ''),
       settled: item.settled === true, evidence: [item.evidence ?? item.details?.evidence].flat().filter((line): line is string => typeof line === 'string' && line.trim().length > 0),
       who: item.decidedBy?.words ?? '', allowed,
       ...(facts.length ? { facts } : {}),
@@ -284,11 +327,12 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
   });
   return {
     available: true, workId: packet.workId, phase: packet.phase, phaseLabel: packet.phaseLabel,
-    headline: packet.items.length ? packet.headline : `${packet.phaseLabel} has nothing left waiting for a decision.`,
+    // The headline in plain words when the engine gives them, as the card's: what is asked, counted.
+    headline: packet.plain?.headline ?? (packet.items.length ? packet.headline : `${packet.phaseLabel} has nothing left waiting for a decision.`),
     // The verdict rule is about conformance verdicts: shown only beside them.
     rule: packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind)) ? packet.rule ?? null : null, digest: packet.packetSha256,
     nothingToDecide: packet.items.length === 0,
-    items,
+    items, later, checking: items.some((item) => item.check !== null && item.allowed),
     unavailable: (packet.unavailable ?? []).map((entry) => `${entry.phase ?? 'A step'}'s report could not be read (${entry.reason ?? 'unreadable'}).`),
     chosen: items.filter((item) => item.chosen).length,
     notice, error, outcome, busy,
@@ -382,8 +426,9 @@ function assertWorkId(workId: string): string {
 }
 
 /** The read: the list as it stands now. */
-export function decisionListArgv(workId: string, phase: string | null = null): string[] {
-  return ['decisions', assertWorkId(workId), ...phaseArgs(phase), '--json'];
+export function decisionListArgv(workId: string, phase: string | null = null, { probe = null as number | null } = {}): string[] {
+  // With `probe`, SFlow first runs the checks an answer depends on, for at most that many seconds (decision-probes.mjs).
+  return ['decisions', assertWorkId(workId), ...phaseArgs(phase), ...(probe ? ['--probe', '--probe-wait', String(probe)] : []), '--json'];
 }
 
 /** The preview: the same list with the choices, which records nothing and returns the summary. */

@@ -283,7 +283,7 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
   if (query.subject === 'change' && compareSelector == null) {
     next.push(action({
       id: 'explanation.compare',
-      label: 'Compare this change, unit by unit, with the previous view retained on this machine.',
+      label: 'Compare this change, part by part, with the last view saved here',
       command: COMPARE_NEXT_ACTION,
       kind: 'informational'
     }));

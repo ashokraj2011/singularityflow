@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, rm, stat as fileStat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
-import { copilotModeFile, hookCliLine, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
+import { copilotModeFile, copilotTurnDirectory, hookCliLine, mentionsHookCli, readCopilotMode, TURN_WINDOW_MS, turnWindowStart, withTurnRenewal } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { platformPathWithin } from './util.mjs';
@@ -17,7 +17,7 @@ const FAMILY = 'copilot-repository-boundary';
  * that could not record a turn keeps failing closed until a working one handles the next prompt.
  */
 export const RUNTIME_UNAVAILABLE_MARKER = 'runtime-unavailable';
-const MAX_AGE_MS = 30 * 60 * 1000;
+const MAX_AGE_MS = TURN_WINDOW_MS;
 const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent']);
 const BUNDLED_AGENTS = new Set(['sflow-workflow', 'sflow-utility', 'sflow-source-reviewer']);
 // The turns whose typed words are kept as what the person asked for (asked-for.mjs ASKED_FOR_SKILLS).
@@ -119,11 +119,24 @@ async function removeRecord(file) {
   if (file) await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
 }
 
+/**
+ * The session's open-turn marker (copilotTurnDirectory): the launchers write it at a prompt in a repository that
+ * uses SFlow and remove it at a stop they answer without Node. A stop answered here removes it unless the answer
+ * continues the turn, and so does the session's end; a sub-agent's or a reviewer's stop leaves the author's turn
+ * open. One unlink; never Git or network.
+ */
+async function closeTurnMarker(payload, own = payload) {
+  const id = sessionId(payload);
+  if (!id || sessionId(own) !== id || [payload.agentId, payload.agent_id].some((value) => value != null && value !== '')) return;
+  await removeRecord(path.join(copilotTurnDirectory(), createHash('sha256').update(id).digest('hex'))).catch(() => {});
+}
+
 async function removeMutationRecord(file) {
   if (!file) return;
   const mutation = file.replace(/\.json$/u, '.mutation.json');
   await removeRecord(mutation);
   await removeRecord(file.replace(/\.json$/u, '.answers.json'));
+  await removeRecord(file.replace(/\.json$/u, '.renewal.json'));
   // A scanner holding an advisory hint must not block native chat or reopen an ended turn.
   // The authority record is already gone; the next explicit capture retries this cleanup.
   await rm(`${mutation}.issued`, { recursive: true, force: true }).catch(() => {});
@@ -147,14 +160,18 @@ async function settleObservedEdits(payload) {
 export async function recordRepositoryBoundaryTurn(payload = {}, options = {}) {
   // The review's own prompt, sent under the author's session by a host that names no sub-agent (review-subagent.mjs),
   // is the reviewer's turn beside the author's; any other prompt ends a reviewer still launched there.
+  let note = null;
   if (!options.reviewerSubagent) {
     const framed = await reviewerFrame(payload, 'prompt');
     payload = framed.payload;
     if (framed.reviewer) options = { ...options, reviewerSubagent: true };
+    // VS Code's runSubagent names no sub-agent: SFlow says so to the review, as subagentStart does on the Copilot CLI.
+    if (framed.reviewer) note = (await import('./review-subagent.mjs')).REVIEWER_SUBAGENT_NOTE;
   }
   const answer = await recordTurn(payload, options);
-  const line = hookCliLine();
-  return line && explicitSflowSkill(payload.prompt) && answer.decision !== 'block'
+  const cli = hookCliLine();
+  const line = [note, cli && explicitSflowSkill(payload.prompt) ? cli : null].filter(Boolean).join(' ');
+  return line && answer.decision !== 'block'
     ? { ...answer, additionalContext: answer.additionalContext ? `${answer.additionalContext} ${line}` : line } : answer;
 }
 
@@ -277,6 +294,7 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
   await removeRecord(recordPath(payload));
   const file = recordPath(payload);
   await removeMutationRecord(file);
+  await closeTurnMarker(payload);
   return {};
 }
 
@@ -340,8 +358,11 @@ async function unreadResult(payload) {
 }
 
 export async function repositoryAgentStop(payload = {}) {
-  payload = await ownTurnPayload(payload, 'stop');
-  return (await import('./copilot-review-completion.mjs')).workflowTaskAgentStop(payload);
+  const own = await ownTurnPayload(payload, 'stop');
+  const answer = await (await import('./copilot-review-completion.mjs')).workflowTaskAgentStop(own);
+  // A blocking answer continues the turn; any other ends it.
+  if (answer?.decision !== 'block') await closeTurnMarker(payload, own);
+  return answer;
 }
 
 export async function repositoryToolFailure(payload = {}) {
@@ -410,8 +431,10 @@ async function currentTurn(payload, now = Date.now()) {
     if (record.sessionId !== sessionId(payload) || typeof record.skill !== 'string'
         || explicitSflowSkill(`/${record.skill}`) !== record.skill
         || record.modeChangedAt !== mode.changedAt || !Number.isFinite(record.recordedAt)
-        || now < record.recordedAt || now - record.recordedAt > MAX_AGE_MS) return null;
-    return record;
+        || now < record.recordedAt) return null;
+    // From its prompt, or from the person's last answer in it (copilot-mode.mjs TURN_WINDOW_MS).
+    const renewed = await withTurnRenewal(record, file, now);
+    return now - turnWindowStart(renewed) > MAX_AGE_MS ? null : renewed;
   } catch { return null; }
 }
 

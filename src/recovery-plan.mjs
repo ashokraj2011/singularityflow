@@ -642,18 +642,21 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
                   : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
           // Repository-owned runner declarations are ordinary in-scope application edits. A
           // malformed pinned command is not: it requires a distinct reviewed policy amendment.
+          // The code and its runner are the code author's to write: a view of the step (/sf-phase-documents)
+          // fixed nothing, and right after a rollover, when nothing has changed yet, sent the person away
+          // from /sf-code (owner, 2026-11-16).
           command: configurationDependency
             ? missingRepositoryRunner
-              ? `singularity-flow phase show ${phase.id} --json`
+              ? `singularity-flow prepare ${phase.id}`
               : testConfiguration
                 ? TEST_SETUP_COMMAND
                 : invalidPinnedCommand && Number(phase.generation) === 0
                   ? 'singularity-flow explain test-recovery'
                   : null
-            : `singularity-flow phase show ${phase.id} --json`,
+            : `singularity-flow prepare ${phase.id}`,
           skill: configurationDependency
-            ? missingRepositoryRunner ? '/sf-phase-documents' : testConfiguration ? '/sf-test-setup' : null
-            : '/sf-phase-documents',
+            ? missingRepositoryRunner ? generationSkill(phase, workflow) : testConfiguration ? '/sf-test-setup' : null
+            : generationSkill(phase, workflow),
           authoringSkill: configurationDependency ? null : generationSkill(phase, workflow)
         }));
         if (planCorrection) {

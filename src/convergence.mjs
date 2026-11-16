@@ -947,8 +947,8 @@ export function assertConvergencePublishable(projection, authoredArtifactBody) {
   const actual = normalizedConvergenceArtifactBody(authoredArtifactBody);
   if (actual !== expected) {
     throw new SingularityFlowError(
-      'The convergence artifact no longer matches the reviewed deterministic projection. '
-      + 'Prepare the convergence step again to restore the canonical artifact before publishing.',
+      'The convergence report no longer matches what SFlow built and you reviewed. '
+      + 'Prepare the convergence step again to rebuild it before publishing.',
       {
         code: 'CONVERGENCE_ARTIFACT_MISMATCH',
         details: {

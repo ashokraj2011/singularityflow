@@ -19,7 +19,7 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import {
-  runWitnessReview, type WitnessReviewTarget, buildDecisionListView, decisionAnswersDocument, decisionAnswersFromChoices, decisionConfirmationRequest, decisionListArgv,
+  runWitnessReview, type WitnessReviewTarget, buildDecisionListView, checkOf, decisionAnswersDocument, decisionAnswersFromChoices, decisionConfirmationRequest, decisionListArgv,
   decisionPacketFrom, decisionPreviewArgv, decisionPreviewEmptyReason, decisionPreviewFrom, decisionRecordArgv, decisionRecordOutcome,
   type DecisionAnswers, type DecisionChoice, type DecisionListOutcome, type DecisionPacket
 } from './decision-list-model.ts';
@@ -81,6 +81,8 @@ export class DecisionListPanel implements vscode.Disposable {
   /** The messages this page speaks: refresh, review the chosen options, copy a share line or command. */
   private router = registerMessageRouter('singularityFlow.decisions', {
     'decisions.refresh': () => this.guard(() => this.load()),
+    // "Check first": SFlow runs the check with up to 15 minutes, then the list says what it found [owner, 2026-11-16].
+    'decisions.check': () => this.guard(() => this.load({ probe: 900 })),
     'decisions.review': (message) => this.guard(() => this.review(message.choices, stringField(message, 'digest'))),
     'decisions.witness': (message) => this.guard(() => this.witness(stringField(message, 'item'), stringField(message, 'option'))),
     'decisions.copy': (message) => this.copy(stringField(message, 'item'), stringField(message, 'option')),
@@ -99,11 +101,17 @@ export class DecisionListPanel implements vscode.Disposable {
     this.hooks.output?.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
   }
 
-  /** Read the list as it stands now; a failed read keeps the last list on screen with the error. */
-  private async load(): Promise<void> {
-    this.busy = true; this.render();
+  /**
+   * Read the list as it stands now; a failed read keeps the last list on screen with the error. With `probe`, SFlow
+   * first runs the checks an answer depends on, for at most that many seconds; a plain read that finds one pending
+   * runs it once, for 60 seconds, as the Decide card does.
+   */
+  private async load({ probe = null as number | null } = {}): Promise<void> {
+    this.busy = true;
+    if (probe) this.notice = `Checking before it asks (up to ${probe >= 120 ? `${Math.round(probe / 60)} minutes` : `${probe} seconds`}; nothing is recorded).`;
+    this.render();
     try {
-      const argv = decisionListArgv(this.target.workId, this.target.phase ?? null);
+      const argv = decisionListArgv(this.target.workId, this.target.phase ?? null, { probe });
       const packet = decisionPacketFrom(await this.client.run(argv));
       if (!packet) throw new Error('The decision list could not be read from the engine\'s answer.');
       // Choices belong to the list they were made on: item IDs are renumbered when it changes.
@@ -114,8 +122,11 @@ export class DecisionListPanel implements vscode.Disposable {
       this.error = (error as Error).message;
     } finally {
       this.busy = false;
-      this.render();
+      if (probe) this.notice = null;
+      if (!this.disposed) this.render();
     }
+    // A check still pending on what this person decides runs once, bounded, before they answer.
+    if (!probe && !this.disposed && !this.error && this.packet?.items.some((item) => checkOf(item) && item.decidedBy?.allowed)) await this.load({ probe: 60 });
   }
 
   private async review(raw: unknown, digest: string | null): Promise<void> {

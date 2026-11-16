@@ -22,9 +22,9 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
       // the step's authoring skill, and the terminal route checks the draft once it is written.
       // A deterministic code step still has its code to write; only its summary is kernel-built.
       label: prepared.publicationProducer === 'deterministic' && !phaseKernelOwned(phase)
-        ? 'Write the planned code and tests in the open generation; prepare then rebuilds the summary from what changed'
+        ? 'Write the planned code and tests; SFlow rebuilds the summary'
         : prepared.publicationProducer === 'deterministic'
-        ? 'Check the prepared deterministic artifact before publication'
+        ? 'Check what SFlow prepared before publishing it'
         : 'Author the prepared draft (preparation is not completed authoring), then check it with prepublish',
       command: prepared.publicationProducer === 'deterministic'
         ? `singularity-flow phase prepublish ${phase.id} --for-agent --json`
@@ -75,7 +75,7 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
   if (convergence.unresolvedBlockers.length) return [
     narrationAction({
       id: 'convergence.inspect',
-      label: 'Inspect the blocked deterministic convergence projection',
+      label: 'See what blocks the convergence report',
       command: `singularity-flow story converge --work-id ${workflow.workItem.id} --json`,
       kind: 'review'
     }),
@@ -84,7 +84,7 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
   return [
     narrationAction({
       id: 'convergence.publish',
-      label: 'Publish the reviewed deterministic convergence projection',
+      label: 'Publish the reviewed convergence report',
       command: phasePublicationCommandForProducer(
         phase, prepared.publicationProducer ?? phasePublicationContract(phase).producer
       ),

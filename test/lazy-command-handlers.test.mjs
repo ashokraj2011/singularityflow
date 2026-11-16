@@ -646,7 +646,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // version's review is not inspected again (phase-generation-need.mjs, guide.mjs, source-review-lifecycle.mjs) [2026-11-16].
     // 9,679,650 (measured 9,679,625): a step name typed by mistake names the Story's steps and the same command with one
     // (util.mjs unknownStepDetails +880, its callers in phase-lifecycle, submit, prepare and phase-show) [2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_679_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,688,200 (measured 9,688,174): the 2026-11-16 batch on main 56dfa031e (9,679,625), each as measured on its own
+    // branch: a reset's registered worktree list (git-query.mjs repository.worktrees, +520); a review's next step in
+    // SFlow's own words and one turn, with `phase rollover` as the step author's route (source-review-continuation.mjs
+    // +3,661, code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs
+    // +260, recovery-plan.mjs +267 and smaller, +5,634); a refusal about where the Story stands names the Story's or the
+    // Epic's own next step (sequence.mjs storyNextDetails and storyClosedRefusal +1,301, its throw sites in state.mjs,
+    // story-lineage.mjs, phase-lifecycle.mjs and initiative-state.mjs, +2,105), which writes an open next version first;
+    // and a step the kernel builds routed straight to its generator (commands/nextsteps.mjs, +300). No new eager file.
+    assert.ok(closure.bytes <= 9_688_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1004,7 +1012,11 @@ test('the common session projection does not import attach, state stores or publ
   // 4,268,300 (measured 4,268,279): upgrade-direct merged with main 5a1d62130: the upgrade clears each registered clone's
   // stale history copies through one registered query (git-query.mjs configuration.local-superseded-refs, +510), and
   // configuration history cleanup and its refs helper are removed [owner, 2026-11-16]. No new eager file.
-  assert.ok(current.bytes <= 4_269_550, `session current loads ${current.bytes} source bytes`);
+  // 4,271,500 (measured 4,271,462): the 2026-11-16 batch on main 56dfa031e (4,269,516): the same registered worktree list
+  // (git-query.mjs +520) and `phase rollover` as the step author's route, with its step in the Copilot route
+  // (code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs +260,
+  // +1,509). No new eager file.
+  assert.ok(current.bytes <= 4_271_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

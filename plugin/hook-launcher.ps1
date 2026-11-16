@@ -90,8 +90,71 @@ function Complete-QuietHook {
     Read-HookInput
     if (Test-HookInputGoesToNode) { return }
     if (Test-CwdUsesSflow (Get-HookInputCwd)) { return }
-  } else { [void][Console]::In.ReadToEnd() }
+  } else {
+    # No SFlow turn record means no stop continues this turn: it ends here.
+    if ($Action -in @('boundary-stop', 'boundary-end')) { Close-Turn }
+    if ($null -eq $script:hookHeld) { [void][Console]::In.ReadToEnd() }
+    elseif ($script:hookMore) { $script:hookStdin.CopyTo([IO.Stream]::Null) }
+  }
   Write-Output '{}'; exit 0
+}
+# SFlow's machine folder, where copilotModeFile() places the mode file, or $null. Mirrors machine_dir in hook-launcher.sh.
+function Get-MachineDirectory {
+  $modeFile = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE }
+    elseif ($homeDirectory) { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' } else { $null }
+  if (-not $modeFile -or -not [IO.Path]::IsPathRooted($modeFile) -or $modeFile -match '[\\/]\.\.?([\\/]|$)' -or $modeFile -match '[\\/]$') { return $null }
+  return Split-Path -Parent $modeFile
+}
+# The held payload's session, hashed as recordPath() hashes it, once per hook. Mirrors held_session_hash in hook-launcher.sh.
+$script:sessionHash = $null
+function Get-SessionHash([string]$Text) {
+  if ($script:sessionHash) { return $script:sessionHash }
+  $session = [regex]::Match($Text, '"session(?:Id|_id)"\s*:\s*"([A-Za-z0-9._:-]{1,256})"')
+  if (-not $session.Success) { return $null }
+  $sha = [Security.Cryptography.SHA256]::Create()
+  $script:sessionHash = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($session.Groups[1].Value)) | ForEach-Object { $_.ToString('x2') })
+  return $script:sessionHash
+}
+# [chat prefill] A prompt in a repository that uses SFlow opens the session's turn: one small file in copilot-turns,
+# named by the session's hash and holding the chat's folder, which VS Code waits for before it puts the next command
+# in the chat box. Its agent's stop closes it. No Git, no network. Mirrors open_turn and close_turn in hook-launcher.sh.
+function Open-Turn {
+  try {
+    if ($null -eq $script:hookHeld -or $script:hookMore) { return }
+    $text = [Text.Encoding]::UTF8.GetString($script:hookHeld, 0, $script:hookHeldCount)
+    # A subagent's task is part of the person's turn.
+    if ($text.Contains('"agentId"') -or $text.Contains('"agent_id"')) { return }
+    $folder = Get-HookInputCwd
+    if (-not (Test-CwdUsesSflow $folder)) { return }
+    $hash = Get-SessionHash $text
+    $machine = Get-MachineDirectory
+    if (-not $hash -or -not $machine) { return }
+    $directory = Join-Path $machine 'copilot-turns'
+    [void][IO.Directory]::CreateDirectory($directory)
+    $temporary = Join-Path $directory ".$hash.$PID"
+    [IO.File]::WriteAllText($temporary, "$folder`n")
+    Move-Item -LiteralPath $temporary -Destination (Join-Path $directory $hash) -Force
+  } catch { }
+}
+# The turn's end, for a stop or a session's end answered here. Nothing to read or hash unless a turn is open.
+function Close-Turn {
+  try {
+    $machine = Get-MachineDirectory
+    if (-not $machine) { return }
+    $directory = Join-Path $machine 'copilot-turns'
+    if (-not [IO.Directory]::Exists($directory)) { return }
+    $open = $false
+    foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+      if (-not [IO.Path]::GetFileName($entry).StartsWith('.')) { $open = $true; break }
+    }
+    if (-not $open) { return }
+    if ($null -eq $script:hookHeld) { Read-HookInput }
+    if ($script:hookMore) { return }
+    $text = [Text.Encoding]::UTF8.GetString($script:hookHeld, 0, $script:hookHeldCount)
+    if ($text.Contains('"agentId"') -or $text.Contains('"agent_id"')) { return }
+    $hash = Get-SessionHash $text
+    if ($hash) { [IO.File]::Delete((Join-Path $directory $hash)) }
+  } catch { }
 }
 # [PCR:REQ-016] Before Node starts for a prompt, the session's copy of its last prompt goes, and a plain prompt
 # ends the session's earlier /sf- turn, so a prompt hook that fails or times out leaves neither governing this one.
@@ -104,14 +167,10 @@ function Clear-StaleTurn {
     $text = [Text.Encoding]::UTF8.GetString($script:hookHeld, 0, $script:hookHeldCount)
     # A stop continuation reads the turn it continues; a subagent's task shares the person's session.
     if ($text.Contains('SFLOW_') -or $text.Contains('"agentId"') -or $text.Contains('"agent_id"')) { return }
-    $session = [regex]::Match($text, '"session(?:Id|_id)"\s*:\s*"([A-Za-z0-9._:-]{1,256})"')
-    if (-not $session.Success) { return }
-    $modeFile = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE }
-      elseif ($homeDirectory) { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' } else { $null }
-    if (-not $modeFile -or -not [IO.Path]::IsPathRooted($modeFile) -or $modeFile -match '[\\/]\.\.?([\\/]|$)' -or $modeFile -match '[\\/]$') { return }
-    $sha = [Security.Cryptography.SHA256]::Create()
-    $hash = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($session.Groups[1].Value)) | ForEach-Object { $_.ToString('x2') })
-    $machine = Split-Path -Parent $modeFile
+    $hash = Get-SessionHash $text
+    if (-not $hash) { return }
+    $machine = Get-MachineDirectory
+    if (-not $machine) { return }
     [IO.File]::Delete((Join-Path $machine "copilot-prompts/$hash.json"))
     $at = $text.IndexOf('"cwd":"', [StringComparison]::Ordinal)
     if ($at -ge 0) {
@@ -162,7 +221,7 @@ try {
     }
   }
 } catch { }
-if ($Action -eq 'boundary-turn') { Clear-StaleTurn }
+if ($Action -eq 'boundary-turn') { Clear-StaleTurn; Open-Turn }
 $managedRoot = if ($env:SINGULARITY_FLOW_ENGINE_HOME) { $env:SINGULARITY_FLOW_ENGINE_HOME } else { Join-Path $homeDirectory '.singularity-flow/engine' }
 $managedActive = Join-Path $managedRoot 'active'
 if (Test-Path -LiteralPath $managedActive -PathType Leaf) {

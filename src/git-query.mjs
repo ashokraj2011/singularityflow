@@ -259,6 +259,13 @@ const descriptors = [
     argv: (params) => ['for-each-ref', '--count=1', '--contains', params.commit, '--format=%(refname)', 'refs/remotes'],
     parser: (result) => text(result) !== ''
   }),
+  // A clone's worktrees, the clone itself first: a reset keeps every linked one (SCF:REQ-021).
+  descriptor('repository.worktrees', {
+    argv: () => ['worktree', 'list', '--porcelain'],
+    parser: (result) => result.stdout.split(/\r?\n\r?\n/u).map((record) => record.split(/\r?\n/u))
+      .filter((fields) => fields[0]?.startsWith('worktree ')).map((fields) => ({ path: path.resolve(fields[0].slice(9)),
+        bare: fields.includes('bare'), prunable: fields.some((field) => field.startsWith('prunable')) }))
+  }),
   descriptor('sgos.configured-remotes', {
     argv: () => ['remote'], dependency: 'configuration', allowFailure: true,
     parser(result) {

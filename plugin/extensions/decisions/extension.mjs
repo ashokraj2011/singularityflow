@@ -29,10 +29,10 @@ function refusalOf(failure) {
   return new Error(text);
 }
 
-async function runFlow(args) {
+async function runFlow(args, { timeout = 120000 } = {}) {
   const executable = process.env.SINGULARITY_FLOW_BIN || 'singularity-flow';
   try {
-    const { stdout } = await executeFile(executable, args, { cwd: await workingDirectory(), encoding: 'utf8', timeout: 120000, maxBuffer: 12 * 1024 * 1024 });
+    const { stdout } = await executeFile(executable, args, { cwd: await workingDirectory(), encoding: 'utf8', timeout, maxBuffer: 12 * 1024 * 1024 });
     return JSON.parse(stdout);
   } catch (error) {
     if (error?.code === 'ENOENT') throw new Error("The 'singularity-flow' executable is not on PATH.");
@@ -82,9 +82,13 @@ async function inspect(packet, file) {
   if (opener) await executeFile(opener, [absolute], { timeout: 5000 }).catch(() => undefined);
 }
 
+// With `probe`, SFlow first runs the checks an answer depends on, for at most that many seconds; the read waits for them.
+const readList = async (workId, { probe = null } = {}) => (await runFlow(['decisions', ...(workId ? [workId] : []),
+  ...(probe ? ['--probe', '--probe-wait', String(probe)] : []), '--json'], probe ? { timeout: (probe + 120) * 1000 } : {})).data;
+
 const decide = (workId, { askedInChat = false } = {}) => runCard({
   askedInChat,
-  read: async () => (await runFlow(['decisions', ...(workId ? [workId] : []), '--json'])).data,
+  read: (options) => readList(workId, options),
   ask: (form) => session.ui.elicitation(form),
   show: (text) => session.log(text),
   record: recordCard, witness: recordWitness, inspect

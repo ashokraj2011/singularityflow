@@ -172,23 +172,23 @@ export async function rebaseFileOptions(options, argv, launchDirectory) {
   }
 }
 
-const TURN_LIFETIME_MS = 30 * 60 * 1000;
-
 /**
  * Explicit Copilot turns bound to a Story in `root` (copilot-mutation-guard.mjs records them). A
  * turn bound to Story A in this checkout must not reach Story B by naming it.
  */
 export async function boundTurnStories(root) {
-  const { copilotModeFile } = await import('./copilot-mode.mjs');
+  const { copilotModeFile, TURN_WINDOW_MS, turnWindowStart, withTurnRenewal } = await import('./copilot-mode.mjs');
   const directory = path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
   const names = await readdir(directory).catch(() => []);
   const canonicalRoot = await realpath(root).catch(() => path.resolve(root));
   const stories = [];
   for (const name of names.filter((entry) => entry.endsWith('.mutation.json'))) {
     try {
-      const value = JSON.parse(await readFile(path.join(directory, name), 'utf8'));
+      const file = path.join(directory, name);
+      // Its window runs from its prompt, or from the person's last answer in it.
+      const value = await withTurnRenewal(JSON.parse(await readFile(file, 'utf8')), file);
       const workId = value?.kind === 'copilot-mutation-contract' ? value.contract?.workId : null;
-      if (!workId || !Number.isFinite(value.recordedAt) || Date.now() - value.recordedAt > TURN_LIFETIME_MS) continue;
+      if (!workId || !Number.isFinite(value.recordedAt) || Date.now() - turnWindowStart(value) > TURN_WINDOW_MS) continue;
       if (samePlatformPath(value.contract.repositoryRoot ?? '', canonicalRoot)) stories.push(workId);
     } catch { /* An unreadable record binds nothing; the guard refuses its own turn. */ }
   }

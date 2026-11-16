@@ -8227,6 +8227,93 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
     'the one-shot handoff cannot reopen chat on every later reload');
 });
 
+test('the Story\'s next command waits in Copilot Chat\'s input once per state, and the Next button fills it again', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', workflowFile], { cwd: root });
+  run('git', ['commit', '-m', 'Use local publication for the chat prefill test'], { cwd: root });
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'start', 'STORY-PREFILL', '--title', 'Prefill Story', '--description', 'Show the next command',
+    '--acceptance-criteria', 'The next command waits in chat', '--work-type', 'feature', '--agent', 'developer',
+    '--base', 'INIT-CHECKOUT'], { cwd: root, encoding: 'utf8', env: process.env });
+  assert.equal(started.status, 0, started.stderr);
+
+  // The stub answers every setting with ''; only `true` turns the automatic fill on.
+  const host = (prefill) => {
+    const stub = stubVscode();
+    stub.api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+    stub.api.workspace.getConfiguration = () => ({ get: (key) => (key === 'chat.prefillNextCommand' ? prefill : '') });
+    return stub;
+  };
+  const fills = (registered) => registered.executedCommands.filter((entry) => entry.id === 'workbench.action.chat.open');
+  const nextItem = (registered) => registered.statusBars.find((item) => /^\$\(comment-discussion\) Next: /.test(item.text)) ?? null;
+
+  // A Copilot turn is still answering in this repository (the marker SFlow's prompt hook writes): nothing is filled
+  // until its stop removes the marker.
+  const { copilotTurnDirectory } = await import('../src/copilot-mode.mjs');
+  const turnMarker = path.join(copilotTurnDirectory(), 'f'.repeat(64));
+  await mkdir(path.dirname(turnMarker), { recursive: true });
+  await writeFile(turnMarker, `${root}\n`);
+  t.after(() => rm(turnMarker, { force: true }));
+  // A crashed turn's marker from two days ago goes when the window starts.
+  const crashed = path.join(path.dirname(turnMarker), 'e'.repeat(64));
+  await writeFile(crashed, `${root}\n`);
+  const twoDaysAgo = (Date.now() - 2 * 24 * 60 * 60 * 1000) / 1000;
+  await utimes(crashed, twoDaysAgo, twoDaysAgo);
+  t.after(() => rm(crashed, { force: true }));
+  const windowValues = new Map();
+  const first = host(true);
+  await loadExtension(first.api).activate(context(new Map(), windowValues));
+  await until(() => nextItem(first.registered), { what: 'the Next button while the turn is open' });
+  await until(() => !existsSync(crashed), { what: 'the crashed turn\'s marker to be removed' });
+  assert.ok(existsSync(turnMarker), 'a turn still answering is left alone');
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  assert.equal(fills(first.registered).length, 0, 'no fill while Copilot is still answering');
+  await rm(turnMarker);
+  const turns = first.registered.watchers.find((watcher) => watcher.pattern?.pattern === 'copilot-turns/*');
+  assert.ok(turns, 'the open-turn markers are watched');
+  turns.remove.fire({});
+  const filled = await until(() => fills(first.registered)[0] ?? null, { what: 'the next command to be put in the chat input' });
+  const query = filled.args[0]?.query;
+  assert.match(query ?? '', /^\/sf-[a-z-]+(?: \S+)* $/, 'a /sf- command, followed by one space for the person to continue');
+  assert.deepEqual(filled.args, [{ query, isPartialQuery: true }], 'filled, never sent');
+  const item = await until(() => nextItem(first.registered), { what: 'the Next status-bar button' });
+  assert.equal(item.text, `$(comment-discussion) Next: ${query.trim().split(' ')[0]}`);
+  assert.equal(item.command, 'singularityFlow.prefillNextCommand');
+  assert.equal(first.registered.terminals.length, 0, 'filling the chat runs nothing');
+
+  // The same Story state read again fills nothing more.
+  await first.registered.commands.get('singularityFlow.refresh')();
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  assert.equal(fills(first.registered).length, 1, 'one fill for one Story state');
+
+  // The button fills it again on a click.
+  await first.registered.commands.get('singularityFlow.prefillNextCommand')();
+  assert.equal(fills(first.registered).length, 2);
+  assert.equal(fills(first.registered).at(-1).args[0].query, query);
+
+  // A reloaded window remembers the state it filled.
+  const reloaded = host(true);
+  await loadExtension(reloaded.api).activate(context(new Map(), windowValues));
+  await until(() => nextItem(reloaded.registered), { what: 'the reloaded Next button' });
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  assert.equal(fills(reloaded.registered).length, 0, 'the same state is not filled again after a reload');
+
+  // Off, nothing is filled automatically; the button still fills.
+  const off = host(false);
+  await loadExtension(off.api).activate(context(new Map(), new Map()));
+  await until(() => nextItem(off.registered), { what: 'the Next button with the setting off' });
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  assert.equal(fills(off.registered).length, 0, 'the setting turns the automatic fill off');
+  await off.registered.commands.get('singularityFlow.prefillNextCommand')();
+  assert.deepEqual(fills(off.registered).map((entry) => entry.args[0].query), [query]);
+});
+
 /** A real published Story and its approved pin, with only local bare Git authorities. */
 async function publishedStoryHandoffFixture(t) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-start-handoff-host-'));

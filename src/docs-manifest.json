@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "c41473184b1f679d28b10f7b2e2d6acb4a603a0e",
+  "sourceCommit": "5c9e03923497fc446453906af0e69af704dbd712",
   "topicCount": 93,
-  "contentSha256": "6b0f9d199a02bc274eb937ff1766fc4cc437e26631b03021cc2832c6f819241c",
+  "contentSha256": "88f6fe501dc3c353e80fab7206bed4ee8ad35cf120593ca9c862e0e02a748b5f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,8 +128,8 @@
     {
       "id": "compact-phase-entry",
       "title": "Compact phase entry for Copilot",
-      "version": 18,
-      "sha256": "d57b17ec1b20cb7cc64fe05926f55f00b05fcc034c237de07dff04df4ce4113a",
+      "version": 20,
+      "sha256": "9276d7cd921edaeec90f29cf2189c7c2f7a95d2aa93199e29e36806fdee7ca35",
       "routingSha256": "bcd885145db0455bd1ec31c50649b5056e38b66b77e10123514a20c5f3d1d0cb",
       "file": "compact-phase-entry.md"
     },
@@ -152,8 +152,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 39,
-      "sha256": "9320e696eb73b3244187009b752c87bce0c022defd20bdf5557c7600262882d8",
+      "version": 42,
+      "sha256": "7a1affbb0ea372b87c98b26eda0af631936cb7b77eb599673117aea7ab2f739b",
       "routingSha256": "14011e1a77264ded7e0f568428968ef1c70e1e606771a4e8fffe05b437ea112c",
       "file": "copilot-and-surfaces.md"
     },
@@ -464,8 +464,8 @@
     {
       "id": "quick-fix",
       "title": "The quick-fix rail",
-      "version": 7,
-      "sha256": "fcb61a82357cf8cf12a647028035d59218a5f26623ff57c410784c1522351622",
+      "version": 8,
+      "sha256": "b7ca9e00b984a379a9d60d59a86d6e25c319b52459eb4a69a763e5765a0bdda0",
       "routingSha256": "e48bee95d4e2dc5f4001a723006a2735a28b5216de204e3ae8aafaf6b91d1c12",
       "file": "quick-fix.md"
     },
@@ -520,8 +520,8 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 12,
-      "sha256": "36c921db602f391f654b8399fb33d4df4c56b254738dd1751d03d24d73402db7",
+      "version": 14,
+      "sha256": "21eaf25a6e9a7e8ec975e005e25b99db071524ee9bd0664815f3a393e8882833",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },
@@ -712,9 +712,9 @@
     {
       "id": "workflow-decisions",
       "title": "Decisions, branches and loops in Story workflows",
-      "version": 16,
-      "sha256": "bf5743e14e26a7023efc65fe45078d7986c4db9ead3866cfacf6743a4e2c97a2",
-      "routingSha256": "26ce6cc8db0c9c8126f584208e69bedb7f0b03949e840a2c089f34db86b2525f",
+      "version": 18,
+      "sha256": "19cb8b62d3a5d033316d145f22a8d0f390b145a567c314cef22625689c1a3e12",
+      "routingSha256": "07bf0e965ef3a5d13d8a1ca2a5f090175c96f7ed9af50c614743485c8a65aa9b",
       "file": "workflow-decisions.md"
     },
     {

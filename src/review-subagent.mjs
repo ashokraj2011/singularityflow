@@ -176,11 +176,19 @@ export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent
       + `If a host starts it in the background anyway: read or wait for that agent's result with the host's own tool when it has one; if ending your response is the only way to wait, end it saying only that the review is running and continues here when it returns, with no route or skill. `
       + `Its review is this turn's work: never offer ${prompt} while it runs, and never end the turn before it returns but as just said. It reviews read-only and retains its report; do not review, edit or retain it yourself. When it returns, run ${status} once and follow its route here: `
       // The author ended its turn on "/sf-phase" after a correction, leaving the person to start it again (Story anu-bin, 2026-11-11).
-      + `a correction: show the person its findings and ask now with ask_user whether to correct them in generation ${generation + 1}; on yes, run the route's command and correct the draft in this same turn, then prepublish; never end the turn on that route. `
+      // The person's yes starts the next version; asked in these words, a confirmed rollover is held to it (copilot-answer-binding.mjs).
+      + `a correction: show the person its findings and ask now with ask_user "Start version ${generation + 1} to fix the review's findings?" (Yes, No); on yes, run the route's command (a rollover preview: then the confirmation it returns) and correct the draft in this same turn, then prepublish; never end the turn on that route. `
       + 'A ready review goes to submission. '
       + `No sub-agent tool: end with "Run this in a new chat:" and ${prompt}.`
   };
 }
+
+/**
+ * What SFlow tells a reviewer it started as the author's sub-agent, so its ending is SFlow's data, not the model's guess:
+ * a review the person typed ends on the next step, and one the author's turn started returns its findings to that turn,
+ * which asks the person there. A person's /sf-review-source dropped its next step as if it were a sub-agent (owner, 2026-11-16).
+ */
+export const REVIEWER_SUBAGENT_NOTE = 'SFlow: reviewDispatch: author-turn. The author\'s turn started this review as its sub-agent: end with the retained status and findings only; that turn shows the person the next step.';
 
 /**
  * subagentStart (agent-start): the Story's pinned reviewer, started as a sub-agent while its step's published
@@ -209,6 +217,6 @@ export async function reviewerSubagentStart(root, payload = {}) {
     { reviewerSubagent: true }).catch(() => ({}));
   return { additionalContext: [`SFlow: you are the independent read-only reviewer of ${workflow.workItem.id} ${phase.id} generation ${phase.generation}, `
     + `in the author's chat. Your calls are checked under your own review contract, not the author's. Run singularity-flow review-source context ${phase.id} --for-agent --json `
-    + 'and follow its reviewGuide: write the report at its stagingPath, check it, retain it. Never edit code, artifacts or tests, submit or approve. '
-    + 'End by returning the retained status to the author.', turn?.additionalContext].filter(Boolean).join(' ') };
+    + 'and follow its reviewGuide: write the report at its stagingPath, check it, retain it. Never edit code, artifacts or tests, submit or approve.',
+  REVIEWER_SUBAGENT_NOTE, turn?.additionalContext].filter(Boolean).join(' ') };
 }

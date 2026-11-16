@@ -24,7 +24,7 @@ test('the decisions table on both hosts says it is settled, by which entry, and 
     dispositions: [{ id: 'accepted-deviation', label: 'Accept as is' }, { id: 'rework', label: 'Send back to fix' }] };
 
   const table = decisionsTable(list);
-  assert.match(table, /1 of 1 still need a decision\. 2 settled by the plan, not asked\./u);
+  assert.match(table, /1 of 1 still needs a decision\. 2 settled by the plan, not asked\./u);
   assert.match(table, /\| package\.json \| Supporting file: add the browser test dependency and its script\. \| Settled by the plan \|/u);
   assert.match(table, /\| src\/test\/setup\.js \| PAM-001 under BIN:REQ-001: Test-only/u);
 

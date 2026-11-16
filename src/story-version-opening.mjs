@@ -337,6 +337,27 @@ export async function reconcileOpening(root, config, workflow, phase, { operatio
       nextAction: { command: `singularity-flow phase opening ${phase.id} --reconcile --json`, label: `Settle version ${base.version}'s opening again` } });
 }
 
+/**
+ * The relevant shared authority, read once at a consequential boundary (the authoring entry): the Story branch's remote
+ * tip against this checkout [§7.3]. `stale` when the shared branch moved past what this checkout holds (another checkout
+ * opened, published or took over), `unavailable` when it cannot be read (offline), else `verified`. Only the Story's own
+ * branch is read, never another branch or the history; nothing is fetched or changed.
+ */
+export async function sharedAuthorityAt(root, config, workflow) {
+  const [{ workflowPublicationMode, workflowPublicationBranch }, { configuredRemoteAuthority }, { lifecycleAuthority }, { head }, { sourceContains }] = await Promise.all([
+    import('./story-publication-binding.mjs'), import('./git-remote-diagnostics.mjs'), import('./sda/story-branch-authority.mjs'), import('./git.mjs'),
+    import('./source-inspection.mjs')]);
+  if (workflowPublicationMode(config, workflow) === 'off') return { status: 'verified', authority: 'local-branch' };
+  const url = configuredRemoteAuthority(root, config.git?.remote ?? 'origin')?.url;
+  const observed = url ? await lifecycleAuthority(root).observe({ remote: url, branch: workflowPublicationBranch(root, workflow) }, { allowPrefetched: true }).catch(() => null) : null;
+  if (!observed || observed.reachable !== true || observed.malformed) return { status: 'unavailable', diagnostic: 'The shared Story branch could not be read; this checkout\'s view of it may be old.' };
+  const local = head(root);
+  if (!observed.sha || observed.sha === local) return { status: 'verified', remote: observed.sha ?? null, local };
+  const behind = sourceContains(root, observed.sha, local, { offline: true });
+  return behind.status === 'present' && behind.value ? { status: 'verified', remote: observed.sha, local }
+    : { status: 'stale', remote: observed.sha, local, diagnostic: 'The shared Story branch moved past this checkout: another checkout opened, published or took over a version.' };
+}
+
 /** What this checkout knows of `phase`'s opening: its record, checkpoint and writer, read only [§7.3]. */
 export async function inspectOpening(root, workflow, phase) {
   const pointer = phase.versionOpening ?? null;

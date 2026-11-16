@@ -187,7 +187,10 @@ export function decisionRoutes(decision, workflow, requested) {
       `Check ${phase.id}'s submission readiness: it names its review, if one is owed, and then the exact submission.`, '/sf-submit')];
     case 'start-review': return [route(['review-source', 'context', phase.id, '--for-agent', '--json'], 'Review the exact published version against its sources.', '/sf-review-source')];
     case 'none': return [route(['nextsteps', '--json'], 'Nothing is written now; see where the Story stands.')];
-    case 'refresh-authority': return [route(['session', 'current', '--for-agent', '--json'], 'Run this read in this turn: it binds the turn to the Story as it is now.')];
+    // The shared Story branch moved past this checkout: bring it in (it only fast-forwards), then the entry decides again.
+    case 'refresh-authority': return [next.inputs.source === 'lifecycle'
+      ? route(['refresh-branch'], 'Bring in what the shared Story branch holds now; this checkout\'s view of the step is old.')
+      : route(['session', 'current', '--for-agent', '--json'], 'Run this read in this turn: it binds the turn to the Story as it is now.')];
     default: return [route(['phase', 'show', phase.id, '--json'], `Inspect ${phase.id} as it is (${next.reasonCodes.join(', ') || 'no action'}); nothing is written now.`)];
   }
 }
@@ -206,7 +209,7 @@ function caseInsensitiveCheckout(root) {
 }
 
 export function deriveMutationContract({ root = null, definition, workflow, phase = workflow?.phases?.[workflow.currentPhase],
-  turnMode = 'authoring', staging = [], evidence = [], opening = null }) {
+  turnMode = 'authoring', staging = [], evidence = [], opening = null, sources = {} }) {
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
@@ -217,7 +220,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   // [OSA:REQ-001, REQ-010]; this module renders it and keeps the path checks.
   // `opening`: the open version's acceptance and writer as the caller observed them on this checkout (a few file reads,
   // never Git: story-version-acceptance.mjs) [OSA:REQ-041]; without it an operation's opening grants nothing.
-  const decision = phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode, opening })) : null;
+  const decision = phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode, opening, sources })) : null;
   const openGeneration = code && decision?.publication.hasOpenVersion === true;
   const editable = decision?.edit.authoring === true;
   const deterministic = onlyDeterministic(phase);

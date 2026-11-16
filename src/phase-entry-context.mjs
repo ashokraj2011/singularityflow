@@ -64,13 +64,18 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   const evidence = phase?.generationIntent?.status === 'open' && turnMode === 'authoring'
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
     : [];
-  // The open version's acceptance and writer as this checkout observed them, as the edit guard reads them [OSA:REQ-010].
+  // The open version's acceptance and writer as this checkout observed them, as the edit guard reads them [OSA:REQ-010];
+  // at this entry, also the Story branch itself, the one shared authority an opening's ownership rests on [OSA §7.3].
   const opening = phase?.versionOpening ? (await import('./story-version-acceptance.mjs')).observeOpening(root, workflow, phase) : null;
+  const sharedAuthority = opening ? await (await import('./story-version-opening.mjs')).sharedAuthorityAt(root, definition, workflow).catch(() => null) : null;
+  const sources = sharedAuthority?.status === 'stale' ? { lifecycle: { status: 'stale', diagnostic: sharedAuthority.diagnostic } } : {};
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     repositoryChecks: repositoryCheckStatus(root),
     personalization: resolvePersonalization({ root }), ...binding,
     // The same decision and basis the edit guard derives its permission from: one grant and one next [OSA:REQ-010, C7].
-    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence, opening })),
+    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence, opening, sources })),
+    // Advisory and labelled: what this entry read of the shared Story branch; the guard never reads it per tool call.
+    ...(sharedAuthority ? { sharedAuthority: { status: sharedAuthority.status, ...(sharedAuthority.diagnostic ? { diagnostic: sharedAuthority.diagnostic } : {}) } } : {}),
     authoringContract: phaseAuthoringContract(definition, workflow, phase),
     build: { description: versionLine(), ...BUILD_INFO },
     continuationReview: phase ? { contractRevision: PHASE_JOURNEY_CONTRACT, readOnly: true,

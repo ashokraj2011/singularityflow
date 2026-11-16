@@ -210,7 +210,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'purge', 'timeline',
   'review-only', 'review-ui', 'send-test', 'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
   'host-review', 'presence', 'recipe', 'state-records',
-  'commit-reviewed', 'set-aside',
+  'commit-reviewed', 'set-aside', 'reconcile',
   'attach-if-missing', 'migrate-world-model', 'hard-cutover',
   'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local',
   'accept', 'accept-bundled-conflicts', 'accept-partial', 'decline', 'accept-test-risk', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'allow-synced-folder', 'apply', 'assigned-to-me', 'ast',

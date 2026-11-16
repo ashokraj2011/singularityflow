@@ -614,6 +614,8 @@ Every public operation is classified before its implementation module is importe
 | phase.draft-check | read | never | — | — |
 | phase.enter | read | never | — | — |
 | phase.enter.compose | mutation | never | — | — |
+| phase.opening | read | never | — | — |
+| phase.opening.reconcile | mutation | never | — | — |
 | phase.prepublish | read | never | — | — |
 | phase.prepublish.publish | mutation | never | — | — |
 | phase.show | read | never | — | — |

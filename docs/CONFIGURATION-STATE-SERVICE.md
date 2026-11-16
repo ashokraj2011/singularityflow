@@ -96,10 +96,10 @@ own committed approval, and unrelated or differently rebased transactions do not
 
 ## Explicit reset compatibility and rollout boundaries
 
-Recreate & sync remains an explicitly authorized bulk intent replacement with archive tags and
-atomic retirement. It cannot replace the kernel receipt registry. It is not automatic conflict
-resolution or a waiver of a required review. External Git review/merge paths remain supported and
-are distinguished from receipt-bound engine transactions.
+Recreate & sync was removed (SPEC-SCF stage 2): each proposal is approved on its own, re-applied
+onto the current `sflow/config` field by field, and a field both sides changed is the approver's pick
+of one of the two values. External Git review/merge paths remain supported and are distinguished from
+receipt-bound engine transactions.
 
 Existing Stories are not rewritten. Story transitions, evidence/approval storage, World Model
 state, general configuration draft storage, and all legacy publication entry points still need

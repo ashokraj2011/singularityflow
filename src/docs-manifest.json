@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "7d22580da240981c20159c91235e6d1cdb53994a",
+  "sourceCommit": "d7a9768219061209516626948958e4b63ebb854a",
   "topicCount": 93,
-  "contentSha256": "7924c01c4f376d5abbcee65f1c4fddc659cbc46b3914ea3f524285b5b0d065fb",
+  "contentSha256": "1fc02a3480630f9a7b5c3ba56908761f1ad0d802c4dbba80b82ee592ca4feff0",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 26,
-      "sha256": "a280211906dbdee7ab63f732a29fd768b8efc3b8f0f37189748c7b512e45a979",
+      "version": 27,
+      "sha256": "61419bb1965ca40345aa680d2980ae1beb494f53c3f73d6c20457638c0402ecc",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -600,8 +600,8 @@
     {
       "id": "skill-master",
       "title": "Skill master and attached skills",
-      "version": 8,
-      "sha256": "378c42e17ab7f4ef02172682963ce5cca4b30c0e2eca415b1f0090ec4579f03f",
+      "version": 9,
+      "sha256": "66fd87fb1da89a85f1e1d04065ce3c7ac7eb0744d5c2b72ed664a914756f48cb",
       "routingSha256": "0fd4468408d098ee8b88433a15885071003c69e6fab735de15d09d1f424aa4da",
       "file": "skill-master.md"
     },

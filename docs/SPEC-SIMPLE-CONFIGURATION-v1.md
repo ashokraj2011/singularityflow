@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 15 November 2026
-**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026); stages 2 to 5 are not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct). Stage 1e was extended to fresh-install and local-reset the same day (D11).
+**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026). Stage 2 is built (branch scf-stage2, 16 November 2026), with two pieces of stage 3 the owner asked for with it: a proposal ID per proposer (ER-F9) and a kept Studio draft moved onto a newer configuration (ER-F10). Stages 3 to 5 are not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct). Stage 1e was extended to fresh-install and local-reset the same day (D11).
 **Namespace:** SCF. No other document uses it.
 **Source baseline:** main bd90bcc46. File references are to that commit.
 **Inputs:** the four analyses of 2026-11-15 (workspaces, upgrades, editing and review, configuration history).
@@ -271,6 +271,29 @@ with values; pick one of two values; reject and withdraw; approve run again fini
 parent is the commit its author read; the approval commit records proposer and approver; Recreate & sync goes
 (SCF:REQ-005 to REQ-009, REQ-018). Fixes ER-F1, F2, F6, F12, and parts of F4 and F11. Risk: low to medium; it changes
 the activation engine that every approval uses.
+Built 16 November 2026 (branch scf-stage2):
+- 2a. The merge base. A proposal's change is read from its merge base with `sflow/config` (`src/git-proposal-history.mjs`)
+  by inspection, the list and activation alike; a host's "Update branch" merge keeps it valid; one that merges
+  `sflow/config` in at two unrelated places is refused (SCF:REQ-005).
+- 2b. The approval names the revision shown: `configuration approve <proposal> --confirm <revision>`, a yes right after
+  the view, or `--yes`, which approves only the revision this machine last showed; a moved proposal is refused and shown
+  again (SCF:REQ-006).
+- 2c. Pick one of two values: a field both sides changed is listed with both values; `--pick <file>#<field>=proposal|current`
+  (or the terminal's question, or VS Code's choice) decides it; a pick that no longer matches is refused; nothing
+  replays several proposals (SCF:REQ-007).
+- 2d. The approve view (`src/configuration-approval-view.mjs`): each workflow, field and value before and after, each file
+  with its changed lines, the same lines in the terminal, `workflow proposal --json` (`viewLines`) and VS Code's review
+  document (SCF:REQ-008).
+- 2e. States, reject and withdraw: `configuration reject <proposal> --reason <text>` records who and why on the state branch
+  (`singularity/configuration-rejections/<commit>.json`) and removes the branch with a lease on the revision shown; a
+  rejection by the author is a withdrawal; approve run again finishes an interruption (SCF:REQ-009).
+- 2f. A proposal's parent is the commit its author read, also for `/sf-fix-workflow`'s change set (`base.authority`);
+  the approval commit's author is the proposer and its committer the approver, with `Proposed-by`, `Approved-by` and
+  `Self-approved: yes` trailers and each pick (SCF:REQ-005, REQ-018).
+- 2g. Recreate & sync is removed; `configuration recreate-sync` refuses by name and routes to `configuration approve`.
+- From stage 3, at the owner's request: a proposal branch carries its proposer's key (`-by<8 hex>`), so separate
+  proposers get separate proposal IDs (ER-F9); Workflow Studio moves a kept draft onto a newer configuration instead of
+  comparing a stale full copy with it, and names a field both changed (ER-F10, SCF:REQ-013 for kept drafts only).
 
 **Stage 3 — One way in.** People proposals (enrollment inline where allowed, `add-current-identity`, policy edits,
 no self re-add after a removal); package proposals under `sflow/config-change/package/` through the same engine; the

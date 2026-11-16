@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 26
+version: 27
 commands:
   - configuration
   - workflow
@@ -37,14 +37,22 @@ Use this topic when the current goal matches **configuration**. Start in a repos
 
 ## State and safety
 
-Configuration proposal activation uses semantic transactions, not textual Git merges. A stable
-proposal identity can have multiple preserved, immutable revisions. Unrelated approved settings
-survive activation; competing edits return exact fields for review. A private SQLite read model
-speeds lists but cannot approve anything. Shared receipts and an SGOS-backed local journal support
-interrupted-operation recovery. Inspect with `singularity-flow configuration transactions --json`;
-explicitly reconcile an exact retained operation with `singularity-flow configuration reconcile
-<CFT-ID> --json` or `/sf-configuration reconcile <CFT-ID>`. Reconciliation observes authority and
-finishes pending reference sync; it never blindly repeats a push. See
+Configuration proposal activation uses semantic transactions, not textual Git merges. A proposal's
+change is everything from its merge base with `sflow/config` to its tip, however many commits it has
+and whether or not the Git host merged `sflow/config` into it ("Update branch"). Each person's
+proposal has its own identity, and a new save of it is a revision of it. A proposal is made on the
+`sflow/config` commit its author read; when `sflow/config` moved since, approval re-applies the
+proposal's field edits on top, and unrelated approved settings survive. A field both changed
+differently is the approver's pick of one of the two values (`configuration approve <PROPOSAL>
+--confirm <REVISION> --pick <FILE>#<FIELD>=proposal|current`, a question in the terminal, or a choice
+in VS Code); the approval commit records the pick, who proposed and who approved (`Proposed-by`,
+`Approved-by`, `Self-approved: yes`). `configuration approve` shows what lands, value by value, and
+approves exactly the revision it showed; `--yes` approves only the revision it showed last.
+`configuration reject <PROPOSAL> --reason <TEXT>` rejects one, or withdraws your own. A private SQLite
+read model speeds lists but cannot approve anything. Shared receipts and an SGOS-backed local journal
+support interrupted-operation recovery: running `configuration approve <PROPOSAL>` again on an
+approved proposal finishes whatever an interruption left, and never blindly repeats a push. Inspect
+with `singularity-flow configuration transactions --json`. See
 [Configuration State Service](../CONFIGURATION-STATE-SERVICE.md) for scope and rollout limitations.
 
 ### Test setup

@@ -16,7 +16,7 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 8
+version: 9
 ---
 The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
@@ -178,7 +178,7 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
    ```
 
 3. Send both drafts for one review with `singularity-flow configuration propose`. The proposal holds one `SKILL.md` and each attachment: a row in the `## Attached skills` table of an agent this repository owns, or an entry in `singularity/skill-library/attachments.yml` for a workflow or any other agent.
-4. Approve it with `singularity-flow configuration approve`. It shows every file the proposal changes, asks for confirmation (`--yes` when there is no terminal), and activates exactly the revision it showed; there is no commit to copy. If your Git host protects `sflow/config`, merge the proposal there and run the command again to record it.
+4. Approve it with `singularity-flow configuration approve`. It shows what approving it changes, value by value and line by line, asks for confirmation, and activates exactly the revision it showed. Without a terminal, run the `--confirm <REVISION>` line it prints, or `--yes`, which approves only the revision it showed last. If your Git host protects `sflow/config`, merge the proposal there and run the command again to record it.
 5. Check it. `singularity-flow skill show security-review` lists its users, and `singularity-flow workflow validate` checks every attachment. To change the skill later, run `singularity-flow skill edit security-review --from ./security-review.md` and propose it the same way. Each attached workflow and agent uses the new text in Stories started after the approval.
 
 ## State and safety

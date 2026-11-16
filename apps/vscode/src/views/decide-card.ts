@@ -15,7 +15,8 @@ import { collectReviewConfirmation } from './review-confirmation.ts';
 import { createTerminalIn } from '../terminal-start.ts';
 import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
-  type DecisionAnswers, type DecisionPacket } from './decision-list-model.ts';
+  versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionItemPacket, type DecisionPacket,
+  type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
 import { approvalRows, checkNames, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
   guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
@@ -58,9 +59,25 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
   const workId = target.workId;
   if (open) { open.reveal(); return { status: 'busy', message: 'The decisions page is already open. Finish it there.' }; }
   let packet = await readList(client, workId);
+  // A step's next version waiting for the person's yes is asked on this card, and what they answered here.
+  let declined: VersionOpeningPacket | null = null;
+  let started: VersionOpeningPacket | null = null;
+  /**
+   * The engine's own row for the same next version (decision-list.mjs rolloverItem, a step in the person's terminal) asks
+   * what the card's question asks. Once the person said yes here it is answered; while the question is on the page, or
+   * after "Not now", a row that offers nothing but starting that version is not asked twice. A row that can also leave
+   * the change out stays.
+   */
+  const covered = (item: DecisionItemPacket) => {
+    const target = started ?? versionOpeningOf(packet) ?? declined;
+    return Boolean(target) && item.kind === 'generation-rollover' && item.details?.phase === target!.phase && Number(item.details?.next) === Number(target!.version)
+      && (Boolean(started) || item.options.every((option) => option.id === 'start-next-generation'));
+  };
+  const shown = (): DecisionPacket => ({ ...packet, items: packet.items.filter((item) => !covered(item)) });
   // A chat that asked carries on when nothing waits: only a person who opened this page sees a review nothing waits on,
   // or the approval, whose row opens its page [owner, 2026-11-13].
-  if (!(askedInChat ? openRows(packet) : [...decideRows(packet), ...approvalRows(packet)]).length) return { status: 'nothing-to-decide', message: packet.headline, next: packet.next ?? null };
+  const waiting = () => (askedInChat ? openRows(shown()) : [...decideRows(shown()), ...approvalRows(shown())]);
+  if (!waiting().length && !versionOpeningOf(packet)) return { status: 'nothing-to-decide', message: packet.headline, next: packet.next ?? null };
   const panel = vscode.window.createWebviewPanel('singularityFlow.decide', `Decide · ${workId}`, vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
   open = panel;
@@ -77,7 +94,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     let summaryUpdate: string | undefined;
     const render = (error: string | null = null, notice: string | null = null) => {
       const token = nonce();
-      panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(packet, { error, notice, busy, draft, route })}`,
+      panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(shown(), { error, notice, busy, draft, route, declined: declined?.digest ?? null })}`,
         contentSecurityPolicy(panel.webview, token), token, DECIDE_SCRIPT);
     };
     const finish = (result: DecideResult) => {
@@ -144,6 +161,57 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       },
       // The approval starts from this card: its row opens the approval page with the documents [owner, 2026-11-13].
       'decide.approval': () => { void vscode.commands.executeCommand('singularityFlow.openApprovals'); },
+      // A step's next version: the person's yes to the exact proposal this page showed, kept by the engine's own command
+      // (`decisions record --version-consent`), as on the Copilot CLI card [D3, OSA:REQ-030]. This page writes no record,
+      // never runs the opening itself and never sends anything to a chat; "Not now" records nothing.
+      'decide.version': async (message) => {
+        if (busy) return;
+        const asked = versionOpeningOf(packet);
+        const answer = stringField(message, 'answer');
+        if (!asked || asked.digest === declined?.digest || stringField(message, 'digest') !== asked.digest || (answer !== 'yes' && answer !== 'no')) {
+          await reread();
+          return render('This question changed since the page showed it, so nothing was recorded. Read it again below.');
+        }
+        const version = `Version ${asked.version} of ${asked.phase}`;
+        if (answer === 'no') {
+          declined = asked;
+          if (!waiting().length) { const result = notNow(); return finish({ ...result, message: `${version} was not started. ${result.message}` }); }
+          return render(null, `${version} was not started; nothing was recorded for it.`);
+        }
+        busy = true; render();
+        // The list as it is now: the yes is kept only for the proposal still waiting, on this Story.
+        let fresh: DecisionPacket;
+        try { fresh = await readList(client, workId); } catch {
+          busy = false; panel.reveal();
+          return render(`The decisions for ${workId} could not be read in this checkout now, so nothing was recorded. If it holds another Story, open ${workId}'s checkout and ask again.`);
+        }
+        packet = fresh;
+        const now = versionOpeningOf(packet);
+        if (!now || now.digest !== asked.digest) {
+          busy = false; panel.reveal();
+          return render(now ? 'The proposal changed since the page showed it, so nothing was recorded. This is the one waiting now.'
+            : `${version} no longer waits for your yes, so nothing was recorded.`);
+        }
+        try {
+          const outcome = versionConsentOutcome(await client.run(versionConsentArgv(now), undefined, { priority: 'interactive' }));
+          recorded = [...recorded, 'version-opening'];
+          started = now;
+          // Kept: a view that fails to refresh never turns it into a failure.
+          await Promise.resolve(refresh?.()).catch(() => undefined);
+          await reread();
+          busy = false;
+          if (!waiting().length) return finish({ status: 'recorded', recorded, remaining: [], message: outcome.message, next: outcome.next });
+          panel.reveal();
+          render(null, outcome.message);
+        } catch (error) {
+          const failure = error as Error & { result?: unknown };
+          const outcome = versionConsentOutcome(null, { message: failure.message, result: failure.result });
+          // The engine's own words: what it refused, and for a moved or other proposal, that nothing was kept.
+          await reread();
+          busy = false; panel.reveal();
+          render(outcome.message);
+        }
+      },
       'decide.route': () => {
         if (!route) return;
         const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
@@ -177,9 +245,9 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           const writesOnly = draftsOnly(packet, choices);
           const confirmed = await collectReviewConfirmation(writesOnly
             ? { title: `Draft the amendment on ${workId}`, summary: 'A draft is written beside the checkout\'s Git data, with your reason in its slot; nothing is recorded or decided.',
-              detail: decideSummary(packet, choices), confirmLabel: 'Write the draft' }
+              detail: decideSummary(shown(), choices), confirmLabel: 'Write the draft' }
             : { title: `Record ${choices.length} decision${choices.length === 1 ? '' : 's'} on ${workId}`,
-              summary: 'Each one is recorded with its own reason, under your name.', detail: decideSummary(packet, choices), confirmLabel: 'Record these decisions' });
+              summary: 'Each one is recorded with its own reason, under your name.', detail: decideSummary(shown(), choices), confirmLabel: 'Record these decisions' });
           if (!confirmed) { busy = false; panel.reveal(); return render(); }
           const outcome = decisionRecordOutcome(await record(client, packet, answers)).outcome;
           summaryUpdate = outcome.summaryUpdate ?? summaryUpdate;

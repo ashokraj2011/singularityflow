@@ -18,7 +18,6 @@ import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 
 export const ASKED_FOR = Object.freeze({ characters: 2000, turns: 20 });
-export const ASKED_FOR_SKILLS = Object.freeze(['sf-code', 'sflow-code', 'sf-phase', 'sflow-phase']);
 const LEDGER_SCHEMA = 'sflow-asked-for/v1';
 const LEDGER_BYTES = 512 * 1024;
 // A bare step word or Work ID says which step to run, not what to build: there is nothing to account for.
@@ -63,6 +62,8 @@ export async function redactedWords(typed) {
  * subagent's task, another skill, nothing typed, or only a step word.
  */
 export async function typedInstruction(payload, skill) {
+  // The turns are the alias table's (writing-aliases.mjs ASKED_FOR_SKILLS), already loaded by the hook that calls this.
+  const { ASKED_FOR_SKILLS } = await import('./writing-aliases.mjs');
   if (!ASKED_FOR_SKILLS.includes(skill) || subagentPayload(payload)) return null;
   const typed = typedArguments(payload?.prompt);
   if (!typed || NOT_AN_INSTRUCTION.test(typed)) return null;

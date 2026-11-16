@@ -10,7 +10,7 @@
  */
 import { escape } from './webview.ts';
 import type { InboundMessage } from './messages.ts';
-import { checkOf, laterOf, optionRow, plainWords, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
+import { checkOf, laterOf, optionRow, plainWords, versionOpeningOf, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
 
 export { checkOf, laterOf, plainWords };
 
@@ -211,6 +211,25 @@ export function evidenceHtml(packet: DecisionPacket): string {
 }
 
 /** The approval's row: what holds it, its recommendation, and a button that opens the approval page with its documents. */
+/** The two answers to a waiting next version, in the Copilot CLI card's words (plugin/extensions/decisions/card.mjs). */
+export const START_VERSION = 'Yes, start it';
+export const NOT_NOW = 'Not now';
+
+/**
+ * A step's next version waiting for the person's yes, asked first as its own question, as the Copilot CLI card asks it:
+ * the proposal's question with its real numbers and reason, and two answers bound to that proposal's digest
+ * [D3, OSA:REQ-030]. Nothing is preselected, and none shows once the person said "Not now" to it on this page.
+ */
+export function versionOpeningHtml(packet: DecisionPacket, { declined = null as string | null, busy = false } = {}): string {
+  const opening = versionOpeningOf(packet);
+  if (!opening || opening.digest === declined) return '';
+  const digest = escape(opening.digest);
+  return `<section class="dc-opening" aria-label="Start version ${opening.version} of ${escape(opening.phase)}"><h2>${escape(opening.question)}</h2>
+    <p class="muted">Your yes is kept for this exact proposal; the step's work command then opens it. Nothing starts on "${NOT_NOW}".</p>
+    <div class="dc-answers"><button type="button" data-version="yes" data-digest="${digest}"${busy ? ' disabled' : ''}>${START_VERSION}</button>
+      <button type="button" class="secondary" data-version="no" data-digest="${digest}"${busy ? ' disabled' : ''}>${NOT_NOW}</button></div></section>`;
+}
+
 function approvalHtml(packet: DecisionPacket): string {
   return approvalRows(packet).map((item) => ({ item, plain: plainWords(item) })).map(({ item, plain }) => `<section class="dc-approval" aria-label="${escape(item.title)}"><h2>${escape(plain.question ?? item.title)}</h2>
     ${plain.why ? `<p class="muted dc-why">${escape(plain.why)}</p>` : ''}${plain.recommended ? `<p class="dc-rec">${escape(plain.recommended)}</p>` : ''}
@@ -219,7 +238,9 @@ function approvalHtml(packet: DecisionPacket): string {
     : `<p class="muted">${escape(item.decidedBy?.words ?? '')}${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</p>`}</section>`).join('');
 }
 
-export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined, route = null as string | null } = {}): string {
+export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined, route = null as string | null,
+  declined = null as string | null } = {}): string {
+  const opening = versionOpeningHtml(packet, { declined, busy });
   const open = decideRows(packet).filter((item) => !item.settled);
   // What nobody can answer yet is one line, never a row [owner, 2026-11-16].
   const later = [...open, ...approvalRows(packet)].map(laterOf).filter((line): line is string => Boolean(line));
@@ -234,11 +255,12 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
     ${error ? `<p class="dc-error" role="alert">${escape(error)}</p>` : ''}
     ${notice ? `<p class="dc-notice" role="status">${escape(notice)}</p>` : ''}
     ${route ? `<div class="dc-own"><code>${escape(route)}</code><button type="button" data-route>Put it in a terminal</button></div>` : ''}
+    ${opening}
     ${shared.length ? `<section class="dc-all"><label for="dc-all-choice">One answer for all that offer it</label>
       <select id="dc-all-choice"><option value="">Choose…</option>${shared.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.label)} (${entry.rows} rows)</option>`).join('')}</select>
       <input id="dc-all-reason" aria-label="One reason for all of them" placeholder="One reason" maxlength="1000"><button type="button" data-apply-all>Apply to all</button>
       ${shared.filter((entry) => entry.others).map((entry) => `<p class="muted">"${escape(entry.label)}" covers only the rows you decide; ${entry.others === 1 ? '1 more stays' : `${entry.others} more stay`} listed for their own approvers.</p>`).join('')}</section>` : ''}
-    ${rows.length || (!settled.length && !later.length) ? `<div class="dc-table"><table>
+    ${rows.length || (!settled.length && !later.length && !opening) ? `<div class="dc-table"><table>
       <thead><tr><th>The question</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${rows.map((item) => rowHtml(item, draft)).join('')}</tbody>
     </table></div>` : ''}
@@ -359,7 +381,10 @@ export const DECIDE_STYLE = `
 .dc-does { margin:.25rem 0 0; padding-left:1.1rem; font-size:.9em; }
 .dc-does li { margin:.1rem 0; overflow-wrap:anywhere; }
 .dc-tag { display:inline-block; padding:0 .3rem; border-radius:3px; font-size:.8em; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); }
-.dc-settled h2, .dc-approval h2 { margin:0 0 .25rem; font-size:1.05em; }
+.dc-settled h2, .dc-approval h2, .dc-opening h2 { margin:0 0 .25rem; font-size:1.05em; }
+.dc-opening { border-left:3px solid var(--sf-border-color, var(--vscode-panel-border)); padding:.1rem 0 .1rem .75rem; display:grid; gap:.4rem; }
+.dc-opening p { margin:0; overflow-wrap:anywhere; }
+.dc-answers { display:flex; flex-wrap:wrap; gap:.5rem; }
 .dc-approval { border-left:3px solid var(--sf-border-color, var(--vscode-panel-border)); padding:.1rem 0 .1rem .75rem; }
 .dc-notice { margin:0; }
 .dc-later { margin:0; overflow-wrap:anywhere; }
@@ -406,6 +431,9 @@ document.addEventListener('click', (event) => {
     return vscode.postMessage({ type, item: row.dataset.item, option: step.dataset.terminal ?? step.dataset.copy ?? step.dataset.witness, rows: answers() });
   }
   if (event.target.closest('[data-route]')) return vscode.postMessage({ type: 'decide.route' });
+  // A waiting next version: the answer with the digest of the proposal this page showed.
+  const version = event.target.closest('[data-version]');
+  if (version) return vscode.postMessage({ type: 'decide.version', answer: version.dataset.version, digest: version.dataset.digest });
   const check = event.target.closest('[data-check]');
   if (check) return vscode.postMessage({ type: 'decide.check', item: check.dataset.check, rows: answers() });
   if (event.target.closest('[data-approval]')) return vscode.postMessage({ type: 'decide.approval' });

@@ -16,6 +16,7 @@
  */
 import { ASKED_FOR, askedForGeneration, localAskedFor, needsAccount, typedFocusOff } from './asked-for.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
+import { readOnlyAgent } from './phase-actor-policy.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 
 /** One instruction as people read it: its number and its words, quoted, and where it was asked. */
@@ -60,6 +61,9 @@ export async function pendingAskedFor(root, workflow, phase) {
  * written leaves the step as it was: the words stay in the local record for the next prepublish.
  */
 export async function copyAskedFor(root, config, workflow, phase, { actor, agent = null } = {}) {
+  // A read-only agent (the source reviewer) writes no Story record: the step's own command refuses it for its role
+  // before any commit, and the words stay in the local record for the step's author [OSA Stage 5b].
+  if (readOnlyAgent(config, workflow, { agent })) return [];
   const pending = await pendingAskedFor(root, workflow, phase);
   if (!pending.entries.length) return [];
   const [{ actorKey, assertNoPendingPublication, transactStory }] = await Promise.all([import('./state-stores.mjs')]);

@@ -119,7 +119,15 @@ export interface DecisionPacket {
   record?: { form?: string; recommended?: string | null; interactive?: string; share?: string };
   unavailable?: Array<{ phase?: string; reason?: string }>;
   approvalEvidence?: ApprovalEvidencePacket | null;
+  /** The step's next version a preview proposed, waiting for the person's yes on this card [OSA:REQ-030]. */
+  versionOpening?: VersionOpeningPacket | null;
 }
+
+/**
+ * A step's next version waiting for the person's yes, as `decisions --json` lists it: the proposal's own question with its
+ * real numbers and reason, the confirmation its preview showed, and the proposal's digest the yes is bound to.
+ */
+export interface VersionOpeningPacket { workId: string; phase: string; version: number; question: string; confirmation: string; digest: string }
 
 /** What a person chose for one item, with the values they see in its fields. */
 export interface DecisionArticleAnswer { article: string; decision: string; reason?: string }
@@ -423,6 +431,49 @@ function phaseArgs(phase: string | null | undefined): string[] {
 function assertWorkId(workId: string): string {
   if (!WORK_ID.test(workId) || workId.includes('..')) throw new Error('Select the Story whose decisions you want to see.');
   return workId;
+}
+
+// A preview's confirmation value, as the guard reads one (copilot-repository-boundary.mjs confirmedTurn).
+const CONFIRMATION = /^(?:sha256:[a-f0-9]{64}|[a-z]{2,12}[-_][a-f0-9]{16,64}|[a-f0-9]{64}|[a-f0-9]{40})$/u;
+
+/**
+ * The step's next version waiting on this list for the person's yes, or null: none waits, it is another Story's, or it is
+ * not the shape the engine lists. The card asks only this, exactly as the engine worded it.
+ */
+export function versionOpeningOf(packet: DecisionPacket | null | undefined): VersionOpeningPacket | null {
+  const opening = object(packet?.versionOpening);
+  if (!opening || !packet || opening.workId !== packet.workId || typeof opening.phase !== 'string' || !opening.phase
+      || !Number.isSafeInteger(opening.version) || Number(opening.version) < 1 || typeof opening.question !== 'string' || !opening.question.trim()
+      || typeof opening.confirmation !== 'string' || !CONFIRMATION.test(opening.confirmation) || typeof opening.digest !== 'string' || !DIGEST.test(opening.digest)) return null;
+  return opening as unknown as VersionOpeningPacket;
+}
+
+/**
+ * The person's yes on the card to the exact proposal it showed. The engine keeps it (`decisions record --version-consent`,
+ * the command the Copilot CLI card runs), bound to that digest; this extension writes no record of its own.
+ */
+export function versionConsentArgv(opening: VersionOpeningPacket): string[] {
+  if (!CONFIRMATION.test(opening.confirmation) || !DIGEST.test(opening.digest)) throw new Error('This proposal cannot be answered here; read the decisions card again.');
+  return ['decisions', 'record', assertWorkId(opening.workId), '--version-consent', opening.confirmation, '--expect', opening.digest, '--json'];
+}
+
+/**
+ * What the yes did, from the engine's result or its refusal: kept (its words, and the step's route that opens the version),
+ * refused because the proposal moved or is another one, or failed. Nothing is kept in either refusal.
+ */
+export function versionConsentOutcome(result: unknown, failure: { message: string; result?: unknown } | null = null): {
+  kind: 'recorded' | 'stale' | 'failed'; message: string; code: string | null; next: { command: string; skill: string | null } | null;
+} {
+  if (!failure) {
+    const response = object(result);
+    const data = object(response?.data) ?? response ?? {};
+    const first = object(Array.isArray(response?.next) ? response!.next[0] : null);
+    return { kind: 'recorded', code: null, message: text(data.words) ?? 'Your yes is kept for this exact proposal; the step\'s work command opens it.',
+      next: first && typeof first.command === 'string' ? { command: first.command, skill: text(first.skill) } : null };
+  }
+  const refusal = refusalOf(failure.result);
+  const stale = refusal?.code === 'VERSION_CONSENT_WRONG_TARGET' || refusal?.code === 'VERSION_OPENING_STALE';
+  return { kind: stale ? 'stale' : 'failed', code: refusal?.code ?? null, message: refusal?.message || failure.message, next: null };
 }
 
 /** The read: the list as it stands now. */

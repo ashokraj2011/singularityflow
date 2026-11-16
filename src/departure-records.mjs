@@ -22,6 +22,7 @@ import {
   recordDeparture, recordDepartureAcceptance, recordDepartureRejection
 } from './departures.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
+import { readOnlyAgent } from './phase-actor-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { posix, SingularityFlowError, nowIso } from './util.mjs';
 
@@ -268,7 +269,8 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
  * keep their own refusal. Returns what was recorded; an empty list when nothing was, or nothing could be.
  */
 export async function recordPathDepartures(root, config, workflow, phase, { actor, agent = null } = {}) {
-  if (!await openCodeGeneration(workflow, phase)) return [];
+  // A read-only agent records no departure: the step's own command refuses it for its role before any commit [OSA Stage 5b].
+  if (readOnlyAgent(config, workflow, { agent }) || !await openCodeGeneration(workflow, phase)) return [];
   const [{ unreconciledCandidatePaths }, { rejectedDeparturePaths }, { classifySupportingChange }, { loadActiveSpecRecords, mergePlannedClaimRecords }, { workDir }] = await Promise.all([
     import('./candidate-scope.mjs'), import('./departures.mjs'), import('./supporting-changes.mjs'), import('./specifications.mjs'), import('./story-paths.mjs')]);
   const unresolved = await unreconciledCandidatePaths(root, config, workflow, phase);

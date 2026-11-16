@@ -9,6 +9,7 @@ import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { platformPathWithin } from './util.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { confirmCodesIn, resolveConfirmCode } from './confirm-code.mjs';
+import { ASKED_FOR_SKILLS, TASK_COMPLETION_ALIASES } from './writing-aliases.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
 /**
@@ -20,8 +21,6 @@ export const RUNTIME_UNAVAILABLE_MARKER = 'runtime-unavailable';
 const MAX_AGE_MS = TURN_WINDOW_MS;
 const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent']);
 const BUNDLED_AGENTS = new Set(['sflow-workflow', 'sflow-utility', 'sflow-source-reviewer']);
-// The turns whose typed words are kept as what the person asked for (asked-for.mjs ASKED_FOR_SKILLS).
-const ASKED_FOR_SKILLS = new Set(['sf-code', 'sflow-code', 'sf-phase', 'sflow-phase']);
 const SEARCH_VALUE_FLAGS = new Set(['-g', '--glob', '-t', '--type', '-T', '--type-not',
   '-m', '--max-count', '-A', '--after-context', '-B', '--before-context', '-C', '--context',
   '--max-depth', '--encoding', '--sort', '--sortr']);
@@ -55,11 +54,13 @@ export function sourceReviewCompletionRequested(prompt) {
   return typeof args === 'string' && !/^(?:context|stage|check|submit|status|decide|decision-context)(?:\s|$)/u.test(args);
 }
 
-/** Opt in full authoring tasks by capability, never by a workflow's phase names. */
+/**
+ * Opt in full authoring tasks by capability, never by a workflow's phase names: the authoring catalog's skills and the
+ * writing aliases whose turn completes the step's task (writing-aliases.mjs, the one table that names them).
+ */
 export function workflowTaskCompletionRequested(prompt) {
   const skill = explicitSflowSkill(prompt)?.replace(/^sf-/u, 'sflow-');
-  if (!skill || !(AUTHORING_SKILL_DECLARATION[skill]
-      || ['sflow-call', 'sflow-implement', 'sflow-specify', 'sflow-plan', 'sflow-verify', 'sflow-scenario-repair'].includes(skill))) return false;
+  if (!skill || !(AUTHORING_SKILL_DECLARATION[skill] || TASK_COMPLETION_ALIASES.includes(skill))) return false;
   const args = prompt.trim().startsWith('/') ? prompt.trim().replace(/^\/\S+\s*/u, '')
     : prompt.match(/\bARGUMENTS:\s*([^]*?)\s*<\/skill-context>/u)?.[1];
   return typeof args === 'string' && !/^(?:context|stage|check|status|show|preview|prepare|publish)(?:\s|$)/u.test(args);
@@ -255,8 +256,8 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
     await rename(temporary, file);
   } finally { await removeRecord(temporary); }
   // What a person typed after /sf-code or /sf-phase, redacted [SCS:REQ-040]: handed to the Story's own
-  // local record once the turn's Story is known, never kept in this turn record.
-  const typed = ASKED_FOR_SKILLS.has(skill)
+  // local record once the turn's Story is known, never kept in this turn record. The turns are the alias table's.
+  const typed = ASKED_FOR_SKILLS.includes(skill)
     ? await import('./asked-for.mjs').then((module) => module.typedInstruction(payload, skill)).catch(() => null) : null;
   const turn = typed ? { ...record, typed } : record;
   const captured = captureMutation ? await captureMutation(payload, turn)

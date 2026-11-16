@@ -284,6 +284,10 @@ export async function readWorkflowTaskResume(root, workflow, phase, options = {}
   if (options.published === true && phase.generation > 0 && options.generation == null) options = { ...options, generation: phase.generation };
   if (!workflowTaskHasGeneration(workflow, phase, options.role, options.generation)) return null;
   const record = await readWorkflowTask(root, workflow, phase, options);
+  // A commit retained here is the task's `publication-pending` stage, read from its sealed record across interruptions.
+  if (options.pendingPublication === undefined && phase.id === workflow.currentPhase) options = { ...options, pendingPublication:
+    await (await import('./publication-pending.mjs')).readPendingPublication(root, { kind: 'story', id: workflow.workItem.id, migrate: false,
+      roots: { workItemRoot: workflow.resolution?.workItemRoot ?? 'singularity/work-items' } }).catch(() => null) ?? false };
   if (!options.nextAction && (options.role ?? 'author') === 'author') {
     // A next version opens only on the person's yes: its preview, as the other views name it [OSA:REQ-030].
     const progress = (await import('./phase-authoring-progress.mjs')).phaseAuthoringProgress(workflow, phase);

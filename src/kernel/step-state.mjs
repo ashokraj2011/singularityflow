@@ -40,14 +40,15 @@ export const REASON_CODES = Object.freeze([
   'APPROVED_STEP', 'CONSUMED_OPENING_MISMATCH', 'NOT_AUTHORING_TURN', 'NO_CHANGE_CAPABILITY', 'STEP_NOT_ACTIVE',
   'LEGACY_LOCAL_OPENING', 'OPENING_PENDING', 'OPENING_UNKNOWN', 'OPENING_REFUSED', 'OPENING_UNOBSERVED', 'WRITER_FENCED', 'CONSENT_REQUIRED',
   'TASK_RUNNING', 'TASK_WAITING_INPUT', 'TASK_WAITING_ENVIRONMENT', 'TASK_WAITING_PERSON', 'TASK_REPAIR_REQUIRED', 'TASK_REPAIR_EXHAUSTED',
-  'REVIEW_CORRECTIONS_WITHOUT_VERSIONS'
+  'REVIEW_CORRECTIONS_WITHOUT_VERSIONS', 'TASK_PUBLICATION_PENDING'
 ]);
 /**
  * A durable task's outcome (§8, plan section 5 "Task stages"): what the version being written waits for, as its task
  * record keeps it across turns, chats and laptops. `running` is an execution being observed; the four waits stop at a
  * named, recoverable boundary with the original code and resources, never a repetition of the same route.
+ * `publication-pending`: the step's commit, made here, is sent as it is.
  */
-export const TASK_OUTCOMES = Object.freeze(['running', 'waiting-input', 'waiting-environment', 'waiting-person', 'repair-required']);
+export const TASK_OUTCOMES = Object.freeze(['running', 'waiting-input', 'waiting-environment', 'waiting-person', 'repair-required', 'publication-pending']);
 /** An opening operation's shared acceptance as this checkout observed it (story-version-acceptance.mjs), and its writer. */
 export const OPENING_ACCEPTANCE = Object.freeze(['confirmed', 'pending', 'unknown', 'refused', 'unobserved']);
 export const OPENING_WRITERS = Object.freeze(['current', 'other']);
@@ -188,7 +189,7 @@ function openingHold(opening) {
  * configured budget, and an exhausted budget is a person's decision with the evidence kept, never the same work again.
  */
 function taskWait(task, target) {
-  if (!task || !TASK_OUTCOMES.includes(task.outcome)) return null;
+  if (!task || !TASK_OUTCOMES.includes(task.outcome) || task.outcome === 'publication-pending') return null;
   const code = text(task.code) ?? null;
   const used = Number.isSafeInteger(task.repairs?.used) && task.repairs.used >= 0 ? task.repairs.used : 0;
   const budget = Number.isSafeInteger(task.repairs?.budget) && task.repairs.budget >= 0 ? task.repairs.budget : 0;
@@ -257,6 +258,14 @@ export function stepState(snapshot) {
   if (damaged) return decision(snapshot, 'damaged',
     action('reconcile', 'recover-operation', { target: target(numbers.published || null), inputs: { damage: damaged }, reasonCodes: ['STEP_DAMAGED', damaged] }),
     { ...base, edit: NO_EDIT(['STEP_DAMAGED']) });
+  // An interrupted publication: its retained commit is sent before anything could write or publish again [REQ-033].
+  const pending = facts.task?.outcome === 'publication-pending' ? facts.task : null;
+  if (pending) {
+    const next = action('reconcile', 'publish-version', { target: target(numbers.writing ?? (numbers.published || null)),
+      inputs: { pending: true, code: text(pending.code) ?? null, commit: text(pending.commit) ?? null }, reasonCodes: ['TASK_PUBLICATION_PENDING'] });
+    return decision(snapshot, 'waiting', next, { ...base, edit: NO_EDIT(['TASK_PUBLICATION_PENDING']),
+      task: { id: text(pending.id) ?? null, status: 'publication-pending', stage: text(pending.stage) ?? null, progressReference: null, continuation: next.actionId } });
+  }
   // 4. Authorization, ownership and holds that stop authoring name their owner and resolution.
   if (actor.permissionsRevoked === true) return decision(snapshot, 'held',
     action('refresh', 'refresh-authority', { target: target(numbers.writing), principalKind: 'human', role: 'person', reasonCodes: ['PERMISSION_REVOKED'] }),
@@ -382,8 +391,8 @@ export function stepState(snapshot) {
 
 /**
  * Whether a run of decisions made progress [OSA:AC-012]: the same action on an unchanged basis, taken again, is a loop.
- * Not a loop: observing a running task (its execution is the progress), a declared wait (the decision says what it waits
- * for) and an idempotent acknowledgement (the caller marks it: repeating it changes nothing and asks for nothing).
+ * Not a loop: observing a running task (its execution is the progress), a declared wait for a person (the decision says
+ * what it waits for) and an idempotent acknowledgement (the caller marks it: repeating it changes nothing and asks for nothing).
  * `steps`: `[{ decision, basisKey, acknowledgement }]` in the order they were taken; `basisKey` is the caller's digest of
  * the facts the decision was made on. Returns `{ loop: false }` or `{ loop: true, first, repeated, actionId }`.
  */
@@ -392,7 +401,8 @@ export function noProgress(steps) {
   for (const [index, entry] of (Array.isArray(steps) ? steps : []).entries()) {
     const next = entry?.decision?.next;
     if (!next?.actionId) continue;
-    const legitimate = next.kind === 'observe' || entry.decision.state === 'waiting' || entry.acknowledgement === true;
+    // A wait for a person is declared; the agent's own repair or retry on an unchanged basis is not.
+    const legitimate = next.kind === 'observe' || (entry.decision.state === 'waiting' && next.principalKind === 'human') || entry.acknowledgement === true;
     const key = `${next.actionId}|${String(entry.basisKey ?? '')}`;
     if (seen.has(key) && !legitimate) return { loop: true, first: seen.get(key), repeated: index, actionId: next.actionId };
     if (!seen.has(key)) seen.set(key, index);

@@ -5,7 +5,10 @@
  *   - `waiting-person`: a person's decision (a Node to pin for a failed required test);
  *   - `waiting-environment`: the environment stopped the run (a person accepts the risk, or it is fixed);
  *   - `waiting-input`: an input that is not on this laptop;
- *   - `repair-required`: the step's own repair, within its configured budget, then a person's decision.
+ *   - `repair-required`: the step's own repair, within its configured budget, then a person's decision;
+ *   - `publication-pending`: the step's commit is made here and waits to reach the shared Story branch. It is read from the
+ *     sealed pending-publication record (publication-pending.mjs), which keeps the exact commit, branch, remote and lease
+ *     across an interruption; its continuation sends that commit and nothing is written again.
  *
  * The record is progress, never authority (workflow-task.mjs): the outcome is kept as its `blockedCode`,
  * `<outcome>:<original code>:<lifecycle mark>`, so an older reader sees an ordinary blocked task. The lifecycle mark is the
@@ -75,8 +78,43 @@ export async function recordRefusalOutcome(root, workflow, phase, refusal) {
   } catch { return null; }
 }
 
-/** The kernel's task fact for the step being written, read from its task record (a private file, no Git); null on any doubt. */
-export async function readTaskOutcome(root, workflow, phase) {
+/**
+ * The kernel's `publication-pending` task fact from a pending-publication record (readPendingPublication or
+ * inspectPendingPublication), with its original resources: the retained commit and its transaction. `true` (a caller
+ * that only knows one is pending) gives the fact without them.
+ */
+export function publicationPendingFact(pending) {
+  if (!pending) return null;
+  const record = pending === true ? {} : pending.record ?? {};
+  const word = (value, pattern) => (pattern.test(String(value ?? '')) ? String(value) : null);
+  return { id: word(record.transactionId, /^[A-Za-z0-9._:-]{1,128}$/u), outcome: 'publication-pending', code: 'PUBLICATION_PENDING',
+    stage: word(record.recoveryStage, /^[a-z][a-z-]{0,80}$/u), commit: word(record.commit, /^[0-9a-f]{40,64}$/u) };
+}
+
+/**
+ * `running`: another process on this machine holds the Story's lease and its heartbeat is renewed (a long quality or test
+ * run under the subject lock). Observed as it is, never called damaged and never started again [§8, OSA:REQ-051]. This
+ * process's own lease, or one whose owner cannot be read here, is not an execution to observe.
+ */
+export function runningExecutionFact(lease) {
+  const liveness = lease?.liveness;
+  if (!lease?.held || liveness?.state !== 'alive' || liveness.reason === 'this-process' || liveness.heartbeat !== 'fresh') return null;
+  return { id: null, outcome: 'running', code: 'STORY_LEASE_HELD', stage: 'execution', progressReference: liveness.lastHeartbeatAt ?? null };
+}
+
+/**
+ * The kernel's task fact for the current step: a retained publication first (it survives any interruption in its sealed
+ * record), then a running execution's live lease, else the step's task record. Private files only, no Git; null on any doubt.
+ */
+export async function readTaskOutcome(root, workflow, phase, { pending } = {}) {
+  if (phase?.id !== workflow.currentPhase) return null;
+  try {
+    const retained = pending !== undefined ? pending : await (await import('./publication-pending.mjs')).readPendingPublication(root,
+      { kind: 'story', id: workflow.workItem.id, migrate: false, roots: { workItemRoot: workflow.resolution?.workItemRoot ?? 'singularity/work-items' } }).catch(() => null);
+    if (retained) return publicationPendingFact(retained);
+    const running = runningExecutionFact(await (await import('./subject-lock.mjs')).inspectSubjectLease(root, { kind: 'story', id: workflow.workItem.id }));
+    if (running) return running;
+  } catch { /* neither read: the task record below */ }
   try {
     const [{ readWorkflowTask }, { workflowTaskApplies, workflowTaskHasGeneration }] = await Promise.all([
       import('./workflow-task-store.mjs'), import('./workflow-task.mjs')]);

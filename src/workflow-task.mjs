@@ -5,7 +5,7 @@ import { SingularityFlowError } from './util.mjs';
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration } from './phase-generation-need.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
-import { taskOutcomeOf } from './workflow-task-outcome.mjs';
+import { publicationPendingFact, taskOutcomeOf } from './workflow-task-outcome.mjs';
 import { readRecord, currentSchemaVersion } from './schema-migrations.mjs';
 
 const ROLES = new Set(['author', 'source-reviewer']);
@@ -194,14 +194,27 @@ export function workflowTaskResume(workflow, phase, { role = 'author', generatio
   let complete = role === 'author' ? published ?? (hasPublishedPhaseGeneration(phase)
     && identity.generation === Number(phase.generation) && phaseInspectionGeneration(workflow, phase) === Number(phase.generation)) : review?.complete === true;
   let next = nextAction ?? progress?.nextAction ?? review?.nextAction ?? null;
-  const recovery = safeCommandGuidance({ argv: ['recover', identity.workId, '--phase', phase.id, '--for-agent', '--json'] });
+  // Where nothing else names the way on, the kernel's own route for the step: recovery only for a damaged one [D4].
+  const routeOf = (task = null) => {
+    try {
+      const decision = stepDecisionOf(workflow, phase, { task });
+      const [route] = decisionRoutes(decision, workflow, phase);
+      return route?.command ? { ...route.commandGuidance, reason: route.detail, operation: decision.next.operation } : null;
+    } catch { return null; }
+  };
+  const recovery = routeOf();
   const checkpointRoute = workflow.currentPhase === phase.id && workflow.status === 'in_progress'
     ? safeCommandGuidance({ argv: ['appeal', 'task-checkpoint', '--work-id', identity.workId, '--phase', phase.id, '--role', role, '--json'] }) : null;
   // Where the task stopped, kept in its record (workflow-task-outcome.mjs): the kernel's wait for it, with its original
   // code, as every view names it; never a recovery for a healthy wait [§8, OSA:REQ-012, REQ-020].
   const outcome = role === 'author' && record && !pendingPublication && !blocked ? taskOutcomeOf(record, workflow) : null;
   const waiting = outcome ? stepDecisionOf(workflow, phase, { task: outcome }) : null;
-  if (pendingPublication) { state = 'blocked'; complete = false; next = recovery; }
+  // A commit retained here: the task's `publication-pending` stage sends that exact commit, never a recovery [OSA:REQ-012].
+  const retained = pendingPublication ? routeOf(publicationPendingFact(pendingPublication)) : null;
+  if (pendingPublication) {
+    state = 'blocked'; complete = false;
+    next = retained?.operation === 'publish-version' ? { ...retained, outcome: 'publication-pending' } : safeCommandGuidance({ argv: ['sync'] });
+  }
   else if (blocked) { state = 'blocked'; complete = false; next = blocked.nextAction ?? next ?? recovery; }
   else if (waiting?.state === 'waiting') {
     const [route] = decisionRoutes(waiting, workflow, phase);
@@ -231,12 +244,13 @@ export function workflowTaskResume(workflow, phase, { role = 'author', generatio
     : ['review-source', 'context', phase.id, '--for-agent', '--json'];
   if (!next && !complete) next = (author ? safeCommandGuidance({ argv: entry, skill: author }) : null) ?? safeCommandGuidance({ argv: entry });
   return { schemaVersion: 1, operationId: identity.id, role, generation: identity.generation, state, complete,
+    ...(pendingPublication ? { stage: 'publication-pending' } : {}),
     resumed: Boolean(record), inputChanged, authority: 'progress-only',
     nextAction: complete ? null : next,
     ...(checkpointRoute ? { handoff: { command: checkpointRoute.command, copilotCommand: checkpointRoute.copilotCommand,
       modelFreeCommand: checkpointRoute.modelFreeCommand, transfers: 'progress-metadata-only' } } : {}),
     checkpoints: (record?.checkpoints ?? []).filter(checkpoint => checkpoint.inputSha256 === inputSha256).map(item => item.kind),
-    remaining: complete ? [] : state === 'publish-ready' ? ['publish'] : state === 'retain-report' ? ['retain']
+    remaining: complete ? [] : state === 'publish-ready' || pendingPublication ? ['publish'] : state === 'retain-report' ? ['retain']
       : state === 'inspect-interrupted-operation' ? ['inspect-outcome'] : state === 'validate-draft' ? ['validate', 'repair-if-needed', 'publish']
       : state === 'repair-draft' ? ['repair', 'validate', 'publish'] : state === 'repair-report' ? ['repair', 'check', 'retain']
         : role === 'author' ? ['author', 'validate', 'repair-if-needed', 'publish'] : ['author-report', 'check', 'repair-if-needed', 'retain'],

@@ -129,9 +129,13 @@ test('interrupted tasks across phase names preserve pending publications and rea
     assert.deepEqual(inspection.nextAction.argv, ['phase', 'draft-check', phaseId, '--work-id', workflow.workItem.id, '--for-agent', '--json']);
     assert.equal(inspection.continuationBudget.consumed, 2);
     assert.equal(inspection.repairConsumed, 1);
+    // A commit retained here is the task's `publication-pending` stage: sync sends that exact commit, never a recovery
+    // (Stage 3 completion) [OSA:REQ-012, D4].
     const pending = workflowTaskResume(workflow, phase, { record, pendingPublication: true });
     assert.equal(pending.state, 'blocked');
-    assert.match(pending.nextAction.command, /^singularity-flow recover /);
+    assert.equal(pending.stage, 'publication-pending');
+    assert.equal(pending.nextAction.command, 'singularity-flow sync');
+    assert.deepEqual(pending.remaining, ['publish']);
     const owner = safeCommandGuidance({ argv: ['decisions', workflow.workItem.id, '--json'] });
     const blocked = workflowTaskResume(workflow, phase, { record, blocked: { code: 'HUMAN_APPROVAL_REQUIRED', nextAction: owner } });
     assert.equal(blocked.state, 'blocked');

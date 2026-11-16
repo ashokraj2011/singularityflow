@@ -167,7 +167,7 @@ async function phaseReadiness(root, config, workflow, {
   }
   // Where the step's task stopped, kept across turns (workflow-task-outcome.mjs); the kernel applies it to an open version only.
   const taskOutcome = phase?.status === 'in_progress' && phaseId === workflow.currentPhase
-    ? await (await import('./workflow-task-outcome.mjs')).readTaskOutcome(root, workflow, phase) : null;
+    ? await (await import('./workflow-task-outcome.mjs')).readTaskOutcome(root, workflow, phase, pendingSynchronization ? { pending: true } : {}) : null;
   const readiness = submissionReadinessSnapshot(workflow, {
     phaseId,
     pendingSynchronization,
@@ -320,7 +320,8 @@ export function submissionReadinessSnapshot(workflow, {
     reasonCode: 'PHASE_NOT_CURRENT'
   });
 
-  if (pendingSynchronization) return result(workflow, phase, {
+  // A commit retained here (the task's `publication-pending` stage): its sync leads, as the kernel names it [OSA:REQ-012].
+  if (pendingSynchronization || taskOutcome?.outcome === 'publication-pending') return result(workflow, phase, {
     ...draft,
     classification: 'synchronization-required',
     pendingSynchronization: true,

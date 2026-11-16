@@ -41,7 +41,7 @@ const record = (workflow, outcome, { used = 0, budget = 2, code = 'CODE_TEST_FAI
   blockedCode: mark ? `${outcome}:${code}:${mark}` : outcomeCode(outcome, code, workflow) });
 
 test('a task outcome is the kernel\'s wait with its exact continuation; a repair runs only within its budget [§8, OSA:REQ-012]', () => {
-  assert.deepEqual([...TASK_OUTCOMES], ['running', 'waiting-input', 'waiting-environment', 'waiting-person', 'repair-required']);
+  assert.deepEqual([...TASK_OUTCOMES], ['running', 'waiting-input', 'waiting-environment', 'waiting-person', 'repair-required', 'publication-pending']);
   for (const code of ['TASK_RUNNING', 'TASK_WAITING_INPUT', 'TASK_WAITING_ENVIRONMENT', 'TASK_WAITING_PERSON', 'TASK_REPAIR_REQUIRED', 'TASK_REPAIR_EXHAUSTED']) {
     assert.ok(REASON_CODES.includes(code), code);
   }

@@ -200,8 +200,8 @@ not counted on either side: they stay, and each one now ends in a proposal.
 
 D10 (16 November 2026) changes two rows above: the installer's and refresh's direct push stays (now authored by the
 person, fenced by build order, one repository at a time), and `sflow/config-refresh/*` reviews go except where the
-host refuses the push. The history-branch row is done in the upgrade itself, apart from the `configuration
-cleanup-history` command, which stays until stage 4 and finds nothing to do once a repository is upgraded.
+host refuses the push. The history-branch row is done in the upgrade itself, `configuration cleanup-history` and
+VS Code's "Clean configuration history" included (removed, D10 answers 5).
 
 Docs that describe removed behaviour change with the stage that removes it: `docs/topics/configuration.md:188-190`,
 `docs/topics/capability-management.md:170-177,325-348,409`, `docs/topics/installation-and-upgrades.md:174,214-221`,
@@ -330,6 +330,13 @@ review branch in each of three repositories that could not be found:
   is kept and reported); where that no longer works, that repository prints its one-command route and holds up no
   other. Deleted: `sflow/config-history/*` branches, their archive tags, `sflow/config-refresh/*` review branches.
   Never deleted: `sflow/config`, `sflow/config-change/*`, the state branch, Story and application branches.
+  The owner's answers to the build's six questions, the same day ("take the suggestions"): (1) a conflict with the
+  team's own edit keeps today's rule, and only a result that will not load stops that repository; (2) a difference
+  that is only the build's stamp publishes nothing; (3) a terminal user's first command after a new build may publish
+  in the background, since the build fence makes it safe; (4) the protected-branch fallback leaves the run partial and
+  the installer's "did not finish" warning, with the review link; (5) `configuration cleanup-history` and VS Code's
+  "Clean configuration history" are removed; (6) the upgrade also clears each registered clone of its stale tracking
+  refs and fetched archive tags for those refs, locally, refs only and never a file.
 
 ## Appendix A — The findings
 

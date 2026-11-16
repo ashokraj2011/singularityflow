@@ -217,8 +217,6 @@ Every public operation is classified before its implementation module is importe
 | comprehension.walkthrough.draft | read | never | — | — |
 | comprehension.walkthrough.revalidate | read | never | — | — |
 | comprehension.walkthrough.validate | read | never | — | — |
-| configuration.cleanup-history.apply | mutation | never | — | — |
-| configuration.cleanup-history.preview | read | never | — | — |
 | configuration.drafts | read | never | — | — |
 | configuration.edit | mutation | never | — | — |
 | configuration.explain | read | never | — | — |

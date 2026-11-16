@@ -126,7 +126,9 @@ that once named a history ref fetches the commit by object instead. An upgrade (
 installer, VS Code's after-install pass or `workspace refresh-configuration`) deletes
 every `sflow/config-history/*` branch and archive tag on a repository once its
 `sflow/config` holds the installed build's configuration, each under a lease on the
-commit it was seen at. A ref the host refuses to delete is reported and harmless.
+commit it was seen at. A ref the host refuses to delete is reported and harmless. The same
+run clears this machine's registered clones of their tracking refs and fetched archive tags for
+them, deleting refs only.
 
 ## Review and onboarding branches
 

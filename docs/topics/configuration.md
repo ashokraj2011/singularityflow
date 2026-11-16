@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 24
+version: 25
 commands:
   - configuration
   - workflow
@@ -191,8 +191,10 @@ upgrade (the installer, VS Code's after-install pass or `workspace refresh-confi
 `sflow/config-history/*` branches, their archive tags (`refs/tags/sflow/config-history/<commit>`) and
 `sflow/config-refresh/*` review branches once `sflow/config` holds the build's configuration, each under a lease;
 `sflow/config`, `sflow/config-change/*` proposals, `state`, Story and application branches are never changed. A
-ref the host refuses to delete is reported and harmless. `ledger.configurationHistory` stays valid and does
-nothing; `configuration cleanup-history` stays for a repository not yet upgraded.
+ref the host refuses to delete is reported and harmless. The same run clears each registered clone on this machine
+of its stale tracking refs and fetched archive tags for those refs, deleting refs only, never a file.
+`ledger.configurationHistory` stays valid and does nothing. `configuration cleanup-history` was removed
+[owner, 2026-11-16]: an upgrade does its work.
 
 These commands can change repository or machine-local state: `configuration`, `workflow`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 

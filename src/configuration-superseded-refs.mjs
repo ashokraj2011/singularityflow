@@ -75,7 +75,8 @@ function pushBatches(entries) {
 /**
  * Delete every superseded configuration ref on `remote` once its `sflow/config` is `configurationCommit`.
  *
- * Returns `{ status, removed: { history, archiveTags, reviews }, refused: [{ ref, kind, reason }], found }`, where
+ * Returns `{ status, removed: { history, archiveTags, reviews }, refused: [{ ref, kind, reason }], remaining, found }`, where
+ * `remaining` names the superseded refs the remote still holds afterwards (refused, or moved since they were listed), and
  * status is `current` (none were there), `removed`, `partial` (some refused), `skipped` (sflow/config is not the
  * expected commit: it moved, so nothing is superseded by this run) or `unavailable` (the remote could not be read).
  * `keep` names refs to leave even when they match, such as a review branch this run just opened.
@@ -101,7 +102,7 @@ export async function removeSupersededConfigurationRefs(remote, {
       .map(([ref, commit]) => ({ ref, commit }))
       .sort((left, right) => left.ref.localeCompare(right.ref));
     const found = countByKind(candidates.map((entry) => entry.ref));
-    if (!candidates.length) return { status: 'current', ...base, found };
+    if (!candidates.length) return { status: 'current', ...base, remaining: [], found };
 
     const transport = frozenRemoteTransport(remote, { push: true, env });
     const moved = new Set();
@@ -159,6 +160,7 @@ export async function removeSupersededConfigurationRefs(remote, {
     return {
       status: refused.length ? 'partial' : 'removed',
       removed,
+      remaining: [...new Set([...refusedRefs, ...moved])].sort(),
       refused: refused.map((entry) => ({
         ref: entry.ref, kind: supersededRefKind(entry.ref),
         reason: entry.unknown ? 'Whether it was deleted could not be read back; the next upgrade tries again.' : REFUSED_REASON

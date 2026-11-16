@@ -16,6 +16,7 @@ import {
   ensureConfigurationBranch, isConfigurationAsset, prepareConfigurationBootstrapWorktree
 } from './configuration-branch.mjs';
 import { compareLink, removedRefsSummary, removeSupersededConfigurationRefs } from './configuration-superseded-refs.mjs';
+import { pruneLocalSupersededConfigurationRefs } from './configuration-local-history-prune.mjs';
 import {
   configurationAssetPolicy, configurationAssetSearchRoots, mergeConfigurationAssetPolicies,
   portableConfigurationPath, portableFilesystemPathIdentity
@@ -3488,6 +3489,12 @@ async function publishCandidate(candidate) {
   const supersededRefs = await removeSupersededConfigurationRefs(repository.remote, {
     configurationCommit: approvedCommit, cwd: root, env
   });
+  // And their copies in this machine's registered clones: tracking refs and fetched archive tags only, never a file.
+  if (Array.isArray(supersededRefs.remaining)) {
+    supersededRefs.local = pruneLocalSupersededConfigurationRefs(repository.localPaths ?? [repository.localPath], repository.remote, {
+      remaining: supersededRefs.remaining
+    });
+  }
   return {
     status: changed ? 'updated' : 'current',
     repository: repository.id,
@@ -4113,11 +4120,13 @@ export async function refreshWorkspaceConfigurations({
 function supersededRefsTotals(results) {
   const removed = { history: 0, archiveTags: 0, reviews: 0 };
   const refused = [];
+  let local = 0;
   for (const result of results) {
     for (const kind of Object.keys(removed)) removed[kind] += Number(result.supersededRefs?.removed?.[kind] ?? 0);
     for (const entry of result.supersededRefs?.refused ?? []) refused.push({ repository: result.repository, ...entry });
+    local += Number(result.supersededRefs?.local?.total ?? 0);
   }
-  return { removed, total: removed.history + removed.archiveTags + removed.reviews, refused };
+  return { removed, total: removed.history + removed.archiveTags + removed.reviews, local, refused };
 }
 
 function namesOf(results) {
@@ -4133,12 +4142,16 @@ export function refreshSummary(results) {
   const updated = results.filter((result) => result.configurationChanged
     && ['updated', 'current'].includes(result.status));
   const current = results.filter((result) => !result.configurationChanged && ['updated', 'current'].includes(result.status));
-  const { total, text } = removedRefsSummary(supersededRefsTotals(results).removed);
+  const totals = supersededRefsTotals(results);
+  const { total, text } = removedRefsSummary(totals.removed);
   const lines = [];
   const head = [];
   if (updated.length) head.push(`Updated ${CONFIGURATION_BRANCH} in ${namesOf(updated)} to this build`);
   if (current.length) head.push(`${CONFIGURATION_BRANCH} in ${namesOf(current)} already holds this build's configuration`);
   if (total) head.push(`removed ${text}`);
+  if (totals.local) {
+    head.push(`cleared ${totals.local} stale local cop${totals.local === 1 ? 'y' : 'ies'} of old history and review refs from this machine's clones`);
+  }
   if (head.length) lines.push(`${head.join('; ')}.`);
   for (const result of results) {
     if (result.status === 'review-required' && result.protectedBranch) {

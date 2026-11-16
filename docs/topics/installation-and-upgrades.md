@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 43
+version: 44
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -197,8 +197,11 @@ change keeps the team's value and is reported, as before. Where that kept edit n
 this build's files, that repository changes nothing and prints the one command that takes this
 build's version of each kept file (`workspace refresh-configuration --repository ID --resolve
 PATH=bundled`). An unreachable repository is reported too. None of these holds up another
-repository. Clones that fetched the old refs keep their own copies until `git fetch --prune` (and,
-for the archive tags, `git fetch --prune-tags`); nothing reads those either.
+repository. The same run clears each registered clone on this machine of its stale copies of those
+refs: the tracking refs of the remotes that are this repository, and the fetched archive tags, each
+deleted against the exact object it held. Only refs change, never a file or the index, so a dirty
+tree is safe; local branches, `sflow/config`, `sflow/config-change/*`, `state`, Story and application
+refs stay. The old `configuration cleanup-history` command was removed; an upgrade does its work.
 
 The package baseline (`singularity/.product/configuration-baseline.yml`, format
 `singularity-flow-configuration-baseline/v2`) records the build that proposed it: its commit and

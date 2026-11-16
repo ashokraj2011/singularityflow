@@ -270,12 +270,13 @@ Input declarations are validated in all modes, including ordering and work-type 
 
 ### Configuration history retention
 
-Earlier builds kept source-addressed `sflow/config-history/<commit>` branches, and
+Earlier builds kept source-addressed `sflow/config-history/<commit>` branches, and the removed
 `configuration cleanup-history` archived older ones as tags of the same identity. No build writes
 them any more and nothing reads them [owner, 2026-11-16]: a Story reads its own pin, and the legacy
 state-mirror proof, SGOS and onboarding fetch a source commit by object. An upgrade deletes every
 history branch, archive tag and `sflow/config-refresh/*` review branch on a repository once its
-`sflow/config` holds the build's configuration, each under a lease on the commit it was seen at.
+`sflow/config` holds the build's configuration, each under a lease on the commit it was seen at, and
+clears each registered clone of its stale tracking refs and fetched archive tags for them.
 
 Readers and retention accept either the direct branch or exact archive tag; tags cannot mask a
 conflicting branch or object. Archived configuration remains fetchable for legacy mirror binding,

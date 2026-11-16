@@ -8399,10 +8399,10 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
     if (['not-synced', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;
   }
   else if (subcommand === 'cleanup-history') {
-    result = await import('./configuration-history-cleanup.mjs').then(({ cleanupConfigurationHistory }) =>
-      cleanupConfigurationHistory(root, { apply: optionBoolean(options, 'apply'),
-        confirm: optionString(options, 'confirm'), keep: Number(optionString(options, 'keep-recent', '10')) }));
-    if (['not-cleaned', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;
+    // Removed [owner, 2026-11-16]: an upgrade deletes the old history refs itself. Refused by name, saying what replaced it.
+    throw new SingularityFlowError('configuration cleanup-history was removed: an upgrade now deletes every old '
+      + 'sflow/config-history/* branch, its archive tag and every sflow/config-refresh/* review branch itself. Run '
+      + 'singularity-flow workspace refresh-configuration. Nothing was changed.', { code: 'CONFIGURATION_CLEANUP_HISTORY_REMOVED' });
   }
   else if (subcommand === 'explain') result = await import('./initialization/explain.mjs').then(({ explainSmartInitialization }) => (
     explainSmartInitialization(root, { pointer: optionString(options, 'pointer') })

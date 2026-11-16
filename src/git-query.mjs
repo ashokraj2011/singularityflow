@@ -269,6 +269,15 @@ const descriptors = [
       return [...lines(result)].sort();
     }
   }),
+  descriptor('configuration.local-superseded-refs', {
+    argv: () => ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)', 'refs/remotes/*/sflow/config-history/**',
+      'refs/remotes/*/sflow/config-refresh/**', 'refs/tags/sflow/config-history/**'],
+    allowFailure: true,
+    parser(result) {
+      if (!processResultSucceeded(result)) throw new SingularityFlowError('Local configuration history refs are unreadable.');
+      return lines(result).map((line) => line.split('\0'));
+    }
+  }),
   descriptor('repository.remote-url', {
     argv(params) {
       const remote = String(params?.remote ?? '');

@@ -4620,6 +4620,18 @@ test('the upgrade removes old history and review branches and keeps every other 
   for (const [ref, commit] of Object.entries(kept)) set(ref, commit);
   const state = fixture.ref('state');
   assert.ok(state);
+  // The registered clone fetched them too: tracking refs and the archive tag. A fork's copies are another repository's.
+  const clone = fixture.repository;
+  git(clone, ['fetch', '--quiet', 'origin', '+refs/heads/sflow/*:refs/remotes/origin/sflow/*',
+    '+refs/tags/sflow/config-history/*:refs/tags/sflow/config-history/*']);
+  git(clone, ['remote', 'add', 'fork', path.join(root, 'fork.git')]);
+  git(clone, ['update-ref', `refs/remotes/fork/sflow/config-history/${main}`, main]);
+  git(clone, ['branch', 'sflow/config-history-local', main]);
+  await writeFile(path.join(clone, 'application.txt'), 'a person\'s unsaved edit\n');
+  const dirtyBefore = git(clone, ['status', '--porcelain']);
+  const localRef = (ref) => run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: clone, allowFailure: true }).stdout.trim();
+  assert.ok(localRef(`refs/remotes/origin/sflow/config-history/${main}`));
+  assert.ok(localRef(`refs/tags/sflow/config-history/${main}`));
 
   // While sflow/config is not the commit it was told about, nothing is superseded and nothing goes.
   const { removeSupersededConfigurationRefs } = await import('../src/configuration-superseded-refs.mjs');
@@ -4639,8 +4651,22 @@ test('the upgrade removes old history and review branches and keeps every other 
   for (const ref of superseded) assert.equal(remoteRef(fixture.remote, ref), '', `${ref} is removed`);
   for (const [ref, commit] of Object.entries(kept)) assert.equal(remoteRef(fixture.remote, ref), commit, `${ref} is kept`);
   assert.ok(fixture.ref('state'), 'the state branch stays');
+  // The clone's copies go too: 4 tracking refs and the tag; never a file, a local branch, another remote's or a kept ref.
+  assert.deepEqual(result.supersededRefs.local.pruned, { trackingRefs: 4, tags: 1 });
+  for (const ref of superseded) {
+    const copy = ref.startsWith('refs/tags/') ? ref : ref.replace('refs/heads/', 'refs/remotes/origin/');
+    assert.equal(localRef(copy), '', `${copy} is cleared from the clone`);
+  }
+  assert.ok(localRef('refs/remotes/origin/sflow/config'), 'the clone keeps its sflow/config tracking ref');
+  assert.ok(localRef('refs/remotes/origin/sflow/config-change/workflow/save-review-12345678'));
+  assert.ok(localRef('refs/remotes/origin/sflow/config-history-notes'), 'a look-alike name stays');
+  assert.ok(localRef(`refs/remotes/fork/sflow/config-history/${main}`), 'another remote\'s copy stays');
+  assert.ok(localRef('refs/heads/sflow/config-history-local'), 'a local branch stays');
+  assert.ok(localRef('refs/heads/main'));
+  assert.equal(git(clone, ['status', '--porcelain']), dirtyBefore, 'the dirty tree is untouched');
   assert.deepEqual(applied.summary, [
-    'Updated sflow/config in application to this build; removed 4 old history and review branches and 1 history archive tag.'
+    'Updated sflow/config in application to this build; removed 4 old history and review branches and 1 history archive tag; '
+      + 'cleared 5 stale local copies of old history and review refs from this machine\'s clones.'
   ]);
 
   // Nothing is left to remove, and a current repository still says so plainly.

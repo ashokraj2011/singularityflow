@@ -947,7 +947,10 @@ test('the common session projection does not import attach, state stores or publ
   // No new eager file.
   // 4,262,200 (measured 4,262,175): stage 1 on top of the stable build's 4,260,782, measured on the merge with main
   // 4ac5c5c40 (2026-11-15).
-  assert.ok(current.bytes <= 4_262_200, `session current loads ${current.bytes} source bytes`);
+  // 4,262,300 (measured 4,262,293): the upgrade clears each registered clone's stale history copies through one registered
+  // query (git-query.mjs configuration.local-superseded-refs, +510); configuration history cleanup and its refs helper
+  // are removed [owner, 2026-11-16]. No new eager file.
+  assert.ok(current.bytes <= 4_262_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

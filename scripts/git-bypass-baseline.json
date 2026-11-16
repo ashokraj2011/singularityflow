@@ -913,13 +913,6 @@
       },
       "digest": "2e4ad9151ea6baf19aeae6786e84812c8d6e36e3de1338886fee7a3e162e5723"
     },
-    "src/configuration-history-cleanup.mjs": {
-      "counts": {
-        "command-git": 2,
-        "command-run": 1
-      },
-      "digest": "6d1513b04aaf2bdf004da6e20cc50fff42f245f51b9bff0349569f6e9f8b6a92"
-    },
     "src/configuration-reference-sync.mjs": {
       "counts": {
         "command-git-literal": 1
@@ -1909,6 +1902,12 @@
         "command-run": 1
       },
       "digest": "ff731b344aefafceb6bdc0df127ff50688a95cd7adad66de5aa35787c103bee6"
+    },
+    "src/configuration-local-history-prune.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "29978f7fb9357a01373aefdc43ff12bfb85f06eb1a612fd778197bb307d3ac42"
     }
   }
 }

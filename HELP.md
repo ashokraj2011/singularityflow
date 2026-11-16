@@ -1244,27 +1244,18 @@ refuses any snapshot above 16,384 local files or 128 MiB before checkout or pars
 are bounded further to 512 declared assets, 64 KiB of aggregate path bytes, and 64 MiB of asset
 content.
 
-To reduce snapshot branch clutter, choose **Configuration → Clean configuration history**, or run
-`singularity-flow configuration cleanup-history --json` (Copilot:
-`/sf-configuration cleanup-history`). Preview lists the exact branches and retained reasons.
-By default the latest 10 snapshots and current `sflow/config` snapshot stay as branches; use
-`--keep-recent <1..100>` to change that count. Confirm the returned packet hash with its exact apply
-command. Each bounded batch archives up to 100 older canonical history refs as immutable lightweight
-tags before deleting their branch refs, in one atomic leased push. Commits and ancestry remain
-recoverable; onboarding/authority reads accept the retained branch or its exact archive tag.
-Application branches, `sflow/config`, `state`, proposals, Story files and approvals are not deleted
-or modified. Collisions or changed refs are retained/refused, not overwritten. A lost acknowledgement
-requires a fresh preview to reconcile. Do not delete the archive tags: this is branch-list cleanup,
-not a promise to reclaim Git-object disk space.
-
 No history branch is written any more, and an upgrade removes the old ones [owner, 2026-11-16]: once
 `sflow/config` holds the installed build's configuration, the installer, VS Code's after-install
 pass and `workspace refresh-configuration` delete every `sflow/config-history/*` branch, its archive
 tag and every `sflow/config-refresh/*` review branch on that repository, each under a lease on the
 commit it was seen at. Nothing reads them: a Story reads its own pinned copy. `sflow/config`,
 `sflow/config-change/*` proposals, `state`, Story and application branches are never deleted. A ref
-the host refuses to delete (a deletion rule) is reported and is harmless where it is.
-`ledger.configurationHistory` stays valid and does nothing.
+the host refuses to delete (a deletion rule) is reported and is harmless where it is. The same run
+clears this machine's registered clones of their stale copies: the tracking refs and fetched archive
+tags of those refs, and only those, deleted against the exact object each held; no file, index or
+local branch is touched, so a dirty tree is safe. `ledger.configurationHistory` stays valid and does
+nothing. `configuration cleanup-history` and **Configuration → Clean configuration history** were
+removed [owner, 2026-11-16]; the command now says that an upgrade does it.
 
 `capability inspect-repository` remains a one-release compatibility diagnostic. An
 `already-mapped` result identifies the existing lead, repository ID, and capabilities, so no

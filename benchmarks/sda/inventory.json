@@ -1255,35 +1255,6 @@
       "lifetimes": []
     },
     {
-      "module": "configuration-history-auto-clean.mjs",
-      "class": "shared-state",
-      "git": {
-        "write": 1
-      },
-      "writes": 0,
-      "yamlReads": 0,
-      "lifetimes": []
-    },
-    {
-      "module": "configuration-history-cleanup.mjs",
-      "class": "shared-state",
-      "git": {
-        "read": 1,
-        "write": 1,
-        "dynamic": 1
-      },
-      "localReads": 1,
-      "writes": 0,
-      "yamlReads": 0,
-      "lifetimes": [
-        {
-          "name": "timeoutMs",
-          "value": 15000,
-          "kind": "timeout"
-        }
-      ]
-    },
-    {
       "module": "configuration-intent-replay.mjs",
       "class": null,
       "git": {},

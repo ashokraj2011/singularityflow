@@ -125,3 +125,26 @@ test('the refusals that name writing a code step carry its work command, never /
   assert.match(resume?.nextAction?.copilotCommand ?? '', /^\/sf-code\b/u, JSON.stringify(resume?.nextAction ?? resume));
 });
 
+// ------------------------------------------------------------------------------------------- item 5: no containment
+
+test('a refusal whose own route writes the step adds no recover or phase show; others keep their containment [OSA:REQ-022, C3]', async () => {
+  const { refusalRemediationPlan } = await import('../src/refusal-remediation.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const writing = new SingularityFlowError('Version 2 of implement is being written; review it after it is published.', {
+    code: 'SOURCE_REVIEW_SUCCESSOR_OPEN', details: { nextAction: { command: 'singularity-flow prepare implement', skill: '/sflow-code',
+      label: 'Write version 2 of implement, then publish it' }, phase: 'implement', version: 2 } });
+  const plan = refusalRemediationPlan(writing, ['review-source', 'context', 'implement']);
+  assert.equal(plan.steps[0].command, 'singularity-flow prepare implement');
+  assert.match(plan.steps[0].copilotCommand, /^\/sf-code\b/u);
+  assert.doesNotMatch(JSON.stringify(plan.steps), /singularity-flow recover\b|phase show\b/u);
+  assert.equal(plan.steps.at(-1).command, 'singularity-flow nextsteps --json');
+  // A published version changed only by its next one: the rollover its work command asks about, no recover beside it.
+  const consumed = new SingularityFlowError('Version 1 of implement is already published.', { code: 'GENERATION_INTENT_ALREADY_CONSUMED',
+    details: { nextAction: { command: 'singularity-flow phase rollover implement --json', skill: '/sf-code', label: 'Start version 2 of implement to change it' } } });
+  const rolled = refusalRemediationPlan(consumed, ['prepare', 'implement']);
+  assert.equal(rolled.steps[0].command, 'singularity-flow phase rollover implement --json');
+  assert.doesNotMatch(JSON.stringify(rolled.steps), /singularity-flow recover\b|\/sf-recover/u);
+  // A refusal whose own route is not the step's writing keeps the step's containment, as before.
+  const other = new SingularityFlowError('The phase artifact is missing.', { code: 'ARTIFACT_MISSING_FOR_TEST', details: { phase: 'implement' } });
+  assert.match(JSON.stringify(refusalRemediationPlan(other, ['phase', 'publish', 'implement']).steps), /singularity-flow recover --phase implement/u);
+});

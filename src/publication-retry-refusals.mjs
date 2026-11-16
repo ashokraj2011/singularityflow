@@ -206,7 +206,7 @@ export function publicationRemoteChangedRefusal(root, {
         remoteChange: { ...change, rebindConfirmation: confirmation },
         recoveryCommands: rebindable ? [{
           command: `${rebindCommand} --rebind-remote ${confirmation}`,
-          label: `Only when ${change.currentUrl} is the same repository: bind the retained commit to it and send it there.`
+          label: `If ${change.currentUrl} is the same repository, send the waiting commit there`
         }] : [],
         actions: [{ label: restore }]
       }

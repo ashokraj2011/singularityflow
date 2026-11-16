@@ -360,7 +360,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
     actions.push({ command: pending.status === 'pending' ? 'singularity-flow sync'
       : `singularity-flow recover ${id} --phase ${phase.id} --json`,
     skill: pending.status === 'pending' ? '/sf-next' : '/sf-recover',
-    detail: 'Resolve the retained publication before editing or publishing another generation.' });
+    detail: 'Finish the waiting publication before editing or publishing another version.' });
   }
   const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
   if (!retained && (pinned?.kind === 'skill' || phase.kind === 'skill')) {

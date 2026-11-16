@@ -17,7 +17,7 @@ export function clarificationStatusContinuation(result, phase) {
   if (!command) return { restState: 'informational' };
   return { next: [action({
     id: 'compose-before-clarification',
-    label: `Compose the ${phase.id} prompt for this generation before recording its clarification`,
+    label: `Compose the ${phase.id} prompt before recording its clarification`,
     command, rank: 'NOW', kind: 'remediation'
   })] };
 }

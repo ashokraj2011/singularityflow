@@ -7,7 +7,7 @@ export function convergenceTransitionRoute(workflow, phase, { needsGeneration = 
     classification: 'generation-required', lifecycleReady: false,
     reasonCode: 'PHASE_GENERATION_REQUIRED', skill: '/sflow-converge',
     command: `singularity-flow prepare ${phase.id}`,
-    reason: 'Compute a fresh deterministic Convergence projection before publication or advancement.'
+    reason: 'Build the convergence report again before publishing or moving on.'
   };
   const publications = (phase.generationPublications ?? []).filter((entry) => Number(entry?.generation) === phase.generation);
   const publication = publications.length === 1 ? publications[0] : null;
@@ -26,6 +26,6 @@ export function convergenceTransitionRoute(workflow, phase, { needsGeneration = 
     classification: 'convergence-advance-required', lifecycleReady: true,
     reasonCode: 'CONVERGENCE_ADVANCE_REQUIRED', skill: '/sflow-submit',
     command: `singularity-flow story advance --work-id ${workflow.workItem.id}`,
-    reason: 'Review the exact deterministic Convergence result and confirm its digest before human approval.'
+    reason: 'Review the convergence result and confirm it before a person approves the step.'
   };
 }

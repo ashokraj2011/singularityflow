@@ -1971,7 +1971,7 @@ async function startCommandAtRoot(positionals, options) {
         `Story '${id}' was published in its lifecycle repository, but capability branch publication `
         + `failed for '${capabilityPublication.pending[0].repository}': ${capabilityPublication.error}. `
         + 'The remaining exact branch publications were retained; run singularity-flow sync after fixing remote access.',
-        { code: 'STORY_CAPABILITY_PUBLICATION_PENDING', details: { workId: id, recoveryCommand: { command: 'singularity-flow sync', label: 'After fixing remote access, publish the retained capability branches; the Story itself is already published.' } } }
+        { code: 'STORY_CAPABILITY_PUBLICATION_PENDING', details: { workId: id, recoveryCommand: { command: 'singularity-flow sync', label: 'Fix remote access, then publish the capability branches still waiting' } } }
       );
     }
   } else if (!publication.pushed && capabilityPublications.length) {

@@ -16,8 +16,9 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
   });
   const convergence = convergencePreparationState(prepared.convergence);
   // After preparation: the check, and for a step SFlow builds its publication once ready, by the step's own work command.
+  const ownedBy = phaseKernelOwned(phase);
   const check = `singularity-flow phase prepublish ${phase.id}${prepared.publicationProducer !== 'deterministic' ? ''
-    : phaseKernelOwned(phase) ? ' --for-agent --json --publish-if-ready' : ' --for-agent --json'}`;
+    : ownedBy ? ' --for-agent --json --publish-if-ready' : ' --for-agent --json'}`;
   if (!convergence) return [
     narrationAction({
       id: 'prepare.author',
@@ -26,7 +27,7 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
       // A deterministic code step still has its code to write; only its summary is kernel-built.
       // A step SFlow builds is checked and published by its own work command in the same turn, as the kernel's
       // build-version then publish-version says [D5, OSA:REQ-020, REQ-026, C9]: never handed to another skill.
-      label: prepared.publicationProducer === 'deterministic' && !phaseKernelOwned(phase)
+      label: prepared.publicationProducer === 'deterministic' && !ownedBy
         ? 'Write the planned code and tests; SFlow rebuilds the summary'
         : prepared.publicationProducer === 'deterministic'
         ? 'Check what SFlow prepared, and publish it once its checks pass'
@@ -86,9 +87,10 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
     narrationAction({
       id: 'convergence.publish',
       label: 'Publish the reviewed convergence report',
-      command: phasePublicationCommandForProducer(
-        phase, prepared.publicationProducer ?? phasePublicationContract(phase).producer
-      ),
+      // The step's own work command checks and publishes it in the same turn, never /sf-publish (C9): the kernel's
+      // build-version then publish-version, one route for the agent and every view [D5, OSA:REQ-020, REQ-026].
+      command: prepared.publicationProducer === 'deterministic' && ownedBy ? check
+        : phasePublicationCommandForProducer(phase, prepared.publicationProducer ?? phasePublicationContract(phase).producer),
       skill: generationSkillForPhase(phase, workflow)
     }),
     inputs

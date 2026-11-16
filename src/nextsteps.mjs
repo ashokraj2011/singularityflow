@@ -433,8 +433,9 @@ function plannedNextSteps(workflow, {
     // the step's own route they are its next stage, not a step before it (owner, 2026-11-11).
     // The step's own route is also its next version's start (`phase rollover`, asked by its work command): with that
     // first, the inputs read led next steps while the agent was routed to the rollover [OSA:REQ-020, journey B].
-    const own = actions.findIndex((entry) => entry.timing === 'now'
-      && (entry.authoringStage || entry.command?.startsWith(`singularity-flow phase rollover ${phase.id}`)));
+    // So is opening its code generation (`phase begin`), as the kernel names it for a code step's first version [OSA:REQ-020].
+    const own = actions.findIndex((entry) => entry.timing === 'now' && (entry.authoringStage
+      || (/^singularity-flow phase (?:rollover|begin)$/u.test(entry.command?.split(' ').slice(0, 3).join(' ') ?? '') && entry.command.split(' ')[3] === phase.id)));
     const inputs = action(own < 0 ? 'now' : 'then', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.');
     if (own < 0) actions.unshift(inputs);
     else actions.splice(own + 1, 0, inputs);

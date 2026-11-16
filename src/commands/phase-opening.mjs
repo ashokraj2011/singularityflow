@@ -207,7 +207,9 @@ export async function openBeforePrepare(root, config, workflow, phase) {
   if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress' || phase.generationPolicy?.requirement === 'none') return null;
   // The kernel's decision for the step decides; nothing here re-derives it [OSA:REQ-001].
   const { decision, route } = await kernelRoute(root, workflow, phase);
-  const code = decision.kind.changeCapabilities.includes('application');
+  // A code-delivery step opens a code generation; a step that may also write application paths without delivering code (a
+  // verification step's test automation) opens as a document does [Stage 3: prepare refused GENERATION_INTENT_NOT_APPLICABLE].
+  const code = (await import('../code-delivery-policy.mjs')).phaseRequiresCodeDelivery(phase);
   if (decision.kind.executionOwner === 'kernel' && !code) return null;
   const next = decision.next;
   // A successor for any reason, and an older build's local opening of one, opens only on the person's yes.

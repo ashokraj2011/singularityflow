@@ -283,6 +283,12 @@ async function phaseReadiness(root, config, workflow, {
   return readiness;
 }
 
+/** The kernel's route for a step being written, as the edit permission renders it; null when it names none. */
+function kernelRoute(workflow, phase) {
+  const [route] = decisionRoutes(stepDecisionOf(workflow, phase), workflow, phase);
+  return route?.command ? route : null;
+}
+
 /**
  * Produce a small, read-only lifecycle projection for hosts that need to decide whether to invoke
  * submission. It deliberately does not predict quality-gate success: the submit command remains
@@ -415,10 +421,12 @@ export function submissionReadinessSnapshot(workflow, {
         }
       : {
           classification: 'generation-required',
+          // The task's stage, else the kernel's own route for the step (a kernel-built code step opens with `phase begin`),
+          // as the entry and every other view name it [OSA:REQ-020].
           command: authoringProgress?.next?.command
-            ?? `singularity-flow prepare ${phase.id}`,
+            ?? kernelRoute(workflow, phase)?.command ?? `singularity-flow prepare ${phase.id}`,
           nextSkill: authoringProgress?.next?.copilotCommand
-            ?? directCopilotSkill(generationSkillForPhase(phase, workflow)),
+            ?? kernelRoute(workflow, phase)?.skill ?? directCopilotSkill(generationSkillForPhase(phase, workflow)),
           authoringProgress,
           reason: authoringProgress?.instruction ?? null,
           reasonCode: 'PHASE_GENERATION_REQUIRED'

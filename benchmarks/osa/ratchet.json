@@ -260,7 +260,7 @@
       "lifecycleCommands": 1
     },
     "commands/shared/prepared-phase-next-actions.mjs": {
-      "predicateCalls": 2,
+      "predicateCalls": 1,
       "skillChooserCalls": 2,
       "routeObjects": 2,
       "lifecycleCommands": 1
@@ -493,7 +493,7 @@
     "nextsteps.mjs": {
       "predicateCalls": 3,
       "skillChooserCalls": 10,
-      "lifecycleCommands": 18,
+      "lifecycleCommands": 17,
       "skillLiterals": 1
     },
     "node-pin.mjs": {

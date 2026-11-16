@@ -140,6 +140,9 @@ export function mergeWorkflowTasks(shared, local, identity) {
     continuations: Math.max(shared.continuations, local.continuations),
     maximumContinuations: Math.min(shared.maximumContinuations, local.maximumContinuations),
     repairConsumed: Math.max(shared.repairConsumed, local.repairConsumed),
+    // Where this checkout's task stopped (a blocked code, a kept outcome) stays: the merge dropped it before, so a
+    // shared record erased the wait every view reads [SPEC-OSA §8].
+    blockedCode: local.blockedCode ?? null,
     // Conditions carry budget history across input changes and laptop takeover.
     conditions: shared.conditions });
 }

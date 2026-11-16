@@ -232,6 +232,7 @@ test('a moved workspace: every route names workspace repair, which previews, the
   assert.equal(await readFile(f.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, 'utf8'), before);
   assert.notEqual(f.sh('git', ['status'], checkout, { allowFailure: true }).status, 0);
   assert.equal(preview.value.links.confirmCommand, `${repair} --confirm ${plan.planId}`);
+  assert.ok(preview.value.links.lines.includes('Repair plan (nothing has changed yet):'), 'VS Code shows the words the terminal prints');
 
   // A confirmation that is not the previewed plan changes nothing.
   const stale = f.json(['workspace', 'repair', moved, '--confirm', 'wsr-0123456789abcdef0123456789abcdef']);

@@ -10219,11 +10219,13 @@ async function workspaceCommand(positionals, options) {
       : await planWorkspaceRelink(workspacePath, { registryFile: registry, selectionFile });
     const plan = confirm ? links.plan : links;
     const pending = !confirm && (plan.changes > 0 || plan.refusals.length > 0);
+    // `lines` is the preview or result as a person reads it, so VS Code shows the same words before its confirm button.
     const linkResult = { status: confirm ? 'repaired' : !pending ? 'nothing-to-repair' : plan.refusals.length ? 'blocked' : 'preview',
-      ...(confirm ? links : { plan }), ...(pending && !plan.refusals.length ? { confirmCommand: workspaceRelinkConfirmCommand(plan) } : {}) };
+      ...(confirm ? links : { plan }), lines: renderWorkspaceRelink(links, { applied: Boolean(confirm) }),
+      ...(pending && !plan.refusals.length ? { confirmCommand: workspaceRelinkConfirmCommand(plan) } : {}) };
     const human = !optionBoolean(options, 'json');
     if (human && (pending || confirm || plan.mode === 'clone')) {
-      for (const line of renderWorkspaceRelink(links, { applied: Boolean(confirm) })) console.log(line);
+      for (const line of linkResult.lines) console.log(line);
       if (linkResult.confirmCommand) printCommandRoutes(linkResult.confirmCommand, { label: 'Confirm this repair' });
     }
     if (plan.mode === 'clone') return human ? undefined : console.log(JSON.stringify({ links: linkResult }, null, 2));

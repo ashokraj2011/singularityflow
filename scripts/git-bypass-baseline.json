@@ -209,6 +209,13 @@
       },
       "digest": "73e2292759624fd4b4095b9d9669c7c23439def7730f13364447311e1f6f15e0"
     },
+    "scripts/osa-perf-baseline.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "0334388ce766431f95afe672244fc8cd9b141048d5f88ad5603191f334b3abc4"
+    },
     "scripts/repository-check-benchmark.mjs": {
       "counts": {
         "process-import": 1,

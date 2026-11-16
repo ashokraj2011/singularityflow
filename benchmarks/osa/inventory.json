@@ -1,0 +1,2356 @@
+{
+  "schemaVersion": 1,
+  "specification": "SPEC-OSA v1.1 Stage 0 inventory (AC-020 baseline)",
+  "roots": [
+    "src",
+    "apps/vscode/src"
+  ],
+  "summary": {
+    "intentStatus": {
+      "modules": 51,
+      "direct": 75,
+      "aliased": 11
+    },
+    "intentWrites": {
+      "modules": 9,
+      "sites": 12
+    },
+    "predicateCalls": {
+      "consumedByPublishedGeneration": 2,
+      "deterministicOnlyGeneration": 7,
+      "hasPublishedPhaseGeneration": 9,
+      "nextPhaseGeneration": 116,
+      "opensCodeVersion": 2,
+      "phaseExplicitlyReopened": 4,
+      "phaseInspectionGeneration": 13,
+      "phaseKernelOwned": 9,
+      "phaseNeedsGeneration": 31,
+      "phaseUsesDeterministicGeneration": 9,
+      "publicationIsRecorded": 2,
+      "requiresProspectivePhaseInspection": 19,
+      "stepBeingWritten": 13,
+      "successorGenerationOpen": 10
+    },
+    "skillChooserCalls": {
+      "authoringRoute": 6,
+      "copilotSkillForCommand": 16,
+      "generationSkillForPhase": 50,
+      "mutationTurnMode": 23,
+      "skillForCommandLine": 4,
+      "skillRouteForCommand": 2,
+      "successorSkillForPhase": 8
+    },
+    "versionArithmetic": {
+      "modules": 27,
+      "sites": 44
+    },
+    "routeObjects": {
+      "modules": 52,
+      "sites": 121
+    },
+    "lifecycleCommands": {
+      "approve": 23,
+      "nextsteps": 47,
+      "phase begin": 13,
+      "phase enter": 10,
+      "phase prepublish": 28,
+      "phase publish": 7,
+      "phase rollover": 22,
+      "phase show": 17,
+      "prepare": 33,
+      "recover": 66,
+      "reject": 36,
+      "review-source": 12,
+      "submit": 13
+    },
+    "skillLiterals": {
+      "/sf-code": {
+        "modules": 31,
+        "exact": 30,
+        "route": 8,
+        "text": 18
+      },
+      "/sf-phase": {
+        "modules": 11,
+        "exact": 9,
+        "route": 2,
+        "text": 4
+      },
+      "/sf-recover": {
+        "modules": 18,
+        "exact": 40,
+        "route": 0,
+        "text": 2
+      },
+      "/sflow-code": {
+        "modules": 1,
+        "exact": 1,
+        "route": 0,
+        "text": 0
+      },
+      "/sflow-phase": {
+        "modules": 2,
+        "exact": 3,
+        "route": 0,
+        "text": 0
+      },
+      "/sflow-recover": {
+        "modules": 1,
+        "exact": 1,
+        "route": 0,
+        "text": 0
+      }
+    },
+    "roles": {
+      "policy": 44,
+      "mapping": 1,
+      "renderer": 1,
+      "validator": 1,
+      "record": 1,
+      "unclassified": 163
+    }
+  },
+  "modules": [
+    {
+      "module": "acceptance-owner-check.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "phase prepublish": 1
+      }
+    },
+    {
+      "module": "agent-hooks.mjs",
+      "role": "policy",
+      "skillLiterals": {
+        "/sf-phase": {
+          "text": 1
+        }
+      },
+      "predicateCalls": {
+        "phaseKernelOwned": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "agents.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 3
+      }
+    },
+    {
+      "module": "amended-drafts.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "nextPhaseGeneration": 7
+      },
+      "intentStatus": {
+        "aliased": 5,
+        "direct": 1
+      },
+      "intentWrites": 1,
+      "lifecycleCommands": {
+        "phase begin": 2,
+        "recover": 1,
+        "phase enter": 1
+      },
+      "routeObjects": 2,
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        },
+        "/sf-code": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "application-review-host.mjs",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-code": {
+          "text": 2
+        }
+      }
+    },
+    {
+      "module": "application-review-human.mjs",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-code": {
+          "text": 1
+        }
+      }
+    },
+    {
+      "module": "application-review-read.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "application-review.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "reject": 1,
+        "phase enter": 2
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "text": 1,
+          "exact": 1
+        }
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "approval-agent-result.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "approval-check.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "reject": 2,
+        "recover": 1
+      },
+      "skillChooserCalls": {
+        "skillForCommandLine": 1
+      }
+    },
+    {
+      "module": "approval-evidence.mjs",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-code": {
+          "text": 1
+        },
+        "/sf-phase": {
+          "text": 1
+        }
+      }
+    },
+    {
+      "module": "approval-submitted.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 2
+      }
+    },
+    {
+      "module": "asked-for-records.mjs",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-code": {
+          "text": 2
+        }
+      }
+    },
+    {
+      "module": "asked-for.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "ast-lifecycle.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "auto/auto-executor.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 3
+      }
+    },
+    {
+      "module": "changes-after-publication.mjs",
+      "role": "policy",
+      "intentStatus": {
+        "direct": 1
+      },
+      "versionArithmetic": 2,
+      "routeObjects": 2,
+      "lifecycleCommands": {
+        "reject": 1,
+        "phase rollover": 1
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 1,
+          "route": 1
+        }
+      }
+    },
+    {
+      "module": "choices.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "approve": 1
+      }
+    },
+    {
+      "module": "clarification-remote.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 2
+      }
+    },
+    {
+      "module": "clarifications.mjs",
+      "role": "unclassified",
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "prepare": 1
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 3
+      }
+    },
+    {
+      "module": "cli.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "approve": 2,
+        "nextsteps": 3,
+        "submit": 2,
+        "phase prepublish": 1
+      },
+      "routeObjects": 1,
+      "predicateCalls": {
+        "phaseNeedsGeneration": 2,
+        "nextPhaseGeneration": 3
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "versionArithmetic": 2
+    },
+    {
+      "module": "code-delivery-policy.mjs",
+      "role": "policy",
+      "intentStatus": {
+        "direct": 2
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 1,
+        "phaseUsesDeterministicGeneration": 2,
+        "deterministicOnlyGeneration": 3,
+        "phaseNeedsGeneration": 1
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 2
+        },
+        "/sf-phase": {
+          "exact": 2
+        },
+        "/sflow-code": {
+          "exact": 1
+        },
+        "/sflow-phase": {
+          "exact": 2
+        }
+      },
+      "skillChooserCalls": {
+        "authoringRoute": 3,
+        "generationSkillForPhase": 1
+      }
+    },
+    {
+      "module": "code-delivery-tests.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 1
+      }
+    },
+    {
+      "module": "code-documentation-inspection.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "code-submission-evidence.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 1
+      },
+      "predicateCalls": {
+        "phaseNeedsGeneration": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "collaboration.mjs",
+      "role": "policy",
+      "intentStatus": {
+        "direct": 2
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      },
+      "lifecycleCommands": {
+        "phase begin": 1,
+        "phase prepublish": 1,
+        "recover": 2
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 2
+        },
+        "/sf-code": {
+          "exact": 1
+        }
+      },
+      "routeObjects": 2
+    },
+    {
+      "module": "commands/app-review.mjs",
+      "role": "unclassified",
+      "routeObjects": 1,
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 1
+        }
+      },
+      "lifecycleCommands": {
+        "phase enter": 1
+      },
+      "intentWrites": 1,
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "commands/approval-packet.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 2
+      }
+    },
+    {
+      "module": "commands/check.mjs",
+      "role": "unclassified",
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "commands/decisions.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "approve": 2
+      }
+    },
+    {
+      "module": "commands/departure.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "commands/goal.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "commands/nextsteps.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 1,
+        "phaseKernelOwned": 1,
+        "phaseNeedsGeneration": 1,
+        "stepBeingWritten": 2
+      },
+      "routeObjects": 1,
+      "intentStatus": {
+        "direct": 1
+      },
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "commands/phase-lifecycle.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "nextPhaseGeneration": 7
+      },
+      "routeObjects": 2,
+      "lifecycleCommands": {
+        "phase rollover": 2
+      },
+      "skillChooserCalls": {
+        "successorSkillForPhase": 2,
+        "generationSkillForPhase": 1
+      },
+      "intentWrites": 1,
+      "intentStatus": {
+        "aliased": 1,
+        "direct": 1
+      }
+    },
+    {
+      "module": "commands/phase-publish-if-ready.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "review-source": 1
+      }
+    },
+    {
+      "module": "commands/prepare.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "phaseKernelOwned": 2
+      }
+    },
+    {
+      "module": "commands/result.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "review-source": 1,
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "commands/revise.mjs",
+      "role": "unclassified",
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "commands/session-takeover.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "commands/shared/decision-workflow.mjs",
+      "role": "unclassified",
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "reject": 1
+      },
+      "predicateCalls": {
+        "phaseUsesDeterministicGeneration": 1
+      }
+    },
+    {
+      "module": "commands/shared/prepared-phase-next-actions.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "phaseKernelOwned": 2
+      },
+      "lifecycleCommands": {
+        "phase prepublish": 2
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 2
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "commands/start.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "prepare": 1,
+        "phase show": 1
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "commands/story-target-origin.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "commands/story-test-selection.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "commands/story.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "commands/submit-if-ready.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "submit": 1
+      }
+    },
+    {
+      "module": "commands/submit.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "phaseUsesDeterministicGeneration": 1
+      },
+      "lifecycleCommands": {
+        "recover": 1
+      }
+    },
+    {
+      "module": "commands/sync.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 3
+      }
+    },
+    {
+      "module": "commands/tests.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "phase prepublish": 1
+      },
+      "routeObjects": 3,
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 3
+        }
+      }
+    },
+    {
+      "module": "commands/upstream-issue.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "config.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "deterministicOnlyGeneration": 2
+      }
+    },
+    {
+      "module": "confirm-entry.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 2
+      }
+    },
+    {
+      "module": "context-policy.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "convergence-context.mjs",
+      "role": "unclassified",
+      "routeObjects": 1
+    },
+    {
+      "module": "convergence-review-route.mjs",
+      "role": "unclassified",
+      "routeObjects": 4
+    },
+    {
+      "module": "copilot-answer-binding.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "phase rollover": 1
+      }
+    },
+    {
+      "module": "copilot-guidance.mjs",
+      "role": "mapping",
+      "skillChooserCalls": {
+        "skillForCommandLine": 1,
+        "skillRouteForCommand": 2,
+        "copilotSkillForCommand": 2
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "copilot-hook-benchmark.mjs",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "copilot-mutation-guard.mjs",
+      "role": "policy",
+      "skillChooserCalls": {
+        "mutationTurnMode": 23
+      },
+      "intentStatus": {
+        "direct": 2
+      },
+      "predicateCalls": {
+        "hasPublishedPhaseGeneration": 1,
+        "successorGenerationOpen": 1,
+        "phaseNeedsGeneration": 1
+      },
+      "skillLiterals": {
+        "/sf-phase": {
+          "exact": 1
+        },
+        "/sf-code": {
+          "text": 1
+        }
+      },
+      "versionArithmetic": 2
+    },
+    {
+      "module": "copilot-plain-chat.mjs",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-code": {
+          "route": 1
+        },
+        "/sf-phase": {
+          "route": 1
+        }
+      }
+    },
+    {
+      "module": "copilot-repository-boundary.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "phase enter": 2,
+        "nextsteps": 1,
+        "review-source": 1
+      },
+      "routeObjects": 1,
+      "skillLiterals": {
+        "/sf-phase": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "copilot-review-completion.mjs",
+      "role": "policy",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "criterion-test-failures.mjs",
+      "role": "unclassified",
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "phase prepublish": 1,
+        "submit": 1
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "decision-advice.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "decision-list-reads.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 2,
+        "phase rollover": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "route": 1
+        }
+      },
+      "versionArithmetic": 2
+    },
+    {
+      "module": "decision-list.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "phase show": 1,
+        "reject": 1,
+        "phase begin": 1,
+        "approve": 2,
+        "nextsteps": 1
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "text": 3,
+          "exact": 1
+        }
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "delivery-evidence.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "reject": 2,
+        "recover": 2,
+        "phase prepublish": 1
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "design-sources.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 2
+      }
+    },
+    {
+      "module": "documents.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "draft-evidence-hold.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 2,
+        "phaseInspectionGeneration": 2
+      }
+    },
+    {
+      "module": "epic-lifecycle.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "evidence-reuse.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "reject": 2,
+        "nextsteps": 1,
+        "phase publish": 1
+      }
+    },
+    {
+      "module": "evidence/cross-phase-change.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "reject": 2
+      }
+    },
+    {
+      "module": "evidence/terminal.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "approve": 1,
+        "reject": 1
+      }
+    },
+    {
+      "module": "fault-repair.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "finding-escalation.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 1
+      }
+    },
+    {
+      "module": "findings/repair-continuation.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "phase prepublish": 1
+      }
+    },
+    {
+      "module": "fos-features.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1,
+        "recover": 1
+      }
+    },
+    {
+      "module": "gate-recovery.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "recover": 4,
+        "reject": 2
+      }
+    },
+    {
+      "module": "gateway/planners/developer-next.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "gateway/planners/home-overview.mjs",
+      "role": "unclassified",
+      "routeObjects": 1
+    },
+    {
+      "module": "gateway/planners/work-continue.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "submit": 1
+      }
+    },
+    {
+      "module": "gateway/work-records.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "generation-boundary.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "nextPhaseGeneration": 3
+      },
+      "intentStatus": {
+        "direct": 1,
+        "aliased": 3
+      },
+      "lifecycleCommands": {
+        "phase begin": 3,
+        "phase enter": 1
+      },
+      "intentWrites": 4,
+      "routeObjects": 3,
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 2
+        }
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      }
+    },
+    {
+      "module": "generation-publication-store.mjs",
+      "role": "unclassified",
+      "intentWrites": 1,
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "git.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 2
+      }
+    },
+    {
+      "module": "governed-goals.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "guide.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "phaseExplicitlyReopened": 1,
+        "phaseUsesDeterministicGeneration": 2,
+        "phaseNeedsGeneration": 4,
+        "successorGenerationOpen": 1,
+        "stepBeingWritten": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      },
+      "skillChooserCalls": {
+        "successorSkillForPhase": 1,
+        "generationSkillForPhase": 2
+      },
+      "versionArithmetic": 2,
+      "routeObjects": 10,
+      "lifecycleCommands": {
+        "phase rollover": 3,
+        "phase show": 1,
+        "prepare": 2,
+        "submit": 1,
+        "review-source": 1,
+        "approve": 1,
+        "reject": 1
+      }
+    },
+    {
+      "module": "help-pages.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "prepare": 1,
+        "phase begin": 1,
+        "phase rollover": 1,
+        "phase publish": 1,
+        "submit": 1,
+        "approve": 1,
+        "reject": 1,
+        "nextsteps": 2
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "text": 3
+        }
+      }
+    },
+    {
+      "module": "help-service.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "copilotSkillForCommand": 1
+      }
+    },
+    {
+      "module": "inbox.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "phase show": 1,
+        "approve": 1,
+        "reject": 1
+      }
+    },
+    {
+      "module": "initiative-context.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 2
+    },
+    {
+      "module": "initiative-evidence.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 3
+    },
+    {
+      "module": "initiative-next.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "copilotSkillForCommand": 2
+      },
+      "versionArithmetic": 1
+    },
+    {
+      "module": "initiative-report.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "copilotSkillForCommand": 1
+      }
+    },
+    {
+      "module": "initiative-state.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 4
+    },
+    {
+      "module": "inject.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "inputs.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "lifecycle-event.mjs",
+      "role": "unclassified",
+      "intentWrites": 1
+    },
+    {
+      "module": "lifecycle-worktree.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 1
+      }
+    },
+    {
+      "module": "local-test-runs.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 3
+      }
+    },
+    {
+      "module": "manual-authorship.mjs",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-phase": {
+          "exact": 3
+        }
+      }
+    },
+    {
+      "module": "mcp-evidence.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 3
+      }
+    },
+    {
+      "module": "narration/command-result.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "copilotSkillForCommand": 2
+      }
+    },
+    {
+      "module": "narration/continuation.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "lifecycleCommands": {
+        "prepare": 1,
+        "phase publish": 1,
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "nextsteps.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "approve": 4,
+        "submit": 2,
+        "phase show": 1,
+        "prepare": 6,
+        "nextsteps": 2,
+        "recover": 1,
+        "phase rollover": 1,
+        "review-source": 1
+      },
+      "skillChooserCalls": {
+        "copilotSkillForCommand": 4,
+        "generationSkillForPhase": 6
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        }
+      },
+      "predicateCalls": {
+        "stepBeingWritten": 2,
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "node-pin.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "outcome-review.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "authoringRoute": 1
+      }
+    },
+    {
+      "module": "own-correction-rollover.mjs",
+      "role": "policy",
+      "routeObjects": 2,
+      "lifecycleCommands": {
+        "phase rollover": 1,
+        "prepare": 1
+      },
+      "skillChooserCalls": {
+        "successorSkillForPhase": 1
+      },
+      "versionArithmetic": 2,
+      "skillLiterals": {
+        "/sf-code": {
+          "route": 1
+        },
+        "/sf-phase": {
+          "route": 1
+        }
+      },
+      "intentWrites": 1
+    },
+    {
+      "module": "owner-step-evidence.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "reject": 2,
+        "approve": 1
+      }
+    },
+    {
+      "module": "phase-agent-result.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "phase show": 1
+      }
+    },
+    {
+      "module": "phase-appeals.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      },
+      "lifecycleCommands": {
+        "recover": 1,
+        "phase prepublish": 1
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "phase-artifact-risk.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      },
+      "predicateCalls": {
+        "phaseInspectionGeneration": 1,
+        "requiresProspectivePhaseInspection": 1
+      }
+    },
+    {
+      "module": "phase-authoring-entry.mjs",
+      "role": "policy",
+      "routeObjects": 2,
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        },
+        "/sf-code": {
+          "exact": 1
+        }
+      },
+      "lifecycleCommands": {
+        "recover": 1,
+        "phase rollover": 2
+      },
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 1,
+        "phaseExplicitlyReopened": 1,
+        "phaseUsesDeterministicGeneration": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      },
+      "versionArithmetic": 1
+    },
+    {
+      "module": "phase-authoring-progress.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "stepBeingWritten": 1,
+        "phaseUsesDeterministicGeneration": 1,
+        "nextPhaseGeneration": 1,
+        "consumedByPublishedGeneration": 1
+      },
+      "intentStatus": {
+        "direct": 3
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "phase-authoring-summary.mjs",
+      "role": "policy",
+      "skillChooserCalls": {
+        "authoringRoute": 1
+      },
+      "predicateCalls": {
+        "successorGenerationOpen": 1
+      }
+    },
+    {
+      "module": "phase-checkpoint.mjs",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "phase-continuation-runtime.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "hasPublishedPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "phase-continuation.mjs",
+      "role": "unclassified",
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "phase-draft-check.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 1,
+        "hasPublishedPhaseGeneration": 1,
+        "phaseInspectionGeneration": 2
+      },
+      "intentStatus": {
+        "direct": 3
+      },
+      "lifecycleCommands": {
+        "prepare": 1,
+        "recover": 3
+      },
+      "routeObjects": 2,
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 2
+        }
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      }
+    },
+    {
+      "module": "phase-entry-authoring.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "phaseKernelOwned": 1,
+        "nextPhaseGeneration": 1
+      },
+      "routeObjects": 4,
+      "lifecycleCommands": {
+        "phase enter": 3,
+        "prepare": 2,
+        "phase prepublish": 1,
+        "recover": 1,
+        "phase show": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      },
+      "versionArithmetic": 1
+    },
+    {
+      "module": "phase-entry-context.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "phaseInspectionGeneration": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "phase-evidence-amendment.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 2,
+        "phaseInspectionGeneration": 1
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "phase-execution-evidence.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "phase-finding-dispute.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 2
+      }
+    },
+    {
+      "module": "phase-finding-policy.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      },
+      "lifecycleCommands": {
+        "phase prepublish": 2
+      }
+    },
+    {
+      "module": "phase-generation-need.mjs",
+      "role": "policy",
+      "intentStatus": {
+        "aliased": 1
+      },
+      "predicateCalls": {
+        "phaseNeedsGeneration": 1,
+        "successorGenerationOpen": 1
+      }
+    },
+    {
+      "module": "phase-generation.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      },
+      "intentStatus": {
+        "aliased": 1
+      }
+    },
+    {
+      "module": "phase-governance-routing.mjs",
+      "role": "policy",
+      "routeObjects": 3,
+      "lifecycleCommands": {
+        "reject": 1,
+        "phase rollover": 1,
+        "prepare": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 1
+        }
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      }
+    },
+    {
+      "module": "phase-input-presentation.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "phase-inspection-generation.mjs",
+      "role": "policy",
+      "intentStatus": {
+        "direct": 2
+      },
+      "predicateCalls": {
+        "stepBeingWritten": 1,
+        "requiresProspectivePhaseInspection": 1,
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "phase-journey-inspection.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 1
+      }
+    },
+    {
+      "module": "phase-journey.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 1
+      }
+    },
+    {
+      "module": "phase-mutation-contract.mjs",
+      "role": "policy",
+      "intentStatus": {
+        "direct": 2
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 1,
+        "stepBeingWritten": 1,
+        "consumedByPublishedGeneration": 1
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        }
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 3
+      }
+    },
+    {
+      "module": "phase-preparation-guidance.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "prepare": 1
+      },
+      "routeObjects": 1,
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      }
+    },
+    {
+      "module": "phase-prepublish.mjs",
+      "role": "policy",
+      "routeObjects": 8,
+      "lifecycleCommands": {
+        "phase show": 1,
+        "recover": 4,
+        "phase begin": 1,
+        "phase prepublish": 3
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 4
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 7
+        },
+        "/sf-code": {
+          "exact": 1,
+          "text": 1
+        }
+      },
+      "intentStatus": {
+        "direct": 2
+      },
+      "predicateCalls": {
+        "hasPublishedPhaseGeneration": 1,
+        "requiresProspectivePhaseInspection": 1
+      }
+    },
+    {
+      "module": "phase-prompt-composer.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "nextPhaseGeneration": 8
+      }
+    },
+    {
+      "module": "phase-publication-readiness.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      },
+      "routeObjects": 4,
+      "lifecycleCommands": {
+        "recover": 1,
+        "phase show": 1
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "phase-publication-unchanged.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "hasPublishedPhaseGeneration": 1,
+        "requiresProspectivePhaseInspection": 1
+      }
+    },
+    {
+      "module": "phase-quality-risk.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 3
+      }
+    },
+    {
+      "module": "phase-repair-journal.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "phase-repair-runtime.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 3
+      },
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "recover": 1
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "phase-resolution.mjs",
+      "role": "policy",
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 2
+        },
+        "/sf-code": {
+          "exact": 1
+        }
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 6
+      },
+      "intentStatus": {
+        "direct": 2
+      }
+    },
+    {
+      "module": "phase-staging-paths.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "phaseInspectionGeneration": 1
+      }
+    },
+    {
+      "module": "phase-transition-routes.mjs",
+      "role": "policy",
+      "routeObjects": 3,
+      "lifecycleCommands": {
+        "prepare": 1,
+        "recover": 1
+      },
+      "skillLiterals": {
+        "/sflow-recover": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "planning.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 5
+      }
+    },
+    {
+      "module": "prepared-document-successor.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "hasPublishedPhaseGeneration": 1,
+        "phaseNeedsGeneration": 1
+      }
+    },
+    {
+      "module": "presence/person-records.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "approve": 1,
+        "reject": 1
+      }
+    },
+    {
+      "module": "publication-pending.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 1
+      }
+    },
+    {
+      "module": "publication-preflight.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      },
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "pull-request.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "recovery-plan.mjs",
+      "role": "policy",
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "predicateCalls": {
+        "hasPublishedPhaseGeneration": 2,
+        "requiresProspectivePhaseInspection": 2,
+        "nextPhaseGeneration": 4,
+        "phaseInspectionGeneration": 1,
+        "phaseNeedsGeneration": 2
+      },
+      "routeObjects": 7,
+      "lifecycleCommands": {
+        "phase show": 3,
+        "prepare": 4,
+        "phase prepublish": 2,
+        "recover": 2,
+        "reject": 2,
+        "phase rollover": 1,
+        "phase publish": 1
+      },
+      "intentStatus": {
+        "direct": 10
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "text": 1,
+          "exact": 3
+        },
+        "/sf-code": {
+          "text": 2
+        }
+      },
+      "versionArithmetic": 1
+    },
+    {
+      "module": "recovery-preparation-context.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 3
+      }
+    },
+    {
+      "module": "recovery-set-aside.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 3
+      }
+    },
+    {
+      "module": "recovery-worktree-commit.mjs",
+      "role": "unclassified",
+      "routeObjects": 2,
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        }
+      },
+      "lifecycleCommands": {
+        "reject": 1,
+        "recover": 3
+      }
+    },
+    {
+      "module": "refusal-remediation.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "recover": 9,
+        "phase show": 4,
+        "phase prepublish": 8,
+        "nextsteps": 3,
+        "phase begin": 2,
+        "phase rollover": 1,
+        "prepare": 1,
+        "reject": 1
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 13
+        },
+        "/sf-code": {
+          "exact": 8,
+          "route": 1
+        },
+        "/sf-phase": {
+          "exact": 2
+        }
+      },
+      "routeObjects": 1
+    },
+    {
+      "module": "reinstall.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "copilotSkillForCommand": 1
+      }
+    },
+    {
+      "module": "repair-budget.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "reject": 1
+      }
+    },
+    {
+      "module": "requested-successor.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      },
+      "skillChooserCalls": {
+        "successorSkillForPhase": 1
+      },
+      "routeObjects": 3,
+      "lifecycleCommands": {
+        "phase rollover": 1,
+        "prepare": 2
+      },
+      "intentWrites": 1,
+      "skillLiterals": {
+        "/sf-code": {
+          "route": 1
+        }
+      }
+    },
+    {
+      "module": "retained-skill-instructions.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 2
+      }
+    },
+    {
+      "module": "review-continuation.mjs",
+      "role": "policy",
+      "intentStatus": {
+        "direct": 1
+      },
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "review-subagent.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "review-source": 1
+      },
+      "versionArithmetic": 1,
+      "predicateCalls": {
+        "phaseNeedsGeneration": 1
+      }
+    },
+    {
+      "module": "revision/interactive-service.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "prepare": 1
+      }
+    },
+    {
+      "module": "revision/publication-adapter.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "safe-command-guidance.mjs",
+      "role": "validator",
+      "skillChooserCalls": {
+        "skillForCommandLine": 1
+      },
+      "skillLiterals": {
+        "/sf-recover": {
+          "exact": 1
+        },
+        "/sf-code": {
+          "exact": 1
+        },
+        "/sf-phase": {
+          "text": 1
+        }
+      }
+    },
+    {
+      "module": "scope/authoring.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "requiresProspectivePhaseInspection": 1
+      }
+    },
+    {
+      "module": "sequence.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "phaseNeedsGeneration": 2,
+        "stepBeingWritten": 3,
+        "phaseUsesDeterministicGeneration": 1,
+        "opensCodeVersion": 1,
+        "successorGenerationOpen": 1
+      },
+      "routeObjects": 7,
+      "lifecycleCommands": {
+        "approve": 1,
+        "reject": 1,
+        "phase begin": 1,
+        "prepare": 2,
+        "nextsteps": 4
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 3
+      }
+    },
+    {
+      "module": "session-read-service.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "session.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "phaseKernelOwned": 2
+      }
+    },
+    {
+      "module": "settle-before-publication.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "settled-decisions.mjs",
+      "role": "unclassified",
+      "routeObjects": 2,
+      "lifecycleCommands": {
+        "phase show": 1,
+        "reject": 1
+      }
+    },
+    {
+      "module": "source-review-continuation.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "nextsteps": 1,
+        "prepare": 2,
+        "phase rollover": 1,
+        "phase begin": 1,
+        "review-source": 2,
+        "submit": 1
+      },
+      "predicateCalls": {
+        "stepBeingWritten": 1,
+        "successorGenerationOpen": 1,
+        "phaseNeedsGeneration": 2,
+        "nextPhaseGeneration": 1,
+        "phaseExplicitlyReopened": 1,
+        "opensCodeVersion": 1
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 3
+      },
+      "intentStatus": {
+        "direct": 1
+      },
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 1,
+          "route": 2
+        }
+      },
+      "versionArithmetic": 2
+    },
+    {
+      "module": "source-review-decision.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "review-source": 1
+      }
+    },
+    {
+      "module": "source-review-lifecycle.mjs",
+      "role": "policy",
+      "predicateCalls": {
+        "successorGenerationOpen": 2,
+        "phaseNeedsGeneration": 3
+      },
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "prepare": 1
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      }
+    },
+    {
+      "module": "source-review-staging.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "review-source": 1
+      }
+    },
+    {
+      "module": "spec-coverage-preview.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "recover": 1
+      }
+    },
+    {
+      "module": "state.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "recover": 10,
+        "phase prepublish": 1,
+        "reject": 4,
+        "phase rollover": 3,
+        "review-source": 2,
+        "phase publish": 2
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 22,
+        "phaseExplicitlyReopened": 1,
+        "phaseNeedsGeneration": 3,
+        "successorGenerationOpen": 1
+      },
+      "intentStatus": {
+        "direct": 3
+      },
+      "versionArithmetic": 4,
+      "skillChooserCalls": {
+        "successorSkillForPhase": 3,
+        "generationSkillForPhase": 2
+      },
+      "routeObjects": 6
+    },
+    {
+      "module": "story-paths.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "story-test-command-amendment.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "story-test-commands.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "reject": 1
+      }
+    },
+    {
+      "module": "submission-readiness.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "submit": 1,
+        "approve": 1,
+        "prepare": 1
+      },
+      "predicateCalls": {
+        "publicationIsRecorded": 2,
+        "stepBeingWritten": 1,
+        "successorGenerationOpen": 1
+      },
+      "skillChooserCalls": {
+        "copilotSkillForCommand": 3,
+        "generationSkillForPhase": 1
+      },
+      "routeObjects": 8,
+      "skillLiterals": {
+        "/sf-code": {
+          "exact": 1
+        }
+      }
+    },
+    {
+      "module": "submit-route.mjs",
+      "role": "unclassified",
+      "routeObjects": 2,
+      "lifecycleCommands": {
+        "submit": 1
+      }
+    },
+    {
+      "module": "summary-step-changes.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 2
+      }
+    },
+    {
+      "module": "telemetry.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 2
+      }
+    },
+    {
+      "module": "test-command-pins.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 1
+      }
+    },
+    {
+      "module": "test-recovery-runtime.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "trp-delivery-selection.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "trp-document-runtime.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "upstream-routes.mjs",
+      "role": "unclassified",
+      "routeObjects": 1,
+      "lifecycleCommands": {
+        "reject": 1
+      }
+    },
+    {
+      "module": "verification/corner-case-obligations.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      }
+    },
+    {
+      "module": "verification/repository-tests.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "verification/witness-records.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "reject": 1,
+        "phase rollover": 1,
+        "recover": 1
+      },
+      "predicateCalls": {
+        "phaseNeedsGeneration": 1
+      }
+    },
+    {
+      "module": "visual-coverage.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 2
+      }
+    },
+    {
+      "module": "visual-native-capture.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "wca-git-drafts.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 1
+    },
+    {
+      "module": "work-intervals.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 1
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "workflow-assess/layers.mjs",
+      "role": "unclassified",
+      "intentWrites": 1
+    },
+    {
+      "module": "workflow-lifecycle-simulation.mjs",
+      "role": "unclassified",
+      "predicateCalls": {
+        "phaseNeedsGeneration": 5
+      }
+    },
+    {
+      "module": "workflow-snapshots.mjs",
+      "role": "unclassified",
+      "intentStatus": {
+        "direct": 2
+      }
+    },
+    {
+      "module": "workflow-step-people.mjs",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "approve": 2
+      }
+    },
+    {
+      "module": "workflow-studio.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "authoringRoute": 1
+      },
+      "predicateCalls": {
+        "deterministicOnlyGeneration": 2
+      }
+    },
+    {
+      "module": "workflow-task-store.mjs",
+      "role": "record",
+      "lifecycleCommands": {
+        "recover": 1
+      },
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "predicateCalls": {
+        "phaseInspectionGeneration": 1
+      }
+    },
+    {
+      "module": "workflow-task.mjs",
+      "role": "policy",
+      "lifecycleCommands": {
+        "recover": 1
+      },
+      "predicateCalls": {
+        "phaseInspectionGeneration": 3,
+        "hasPublishedPhaseGeneration": 1
+      },
+      "versionArithmetic": 1,
+      "skillChooserCalls": {
+        "generationSkillForPhase": 2
+      }
+    },
+    {
+      "module": "workflow-walk/walk.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "skillForCommandLine": 1
+      },
+      "lifecycleCommands": {
+        "approve": 2,
+        "submit": 1
+      }
+    },
+    {
+      "module": "workspace-bootstrap.mjs",
+      "role": "unclassified",
+      "versionArithmetic": 2
+    },
+    {
+      "module": "worldmodel.mjs",
+      "role": "unclassified",
+      "skillChooserCalls": {
+        "generationSkillForPhase": 1
+      },
+      "skillLiterals": {
+        "/sflow-phase": {
+          "exact": 1
+        }
+      },
+      "predicateCalls": {
+        "nextPhaseGeneration": 1
+      }
+    },
+    {
+      "module": "apps/vscode/src/views/configuration-center-page.ts",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-recover": {
+          "text": 1
+        }
+      }
+    },
+    {
+      "module": "apps/vscode/src/views/journey-model.ts",
+      "role": "renderer",
+      "routeObjects": 1
+    },
+    {
+      "module": "apps/vscode/src/views/phase-prepublish.ts",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "phase publish": 1,
+        "phase prepublish": 1
+      }
+    },
+    {
+      "module": "apps/vscode/src/views/refusal.ts",
+      "role": "unclassified",
+      "lifecycleCommands": {
+        "nextsteps": 2
+      }
+    },
+    {
+      "module": "apps/vscode/src/views/workflow-studio-page.ts",
+      "role": "unclassified",
+      "skillLiterals": {
+        "/sf-code": {
+          "text": 1
+        },
+        "/sf-phase": {
+          "text": 1
+        }
+      }
+    }
+  ]
+}

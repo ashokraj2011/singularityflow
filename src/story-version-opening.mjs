@@ -119,7 +119,7 @@ function replayedRefusal(checkpoint) {
  * Returns `{ outcome, replayed, checkpoint }`; an uncertain shared acceptance throws with the operation's checkpoint.
  */
 export async function openVersion(root, config, workflow, phase, { proposal, digest, receipt = null, principal = null, operationId = null,
-  open, fault = null, agent = null, settled = null }) {
+  open, fault = null, agent = null }) {
   const id = operationId ?? operationIdOf(digest);
   if (!validOperationId(id)) throw refuse(`'${id}' is not an opening operation ID.`, 'VERSION_OPENING_OPERATION_INVALID');
   const workId = workflow.workItem.id;
@@ -146,11 +146,9 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
       'VERSION_OPENING_STALE', { phase: phase.id, proposedVersion: proposal.version, currentVersion: current.proposal.version,
         nextAction: await legalNext(root, workflow, phase) });
   }
-  // Only the first opening of version 1 omits the person's yes [§7.2]; every other needs its exact, sealed receipt.
-  // The one exception the owner decided: the author's own correction of its unreviewed draft, settled with an undo
-  // [owner, 2026-11-13]. It is recorded as that settlement, never as the person's consent.
-  const ownCorrection = settled?.kind === 'own-correction' && proposal.reason === 'own-correction' && typeof settled.id === 'string' && !receipt;
-  const problem = ownCorrection ? null : proposal.consent !== 'not-required' || receipt ? consentProblem(commonDir, receipt, { digest, proposal, principal }) : null;
+  // Only the first opening of version 1 omits the person's yes [§7.2]; every other needs its exact, sealed receipt, the
+  // author's own correction too (owner, 2026-11-17, superseding the settled exception of 2026-11-13) [D3, OSA:REQ-030].
+  const problem = proposal.consent !== 'not-required' || receipt ? consentProblem(commonDir, receipt, { digest, proposal, principal }) : null;
   if (problem) throw refuse(`${problem.words} Nothing was opened.`, problem.code, { phase: phase.id, version: proposal.version,
     nextAction: await legalNext(root, workflow, phase) });
   const writerId = await writerIdOf(root);
@@ -186,7 +184,6 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
       beforeStateWrite: async () => {
         intent = await open(workflow, phase);
         const record = { schema: RECORD_SCHEMA, operationId: id, payloadDigest, proposal, proposalDigest: digest, consent: receipt,
-          ...(ownCorrection ? { settled: { kind: settled.kind, id: settled.id } } : {}),
           writer: { ...writer, actor: principal ? { name: principal.name ?? null, email: principal.email ?? null, login: principal.login ?? null } : null },
           intent: intent?.id ? { id: intent.id, receiptSha256: intent.receiptSha256 ?? null } : null, openedAt };
         recordSha256 = sha(record);
@@ -194,7 +191,7 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
         // The reservation moves the high-watermark in the same commit as the opening it reserves [§4.3, §7.2].
         phase.versionOpening = { operationId: id, version: proposal.version, highWatermark: proposal.version, reason: proposal.reason,
           path: recordPath, sha256: recordSha256, consent: receipt ? { receiptId: receipt.receiptId, surface: receipt.response.surface,
-            assurance: receipt.principal.assurance } : ownCorrection ? { settled: settled.id, surface: 'settled' } : null, writer, openedAt };
+            assurance: receipt.principal.assurance } : null, writer, openedAt };
         (workflow.history ??= []).push({ at: openedAt, actor: principal?.email ?? principal?.name ?? 'system', agent, event: 'version_opened',
           phase: phase.id, detail: `version ${proposal.version} opened (${proposal.reason})${receipt ? ` on the person's yes (${receipt.response.surface})` : ''}` });
       },

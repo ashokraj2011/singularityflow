@@ -130,8 +130,9 @@ async function phaseSubcommand(positionals, options) {
       'Return the submitted packet through authorized rejection before opening a successor; direct rollover is not legal while awaiting approval.',
       { code: 'GENERATION_ROLLOVER_REVIEW_REQUIRED', details: { actions: [plan.action] } }
     );
-    // The author's own correction of its unreviewed draft is settled, never asked [owner, 2026-11-13]; with files
-    // changed since publication, or once a review or an approval exists, the rollover stays the person's.
+    // The author's own correction of its unreviewed draft is proposed with the reason `own-correction` and opens only on
+    // the person's yes, like every successor (owner, 2026-11-17, superseding 2026-11-13) [D3, OSA:REQ-030]; with files
+    // changed since publication, or once a review or an approval exists, it is previewed as a change the person asks for.
     if (options.correction !== undefined) {
       if (plan) throw new SingularityFlowError(`Files changed after ${phase.id} generation ${phase.generation} was published, so starting the next generation is the person's to confirm. Preview it: singularity-flow phase rollover ${phase.id} --json.`,
         { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`, skill: successorSkillForPhase(phase, workflow) } } });

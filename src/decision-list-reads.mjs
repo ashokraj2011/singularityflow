@@ -293,10 +293,9 @@ async function rolloverFacts(root, config, workflow, phase) {
     if (!requested.requestedSuccessorEligible(workflow, phase)) return null;
     const after = await changed.changesAfterPublication(root, config, workflow, phase).catch(() => null);
     const requests = await requested.requestedChanges(root, workflow, phase).catch(() => []);
-    // Never the author's own correction [owner, 2026-11-13]: that is of a published generation whose bytes are unchanged
-    // and that nobody asked to change, which this item never covers (neither files nor a request); `phase rollover
-    // --correction` refuses changed files, and once a review or an approval exists it routes to the preview, whose
-    // request this item then asks about (own-correction-rollover.mjs).
+    // Never the author's own correction: that is of a published generation whose bytes are unchanged and that nobody
+    // asked to change, which this item never covers (neither files nor a request); `phase rollover --correction` previews
+    // it and the person answers its own "Start version N …?" question (owner, 2026-11-17; own-correction-rollover.mjs).
     if (!after && !requests.length) return null;
     const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: after?.paths ?? [] });
     const chatRoute = phaseRequiresCodeDelivery(phase) ? `/sf-code ${phase.id}` : action?.copilotCommand?.replace(/ <what to change>$/u, '') ?? null;

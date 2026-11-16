@@ -66,7 +66,7 @@ export function requestedSuccessorConfirmation(workflow, phase, resultDigest, re
  * `phase rollover` for a published, unchanged code generation (requested-successor.mjs): preview the next
  * generation for what the person asked to change, and open it only on their exact confirmation.
  */
-export async function requestedSuccessorRollover(root, config, workflow, phase, options) {
+export async function requestedSuccessorRollover(root, config, workflow, phase, options, { correction = null } = {}) {
   const [{ typedFocusOff }, { optionBoolean, optionString, SingularityFlowError }, { generationResultMatches, generationResultDigest },
     { safeCommandGuidance }, { nextPhaseGeneration }, { printCommandRoutes }] = await Promise.all([
     askedFor(), import('./util.mjs'), import('./state-stores.mjs'), import('./safe-command-guidance.mjs'), import('./phase-generation.mjs'),
@@ -79,12 +79,15 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   if (!requestedSuccessorEligible(workflow, phase) && !reviewed) throw new SingularityFlowError(
     `Phase '${phase.id}' has no changed consumed generation to roll over.`, { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: null });
   let supplied = optionString(options, 'confirm');
-  const given = optionString(options, 'reason', null);
-  const reason = given === null ? null : await noteRequestedChange(root, workflow, phase, given);
+  // The author's own correction is a change the author names; it is asked like any other (owner, 2026-11-17).
+  const given = correction ?? optionString(options, 'reason', null);
+  // The author's correction is its own words, never recorded as what the person asked for: it is the proposal's request alone.
+  const reason = given === null ? null : correction ? (await (await askedFor()).redactedWords(String(given)))?.text ?? null
+    : await noteRequestedChange(root, workflow, phase, given);
   if (given !== null && reason === null) throw new SingularityFlowError('--reason needs the words that say what to change; nothing was left after redaction.', {
     code: 'GENERATION_CHANGE_REASON_REQUIRED' });
   const review = await reviewCorrectionRequest(root, config, workflow, phase);
-  const requests = [...new Set([...await requestedChanges(root, workflow, phase), ...(reason && typedFocusOff(workflow) ? [reason] : []),
+  const requests = correction ? (reason ? [reason] : []) : [...new Set([...await requestedChanges(root, workflow, phase), ...(reason && typedFocusOff(workflow) ? [reason] : []),
     ...(review ? [review] : [])])];
   const next = nextPhaseGeneration(phase);
   const code = phaseRequiresCodeDelivery(phase);
@@ -100,13 +103,15 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     : await generationResultMatches(root, config, workflow, phase)
       ? phase.generationIntent.publication.resultDigest : generationResultDigest(root, config, workflow, phase);
   const expected = requestedSuccessorConfirmation(workflow, phase, resultDigest, requests);
-  const confirmArgv = ['phase', 'rollover', phase.id, ...(reason && typedFocusOff(workflow) ? ['--reason', reason] : []), '--confirm', expected];
+  const confirmArgv = ['phase', 'rollover', phase.id, ...(correction ? ['--correction', correction] : reason && typedFocusOff(workflow) ? ['--reason', reason] : []),
+    '--confirm', expected];
   const route = safeCommandGuidance({ argv: confirmArgv, skill });
   // The proposal the person answers [OSA §7.1]: its exact version, the publication it keeps and the question asked.
   const opening = await import('./commands/phase-opening.mjs');
-  const proposed = await opening.proposalNow(root, workflow, phase, { reason: review && requests.length === 1 ? 'review-corrections' : 'requested-change', confirmation: expected });
+  const kind = correction ? 'own-correction' : review && requests.length === 1 ? 'review-corrections' : 'requested-change';
+  const proposed = await opening.proposalNow(root, workflow, phase, { reason: kind, confirmation: expected });
   const preview = {
-    schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'requested-change',
+    schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: kind === 'review-corrections' ? 'requested-change' : kind,
     workId: workflow.workItem.id, phase: phase.id, fromGeneration: phase.generation, toGeneration: proposed.proposal.version, question: proposed.question,
     requestedChange: { requests, keptAs: typedFocusOff(workflow) ? 'this command only' : `typed words of generation ${next} ("Asked for" once it is prepublished)` },
     confirmation: expected, currentResultDigest: resultDigest,

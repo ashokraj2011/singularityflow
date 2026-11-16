@@ -14,8 +14,13 @@
 import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError } from './util.mjs';
 
-/** What each kind settles, and the person's route an undo hands it back to. */
+/**
+ * What each kind settles, and the person's route an undo hands it back to. `own-correction` stays readable for Stories
+ * that recorded one before 2026-11-17; none is settled now: the author's own correction is asked like every successor
+ * (owner, 2026-11-17) [D3, OSA:REQ-030].
+ */
 export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction', 'node-version', 'test-command', 'plan-accounting']);
+const RETIRED_KINDS = Object.freeze(['own-correction']);
 const ID = /^STL-[0-9]{3,}$/u;
 const BY = Object.freeze(['agent', 'sflow']);
 
@@ -65,6 +70,8 @@ const nextId = (workflow) => `STL-${String((workflow.settledDecisions ?? []).len
 /** Append one settlement to the aggregate and return it. Pure: the caller commits. */
 export function recordSettledDecision(workflow, { kind, subject, answer, evidence = [], by, at, phase = null, effect = null, actor = null, agent = null }) {
   if (!SETTLED_KINDS.includes(kind)) fail(`A settled decision is one of ${SETTLED_KINDS.join(', ')}; not '${kind}'.`);
+  if (RETIRED_KINDS.includes(kind)) fail('The author\'s own correction is never settled for the person: it is previewed and opens only on their yes.',
+    'SETTLED_DECISION_RETIRED');
   if (!BY.includes(by)) fail('A settled decision is settled by the agent or by SFlow.');
   const named = (Array.isArray(evidence) ? evidence : []).map((entry) => ({ what: text(entry?.what, 500), where: text(entry?.where, 300) }))
     .filter((entry) => entry.what && entry.where);

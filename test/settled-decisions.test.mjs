@@ -148,20 +148,18 @@ test('a settled test command request runs as accepted, and undone it waits for a
   assert.equal(workflow.phases.implement.storyTestCommands, undefined);
 });
 
-test('the author corrects its own published generation itself only while nobody reviewed or approved it, and never after an undo', async () => {
+test('the author\'s own correction is its own only while nobody reviewed or approved it, and is never settled for the person (owner, 2026-11-17)', async () => {
   const code = (extra = {}) => story({ phases: { implement: { id: 'implement', label: 'Implement', status: 'in_progress', generation: 1,
     writeScope: 'source-and-artifact', generationPolicy: { task: 'code', requirement: 'required' }, approvalPolicy: { authorities: ['eng'] },
     generationIntent: { id: 'GI-1', status: 'consumed', generation: 1 }, authorship: [{ generation: 1, producer: 'governed-agent', channel: 'copilot-host' }], ...extra } } });
   const hold = async (workflow) => (await ownCorrectionHold(null, {}, workflow, workflow.phases.implement))?.code ?? null;
-  assert.equal(await hold(code()), null, 'its own, unreviewed, unapproved: settled');
+  assert.equal(await hold(code()), null, 'its own, unreviewed, unapproved: proposed as an own correction, which the person confirms');
   assert.equal(await hold(code({ authorship: [{ generation: 1, producer: 'human', channel: 'manual-in-place' }] })), 'GENERATION_OWN_CORRECTION_NOT_OWN');
   assert.equal(await hold(code({ approvals: [{ generation: 1, decision: 'approved', actor: 'person' }] })), 'GENERATION_OWN_CORRECTION_REVIEWED');
   assert.equal(await hold(code({ status: 'awaiting_approval' })), 'GENERATION_ROLLOVER_UNAVAILABLE', 'a submitted step is the person\'s');
-  const undone = code();
-  recordSettledDecision(undone, { kind: 'own-correction', subject: 'implement generation 1', phase: 'implement', answer: 'Opened generation 2.', by: 'agent', at: AT,
-    evidence: [{ what: 'generation 1 of implement was published by its agent', where: 'implement generation 1' }] });
-  recordSettledUndo(undone, { id: 'STL-001', actor: 'person', at: LATER });
-  assert.equal(await hold(undone), 'GENERATION_OWN_CORRECTION_UNDONE');
+  // No own correction is settled for the person any more: it opens only on their yes [D3, OSA:REQ-030].
+  assert.throws(() => recordSettledDecision(code(), { kind: 'own-correction', subject: 'implement generation 1', phase: 'implement', answer: 'Opened generation 2.',
+    by: 'agent', at: AT, evidence: [{ what: 'generation 1 of implement was published by its agent', where: 'implement generation 1' }] }), { code: 'SETTLED_DECISION_RETIRED' });
 });
 
 test('a plan row covers a changed file it names the companion of, and only when one row does', () => {
@@ -199,7 +197,7 @@ test('a Node pin is the repository\'s answer only when its engines range accepts
   assert.equal(two.source, undefined, 'two installed majors fit: the person chooses');
 });
 
-test('a turn runs the author\'s own correction, and never undoes what was settled for the person', async (t) => {
+test('a turn previews the author\'s own correction, never opens it without the person\'s yes, and never undoes what was settled for them', async (t) => {
   const [{ spawnSync }, { realpath }, { captureMutationTurn }, { recordRepositoryBoundaryTurn, repositoryToolGuard }] = await Promise.all([
     import('node:child_process'), import('node:fs/promises'), import('../src/copilot-mutation-guard.mjs'), import('../src/copilot-repository-boundary.mjs')]);
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-settled-guard-')));
@@ -226,7 +224,11 @@ test('a turn runs the author\'s own correction, and never undoes what was settle
     return repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: root } });
   };
   const correction = 'singularity-flow phase rollover custom-step --correction "The summary says value 3, which contradicts the recorded decision." --json';
-  assert.notEqual((await guard('/sf-phase', correction)).permissionDecision, 'deny', 'the author corrects its own draft in its own turn');
+  assert.notEqual((await guard('/sf-phase', correction)).permissionDecision, 'deny', 'the author previews its own correction in its own turn');
+  // Its confirmation opens the next version, which is the person's yes: with none in this turn, the guard refuses it
+  // (owner, 2026-11-17) [D3, OSA:REQ-030].
+  const confirmation = `singularity-flow phase rollover custom-step --correction "The summary says value 3, which contradicts the recorded decision." --confirm sha256:${'a'.repeat(64)} --json`;
+  assert.equal((await guard('/sf-phase', confirmation)).permissionDecision, 'deny', 'an own correction never opens without the person\'s yes');
   for (const prompt of ['/sf-phase', '/sf-decide PMC-1', '/sf-session', 'Thanks. Undo that for me.']) {
     const refused = await guard(prompt, 'singularity-flow decisions undo PMC-1 --settled STL-001');
     assert.equal(refused.permissionDecision, 'deny', prompt);

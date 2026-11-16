@@ -102,12 +102,12 @@ export async function askAtTerminal(question) {
 
 /**
  * Open a successor on the person's yes: their consent receipt, then the one opening operation. `open(workflow, phase)`
- * makes the step's own opening inside the governed commit. `settled` is the one named exception the owner decided: the
- * author's own correction of its unreviewed draft, settled for the person with an undo [owner, 2026-11-13].
+ * makes the step's own opening inside the governed commit. There is no exception: the author's own correction is asked too.
  */
-export async function openSuccessor(root, config, workflow, phase, { proposal, digest, question, open, typed = false, operationId = null, settled = null, fault = null }) {
-  // Only the first opening of version 1 needs no yes [§7.2]; the owner's settled own correction is its own record.
-  const owed = proposal.consent !== 'not-required' && !settled;
+export async function openSuccessor(root, config, workflow, phase, { proposal, digest, question, open, typed = false, operationId = null, fault = null }) {
+  // Only the first opening of version 1 needs no yes [§7.2]; every successor does, the author's own correction too
+  // (owner, 2026-11-17) [D3, OSA:REQ-030].
+  const owed = proposal.consent !== 'not-required';
   const found = owed ? await consentFor(root, workflow, { proposal, digest, question, typed }) : { principal: await principalHere(root), receipt: null };
   if (owed && !found.receipt) {
     const { route } = await kernelRoute(root, workflow, phase);
@@ -118,7 +118,7 @@ export async function openSuccessor(root, config, workflow, phase, { proposal, d
   const { openVersion } = await opening();
   const session = await (await import('../session.mjs')).loadSession(root, { required: false }).catch(() => null);
   return openVersion(root, config, workflow, phase, { proposal, digest, receipt: found.receipt, principal: found.principal, operationId, open, fault,
-    agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null, ...(settled ? { settled } : {}) });
+    agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null });
 }
 
 /** A code step's generation opened inside the governed commit, as `phase begin` opened it before. */

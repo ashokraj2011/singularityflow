@@ -1,13 +1,11 @@
 /**
- * The author's own correction of its own published draft, before anyone reviewed or approved it [owner, 2026-11-13].
+ * The author's own correction of its own published draft, before anyone reviewed or approved it.
  *
- * "Would you like me to open generation 2 to correct the summary?" was asked of a person about a draft only the agent
- * had seen: its summary contradicted a decision the engine recorded. The answer is the author's, and clear: correct
- * it. So `phase rollover <step> --correction "<what contradicts what>"` opens the next generation without the
- * person's confirmation, and records it as settled with its evidence: the generation the agent published, that no
- * independent review report and no approval exists for it, and the contradiction the author names. The decisions card
- * lists it with an undo. Once a review report or an approval exists for the generation, or a person undid an earlier
- * correction of it, the rollover is the person's again, as before: preview it and ask (requested-successor.mjs).
+ * `phase rollover <step> --correction "<what contradicts what>"` proposes the next version for the author's own
+ * correction, with the reason `own-correction`, and asks the person "Start version N …?" like every other successor: it
+ * opens only on their yes, through the same proposal, consent and opening operation (owner, 2026-11-17, superseding the
+ * settled-with-an-undo rule of 2026-11-13) [D3, OSA:REQ-030]. Once a review report or an approval exists for the
+ * generation, it is no longer the author's own correction: the preview for a change the person asks for is the route.
  */
 import { SingularityFlowError } from './util.mjs';
 
@@ -16,95 +14,51 @@ const MAXIMUM = 1000;
 
 const refuse = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
-/** Why the author may not correct `phase` on its own now, or null when it may; read-only. */
+/** Why a correction of `phase` is not the author's own (so it is previewed as a change asked for), or null when it is; read-only. */
 export async function ownCorrectionHold(root, config, workflow, phase) {
-  const [{ requestedSuccessorEligible }, { settlementState }] = await Promise.all([import('./guide.mjs'), import('./settled-decisions.mjs')]);
+  const { requestedSuccessorEligible } = await import('./guide.mjs');
   const generation = Number(phase?.generation ?? 0);
   if (!requestedSuccessorEligible(workflow, phase)) return { code: 'GENERATION_ROLLOVER_UNAVAILABLE', words: `${phase?.id ?? 'This step'} has no published, unchanged generation of its own to correct here.` };
   const authorship = [...(phase.authorship ?? [])].reverse().find((entry) => Number(entry.generation) === generation);
   if (authorship?.producer !== 'governed-agent') {
-    return { code: 'GENERATION_OWN_CORRECTION_NOT_OWN', words: `${phase.id} generation ${generation} was not published by its agent, so correcting it is the person's to confirm.` };
+    return { code: 'GENERATION_OWN_CORRECTION_NOT_OWN', words: `${phase.id} generation ${generation} was not published by its agent, so it is not the author's own correction: preview it as a change the person asks for.` };
   }
   if ((phase.approvals ?? []).some((entry) => !entry.invalidatedAt && Number(entry.generation) === generation)) {
-    return { code: 'GENERATION_OWN_CORRECTION_REVIEWED', words: `${phase.id} generation ${generation} has an approval decision, so correcting it is the person's to confirm.` };
+    return { code: 'GENERATION_OWN_CORRECTION_REVIEWED', words: `${phase.id} generation ${generation} has an approval decision, so it is not the author's own correction: preview it as a change the person asks for.` };
   }
   const { sourceReviewRequired } = await import('./source-review-policy.mjs');
   if (sourceReviewRequired(workflow, phase.id)) {
     let status = null;
     try { status = await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phase.id); }
     catch { status = null; }
-    // A review that cannot be read is not known to be absent: nothing settles then.
-    if (!status) return { code: 'GENERATION_OWN_CORRECTION_REVIEWED', words: `Whether ${phase.id} generation ${generation} was reviewed cannot be read, so correcting it is the person's to confirm.` };
+    // A review that cannot be read is not known to be absent: the correction is not known to be the author's own then.
+    if (!status) return { code: 'GENERATION_OWN_CORRECTION_REVIEWED', words: `Whether ${phase.id} generation ${generation} was reviewed cannot be read, so it is not the author's own correction: preview it as a change the person asks for.` };
     if (status.reportSha256 && Number(status.generation) === generation) {
-      return { code: 'GENERATION_OWN_CORRECTION_REVIEWED', words: `An independent review of ${phase.id} generation ${generation} is retained, so correcting it is the person's to confirm.` };
+      return { code: 'GENERATION_OWN_CORRECTION_REVIEWED', words: `An independent review of ${phase.id} generation ${generation} is retained, so it is not the author's own correction: preview it as a change the person asks for.` };
     }
-  }
-  if (settlementState(workflow, 'own-correction', subjectOf(phase)) === 'undone') {
-    return { code: 'GENERATION_OWN_CORRECTION_UNDONE', words: `A person undid an earlier own correction of ${phase.id} generation ${generation}, so the next one is theirs to confirm.` };
   }
   return null;
 }
 
-const subjectOf = (phase) => `${phase.id} generation ${Number(phase.generation)}`;
-
 /**
- * `phase rollover <step> --correction TEXT`: open generation N+1 for the author's own correction, settled, or refuse
- * with the person's route when it is not the author's alone.
+ * `phase rollover <step> --correction TEXT`: preview version N+1 for the author's own correction and ask the person, or,
+ * with the `--confirm` value of that preview after their yes, open it; refuse with the person's route when it is not the
+ * author's own correction. Nothing opens without the person's yes [owner, 2026-11-17].
  */
 export async function ownCorrectionRollover(root, config, workflow, phase, options) {
-  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery, successorSkillForPhase }] = await Promise.all([import('./util.mjs'), import('./code-delivery-policy.mjs')]);
+  const [{ optionString }, { successorSkillForPhase }] = await Promise.all([import('./util.mjs'), import('./code-delivery-policy.mjs')]);
   const correction = String(optionString(options, 'correction') ?? '').replace(/\s+/gu, ' ').trim();
   if (correction.length < MINIMUM || correction.length > MAXIMUM) {
     refuse(`--correction says what the published draft gets wrong and what it contradicts, in ${MINIMUM} to ${MAXIMUM} characters.`, 'GENERATION_CORRECTION_REASON_REQUIRED');
   }
-  if (optionString(options, 'confirm') || optionString(options, 'reason', null) !== null) {
-    refuse('--correction is the author\'s own correction and takes no --confirm or --reason: a change the person asks for is previewed with --reason and confirmed by them.', 'GENERATION_ROLLOVER_OPTIONS_INVALID');
+  if (optionString(options, 'reason', null) !== null) {
+    refuse('--correction is the author\'s own correction and takes no --reason: a change the person asks for is previewed with --reason.', 'GENERATION_ROLLOVER_OPTIONS_INVALID');
   }
   const hold = await ownCorrectionHold(root, config, workflow, phase);
   if (hold) refuse(`${hold.words} Preview the next generation for it and ask the person: singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json.`, hold.code, {
     phase: phase.id, generation: phase.generation,
     nextAction: { command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`, skill: successorSkillForPhase(phase, workflow),
       label: `Preview generation ${Number(phase.generation) + 1} of ${phase.id} for the correction, then ask the person to confirm it.` } });
-  const code = phaseRequiresCodeDelivery(phase);
-  const from = Number(phase.generation);
-  const next = from + 1;
-  const [{ commitSettledDecision }, { actionActor }, { loadSession }] = await Promise.all([
-    import('./settled-decisions.mjs'), import('./commands/kernel.mjs'), import('./session.mjs')]);
-  const session = await loadSession(root, { required: false });
-  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  const { record: settled } = await commitSettledDecision(root, config, workflow, {
-    kind: 'own-correction', by: 'agent', phase: phase.id, subject: subjectOf(phase),
-    answer: `Opened ${phase.id} ${code ? 'generation' : 'draft'} ${next} to correct the agent's own ${code ? 'generation' : 'draft'} ${from}: ${correction}`,
-    evidence: [
-      { what: `${code ? 'generation' : 'draft'} ${from} of ${phase.id} was published by its agent`, where: `${phase.id} ${code ? 'generation' : 'draft'} ${from}` },
-      { what: 'no independent review report and no approval exist for it', where: `${phase.id} review and approval records` },
-      { what: correction, where: 'the author\'s own correction' }
-    ],
-    effect: { generation: from, toGeneration: next }
-  }, { actor: actionActor(root), agent });
-  const opened = await openNext(root, config, workflow, phase, code, settled.id);
-  const result = { schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'own-correction', workId: workflow.workItem.id, phase: phase.id,
-    fromGeneration: from, toGeneration: next, mutates: true, correction,
-    settled: { id: settled.id, kind: settled.kind, answer: settled.answer, evidence: settled.evidence,
-      words: `Settled for the person (nobody was asked); the decisions card lists it with an undo: /sf-decide ${workflow.workItem.id}.` },
-    preserved: `${code ? 'Generation' : 'Draft'} ${from} stays as published.`, ...opened,
-    next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: code ? `/sf-code ${phase.id}` : `/sf-phase ${phase.id}`,
-      reason: `Author ${code ? 'generation' : 'draft'} ${next} with the correction; it is checked again before it is published.` } };
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  console.log(`Opened ${phase.id} ${code ? 'generation' : 'draft'} ${next} to correct ${code ? 'generation' : 'draft'} ${from}: ${correction}`);
-  console.log(`Settled for the person as ${settled.id}; the decisions card lists it with an undo (/sf-decide ${workflow.workItem.id}).`);
-}
-
-/**
- * The next generation, through the one opening operation as a confirmed rollover opens it (commands/phase-opening.mjs): a
- * code intent, or a document's reservation, shared with the opening record. It carries the settlement, the owner's named
- * exception to the person's yes, never a consent receipt [OSA:REQ-030 exception, owner 2026-11-13].
- */
-async function openNext(root, config, workflow, phase, code, settledId) {
-  const opening = await import('./commands/phase-opening.mjs');
-  const proposed = await opening.proposalNow(root, workflow, phase, { reason: 'own-correction' });
-  const opened = await opening.openSuccessor(root, config, workflow, phase, { ...proposed, settled: { kind: 'own-correction', id: settledId },
-    open: code ? opening.codeOpening(root, config) : opening.documentOpening() });
-  return code ? { generationIntent: phase.generationIntent, opening: opened.outcome }
-    : { opened: { generation: proposed.proposal.version, status: 'open' }, opening: opened.outcome };
+  // The same preview, question and confirmation as a change the person asks for, with the reason `own-correction`.
+  return (await import('./requested-successor.mjs')).requestedSuccessorRollover(root, config, workflow, phase, options, { correction });
 }

@@ -13,6 +13,10 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 const answerBinding = () => import('./copilot-answer-binding.mjs');
 // The turns whose decision commands are held to the person's answers.
 export const ANSWER_BOUND_SKILLS = new Set(ANSWER_BOUND_TURNS);
+// And the turns whose confirmed rollover (a step's next version) is held to the person's yes in the same turn; a /sf-confirm
+// turn runs the code the person typed [owner, 2026-11-16].
+const SUCCESSOR_BOUND_MODES = new Set(['authoring', 'kernel-only']);
+const answerLedgerTurn = (record) => ANSWER_BOUND_SKILLS.has(skillName(record?.skill)) || SUCCESSOR_BOUND_MODES.has(mutationTurnMode(record?.skill));
 import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
@@ -358,7 +362,7 @@ export async function captureMutationTurn(payload, record, {
 } = {}) {
   const file = recordFile(payload);
   if (!file) return;
-  if (ANSWER_BOUND_SKILLS.has(skillName(record.skill))) await answerBinding().then(binding => binding.startAnswerLedger(file, record, payload.prompt)).catch(() => {});
+  if (answerLedgerTurn(record)) await answerBinding().then(binding => binding.startAnswerLedger(file, record, payload.prompt)).catch(() => {});
   let root = null;
   try {
     const candidate = await resolveRoot(payload);
@@ -1411,6 +1415,20 @@ function proposalStepOfCall(call, cwd) {
     .find(candidate => parseCli(candidate).positionals.slice(0, 3).join(' ') === 'story intent-amendment propose');
   return argv ? { id: 'intent-amendment-proposal', argv } : null;
 }
+/** A confirmed `phase rollover`: the argv that starts a step's next version, held to the person's yes, or null. */
+function successorConfirmationOfCall(call, cwd) {
+  if (!SHELL_INPUT_TOOLS.has(call.name)) return null;
+  const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars].find(value => typeof value === 'string');
+  if (!text || !/singularity-flow|sflow/iu.test(text)) return null;
+  // A short code (`confirm <CODE>`) is the command it was issued for: the same yes holds it.
+  return shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd).map(({ argv }) => {
+    const { positionals, options } = parseCli(argv);
+    return positionals[0] === 'confirm' ? confirmCodeArgv(positionals, options) : argv;
+  }).find((candidate) => {
+    const { positionals, options } = candidate ? parseCli(candidate) : { positionals: [], options: {} };
+    return positionals[0] === 'phase' && positionals[1] === 'rollover' && typeof options.confirm === 'string';
+  }) ?? null;
+}
 function personStepCall(call, cwd) {
   const step = personStepOfCall(call, cwd);
   return step ? personStepRefusal(step) : null;
@@ -1876,13 +1894,22 @@ async function noteTaskQuestion(payload, record) {
  * asked is counted, so one whose answer never reaches the post-tool hook is known to refuse nothing.
  */
 async function answerBoundDenial(payload, record) {
-  if (!ANSWER_BOUND_SKILLS.has(skillName(record.skill))) return null;
+  if (!answerLedgerTurn(record)) return null;
   const toolCalls = calls(payload);
   const file = recordFile(payload);
   if (toolCalls.some(call => QUESTION_TOOLS.has(call.name))) {
     await answerBinding().then(binding => binding.noteQuestionAsked(file, record)).catch(() => {});
     return null;
   }
+  // A step's next version starts only on the person's yes in this turn; the agent never answers it [owner, 2026-11-16].
+  if (SUCCESSOR_BOUND_MODES.has(mutationTurnMode(record.skill))) for (const call of toolCalls) {
+    const argv = successorConfirmationOfCall(call, payload.cwd);
+    if (!argv) continue;
+    const { positionals, options } = parseCli(argv);
+    const reason = await (await answerBinding()).unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals }).catch(() => null);
+    if (reason) return { ...mutationDenial(null, reason, [], { routes: [safeCommandGuidance({ argv })].filter(Boolean) }), recoverable: true };
+  }
+  if (!ANSWER_BOUND_SKILLS.has(skillName(record.skill))) return null;
   // The turn's contract, read once and only for a proposal: whether change impact holds it to a yes.
   let contract;
   const changeImpact = async () => ((contract ??= await currentContract(payload, record, { reclassifyOutputs: false })
@@ -2345,7 +2372,7 @@ async function shellSnapshot(root, contract) {
 
 export async function mutationPostToolGuard(payload = {}) {
   const record = await turn(payload);
-  if (record && ANSWER_BOUND_SKILLS.has(skillName(record.skill)) && calls(payload).some(call => QUESTION_TOOLS.has(call.name))) {
+  if (record && answerLedgerTurn(record) && calls(payload).some(call => QUESTION_TOOLS.has(call.name))) {
     await answerBinding().then(binding => binding.noteQuestionAnswered(recordFile(payload), record, payload)).catch(() => {});
     return {};
   }

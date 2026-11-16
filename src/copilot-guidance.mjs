@@ -123,6 +123,10 @@ function skillRouteForCommand(command, skill, fallback) {
       && / --refresh(?: |$)/u.test(value)) return '/sf-session --refresh';
   const publication = value.match(/^(?:singularity-flow|sflow)\s+phase\s+publish\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
   if (publication) return `/sf-publish ${publication[1]}`;
+  // A step's next generation is its author's to open (/sf-code <step>), with the words still to say when the route leaves them open.
+  const rollover = selected !== '/sf-recover' && !/[\u0000-\u001f\u007f]/u.test(value)
+    && value.match(/^(?:singularity-flow|sflow)\s+phase\s+rollover\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
+  if (rollover) return `${selected} ${rollover[1]}${/\s--reason\s+"<what to change>"/u.test(value) ? ' <what to change>' : ''}`;
   const disposition = !/[\u0000-\u001f\u007f]/u.test(value)
     && value.match(/^(?:singularity-flow|sflow)\s+review-source\s+(?:decision-context|decide)\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s+(.+))?$/u);
   if (disposition) return `/sf-review-decide ${disposition[1]}${disposition[2] ? ` ${disposition[2]}` : ''}`;

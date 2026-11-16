@@ -40,7 +40,8 @@ export function phaseGovernanceHold(workflow, phase) {
         command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to ${phase.id} --reason "Re-author under the accepted phase author for independent review"`,
         reason: 'An authorized human must return the submitted generation before authoring its successor.' })] : []),
       ...(phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed'
-        ? [copilotAction({ skill: '/sf-recover',
+        // /sf-code previews the next generation and asks the person; /sf-recover ran nothing for unchanged bytes (owner, 2026-11-16).
+        ? [copilotAction({ skill: '/sf-code',
           command: `singularity-flow phase rollover ${phase.id} --json`,
           reason: 'Preview and review the exact successor-generation digest before reopening code authoring.' })] : []),
       copilotAction({ skill: generationSkillForPhase(phase, workflow),

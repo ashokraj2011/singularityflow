@@ -1176,7 +1176,7 @@ const KNOWN = Object.freeze({
   CODE_CHANGED_AFTER_PUBLICATION: (argv, error) => {
     const phase = lowerKebab(error?.details?.phase) ?? commandPhase(argv);
     return changedAfterPublicationSteps(error?.details?.nextAction || !phase ? error?.details : { ...error?.details,
-      nextAction: { command: `singularity-flow phase rollover ${phase} --json`, skill: '/sf-recover', copilotCommand: `/sf-code ${phase}`,
+      nextAction: { command: `singularity-flow phase rollover ${phase} --json`, skill: '/sf-code', copilotCommand: `/sf-code ${phase}`,
         label: `To keep the change: start the next draft of ${phase} that includes it. Preview it, and the person confirms.` } });
   },
   // Unrelated changes must be preserved before the lifecycle decision can run.

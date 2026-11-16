@@ -69,7 +69,7 @@ export function changesAfterPublicationRoutes(workflow, phase, changes, setAside
   const include = phase.status === 'awaiting_approval'
     ? { command: `singularity-flow reject ${phase.id} --work-id ${workId} --to ${phase.id} --reason <REASON>`, skill: '/sf-reject',
       label: `To keep the change: an approver of ${phase.id} returns it to itself, and its author makes draft ${next} with ${listed(changes.paths)}; ${kept}.` }
-    : { command: `singularity-flow phase rollover ${phase.id} --json`, skill: '/sf-recover', copilotCommand: `/sf-code ${phase.id}`,
+    : { command: `singularity-flow phase rollover ${phase.id} --json`, skill: '/sf-code', copilotCommand: `/sf-code ${phase.id}`,
       label: `To keep the change: start draft ${next} of ${phase.id} that includes ${listed(changes.paths)}. Preview it, and the person confirms; ${kept}.` };
   const aside = setAside?.command && changes.uncommitted.length && changes.uncommitted.every((entry) => (setAside.paths ?? []).includes(entry))
     ? { command: setAside.command, paths: setAside.paths, humanOnly: true,

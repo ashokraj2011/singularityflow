@@ -362,6 +362,14 @@ export function generationSkillForPhase(phase, workflow = null) {
   return phaseRequiresCodeDelivery(phase) ? '/sflow-code' : '/sflow-phase';
 }
 
+/**
+ * The skill that opens a step's next generation with the person: /sf-code for code, the step's own drafting skill otherwise.
+ * `phase rollover` is its command; /sf-recover runs one only from its recovery plan (owner, 2026-11-16).
+ */
+export function successorSkillForPhase(phase, workflow = null) {
+  return phaseRequiresCodeDelivery(phase) ? '/sf-code' : (generationSkillForPhase(phase, workflow) ?? '/sflow-phase').replace(/^\/sflow-/u, '/sf-');
+}
+
 /** Pin the inferred legacy contract into newly resolved or hydrated workflow state. */
 export function pinCodeDeliveryTask(phase, policyField = 'generation') {
   if (!phaseRequiresCodeDelivery(phase)) return phase?.[policyField] ?? null;

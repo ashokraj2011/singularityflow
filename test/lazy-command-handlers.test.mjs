@@ -642,7 +642,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // repository.remote-contains) and the state marker through the source facade (SDA-AC-001, 2026-11-16). No new eager file.
     // 9,677,600 (measured 9,677,573): the agents home (9,676,845) merged with main 27361670a and its registered Git query for
     // a reset's Story checkout reads (+728) [2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_677_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,683,250 (measured 9,683,207): a review's next step in SFlow's own words and one turn [owner, 2026-11-16]: its
+    // "Now — <label>" block, plain labels and the findings the next version is authored with (source-review-continuation.mjs
+    // +3,661), `phase rollover` as the step author's route (code-delivery-policy.mjs +457, copilot-guidance.mjs +466,
+    // command-skills.mjs +326, safe-command-guidance.mjs +260, phase-governance-routing.mjs +132, commands/phase-lifecycle.mjs
+    // +50, state.mjs +15) and the code author's route for an undelivered code step (recovery-plan.mjs +267) add 5,634.
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_683_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -992,7 +998,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,262,850 (measured 4,262,833): the registered Git query a reset's Story checkout reads use (SDA-AC-001, 2026-11-16).
   // 4,268,200 (measured 4,268,161): the agents home (4,267,503) merged with main 27361670a and its registered Git query
   // (+658) [2026-11-16]. No new eager file.
-  assert.ok(current.bytes <= 4_268_200, `session current loads ${current.bytes} source bytes`);
+  // 4,269,700 (measured 4,269,670): `phase rollover` as the step author's route, with its step in the Copilot route
+  // (code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs +260)
+  // adds 1,509 [owner, 2026-11-16]. No new eager file.
+  assert.ok(current.bytes <= 4_269_700, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

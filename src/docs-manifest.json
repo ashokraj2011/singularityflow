@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "4d988dfe97409a38a8fe152c195e63d67457355f",
+  "sourceCommit": "5a1d62130f7caf46501749855b5757e1541ec098",
   "topicCount": 93,
-  "contentSha256": "985539d7b3db4bdc8a7de656d0131a7a051968975236c701430112d64ca556cb",
+  "contentSha256": "42e09186af8daedd5606c227d506b5ba3384c0ad22aa81d012867cee248c2b07",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -464,8 +464,8 @@
     {
       "id": "quick-fix",
       "title": "The quick-fix rail",
-      "version": 7,
-      "sha256": "fcb61a82357cf8cf12a647028035d59218a5f26623ff57c410784c1522351622",
+      "version": 8,
+      "sha256": "b7ca9e00b984a379a9d60d59a86d6e25c319b52459eb4a69a763e5765a0bdda0",
       "routingSha256": "e48bee95d4e2dc5f4001a723006a2735a28b5216de204e3ae8aafaf6b91d1c12",
       "file": "quick-fix.md"
     },

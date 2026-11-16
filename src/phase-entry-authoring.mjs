@@ -197,12 +197,14 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   // reported as attention-required, a skill relayed itself as the next action and stopped.
   const status = documentReadiness.status !== 'ready' ? 'documents-required'
     : authoring.entry?.status === 'retained-generation' ? 'retained-generation'
+    // A review asked for corrections: the person's yes to the next version comes first, in this turn [owner, 2026-11-16].
+    : authoring.entry?.status === 'successor-confirmation-required' ? 'successor-confirmation-required'
     : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry'
       : canCompose && authoring.entry?.status === 'authoring-entry' && checkpoint.questioningAllowed ? 'clarification-required'
         : 'attention-required';
   let next = preparationAdmitted ? authoring.entry.actions
     : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
-    : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;
+    : ['retained-generation', 'successor-confirmation-required'].includes(status) ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;
   if (authoringAllowed && contextAdmission.pendingEvidence) next = [{
     id: `continue-draft:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
@@ -246,9 +248,18 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   const askedForRecords = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href);
   const askedFor = base.generatesCode ? await (await askedForRecords()).askedForSummary(root, workflow, phase)
     : isConformancePhase(phase) && workflow.askedFor?.length ? (await askedForRecords()).askedForConformanceInput(workflow, phase) : null;
-  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}), ...(fixOnTheWay ? { fixOnTheWay } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  // The next generation of a code step a review asked to correct is authored with that review's findings [owner, 2026-11-16],
+  // read from the retained record itself, so a status the open generation cannot read yet does not hide them.
+  const reviewCorrection = base.generatesCode && phase.status === 'in_progress' && phase.generationIntent?.status === 'open'
+    && Number(phase.generation) > 0 && Number(phase.generationIntent.generation) === Number(phase.generation) + 1
+    && (await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id)
+    ? (await import('./source-review-continuation.mjs')).reviewCorrection({ report: await (await import('./source-review-lifecycle.mjs'))
+      .retainedReviewReport(root, definition, workflow, phase.id) }, phase.generation) : null;
+  return { ...base, ...(reviewCorrection ? { reviewCorrection } : {}), ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}), ...(fixOnTheWay ? { fixOnTheWay } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
+    ...(status === 'successor-confirmation-required' ? { successor: { targetGeneration: authoring.entry.targetGeneration,
+      ...authoring.entry.successor, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),
     references, documentReadiness, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',

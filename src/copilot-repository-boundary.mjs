@@ -147,14 +147,18 @@ async function settleObservedEdits(payload) {
 export async function recordRepositoryBoundaryTurn(payload = {}, options = {}) {
   // The review's own prompt, sent under the author's session by a host that names no sub-agent (review-subagent.mjs),
   // is the reviewer's turn beside the author's; any other prompt ends a reviewer still launched there.
+  let note = null;
   if (!options.reviewerSubagent) {
     const framed = await reviewerFrame(payload, 'prompt');
     payload = framed.payload;
     if (framed.reviewer) options = { ...options, reviewerSubagent: true };
+    // VS Code's runSubagent names no sub-agent: SFlow says so to the review, as subagentStart does on the Copilot CLI.
+    if (framed.reviewer) note = (await import('./review-subagent.mjs')).REVIEWER_SUBAGENT_NOTE;
   }
   const answer = await recordTurn(payload, options);
-  const line = hookCliLine();
-  return line && explicitSflowSkill(payload.prompt) && answer.decision !== 'block'
+  const cli = hookCliLine();
+  const line = [note, cli && explicitSflowSkill(payload.prompt) ? cli : null].filter(Boolean).join(' ');
+  return line && answer.decision !== 'block'
     ? { ...answer, additionalContext: answer.additionalContext ? `${answer.additionalContext} ${line}` : line } : answer;
 }
 

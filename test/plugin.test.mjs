@@ -1164,10 +1164,12 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /Compare authored-content hashes/);
   assert.match(skill, /`canReview: false`: relay `continuation.actions`, stop/);
   assert.match(skill, /only the author prepares\/publishes successors/);
-  assert.match(skill, /Otherwise end with the words `Run this in a new chat:` then `continuation.actions`, target generation\/owner/);
+  // A person's review always ends on the next step SFlow returned (act.show); with none returned, the new-chat route.
+  assert.match(skill, /Otherwise always end with `act\.show` exactly as returned, after the findings \(none returned: the words `Run this in a new chat:` then `continuation.actions`, target generation\/owner/);
   // As the author's sub-agent it ended "Run this in a new chat:", which the author relayed instead of following the
-  // review's route in that same chat (agent-text audit, 2026-11-11).
-  assert.match(skill, /Started as a sub-agent in the author's chat: end with the retained status and findings only; the author follows `continuation` there\. Otherwise end/u);
+  // review's route in that same chat (agent-text audit, 2026-11-11). Whether it is one is SFlow's word, not the model's
+  // guess: a person's /sf-review-source ended on its findings alone (owner, 2026-11-16).
+  assert.match(skill, /SFlow's turn context says `reviewDispatch: author-turn`: end with the retained status and findings only; the author's turn follows `continuation`\. Otherwise always end/u);
   assert.match(skill, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
   for (const instructions of [skill, agent]) {

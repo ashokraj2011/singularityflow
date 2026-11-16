@@ -5652,7 +5652,7 @@ async function submitPhaseTransition(root, config, workflow, {
       const continuation = await import('./source-review-continuation.mjs');
       const [first] = continuation.sourceReviewContinuation(workflow, phase, review).actions ?? [];
       const nextAction = continuation.reviewUpstreamRoute(workflow, phase, review)
-        ?? (first?.command ? { command: first.command, skill: first.skill, label: first.reason ?? null }
+        ?? (first?.command ? { command: first.command, skill: first.skill, label: first.label ?? first.reason ?? null }
           : { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' });
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be submitted until its independent review is ready (${review.status}). Next, in this step: ${nextAction.command}. `

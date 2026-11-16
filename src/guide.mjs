@@ -2,9 +2,9 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import { decisionsCardAction, intentAmendmentProposable } from './intent-amendment-pause.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
-import { copilotAction, directCopilotSkill } from './copilot-guidance.mjs';
+import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
-import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
@@ -36,13 +36,13 @@ export function requestedSuccessorEligible(workflow, phase) {
 
 /** The skill a person types what to change after: /sf-code for code, the step's own drafting skill otherwise. */
 function changeSkill(workflow, phase) {
-  return phaseRequiresCodeDelivery(phase) ? '/sf-code' : directCopilotSkill(generationSkillForPhase(phase, workflow)) ?? '/sf-phase';
+  return successorSkillForPhase(phase, workflow);
 }
 
 /**
  * The route that starts the next generation for a change. `requested`: the person already said what to
  * change (their typed words are kept), so its preview comes first; otherwise it follows submission.
- * `phase rollover` is /sf-recover's command (command-skills.mjs); in a Code turn the agent runs its shell route.
+ * `phase rollover` is the step author's command (/sf-code, or the step's drafting skill), which asks the person to confirm.
  */
 export function requestedSuccessorAction(workflow, phase, { requested = false, changedPaths = [] } = {}) {
   if (!requestedSuccessorEligible(workflow, phase)) return null;
@@ -51,14 +51,15 @@ export function requestedSuccessorAction(workflow, phase, { requested = false, c
     ? `Generation ${phase.generation}, its evidence and its test results stay as published; nothing changes until the person confirms.`
     : `Draft ${phase.generation} and its review stay as published; nothing changes until the person confirms.`;
   // Files changed after publication (changes-after-publication.mjs): the next generation starts with them, or the person sets them aside (N7).
-  if (changedPaths.length) return copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
+  const skill = changeSkill(workflow, phase);
+  if (changedPaths.length) return copilotAction({ skill, command: `singularity-flow phase rollover ${phase.id} --json`,
     reason: `${changedPaths.slice(0, 5).join(', ')}${changedPaths.length > 5 ? ` and ${changedPaths.length - 5} more` : ''} changed after generation ${phase.generation} was published: preview starting generation ${next} of ${phase.id} that includes the change, then ask the person to confirm it, or to set the change aside. ${kept}` });
   const word = phaseRequiresCodeDelivery(phase) ? 'generation' : 'draft';
-  if (requested) return copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
+  if (requested) return copilotAction({ skill, command: `singularity-flow phase rollover ${phase.id} --json`,
     reason: `The person asked for a change: preview starting ${word} ${next} of ${phase.id} for it, then ask them to confirm. ${kept}` });
-  return { ...copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`,
-    reason: `Or, for a change before submitting: start ${word} ${next} of ${phase.id} with what to change (${changeSkill(workflow, phase)} ${phase.id} <what to change>). ${kept}` }),
-  copilotCommand: `${changeSkill(workflow, phase)} ${phase.id} <what to change>`, optional: true };
+  return { ...copilotAction({ skill, command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`,
+    reason: `Or, for a change before submitting: start ${word} ${next} of ${phase.id} with what to change (${skill} ${phase.id} <what to change>). ${kept}` }),
+  optional: true };
 }
 
 /**

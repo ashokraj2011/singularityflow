@@ -36,7 +36,7 @@ async function withoutInstructionDemo(root) {
   const config = YAML.parse(await readFile(file, 'utf8')); delete config.workTypes[ID];
   for (const id of PHASES) delete config.phases[id];
   await writeFile(file, YAML.stringify(config));
-  for (const id of AGENTS) await rm(path.join(root, `.github/agents/${id}.agent.md`));
+  for (const id of AGENTS) await rm(path.join(root, `singularity/agents/${id}.agent.md`));
   for (const id of SKILLS) await rm(path.join(root, librarySkillPath(id)));
   for (const id of REFERENCES) await rm(path.join(root, instructionPath(id)));
 }

@@ -68,7 +68,7 @@ async function fixture(t, { planningInputs = false, customPhase = null, clarific
       omits: ['scope', 'plan', 'implement', 'verify'].map(responsibility => ({ responsibility,
         reason: 'A conversation-only fixture with no repository delivery.', authority: 'product-approvers' }))
     };
-    const agentFile = path.join(root, '.github/agents/product-owner.agent.md');
+    const agentFile = path.join(root, 'singularity/agents/product-owner.agent.md');
     await writeFile(agentFile, (await readFile(agentFile, 'utf8'))
       .replace('sflow-phases: "intake,', `sflow-phases: "${customPhase},intake,`)
       .replace('sflow-default-for: "intake,', `sflow-default-for: "${customPhase},intake,`));
@@ -76,7 +76,7 @@ async function fixture(t, { planningInputs = false, customPhase = null, clarific
   if (attachedSkill) {
     // The step's default agent attaches a skill from the skill master: the first step, or planning.
     const [agent, step] = customPhase ? ['product-owner', customPhase] : ['architect', 'planning'];
-    const agentFile = path.join(root, `.github/agents/${agent}.agent.md`);
+    const agentFile = path.join(root, `singularity/agents/${agent}.agent.md`);
     await writeFile(agentFile, `${await readFile(agentFile, 'utf8')}\n## Attached skills\n\n| Skill | Phases | When to use it |\n|---|---|---|\n| ${attachedSkill} | ${step} | Before drafting the step |\n`);
     await mkdir(path.join(root, 'singularity/skill-library', attachedSkill), { recursive: true });
     await writeFile(path.join(root, 'singularity/skill-library', attachedSkill, 'SKILL.md'), librarySkillText({ id: attachedSkill,

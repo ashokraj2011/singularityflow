@@ -36,7 +36,7 @@ Presents tools to Copilot               Records selected outputs as evidence
 | Server command, URL, transport and environment | VS Code or Copilot CLI | `.vscode/mcp.json` or host settings |
 | Tokens, cookies and interactive login | MCP host / operating-system credential facilities | Never committed by Flow |
 | Allowed agents, phases and tool names | Singularity Flow | `singularity/workflow.yml` |
-| Agent instructions and tool namespace | Singularity Flow | `.github/agents/*.agent.md` |
+| Agent instructions and tool namespace | Singularity Flow | `singularity/agents/*.agent.md` |
 | Durable screenshots, reports and provenance | Active work item | `singularity/work-items/<ID>/context/mcp/` |
 
 This separation is important. A server being installed does **not** give every

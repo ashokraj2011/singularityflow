@@ -157,14 +157,16 @@ export async function addReleaseWorkflow(root, variant = 'source', { descriptor 
   const manager = managerAgent(variant, { generated, librarySkill });
   const skill = skillText(variant);
   if (librarySkill) await write(LIBRARY_SKILL_PATH, librarySkillText(variant));
-  await write('.github/agents/release-manager.agent.md', manager);
-  await write('.github/agents/release-reviewer.agent.md', reviewerAgent(variant));
+  // In the agents root this repository's workflow.yml records (SPEC-AGH).
+  const agentsRoot = configuration.agentPromptsRoot ?? '.github/agents';
+  await write(`${agentsRoot}/release-manager.agent.md`, manager);
+  await write(`${agentsRoot}/release-reviewer.agent.md`, reviewerAgent(variant));
   await write('singularity/imports/agents/release-manager/skill-store-checklist.md', skill);
   const lockFile = path.join(root, 'singularity/agents.lock.yml');
   const lock = YAML.parse(await readFile(lockFile, 'utf8').catch(() => 'version: 1\nagents: {}\n')) ?? { version: 1, agents: {} };
   lock.agents ??= {};
   lock.agents['release-manager'] = {
-    source: '.github/agents/release-manager.agent.md', sourceSha256: sha256(manager), lockedAt: '2026-10-05T00:00:00.000Z',
+    source: `${agentsRoot}/release-manager.agent.md`, sourceSha256: sha256(manager), lockedAt: '2026-10-05T00:00:00.000Z',
     dependencies: [{
       id: 'store-checklist', type: 'skill', url: 'https://example.com/skills/store-checklist.md', phases: ['store-submission'],
       optional: false, maxBytes: 4096, sha256: sha256(skill), size: Buffer.byteLength(skill),

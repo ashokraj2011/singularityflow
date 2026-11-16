@@ -113,7 +113,7 @@ test('SF Guard\'s door is in the check: the same refusal, its route, and nothing
       assert.equal((await inRoot(repository, () => guard(['guard', 'register'], { positionals: ['guard', 'register'], options: { json: true } }, person))).error, undefined);
       assert.equal((await inRoot(repository, () => guard(['guard', 'enable'], { positionals: ['guard', 'enable'],
         options: { json: true, exception: [approverId(TWO)], 'remote-check': 'sf-guard-verify' } }, person))).error, undefined);
-      run('add', PRESENCE_CHAIN_PATH, '.github/agents');
+      run('add', PRESENCE_CHAIN_PATH, 'singularity/agents');
       run('commit', '-qm', 'Turn SF Guard on');
       run('push', '-q', 'origin', 'main');
     } });

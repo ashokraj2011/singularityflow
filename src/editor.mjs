@@ -1,5 +1,6 @@
 import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
+import { LEGACY_AGENTS_ROOT, AGENTS_HOME } from './configuration-assets.mjs';
 import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
@@ -1115,7 +1116,7 @@ async function configurationSlice(root) {
     ? definition.agentPromptsRoot
     : typeof definition.personaPromptsRoot === 'string'
       ? definition.personaPromptsRoot
-      : '.github/agents';
+      : LEGACY_AGENTS_ROOT;
   return {
     configurationValid: errors.length === 0,
     configurationError: errors.length ? [...new Set(errors)].join(' ') : null,
@@ -1531,10 +1532,13 @@ export async function bootstrapWorkspacePortfolio(root, {
   };
 }
 
+/** The agents root a loaded or raw definition records [AGH:REQ-002]. */
+const definitionAgentsRootOf = (definition) => (definition?.agentPromptsRoot === AGENTS_HOME ? AGENTS_HOME : LEGACY_AGENTS_ROOT);
+
 const EDITOR_CONFIGURATION_ROOTS = Object.freeze({
   templatesRoot: 'singularity/templates',
   portfolioTemplatesRoot: 'singularity/templates',
-  agentPromptsRoot: '.github/agents',
+  agentPromptsRoot: LEGACY_AGENTS_ROOT,
   worldModelPromptSource: PROMPTS_ROOT,
   planningPromptSource: PROMPTS_ROOT
 });
@@ -1557,7 +1561,7 @@ function editorConfigurationPaths(definition = {}, portfolio = null) {
   return {
     templatesRoot,
     portfolioTemplatesRoot: normalizedEditorPath(portfolio?.templatesRoot) ?? templatesRoot,
-    agentPromptsRoot: normalizedEditorPath(definition.agentPromptsRoot) ?? '.github/agents',
+    agentPromptsRoot: normalizedEditorPath(definition.agentPromptsRoot) ?? LEGACY_AGENTS_ROOT,
     worldModelPromptSource,
     planningPromptSource: normalizedEditorPath(
       definition.planning?.promptSource ?? DEFAULT_PLANNING_PROMPT
@@ -1628,7 +1632,9 @@ function editorConfigurationPathAuthority(root, definition, portfolio = null, { 
     const candidate = candidatePaths[field];
     if (previous) directoryRoots.add(previous);
     const reserved = EDITOR_CONFIGURATION_ROOTS[field];
-    const trusted = pathWithin(candidate, previous) || pathWithin(candidate, reserved);
+    // The agents home is SFlow's own [AGH:REQ-002], like the legacy root it replaces.
+    const trusted = pathWithin(candidate, previous) || pathWithin(candidate, reserved)
+      || (field === 'agentPromptsRoot' && candidate === AGENTS_HOME);
     if (trusted && candidate) directoryRoots.add(candidate);
     else if (candidate) escalations.push({ field, previous, candidate, reserved });
   }
@@ -1693,7 +1699,7 @@ function allowedConfigurationPath(
     || relative === DEFAULT_WORLD_MODEL_PROMPT
     || paths.promptSources.includes(relative)
     || relative === DEFAULT_PLANNING_PROMPT
-    || relative.startsWith('.github/agents/')
+    || relative.startsWith(`${definitionAgentsRootOf(definition)}/`)
     || removedLegacyControlFile;
 }
 
@@ -1745,7 +1751,9 @@ export async function validateConfigurationCandidates(root, candidates, definiti
       WORKFLOW_PATH, PORTFOLIO_PATH, CAPABILITIES_PATH, IMPACT_CONFIG_PATH, AGENT_MAPPING_PATH,
       ENVIRONMENT_DECLARATION_PATH,
       definition.templatesRoot, portfolio?.templatesRoot, definition.agentPromptsRoot,
-      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents', SKILL_LIBRARY_ROOT, INSTRUCTION_LIBRARY_ROOT,
+      // Both agents roots: the layout is the copied workflow.yml's, and on the agents home an agent APM
+      // deployed in .github/agents still loads [AGH:REQ-011].
+      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, LEGACY_AGENTS_ROOT, AGENTS_HOME, SKILL_LIBRARY_ROOT, INSTRUCTION_LIBRARY_ROOT,
       // Which agents APM deployed, so a binding in workflow.yml `apm` is checked as it will load.
       'apm.lock.yaml'
     ].filter(Boolean).map(posix));
@@ -1795,7 +1803,7 @@ export async function validateConfigurationCandidates(root, candidates, definiti
  */
 export function refuseAgentFileSave(root, requestedPath) {
   const relative = repoRelative(root, requestedPath);
-  const file = /^\.github\/agents\/([^/]+)\.md$/iu.exec(relative);
+  const file = /^(?:\.github|singularity)\/agents\/([^/]+)\.md$/iu.exec(relative);
   if (!file) return;
   const id = file[1].replace(/\.agent$/iu, '');
   throw new SingularityFlowError(`${relative} is an agent, and agents are changed only through Workflow Studio, so every agent is checked the same way. Nothing was saved. Open Workflow Studio's Agents, or run singularity-flow agents edit ${id} (agents create ${id} for a new one).`, {
@@ -1922,7 +1930,7 @@ export async function deleteConfigurationFile(root, requestedPath) {
   const deletable = authority.directoryRoots.some((directory) => relative.startsWith(`${directory}/`))
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith(`${PROMPTS_ROOT}/`)
-    || relative.startsWith('.github/agents/')
+    || relative.startsWith(`${definitionAgentsRootOf(definition)}/`)
     || relative === ENVIRONMENT_DECLARATION_PATH;
   if (!deletable) throw new SingularityFlowError('Editor deletion is restricted to artifact templates, unreferenced agent prompts, repository skills, repository agents, and the optional environment declaration.');
   const references = [];
@@ -1946,7 +1954,7 @@ export async function deleteConfigurationFile(root, requestedPath) {
     const prompt = relative.slice(promptsRoot.length + 1);
     for (const [agentId, agent] of Object.entries(definition.agents)) if (agent.source === relative) references.push(`agent ${agentId}`);
   }
-  if (relative.startsWith('.github/agents/')) {
+  if (relative.startsWith(`${definitionAgentsRootOf(definition)}/`)) {
     const agents = await discoverAgents(root);
     const deletedAgent = agents.find((agent) => agent.scope === 'repository' && agent.source === relative);
     if (deletedAgent) {

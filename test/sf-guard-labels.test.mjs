@@ -191,7 +191,7 @@ test('SFG AC-008 to AC-010: submission seals the labels, the card shows them bef
       assert.equal((await guardRun(root, ['register'], guardPerson(ONE.email, [key]))).error, undefined);
       const enabled = await guardRun(root, ['enable'], guardPerson(ONE.email, [key]), { 'remote-check': 'sf-guard-verify' });
       assert.equal(enabled.error, undefined, enabled.error?.message);
-      git('add', PRESENCE_CHAIN_PATH, '.github/agents');
+      git('add', PRESENCE_CHAIN_PATH, 'singularity/agents');
       git('commit', '-qm', 'Turn SF Guard on');
       git('push', '-q', 'origin', 'main');
     }

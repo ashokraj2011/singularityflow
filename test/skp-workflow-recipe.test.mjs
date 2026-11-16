@@ -309,7 +309,7 @@ async function approvedRepository(t, { authority = true } = {}) {
     await writeFile(path.join(directory, 'SKILL.md'), bytes);
   }
   for (const phase of value.authoring) value.definition.phases[phase.id] = compile(phase, value.catalog);
-  await writeFile(path.join(root, '.github', 'agents', 'team-producer.agent.md'), [
+  await writeFile(path.join(root, 'singularity', 'agents', 'team-producer.agent.md'), [
     '---', 'name: team-producer', 'description: Governed test producer role.', 'model: [auto]',
     'tools: [read, search, edit, bash, ask_user]', 'metadata:',
     '  sflow-label: "Team producer"',
@@ -319,6 +319,8 @@ async function approvedRepository(t, { authority = true } = {}) {
     '---', '', '# Team producer', '', 'Produce only the governed candidate.', ''
   ].join('\n'));
   const workflowFile = path.join(root, 'singularity', 'workflow.yml');
+  // Init put the agents in the agents home; the written workflow keeps that layout (SPEC-AGH).
+  value.definition.agentPromptsRoot = 'singularity/agents';
   await writeFile(workflowFile, YAML.stringify(value.definition));
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.name', 'Recipe Tester');

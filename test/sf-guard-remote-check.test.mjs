@@ -114,7 +114,7 @@ test('SF Guard M4: the final check, the receipt and the remote check verify ever
       assert.equal(enabled.error, undefined, enabled.error?.message);
       // Opting in reads the default branch's protection and says the check is not required yet.
       assert.equal(enabled.lines.length > 0 && JSON.parse(enabled.lines.join('\n')).remote.status, 'not-required');
-      git('add', PRESENCE_CHAIN_PATH, '.github/agents');
+      git('add', PRESENCE_CHAIN_PATH, 'singularity/agents');
       git('commit', '-qm', 'Turn SF Guard on');
       git('push', '-q', 'origin', 'main');
     }

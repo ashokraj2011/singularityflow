@@ -22,7 +22,11 @@ import {
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { SMART_INITIALIZATION_ASSETS } from './initialization-assets.mjs';
+import { initializationMappingsFor, SMART_INITIALIZATION_ASSETS, withAgentsHomeSetting } from './initialization-assets.mjs';
+import { AGENTS_HOME, agentsRootOf } from './configuration-assets.mjs';
+import {
+  applyAgentsHomeMigration, baselineAtAgentsHome, planAgentsHomeMigration
+} from './agents-home-migration.mjs';
 import { parseAgentDependencies } from './agents.mjs';
 import { librarySkillPath, parseLibrarySkill, parseSkillAttachments, SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
 import { instructionPath } from './instruction-library.mjs';
@@ -382,8 +386,8 @@ function usesSmartInitializationPreset(workflow) {
     && workflow.initialization.preset.version === 1;
 }
 
-function selectedSmartInitializationAsset(relative, templatesRoot) {
-  return SMART_INITIALIZATION_ASSETS.some(([source, destination]) => {
+function selectedSmartInitializationAsset(relative, templatesRoot, agentsRoot = AGENTS_HOME) {
+  return initializationMappingsFor(agentsRoot, SMART_INITIALIZATION_ASSETS).some(([source, destination]) => {
     const target = source.startsWith('artifacts/')
       ? `${templatesRoot}/${source.slice('artifacts/'.length)}` : destination;
     return relative === target || relative.startsWith(`${target}/`);
@@ -1130,7 +1134,7 @@ async function walkPackageDirectory(sourceRoot, targetRoot, output) {
   }
 }
 
-async function packagedAssets(templatesRoot) {
+async function packagedAssets(templatesRoot, agentsRoot) {
   const output = new Map();
   for (const [source, target] of FIXED_PACKAGE_ASSETS) {
     output.set(target, await readFile(path.join(PACKAGE_ROOT, 'templates', source)));
@@ -1144,7 +1148,7 @@ async function packagedAssets(templatesRoot) {
     'singularity/templates/starter-packs', output
   );
   await walkPackageDirectory(
-    path.join(PACKAGE_ROOT, 'templates', 'agents'), '.github/agents', output
+    path.join(PACKAGE_ROOT, 'templates', 'agents'), agentsRoot, output
   );
   // Seeded agents and their attached skills form one executable contract. Copying only agents
   // made a fresh upgrade fail its final loadDefinition validation (or lose attachment policy).
@@ -1158,14 +1162,16 @@ async function packagedAssets(templatesRoot) {
 }
 
 /** Smart init keeps omitted starters omitted, but an explicitly adopted starter keeps its closure. */
-async function selectedSmartDependencyAssets(root, workflow, assets) {
+async function selectedSmartDependencyAssets(root, workflow, assets, { movedFrom = new Map() } = {}) {
   const selected = new Set(); const agents = new Set(); const skills = new Set();
+  const agentsRoot = agentsRootOf(workflow);
   const phases = new Set(Object.keys(workflow.phases ?? {}));
   const applies = (entry) => !entry.phases.length || entry.phases.some((id) => phases.has(id));
-  const localText = async (relative) => readFile(await assertSafeTarget(root, relative), 'utf8')
+  // An agent this candidate moves is read where it still is [AGH:REQ-012].
+  const localText = async (relative) => readFile(await assertSafeTarget(root, movedFrom.get(relative) ?? relative), 'utf8')
     .catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
   for (const [relative, bytes] of assets) {
-    if (!relative.startsWith('.github/agents/')) continue;
+    if (!relative.startsWith(`${agentsRoot}/`)) continue;
     const bundled = parseAgentDependencies(bytes.toString('utf8'), { source: relative });
     const local = await localText(relative);
     // Do not materialize every alternative from the installed product. A missing agent is
@@ -1496,10 +1502,11 @@ export async function refreshPackagedConfiguration(root, {
       code: 'CONFIGURATION_WORKFLOW_NOT_REGULAR'
     });
   }
-  const [incomingText, baseline] = await Promise.all([
+  const [incomingText, recordedBaseline] = await Promise.all([
     readFile(path.join(PACKAGE_ROOT, 'templates', 'workflow.yml'), 'utf8'),
     readBaseline(root)
   ]);
+  let baseline = recordedBaseline;
   assertBuildMayPropose(baseline, build, environment);
   // An absent workflow file contains no repository-authored nodes to preserve. Seeded-only
   // reinitialization may therefore recreate the packaged workflow container, while ordinary
@@ -1518,6 +1525,11 @@ export async function refreshPackagedConfiguration(root, {
   }
   if (!restorePackagedSeeds) validateDefinition(structuredClone(current));
   validateDefinition(structuredClone(incoming));
+  // A legacy configuration's candidate carries the agents-home migration [AGH:REQ-012]. A held
+  // one (a source and a destination that differ) moves nothing and keeps the layout [AGH:REQ-018].
+  const agentsHome = workflowMissing ? null : await planAgentsHomeMigration(root, current);
+  const migratingAgents = agentsHome?.status === 'proposed';
+  if (migratingAgents) baseline = baselineAtAgentsHome(baseline);
   const mergeCurrent = await migrateLegacyWorkflowForSeedRestore(
     root, current, incoming, restorePackagedSeeds
   );
@@ -1570,7 +1582,11 @@ export async function refreshPackagedConfiguration(root, {
     storyBootstrap: restorePackagedSeeds && current.version === 1
   });
 
-  const assets = await packagedAssets(merged.value.templatesRoot);
+  if (migratingAgents) merged.value.agentPromptsRoot = AGENTS_HOME;
+  // A missing workflow is restored from the package for the agents home, like any new repository.
+  if (workflowMissing && restorePackagedSeeds) merged.value.agentPromptsRoot = AGENTS_HOME;
+  const agentsRoot = agentsRootOf(merged.value);
+  const assets = await packagedAssets(merged.value.templatesRoot, agentsRoot);
   const assetPolicy = await refreshConfigurationAssetPolicy(root, merged.value);
   // This check precedes every write, including workflow.yml. A malformed older authority can
   // therefore be diagnosed/reinitialized without ever materializing package templates inside
@@ -1603,7 +1619,8 @@ export async function refreshPackagedConfiguration(root, {
     ...assets.keys(), ...Object.keys(priorAssets)
   ]);
   const selectedDependencies = preserveSmartInitSelections
-    ? await selectedSmartDependencyAssets(root, merged.value, assets) : new Set();
+    ? await selectedSmartDependencyAssets(root, merged.value, assets, { movedFrom: new Map(migratingAgents
+      ? [...agentsHome.moves, ...agentsHome.completed].map((move) => [move.to, move.from]) : []) }) : new Set();
   const conflicts = [...merged.conflicts];
   const changedFiles = new Set();
   const removedFiles = new Set();
@@ -1613,7 +1630,16 @@ export async function refreshPackagedConfiguration(root, {
   if (workflowMissing || !equal(current, merged.value)) {
     changedFiles.add(WORKFLOW_PATH);
     // A missing workflow starts from the packaged text, so the restored file keeps its commentary.
-    if (!dryRun) await writeAtomic(workflowFile, patchWorkflowDocument(currentText, current, merged.value));
+    // The agents-home key goes after `version`, as init writes it, every other line as it was.
+    const { agentPromptsRoot: signal, ...patched } = merged.value;
+    const text = patchWorkflowDocument(currentText, current, signal === current.agentPromptsRoot ? merged.value : patched);
+    if (!dryRun) await writeAtomic(workflowFile, signal === AGENTS_HOME && current.agentPromptsRoot !== AGENTS_HOME ? withAgentsHomeSetting(text) : text);
+  }
+  if (migratingAgents) {
+    for (const move of [...agentsHome.moves, ...agentsHome.completed]) {
+      changedFiles.add(move.from); changedFiles.add(move.to); removedFiles.add(move.from);
+    }
+    if (!dryRun) await applyAgentsHomeMigration(root, agentsHome);
   }
   if (capabilityEdit) {
     changedFiles.add(CAPABILITIES_PATH);
@@ -1628,8 +1654,10 @@ export async function refreshPackagedConfiguration(root, {
       throw new SingularityFlowError(`Packaged configuration asset must be a regular file: ${relative}`);
     }
     if (preserveSmartInitSelections && !info
-        && !selectedSmartInitializationAsset(relative, merged.value.templatesRoot ?? 'singularity/templates')
-        && !selectedDependencies.has(relative)) {
+        && !selectedSmartInitializationAsset(relative, merged.value.templatesRoot ?? 'singularity/templates', agentsRoot)
+        && !selectedDependencies.has(relative)
+        // The packaged agent a team's own same-named file had shadowed is installed [AGH:REQ-014].
+        && !(agentsHome?.shadowed ?? []).includes(relative)) {
       assetOwnership[relative] = PACKAGE_OWNERSHIP_REPOSITORY;
       continue;
     }
@@ -1830,6 +1858,7 @@ export async function refreshPackagedConfiguration(root, {
     conflicts,
     ...(sectionMerges.length ? { sectionMerges } : {}),
     ...(worldModelMigration ? { worldModelMigration } : {}),
+    ...(agentsHome ? { agentsHome } : {}),
     dryRun
   };
 }
@@ -3150,6 +3179,7 @@ function previewResultForCandidate(candidate, status) {
     configurationPaths: candidate.desired.paths,
     configurationAssets: candidate.desired.assets,
     ...(candidate.refresh.worldModelMigration ? { worldModelMigration: candidate.refresh.worldModelMigration } : {}),
+    ...(candidate.refresh.agentsHome ? { agentsHome: candidate.refresh.agentsHome } : {}),
     ...(candidate.refresh.storyCutover ? { storyCutover: candidate.refresh.storyCutover } : {})
   };
 }
@@ -3168,7 +3198,7 @@ function refreshPreflightFailure(observation, error) {
     ? error.details.conflicts.filter((entry) => entry && typeof entry.path === 'string')
     : [];
   const repairPaths = conflicts
-    .filter((entry) => entry.path.startsWith('.github/agents/')
+    .filter((entry) => /^(?:\.github|singularity)\/agents\//u.test(entry.path)
       && (entry.resolution === 'preserved-local' || entry.resolution === 'preserved-local-deletion'))
     .map((entry) => entry.path)
     .sort();
@@ -3937,7 +3967,12 @@ export async function refreshWorkspaceConfigurations({
   const cleanupPending = [];
   try {
     results = await mapLimit(candidates, workers, async (candidate) => {
-      try { return await publishCandidate(reviewOnly ? { ...candidate, reviewOnly } : candidate); }
+      // The agents-home migration is a package change like any other: refresh proposes it, and a
+      // person approves it by merging that review (SCF:REQ-014, AGH:REQ-016).
+      try {
+        const published = await publishCandidate(reviewOnly ? { ...candidate, reviewOnly } : candidate);
+        return candidate.refresh?.agentsHome ? { ...published, agentsHome: candidate.refresh.agentsHome } : published;
+      }
       catch (error) {
         const partial = error?.details?.partialPublication ?? {};
         return {

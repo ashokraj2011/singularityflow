@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +55,8 @@ async function repository(t, { agents = ['reviewer'], bindings = null, lock = tr
   document.setIn(['worldModel', 'grounding'], 'off');
   if (bindings) document.set('apm', document.createNode(bindings));
   await writeFile(config, document.toString());
+  // APM deploys into .github/agents; SFlow's own agents are in singularity/agents [AGH:REQ-011].
+  await mkdir(path.join(root, '.github/agents'), { recursive: true });
   const deployed = agents.map((id) => `.github/agents/${id}.agent.md`);
   for (const id of agents) await writeFile(path.join(root, `.github/agents/${id}.agent.md`), AGENTS[id]);
   await writeFile(path.join(root, 'apm.yml'), 'name: consumer\nversion: 1.0.0\ndependencies:\n  apm:\n    - ../team-agents\nx-sflow:\n  apm-cli: 0.35.0\n');
@@ -80,7 +82,7 @@ test('an agent APM deployed that SFlow cannot read is left out, never a reason c
   assert.match(ok(flow(root, ['apm', 'status'])).stdout, /SFlow cannot use agent planner \(\.github\/agents\/planner\.agent\.md, from team-agents \(local\)\)/u);
 
   // One written in this repository is still SFlow's to get right.
-  await writeFile(path.join(root, '.github/agents/local-draft.agent.md'), '---\nname: local-draft\n---\nDraft.\n');
+  await writeFile(path.join(root, 'singularity/agents/local-draft.agent.md'), '---\nname: local-draft\n---\nDraft.\n');
   const refused = flow(root, ['agents', 'list']);
   assert.match(refused.stderr + refused.stdout, /Agent 'local-draft' requires a non-empty description/u);
 });
@@ -88,14 +90,14 @@ test('an agent APM deployed that SFlow cannot read is left out, never a reason c
 test('apm attach makes an APM agent draft a step in workflow.yml and never edits a file, and the step returns to its agent when APM\'s is gone', async (t) => {
   const { root } = await repository(t);
   const before = await readFile(path.join(root, '.github/agents/reviewer.agent.md'), 'utf8');
-  const qaBefore = await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8');
+  const qaBefore = await readFile(path.join(root, 'singularity/agents/qa.agent.md'), 'utf8');
   const preview = ok(flow(root, ['apm', 'attach', 'reviewer', '--step', 'verification', '--dry-run']));
   assert.match(preview.stdout, /Verification is now drafted by reviewer \(was QA\)/u);
   assert.match(preview.stdout, /changed: singularity\/workflow\.yml/u);
   assert.doesNotMatch(preview.stdout, /reviewer\.agent\.md|qa\.agent\.md/u, 'no agent file is in the change');
   ok(flow(root, ['apm', 'attach', 'reviewer', '--step', 'verification']));
   assert.equal(await readFile(path.join(root, '.github/agents/reviewer.agent.md'), 'utf8'), before, 'byte for byte as APM wrote it');
-  assert.equal(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'), qaBefore, 'QA keeps the step in its own file');
+  assert.equal(await readFile(path.join(root, 'singularity/agents/qa.agent.md'), 'utf8'), qaBefore, 'QA keeps the step in its own file');
   const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.deepEqual(written.apm, { agents: { reviewer: { defaultFor: ['verification'] } } });
   git(root, 'add', '-A');
@@ -125,16 +127,16 @@ test('apm attach makes an APM agent draft a step in workflow.yml and never edits
   git(root, 'checkout', '-q', '--', '.github/agents/reviewer.agent.md');
 
   // Moving the step from the APM agent to a third agent takes it from QA's file for good.
-  await writeFile(path.join(root, '.github/agents/checker.agent.md'), '---\nname: checker\ndescription: Checks the change\nmetadata:\n  sflow-phases: "verification"\n---\nCheck it.\n');
+  await writeFile(path.join(root, 'singularity/agents/checker.agent.md'), '---\nname: checker\ndescription: Checks the change\nmetadata:\n  sflow-phases: "verification"\n---\nCheck it.\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'checker');
   const move = path.join(root, '..', 'move.json');
   await writeFile(move, JSON.stringify({ schema: 'sflow-studio-change-set@1', changes: [{ op: 'phase.agent', phase: 'verification', agent: 'checker' }] }));
   ok(flow(root, ['workflow', 'studio', 'apply', '--change-set', move, '--json']));
   assert.equal(YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).apm, undefined);
-  const qaDefaults = /sflow-default-for: "([^"\n]*)"/u.exec(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'))[1].split(',');
+  const qaDefaults = /sflow-default-for: "([^"\n]*)"/u.exec(await readFile(path.join(root, 'singularity/agents/qa.agent.md'), 'utf8'))[1].split(',');
   assert.equal(qaDefaults.includes('verification'), false);
-  assert.match(await readFile(path.join(root, '.github/agents/checker.agent.md'), 'utf8'), /sflow-default-for: "?verification/u);
+  assert.match(await readFile(path.join(root, 'singularity/agents/checker.agent.md'), 'utf8'), /sflow-default-for: "?verification/u);
 });
 
 test('APM never blocks the rest: a binding that cannot apply waits, and every command still loads', async (t) => {

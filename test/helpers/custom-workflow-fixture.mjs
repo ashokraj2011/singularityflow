@@ -2,6 +2,7 @@ import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { renderPreservingFormatting } from '../../src/yaml-formatting.mjs';
+import { repositoryAgentsRoot } from '../../src/agents.mjs';
 
 /**
  * A team's own workflow, written the way teams write them (steps fmly-*), with what makes it heavy:
@@ -90,8 +91,11 @@ export async function addFamilyWorkflow(root, { loop = true, requirementsTemplat
   const agent = (name, label, steps, description) => ['---', `name: ${name}`, `description: ${description}`, 'model: [auto]',
     'tools: [read, search, edit, execute]', 'metadata:', `  sflow-label: "${label}"`, `  sflow-phases: "${steps}"`, `  sflow-default-for: "${steps}"`, '---', '',
     `# ${label}`, '', `${description}`, ''].join('\n');
-  await writeFile(path.join(root, '.github', 'agents', 'fmly-engineer.agent.md'),
+  // In the root this repository's workflow.yml records (SPEC-AGH), so the fixture works on either layout.
+  const agents = path.join(root, ...(await repositoryAgentsRoot(root)).split('/'));
+  await mkdir(agents, { recursive: true });
+  await writeFile(path.join(agents, 'fmly-engineer.agent.md'),
     agent('fmly-engineer', 'Family engineer', 'fmly-requirements,fmly-build,fmly-notes,fmly-testing,fmly-testing-again,fmly-release', 'Drafts every step of the family team\'s delivery.'));
-  await writeFile(path.join(root, '.github', 'agents', 'fmly-legacy.agent.md'),
+  await writeFile(path.join(agents, 'fmly-legacy.agent.md'),
     agent('fmly-legacy', 'Family legacy reviewer', 'fmly-legacy-review', 'Reviewed changes before the team had a workflow.'));
 }

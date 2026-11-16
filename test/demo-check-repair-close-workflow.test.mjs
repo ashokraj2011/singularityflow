@@ -121,7 +121,7 @@ test('skills are physically linked in agents, rendered once, and scoped to their
   const library = await loadSkillLibrary(root);
   const registry = await readFile(path.join(root, SKILL_ATTACHMENTS_PATH), 'utf8');
   for (const [index, id] of AGENTS.entries()) {
-    const source = `.github/agents/${id}.agent.md`;
+    const source = `singularity/agents/${id}.agent.md`;
     const agent = parseAgentDependencies(await readFile(path.join(root, source), 'utf8'), { source });
     assert.deepEqual(agent.librarySkills.map((entry) => entry.id), [SKILLS[index]]);
     assert.ok(!registry.includes(SKILLS[index]), 'the agent table is the single attachment authority');
@@ -158,7 +158,7 @@ test('starter installation carries agent-owned skill files, dry-run writes nothi
   delete config.mcpServers['demo-playwright'];
   await writeFile(configPath, YAML.stringify(config));
   for (const id of SKILLS) await rm(path.join(root, path.dirname(librarySkillPath(id))), { recursive: true });
-  for (const id of AGENTS) await rm(path.join(root, `.github/agents/${id}.agent.md`));
+  for (const id of AGENTS) await rm(path.join(root, `singularity/agents/${id}.agent.md`));
   const registry = await readFile(path.join(root, SKILL_ATTACHMENTS_PATH), 'utf8');
   const preview = await installWorkflow(root, ID, { dryRun: true });
   for (const id of SKILLS) assert.ok(preview.files.includes(librarySkillPath(id)), id);
@@ -168,7 +168,7 @@ test('starter installation carries agent-owned skill files, dry-run writes nothi
   const adopted = resolveWorkType(await loadDefinition(root), ID);
   assert.deepEqual(adopted.phases.map((phase) => phase.defaultAgent), AGENTS);
   const skillPath = path.join(root, librarySkillPath(SKILLS[1]));
-  const agentPath = path.join(root, `.github/agents/${AGENTS[1]}.agent.md`);
+  const agentPath = path.join(root, `singularity/agents/${AGENTS[1]}.agent.md`);
   const skill = `${await readFile(skillPath, 'utf8')}\nUse the team's authorized fixture.\n`;
   const agent = `${await readFile(agentPath, 'utf8')}\nKeep the team's environment limits.\n`;
   await writeFile(skillPath, skill); await writeFile(agentPath, agent);
@@ -189,7 +189,7 @@ test('export and renamed import retain agent-table skill identities and runnable
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   delete config.workTypes[ID];
   await writeFile(configPath, YAML.stringify(config));
-  for (const id of AGENTS) await rm(path.join(target, `.github/agents/${id}.agent.md`));
+  for (const id of AGENTS) await rm(path.join(target, `singularity/agents/${id}.agent.md`));
   const resolutions = { [`workflow:${ID}`]: { action: 'rename', to: 'team-demo-loop' } };
   const plan = await planWorkflowImport(target, bundle, { resolutions });
   assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));

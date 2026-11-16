@@ -394,7 +394,7 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   current.phases.specification.template = 'unavailable-new-spec.md';
   current.workTypes['spec-driven-standard'].templateOverrides.specification = 'unavailable-new-spec.md';
   await writeFile(file, YAML.stringify(current));
-  await writeFile(path.join(root, '.github/agents/product-owner.agent.md'), '---\ninvalid: [\n');
+  await writeFile(path.join(root, 'singularity/agents/product-owner.agent.md'), '---\ninvalid: [\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'Refresh live authoring resources before Story submission');
   cli(root, 'submit', 'specification', '--skip-checks');
@@ -482,7 +482,7 @@ test('a copied specification is reviewed and rejected using its accepted contrac
   current.workTypes[workType].templateOverrides ??= {};
   current.workTypes[workType].templateOverrides[phaseId] = 'unavailable-copy.md';
   await writeFile(file, YAML.stringify(current));
-  await writeFile(path.join(root, '.github/agents/product-owner.agent.md'), '---\ninvalid: [\n');
+  await writeFile(path.join(root, 'singularity/agents/product-owner.agent.md'), '---\ninvalid: [\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'Refresh live copied-step resources before submission');
   cli(root, 'submit', phaseId, '--skip-checks');

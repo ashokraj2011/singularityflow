@@ -90,13 +90,13 @@ test('fresh init and catalog install ship phase-specific POC Lite agents and tem
   for (const phase of PHASES) delete old.phases[phase];
   await writeFile(workflowPath, YAML.stringify(old));
   for (const agent of ['poc-lite-planner', 'poc-lite-implementer', 'poc-lite-verifier']) {
-    await rm(path.join(root, `.github/agents/${agent}.agent.md`));
+    await rm(path.join(root, `singularity/agents/${agent}.agent.md`));
   }
   await rm(path.join(root, 'singularity/templates/poc-lite'), { recursive: true });
 
   const result = await installWorkflow(root, 'poc-lite');
   for (const agent of ['poc-lite-planner', 'poc-lite-implementer', 'poc-lite-verifier']) {
-    assert.ok(result.files.includes(`.github/agents/${agent}.agent.md`));
+    assert.ok(result.files.includes(`singularity/agents/${agent}.agent.md`));
   }
   for (const file of ['plan.md', 'act.md', 'verify.md', 'finalize.md']) {
     assert.ok(result.files.includes(`singularity/templates/poc-lite/${file}`));

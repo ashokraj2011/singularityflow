@@ -2838,7 +2838,7 @@ requested ad-hoc guide.
 
 ## Remote Markdown agents
 
-The Repository brief is always read from the repository itself. agents may additionally declare plain public HTTPS Markdown dependencies in exact tables under these headings. Their files use Copilot’s `.github/agents` convention, but Singularity Flow treats them as context resources—not people or approval identities.
+The Repository brief is always read from the repository itself. agents may additionally declare plain public HTTPS Markdown dependencies in exact tables under these headings. Their files use Copilot’s agent file format, but Singularity Flow keeps them in `singularity/agents` and treats them as context resources—not people or approval identities.
 
 ```markdown
 ## Remote skills
@@ -3048,7 +3048,7 @@ Edit `singularity/workflow.yml` directly or use VS Code **Configuration**. The d
 - `inputsMode`: off, warning/audit recording, or enforced approved-artifact dataflow
 - `phases`: artifact contracts, approved inputs, write scope, checks, and approvals
 - `phases.<id>.authoringSkill` (or a work type's `phaseOverrides.<id>.authoringSkill`): the Copilot skill that drafts the step, such as `sf-design`; absent (or `null` in a work type's override) means automatic (`/sf-code` for code steps, `/sf-phase` otherwise). Sign-off-only steps, steps only the deterministic generator produces and compiled skill steps cannot name one. See [Workflow and configuration authoring](docs/topics/workflow-authoring.md)
-- agents are not part of `workflow.yml`: each lives in `.github/agents/<id>.agent.md` and names the steps it may draft (`sflow-phases`) and the steps it drafts by default (`sflow-default-for`); every step has exactly one default agent
+- agents are not part of `workflow.yml`: each lives in `singularity/agents/<id>.agent.md` and names the steps it may draft (`sflow-phases`) and the steps it drafts by default (`sflow-default-for`); every step has exactly one default agent. `agentPromptsRoot: singularity/agents` records that home; a repository set up before it keeps its agents in `.github/agents` until the upgrade moves them as one reviewed change, and `.github/agents` is otherwise your team's own
 - `approvalAuthorities`: real-human authority groups matched to Git/GitHub identity
 - repository agent Markdown and `singularity/agents.lock.yml`: optional trust-pinned remote prompt/template/output sources
 - `documents`: allowed upload phases and size limits
@@ -3058,7 +3058,7 @@ Edit `singularity/workflow.yml` directly or use VS Code **Configuration**. The d
 
 Template resolution is work-type override, then phase default, then configuration
 error. Keep templates in `singularity/templates/`, reusable prompts in
-`singularity/prompts/`, and agents in `.github/agents/*.agent.md`.
+`singularity/prompts/`, and agents in `singularity/agents/*.agent.md`.
 
 Validate changes before publishing:
 

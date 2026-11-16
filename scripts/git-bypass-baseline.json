@@ -1451,7 +1451,7 @@
       "counts": {
         "command-run": 28
       },
-      "digest": "34b5dd33a1120e34eeac03bc4782dd00ad313f2a12643eda1737b4cfdf68714b"
+      "digest": "8f0c50aa45646928b449a02d43be22f3ba799dc859caa656eaa9bf37709546bc"
     },
     "src/return-locator.mjs": {
       "counts": {
@@ -1463,7 +1463,7 @@
       "counts": {
         "command-run": 1
       },
-      "digest": "794e873c03251bb64fd22e3c42402eb84e8d4e9cde65f5539c7fa7efce9d7b0e"
+      "digest": "3384efd6e1e45c0654cbe189ff6d231e469f092c38ae0fe606a3eb38c6a97dfd"
     },
     "src/revision/current-context.mjs": {
       "counts": {

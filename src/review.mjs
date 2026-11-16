@@ -87,7 +87,8 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   const reviewBase = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
   const diff = !reviewBase ? { status: 1, stdout: '' } : run('git', [
     'diff', '--stat', reviewBase, 'HEAD', '--', '.',
-    ...GOVERNED_ROOTS.flatMap((root) => [`:(exclude)${root}`, `:(exclude)${root}/**`]),
+    // The Story's own governed roots: on the legacy layout they include .github/agents [AGH:REQ-020].
+    ...(workflow.resolution?.governedRoots ?? GOVERNED_ROOTS).flatMap((root) => [`:(exclude)${root}`, `:(exclude)${root}/**`]),
     ':(exclude).sflow/results/**'
   ], { cwd: root, allowFailure: true });
   const approvals = activeApprovals(phase).map((item) => ({

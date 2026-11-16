@@ -1,6 +1,7 @@
 import { isAgentOutputPath } from './agent-output-folder.mjs';
 import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { AGENTS_HOME, LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 function safeGovernedRoot(value) {
   const portable = String(value ?? '').trim().replaceAll('\\', '/');
@@ -65,6 +66,11 @@ function configuredRoots(source) {
   ]);
 }
 
+function declaresAgentsHome(source) {
+  const direct = object(source);
+  return [direct, object(direct.resolution)].some((owner) => owner.agentPromptsRoot === AGENTS_HOME);
+}
+
 function configuredPaths(source) {
   const direct = object(source);
   const resolution = object(direct.resolution);
@@ -111,7 +117,9 @@ export function applicationPathContext(...sources) {
   return Object.freeze({
     caseInsensitivePaths,
     governedRoots: Object.freeze(uniquePaths([
-      ...GOVERNED_ROOTS, ...sources.flatMap(configuredRoots)
+      ...GOVERNED_ROOTS, ...sources.flatMap(configuredRoots),
+      // .github/agents is SFlow's unless a source records the agents home [AGH:REQ-009].
+      ...(sources.some(declaresAgentsHome) ? [] : [LEGACY_AGENTS_ROOT])
     ], { caseInsensitivePaths })),
     governedPaths: Object.freeze(uniquePaths(
       sources.flatMap(configuredPaths), { caseInsensitivePaths }

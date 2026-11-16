@@ -18,7 +18,7 @@ The prompt-related names describe different responsibilities:
 |---|---|---|---|
 | Workflow | Rulebook | Phases, ordering, inputs, outputs, gates, checks, approvals, publication | `singularity/workflow.yml` |
 | Skill | Playbook or action button | Tells Copilot which CLI commands and behavioral rules to follow | `plugin/skills/sflow-*/SKILL.md` |
-| Governed agent | Software execution contract | Gives Copilot phase-specific purpose, instructions, and tools | `.github/agents/*.agent.md` |
+| Governed agent | Software execution contract | Gives Copilot phase-specific purpose, instructions, and tools | `singularity/agents/*.agent.md` |
 | Prompt | Effective instructions | The exact phase-specific text Copilot receives | Composed and recorded under work-item context |
 | World model | Repository map | The Repository brief: cited facts about the code a Story touches, read from the committed source | Composed into each phase prompt; `singularity-flow wm brief` |
 | Remote agent dependency | Optional external handbook | Hash-pinned remote Markdown guidance, templates, or generated context declared by an agent | `singularity/agents.lock.yml` plus machine-local cache |
@@ -141,7 +141,7 @@ A agent is optional, external Markdown context. A repository pack is
 declared at:
 
 ```text
-.github/agents/<pack-id>.agent.md
+singularity/agents/<pack-id>.agent.md
 ```
 
 It may contain exact dependency tables:

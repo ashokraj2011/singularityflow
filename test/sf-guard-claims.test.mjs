@@ -136,7 +136,7 @@ test('SF Guard required: a person\'s authorship claim is believed only when its 
       await sfGuard(root, ['register'], {}, guardPerson(ONE.email, [approver]));
       await sfGuard(root, ['register'], { author: true, 'github-login': THREE.githubLogin }, guardPerson(THREE.email, [author]));
       await sfGuard(root, ['enable'], { exception: [approverId(TWO)], 'remote-check': 'sf-guard-verify' }, guardPerson(ONE.email, [approver]));
-      git('add', PRESENCE_CHAIN_PATH, '.github/agents');
+      git('add', PRESENCE_CHAIN_PATH, 'singularity/agents');
       git('commit', '-qm', 'Turn SF Guard on');
       git('push', '-q', 'origin', 'main');
     }

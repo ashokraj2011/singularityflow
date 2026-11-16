@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
@@ -79,7 +80,7 @@ async function publishStateConfigurationMirror(base, remote) {
   await cp(path.join(approved, 'singularity'), path.join(publisher, 'singularity'), {
     recursive: true
   });
-  await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
+  if (existsSync(path.join(approved, '.github'))) await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
   const sourceCommit = git(approved, 'rev-parse', 'HEAD');
   const history = await retainStateConfigurationHistory(approved, 'origin', sourceCommit);
   const sourceEntries = new Map(git(

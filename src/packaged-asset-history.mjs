@@ -879,6 +879,8 @@ export function packagedAssetRegistryPath(relativePath, {
   templatesRoot = 'singularity/templates'
 } = {}) {
   const relative = normalizedRepositoryPath(relativePath);
+  // Packaged agents are registered at their legacy path; a moved one is the same asset [AGH:REQ-010].
+  if (relative.startsWith('singularity/agents/')) return `.github/agents/${relative.slice('singularity/agents/'.length)}`;
   // Registered starter-pack files have a fixed repository location and identity. An artifact
   // templatesRoot may sit in the same tree, so other paths there must still be remapped.
   if (relative.startsWith('singularity/templates/starter-packs/')

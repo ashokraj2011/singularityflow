@@ -6,6 +6,8 @@ import {
   rmdir, symlink, writeFile
 } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+import { AGENTS_HOME, LEGACY_AGENTS_ROOT, agentsRootOf } from './configuration-assets.mjs';
 import { gitCommonDir, gitDir } from './git.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { localDocumentStoreDirectory } from './document-storage.mjs';
@@ -24,6 +26,16 @@ const LOCAL_RUNTIME_ROOT = 'singularity-flow';
 // reset with a command between preview and confirmation, as VS Code's background reads are.
 export const RUNTIME_DIAGNOSTICS = Object.freeze(['dx', 'logs', 'locks']);
 const RECOVERED_AGENTS_ROOT = '.github/singularity-flow-recovered-agents';
+
+/**
+ * The layout a reset keeps [AGH:REQ-025]: what the repository's workflow.yml records, the agents
+ * home when there is none, and the legacy layout when it cannot be read (as before this layout).
+ */
+async function resetAgentsRoot(repository) {
+  const text = await readFile(path.join(repository, 'singularity', 'workflow.yml'), 'utf8').catch((error) => (error?.code === 'ENOENT' ? null : ''));
+  if (text == null) return AGENTS_HOME;
+  try { return agentsRootOf(YAML.parse(text) ?? {}); } catch { return LEGACY_AGENTS_ROOT; }
+}
 const RESET_ALL_CONFIRMATION = 'RESET ALL';
 const PACKAGED_AGENTS_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'agents'
@@ -289,8 +301,9 @@ async function regularFiles(root, relative = '', output = []) {
   return output.sort();
 }
 
-function resetPathspecs(caseInsensitive) {
-  return [...CONTROL_ROOTS, '.github/agents'].map((relative) =>
+function resetPathspecs(caseInsensitive, agentsRoot = LEGACY_AGENTS_ROOT) {
+  // On the agents home SFlow's agents are inside singularity/; the team's .github/agents is not reset.
+  return [...CONTROL_ROOTS, ...(agentsRoot === LEGACY_AGENTS_ROOT ? [LEGACY_AGENTS_ROOT] : [])].map((relative) =>
     `${caseInsensitive ? ':(icase,literal)' : ':(literal)'}${relative}`);
 }
 
@@ -324,8 +337,8 @@ function repositoryCaseInsensitive(root) {
   );
 }
 
-function changedResetEntries(root, { caseInsensitive }) {
-  const pathspecs = resetPathspecs(caseInsensitive);
+function changedResetEntries(root, { caseInsensitive, agentsRoot }) {
+  const pathspecs = resetPathspecs(caseInsensitive, agentsRoot);
   const result = run('git', [
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching', '--',
     ...pathspecs
@@ -968,8 +981,8 @@ async function resetScopeFingerprint(root, entries, identity, {
  * make the resulting catalog invalid are assigned a content-addressed recovery path outside
  * `.github/agents`, where Copilot and SFlow will not discover them as active agents.
  */
-async function customAgentRecoveryPlan(repository, { caseInsensitive }) {
-  const sourceRoot = path.join(repository, '.github', 'agents');
+async function customAgentRecoveryPlan(repository, { caseInsensitive, agentsRoot = LEGACY_AGENTS_ROOT }) {
+  const sourceRoot = path.join(repository, ...agentsRoot.split('/'));
   const packaged = new Set((await regularFiles(PACKAGED_AGENTS_ROOT)).map((relative) =>
     comparableRepositoryPath(relative, caseInsensitive)));
   const candidates = (await readdir(sourceRoot, { withFileTypes: true }).catch((error) => {
@@ -983,14 +996,14 @@ async function customAgentRecoveryPlan(repository, { caseInsensitive }) {
   if (!candidates.length) return [];
   const sandbox = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-agent-check-'));
   try {
-    await initializeDefinition(sandbox);
+    await initializeDefinition(sandbox, { agentsRoot });
     await loadDefinition(sandbox);
-    const sandboxAgents = path.join(sandbox, '.github', 'agents');
+    const sandboxAgents = path.join(sandbox, ...agentsRoot.split('/'));
     const recoveries = [];
     for (const name of candidates) {
       const sourcePath = path.join(sourceRoot, name);
       const candidatePath = path.join(sandboxAgents, name);
-      const relativeSource = path.posix.join('.github/agents', name);
+      const relativeSource = path.posix.join(agentsRoot, name);
       const sourceSnapshot = await snapshotPath(sourcePath, relativeSource);
       const bytes = await readFile(sourcePath);
       const sourceAfterRead = await snapshotPath(sourcePath, relativeSource);
@@ -1065,10 +1078,12 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   await directoryState(path.join(repository, 'singularity'), 'Singularity control root');
   await directoryState(path.join(repository, '.singularity'), 'Legacy Singularity control root');
   await directoryState(path.join(repository, '.sdlc'), 'Former SDLC control root');
+  const agentsRoot = await resetAgentsRoot(repository);
   // Agent files are replaced in place rather than replacing the whole `.github` tree. Validate
   // both parents explicitly: lstat(target) does not reveal a symlink in one of its ancestors, and
   // following such a link would let a reset selected for this repository overwrite another tree.
-  await assertSafeDirectoryChain(repository, '.github/agents', 'Bundled agent target');
+  // On the agents home they are inside singularity/, and .github/agents is never touched.
+  if (agentsRoot === LEGACY_AGENTS_ROOT) await assertSafeDirectoryChain(repository, LEGACY_AGENTS_ROOT, 'Bundled agent target');
   for (const localRuntime of localRuntimeRoots) {
     await directoryState(localRuntime, 'Singularity local runtime root');
   }
@@ -1095,10 +1110,11 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   const identity = repositoryIdentity(repository);
   const revision = identity.head;
   const confirmation = `RESET ${path.basename(repository)} ${revision ? confirmCode(`factory-reset ${revision}`) : 'unborn'}`;
-  const uncommittedEntries = changedResetEntries(repository, { caseInsensitive });
+  const uncommittedEntries = changedResetEntries(repository, { caseInsensitive, agentsRoot });
   const uncommittedResetPaths = uncommittedEntries.map((entry) => entry.display);
-  const packagedAgentSources = new Map((await regularFiles(PACKAGED_AGENTS_ROOT)).map((relative) => [
-    path.posix.join('.github/agents', relative.split(path.sep).join('/')),
+  // On the agents home packaged agents are replaced with singularity/, whose changes are discards above.
+  const packagedAgentSources = new Map((agentsRoot === LEGACY_AGENTS_ROOT ? await regularFiles(PACKAGED_AGENTS_ROOT) : []).map((relative) => [
+    path.posix.join(LEGACY_AGENTS_ROOT, relative.split(path.sep).join('/')),
     path.join(PACKAGED_AGENTS_ROOT, relative)
   ]));
   const changedPackagedAgents = new Set();
@@ -1129,7 +1145,7 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
         : `${entry.status} ${agentPath} (reported by Git as ${entry.currentPath})`);
     }
   }
-  const customAgentRecoveries = await customAgentRecoveryPlan(repository, { caseInsensitive });
+  const customAgentRecoveries = await customAgentRecoveryPlan(repository, { caseInsensitive, agentsRoot });
   const resetScopeSha256 = await resetScopeFingerprint(repository, uncommittedEntries, identity, {
     packageVersion,
     discardPendingPublications: discardWaiting,
@@ -1179,12 +1195,13 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
     ],
     replace: [
       'singularity/ from the templates bundled with the currently installed npm package',
-      'bundled .github/agents/*.agent.md files from that package'
+      `bundled ${agentsRoot}/*.agent.md files from that package`
     ],
     preserve: [
       'application source and every file outside the listed reset roots',
       '.git history, branches, tags, remotes, index, and configuration',
-      'valid custom .github/agents files whose names are not supplied by the npm package remain active in place',
+      `valid custom ${agentsRoot} files whose names are not supplied by the npm package remain active in place`,
+      ...(agentsRoot === LEGACY_AGENTS_ROOT ? [] : [`every file in ${LEGACY_AGENTS_ROOT}, which is the team's own`]),
       `invalid custom Agent Markdown is preserved byte-for-byte under ${RECOVERED_AGENTS_ROOT}/ and removed from active agent discovery`,
       'the global workspace registry and workspace clones',
       ...(!localDocumentRoots.length && machineOnlyDocuments.length
@@ -1205,6 +1222,7 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
       unmoved: unmovedMachineOnlyDocuments.map((entry) => entry.display)
     },
     resetScopeSha256,
+    agentsRoot,
     uncommittedResetPaths,
     uncommittedDiscardPaths: [...uncommittedDiscardPaths],
     customAgentRecoveries
@@ -1308,8 +1326,10 @@ async function factoryResetRepositoryLocked(root, {
   const backupControl = path.join(backup, 'singularity');
   const backupLegacy = path.join(backup, '.singularity');
   const backupFormer = path.join(backup, '.sdlc');
-  const freshAgents = path.join(fresh, '.github', 'agents');
-  const targetAgents = path.join(repository, '.github', 'agents');
+  const agentsRoot = plan.agentsRoot ?? LEGACY_AGENTS_ROOT;
+  // Packaged agents installed outside singularity/: only on the legacy layout [AGH:REQ-025].
+  const freshAgents = path.join(fresh, ...LEGACY_AGENTS_ROOT.split('/'));
+  const targetAgents = path.join(repository, ...LEGACY_AGENTS_ROOT.split('/'));
   const backupAgents = path.join(backup, 'agents');
   const localRuntimeRoots = [
     ...(plan.localRuntimeRoots ?? [path.join(gitDir(repository), LOCAL_RUNTIME_ROOT)]),
@@ -1348,9 +1368,20 @@ async function factoryResetRepositoryLocked(root, {
 
   try {
     await mkdir(fresh, { recursive: true });
-    await initializeDefinition(fresh);
+    await initializeDefinition(fresh, { agentsRoot });
+    if (agentsRoot !== LEGACY_AGENTS_ROOT) {
+      // On the agents home the valid custom agents live in singularity/, so they go into the fresh
+      // tree that replaces it, byte for byte; invalid ones are recovered below [AGH:REQ-025].
+      const recovered = new Set((plan.customAgentRecoveries ?? []).map((entry) => entry.sourcePath));
+      const packagedNames = new Set(await regularFiles(PACKAGED_AGENTS_ROOT));
+      for (const name of await regularFiles(path.join(repository, ...agentsRoot.split('/')))) {
+        const relative = path.posix.join(agentsRoot, name.split(path.sep).join('/'));
+        if (name.includes(path.sep) || packagedNames.has(name) || recovered.has(relative) || !/(?:\.agent)?\.md$/iu.test(name)) continue;
+        await writeFile(path.join(fresh, ...relative.split('/')), await readFile(path.join(repository, ...relative.split('/'))), { flag: 'wx' });
+      }
+    }
     await loadDefinition(fresh);
-    installedAgents = await regularFiles(freshAgents);
+    installedAgents = agentsRoot === LEGACY_AGENTS_ROOT ? await regularFiles(freshAgents) : [];
     await mkdir(backup, { recursive: true });
     if (fault) await fault('after-fresh-install');
 
@@ -1376,17 +1407,17 @@ async function factoryResetRepositoryLocked(root, {
       }
       const target = path.join(targetAgents, relative);
       agentBackups.push({
-        label: path.posix.join('.github/agents', normalizedRelative),
-        logical: path.posix.join('.github/agents', normalizedRelative),
+        label: path.posix.join(LEGACY_AGENTS_ROOT, normalizedRelative),
+        logical: path.posix.join(LEGACY_AGENTS_ROOT, normalizedRelative),
         relative,
         source: path.join(freshAgents, relative),
         current: target,
         backup: path.join(backupAgents, relative),
-        before: await snapshotPath(target, path.posix.join('.github/agents', normalizedRelative)),
+        before: await snapshotPath(target, path.posix.join(LEGACY_AGENTS_ROOT, normalizedRelative)),
         moved: false,
         replacementInstalled: false,
         guardAnchor: repository,
-        guardRelative: path.posix.dirname(path.posix.join('.github/agents', normalizedRelative))
+        guardRelative: path.posix.dirname(path.posix.join(LEGACY_AGENTS_ROOT, normalizedRelative))
       });
     }
     if (fault) await fault('before-final-scope-validation');
@@ -1433,7 +1464,7 @@ async function factoryResetRepositoryLocked(root, {
       const normalizedRelative = relative.split(path.sep).join('/');
       const nestedParent = path.posix.dirname(normalizedRelative);
       await assertSafeDirectoryChain(repository, path.posix.join(
-        '.github/agents', nestedParent === '.' ? '' : nestedParent
+        LEGACY_AGENTS_ROOT, nestedParent === '.' ? '' : nestedParent
       ), 'Bundled agent target');
       if (record.before.exists && record.before.kind !== 'file') {
         throw new SingularityFlowError(`Bundled agent target must be a regular file: ${target}`);
@@ -1481,6 +1512,9 @@ async function factoryResetRepositoryLocked(root, {
     // bytes outside the active discovery root before validation. Content-addressing makes a retry
     // idempotent and prevents one recovery from overwriting another file with the same name.
     for (const recovery of finalPlan.customAgentRecoveries ?? []) {
+      // On the agents home the source moved with singularity/ into the backup above: its bytes are
+      // read there and nothing more is moved, so the backup stays exactly what was staged.
+      const insideControl = agentsRoot !== LEGACY_AGENTS_ROOT && recovery.sourcePath.startsWith('singularity/');
       const source = path.join(repository, ...recovery.sourcePath.split('/'));
       const target = path.join(repository, ...recovery.recoveryPath.split('/'));
       const record = {
@@ -1488,7 +1522,8 @@ async function factoryResetRepositoryLocked(root, {
         label: recovery.sourcePath,
         logical: recovery.sourcePath,
         current: source,
-        backup: path.join(backup, 'recovered-agent-sources', recovery.sha256.slice(7), path.basename(source)),
+        backup: insideControl ? path.join(backupControl, ...recovery.sourcePath.split('/').slice(1))
+          : path.join(backup, 'recovered-agent-sources', recovery.sha256.slice(7), path.basename(source)),
         moved: false,
         replacementInstalled: false,
         targetCreated: false,
@@ -1498,19 +1533,21 @@ async function factoryResetRepositoryLocked(root, {
       record.guardRelative = path.posix.dirname(recovery.sourcePath);
       record.guardLabel = 'Recovered custom-agent source';
       recoveredAgents.push(record);
-      await refreshRecordParentGuard(record);
-      record.before = await snapshotPath(source, recovery.sourcePath);
-      if (!sameSnapshot(record.before, recovery.sourceSnapshot, { identity: true })) {
-        throw resetCollision(
-          `Custom agent changed after the reset boundary was validated: ${recovery.sourceDisplay}`,
-          { path: source, expected: recovery.sourceSnapshot, current: record.before }
-        );
+      if (!insideControl) {
+        await refreshRecordParentGuard(record);
+        record.before = await snapshotPath(source, recovery.sourcePath);
+        if (!sameSnapshot(record.before, recovery.sourceSnapshot, { identity: true })) {
+          throw resetCollision(
+            `Custom agent changed after the reset boundary was validated: ${recovery.sourceDisplay}`,
+            { path: source, expected: recovery.sourceSnapshot, current: record.before }
+          );
+        }
+        // Stage the source first. Recovery is then copied from the verified, private inode rather
+        // than from an active path an editor can replace between the read and the copy.
+        await stageVerifiedMove(record, {
+          fault, stage: `custom-agent-source:${recovery.sha256.slice(7, 19)}`
+        });
       }
-      // Stage the source first. Recovery is then copied from the verified, private inode rather
-      // than from an active path an editor can replace between the read and the copy.
-      await stageVerifiedMove(record, {
-        fault, stage: `custom-agent-source:${recovery.sha256.slice(7, 19)}`
-      });
       const sourceBytes = await readFile(record.backup);
       const actualSha256 = `sha256:${createHash('sha256').update(sourceBytes).digest('hex')}`;
       if (actualSha256 !== recovery.sha256 || sourceBytes.length !== recovery.bytes) {
@@ -1669,7 +1706,7 @@ async function factoryResetRepositoryLocked(root, {
     successResult = {
       ...plan,
       completed: true,
-      installedAgents: installedAgents.map((file) => path.posix.join('.github/agents', file)),
+      installedAgents: installedAgents.map((file) => path.posix.join(LEGACY_AGENTS_ROOT, file)),
       warnings: [
         ...(plan.warnings ?? []),
         ...(plan.customAgentRecoveries ?? []).map((recovery) =>
@@ -1678,7 +1715,7 @@ async function factoryResetRepositoryLocked(root, {
           + recovery.reason)
       ],
       next: [
-        `Review git diff -- singularity .github/agents ${RECOVERED_AGENTS_ROOT}`,
+        `Review git diff -- singularity ${agentsRoot === LEGACY_AGENTS_ROOT ? `${LEGACY_AGENTS_ROOT} ` : ''}${RECOVERED_AGENTS_ROOT}`,
         'Run singularity-flow init --check',
         'Commit the reset on the current branch when the replacement is correct'
       ]

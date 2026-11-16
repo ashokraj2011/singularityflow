@@ -121,7 +121,7 @@ Documentation explains the system, but the repository remains authoritative:
 1. `singularity/workflow.yml` defines Story workflows for new work.
 2. `singularity/portfolio.yml` defines Initiative profiles and repository policy.
 3. `singularity/capabilities.yml` defines the organisation capability tree.
-4. `.github/agents/*.agent.md` defines governed execution agents.
+4. `singularity/agents/*.agent.md` defines governed execution agents (`.github/agents/` is the team's own Copilot agents).
 5. `singularity/work-items/<ID>/workflow.json` or
    `singularity/initiatives/<ID>/state.json` owns active lifecycle state.
 6. Git commits and normal fast-forward pushes transfer that state between users.

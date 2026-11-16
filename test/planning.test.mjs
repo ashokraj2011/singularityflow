@@ -201,7 +201,7 @@ test('Story planning under the local default reads uploads privately and never c
 test('Story planning uses its saved root, agent, and planning prompt after live policy changes', async () => {
   const root = await repository();
   run(root, process.execPath, [bin, 'start', 'PLAN-SAVED', '--from-branch', 'main', '--title', 'Use saved planning agent']);
-  const liveAgent = path.join(root, '.github/agents/product-owner.agent.md');
+  const liveAgent = path.join(root, 'singularity/agents/product-owner.agent.md');
   const livePrompt = path.join(root, 'singularity/prompts/copilot-planning.md');
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const originalAgent = await readFile(liveAgent);

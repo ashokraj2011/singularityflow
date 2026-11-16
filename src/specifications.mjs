@@ -23,6 +23,7 @@ import { nonTestVerification, parseVerificationIntent, validatePlannedVerificati
 import { verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
 import { applyPlanCorrections } from './plan-row-corrections.mjs';
 import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue, pathDefect, shown } from './draft-diagnostics.mjs';
+import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -152,7 +153,7 @@ export function normalizeSpecPolicy(value = {}) {
     }
   }
   // A configured prefix let application logic escape coverage [E2G-012]; only governance roots stay out.
-  const governanceRoots = ['singularity', '.github/agents', '.git', 'node_modules'];
+  const governanceRoots = ['singularity', LEGACY_AGENTS_ROOT, '.git', 'node_modules'];
   const configuredExcludes = value.excludes ?? [];
   // A normalized policy carries the governance roots, so normalizing it again stays unchanged.
   if (!Array.isArray(configuredExcludes) || configuredExcludes.some((item) => !governanceRoots.includes(item))) {

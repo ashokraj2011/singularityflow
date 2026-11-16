@@ -19,6 +19,7 @@ import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { withAgentsHomeSetting } from '../src/initialization-assets.mjs';
 import { reinitializeWorkspaces } from '../src/workspace-reinitialize.mjs';
 import { schemaCensus } from '../src/schema-census.mjs';
 import { assertStoryNotArchived, GOVERNANCE_ARCHIVE_PATH, GOVERNANCE_ARCHIVE_VERSION } from '../src/governance-archive.mjs';
@@ -59,7 +60,7 @@ const INITIAL_FILES = [
   ['impact.yml', 'singularity/impact.yml'],
   ['modelTiers.yml', 'singularity/modelTiers.yml'],
   ['artifacts', 'singularity/templates'],
-  ['agents', '.github/agents'],
+  ['agents', 'singularity/agents'],
   ['skill-library', 'singularity/skill-library'],
   ['instruction-library', 'singularity/instruction-library'],
   ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
@@ -92,6 +93,10 @@ async function initializeFixture(root) {
   for (const [source, destination] of INITIAL_FILES) {
     await copyBytes(path.join(ROOT, 'templates', source), path.join(root, destination));
   }
+  // A configuration as init writes it today: its agents in the agents home (SPEC-AGH). The move from
+  // .github/agents is tested in agents-home.test.mjs.
+  const workflow = path.join(root, 'singularity/workflow.yml');
+  await writeFile(workflow, withAgentsHomeSetting(await readFile(workflow, 'utf8')));
 }
 
 async function repositoryFixture(root, id = 'application') {
@@ -948,7 +953,7 @@ test('repository refresh restores additive policy and missing assets without ove
   await writeFile(workflowFile, YAML.stringify(workflow));
   const missing = path.join(root, 'singularity/templates/feature/implementation-spec.md');
   await rm(missing);
-  const customAgent = path.join(root, '.github/agents/developer.agent.md');
+  const customAgent = path.join(root, 'singularity/agents/developer.agent.md');
   const customizedAgent = `${await readFile(path.join(ROOT, 'templates/agents/developer.agent.md'), 'utf8')}\n<!-- repository customization -->\n`;
   await writeFile(customAgent, customizedAgent);
 
@@ -958,7 +963,7 @@ test('repository refresh restores additive policy and missing assets without ove
   assert.equal(refreshed.defaultBaseBranch, 'release');
   assert.match(await readFile(missing, 'utf8'), /implementation/i);
   assert.equal(await readFile(customAgent, 'utf8'), customizedAgent);
-  assert.ok(result.conflicts.some((entry) => entry.path === '.github/agents/developer.agent.md'));
+  assert.ok(result.conflicts.some((entry) => entry.path === 'singularity/agents/developer.agent.md'));
   // v2 records the proposing build (SCF:REQ-015); this development checkout records none.
   const written = YAML.parse(await readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8'));
   assert.equal(written.format, 'singularity-flow-configuration-baseline/v2');
@@ -1101,7 +1106,7 @@ test('seeded reinitialization restores missing framework seeds and preserves eve
   const customTemplateBytes = '# Customer review\n\nRepository-owned template bytes.\n';
   await mkdir(path.dirname(customTemplate), { recursive: true });
   await writeFile(customTemplate, customTemplateBytes);
-  const customAgent = path.join(root, '.github/agents/repository-specialist.agent.md');
+  const customAgent = path.join(root, 'singularity/agents/repository-specialist.agent.md');
   const customAgentBytes = `---
 name: repository-specialist
 description: Repository-owned reviewer that is not supplied by Singularity Flow.
@@ -1119,7 +1124,7 @@ Review the repository-owned customer delivery evidence without changing files.
 `;
   await writeFile(customAgent, customAgentBytes);
 
-  const packagedAgent = path.join(root, '.github/agents/developer.agent.md');
+  const packagedAgent = path.join(root, 'singularity/agents/developer.agent.md');
   await writeFile(packagedAgent, `${await readFile(packagedAgent, 'utf8')}\n<!-- stale seeded agent -->\n`);
   const packagedTemplate = path.join(root, 'singularity/templates/feature/requirements.md');
   await writeFile(packagedTemplate, `${await readFile(packagedTemplate, 'utf8')}\n<!-- stale seeded template -->\n`);
@@ -1173,14 +1178,14 @@ Review the repository-owned customer delivery evidence without changing files.
   assert.equal(await readFile(packagedAgent, 'utf8'), packagedAgentBefore);
   assert.equal(await readFile(packagedTemplate, 'utf8'), packagedTemplateBefore);
   assert.ok(result.files.includes('singularity/workflow.yml'));
-  assert.ok(!result.files.includes('.github/agents/developer.agent.md'));
+  assert.ok(!result.files.includes('singularity/agents/developer.agent.md'));
   assert.ok(!result.files.includes('singularity/templates/feature/requirements.md'));
   for (const id of customizedWorkTypeIds) {
     assert.ok(result.conflicts.some((entry) =>
       entry.path === `workflow.workTypes.${id}` && entry.resolution === 'preserved-local'));
   }
   assert.ok(result.conflicts.some((entry) =>
-    entry.path === '.github/agents/developer.agent.md'
+    entry.path === 'singularity/agents/developer.agent.md'
       && entry.resolution === 'preserved-local'));
   assert.ok(result.conflicts.some((entry) =>
     entry.path === 'singularity/templates/feature/requirements.md'
@@ -1289,7 +1294,7 @@ test('seeded reinitialization migrates authentic v1 role fields and retains repo
   legacy.workTypes.chore.label = 'Company-maintained chore';
   legacy.defaultBaseBranch = 'release/company';
   await writeFile(workflowFile, YAML.stringify(legacy));
-  const companyAgentFile = path.join(root, '.github/agents/company-architect.agent.md');
+  const companyAgentFile = path.join(root, 'singularity/agents/company-architect.agent.md');
   const companyAgentBytes = `---
 name: company-architect
 description: Repository-owned governed agent for the company intake phase.
@@ -1465,7 +1470,7 @@ test('seeded reinitialization refuses repository-created suggested-persona routi
   };
   const before = YAML.stringify(legacy);
   await writeFile(workflowFile, before);
-  const agentFile = path.join(root, '.github/agents/architect.agent.md');
+  const agentFile = path.join(root, 'singularity/agents/architect.agent.md');
   const beforeAgent = await readFile(agentFile, 'utf8');
 
   await assert.rejects(
@@ -1643,7 +1648,7 @@ test('seeded reinitialization preserves same-path repository assets without owne
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-assets-without-baseline-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await initializeFixture(root);
-  const qaFile = path.join(root, '.github/agents/qa.agent.md');
+  const qaFile = path.join(root, 'singularity/agents/qa.agent.md');
   const templateFile = path.join(root, 'singularity/templates/common/implementation.md');
   const promptFile = path.join(root, 'singularity/prompts/copilot-planning.md');
   await writeFile(qaFile, `${await readFile(qaFile, 'utf8')}\n<!-- stale package-era agent -->\n`);
@@ -1660,11 +1665,11 @@ test('seeded reinitialization preserves same-path repository assets without owne
   assert.equal(await readFile(qaFile, 'utf8'), qaBytes);
   assert.equal(await readFile(templateFile, 'utf8'), templateBytes);
   assert.equal(await readFile(promptFile, 'utf8'), promptBytes);
-  assert.ok(!result.files.includes('.github/agents/qa.agent.md'));
+  assert.ok(!result.files.includes('singularity/agents/qa.agent.md'));
   assert.ok(!result.files.includes('singularity/templates/common/implementation.md'));
   assert.ok(!result.files.includes('singularity/prompts/copilot-planning.md'));
   assert.ok(result.conflicts.some((entry) =>
-    entry.path === '.github/agents/qa.agent.md' && entry.resolution === 'preserved-local'));
+    entry.path === 'singularity/agents/qa.agent.md' && entry.resolution === 'preserved-local'));
   assert.ok(result.conflicts.some((entry) =>
     entry.path === 'singularity/templates/common/implementation.md'
       && entry.resolution === 'preserved-local'));
@@ -1674,7 +1679,7 @@ test('seeded reinitialization preserves same-path repository assets without owne
 
   const receipt = YAML.parse(await readFile(path.join(root,
     'singularity/.product/configuration-baseline.yml'), 'utf8'));
-  assert.equal(receipt.ownership.assets['.github/agents/qa.agent.md'], 'repository');
+  assert.equal(receipt.ownership.assets['singularity/agents/qa.agent.md'], 'repository');
   assert.equal(receipt.ownership.assets['singularity/templates/common/implementation.md'], 'repository');
   assert.equal(receipt.ownership.assets['singularity/prompts/copilot-planning.md'], 'repository');
 
@@ -1685,7 +1690,7 @@ test('seeded reinitialization preserves same-path repository assets without owne
     'the baseline written after a collision must not claim the custom template on the second run');
   assert.equal(await readFile(promptFile, 'utf8'), promptBytes,
     'the baseline written after a collision must not claim the custom prompt on the second run');
-  assert.ok(repeated.conflicts.some((entry) => entry.path === '.github/agents/qa.agent.md'));
+  assert.ok(repeated.conflicts.some((entry) => entry.path === 'singularity/agents/qa.agent.md'));
   assert.ok(repeated.conflicts.some((entry) =>
     entry.path === 'singularity/templates/common/implementation.md'));
   assert.ok(repeated.conflicts.some((entry) =>
@@ -1726,7 +1731,7 @@ test('seeded reinitialization cannot overwrite custom content through a forged f
 
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const baselineFile = path.join(root, PACKAGE_BASELINE_PATH);
-  const agentRelative = '.github/agents/qa.agent.md';
+  const agentRelative = 'singularity/agents/qa.agent.md';
   const templateRelative = 'singularity/templates/common/implementation.md';
   const agentFile = path.join(root, agentRelative);
   const templateFile = path.join(root, templateRelative);
@@ -1849,14 +1854,14 @@ test('configuration refresh upgrades a complete exact historical agent cohort as
     'product-designer.agent.md', 'product-owner.agent.md', 'qa.agent.md'
   ];
   for (const name of agents) {
-    await writeFile(path.join(root, '.github/agents', name), await readFile(path.join(
+    await writeFile(path.join(root, 'singularity/agents', name), await readFile(path.join(
       ROOT, 'test/fixtures/packaged-agents/ba513', name
     )));
   }
 
   const result = await refreshPackagedConfiguration(root);
   for (const name of agents) {
-    const relative = `.github/agents/${name}`;
+    const relative = `singularity/agents/${name}`;
     assert.equal(
       await readFile(path.join(root, relative), 'utf8'),
       await readFile(path.join(ROOT, 'templates/agents', name), 'utf8'),
@@ -1872,7 +1877,7 @@ test('configuration refresh refuses a cross-file-invalid preserved agent and acc
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-contract-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await initializeFixture(root);
-  const qaFile = path.join(root, '.github/agents/qa.agent.md');
+  const qaFile = path.join(root, 'singularity/agents/qa.agent.md');
   const currentQa = await readFile(qaFile, 'utf8');
   const olderQa = currentQa.replaceAll(
     'reproduction,verify,verification,testing,test-run,visual-verification,conformance,release',
@@ -1885,14 +1890,14 @@ test('configuration refresh refuses a cross-file-invalid preserved agent and acc
     assert.equal(error.code, 'CONFIGURATION_REFRESH_INVALID');
     assert.match(error.message, /testing.*default agent/i);
     assert.match(error.message, /--resolve PATH=bundled/);
-    assert.ok(error.details.conflicts.some((entry) => entry.path === '.github/agents/qa.agent.md'));
+    assert.ok(error.details.conflicts.some((entry) => entry.path === 'singularity/agents/qa.agent.md'));
     return true;
   });
 
   const repaired = await refreshPackagedConfiguration(root, {
-    resolutions: { '.github/agents/qa.agent.md': 'bundled' }
+    resolutions: { 'singularity/agents/qa.agent.md': 'bundled' }
   });
-  assert.ok(repaired.conflicts.some((entry) => entry.path === '.github/agents/qa.agent.md'
+  assert.ok(repaired.conflicts.some((entry) => entry.path === 'singularity/agents/qa.agent.md'
     && entry.resolution === 'accepted-bundled'));
   assert.equal(await readFile(qaFile, 'utf8'), currentQa);
 });
@@ -1911,9 +1916,9 @@ test('workspace refresh preview returns an actionable packaged-agent repair inst
     'reproduction,verify,verification,testing,test-run,visual-verification,conformance,release',
     'reproduction,verify,verification,test-run,visual-verification,conformance,release'
   );
-  await mkdir(path.join(publisher, '.github/agents'), { recursive: true });
-  await writeFile(path.join(publisher, '.github/agents/qa.agent.md'), olderQa);
-  git(publisher, ['add', '.github/agents/qa.agent.md']);
+  await mkdir(path.join(publisher, 'singularity/agents'), { recursive: true });
+  await writeFile(path.join(publisher, 'singularity/agents/qa.agent.md'), olderQa);
+  git(publisher, ['add', 'singularity/agents/qa.agent.md']);
   git(publisher, ['commit', '-m', 'Preserve an older QA agent']);
   git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
 
@@ -1944,20 +1949,20 @@ test('workspace refresh preview returns an actionable packaged-agent repair inst
   assert.deepEqual(blocked.results[0].repair, {
     kind: 'packaged-agents',
     label: 'Restore packaged agents',
-    paths: ['.github/agents/qa.agent.md']
+    paths: ['singularity/agents/qa.agent.md']
   });
   assert.ok(blocked.results[0].conflicts.some((entry) =>
-    entry.path === '.github/agents/qa.agent.md' && entry.resolution === 'preserved-local'));
+    entry.path === 'singularity/agents/qa.agent.md' && entry.resolution === 'preserved-local'));
 
   const repaired = await refreshWorkspaceConfigurations({
     registryFile: registry,
     dryRun: true,
-    resolutions: { '.github/agents/qa.agent.md': 'bundled' }
+    resolutions: { 'singularity/agents/qa.agent.md': 'bundled' }
   });
   assert.equal(repaired.status, 'preview');
   assert.match(repaired.planId, /^cfgp-[a-f0-9]{24}$/);
   assert.ok(repaired.results[0].conflicts.some((entry) =>
-    entry.path === '.github/agents/qa.agent.md' && entry.resolution === 'accepted-bundled'));
+    entry.path === 'singularity/agents/qa.agent.md' && entry.resolution === 'accepted-bundled'));
 });
 
 test('concurrent identical configuration refreshes join the winning commit without a review branch', async (t) => {
@@ -2109,7 +2114,7 @@ test('a seeded plan binds exact ownership resolutions and existing-authority pac
   run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, authority]);
   git(authority, ['config', 'user.name', 'Configuration Test']);
   git(authority, ['config', 'user.email', 'configuration@example.test']);
-  const collision = '.github/agents/qa.agent.md';
+  const collision = 'singularity/agents/qa.agent.md';
   const qaFile = path.join(authority, collision);
   await mkdir(path.dirname(qaFile), { recursive: true });
   await writeFile(qaFile,
@@ -2723,10 +2728,10 @@ test('seeded first-authority bootstrap refuses configuration symlinks without pu
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, repository, registry } = await registeredRepositoryFixture(root, 'symlink-seed');
   run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
-  await mkdir(path.join(repository, '.github/agents'), { recursive: true });
+  await mkdir(path.join(repository, 'singularity/agents'), { recursive: true });
   await writeFile(path.join(repository, 'outside-agent.md'), '# outside\n');
-  await symlink('../../outside-agent.md', path.join(repository, '.github/agents/developer.agent.md'));
-  git(repository, ['add', '.github/agents/developer.agent.md', 'outside-agent.md']);
+  await symlink('../../outside-agent.md', path.join(repository, 'singularity/agents/developer.agent.md'));
+  git(repository, ['add', 'singularity/agents/developer.agent.md', 'outside-agent.md']);
   git(repository, ['commit', '-m', 'Add unsafe configuration symlink']);
   git(repository, ['push', 'origin', 'main']);
   const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
@@ -3649,7 +3654,7 @@ test('seeded workspace reinitialization preserves repository contracts through c
       '# Customer review\n\nRepository-owned template bytes.\n'],
     ['singularity/prompts/customer-review.md',
       '# Customer review prompt\n\nRepository-owned prompt bytes.\n'],
-    ['.github/agents/repository-specialist.agent.md', `---
+    ['singularity/agents/repository-specialist.agent.md', `---
 name: repository-specialist
 description: Repository-owned customer reviewer.
 model: [auto]
@@ -3670,7 +3675,7 @@ Review customer evidence without changing files.
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, contents);
   }
-  const seededAgent = path.join(authority, '.github/agents/developer.agent.md');
+  const seededAgent = path.join(authority, 'singularity/agents/developer.agent.md');
   await writeFile(seededAgent, `${await readFile(seededAgent, 'utf8')}\n<!-- stale seeded agent -->\n`);
   const seededTemplate = path.join(authority, 'singularity/templates/feature/requirements.md');
   await writeFile(seededTemplate,
@@ -3724,7 +3729,7 @@ Review customer evidence without changing files.
     }
   }
   assert.equal(run('git', [
-    '--git-dir', remote, 'show', 'sflow/config:.github/agents/developer.agent.md'
+    '--git-dir', remote, 'show', 'sflow/config:singularity/agents/developer.agent.md'
   ]).stdout, await readFile(seededAgent, 'utf8'),
   'a modified framework-started agent must remain repository-owned');
   assert.equal(run('git', [
@@ -3870,10 +3875,10 @@ test('seeded reinitialization refuses a symbolic workflow authority before readi
 
 test('seeded reinitialization refuses existing portable aliases of packaged targets', async (t) => {
   for (const [label, targetRelative, aliasRelative] of [
-    ['case', '.github/agents/qa.agent.md', '.github/agents/QA.agent.md'],
-    ['trailing-dot', '.github/agents/qa.agent.md', '.github/agents/qa.agent.md.'],
-    ['unicode-fold', '.github/agents/product-designer.agent.md',
-      '.github/agents/product-deſigner.agent.md']
+    ['case', 'singularity/agents/qa.agent.md', 'singularity/agents/QA.agent.md'],
+    ['trailing-dot', 'singularity/agents/qa.agent.md', 'singularity/agents/qa.agent.md.'],
+    ['unicode-fold', 'singularity/agents/product-designer.agent.md',
+      'singularity/agents/product-deſigner.agent.md']
   ]) {
     await t.test(label, async (t) => {
       const root = await mkdtemp(path.join(os.tmpdir(), `sflow-seeded-portable-alias-${label}-`));
@@ -3908,8 +3913,8 @@ test('seeded reinitialization refuses portable aliases of packaged target ancest
       const root = await mkdtemp(path.join(os.tmpdir(), `sflow-seeded-portable-parent-${label}-`));
       t.after(() => rm(root, { recursive: true, force: true }));
       await initializeFixture(root);
-      const canonical = path.join(root, '.github/agents');
-      const alias = path.join(root, `.github/${aliasComponent}`);
+      const canonical = path.join(root, 'singularity/agents');
+      const alias = path.join(root, `singularity/${aliasComponent}`);
       await rename(canonical, alias);
       const before = await readFile(path.join(alias, 'qa.agent.md'));
 
@@ -4143,7 +4148,7 @@ test('seeded reinitialization refuses unsafe retired baseline entries before mut
       const evidence = path.join(root, relative);
       await mkdir(path.dirname(evidence), { recursive: true });
       await writeFile(evidence, 'retain runtime evidence exactly\n');
-      const missingSeed = path.join(root, '.github/agents/qa.agent.md');
+      const missingSeed = path.join(root, 'singularity/agents/qa.agent.md');
       await rm(missingSeed);
 
       const workflowFile = path.join(root, 'singularity/workflow.yml');

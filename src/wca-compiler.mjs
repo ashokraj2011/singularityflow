@@ -4,6 +4,7 @@ import { readFile, lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
+import { agentsRootOf } from './configuration-assets.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { configurationReadRoot, configurationReadScope, configurationReadSnapshot } from './configuration-read-scope.mjs';
 import { captureVerifiedConfigurationAssetBytes, inspectApprovedSkillPackage } from './configuration-branch.mjs';
@@ -168,8 +169,10 @@ export async function captureWorkflowCompilerContext(root) {
     const assetPolicy = freeze(structuredClone(ownerPolicy));
     const before = await approvedBytes(sourceRoot, 'singularity/workflow.yml');
     const definition = structuredClone(await loadDefinition(root));
-    // Runtime discovery fields contain local/temporary paths and are not workflow.yml policy.
-    delete definition.agents; delete definition.agentCatalog; delete definition.agentPromptsRoot;
+    // Runtime discovery fields contain local/temporary paths and are not workflow.yml policy. The
+    // agents root is policy when workflow.yml records it [AGH:REQ-002], so an emitted candidate keeps it.
+    delete definition.agents; delete definition.agentCatalog;
+    if (!Object.hasOwn(YAML.parse(before.toString('utf8')) ?? {}, 'agentPromptsRoot')) delete definition.agentPromptsRoot;
     const agents = await discoverAgents(root);
     const environmentCapture = await captureEnvironmentDeclaration(sourceRoot, { optional: true });
     const files = new Map([['singularity/workflow.yml', before]]);
@@ -225,7 +228,7 @@ function assertExactReplacementCapture(captured) {
   const normalized = applyWorkflowCompatibility(YAML.parse(captured.exactFiles.get('singularity/workflow.yml').toString('utf8')));
   normalized.agentCatalog = captured.agents; normalized.agents = Object.fromEntries(captured.agents.map((agent) => [agent.id, agent]));
   validateDefinition(normalized);
-  delete normalized.agentCatalog; delete normalized.agents; delete normalized.agentPromptsRoot;
+  delete normalized.agentCatalog; delete normalized.agents;
   const projected = withEnvironmentWorldModelExclusions(normalized, captured.environmentDeclaration);
   if (canonicalJson(projected) !== canonicalJson(captured.definition)) fail('Approved configuration policy differs from its retained exact Git bytes.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
 }
@@ -853,8 +856,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     const reviewedSkillAgent = phases.some((phaseId) => symbols.phases.get(phaseId)?.kind === 'skill')
       ? renderWorkflowSkillCandidateAgent(JSON.parse(canonicalJson({ request,
         assets: draft.assets.map((asset) => ({ path: asset.path, bytes: asset.content.length,
-          sha256: bytesDigest(asset.content), contentBase64: asset.content.toString('base64') })) })), key) : null;
-    const sourcePath = reviewedSkillAgent?.path ?? `.github/agents/${request.id}-${key}.agent.md`;
+          sha256: bytesDigest(asset.content), contentBase64: asset.content.toString('base64') })) })), key, agentsRootOf(captured.rawDefinition)) : null;
+    const sourcePath = reviewedSkillAgent?.path ?? `${agentsRootOf(captured.rawDefinition)}/${request.id}-${key}.agent.md`;
     const content = reviewedSkillAgent?.text ?? `---\n${YAML.stringify({ name: key, description: value.description, tools: [], metadata: { 'sflow-phases': phases.join(','), 'sflow-default-for': phases.join(',') } })}---\n${prompt}\n`;
     const parsed = parseAgentDependencies(content, { source: sourcePath, agentId: key }); agents.push({ ...parsed, text: content, scope: 'repository' }); emit(sourcePath, content);
   });

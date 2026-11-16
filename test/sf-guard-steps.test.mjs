@@ -82,7 +82,7 @@ async function guardedStory(t, work, key) {
       git('config', 'user.email', ONE.email);
       await sfGuard(root, ['register'], {}, guardPerson(ONE.email, [key]));
       await sfGuard(root, ['enable'], { exception: [approverId(TWO)], 'remote-check': 'sf-guard-verify' }, guardPerson(ONE.email, [key]));
-      git('add', PRESENCE_CHAIN_PATH, '.github/agents');
+      git('add', PRESENCE_CHAIN_PATH, 'singularity/agents');
       git('commit', '-qm', 'Turn SF Guard on');
       git('push', '-q', 'origin', 'main');
     }

@@ -161,19 +161,19 @@ test('initialization upgrades exact historical packaged agents and preserves a o
 
   for (const name of targets) {
     await writeFile(
-      path.join(root, '.github/agents', name),
+      path.join(root, 'singularity/agents', name),
       await readFile(new URL(name, historicalRoot))
     );
   }
   const upgraded = await initializeDefinition(root);
   assert.deepEqual(
-    targets.filter((name) => upgraded.includes(`.github/agents/${name}`)),
+    targets.filter((name) => upgraded.includes(`singularity/agents/${name}`)),
     targets,
     'the complete exact ba513 package cohort is reported as repaired'
   );
   for (const name of targets) {
     assert.deepEqual(
-      await readFile(path.join(root, '.github/agents', name)),
+      await readFile(path.join(root, 'singularity/agents', name)),
       await readFile(new URL(name, packagedRoot)),
       `${name} did not advance to current packaged bytes`
     );
@@ -183,10 +183,10 @@ test('initialization upgrades exact historical packaged agents and preserves a o
     await readFile(new URL('product-designer.agent.md', historicalRoot)),
     Buffer.from(' ')
   ]);
-  const customizedPath = path.join(root, '.github/agents/product-designer.agent.md');
+  const customizedPath = path.join(root, 'singularity/agents/product-designer.agent.md');
   await writeFile(customizedPath, customized);
   const preserved = await initializeDefinition(root);
-  assert.equal(preserved.includes('.github/agents/product-designer.agent.md'), false);
+  assert.equal(preserved.includes('singularity/agents/product-designer.agent.md'), false);
   assert.deepEqual(await readFile(customizedPath), customized,
     'one changed byte must put the repository file outside package upgrade authority');
 });
@@ -198,7 +198,7 @@ test('initialization recognizes an exact tracked package blob through CRLF check
   run('git', ['config', 'user.email', 'package-history@example.test'], { cwd: root });
   await initializeDefinition(root);
 
-  const relative = '.github/agents/product-designer.agent.md';
+  const relative = 'singularity/agents/product-designer.agent.md';
   const target = path.join(root, relative);
   const historical = await readFile(new URL(
     './fixtures/packaged-agents/ba513/product-designer.agent.md', import.meta.url
@@ -238,7 +238,7 @@ test('Story bootstrap defers mutable live agent and template availability to the
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-bootstrap-'));
   await mkdir(path.join(root, '.git'), { recursive: true });
   await initializeDefinition(root);
-  await unlink(path.join(root, '.github/agents/developer.agent.md'));
+  await unlink(path.join(root, 'singularity/agents/developer.agent.md'));
   await unlink(path.join(root, 'singularity/templates/common/implementation.md'));
 
   await assert.rejects(loadDefinition(root), /default agent|Template missing/);
@@ -254,7 +254,7 @@ test('Story bootstrap does not parse a malformed live governed-agent document', 
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-bootstrap-malformed-'));
   await mkdir(path.join(root, '.git'), { recursive: true });
   await initializeDefinition(root);
-  await writeFile(path.join(root, '.github/agents/developer.agent.md'), `---\nname: developer\nmetadata: [malformed\n---\n`);
+  await writeFile(path.join(root, 'singularity/agents/developer.agent.md'), `---\nname: developer\nmetadata: [malformed\n---\n`);
   await assert.rejects(loadDefinition(root), /agent|front matter|YAML/i);
   const bootstrap = await loadDefinition(root, { storyBootstrap: true });
   assert.deepEqual(bootstrap.agentCatalog, []);

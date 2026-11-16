@@ -28,6 +28,7 @@ import { runSmartInitDetectors } from './detectors.mjs';
 import { captureSmartInitSnapshot } from './source-snapshot.mjs';
 import { isInferredSwiftTestCommand, SWIFT_TEST_REPORT_NAMES } from '../swift-manifests.mjs';
 import { prepareInferredSwiftTestReports } from '../verification/swift-reports.mjs';
+import { LEGACY_AGENTS_ROOT } from '../configuration-assets.mjs';
 
 const PURPOSE_ORDER = Object.freeze(['dependency', 'build', 'quality', 'test', 'start']);
 const PURPOSE_RANK = new Map(PURPOSE_ORDER.map((purpose, index) => [purpose, index]));
@@ -1086,7 +1087,7 @@ export async function buildEmptyRepositoryReadinessPlan(root, { commit = head(ro
   if (current !== commit) {
     const changed = exactChangedPathsBetweenObjects(root, commit, current);
     if (changed.some((file) => !file.startsWith('singularity/')
-      && !file.startsWith('.github/agents/'))) return null;
+      && !file.startsWith(`${LEGACY_AGENTS_ROOT}/`))) return null;
   }
   const plan = await buildRepositoryReadinessPlan(root, { ...options, emptyOnly: true });
   if (plan.sourceCommit !== current || !isEmptyRepositoryReadinessPlan(plan)) return null;

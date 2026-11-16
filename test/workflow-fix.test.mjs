@@ -52,7 +52,7 @@ async function fmlyRepository({ skillLines = [], security = null } = {}) {
     'singularity/skill-library/fmly-e2e-test-generation-source/SKILL.md': SKILL(skillLines),
     'singularity/skill-library/fmly-e2e-test-generation-source/README.md': '# Overview\n\nWhat this skill covers.\n',
     'singularity/skill-library/fmly-e2e-test-generation-source/docs/naming.md': '# Naming\n\nName tests after the behaviour.\n',
-    '.github/agents/fmly-delivery.agent.md': ['---', 'name: fmly-delivery', 'description: Drafts the QA team\'s requirements, code and testing steps.', 'model: [auto]',
+    'singularity/agents/fmly-delivery.agent.md': ['---', 'name: fmly-delivery', 'description: Drafts the QA team\'s requirements, code and testing steps.', 'model: [auto]',
       'tools: [read, search, edit, execute, bash, ask_user]', 'metadata:', '  sflow-label: "QA delivery"', '  sflow-phases: "fmly-requirements,fmly-code,fmly-testing,fmly-review"',
       '  sflow-default-for: "fmly-requirements,fmly-code,fmly-testing,fmly-review"', '  sflow-model-task: "code"', '---', '', '# QA delivery agent', '',
       'Draft the step you are given from its template and the approved inputs.', '',
@@ -293,7 +293,7 @@ test('what only a person can decide is asked, and the answers become changes', a
 test('a configuration that does not load is fixed first, then what it hid, in rounds of one change set', async () => {
   const root = await fmlyRepository();
   const add = async (relative, text) => { await mkdir(path.dirname(path.join(root, relative)), { recursive: true }); await writeFile(path.join(root, relative), text); };
-  await add('.github/agents/idle.agent.md', '---\nname: idle\ndescription: Does nothing.\ntools: [read]\nmetadata:\n  sflow-label: "Idle"\n  sflow-phases: "no-such-step"\n---\n\n# Idle\n\nNothing.\n');
+  await add('singularity/agents/idle.agent.md', '---\nname: idle\ndescription: Does nothing.\ntools: [read]\nmetadata:\n  sflow-label: "Idle"\n  sflow-phases: "no-such-step"\n---\n\n# Idle\n\nNothing.\n');
   await add('singularity/skill-library/orphan/SKILL.md', '---\nname: orphan\ndescription: Nobody uses this.\n---\n\nDo the orphan thing.\n');
   await add('singularity/instruction-library/lonely/INSTRUCTIONS.md', '---\nname: lonely\ndescription: Placed nowhere.\n---\n\nBe lonely.\n');
   const file = path.join(root, 'singularity/workflow.yml');

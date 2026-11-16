@@ -994,7 +994,7 @@ test('workspace branch choices use approved configuration when application main 
   const { root } = await repository();
   git(root, 'push', 'origin', 'main:refs/heads/sflow/config');
   git(root, 'fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config');
-  git(root, 'rm', '-r', 'singularity', '.github/agents');
+  git(root, 'rm', '-r', 'singularity');
   git(root, 'commit', '-m', 'Keep application main free of configuration');
   const headBefore = git(root, 'rev-parse', 'HEAD').stdout.trim();
 

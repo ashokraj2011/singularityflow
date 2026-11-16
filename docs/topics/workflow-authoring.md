@@ -42,7 +42,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 105
+version: 106
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -208,7 +208,10 @@ the `base` digest), and `singularity-flow workflow studio apply --change-set <FI
 with `copyOf` names the step to copy and `copyFromWorkflow` the workflow whose settings it keeps. An
 `agent.create` with `from` names an existing agent to start from: its instructions, tools and
 attached skills are copied, but not the steps it drafts (choose those for the new agent) or its remote
-resources (lock them for the new agent). The Studio's "Or start from an existing agent" sends it. A
+resources (lock them for the new agent). The Studio's "Or start from an existing agent" sends it. Every
+agent the Studio, the builder, `workflow fix` or an import writes, and every agent file `workflow check`
+and `validate` point at, is in `singularity/agents/` (in `.github/agents/` for a repository whose
+agents have not moved yet: see `sflow explain installation-and-upgrades`). A
 `workflow` named on `phase.update` must use the step once the whole change set is applied
 (`STUDIO_PHASE_UNKNOWN` otherwise), and a setting for it stays that workflow's own even when the same
 change set adds the step to it. `inputs` left out or `null` means unchanged; a value that
@@ -1100,7 +1103,8 @@ Export one portable bundle for one or more Story or Initiative workflows. The de
 includes the selected workflow rows and the configuration objects they require: phases, artifact
 sets and templates, approval authorities (including groups only a decision's `by` or a
 specification-quality `exceptionAuthority` names), Agent Markdown (including a
-repository's own source reviewer; a packaged reviewer is installed everywhere), MCP assignments,
+repository's own source reviewer; a packaged reviewer is installed everywhere; each agent lands in the
+destination's own agents folder, whichever layout either repository has), MCP assignments,
 applicability policies, and exact remote-agent dependency locks.
 A skill or template an agent's lock names as imported (vendored) travels as its exact bytes, with
 the record of where it came from, and so does an imported MCP server's descriptor: the destination

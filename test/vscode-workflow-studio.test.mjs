@@ -163,7 +163,7 @@ test('edits made in the page become one change set the engine accepts', async ()
   const plan = check(root, changeSet);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   assert.deepEqual(plan.files.map((file) => file.path).sort(), [
-    '.github/agents/architect.agent.md', '.github/agents/product-owner.agent.md', '.github/agents/vendor-analyst.agent.md',
+    'singularity/agents/architect.agent.md', 'singularity/agents/product-owner.agent.md', 'singularity/agents/vendor-analyst.agent.md',
     'singularity/templates/common/vendor-analysis.md', 'singularity/workflow.yml'
   ]);
 });
@@ -435,7 +435,7 @@ test('library imports queued in the page become engine operations the engine che
   const plan = check(root, changeSet);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   assert.deepEqual(plan.files.map((file) => file.path).sort(), [
-    '.github/agents/architect.agent.md', 'singularity/agents.lock.yml', 'singularity/imports.lock.yml',
+    'singularity/agents.lock.yml', 'singularity/agents/architect.agent.md', 'singularity/imports.lock.yml',
     'singularity/imports/agents/architect/skill-security-review.md', 'singularity/workflow.yml'
   ]);
 });
@@ -2095,7 +2095,7 @@ test('a new agent started from an existing one carries "from", and the engine co
   assert.equal(create.from, 'qa');
   const plan = check(root, changeSet);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
-  assert.deepEqual(plan.files.map((file) => file.path), ['.github/agents/payments-qa.agent.md']);
+  assert.deepEqual(plan.files.map((file) => file.path), ['singularity/agents/payments-qa.agent.md']);
   assert.ok(plan.summary.some((line) => /^New agent Payments QA, starting from .+: its instructions, .+\. It drafts no step until you choose one, and copies no remote resources\.$/u.test(line)), JSON.stringify(plan.summary));
   // A role-only agent sends no "from".
   delete draft.agents['payments-qa'].from;

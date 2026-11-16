@@ -13,7 +13,7 @@ export const FAMILY_FILES = Object.freeze({
     '## Changed components', '', 'TODO: List each changed file and what it now does.', '', '## Tests', '', 'TODO: Name the tests that prove each requirement.', ''].join('\n'),
   'singularity/templates/fmly/testing.md': ['# {{work.id}} — Family testing', '', '## Agent brief', '', 'TODO: Summarize the test verdict.', '',
     '## Test results', '', "TODO: Cite the code step's committed test receipts and what each proves.", '', '## Residual risk', '', 'TODO: State remaining gaps.', ''].join('\n'),
-  '.github/agents/fmly-delivery.agent.md': ['---', 'name: fmly-delivery', "description: Drafts the family team's requirements, code and testing steps.", 'model: [auto]',
+  'singularity/agents/fmly-delivery.agent.md': ['---', 'name: fmly-delivery', "description: Drafts the family team's requirements, code and testing steps.", 'model: [auto]',
     'tools: [read, search, edit, execute, bash, ask_user]', 'metadata:', '  sflow-label: "Family delivery"', '  sflow-phases: "fmly-requirements,fmly-code,fmly-testing"',
     '  sflow-default-for: "fmly-requirements,fmly-code,fmly-testing"', '  sflow-model-task: "code"', '---', '', '# Family delivery agent', '',
     'Draft the step you are given from its template and the approved inputs; never guess an answer a person owns.', ''].join('\n')

@@ -623,9 +623,26 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,668,500 (measured 9,668,466): outside a Story checkout the approved configuration is found by each configured
     // remote's exact sflow/config ref, not a pattern over every remote (approved-configuration-reader.mjs +846), and the
     // state marker clone keeps its objects (configuration-branch.mjs +92) [SPEC-SCF stage 1, 2026-11-16]. No new eager file.
+    // 9,663,650 (measured 9,663,627, commands/phase-lifecycle.mjs): the agents home [SPEC-AGH, owner 2026-11-14] merged with
+    // main bd90bcc46 (9,656,050 there): discovery reads the root workflow.yml records (agents.mjs +1,701), the layout and its
+    // transport policy (configuration-assets.mjs +1,643), init's layout (config.mjs +1,345, initialization-assets.mjs +1,305),
+    // first governance moves SFlow's agents only (configuration-branch.mjs +837), the legacy root governed unless a source
+    // records the home (application-paths.mjs +520) and moved agents' package history (packaged-asset-history.mjs +226).
+    // The migration stays lazy (agents-home-migration.mjs). No new eager file [2026-11-15].
+    // 9,664,150 (measured 9,664,103): every reader of where agents live takes it from the one resolver [AGH:REQ-028, owner
+    // 2026-11-15]: its helper and comment (configuration-assets.mjs +173) and one import in each of agents.mjs, clone-strategy.mjs,
+    // initialization-assets.mjs, initialization/runtime-readiness.mjs, initialization/source-snapshot.mjs, skp-contract.mjs and
+    // specifications.mjs; application-paths.mjs drops its own copy (-103). No new eager file.
+    // 9,664,450 (measured 9,664,429): a Story start removes only what the approved configuration's own policy counts as
+    // configuration, so the team's .github/agents on main stays [AGH:REQ-029, upgrade review 2026-11-15]
+    // (configuration-branch.mjs +326). No new eager file.
+    // 9,676,850 (measured 9,676,845): the agents home above (+8,379 in all) merged with main 04a6f2adc and its SPEC-SCF
+    // stage 1 (9,668,466 there) [2026-11-16]. No new eager file.
     // 9,669,200 (measured 9,669,194): a reset's Story checkout reads go through registered Git queries (git-query.mjs
     // repository.remote-contains) and the state marker through the source facade (SDA-AC-001, 2026-11-16). No new eager file.
-    assert.ok(closure.bytes <= 9_669_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,677,600 (measured 9,677,573): the agents home (9,676,845) merged with main 27361670a and its registered Git query for
+    // a reset's Story checkout reads (+728) [2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_677_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -725,7 +742,14 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 866,450 (measured 866,429): the window heartbeat is machine-local upkeep, a third command class (command-registry.mjs
   // OPERATION_CLASSES, cli-entry.mjs) [SPEC-SCF stage 1d, 2026-11-15]. No new eager file. Still holds on the merge with
   // main 4ac5c5c40 (measured 866,439: `workflow assess` is a registered read, +10).
-  assert.ok(root.bytes <= 866_450, `root dispatch loads ${root.bytes} source bytes`);
+  // 867,700 (measured 867,672): SFlow's agents move to singularity/agents [SPEC-AGH, owner 2026-11-14]: the
+  // transport policy reads the layout workflow.yml records, declared where configuration locations are
+  // (configuration-assets.mjs +1,643). The migration itself stays lazy (agents-home-migration.mjs). No new eager file.
+  // 867,850 (measured 867,845): the one resolver of where agents live [AGH:REQ-028, owner 2026-11-15]: agentFileIn and its
+  // comment (configuration-assets.mjs +173). No new eager file.
+  // 868,300 (measured 868,255): the agents home above (+1,816) merged with main 04a6f2adc and its SPEC-SCF stage 1
+  // (866,439 there) [2026-11-16]. No new eager file.
+  assert.ok(root.bytes <= 868_300, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -949,8 +973,26 @@ test('the common session projection does not import attach, state stores or publ
   // No new eager file.
   // 4,262,200 (measured 4,262,175): stage 1 on top of the stable build's 4,260,782, measured on the merge with main
   // 4ac5c5c40 (2026-11-15).
+  // 4,257,800 (measured 4,257,780): the agents home [SPEC-AGH, owner 2026-11-14]: the layout signal read
+  // where configuration loads, and init's layout (config.mjs +1,678), the init mappings for either layout
+  // (initialization-assets.mjs +1,305), the legacy root governed only when no source records a layout
+  // (application-paths.mjs +500), the layout and the transport policy (configuration-assets.mjs +1,643) and moved
+  // agents' package history (packaged-asset-history.mjs +226). The migration, its preview and its lines stay lazy
+  // (agents-home-migration.mjs). No new eager file.
+  // 4,257,850 (measured 4,257,812): the same, merged with main 153e78d1a (+32 there). No new eager file.
+  // 4,258,950 (measured 4,258,907): the agents home above, merged with main 7f0d9b738 and its SPEC-CIC stage 6
+  // (4,253,868 there): +5,039 for the agents home on that base [2026-11-15]. No new eager file.
+  // 4,261,050 (measured 4,261,024): the agents home, merged with main bd90bcc46 and its Decide card routes (4,255,985
+  // there): +5,039 for the agents home on that base [2026-11-15]. No new eager file.
+  // 4,261,350 (measured 4,261,313): the one resolver of where agents live [AGH:REQ-028, owner 2026-11-15]
+  // (configuration-assets.mjs +173, an import in clone-strategy.mjs, initialization-assets.mjs, skp-contract.mjs and
+  // specifications.mjs; application-paths.mjs -103, config.mjs -23). No new eager file.
+  // 4,267,550 (measured 4,267,503): the agents home above (+5,328) merged with main 04a6f2adc and its SPEC-SCF stage 1
+  // (4,262,175 there) [2026-11-16]. No new eager file.
   // 4,262,850 (measured 4,262,833): the registered Git query a reset's Story checkout reads use (SDA-AC-001, 2026-11-16).
-  assert.ok(current.bytes <= 4_262_850, `session current loads ${current.bytes} source bytes`);
+  // 4,268,200 (measured 4,268,161): the agents home (4,267,503) merged with main 27361670a and its registered Git query
+  // (+658) [2026-11-16]. No new eager file.
+  assert.ok(current.bytes <= 4_268_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

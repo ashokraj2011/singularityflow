@@ -324,7 +324,7 @@ test('a real folder is proposed, activated, started with --agent and finished as
     assert.equal(run('git', ['--git-dir', remote, 'show', `${branch}:singularity/user-defined/orchestrator/${file}`]).stdout,
       await readFile(path.join(folder, file), 'utf8'), file);
   }
-  const agentFile = run('git', ['--git-dir', remote, 'show', `${branch}:.github/agents/orchestrator.agent.md`]).stdout;
+  const agentFile = run('git', ['--git-dir', remote, 'show', `${branch}:singularity/agents/orchestrator.agent.md`]).stdout;
   assert.match(agentFile, /sflow-user-defined: orchestrator\n {2}sflow-user-defined-manifest: "sha256:[a-f0-9]{64}"/u);
   // The repository boundary every agent carries, then the main file's own instructions unchanged.
   assert.match(agentFile, /---\n\nResolve the active Story checkout[^\n]*\n\n# Orchestrator\n\n1\. Plan the change in three bullets\./u);

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
@@ -48,7 +49,7 @@ async function fixture(t, { keepConfiguration = false } = {}) {
   git(approved, 'push', '-q', 'origin', CONFIGURATION_BRANCH);
   const sourceCommit = git(approved, 'rev-parse', 'HEAD');
   const mirror = path.join(root, 'mirror'); git(root, 'init', '-q', '-b', 'state', mirror); identity(mirror);
-  for (const folder of ['singularity', '.github']) await cp(path.join(approved, folder), path.join(mirror, folder), { recursive: true });
+  for (const folder of ['singularity', '.github']) if (existsSync(path.join(approved, folder))) await cp(path.join(approved, folder), path.join(mirror, folder), { recursive: true });
   const entries = new Map(git(approved, 'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)',
     'HEAD', '--', 'singularity', '.github/agents').split('\0').filter(Boolean).map((line) => {
     const first = line.indexOf(' '); const second = line.indexOf(' ', first + 1);
@@ -218,7 +219,7 @@ test('fresh approved reads suspend counterfeit overlays, select actual canonical
       workflow: await readFile(path.join(configurationReadRoot(value.checkout), 'singularity/workflow.yml')),
       skill: await readFile(path.join(configurationReadRoot(value.checkout), `${skillRoot}/SKILL.md`)),
       snapshot: configurationReadSnapshot(value.checkout),
-      agentPathsAllowed: isConfigurationReadPath('.github/agents/fixture.agent.md')
+      agentPathsAllowed: isConfigurationReadPath('singularity/agents/fixture.agent.md')
     }), {
       freshOwnerCapture: true,
       // The owner option forces genuinely fresh canonical admission, not these caller fallbacks.

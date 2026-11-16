@@ -22,7 +22,7 @@ process.env.NODE_ENV = 'test';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
-const QA = '.github/agents/qa.agent.md';
+const QA = 'singularity/agents/qa.agent.md';
 const SHIPPED_QA_STEPS = 'reproduction,verify,verification,testing,test-run,visual-verification,conformance,release';
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 

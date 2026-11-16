@@ -6,6 +6,7 @@
  */
 import { escape } from './webview.ts';
 import { APM_STATE_WORDS, type ApmBinding, type ApmPackage, type ApmView } from './apm-packages-model.ts';
+import { LEGACY_AGENTS_ROOT } from '../../../../src/configuration-assets.mjs';
 
 function button(action: string, label: string, secondary = true, agent: string | null = null): string {
   return `<button type="button"${secondary ? ' class="secondary"' : ''} data-apm="${escape(action)}"${agent ? ` data-agent="${escape(agent)}"` : ''}>${escape(label)}</button>`;
@@ -57,7 +58,7 @@ export function apmPackagesHtml(view: ApmView | null, error: string | null): str
     `<li>${escape(entry.message)}${entry.owner ? ` <span class="meta">(from ${escape(entry.owner)})</span>` : ''}</li>`).join('')}</ul>
       ${view.findings.length > 20 ? `<p class="meta">…and ${view.findings.length - 20} more (singularity-flow apm status --json).</p>` : ''}</section>` : '';
   const own = view.ownAgents.length ? `<section><h2>Share this repository's agents</h2>
-      <p class="meta">${view.ownAgents.length} agent${view.ownAgents.length === 1 ? ' in .github/agents is' : 's in .github/agents are'} this repository's own, not from APM: ${escape(view.ownAgents.slice(0, 8).join(', '))}${view.ownAgents.length > 8 ? ` and ${view.ownAgents.length - 8} more` : ''}.</p>
+      <p class="meta">${view.ownAgents.length} agent${view.ownAgents.length === 1 ? '' : 's'} in ${LEGACY_AGENTS_ROOT} ${view.ownAgents.length === 1 ? 'is' : 'are'} this repository's own, not from APM: ${escape(view.ownAgents.slice(0, 8).join(', '))}${view.ownAgents.length > 8 ? ` and ${view.ownAgents.length - 8} more` : ''}.</p>
       <p class="meta">Sharing publishes the ones you choose as one package in your organisation's APM marketplace: previewed, then committed on a branch in the marketplace's checkout for a pull request. Nothing is pushed.</p>
       <div class="apm-actions">${button('share', 'Share agents to a marketplace…')}</div></section>` : '';
   const next = view.nextActions.length ? `<section><h2>Next</h2><ul>${view.nextActions.map((action) =>

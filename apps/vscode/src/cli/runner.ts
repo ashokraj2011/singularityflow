@@ -22,6 +22,7 @@ import { recordHostCliProcessCompleted, recordHostCliProcessStarted } from '../h
 import { commandGuidance, modelFreeRouteText } from '../copilot-command.ts';
 import { formatCommandRouteLines } from '../../../../src/model-free-commands.mjs';
 import { ProgressLineSplitter } from './progress.ts';
+import { LEGACY_AGENTS_ROOT } from '../../../../src/configuration-assets.mjs';
 
 /** Lifecycle snapshots include branch cataloguing and deterministic governance checks. */
 export const CLI_TIMEOUT_MS = 120_000;
@@ -1502,7 +1503,7 @@ async function localAuthorityAvailable(
       if (assetPaths.some((relative) => {
         const parts = relative.split('/');
         return parts.length > 32 || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
-          || !(relative.startsWith('singularity/') || relative.startsWith('.github/agents/'))
+          || !(relative.startsWith('singularity/') || relative.startsWith(`${LEGACY_AGENTS_ROOT}/`))
           || !/^[0-9a-f]{64}$/.test(files[relative] ?? '');
       })) continue;
       candidates.push({ ref, manifest, root: rootObject });

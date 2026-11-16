@@ -316,7 +316,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   'sflow-code': {
     required: [
       /singularity-flow phase begin <phase> --json/,
-      /Consumed intent requires `\/sf-recover`/,
+      // A published code step follows its entry's `act`, never /sf-recover, which repairs damage only [OSA Stage 1, C6].
+      /Consumed intent: follow the entry's `act`/,
       /Untracked `\.sflow\/results\/\*\*` need no cleaning/,
       /proven runtime repair permits retry without source changes/i,
       /Nonzero exit fails despite passing JUnit/,

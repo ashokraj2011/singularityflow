@@ -256,10 +256,14 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   // A step's next generation is opened by its own author, who asks the person (/sf-code; a document step's
   // drafting skill, safe-command-guidance.mjs). /sf-recover runs it only from its recovery plan, for changed
   // published bytes: given an unchanged step's rollover it found nothing and ran nothing (owner, 2026-11-16).
+  // A step's own commands (`prepare`, `phase begin`, `phase enter`) are its work command's: a producer that knows the step
+  // names generationSkillForPhase, which safeCommandGuidance accepts for them; /sf-phase is only a document step's default.
+  // `phase begin` opens a code version, so it is a code step's always (C4: it was sent to /sf-phase) [OSA:REQ-021].
   phase: route('sf-phase', {
     show: 'sf-phase-documents',
     publish: 'sf-publish',
-    rollover: 'sf-code'
+    rollover: 'sf-code',
+    begin: 'sf-code'
   }),
   prepare: route('sf-phase'),
   workflow: route('sf-workflows', {

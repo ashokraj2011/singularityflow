@@ -20,7 +20,7 @@ import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseNeedsGeneration, storyNextDetails } from './sequence.mjs';
 import { successorGenerationOpen } from './phase-generation-need.mjs';
-import { phaseRequiresCodeDelivery as phaseNeedsCode } from './code-delivery-policy.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { documentMimeType, effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding, sourceReviewScenarioIds } from './source-grounded-review.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
@@ -69,9 +69,11 @@ function checkPublishedGeneration(workflow, phaseId) {
   const phase = workflow.phases?.[phaseId];
   if (phase && successorGenerationOpen(phase)) {
     const version = phase.generationIntent.generation;
+    // Writing it is its own work command's, never a skill named from the command text [OSA:REQ-021, C4].
     throw new SingularityFlowError(`Version ${version} of ${phaseId} is being written; review it after it is published.`, {
       code: 'SOURCE_REVIEW_SUCCESSOR_OPEN',
-      details: { nextAction: `singularity-flow prepare ${phaseId}`, phase: phaseId, version }
+      details: { nextAction: { command: `singularity-flow prepare ${phaseId}`, skill: generationSkillForPhase(phase, workflow),
+        label: `Write version ${version} of ${phaseId}, then publish it` }, phase: phaseId, version }
     });
   }
   if (!phase || !['in_progress', 'awaiting_approval', 'approved'].includes(phase.status)
@@ -819,15 +821,14 @@ async function loadSourceReviewStatus(root, config, workflow, phaseId) {
       continuation: sourceReviewContinuation(workflow, step) };
   }
   if (step && successorGenerationOpen(step)) {
-    // The next version is open: writing it comes first; the published version's review is already carried into it.
+    // The next version is open: writing it comes first, by the step's own work command; the published version's review
+    // is already carried into it (source-review-continuation.mjs) [OSA:REQ-021].
     const version = step.generationIntent.generation;
-    const skill = phaseNeedsCode(step) ? '/sf-code' : '/sf-phase';
     return { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, // schema-transient
       phase: phaseId, generation: step.generation, status: 'successor-publication-required',
       reportPath: null, reportSha256: null, binding: null, pendingDispositions: [],
       findings: [{ code: 'source-review-successor-unpublished', message: `Version ${version} is being written; review it after it is published.` }],
-      continuation: { actions: [{ reason: `Write version ${version} of ${phaseId}, then publish it.`, skill,
-        command: `singularity-flow prepare ${phaseId}`, copilotCommand: skill, modelFreeCommand: null }] } };
+      continuation: sourceReviewContinuation(workflow, step) };
   }
   const phase = checkPublishedGeneration(workflow, phaseId);
   if (workflow.currentPhase === phaseId && phase.status === 'in_progress'

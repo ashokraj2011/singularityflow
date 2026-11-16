@@ -1,5 +1,6 @@
 import { isConvergencePhase } from './phase-roles.mjs';
-import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
+import { workflowGuide } from './guide.mjs';
+import { stepBeingWritten } from './phase-generation-need.mjs';
 import { phasePublicationCommandForMode } from './sequence.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
@@ -293,7 +294,8 @@ function plannedNextSteps(workflow, {
   // applicability decisions before the submit they unblock, not after a refused one.
   const endsHere = phase.status === 'in_progress'
     && ((workflow.phaseOrder ?? []).at(-1) === phase.id || upcomingDecision(workflow, phase)?.outcome?.kind === 'end');
-  const submitsTheEnd = endsHere && !phaseNeedsGeneration(workflow, phase);
+  // Not while its version is being written, version 1 or an open next one: writing it is "now" [OSA:REQ-020, C18].
+  const submitsTheEnd = endsHere && !stepBeingWritten(workflow, phase);
   const undecided = phase.status === 'awaiting_approval' || submitsTheEnd ? applicabilityActions(workflow, phase) : [];
   // Before the last step is published the same decisions are named, after its authoring: the
   // person who records them is rarely its author, and submission would otherwise be the first to say.
@@ -359,7 +361,8 @@ function plannedNextSteps(workflow, {
       ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))];
   }
 
-  const needsGeneration = phaseNeedsGeneration(workflow, phase)
+  // The step being written (an open next version too): its publication, review and submission follow, in that order.
+  const needsGeneration = stepBeingWritten(workflow, phase)
     || (sourceReviewEvidence && sourceReviewContinuation(workflow, phase, sourceReviewEvidence).classification === 'successor-publication-required');
   const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
   const effectiveProducer = effectivePhasePublicationProducer(phase, { modelEnabled: modelMode.enabled });
@@ -428,7 +431,10 @@ function plannedNextSteps(workflow, {
   if (needsGeneration && !preparesThisPhase && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== nextPhaseGeneration(phase)) {
     // Opening a code generation does not need them first, and the step's own skill composes them at its entry: after
     // the step's own route they are its next stage, not a step before it (owner, 2026-11-11).
-    const own = actions.findIndex((entry) => entry.timing === 'now' && entry.authoringStage);
+    // The step's own route is also its next version's start (`phase rollover`, asked by its work command): with that
+    // first, the inputs read led next steps while the agent was routed to the rollover [OSA:REQ-020, journey B].
+    const own = actions.findIndex((entry) => entry.timing === 'now'
+      && (entry.authoringStage || entry.command?.startsWith(`singularity-flow phase rollover ${phase.id}`)));
     const inputs = action(own < 0 ? 'now' : 'then', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.');
     if (own < 0) actions.unshift(inputs);
     else actions.splice(own + 1, 0, inputs);

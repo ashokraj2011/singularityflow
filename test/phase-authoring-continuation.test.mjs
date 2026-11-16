@@ -113,18 +113,17 @@ test('code and sign-off phases never receive implicit document successor prepara
   }
 });
 
-test('a code step returned for rework is prepared again, other code successors keep guarded rollover, ready reviews keep decision inputs', () => {
+test('a code step returned for rework is written again, other code successors keep guarded rollover, ready reviews keep decision inputs', () => {
   const workflow = story('custom-code'), phase = workflow.phases['custom-code'];
   phase.generationPolicy.task = 'code';
   phase.generationIntent = { status: 'consumed', generation: 1 };
   phase.reworkRevalidation = { generation: 1, invalidatedAt: 'now' };
   const before = JSON.stringify(workflow);
-  // Rework can leave the published bytes unchanged and rollover needs changed bytes; prepare accepts a reopened step.
-  assert.equal(sourceReviewContinuation(workflow, phase).nextCommand, 'singularity-flow prepare custom-code');
-  const entry = phaseAuthoringEntry(workflow, phase);
-  assert.equal(entry.status, 'attention-required');
-  assert.equal(entry.reason, 'code-rework-preparation-required');
-  assert.equal(entry.actions[0].command, 'singularity-flow prepare custom-code');
+  // Rework can leave the published bytes unchanged and rollover needs changed bytes: its next version opens with
+  // `phase begin`, the one command its entry, edit permission and task name too [OSA:REQ-010, C13].
+  assert.equal(sourceReviewContinuation(workflow, phase).nextCommand, 'singularity-flow phase begin custom-code --json');
+  // Its own entry writes it: the edit permission grants its files, and its task opens the next version [OSA:REQ-010, C13].
+  assert.equal(phaseAuthoringEntry(workflow, phase).status, 'authoring-entry');
   assert.equal(JSON.stringify(workflow), before);
   delete phase.reworkRevalidation;
   const corrected = sourceReviewContinuation(workflow, phase, { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] });

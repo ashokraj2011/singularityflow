@@ -210,6 +210,19 @@ function optionValueRaw(argv, name) {
   return index >= 0 ? String(argv[index + 1] ?? '').trim() : '';
 }
 
+/**
+ * A refusal whose own first route writes the step, by its work command (`prepare`, `phase begin`, `phase enter` or
+ * `phase rollover` of that step), or that says the step is being written: nothing is damaged, and that route is the way
+ * on. Recover and `phase show` are not added beside it. Skills take a refusal's first read-only step, so with them added
+ * an agent went to recover or the documents view instead of writing the step, and round again [OSA:REQ-022, C3].
+ */
+function routesToWritingTheStep(error, phaseId) {
+  if (error?.details?.stepBeingWritten === true) return true;
+  const argv = explicitCommands(error)[0]?.argv ?? [];
+  return (argv[0] === 'prepare' && argv[1] === phaseId)
+    || (argv[0] === 'phase' && ['begin', 'enter', 'rollover'].includes(argv[1]) && argv[2] === phaseId);
+}
+
 function phaseContainmentSteps(context) {
   if (!context) return [];
   // If inspection itself failed, sending the reader to the identical recover command is a loop,
@@ -2090,7 +2103,13 @@ function remediationPlanFor(error, argv = []) {
   // Refused for where the Story stands, with the Story's own next action (sequence.mjs storyNextDetails): that
   // leads, then the planner's whole list. Command help and a phase repair answer other refusals [owner, 2026-11-16].
   const storyNext = error?.details?.storyNext === true ? safeCommandGuidance(error.details.nextAction ?? {}) : null;
-  const rawPhaseContext = storyNext ? null : phaseRemediationContext(argv, error);
+  const stepContext = storyNext ? null : phaseRemediationContext(argv, error);
+  // Refusals with routes of their own kind (tests, identity, upstream inputs, decisions, holds) keep their own order.
+  const ownKind = pinnedTestPolicyBlocked || identityBlocked || upstreamInputBlocked || scopeDispositionBlocked || conformanceGapBlocked
+    || amendmentPending || requiredTestBlocked || qualityFindingsBlocked || qualityFindingsHeld || skillHostBlocked || repositoryRunnerBlocked
+    || riskReviewBlocked || worktreeHeld || softGateBlocked || selfGuidedBlocked || historyRewritten || approvalTerminalBlocked;
+  const writingStep = Boolean(stepContext) && !ownKind && routesToWritingTheStep(error, stepContext.phaseId);
+  const rawPhaseContext = writingStep ? null : stepContext;
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
       retryCommand: null, retrySkill: null })
@@ -2148,7 +2167,7 @@ function remediationPlanFor(error, argv = []) {
   const storyWorkId = safeWorkId(error?.details?.workId);
   // An Epic's own list is `initiative next` (initiative-next.mjs initiativeNextDetails); a Story's is nextsteps.
   const epic = error?.details?.subjectKind === 'initiative';
-  const ordered = storyNext ? [...nonDuplicateExplicit, ...known, step('recommended-next', `Every action this ${epic ? 'Epic' : 'Story'} can take now, in order.`,
+  const ordered = storyNext || writingStep ? [...nonDuplicateExplicit, ...known, step('recommended-next', `Every action this ${epic ? 'Epic' : 'Story'} can take now, in order.`,
     `singularity-flow ${epic ? 'initiative next' : 'nextsteps'}${storyWorkId ? ` ${storyWorkId}` : ''} --json`)]
     : conformanceGapBlocked ? gapSteps
     : scopeDispositionBlocked ? scopeSteps

@@ -14,7 +14,7 @@
   "count-without-name": 30,
   "draft-for-version": 15,
   "generic-route": 6372,
-  "jargon": 1407,
+  "jargon": 1404,
   "length": 701
  },
  "unroutedCodes": [
@@ -3950,9 +3950,6 @@
    "9e19e4670330": "jargon:generation length",
    "e3396ae086e3": "jargon:generation length"
   },
-  "src/phase-authoring-entry.mjs": {
-   "b240f4c69abf": "jargon:generation"
-  },
   "src/phase-entry-authoring.mjs": {
    "737e8a9a2301": "length",
    "cba811bd4b54": "jargon:deterministic length"
@@ -3977,7 +3974,6 @@
    "3f32bd3dce91": "jargon:retained",
    "6572d5112aa7": "jargon:generation",
    "a253cc79f31c": "jargon:binding",
-   "ba52ebaaa1a3": "jargon:successor",
    "cc3571cb84f3": "jargon:kernel",
    "d9c2a7b36623": "jargon:packet jargon:staging"
   },
@@ -4454,7 +4450,6 @@
    "992e17253f73": "jargon:generation length",
    "99e10fedaaac": "5× jargon:retained",
    "9b8311bb9fa4": "3× jargon:staging",
-   "9f23707f185c": "jargon:generation",
    "a94696da4a19": "length",
    "aab9570ae140": "length",
    "ae9794afb2c0": "jargon:binding",

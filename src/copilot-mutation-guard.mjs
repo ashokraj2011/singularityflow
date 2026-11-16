@@ -2818,7 +2818,8 @@ export async function recordPhaseTaskAnswers(root, { workId, phaseId, generation
     const record = await turn({ sessionId: value.sessionId });
     if (!record || record.turnId !== value.turnId || turnExpired(record) || value.decisionEnded) continue;
     value.taskOperation = { ...operation, continued: false, ...(completed
-      ? { state: 'refresh-entry', blocked: false, nextAction: safeCommandGuidance({ argv: ['phase', 'enter', phaseId, '--work-id', workId, '--compose', '--for-agent', '--json'] }) }
+      ? { state: 'refresh-entry', blocked: false, nextAction: (value.contract.authoringSkill ? safeCommandGuidance({ argv: ['phase', 'enter', phaseId, '--work-id', workId, '--compose', '--for-agent', '--json'],
+        skill: value.contract.authoringSkill }) : null) ?? safeCommandGuidance({ argv: ['phase', 'enter', phaseId, '--work-id', workId, '--compose', '--for-agent', '--json'] }) }
       : { state: 'blocked', blocked: true }) };
     await atomicRecord(file, value);
   }

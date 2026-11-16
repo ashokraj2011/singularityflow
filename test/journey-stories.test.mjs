@@ -6,7 +6,13 @@
  *   A  a spec-driven Story from its start to its release, every step reviewed;
  *   B  a code review asks for corrections: version 2 through the routes, the fix published, re-reviewed, submitted, approved;
  *   D  a required test fails for an environment reason (the wrong Node): the decisions card, the pin, the re-publish;
- *   E  a person answers after the 30-minute turn window: the turn renews.
+ *   E  a person answers after the 30-minute turn window: the turn renews;
+ *   F  a code step returned for rework is written again, republished, its review asks corrections, the person is asked
+ *      "Start version 3?", and it goes on to its submission [OSA:AC-013];
+ *   G  version 2 open on a step with no review: submit refuses with the route to write it, which is then followed
+ *      [OSA:REQ-032, AC-013].
+ *
+ * Every walk writes through the real edit guard and reads the person's views at each hand-off (route-follower.mjs).
  *
  * A check that fails on main until its fix branch lands is reported as todo with that branch (KNOWN_BAD in
  * test/helpers/journey-scripts.mjs) and counts once the branch lands.
@@ -16,8 +22,8 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { check, clarifications, cooperativePerson, decideCard, quickFixIntake, report, reviewer, scopeAnswers, settle, specDrivenAuthor, writeValueCode } from './helpers/journey-scripts.mjs';
-import { copilotTurn, entryCommand, followRoutes, formatTrail, journeyRepository, publishedGeneration, returnedRoute, skillEntries, startStory, storyRecord } from './helpers/route-follower.mjs';
+import { check, clarifications, cooperativePerson, decideCard, quickFixIntake, report, reviewer, scopeAnswers, settle, specDrivenAuthor, viewsAgree, writeValueCode } from './helpers/journey-scripts.mjs';
+import { argvOf, copilotTurn, entryCommand, followRoutes, formatTrail, journeyRepository, publishedGeneration, returnedRoute, skillEntries, startStory, storyRecord } from './helpers/route-follower.mjs';
 import { reviewStep } from './helpers/step-review.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -78,6 +84,12 @@ test('journey A: a spec-driven Story from its start to its release, every step w
       assert.ok(reviewed.has(phase), `${phase} was not reviewed: ${[...reviewed]}\n${report(walk)}`);
       assert.ok(publishedGeneration(record, phase) >= 1, phase);
     }
+  });
+  // The kernel-built step's publication handed to /sf-publish is the one disagreement this stage leaves, checked apart.
+  const kernelPublish = (view) => view.agent === '/sf-publish';
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the kernel-built step\'s publication aside', {}, () => viewsAgree(walk, kernelPublish));
+  await check(t, 'the person\'s views name the skill a kernel-built step\'s publication is handed to', { knownBad: 'osa-stage-3-c9' }, () => {
+    assert.deepEqual(walk.views.filter(kernelPublish), []);
   });
   settle(t);
 });
@@ -185,6 +197,14 @@ test('journey B: a code review asks for corrections, and version 2 is opened, fi
   });
   assert.equal(third.reached, true, `the Story never reached its end, even with the detour\n${report(third)}`);
   assert.ok(approved(storyRecord(story), 'verify'), JSON.stringify(storyRecord(story).phases.verify?.status));
+  // Verify, built by the kernel, has its publication handed to /sf-publish: the one disagreement this stage leaves (as in A).
+  const kernelPublish = (view) => view.agent === '/sf-publish';
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the kernel-built step\'s publication aside', {}, () => {
+    for (const walk of [first, second, third]) viewsAgree(walk, kernelPublish);
+  });
+  await check(t, 'the person\'s views name the skill a kernel-built step\'s publication is handed to', { knownBad: 'osa-stage-3-c9' }, () => {
+    assert.deepEqual([first, second, third].flatMap((walk) => walk.views.filter(kernelPublish)), []);
+  });
   settle(t);
 });
 
@@ -238,6 +258,12 @@ test('journey D: a required test fails on the wrong Node, and the decisions card
   await check(t, 'the step re-publishes on the pinned Node by its routes: no loop, no stall, no dead end', {}, () => {
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings, [], report(walk));
+  });
+  // The failed test's route to the decisions card is the one disagreement this stage leaves, checked apart.
+  const toCard = (view) => view.agent === '/sf-decide';
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the failed test\'s card aside', {}, () => viewsAgree(walk, toCard));
+  await check(t, 'the person\'s views name the decisions card the failed test routes to', { knownBad: 'osa-stage-3-refusal' }, () => {
+    assert.deepEqual(walk.views.filter(toCard), []);
   });
   settle(t);
 });
@@ -293,6 +319,156 @@ test('journey E: the person answers the card after the 30-minute turn window, an
   await check(t, 'the person\'s answer to the turn\'s question renews it too', {}, () => {
     const after = asked.tool('edit', edit);
     assert.notEqual(after.permissionDecision, 'deny', JSON.stringify(after));
+  });
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- F
+
+/** A JSON result from a command's output: its first object, as an agent reads it. */
+const json = (output) => { const text = String(output ?? ''); const start = text.indexOf('{'); return start < 0 ? null : JSON.parse(text.slice(start)); };
+
+/** The reviewer's blocking finding on the code of `generation`: the clause comment must say why the value is 2. */
+const explainTheValue = (W, generation) => (phase, packet) => (packet.kind === 'code' && packet.generation === generation ? [(() => {
+  const code = packet.sources.find((source) => source.path === 'src/value.mjs');
+  const line = code.text.split('\n').findIndex((text) => text.includes(`@clause:${W}:AC-001`)) + 1;
+  return { id: 'explain-the-value', severity: 'blocking', check: 'plan', clauseId: `${W}:AC-001`,
+    message: 'The clause comment must say why the value is 2, as the plan row says.', sourceId: code.id, line, quote: `// @clause:${W}:AC-001` };
+})()] : []);
+
+/** The code each version of the value step is written with: its clause comment names the version it was written for. */
+const versionedAuthor = (W) => async ({ story: s, phase, generation }) => {
+  if (phase !== 'implement') return false;
+  const open = storyRecord(s)?.phases?.implement?.generationIntent;
+  const version = open?.status === 'open' ? Number(open.generation) : generation + 1;
+  await writeValueCode(s, { value: 2, clauses: [`${W}:AC-001`], note: version >= 3 ? 'returns 2, the value the intake approves for every caller'
+    : `returns the approved value (version ${version})` });
+  return true;
+};
+
+// C8 and C13 (2026-11-16 review): a code step returned for rework said "next: prepare" while its edit permission and task
+// said `phase begin`; republished, a review asking corrections was not asked about as "Start version N?".
+test('journey F: a code step returned for rework is written again, its review asks corrections, the person is asked "Start version 3?", and it goes on', slowLane({ timeout: 1_800_000 }), async (t) => {
+  const W = 'JRN-F';
+  // The code step has an approver here, who returns it for rework.
+  const story = await quickFixAtCode(t, W, { configure: (configuration) => {
+    configuration.workTypes['quick-fix'].phaseOverrides.implement = { ...(configuration.workTypes['quick-fix'].phaseOverrides.implement ?? {}),
+      approval: { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['implement'] } };
+  } });
+  const agent = { author: versionedAuthor(W), review: reviewer({ findings: explainTheValue(W, 2) }) };
+  // Version 1: written, reviewed ready and submitted by the routes; the approver then returns it.
+  const first = await followRoutes(story, { label: 'journey F, version 1', start: { copilot: '/sf-code' }, agent, person: cooperativePerson(() => null),
+    done: ({ record }) => record?.phases?.implement?.status === 'awaiting_approval', maxSteps: 24 });
+  t.diagnostic(formatTrail(first.trail));
+  assert.equal(first.reached, true, report(first));
+  const rejected = story.raw(['reject', 'implement', '--work-id', W, '--to', 'implement', '--reason', 'Say in the code why the value is 2.', '--yes', '--json']);
+  assert.equal(rejected.status, 0, rejected.stdout.slice(-2000) + rejected.stderr.slice(-2000));
+  assert.ok(storyRecord(story).phases.implement.reworkRevalidation, 'the code step was returned for rework');
+
+  // The rework: written again, republished as version 2, and its review asks corrections.
+  const corrections = ({ trail }) => trail.some((entry) => /reviewer wrote.*correction-required/u.test(entry.did ?? ''));
+  const rework = await followRoutes(story, { label: 'journey F, the rework', start: { copilot: '/sf-code' }, agent, person: cooperativePerson(),
+    done: corrections, maxSteps: 20 });
+  t.diagnostic(formatTrail(rework.trail));
+  await check(t, 'the returned code step is written in its own entry: its permission\'s next opens version 2, then act author, one command', {}, () => {
+    assert.equal(rework.reached, true, report(rework));
+    assert.deepEqual(rework.findings, [], report(rework));
+    // The quick fix's code step is built by the kernel from its code: nothing is granted until its version is open, so
+    // the entry's act is the permission's next (`phase begin`), never "prepare" relayed to the same skill [C13].
+    const entries = rework.trail.filter((item) => /^singularity-flow phase enter\b/u.test(item.ran ?? ''));
+    const begin = rework.trail.findIndex((item) => /^singularity-flow phase begin implement\b/u.test(item.ran ?? ''));
+    assert.ok(begin > 0 && rework.trail.slice(0, begin).every((item) => !/^singularity-flow prepare\b/u.test(item.ran ?? '')), report(rework));
+    assert.deepEqual(entries.map((item) => item.act), ['next', 'author'], report(rework));
+    assert.equal(storyRecord(story).phases.implement.generation, 2);
+  });
+  await check(t, 'after the rewrite\'s review asks corrections, the person is asked "Start version 3?" before it opens', { knownBad: 'osa-stage-2' }, () => {
+    const entry = json(story.raw(['phase', 'enter', '--compose', '--for-agent', '--json']).stdout);
+    assert.equal(entry?.act?.state, 'confirm', JSON.stringify(entry?.act ?? entry).slice(0, 1500));
+    assert.match(String(entry.act.ask?.question ?? ''), /^Start version 3\b/u);
+    assert.equal(storyRecord(story).phases.implement.generationIntent?.status, 'consumed', 'version 3 is not open before the person says yes');
+  });
+
+  // Onward: the person says yes, version 3 is written, reviewed ready and submitted. Until the ask (stage 2), the route
+  // after the review opens version 3 with `phase begin` and nobody is asked.
+  const onward = await followRoutes(story, { label: 'journey F, version 3', start: rework.next ?? { copilot: '/sf-code' }, agent, person: cooperativePerson(),
+    done: ({ record }) => record?.phases?.implement?.status === 'awaiting_approval' && Number(record.phases.implement.generation) === 3, maxSteps: 24 });
+  t.diagnostic(formatTrail(onward.trail));
+  await check(t, 'version 3 is opened on the person\'s yes, written, reviewed ready and submitted by its routes', { knownBad: 'osa-stage-2' }, () => {
+    assert.equal(onward.reached, true, report(onward));
+    assert.deepEqual(onward.findings, [], report(onward));
+    // The person's yes comes first: the walk asked "Start version 3?" before the version opened.
+    assert.ok(onward.trail.some((entry) => entry.act === 'confirm' && /:consumed2\]?$/u.test(entry.state ?? '')), report(onward));
+    assert.ok(onward.trail.some((entry) => /reviewer wrote.*ready/u.test(entry.did ?? '')), report(onward));
+  });
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => {
+    for (const walk of [first, rework, onward]) viewsAgree(walk);
+  });
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- G
+
+// C2 (2026-11-16 review): with version 2 of a step open, readiness said "ready to submit", and nothing said whether
+// submit would send version 1 instead [OSA:REQ-032].
+test('journey G: version 2 open on a step with no review: submit refuses with the route to write it, and the routes then write and submit it', slowLane({ timeout: 1_200_000 }), async (t) => {
+  const W = 'JRN-G';
+  const story = await quickFixAtCode(t, W, { configure: (configuration) => {
+    configuration.workTypes['quick-fix'].sourceReview = { skip: ['implement'] };
+  } });
+  const agent = { author: versionedAuthor(W), review: reviewer() };
+  // At the validation offer a code step's publication makes when no review is owed, the person chooses "Continue workflow".
+  const person = cooperativePerson(({ act }) => (/^What would you like to validate\b/u.test(act?.ask?.question ?? '')
+    ? { route: { shell: `singularity-flow nextsteps ${W} --json` } } : null));
+  const first = await followRoutes(story, { label: 'journey G, version 1', start: { copilot: '/sf-code' }, agent, person,
+    done: ({ record }) => publishedGeneration(record, 'implement') >= 1, maxSteps: 16 });
+  t.diagnostic(formatTrail(first.trail));
+  assert.equal(first.reached, true, report(first));
+  // The person asks for a change and confirms version 2.
+  const preview = json(story.raw(['phase', 'rollover', 'implement', '--reason', 'Say in the code why the value is 2', '--json']).stdout);
+  assert.match(String(preview?.command ?? ''), /--confirm /u, JSON.stringify(preview).slice(0, 1500));
+  const opened = story.raw([...argvOf(preview.command), '--json']);
+  assert.equal(opened.status, 0, opened.stdout.slice(-2000) + opened.stderr.slice(-2000));
+  assert.equal(storyRecord(story).phases.implement.generationIntent?.status, 'open');
+
+  await check(t, 'submit refuses while version 2 is being written, and its first route is writing it, with no recover or phase show', {}, () => {
+    const refused = story.raw(['submit', 'implement', '--work-id', W, '--json']);
+    assert.notEqual(refused.status, 0, refused.stdout.slice(-2000));
+    const result = json(refused.stdout);
+    assert.equal(result?.error?.code, 'PHASE_VERSION_BEING_WRITTEN', JSON.stringify(result).slice(0, 2000));
+    const [first] = result.remediationPlan.steps;
+    assert.equal(first.command, 'singularity-flow prepare implement');
+    assert.equal(first.copilotCommand?.split(' ')[0], '/sf-code');
+    assert.doesNotMatch(JSON.stringify(result.remediationPlan.steps), /singularity-flow recover\b|phase show\b/u);
+    const record = storyRecord(story);
+    assert.equal(record.phases.implement.status, 'in_progress');
+    assert.equal(record.phases.implement.generation, 1);
+  });
+  await check(t, 'submission readiness says to write version 2, never "ready to submit", and /sf-submit\'s entry submits nothing', {}, () => {
+    const readiness = json(story.raw(['status', W, '--submission-readiness', '--json']).stdout);
+    assert.equal(readiness.classification, 'generation-required', JSON.stringify(readiness).slice(0, 1500));
+    assert.equal(readiness.nextSkill, '/sf-code');
+    assert.equal(readiness.nextCommand, 'singularity-flow prepare implement');
+    const entry = entryCommand(skillEntries(), '/sf-submit', { workId: W, phases: storyRecord(story).phaseOrder, currentPhase: 'implement' });
+    story.raw(argvOf(entry));
+    assert.equal(storyRecord(story).currentPhase, 'implement');
+    assert.equal(storyRecord(story).phases.implement.generation, 1);
+  });
+  // The person takes the refusal's route: /sf-code writes version 2, publishes it and submits it.
+  const second = await followRoutes(story, { label: 'journey G, version 2', start: { copilot: '/sf-code implement' }, agent, person,
+    done: ({ record }) => record?.currentPhase !== 'implement', maxSteps: 16 });
+  t.diagnostic(formatTrail(second.trail));
+  await check(t, 'version 2 is written, published and submitted by its routes', {}, () => {
+    assert.equal(second.reached, true, report(second));
+    assert.deepEqual(second.findings, [], report(second));
+    assert.equal(storyRecord(story).phases.implement.generation, 2);
+  });
+  // The validation offer after a publication with no review owed is the one disagreement this stage leaves, checked apart.
+  const offer = (view) => view.agent === '/sf-outcome';
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the validation offer aside', {}, () => {
+    for (const walk of [first, second]) viewsAgree(walk, offer);
+  });
+  await check(t, 'the person\'s views name the validation offer when the agent is routed to it', { knownBad: 'osa-stage-3' }, () => {
+    assert.deepEqual([first, second].flatMap((walk) => walk.views.filter(offer)), []);
   });
   settle(t);
 });

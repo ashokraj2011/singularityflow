@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { COMMAND_LINE_SKILL_ROUTES, COMMAND_SKILLS } from '../src/command-skills.mjs';
-import { check, cooperativePerson, quickFixIntake, report, reviewer, scopeAnswers, settle, specDrivenAuthor } from './helpers/journey-scripts.mjs';
+import { check, cooperativePerson, quickFixIntake, report, reviewer, scopeAnswers, settle, specDrivenAuthor, viewsAgree } from './helpers/journey-scripts.mjs';
 import { argvOf, entryCommand, followRoutes, formatTrail, journeyRepository, publishedGeneration, skillEntries, startStory } from './helpers/route-follower.mjs';
 import { reviewStep } from './helpers/step-review.mjs';
 import { specification } from './helpers/submitted-planning-story.mjs';
@@ -90,6 +90,10 @@ test('journey C: a document step reviewed before it is written is routed to writ
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings.filter((entry) => entry.step !== 1), [], report(walk));
   });
+  await check(t, 'the step is written through the edit guard, and the person\'s views name the agent\'s skill at every hand-off', {}, () => {
+    assert.ok(walk.trail.some((entry) => /through the guard/u.test(entry.did ?? '')), report(walk));
+    viewsAgree(walk);
+  });
   settle(t);
 });
 
@@ -116,5 +120,6 @@ test('journey start: a quick fix is started, its intake written, reviewed, submi
     const submitted = walk.trail.findIndex((entry) => /--submit-if-ready|\bsubmit intake\b/u.test(entry.ran ?? ''));
     assert.ok(reviewed >= 0 && submitted > reviewed, report(walk));
   });
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
   settle(t);
 });

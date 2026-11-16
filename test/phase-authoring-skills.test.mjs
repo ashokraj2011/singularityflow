@@ -16,7 +16,8 @@ test('code author opens the exact generation before composition and verifies per
   assert.match(code, /kernel-only `\/sf-next` cannot author/);
   assert.match(code, /adoption\/confirmation before edits\/composition; never auto-adopt/);
   assert.match(code, /Successful begin: refresh entry once/);
-  assert.match(code, /Consumed intent requires `\/sf-recover`/);
+  assert.match(code, /Consumed intent: follow the entry's `act`/);
+  assert.doesNotMatch(code, /Consumed intent requires `\/sf-recover`/, 'a published code step is never sent to /sf-recover [OSA, C6]');
   assert.match(code, /record before code mutation; refresh entry once/i);
   assert.match(code, /Remove staging only on success/);
   assert.match(code, /Stage JSON, never governed records/);

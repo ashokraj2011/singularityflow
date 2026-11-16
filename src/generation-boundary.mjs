@@ -2,7 +2,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import {
   buildRepositoryChangeSet, changeSetPaths, evaluateProtectedPaths, evaluateSourceBoundary
 } from './repository-change-set.mjs';
@@ -274,7 +274,9 @@ export function requireOpenGenerationIntent(workflow, phase) {
   if (!intent || intent.status !== 'open' || Number(intent.generation) !== expectedGeneration) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' requires an open generation intent. Run singularity-flow phase begin ${phase.id} before changing source.`,
-      { code: 'GENERATION_INTENT_REQUIRED', details: { nextAction: `singularity-flow phase begin ${phase.id}` } }
+      // The step's own work command opens it, never /sf-phase on a code step [OSA:REQ-021, C4, C11].
+      { code: 'GENERATION_INTENT_REQUIRED', details: { nextAction: { command: `singularity-flow phase begin ${phase.id} --json`,
+        skill: generationSkillForPhase(phase, workflow), label: `Open the next version of ${phase.id} before changing its code` } } }
     );
   }
   return intent;

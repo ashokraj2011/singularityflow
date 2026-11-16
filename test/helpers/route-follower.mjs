@@ -12,10 +12,16 @@
  * content: write the step's document or its code and tests, write a review report, answer a question through the
  * recorded-answer route the CLI accepts.
  *
- * Two checks at every step:
+ * Checks at every step [OSA:AC-010–AC-012]:
  *   - progress: the Story's state changed, or a person's question is pending. A read that only hands on to another
  *     route belongs to the step after it, at most two in a row;
- *   - no loop: the same state and route never come round again.
+ *   - no loop: the same state and route never come round again;
+ *   - no circle: a skill is never entered again by a hand-off on the same commit and the same step state;
+ *   - through the guard: every file the agent writes while authoring goes through the real pre-tool edit guard
+ *     (`hook boundary-guard`), in the turn of the skill the route named, and is checked against the edit permission the
+ *     entry returned first (act `author` must mean the permission allows that path). A deny fails before the write;
+ *   - the person's view: at each hand-off, next steps, session current, phase show and submission readiness are read
+ *     as a person reads them, and each one's "now" must name the same skill as the agent's route (walk.views).
  * A dead end ends the walk with the route trail: a refusal with no route, generic help for a refusal about the
  * Story's state, a Copilot route whose skill does not run the command it was routed with, or a result with nothing
  * to follow. A journey may give a detour for a dead end it expects (what the person would type instead), so the
@@ -95,12 +101,15 @@ export function skillEntries(skillsRoot = SKILLS) {
       ? /`\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n'))?.[1] ?? null : null;
     // A skill whose first step picks among subcommands (`spec analyze|coverage|trace`) has no single entry.
     const choice = !entry && commands(own.join('\n')).some((command) => !PAUSE_CHECK.test(command) && command.includes('|'));
-    map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint,
+    // "Successful begin: refresh entry once": opening a code version is followed by the skill's entry again.
+    const refreshAfterBegin = /Successful begin: refresh entry once/u.test(body);
+    map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin,
       ...(delegate && !entry ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
   }
   for (const known of map.values()) {
     const target = known.delegate ? map.get(known.delegate) : null;
-    if (target?.entry) Object.assign(known, { entry: target.entry, finish: known.finish ?? target.finish, source: `delegates to ${known.delegate}` });
+    if (target?.entry) Object.assign(known, { entry: target.entry, finish: known.finish ?? target.finish, refreshAfterBegin: known.refreshAfterBegin || target.refreshAfterBegin,
+      source: `delegates to ${known.delegate}` });
   }
   return map;
 }
@@ -304,7 +313,8 @@ export function storyState(story) {
     });
   const record = storyRecord(story);
   const phase = record?.phases?.[record?.currentPhase] ?? null;
-  const mark = record ? `${record.status ?? ''}:${record.currentPhase}:${phase?.status}:g${phase?.generation ?? 0}` : 'no-story';
+  const intent = phase?.generationIntent?.status ? `:${phase.generationIntent.status}${phase.generationIntent.generation ?? ''}` : '';
+  const mark = record ? `${record.status ?? ''}:${record.currentPhase}:${phase?.status}:g${phase?.generation ?? 0}${intent}` : 'no-story';
   return { key: createHash('sha256').update(JSON.stringify([head, dirty, mark])).digest('hex').slice(0, 12), mark, head: head.slice(0, 9) };
 }
 
@@ -313,7 +323,8 @@ const PERSON_STATES = new Set(['confirm', 'confirm-in-terminal', 'ask-person', '
 const PLACEHOLDER = /<[A-Za-z][A-Za-z0-9_|-]*>/u;
 const agentRunnable = (shell) => typeof shell === 'string' && /\s--json(?=\s|$)/u.test(shell) && !/<[A-Za-z][A-Za-z0-9_|-]*>/u.test(shell);
 const GENERIC_HELP = (route) => /^\/sf-help\b/u.test(route.copilot ?? '') || /^singularity-flow help\b/u.test(route.shell ?? '');
-const routeKey = (route) => `${route.copilot ?? ''}|${route.shell ? argvOf(route.shell).filter((word) => !['--json', '--for-agent'].includes(word)).join(' ') : ''}`;
+// Entering a skill (routed with a command) and running that command in the skill's own turn are two different steps.
+const routeKey = (route) => `${route.copilot && !route.inTurn ? route.copilot : 'run'}|${route.shell ? argvOf(route.shell).filter((word) => !['--json', '--for-agent'].includes(word)).join(' ') : ''}`;
 
 /**
  * The route a result returns, in the order an agent reads it: act.do, the refusal's plan, a review's continuation,
@@ -341,7 +352,7 @@ const short = (command) => String(command ?? '').replace(/^singularity-flow /u, 
 export function formatTrail(trail) {
   return trail.map((entry) => `#${entry.step} ${entry.turn ? `[${entry.turn}] ` : ''}${entry.taking ?? ''}${entry.ran ? ` → ${short(entry.ran)}` : ''}`
     + `${entry.status !== undefined ? ` (exit ${entry.status}${entry.code ? ` ${entry.code}` : ''}${entry.act ? `, act ${entry.act}` : ''})` : ''}`
-    + `${entry.did ? `; ${entry.did}` : ''}${entry.finding ? ` !! ${entry.finding}` : ''}${entry.state ? ` [${entry.state}]` : ''}`).join('\n');
+    + `${entry.did ? `; ${entry.did}` : ''}${entry.finding ? ` !! ${entry.finding}` : ''}${entry.views ? ` (views differ: ${entry.views})` : ''}${entry.state ? ` [${entry.state}]` : ''}`).join('\n');
 }
 
 // ------------------------------------------------------------------------------------ the walk
@@ -359,13 +370,18 @@ export function formatTrail(trail) {
  *   { command } to run as them, { route } to type instead, or null (unanswered; the walk stops there).
  * - `detour({ finding, route, result })`: for a dead end the journey expects, the route the person takes instead.
  *
- * Returns { reached, findings: [{ kind, detail, step }], trail, steps }.
+ * Returns { reached, findings: [{ kind, detail, step }], trail, steps, views }: `views` lists each hand-off where one of
+ * the person's views named another skill than the agent's route (see personViews).
  */
 export async function followRoutes(story, { start, agent = {}, person = null, detour = null, done, maxSteps = 60, label = 'journey' }) {
   const entries = skillEntries();
   const trail = [];
   const findings = [];
   const seen = new Map();
+  // The chat the agent works in, as Copilot's hooks see it: one session, a new turn each time a skill is entered.
+  const guard = { sessionId: `journey-${createHash('sha256').update(`${label}:${story.base}`).digest('hex').slice(0, 16)}`, turn: null, skill: null, contract: null };
+  const views = [];
+  const entered = new Map();
   let route = { ...start, source: 'start' };
   let turn = null;
   let idle = 0;
@@ -386,7 +402,19 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       break;
     }
     seen.set(key, step);
-    const taken = await takeRoute({ story, route, entries, phases: phases(), currentPhase: current(), agent, person, entry, turn, last, before });
+    // A circle: a skill entered again by a hand-off on the same commit and step state, with nothing done between [OSA:AC-012].
+    const entering = route.copilot && !route.inTurn && !route.reentered && !['refresh entry', 'after answers'].includes(route.source)
+      ? route.copilot.split(/\s+/u)[0] : null;
+    if (entering) {
+      const circle = `${before.head}|${before.mark}|${entering}`;
+      if (entered.has(circle)) {
+        entry.finding = 'circle';
+        finding('circle', `${entering} was entered again on the same commit and step state as at step ${entered.get(circle)}, with no progress between`, step);
+        break;
+      }
+      entered.set(circle, step);
+    }
+    const taken = await takeRoute({ story, route, entries, phases: phases(), currentPhase: current(), agent, person, entry, turn, last, before, guard });
     turn = taken.turn ?? turn;
     last = taken.result ?? last;
     entry.turn = turn;
@@ -401,7 +429,21 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       idle = 0;
       continue;
     }
-    if (done({ story, result: taken.result, record: storyRecord(story), trail })) return { reached: true, findings, trail, steps: step, next: taken.next ?? null, last: taken.result ?? null };
+    if (done({ story, result: taken.result, record: storyRecord(story), trail })) return { reached: true, findings, trail, steps: step, next: taken.next ?? null, last: taken.result ?? null, views };
+    // At a hand-off the person reads their own views: each one's "now" names the agent's skill [OSA:AC-011].
+    if (taken.next && !taken.next.inTurn && taken.next.copilot) {
+      const agentSkill = skillOf(taken.next.copilot);
+      const agentWords = commandWords(taken.next.shell).join(' ');
+      for (const view of await personViews(story)) {
+        // The same skill, or the same command (a person's confirmation of the step's own command names /sf-confirm).
+        const differs = view.skill && agentSkill && view.skill !== agentSkill && !(agentWords && commandWords(view.command).join(' ') === agentWords);
+        if (differs || view.completeWhileWriting) {
+          views.push({ step, agent: agentSkill, agentCommand: short(taken.next.shell), view: view.view, skill: view.skill, command: short(view.command),
+            ...(view.completeWhileWriting ? { said: 'complete while the step is being written' } : {}) });
+          entry.views = (entry.views ?? 0) + 1;
+        }
+      }
+    }
     const after = storyState(story);
     // Progress: the Story changed, or a person is being asked. A pure hand-off joins the next step, two at most.
     if (after.key === before.key && !taken.personPending) {
@@ -430,7 +472,82 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     route = taken.next;
   }
   if (!findings.length) finding('over-budget', `${maxSteps} steps without reaching the end of ${label}`, trail.length);
-  return { reached: false, findings, trail, steps: trail.length, next: null, last };
+  return { reached: false, findings, trail, steps: trail.length, next: null, last, views };
+}
+
+/** A route's skill, as `/sf-<name>` (an `/sflow-` alias read as its `/sf-` name); null for none. */
+export const skillOf = (value) => {
+  const word = String(value ?? '').trim().split(/\s+/u)[0];
+  return /^\/(?:sf|sflow)-[a-z0-9-]+$/u.test(word) ? word.replace(/^\/sflow-/u, '/sf-') : null;
+};
+
+/**
+ * What the person reads as "now", from the four views they open: next steps, session current, phase show and
+ * submission readiness, each run as a person runs it (`--json`). Session current names a task's next action when one is
+ * open, and says when the step's task is complete: complete while the step is being written is its own disagreement.
+ */
+export async function personViews(story) {
+  const read = (argv) => { const ran = story.raw([...argv, '--json']); return ran.status === 0 ? parseOutput(ran.stdout) : null; };
+  const record = storyRecord(story);
+  const phase = record?.phases?.[record?.currentPhase] ?? null;
+  const { stepBeingWritten } = await import('../../src/phase-generation-need.mjs');
+  const writing = Boolean(phase) && stepBeingWritten(record, phase);
+  const nextsteps = read(['nextsteps', story.workId]);
+  const now = (nextsteps?.actions ?? []).find((entry) => entry.timing === 'now') ?? null;
+  const session = read(['session', 'current']);
+  const resume = session?.taskResume ?? null;
+  const show = phase ? read(['phase', 'show', phase.id]) : null;
+  const shown = show?.continuation?.nextAction ?? null;
+  const readiness = phase?.status === 'in_progress' ? read(['status', story.workId, '--submission-readiness']) : null;
+  return [
+    { view: 'nextsteps', skill: skillOf(now?.skill ?? now?.copilotCommand), command: now?.command ?? null },
+    // A route that says it has no Copilot form (copilotCommand null) names no skill to the person.
+    { view: 'session current', skill: resume?.nextAction && Object.hasOwn(resume.nextAction, 'copilotCommand') && resume.nextAction.copilotCommand === null ? null
+      : skillOf(resume?.nextAction?.copilotCommand ?? resume?.nextAction?.skill), command: resume?.nextAction?.command ?? null,
+      completeWhileWriting: writing && resume?.complete === true },
+    { view: 'phase show', skill: skillOf(shown?.skill ?? shown?.copilotCommand), command: shown?.command ?? null },
+    { view: 'submission readiness', skill: skillOf(readiness?.nextSkill), command: readiness?.nextCommand ?? readiness?.command ?? null }
+  ];
+}
+
+/** One check failing a journey at the write it found, with what was found. */
+const stop = (kind, detail) => Object.assign(new Error(detail), { journeyFinding: { kind, detail } });
+
+/**
+ * Whether the entry's edit permission (its `mutationContract`) allows `relative`: one of its artifact paths, or an
+ * application path when it grants application edits. The guard decides the rest (protected, kernel-owned paths).
+ */
+export function permissionAllows(contract, relative) {
+  if (!contract) return { allowed: false, why: 'the entry returned no edit permission' };
+  const covered = (contract.artifacts ?? []).some((prefix) => prefix.endsWith('/') ? relative.startsWith(prefix) : relative === prefix);
+  if (covered) return { allowed: true };
+  if (/^singularity\//u.test(relative)) return { allowed: false, why: `not one of its artifacts (${(contract.artifacts ?? []).join(', ') || 'none'})` };
+  return contract.applicationEdits ? { allowed: true } : { allowed: false, why: 'it grants no application edits' };
+}
+
+/**
+ * The agent's file writes while authoring, through the real pre-tool edit guard in the turn of `skill`, after the check
+ * that the entry's `author` came with a permission for the path [OSA:AC-010]. A deny stops the journey before the write.
+ */
+function guardedStory(story, guard, skill, contract) {
+  const written = [];
+  const write = async (relative, text) => {
+    if (contract !== undefined) {
+      const permit = permissionAllows(contract, relative);
+      if (!permit.allowed) throw stop('author-without-permission', `act author, but the edit permission the entry returned does not allow ${relative}: ${permit.why}`);
+    }
+    const turnSkill = skill ?? guard.skill ?? '/sf-code';
+    if (!guard.turn || guard.skill !== turnSkill) {
+      guard.turn = copilotTurn(story, guard.sessionId);
+      guard.turn.prompt(turnSkill);
+      guard.skill = turnSkill;
+    }
+    const decision = guard.turn.tool('edit', { path: path.join(story.root, relative) });
+    if (decision?.permissionDecision === 'deny') throw stop('guard-denied', `the edit guard denied ${relative} in the ${turnSkill} turn: ${String(decision.permissionDecisionReason ?? '').slice(0, 700)}`);
+    written.push(relative);
+    return story.write(relative, text);
+  };
+  return { story: { ...story, write }, written };
 }
 
 const isPersonRoute = (route) => /^singularity-flow (?:approve|decisions record|story advance .*--confirm|reopen)\b/u.test(route.shell ?? '')
@@ -440,7 +557,7 @@ const isPersonRoute = (route) => /^singularity-flow (?:approve|decisions record|
  * Takes one route: runs what an agent runs for it, then does the agent's or the person's part its result asks for.
  * Returns { result, next, personPending, finding, turn }.
  */
-async function takeRoute({ story, route, entries, phases, currentPhase, agent, person, entry, turn, last, before }) {
+async function takeRoute({ story, route, entries, phases, currentPhase, agent, person, entry, turn, last, before, guard }) {
   // A person's own step (approval, their decisions, a confirmation): theirs to answer, scripted.
   if (route.person || (route.source !== 'start' && isPersonRoute(route))) {
     const answer = person?.({ story, route, result: last, act: last?.act ?? null, phase: currentPhase });
@@ -465,6 +582,12 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     command = entryCommand(entries, route.copilot, { workId: story.workId, phases, currentPhase });
     if (!command) return { finding: { kind: 'skill-without-entry', detail: `${skill}'s SKILL.md names no command to run` }, turn: skill };
     if (/<[A-Za-z][A-Za-z0-9_|-]*>/u.test(command)) return { finding: { kind: 'entry-needs-value', detail: `${skill} enters by ${command}` }, turn: skill };
+    // The person types the skill: a new turn of the chat, as Copilot's hooks see it.
+    if (guard) {
+      guard.turn = copilotTurn(story, guard.sessionId);
+      guard.turn.prompt(skill);
+      guard.skill = skill;
+    }
   }
   if (!command) return { finding: { kind: 'no-route', detail: 'a route with neither a command nor a skill' } };
   if (/<[A-Za-z][A-Za-z0-9_|-]*>/u.test(command)) return { finding: { kind: 'route-needs-value', detail: `${short(command)} needs a value no script gives` } };
@@ -480,6 +603,11 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
 
   // A command the skill runs before its entry again ("Successful begin: refresh entry once").
   if (route.reenter && !PERSON_STATES.has(act?.state)) return { result, next: { copilot: route.reenter, source: 'refresh entry', reentered: true }, turn: nextTurn };
+  // The same when the entry's own act was to open the version: a skill whose text says so enters again once it opened.
+  if (!route.reentered && /^singularity-flow phase begin\b/u.test(command) && entries.get(nextTurn)?.refreshAfterBegin && !PERSON_STATES.has(act?.state)) {
+    entry.did = 'the version is open; the skill refreshes its entry once, as its text says';
+    return { result, next: { copilot: nextTurn, source: 'refresh entry', reentered: true }, turn: nextTurn };
+  }
 
   // The skill was routed with a command: following it must run that command, or lead to it.
   const routedWith = skill && route.shell ? commandWords(route.shell).join(' ') : null;
@@ -514,17 +642,24 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
       if (prepared.status !== 0) return { result: prepared.result, finding: { kind: 'prepare-refused', detail: `${short(prepare)}: ${prepared.result?.error?.code ?? prepared.stderr.slice(-300)}` }, turn: nextTurn };
     }
     const generation = Number(storyRecord(story)?.phases?.[phase]?.generation ?? 0);
-    const wrote = await agent.author?.({ story, phase, generation, entry: result });
+    // Every write goes through the guard, in this skill's turn, and act author must come with a permission for it.
+    if (guard) guard.contract = result.mutationContract ?? null;
+    const writer = guard ? guardedStory(story, guard, nextTurn, result.mutationContract ?? null) : { story, written: [] };
+    let wrote;
+    try { wrote = await agent.author?.({ story: writer.story, phase, generation, entry: result }); }
+    catch (error) { if (error?.journeyFinding) return { result, finding: error.journeyFinding, turn: nextTurn }; throw error; }
     if (wrote === false || !agent.author) return { result, finding: { kind: 'author-unscripted', detail: `${phase} asked for authoring the journey does not script` }, turn: nextTurn };
     // A code step's summary is built from the code: prepared again once the code is written.
     if (prepare && code) await inTurn(prepare);
-    entry.did = `${steps.length ? `${steps[0]}; ` : ''}the agent wrote ${phase}${steps.length > 1 ? `; ${steps[1]}` : ''}`;
+    entry.did = `${steps.length ? `${steps[0]}; ` : ''}the agent wrote ${phase}${guard ? ` (${writer.written.length} file(s) through the guard)` : ''}${steps.length > 1 ? `; ${steps[1]}` : ''}`;
     const finish = entries.get(nextTurn)?.finish;
     if (!finish) return { result, finding: { kind: 'skill-without-finish', detail: `${nextTurn} authored ${phase} but its SKILL.md names no prepublish --publish-if-ready to finish with` }, turn: nextTurn };
     return { result, next: { shell: finish.replace('<phase>', phase), source: `${nextTurn} step`, inTurn: true }, turn: nextTurn };
   }
   if (act?.state === 'correct') {
-    const corrected = await agent.correct?.({ story, phase, result });
+    let corrected;
+    try { corrected = await agent.correct?.({ story: guard ? guardedStory(story, guard, nextTurn, guard.contract ?? undefined).story : story, phase, result }); }
+    catch (error) { if (error?.journeyFinding) return { result, finding: error.journeyFinding, turn: nextTurn }; throw error; }
     if (!corrected) return { result, finding: { kind: 'correction-unscripted', detail: `${phase}'s check asked for corrections: ${JSON.stringify((result.findings ?? []).map((item) => item.code ?? item.message)).slice(0, 600)}` }, turn: nextTurn };
     entry.did = `the agent corrected ${phase}`;
     return { result, next: { shell: command, source: 'recheck', inTurn: true }, turn: nextTurn };

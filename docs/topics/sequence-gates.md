@@ -13,7 +13,7 @@ related:
   - reconciliation
   - approvals
   - nextsteps
-version: 5
+version: 6
 ---
 `sflow submit` checks the sequence gates — phase order, current generation, artifact published and pushed, hash match, required checks, final reconciliation — and refuses with a to-do list when any fail: each unmet gate, its evidence, and the exact repair command, closing with what was preserved ("Nothing was submitted. Nothing was lost."). Hard gates protect invariants and cannot be overridden; soft gates accept a typed, recorded override. `sflow validate` runs checks without side effects. On success the phase enters awaiting_approval and reviewers are notified with a link.
 
@@ -39,7 +39,10 @@ Submit disabled, and expose one primary **Generate and publish <Phase>** action
 through the exact engine-selected `nextSkill`. Once the current immutable publication is recorded,
 clients label it **Published generation N — ready to submit**. `/sf-submit`
 never invokes generation or publication implicitly; those remain separate,
-reviewable mutations.
+reviewable mutations. While the step's next version is open, readiness is
+`generation-required` with the route to write it, soft gates included, and
+`submit` refuses with `PHASE_VERSION_BEING_WRITTEN`: the published version is
+never submitted while the next one is being written.
 
 ## Purpose and prerequisites
 

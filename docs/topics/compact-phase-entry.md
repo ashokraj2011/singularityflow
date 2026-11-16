@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 19
+version: 20
 ---
 # Compact phase entry for Copilot
 
@@ -110,6 +110,9 @@ receipt remain unchanged, and the delivered prompt audit records the refresh.
    only when composition is admitted, so one call returns both the packet and `context.text`
    (`contextComposition: delivered`).
 2. If composition is not admitted, relay the blockers and the returned `next` route, then stop.
+   A step the kernel builds (quick-fix Verify, POC Lite's documents) is not a block: entry returns
+   `status: deterministic-generation` with `contextComposition: not-needed`. Run its returned
+   `prepare PHASE` in the same turn, then `phase prepublish PHASE --for-agent --json --publish-if-ready`.
 3. If entry returns `status: successor-preparation-required`, run the returned preparation once
    through `/sf-phase`, then refresh entry.
 4. Use the returned `context.text`. Compose again, once, with

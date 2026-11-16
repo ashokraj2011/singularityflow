@@ -658,7 +658,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (sequence.mjs storyNextDetails and storyClosedRefusal +1,301) at its throw sites in state.mjs (+57),
     // story-lineage.mjs (+126) and phase-lifecycle.mjs (+230), and an Epic's its own (initiative-state.mjs +391, which
     // loads initiative-next.mjs only when it refuses) [owner, 2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_687_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,678,350 (measured 9,678,348): a step the kernel builds is routed straight to its generator, with no agent to select
+    // first (commands/nextsteps.mjs) and no appeal inspection at its entry [journey B, 2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_688_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

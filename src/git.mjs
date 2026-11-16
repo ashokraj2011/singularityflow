@@ -1573,6 +1573,27 @@ export function isAncestor(root, older, newer) {
 }
 
 /**
+ * `workspace repair` (SCF:REQ-022): re-link linked worktrees that moved, run in their clone with each one's folder now.
+ * With Git 2.31 or later this also mends a clone and its worktrees that moved together. Returns the process result.
+ */
+export function repairWorktreeLinks(root, worktreePaths) {
+  return git(['worktree', 'repair', '--', ...worktreePaths.map((entry) => path.resolve(entry))], { cwd: root, allowFailure: true });
+}
+
+/**
+ * `workspace repair`: forget one linked worktree whose folder is gone. The caller checked that the folder is missing and
+ * that no commit or saved record is lost; Git refuses a locked one.
+ */
+export function forgetMissingWorktree(root, worktreePath) {
+  return git(['worktree', 'remove', '--', path.resolve(worktreePath)], { cwd: root, allowFailure: true });
+}
+
+/** `workspace repair`: make a deleted Story checkout again at `target`, on its existing local branch. */
+export function addBranchWorktree(root, target, branchName) {
+  return git(['worktree', 'add', '--', path.resolve(target), branchName], { cwd: root, allowFailure: true });
+}
+
+/**
  * Discard only a newly-created, still-empty attach staging checkout. Never touch a Story branch,
  * a dirty checkout, an unregistered path, or the current process directory.
  */

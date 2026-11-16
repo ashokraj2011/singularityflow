@@ -377,6 +377,9 @@ test('selected workspace routing reports a stale repository path before dispatch
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-stale-command-root-'));
   const selection = path.join(root, 'active-workspace.json');
   const missing = path.join(root, 'missing-repository');
+  // The workspace folder is there; only its member is missing. A workspace folder that is gone was moved, and its route is
+  // workspace repair in its new folder (ACTIVE_WORKSPACE_MOVED, test/workspace-repair.test.mjs).
+  await mkdir(path.join(root, 'workspace'));
   await writeFile(selection, `${JSON.stringify({
     schemaVersion: 1,
     workspaceId: 'payments',

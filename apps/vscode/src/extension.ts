@@ -72,6 +72,9 @@ import { activateReviewedWorkflowProposal, configurationSaveDisposition, configu
 import type { ConfigurationGitFailure } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
+import {
+  confirmWorkspaceRepairLinks, workspaceRepairCommand, type WorkspaceRepairPorts, type WorkspaceRepairResult
+} from './views/workspace-repair-links.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
 import {
   archiveCommand, capabilityChangeCommand, restoreCommand, workspaceReinitializeCommand, workspaceRows,
@@ -3109,10 +3112,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         };
       }
       if (message.type === 'repair') {
-        message = {
-          type: 'run', command: ['workspace', 'repair', message.row.directory, '--json'],
-          title: `Repairing ${message.row.name}`
-        };
+        // Clones what is missing, then previews the links of a moved workspace or a deleted Story checkout; the person
+        // confirms that exact plan before the CLI applies it (SCF:REQ-022).
+        const { directory, name } = message.row;
+        const command = workspaceRepairCommand(directory);
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+        try {
+          const preview = await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: `Repairing ${name}` },
+            () => registry.run<WorkspaceRepairResult>(command));
+          const links = await confirmWorkspaceRepairLinks(directory, preview, workspaceRepairPorts(
+            (args) => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Repairing the links of ${name}` },
+              () => registry.run<WorkspaceRepairResult>(args)), output));
+          if (links.outcome === 'cancelled') return WORKSPACE_ACTION_CANCELLED;
+          if (links.outcome === 'blocked') return links.refusals.map((refusal) => `${refusal.message} ${refusal.command}`).join('\n');
+          return null;
+        } catch (error) {
+          output.appendLine(`  failed: ${(error as Error).message}`);
+          return (error as Error).message;
+        }
       }
       if (message.type === 'attach-capability' || message.type === 'detach-capability') {
         if (!message.isCurrent()) return WORKSPACE_ACTION_CANCELLED;
@@ -4337,10 +4355,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!current.active || !current.workspacePath) {
         return void showCompactWarningMessage('Select a workspace before repairing it.');
       }
-      await vscode.window.withProgress(
+      const directory = current.workspacePath;
+      const preview = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Repairing ${current.workspaceName ?? 'workspace'}` },
-        () => client.run(['workspace', 'repair', current.workspacePath as string, '--json'])
+        () => client.run<WorkspaceRepairResult>(workspaceRepairCommand(directory))
       );
+      // A moved workspace or a deleted Story checkout: show the plan, apply it only once confirmed (SCF:REQ-022).
+      const links = await confirmWorkspaceRepairLinks(directory, preview, workspaceRepairPorts(
+        (args) => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+          title: `Repairing the links of ${current.workspaceName ?? 'workspace'}` }, () => client.run<WorkspaceRepairResult>(args)), output));
+      if (links.outcome === 'cancelled' || links.outcome === 'blocked') return;
       // Refresh the persisted context so the next activation sees the repaired repository as ready.
       await client.run(['workspace', 'use', current.workspacePath, '--json']);
       void showCompactInformationMessage(
@@ -5091,7 +5115,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     return sfGuardStandingsReader;
   };
-  for (const [id, handler] of Object.entries(executionContextHandlers(context, client))) handlers.set(id, handler);
+  for (const [id, handler] of Object.entries(executionContextHandlers(context, client, () => repository))) handlers.set(id, handler);
   handlers.set('singularityFlow.countCopilotChatUsage', () => turnOnCopilotChatCounting(client));
   handlers.set('singularityFlow.stopCountingCopilotChatUsage', () => turnOffCopilotChatCounting(client));
   if (!copilotChatCountingStarted && vscode.env?.appHost) {
@@ -10195,6 +10219,20 @@ async function showKeptPrompts(client: SingularityFlowClient, output: vscode.Out
   }
 }
 
+/** The editor's side of `workspace repair`'s preview and confirmation (views/workspace-repair-links.ts). */
+function workspaceRepairPorts(
+  invoke: (args: string[]) => Thenable<WorkspaceRepairResult> | Promise<WorkspaceRepairResult>, output: vscode.OutputChannel
+): WorkspaceRepairPorts {
+  return {
+    ask: async (title, detail, action) => (await showCompactWarningMessage(title, { modal: true, detail }, action)) === action,
+    inform: async (title, detail) => { await showCompactWarningMessage(title, { modal: true, detail }); },
+    run: async (args) => {
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(args)}`);
+      return await invoke(args);
+    }
+  };
+}
+
 async function showImpact(client: SingularityFlowClient, output: vscode.OutputChannel): Promise<void> {
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Computing impact…' },
@@ -10251,12 +10289,17 @@ async function resolveGovernedRepository(
     }
   }
 
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (folder) {
+  // A multi-root window binds the first of its folders that is a Flow repository or a workspace directory, not only
+  // its first folder (WS-8): a notes or tools folder listed first no longer hides the repository after it.
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  let firstError: Error | null = null;
+  let authorityError: Error | null = null;
+  for (const folder of folders) {
+    const named = folders.length > 1 ? ` (${folder.name})` : '';
     try {
       const repository = await validateRepositoryDirectory(folder.uri.fsPath, { signal: extensionLifetime.signal });
       return {
-        repository, root: repository, origin: 'the open folder', workspaceId: null,
+        repository, root: repository, origin: `the open folder${named}`, workspaceId: null,
         workspaceName: null, repositoryId: null
       };
     } catch (error) {
@@ -10270,26 +10313,30 @@ async function resolveGovernedRepository(
           const repository = await validateRepositoryDirectory(lead, { signal: extensionLifetime.signal });
           return {
             repository, root: repository,
-            origin: 'the lead repository of the workspace directory you have open',
+            origin: `the lead repository of the workspace directory you have open${named}`,
             workspaceId: null, workspaceName: null, repositoryId: null
           };
         } catch (leadError) {
           if (leadError instanceof RepositoryAuthorityUnavailableError) repositoryError = leadError;
         }
       }
-      if (repositoryError instanceof RepositoryAuthorityUnavailableError) {
-        return {
-          label: 'Singularity Flow authority is unavailable', reason: repositoryError.message,
-          contextValue: 'sflow.authorityUnavailable'
-        };
-      }
-      // A folder that is not a Flow repository is no selection of its own, so the profile default
-      // still applies; only without one does the window describe the folder.
-      return await activeWorkspaceRepository(context, output) ?? {
-        label: 'Not a Singularity Flow repository', reason: repositoryError.message,
-        contextValue: 'sflow.uninitialized'
-      };
+      if (repositoryError instanceof RepositoryAuthorityUnavailableError) authorityError ??= repositoryError;
+      firstError ??= repositoryError;
     }
+  }
+  if (authorityError) {
+    return {
+      label: 'Singularity Flow authority is unavailable', reason: authorityError.message,
+      contextValue: 'sflow.authorityUnavailable'
+    };
+  }
+  if (firstError) {
+    // A folder that is not a Flow repository is no selection of its own, so the profile default
+    // still applies; only without one does the window describe the folder.
+    return await activeWorkspaceRepository(context, output) ?? {
+      label: 'Not a Singularity Flow repository', reason: firstError.message,
+      contextValue: 'sflow.uninitialized'
+    };
   }
 
   const active = await activeWorkspaceRepository(context, output);

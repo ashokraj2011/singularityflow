@@ -31,6 +31,7 @@ import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
 import { boundExecutionContextRoot } from '../execution-context-scope.mjs';
+import { storyActiveElsewhere } from '../story-active-elsewhere.mjs';
 export { resolveSessionRepository };
 
 export async function run(argv, { positionals, options }) {
@@ -792,8 +793,11 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       { storyId: id, selectionSource: 'session-attach' }
     );
     await import('../story-index.mjs').then((index) => index.recordStoryCheckout(attachmentRoot, { source: 'session-attach' })).catch(() => {});
+    // Commits this computer did not have, made lately: the Story was being worked on elsewhere (WS-10). Never a refusal.
+    const elsewhere = storyActiveElsewhere({ workId: id, before: localStoryHead ?? null, after: remoteSha, workflow });
     const result = {
       workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha,
+      ...(elsewhere ? { activeElsewhere: elsewhere, warnings: [elsewhere.words] } : {}),
       phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent,
       ...(workflow.currentPhase ? await (await import('../workflow-task-store.mjs')).attachWorkflowTaskProgress(
         attachmentRoot, workflow, workflow.phases[workflow.currentPhase]) : { taskResume: null }),
@@ -814,6 +818,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace)`);
     if (managedWorktree) console.log(`Story worktree: ${attachmentRoot}`);
     console.log(`Attached to ${id} from ${remote}/${targetBranch}.`);
+    if (elsewhere) console.log(elsewhere.words);
     console.log(`Current phase: ${workflow.currentPhase ?? 'none'} · status: ${workflow.status}`);
     if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);

@@ -157,7 +157,7 @@ async function candidateFor(root, config, workflow, { approvedConfigurationSnaps
   const accepted = await verifyWorkflowSnapshot(root, config, workflow, { requireAccepted: true, retainBytes: true });
   if (!accepted.enrolled || !same(accepted.policy, workflow.resolution)) fail('The current Story policy is not its exact accepted snapshot.', 'TCA_AMENDMENT_STALE');
   const source = workflow.resolution.configurationSource;
-  if (!approvedConfigurationSnapshot || approvedConfigurationSnapshot.authority?.remote !== source?.repository
+  if (!approvedConfigurationSnapshot || !(await import('./git-repository-identity.mjs')).sameRepository(approvedConfigurationSnapshot.authority?.remote, source?.repository)
     || approvedConfigurationSnapshot.sourceCommit === source?.commit) {
     fail('Select a newer approved configuration at the original pinned authority.', 'TCA_AMENDMENT_AUTHORITY_CHANGED');
   }

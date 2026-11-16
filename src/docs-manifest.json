@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "0c5469ae12a05b9ace9156c527bc598b3001e38e",
+  "sourceCommit": "e526919492c399ccbb1a9b57dd54cdd79ad3687a",
   "topicCount": 93,
-  "contentSha256": "7924c01c4f376d5abbcee65f1c4fddc659cbc46b3914ea3f524285b5b0d065fb",
+  "contentSha256": "d236ddd7abe7f429a46657a5eb3be075a4ae7d91d7872f881df15449cc97cbd2",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -520,8 +520,8 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 14,
-      "sha256": "21eaf25a6e9a7e8ec975e005e25b99db071524ee9bd0664815f3a393e8882833",
+      "version": 15,
+      "sha256": "bc33f0369d5388f6a010b93fb58fab9da09623545be3eb5a4724e33e215eec81",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },
@@ -736,8 +736,8 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 28,
-      "sha256": "25f2fc8c185fdc99e62b52d500d226636611afd69c8f9d71a8dcf4318140d182",
+      "version": 30,
+      "sha256": "eed35e3b4f2e07172f21282a4cec2fbf568712009b8d8027bbc41c0fd0ac1f26",
       "routingSha256": "5c112c0653f816dd58697fe7898162ae44cb1679460dc56dece3daa01073e94a",
       "file": "workspaces-and-sessions.md"
     },

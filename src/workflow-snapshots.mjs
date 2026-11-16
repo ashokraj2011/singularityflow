@@ -1455,7 +1455,8 @@ export async function captureWorkflowTestCommandAmendment(root, config, currentW
     }
   }
   if (approvedConfigurationSnapshot.sourceCommit !== proposedWorkflow.resolution.configurationSource.commit
-      || approvedConfigurationSnapshot.authority?.remote !== proposedWorkflow.resolution.configurationSource.repository
+      || !(await import('./git-repository-identity.mjs')).sameRepository(approvedConfigurationSnapshot.authority?.remote,
+        proposedWorkflow.resolution.configurationSource.repository)
       || canonicalJson(candidatePhase?.qualityCommands) !== canonicalJson(nextPhase.qualityCommands)
       || canonicalJson(candidatePhase?.approval) !== canonicalJson(nextPhase.approval)
       || canonicalJson(candidatePhases) !== canonicalJson(retainedPhases)
@@ -1541,7 +1542,8 @@ export async function captureWorkflowApproverRefresh(root, config, currentWorkfl
     if (!members.every((member) => offered.has(key(member)))) fail(`Approver refresh adds a member the approved configuration does not list in '${group}'.`, 'WFA_AMENDMENT_INVALID');
   }
   if (approvedConfigurationSnapshot.sourceCommit !== proposedWorkflow.resolution.configurationSource.commit
-      || approvedConfigurationSnapshot.authority?.remote !== proposedWorkflow.resolution.configurationSource.repository) fail('Approver refresh is not bound to the exact approved configuration commit.', 'WFA_AMENDMENT_INVALID');
+      || !(await import('./git-repository-identity.mjs')).sameRepository(approvedConfigurationSnapshot.authority?.remote,
+        proposedWorkflow.resolution.configurationSource.repository)) fail('Approver refresh is not bound to the exact approved configuration commit.', 'WFA_AMENDMENT_INVALID');
   const manifestPath = storyRelative(config, workId, `config/wfa/snapshots/${String(revision).padStart(6, '0')}/manifest.json`);
   const target = await secureRepositoryPath(root, manifestPath, { label: 'New approver refresh snapshot manifest' });
   if (target.exists) fail(`Workflow snapshot revision ${revision} already exists.`, 'WFA_REVISION_CONFLICT');
@@ -3288,8 +3290,9 @@ export async function workflowSnapshotDrift(root, config, workflow, observedConf
   if (!snapshot.enrolled) return { ...snapshot, drift: 'unknown', reason: 'legacy-closure-unproven' };
   const pinned = snapshot.provenance?.configuration ?? null;
   if (!observedConfiguration) return { ...snapshot, drift: 'unavailable', observed: null };
-  const revisionChanged = pinned?.commit !== observedConfiguration.commit
-    || pinned?.repository !== (sanitizeRemote(observedConfiguration.repository) || null);
+  const observedRepository = sanitizeRemote(observedConfiguration.repository) || null;
+  const revisionChanged = pinned?.commit !== observedConfiguration.commit || (pinned?.repository !== observedRepository
+    && !(await import('./git-repository-identity.mjs')).sameRepository(pinned?.repository, observedRepository));
   const effectiveChanged = pinned?.filesSha256 && observedConfiguration.filesSha256
     ? canonicalJson(pinned.filesSha256) !== canonicalJson(observedConfiguration.filesSha256)
     : null;

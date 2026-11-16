@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { randomUUID } from 'node:crypto';
 import type { SingularityFlowClient } from './cli/client.ts';
 import { showCompactInformationMessage, showCompactWarningMessage } from './compact-message.ts';
+import { heartbeatCommands } from './window-folder-heartbeats.ts';
 
 /** Registered with every window's repository commands, so a window without a repository explains why. */
 export const EXECUTION_CONTEXT_COMMANDS = [
@@ -17,15 +18,20 @@ interface TakeoverResult {
   unavailableDocuments?: Array<{ id: string; name: string; neededNow: boolean; restore: string }>;
 }
 
-export function executionContextHandlers(context: vscode.ExtensionContext, client: SingularityFlowClient): Record<typeof EXECUTION_CONTEXT_COMMANDS[number], () => Promise<void>> {
+export function executionContextHandlers(context: vscode.ExtensionContext, client: SingularityFlowClient,
+  boundRepository: () => string | null = () => null): Record<typeof EXECUTION_CONTEXT_COMMANDS[number], () => Promise<void>> {
   const surface = randomUUID();
   let maintenancePending = false;
   const heartbeat = async (): Promise<void> => {
     if (maintenancePending) return;
     maintenancePending = true;
-    try { await client.run(['workspace', 'retention', '--heartbeat', '--surface', surface, '--pid', String(process.pid), '--json']); }
-    catch { /* Unmapped/offline/invalid contexts never become cleanup authority. Explicit commands show diagnostics. */ }
-    finally { maintenancePending = false; }
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+    try {
+      for (const command of heartbeatCommands(surface, process.pid, folders, boundRepository())) {
+        try { await client.run(command); }
+        catch { /* Unmapped/offline/invalid contexts never become cleanup authority. Explicit commands show diagnostics. */ }
+      }
+    } finally { maintenancePending = false; }
   };
   const initial = setTimeout(() => { void heartbeat(); }, 10000);
   const interval = setInterval(() => { void heartbeat(); }, 60000);

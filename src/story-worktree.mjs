@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { availableParallelism, homedir } from 'node:os';
+import { existsSync, lstatSync } from 'node:fs';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
 import { commitIsAncestor, gitCommonDir, headAndBranch, localRefHeads, refExists, remoteNames } from './git.mjs';
@@ -114,6 +115,9 @@ export function worktreeInventory(root) {
       records.push(current);
     } else if (current && line.startsWith('HEAD ')) current.head = line.slice('HEAD '.length);
     else if (current && line.startsWith('branch refs/heads/')) current.branch = line.slice('branch refs/heads/'.length);
+    // Git 2.31+ marks a gone folder `prunable`; listStoryWorktrees checks the folder too.
+    else if (current && /^prunable(?: |$)/u.test(line)) current.prunable = true;
+    else if (current && /^locked(?: |$)/u.test(line)) current.locked = true;
   }
   return records;
 }
@@ -150,9 +154,8 @@ async function safeNewPath(root, candidate) {
 }
 
 /**
- * A clone in no workspace keeps its Story checkouts in `<parent>/.singularity-flow/story-worktrees`. For a clone directly
- * in the home folder that is SFlow's own state folder, which a reset clears (WS-2), so no new checkout is made there
- * (SCF:REQ-021). A checkout already there is still found and kept.
+ * A clone in no workspace keeps new Story checkouts in `<clone>.stories/` (SCF D3), not `<parent>/.singularity-flow/story-worktrees`,
+ * SFlow's state folder for a clone in the home folder (WS-2). None is made inside the state folder (SCF:REQ-021).
  */
 async function refuseInsideStateFolder(root, target, id) {
   // SFlow's machine state folder, which reset-all and fresh-install clear (as apps/vscode/src/extension.ts reads it).
@@ -172,9 +175,8 @@ async function refuseInsideStateFolder(root, target, id) {
   if (!pathContains(stateFolder, checkout)) return;
   const clone = path.resolve(root);
   throw new SingularityFlowError(
-    `Story '${id}' would get its own checkout inside Singularity Flow's state folder (${stateFolder}), because its clone `
-    + `${clone} sits directly in your home folder and is in no workspace. A reset clears that folder, so no checkout is made there. `
-    + 'Move the clone into a folder of its own and start the Story there, or start it in this clone itself, without an isolated checkout.',
+    `Story '${id}' would get its own checkout inside Singularity Flow's state folder (${stateFolder}), where its clone is. `
+    + 'A reset clears that folder, so no checkout is made there.',
     { code: 'STORY_WORKTREE_IN_STATE_FOLDER', details: { checkoutPath: checkout, stateFolder, clone,
       actions: [
         { label: `Move the clone into a folder of its own, for example: mkdir -p "${path.join(path.dirname(clone), 'code')}" && mv "${clone}" "${path.join(path.dirname(clone), 'code', path.basename(clone))}", then start the Story from there.` },
@@ -203,12 +205,29 @@ export async function storyWorktreeLocations(root, id, { context: suppliedContex
       legacyRepositoryId: context.repositoryId
     };
   }
-  const parent = path.join(path.dirname(path.resolve(root)), '.singularity-flow', 'story-worktrees');
+  const clone = path.resolve(root);
+  const beside = path.join(path.dirname(clone), '.singularity-flow', 'story-worktrees');
+  const name = `.w-${digest(`${canonicalCommon}\0${id}`).slice(0, 24)}`;
   return {
-    compact: path.join(parent, `.w-${digest(`${canonicalCommon}\0${id}`).slice(0, 24)}`),
-    legacy: path.join(parent, digest(common).slice(0, 12), id),
+    compact: path.join(`${clone}${STORIES_SUFFIX}`, name),
+    legacy: path.join(beside, digest(common).slice(0, 12), id),
+    // Where a clone in no workspace put the same checkout before SCF D3; one made there is found and kept.
+    previous: path.join(beside, name),
     legacyRepositoryId: null
   };
+}
+
+/** The folder beside a clone in no workspace that holds its Story checkouts: `<clone>.stories` (SCF D3). */
+export const STORIES_SUFFIX = '.stories';
+
+/**
+ * Whether a worktree path is one of SFlow's managed Story checkouts: under a `story-worktrees` folder (a workspace's,
+ * or beside a clone before SCF D3), or a `.w-` checkout in a clone's `<clone>.stories` folder.
+ */
+export function managedStoryCheckoutPath(candidate) {
+  const resolved = path.resolve(String(candidate));
+  return resolved.split(path.sep).includes('story-worktrees')
+    || (/^\.w-[0-9a-f]{24}$/u.test(path.basename(resolved)) && path.dirname(resolved).endsWith(STORIES_SUFFIX));
 }
 
 /** Resolve a deterministic machine-local path without writing into the source repository. */
@@ -231,14 +250,16 @@ export async function preparedStoryWorktreePath(root, workId, { baseCommit = nul
   const stagingBranches = new Set([common, canonicalCommon].map(value => `sflow-start-${digest(`${value}\0${id}`).slice(0, 16)}`));
   const inventory = worktreeInventory(root);
   const candidates = [];
-  const managedParent = await realpath(path.dirname(locations.compact)).catch(error => {
+  // Legacy checkouts of a clone in no workspace sit under its old namespace (`previous`), not `<clone>.stories`.
+  const managedParent = await realpath(path.dirname(locations.previous ?? locations.compact)).catch(error => {
     if (error?.code === 'ENOENT') return null;
     throw error;
   });
   const canonicalRoot = await realpath(root);
   for (const entry of inventory) {
     const exact = await sameRegisteredPath(entry.path, locations.compact)
-      || await sameRegisteredPath(entry.path, locations.legacy);
+      || await sameRegisteredPath(entry.path, locations.legacy)
+      || Boolean(locations.previous && await sameRegisteredPath(entry.path, locations.previous));
     const canonicalEntry = await realpath(entry.path).catch(() => null);
     const legacy = Boolean(canonicalEntry && managedParent
       && legacyStoryPath(managedParent, canonicalEntry, id, locations.legacyRepositoryId));
@@ -247,14 +268,15 @@ export async function preparedStoryWorktreePath(root, workId, { baseCommit = nul
     // must still bind the same canonical Git common directory and Story ID below.
     const ownCompact = canonicalEntry && samePlatformPath(canonicalEntry, canonicalRoot)
       && path.basename(canonicalEntry) === path.basename(locations.compact)
-      && path.basename(path.dirname(canonicalEntry)) === 'story-worktrees'
-      && path.basename(path.dirname(path.dirname(canonicalEntry))) === '.singularity-flow';
+      && ((path.basename(path.dirname(canonicalEntry)) === 'story-worktrees'
+        && path.basename(path.dirname(path.dirname(canonicalEntry))) === '.singularity-flow')
+        || path.dirname(canonicalEntry).endsWith(STORIES_SUFFIX));
     if (exact || legacy || ownCompact) candidates.push(entry);
   }
   const refuse = (message, details) => { throw new SingularityFlowError(message, { code: 'STORY_WORKTREE_RECOVERY_REQUIRED', ...(details ? { details } : {}) }); };
   if (candidates.length > 1) refuse(`Story '${id}' has multiple managed launch checkouts; resolve the exact owner before reviewing baseline evidence.`);
   if (!candidates.length) {
-    for (const candidate of [locations.compact, locations.legacy]) {
+    for (const candidate of [locations.compact, locations.legacy, locations.previous].filter(Boolean)) {
       if (await lstat(candidate).catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error))) {
         refuse(`Managed Story path exists without matching Git registration: ${candidate}.`);
       }
@@ -341,6 +363,7 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
   const locations = await storyWorktreeLocations(root, id);
   const target = path.resolve(locations.compact);
   const legacy = path.resolve(locations.legacy);
+  const previous = locations.previous ? path.resolve(locations.previous) : null;
   const common = gitCommonDir(root);
   const canonicalCommon = await realpath(common);
   const stagingBranch = `sflow-start-${digest(`${canonicalCommon}\0${id}`).slice(0, 16)}`;
@@ -351,7 +374,9 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
   let registered = null;
   let registeredWasLegacy = false;
   for (const entry of inventory) {
-    const atCompact = await sameRegisteredPath(entry.path, target);
+    // A checkout made beside a clone in no workspace before SCF D3 is this Story's as a compact one is.
+    const atCompact = await sameRegisteredPath(entry.path, target)
+      || Boolean(previous && await sameRegisteredPath(entry.path, previous));
     const atLegacy = !atCompact && await sameRegisteredPath(entry.path, legacy);
     if (atCompact || atLegacy) {
       registered = entry;
@@ -363,19 +388,27 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
     // A legacy checkout may have been registered through a different spelling of the same parent
     // (for example /var and /private/var on macOS). Reuse only a worktree registered for this
     // Story within the same managed namespace; never adopt an arbitrary user worktree.
-    const managedParent = await realpath(path.dirname(target)).catch((error) => {
+    const parent = (folder) => realpath(folder).catch((error) => {
       if (error?.code === 'ENOENT') return null;
       throw error;
     });
-    if (managedParent) {
+    // Legacy checkouts of a clone in no workspace sit under its old namespace (`previous`), not `<clone>.stories`.
+    const managedParent = await parent(path.dirname(previous ?? target));
+    const compactParents = (await Promise.all([...new Set([target, previous].filter(Boolean).map((entry) => path.dirname(entry)))]
+      .map(parent))).filter(Boolean);
+    if (managedParent || compactParents.length) {
       for (const entry of inventory) {
         if (entry.branch !== id && entry.branch !== storyBranch && !olderStagingName.test(entry.branch ?? '')) continue;
         // An unrelated registered checkout can be stale or inaccessible. That is not evidence
         // that it owns this Story's legacy path; the target itself is still checked below.
         const existing = await realpath(entry.path).catch(() => null);
-        if (existing && legacyStoryPath(
+        // A compact checkout re-linked after its workspace moved keeps the name it was made with (`workspace repair`).
+        const moved = existing && entry.branch !== null && !olderStagingName.test(entry.branch ?? '')
+          && /^\.w-[0-9a-f]{24}$/u.test(path.basename(existing))
+          && compactParents.some((folder) => samePlatformPath(path.dirname(existing), folder));
+        if (existing && (moved || (managedParent && legacyStoryPath(
           managedParent, existing, id, locations.legacyRepositoryId
-        )) {
+        )))) {
           registered = entry;
           registeredWasLegacy = true;
           break;
@@ -484,7 +517,7 @@ export function completeStoryWorktree(prepared) {
   return { ...prepared, completedAt: nowIso(), cleanupPending: null };
 }
 
-function durableStoryWorkflowOnBranch(root, id, storyBranch = id) {
+export function durableStoryWorkflowOnBranch(root, id, storyBranch = id) {
   const definition = run('git', ['show', `${storyBranch}:singularity/workflow.yml`], {
     cwd: root, allowFailure: true
   });
@@ -714,8 +747,23 @@ export function rollbackFailedStoryWorktree(
 /** Read-only management surface used by diagnostics and future UI recovery. */
 export function listStoryWorktrees(root) {
   return worktreeInventory(root)
-    .filter((entry) => entry.path.split(path.sep).includes('story-worktrees'))
-    .map((entry) => ({ repositoryPath: entry.path, branch: entry.branch, head: entry.head }));
+    .filter((entry) => managedStoryCheckoutPath(entry.path))
+    .map((entry) => ({ repositoryPath: entry.path, branch: entry.branch, head: entry.head,
+      ...(entry.prunable || !existsSync(entry.path) ? { missing: true } : {}) }));
+}
+
+/**
+ * The folder `workspace repair` takes for a clone: the workspace that holds it, else the clone itself (SCF:REQ-022).
+ * Read from the files alone, so it also answers for a workspace that moved.
+ */
+export function storyRepairFolder(root) {
+  let current = path.resolve(root);
+  for (;;) {
+    if (lstatSync(path.join(current, 'workspace.json'), { throwIfNoEntry: false })?.isFile()) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(root);
+    current = parent;
+  }
 }
 
 /**
@@ -729,5 +777,16 @@ export function listStoryWorktrees(root) {
 export function storyWorktreeForBranch(root, branchName) {
   const requested = String(branchName ?? '').trim();
   if (!requested) return null;
-  return listStoryWorktrees(root).find((entry) => entry.branch === requested) ?? null;
+  const found = listStoryWorktrees(root).find((entry) => entry.branch === requested) ?? null;
+  if (!found?.missing) return found;
+  // Git still lists the checkout, but its folder is gone: the workspace moved, or the folder was deleted (WS-3, WS-4).
+  // Running Git there only failed with "the folder no longer exists"; repair is the one way on.
+  const folder = storyRepairFolder(root);
+  const command = `singularity-flow workspace repair ${JSON.stringify(folder)}`;
+  throw new SingularityFlowError(`The checkout of branch ${requested} is gone from ${found.repositoryPath}: its workspace `
+    + 'moved, or the folder was deleted. workspace repair re-links a moved one and makes a deleted one again from its branch.', {
+    code: 'STORY_CHECKOUT_MISSING',
+    details: { branch: requested, checkoutPath: found.repositoryPath, repairFolder: folder,
+      nextAction: { command, label: 'Preview the repair of this workspace\'s Story checkouts' } }
+  });
 }

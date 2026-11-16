@@ -27,7 +27,8 @@ export function localWorkNotCarried(id) {
  * ends with its next step: a takeover whose session was not ready ended on that sentence (D9).
  */
 export function takeoverText(result, { commandRouteLines, safeCommandGuidance }) {
-  const lines = [`Took over ${result.workId} at phase ${result.phase ?? 'closed'}: ${result.repositoryPath}`];
+  const lines = [`Took over ${result.workId} at phase ${result.phase ?? 'closed'}: ${result.repositoryPath}`,
+    ...(result.open?.warnings ?? [])];
   const handoff = result.session?.phaseAgent?.handoff ?? null;
   const reason = result.session?.workItemSelectionRequired ? 'the Story is not selected for this session'
     : result.session?.phaseAgent?.valid === false ? `phase ${result.phase} needs its agent bound here` : null;

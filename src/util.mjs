@@ -1043,8 +1043,12 @@ export function run(command, args = [], {
   if (result.error && !allowFailure && !timedOut) {
     // Node names the program, not the folder, when the folder it was asked to run in is gone.
     if (result.error.code === 'ENOENT' && cwd && !existsSync(cwd)) {
-      throw new SingularityFlowError(`Unable to run ${command}: the folder it was asked to run in no longer exists (${cwd}).`, {
-        code: 'WORKING_DIRECTORY_MISSING', details: { command, cwd }
+      // A Story checkout's folder is gone when its workspace moved or the folder was deleted: repair puts it back (SCF:REQ-022).
+      const story = /[\\/]\.singularity-flow[\\/]story-worktrees[\\/]|\.stories[\\/]\.w-/u.test(String(cwd));
+      throw new SingularityFlowError(`Unable to run ${command}: the folder it was asked to run in no longer exists (${cwd}).`
+        + (story ? ' It is a Story checkout: its workspace moved or the folder was deleted, and workspace repair puts it back.' : ''), {
+        code: 'WORKING_DIRECTORY_MISSING', details: { command, cwd, ...(story ? { nextAction: {
+          command: 'singularity-flow workspace repair', label: 'Preview the repair, run in the workspace folder' } } : {}) }
       });
     }
     throw new SingularityFlowError(`Unable to run ${command}: ${result.error.message}`);

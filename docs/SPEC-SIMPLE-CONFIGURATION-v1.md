@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 15 November 2026
-**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026); stages 2 to 5 are not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct). Stage 1e was extended to fresh-install and local-reset the same day (D11).
+**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026); stages 2 to 5 are not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct). Stage 1e was extended to fresh-install and local-reset the same day (D11). Stage 5 is built (branch workspace-repair, 16 November 2026); building it found that D2's Git 2.29 is not enough for its main case (see D2).
 **Namespace:** SCF. No other document uses it.
 **Source baseline:** main bd90bcc46. File references are to that commit.
 **Inputs:** the four analyses of 2026-11-15 (workspaces, upgrades, editing and review, configuration history).
@@ -303,6 +303,11 @@ the decision; D2's Git 2.29 minimum is confirmed when stage 5 is built.
   development builds never propose. Commit ancestry would need the product's Git history on every machine.
 - **D2. Relative worktree links?** Recommended: no. Keep absolute links; `workspace repair` re-links them with
   `git worktree repair`, which needs Git 2.29 (to be confirmed), so the supported minimum rises from 2.25 to 2.29.
+  Checked when stage 5 was built: Git 2.29 added `git worktree repair`, but mending a clone and its worktrees that moved
+  together (a moved workspace) came in Git 2.31 (git/git cf76baea, not in v2.30.0), as did `prunable` in
+  `git worktree list --porcelain`. So 2.29 was too low. Decided by the owner on 16 November 2026: `workspace repair`
+  needs Git 2.31 and, on older Git, refuses with `WORKSPACE_REPAIR_GIT_TOO_OLD` (as built); the setup minimum stays
+  as it is (2.25).
 - **D3. Where does a clone outside any workspace keep its Story checkouts?** Recommended: a folder beside it,
   `<clone>.stories/`. Starting is refused if that would fall inside SFlow's state folder.
 - **D4. Does `approvalSecurity.allowSelfApproval` govern configuration approvals too?** Recommended: yes, one policy
@@ -359,6 +364,13 @@ Decided the same day, after stage 1e:
   (`repository.worktrees`); and a workspace clone with a Story's branch checked out in it, with no checkout of its
   own, is one while it holds uncommitted work or commits no remote has, so the reset refuses with the same
   message. Clean and published, it goes with its workspace as before.
+
+Decided 16 November 2026, after stage 5 was built:
+
+- **D12. Does one repository key loosen the stored key too?** No. The stored key (`gitRepositoryComparisonKey`, which the
+  Story index and record identities carry) stays strict: only GitHub's ssh and https spellings are one repository there.
+  `sameRepository` (host plus repository path, whatever the protocol, `.git` suffix, letter case or trailing slash) is
+  used only where a remote read now is compared with one recorded earlier (SCF:REQ-019).
 
 ## Appendix A — The findings
 

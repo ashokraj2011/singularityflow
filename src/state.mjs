@@ -10580,7 +10580,8 @@ async function skillAmendmentCandidate(root, config, workflow, skillId, approved
   const sourceRemote = approvedConfigurationSnapshot.authority?.remote;
   const previousSource = workflow.resolution.configurationSource;
   if (packageSha256 === priorPackageSha256 || !/^[a-f0-9]{40,64}$/u.test(sourceCommit ?? '')
-      || sourceCommit === previousSource?.commit || sourceRemote !== previousSource?.repository) {
+      || sourceCommit === previousSource?.commit
+      || !(await import('./git-repository-identity.mjs')).sameRepository(sourceRemote, previousSource?.repository)) {
     skillAmendmentFail('SKP_AMENDMENT_STALE',
       'The approved candidate must select a newer skill package from the same configuration authority.');
   }
@@ -10812,8 +10813,8 @@ export async function previewStorySkillVersionDecision(root, config, workflow, {
     skillAmendmentFail('SKP_AMENDMENT_STALE',
       'The committed proposal, impact, and current Story pin no longer agree.');
   }
-  if (approvedConfigurationSnapshot?.authority?.remote
-      !== workflow.resolution?.configurationSource?.repository) {
+  if (!(await import('./git-repository-identity.mjs')).sameRepository(approvedConfigurationSnapshot?.authority?.remote,
+    workflow.resolution?.configurationSource?.repository)) {
     skillAmendmentFail('SKP_AMENDMENT_AUTHORITY_CHANGED',
       'The current approved reviewer authority is not the Story’s pinned configuration repository.');
   }

@@ -1427,6 +1427,7 @@ Usage:
   singularity-flow workspace restore <DIRECTORY> [--json]
   singularity-flow workspace list [--table | --json]
   singularity-flow workspace prune [--json]
+    (forgets registrations whose workflow is not version 2, or whose folder is gone; deletes no file)
   singularity-flow workspace current [--git-shadow] [--json]
   singularity-flow workspace stories [WORK-ID] [--rebuild] [--json]
     (every Story checkout on this computer, across workspaces: workspace, repository, checkout,
@@ -1464,7 +1465,9 @@ Usage:
   singularity-flow workspace open <DIRECTORY> [--json]
   singularity-flow workspace status [DIRECTORY] [--level full|summary|readiness] [--json]
   singularity-flow workspace sync <DIRECTORY> [--json]
-  singularity-flow workspace repair [DIRECTORY] [--repository ID]... [--level full|summary|readiness] [--json]
+  singularity-flow workspace repair [DIRECTORY] [--repository ID]... [--confirm PLAN] [--level full|summary|readiness] [--json]
+    (a moved or renamed workspace, or a clone in no workspace: previews saving it where it is, re-linking its Story
+     checkouts and making a deleted one again from its branch; --confirm applies that plan; then clones what is missing)
   singularity-flow workspace prepare-branch [DIRECTORY] --repository ID --from-branch BRANCH [--json]
     (download only the selected branch into repos/<branch-folder>/<repository-id> with independent
      Git objects; original checkouts, unpublished work and failed downloads are preserved; rerun

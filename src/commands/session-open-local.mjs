@@ -11,6 +11,7 @@ import { activateWorkItemSession, agentSessionStatus } from '../session.mjs';
 import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { storyActiveElsewhere } from '../story-active-elsewhere.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -166,9 +167,13 @@ export async function openLocalSessionCommand(positionals, options) {
     );
   }
   await import('../story-index.mjs').then((index) => index.recordStoryCheckout(checkout, { source: 'session-open' })).catch(() => {});
+  // Fast-forwarded to commits made lately elsewhere: the Story was being worked on there (WS-10). Never a refusal.
+  const elsewhere = remoteSync.status === 'fast-forwarded'
+    ? storyActiveElsewhere({ workId, before: remoteSync.from, after: remoteSync.head, workflow: accepted.workflow }) : null;
   const result = {
     ready: true, localOnly: true,
     remoteSynchronized: ['current', 'fast-forwarded', 'ahead'].includes(remoteSync.status), remoteSync,
+    ...(elsewhere ? { activeElsewhere: elsewhere, warnings: [elsewhere.words] } : {}),
     workId, branch: branch(checkout), head: head(checkout), repositoryPath: checkout,
     workspaceId: selection?.workspaceId ?? resolved.workspaceId ?? null,
     repositoryId: selection?.repositoryId ?? null,
@@ -186,5 +191,6 @@ export async function openLocalSessionCommand(positionals, options) {
     unavailable: remoteSync.reason
   }[remoteSync.status];
   console.log(`Opened local Story ${workId} at ${checkout}. ${synced}`);
+  if (elsewhere) console.log(elsewhere.words);
   return result;
 }

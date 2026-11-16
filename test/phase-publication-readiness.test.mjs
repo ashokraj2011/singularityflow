@@ -225,7 +225,9 @@ test('missing MCP evidence and a missing required host are actionable without st
     { server: 'playwright', tool: 'browser_snapshot', minimum: 1, outputRequired: true }
   ] };
   const evidence = await expectBlocked(f, 'external-evidence', 'MCP_EVIDENCE_REQUIRED');
-  assert.match(evidence.correction.guidance, /this phase generation/);
+  // In plain words since 2026-11-16 (8c68a0b14, then 8ac43fb0f: a step's generation is its "version").
+  assert.match(evidence.correction.guidance, /^Run the required tools for this version through the allowed MCP host/u);
+  assert.match(evidence.correction.guidance, /cannot be replaced by a written claim or by another version's evidence/u);
   f.phase.mcp.requiredServers = ['not-installed'];
   const host = await expectBlocked(f, 'host', 'MCP_PHASE_NOT_READY');
   assert.equal(host.commands.next, 'singularity-flow mcp doctor --json');

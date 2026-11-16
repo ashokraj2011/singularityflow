@@ -323,9 +323,8 @@ test('an approval that cannot reach the remote, or whose answer is lost, is neve
     // Lost answer with the remote still there: approval reads the outcome back and reports it once.
     await submitted(a, 'LATE-1');
     await writeFile(a.loseNextPush, '');
-    // An approval that lands prints its review before its result.
-    const approved = a.flow(['approve', 'intake', '--yes', '--json']).stdout;
-    const late = JSON.parse(approved.slice(approved.lastIndexOf('\n{\n') + 1));
+    // An approval that lands prints its result alone: --json is one object on stdout.
+    const late = JSON.parse(a.flow(['approve', 'intake', '--yes', '--json']).stdout);
     assert.equal(late.outcome.status, 'succeeded');
     assert.equal(late.data.pushed, true);
     assert.equal(existsSync(a.loseNextPush), false, 'the answer was lost');

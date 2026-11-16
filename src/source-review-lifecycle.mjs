@@ -79,7 +79,7 @@ function checkPublishedGeneration(workflow, phaseId) {
   if (!phase || !['in_progress', 'awaiting_approval', 'approved'].includes(phase.status)
       || !Number.isSafeInteger(phase.generation) || phase.generation < 1) {
     // Nothing is published to review yet: the Story's next step (writing it, or an earlier step) is the way on.
-    throw new SingularityFlowError(`'${phaseId}' has no published generation yet, so there is nothing to review; review it once it is published.`, {
+    throw new SingularityFlowError(`'${phaseId}' has no published version yet, so there is nothing to review; review it once it is published.`, {
       code: 'SOURCE_REVIEW_GENERATION_REQUIRED', details: { phase: phaseId, ...storyNextDetails(workflow) }
     });
   }

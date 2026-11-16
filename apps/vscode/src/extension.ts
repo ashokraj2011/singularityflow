@@ -6081,16 +6081,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (change.kind === 'snapshot' && state.snapshot && !state.stale) chatPrefill.observe();
   }));
   // A turn that ends removes its marker: the state it ended on is filled then. Watched from the machine folder,
-  // which exists, as the Copilot Story follower watches its own; window focus re-checks a missed event.
+  // which exists, by the Copilot Story follower's own watcher below; window focus re-checks a missed event.
   const turnDirectory = copilotTurnDirectory();
   // A crashed turn's marker is never removed by a stop: this repository's older than a day go when the window starts.
   void removeOldCopilotTurns(turnDirectory, repository).catch(() => 0);
-  const turnWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
-    vscode.Uri.file(path.dirname(turnDirectory)), `${path.basename(turnDirectory)}/*`));
-  context.subscriptions.push(turnWatcher,
-    turnWatcher.onDidCreate(() => chatPrefill.turnChanged()),
-    turnWatcher.onDidChange(() => chatPrefill.turnChanged()),
-    turnWatcher.onDidDelete(() => chatPrefill.turnChanged()),
+  context.subscriptions.push(
     vscode.window.onDidChangeWindowState((state) => { if (state.focused) chatPrefill.turnChanged(); }));
   if (typeof vscode.workspace.onDidChangeTextDocument === 'function') {
     context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((event) => {
@@ -6377,12 +6372,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onError: error => output.appendLine(`Could not follow Copilot's Story: ${error.message}`)
   });
   reconcileCopilotStory = () => copilotFollower.reconcile();
+  // Copilot's records in the machine folder share one watcher: its Story follow records and its open-turn markers
+  // (chat-prefill.ts) sit side by side there. They part only when the active-workspace file alone was moved and the
+  // Copilot mode file was not; then the markers keep a watcher of their own. An event names its file: a follow
+  // record's reconciles the Story, any other (a marker's, or one with no path) re-checks the open turn.
   const copilotFollowDirectory = copilotStoryFollowDirectory();
-  const copilotFollowWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
-    vscode.Uri.file(path.dirname(copilotFollowDirectory)), `${path.basename(copilotFollowDirectory)}/*.json`));
-  context.subscriptions.push(copilotFollower, copilotFollowWatcher,
-    copilotFollowWatcher.onDidCreate(() => { void reconcileCopilotStory(); }),
-    copilotFollowWatcher.onDidChange(() => { void reconcileCopilotStory(); }),
+  const copilotFolder = path.dirname(copilotFollowDirectory);
+  const followRecords = `${path.basename(copilotFollowDirectory)}/*.json`;
+  const turnMarkers = `${path.basename(turnDirectory)}/*`;
+  const turnsBeside = path.resolve(path.dirname(turnDirectory)) === path.resolve(copilotFolder);
+  const copilotWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
+    vscode.Uri.file(copilotFolder), turnsBeside ? `{${followRecords},${turnMarkers}}` : followRecords));
+  const turnWatcher = turnsBeside ? null : vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
+    vscode.Uri.file(path.dirname(turnDirectory)), turnMarkers));
+  const isFollowRecord = (uri?: { fsPath?: string }): boolean => typeof uri?.fsPath === 'string'
+    && path.resolve(path.dirname(uri.fsPath)) === path.resolve(copilotFollowDirectory);
+  const copilotRecordChanged = (uri?: { fsPath?: string }): void => {
+    if (isFollowRecord(uri)) void reconcileCopilotStory();
+    else chatPrefill.turnChanged();
+  };
+  context.subscriptions.push(copilotFollower, copilotWatcher,
+    copilotWatcher.onDidCreate(copilotRecordChanged),
+    copilotWatcher.onDidChange(copilotRecordChanged),
+    copilotWatcher.onDidDelete((uri) => { if (!isFollowRecord(uri)) chatPrefill.turnChanged(); }),
+    ...(turnWatcher ? [turnWatcher, turnWatcher.onDidCreate(() => chatPrefill.turnChanged()),
+      turnWatcher.onDidChange(() => chatPrefill.turnChanged()), turnWatcher.onDidDelete(() => chatPrefill.turnChanged())] : []),
     vscode.window.onDidChangeWindowState(state => { if (state.focused) void reconcileCopilotStory(); }));
   void reconcileCopilotStory();
 

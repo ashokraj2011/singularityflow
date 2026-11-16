@@ -171,7 +171,7 @@ test('a .nvmrc naming a Node not installed here offers to change it to one that 
   assert.equal(offered.plain.question, 'Change .nvmrc to Node 22 for Implement\'s tests?');
   assert.match(offered.plain.why, /^\.nvmrc asks for Node 18, which is not installed here; Node 22\.14\.0 is\.$/u);
   assert.match(offered.why, /\.nvmrc asks for Node 18, and no installed Node matches\./u);
-  assert.match(offered.why, /or install Node 18 and there is nothing to choose/u);
+  assert.match(offered.why, /Or install Node 18 and there is nothing to choose\./u);
 
   // The gate's own refusal says the same, and its first route is that choice.
   const gate = json('phase', 'publish', 'implement');

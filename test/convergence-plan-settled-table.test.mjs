@@ -24,7 +24,7 @@ test('the decisions table on both hosts says it is settled, by which entry, and 
     dispositions: [{ id: 'accepted-deviation', label: 'Accept as is' }, { id: 'rework', label: 'Send back to fix' }] };
 
   const table = decisionsTable(list);
-  assert.match(table, /1 of 1 still needs a decision\. 2 settled by the plan, not asked\./u);
+  assert.match(table, /1 of 1 still needs a decision, listed below\. 2 settled by the plan are below too, not asked\./u);
   assert.match(table, /\| package\.json \| Supporting file: add the browser test dependency and its script\. \| Settled by the plan \|/u);
   assert.match(table, /\| src\/test\/setup\.js \| PAM-001 under BIN:REQ-001: Test-only/u);
 
@@ -54,7 +54,7 @@ test('the decisions table on both hosts says it is settled, by which entry, and 
   const shown = [];
   const quiet = await runDecisions({ askedInChat: true, read: async () => none, show: async (text) => { shown.push(text); }, ask: async () => assert.fail('asked with nothing open'), record: async () => assert.fail('recorded with nothing open') });
   assert.equal(quiet.status, 'nothing-open');
-  assert.match(shown[0], /2 settled by the plan, not asked\./u);
+  assert.match(shown[0], /2 settled by the plan are below too, not asked\./u);
   const closed = adjudicationHtml(none);
   assert.match(closed, /Nothing here needs a decision\./u);
   assert.match(closed, /data-review/u, 'a settled row can still be overruled here, with nothing chosen');

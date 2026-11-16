@@ -183,7 +183,8 @@ test('a pull request carrying a commit made after the Story closed is blocked wi
     assert.equal(approved.status, 0, `${phaseId}\n${approved.stdout}\n${approved.stderr}`);
   }
   // The preview prints its plan, then says it is a preview.
-  const plan = () => { const out = flow(root, ['pr', '--json']).stdout; return JSON.parse(out.slice(0, out.lastIndexOf('}') + 1)); };
+  // `pr --json` is the plan alone: no "Preview only" line after it.
+  const plan = () => JSON.parse(flow(root, ['pr', '--json']).stdout);
   assert.deepEqual(plan().blockedBy, [], 'a closed Story with nothing after it is ready');
 
   // main moves on and is merged in: the pull request adds nothing main lacks, so it stays ready.
@@ -283,8 +284,7 @@ test('a pull request waits for a closing commit that has not been published', sl
   // Only the closing approval's push is refused.
   await writeFile(path.join(`${root}.git`, 'hooks', 'pre-receive'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   assert.notEqual(flow(root, ['approve', '--yes'], { allowFailure: true }).status, 0);
-  const out = flow(root, ['pr', '--json']).stdout;
-  const blocked = JSON.parse(out.slice(0, out.lastIndexOf('}') + 1)).blockedBy;
+  const blocked = JSON.parse(flow(root, ['pr', '--json']).stdout).blockedBy;
   assert.ok(blocked.some((entry) => /BASE-5 has a commit waiting to be published; run singularity-flow sync BASE-5/u.test(entry)), blocked.join('\n'));
   const create = flow(root, ['pr', '--create', '--yes'], { allowFailure: true });
   assert.notEqual(create.status, 0);

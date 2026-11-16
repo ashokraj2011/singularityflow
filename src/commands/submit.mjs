@@ -197,9 +197,12 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       worktreeGuard: submissionStabilityGuard
     }
   ));
+  // `--json` asks for one result object and nothing else on stdout: what the lines below tell a person, its
+  // data and outcome carry instead (`story advance --confirm --json` comes through here too).
+  const json = optionBoolean(options, 'json');
   if (!reviewPacket) {
     console.warn('Warning: the submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
-    printCommandRoutes(`singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, {
+    if (!json) printCommandRoutes(`singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, {
       label: 'Inspect committed submission evidence'
     });
   }
@@ -229,32 +232,35 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   const fixedOnTheWay = phase.status === 'approved' && workflow.departures?.some((entry) => entry.phase === phase.id && entry.findings?.length)
     ? await (await import('../findings/register/on-the-way.mjs')).recordFindingsAfterApproval(root, config,
       (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow, phase.id) : null;
-  if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
-  else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
-  else console.log(`\nSubmitted ${phase.id} phase for approval.`);
-  for (const repair of registrationRepairs) {
-    console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
-  }
-  console.log(`Committed: ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
-  console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
-  if (receiptsLine) console.log(receiptsLine);
-  if (fixedOnTheWay?.moved.length) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
-  // The packet's file is named by its digest: a person reads that it was kept, `--json` gives its path.
-  if (reviewPacket) console.log(`Review packet: kept with ${phase.id} generation ${phase.generation}`);
-  if (evidenceReceipt) console.log(`\n${renderEvidenceReceipt(evidenceReceipt)}`);
-  const submittedReview = await postPublicationStep(
-    'the submitted phase review projection', workflow.workItem.id,
-    () => phaseReview(root, config, workflow, phase)
-  );
-  if (submittedReview.ok) {
-    printPhaseReview(submittedReview.value, { showArtifact: optionBoolean(options, 'show-artifact') });
+  const pushedTo = publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : null;
+  if (!json) {
+    if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
+    else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
+    else console.log(`\nSubmitted ${phase.id} phase for approval.`);
+    for (const repair of registrationRepairs) {
+      console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
+    }
+    console.log(`Committed: ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
+    console.log(`Push: ${pushedTo ?? 'disabled by git.publish: off'}`);
+    if (receiptsLine) console.log(receiptsLine);
+    if (fixedOnTheWay?.moved.length) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
+    // The packet's file is named by its digest: a person reads that it was kept, `--json` gives the digest.
+    if (reviewPacket) console.log(`Review packet: kept with ${phase.id} generation ${phase.generation}`);
+    if (evidenceReceipt) console.log(`\n${renderEvidenceReceipt(evidenceReceipt)}`);
+    const submittedReview = await postPublicationStep(
+      'the submitted phase review projection', workflow.workItem.id,
+      () => phaseReview(root, config, workflow, phase)
+    );
+    if (submittedReview.ok) {
+      printPhaseReview(submittedReview.value, { showArtifact: optionBoolean(options, 'show-artifact') });
+    }
   }
   // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand
   // here; NEXT now comes from the deterministic planner against the state the submission left.
   const advanced = currentPhase(workflow);
   // An approval-free last phase ends the Story here; its transaction passed the final evaluation.
   const completion = !advanced ? recordedCompletion(workflow) : null;
-  if (completion) printCompletionVerdict(completion);
+  if (completion && !json) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'submit', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -270,10 +276,13 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       reviewPacket: reviewPacket?.packet?.packetSha256 ?? null,
       evidenceReceipt,
       registrationRepairs,
+      generation: phase.generation,
+      pushedTo,
+      ...(fixedOnTheWay?.moved.length ? { fixedOnTheWay: fixedOnTheWay.moved } : {}),
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
   }), {
-    postState: workflow, restStateWhenIdle: advanced || completion ? null : 'complete',
+    json, postState: workflow, restStateWhenIdle: advanced || completion ? null : 'complete',
     stepActionHold: phase.status === 'approved' ? await stepActionHoldAfterTransition(root, config, workflow) : null
   });
 }

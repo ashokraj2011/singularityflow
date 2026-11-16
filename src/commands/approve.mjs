@@ -96,6 +96,9 @@ export function witnessMappingDecisions(options) {
 export async function approveCommand(positionals, options, dependencies = {}) {
   const forAgent = optionBoolean(options, 'for-agent');
   if (forAgent && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent approval requires --json; it changes presentation only.');
+  // `--json` is one result object on stdout, with or without `--for-agent`: the review and the lines a person reads are
+  // left out, as for an agent. Questions asked in a person's own terminal stay as they are.
+  const quiet = forAgent || optionBoolean(options, 'json');
   if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
     throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
   }
@@ -105,9 +108,9 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   // `approve <PHASE>` typed after this terminal showed the review is the one confirmation [SPEC-OAP M4].
   const reviewed = terminalReviewBinding(workflow, phase);
   const confirmedByCommand = asking && Boolean(requestedPhase) && await terminalReviewShown(root, reviewed, session.actor);
-  if (confirmedByCommand && !forAgent) {
+  if (confirmedByCommand && !quiet) {
     console.log(`Approving the ${phase.label ?? phase.id} review you read in this terminal (generation ${phase.generation}).`);
-  } else if (!forAgent) {
+  } else if (!quiet) {
     // Approval itself names any commit that blocks it, in its refusal; the advisory would only repeat it.
     printPhaseReview(await phaseReview(root, config, workflow, phase, { includeApprovalCheck: false }), { showArtifact: optionBoolean(options, 'show-artifact') });
     if (asking) await recordTerminalReview(root, reviewed, session.actor);
@@ -125,7 +128,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
     session.actor,
     { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, phase.approvals, { counts }) }
   );
-  if (!forAgent) {
+  if (!quiet) {
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
   console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
   console.log(`Agent: ${session.agent} (prompt/audit context only)`);
@@ -158,7 +161,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   } else if (asking && !forAgent && processInput.isTTY && processOutput.isTTY) {
     ({ decisions, prompt } = await askApprovalDecisions(root, config, workflow, phase, who));
   }
-  if (decisions && !forAgent) {
+  if (decisions && !quiet) {
     console.log('\nRecorded with this approval, in the same commit:');
     for (const line of decisions.summary) console.log(`  ${line}`);
   }
@@ -177,7 +180,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   // The evidence the approver confirms with this approval, recorded in its commit as witnesses.
   const witnessRecords = optionBoolean(options, 'confirm-evidence') ? await import('../verification/witness-records.mjs') : null;
   const evidence = witnessRecords ? await witnessRecords.evidenceConfirmations(root, config, workflow, session.actor) : null;
-  if (evidence && !forAgent) {
+  if (evidence && !quiet) {
     console.log('\nConfirmed with this approval: each file states the outcome, matches its criterion and is current for this change.');
     for (const entry of evidence.confirm) console.log(`  ${entry.clauseId} ${entry.slot.slot}: ${entry.file}`);
     for (const entry of evidence.others) console.log(`  not confirmed here: ${entry.clauseId} ${entry.slot}, because ${entry.reason}`);
@@ -288,26 +291,26 @@ export async function approveCommand(positionals, options, dependencies = {}) {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, accepted.config, accepted.workflow);
   });
-  if (!forAgent) console.log(publication.pushed
+  if (!quiet) console.log(publication.pushed
     ? `Approval decision committed and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed locally; push is disabled by git.publish: off.`);
-  if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; agent ${result.approval.agent}.${presenceLabel(presenceModule, workflow, result.approval)}`);
-  if (!forAgent && result.decisions) console.log(`Recorded in the same commit: ${result.decisions.map((entry) => `${entry.item} ${entry.record}`).join(', ')}.`);
+  if (!quiet) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; agent ${result.approval.agent}.${presenceLabel(presenceModule, workflow, result.approval)}`);
+  if (!quiet && result.decisions) console.log(`Recorded in the same commit: ${result.decisions.map((entry) => `${entry.item} ${entry.record}`).join(', ')}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
-  if (receiptsLine && !forAgent) console.log(receiptsLine);
+  if (receiptsLine && !quiet) console.log(receiptsLine);
   const usageLine = await recordSpecUsageAfterTransition(root, config, workflow, { phase: result.phase.id, ended: !result.next });
-  if (usageLine && !forAgent) console.log(usageLine);
+  if (usageLine && !quiet) console.log(usageLine);
   // The register items this step fixed on the way are fixed, awaiting proof [CQF:REQ-066]; the approval stands whatever the register does.
   const fixedOnTheWay = result.reached !== false && workflow.departures?.some((entry) => entry.phase === result.phase.id && entry.findings?.length)
     ? await (await import('../findings/register/on-the-way.mjs')).recordFindingsAfterApproval(root, config,
       (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow, result.phase.id) : null;
-  if (fixedOnTheWay?.moved.length && !forAgent) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
+  if (fixedOnTheWay?.moved.length && !quiet) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
   if (fixedOnTheWay?.error) console.warn(`Warning: the approval landed, but the findings register could not be written (${fixedOnTheWay.error}); its items move when the Story closes, at the next findings import or report.`);
-  if (!forAgent) formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
+  if (!quiet) formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);
-  if (completion && !forAgent) printCompletionVerdict(completion);
+  if (completion && !quiet) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'approve', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },

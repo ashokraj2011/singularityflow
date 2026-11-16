@@ -14,7 +14,7 @@ import { registerMessageRouter, stringField } from './messages.ts';
 import { navigateTo } from './navigate.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import {
-  ADJUDICATION_SCRIPT, ADJUDICATION_STYLE, adjudicationAnswersFrom, adjudicationDecided, adjudicationDraftFrom, adjudicationHtml, adjudicationListFrom, adjudicationSummary,
+  ADJUDICATION_SCRIPT, ADJUDICATION_STYLE, adjudicationAnswersFrom, adjudicationDecided, adjudicationDraftFrom, adjudicationHtml, adjudicationListFrom, adjudicationNames, adjudicationSummary,
   type AdjudicationAnswer, type AdjudicationDraft, type AdjudicationList
 } from './adjudication-page.ts';
 
@@ -92,7 +92,7 @@ export async function reviewAdjudications(client: SingularityFlowClient, target:
           const remaining = result.remaining ?? [];
           const made = adjudicationDecided(list, answers, result.recorded ?? []);
           finish({ status: 'recorded', recorded: result.recorded ?? [], decided: made, unchanged: result.unchanged ?? [], remaining, next: result.next,
-            message: `${(result.recorded ?? []).length} recorded.${made.length ? ` ${made.join('. ')}.` : ''}${remaining.length ? ` ${remaining.length} still ${remaining.length === 1 ? 'needs' : 'need'} a decision.` : ' All decided.'}` });
+            message: `${(result.recorded ?? []).length} recorded.${made.length ? ` ${made.join('. ')}.` : ''}${remaining.length ? ` ${remaining.length} still ${remaining.length === 1 ? 'needs' : 'need'} a decision: ${adjudicationNames(list, remaining).join(', ')}.` : ' All decided.'}` });
         } catch (error) {
           busy = false;
           list = await readList(client, workId).catch(() => list);

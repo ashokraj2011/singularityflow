@@ -86,7 +86,7 @@ export async function reviewSourceCommand(positionals, options) {
     effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true }) : noEffects(),
     restState: changed ? 'complete' : 'informational', data,
     next: (data?.continuation?.actions ?? []).map((entry, index) => narrationAction({ id: `source-review.next.${index}`, command: entry.command, skill: entry.skill, label: entry.reason, rank: 'NOW' }))
-  }), { postState: workflow });
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
   if (action === 'status' && !sourceReviewRequired(workflow, phaseId)) {
     const result = { schemaVersion: 1, resultType: 'source-review-status',
       workId: workflow.workItem.id, phase: phaseId, mode: 'off', status: 'not-required',

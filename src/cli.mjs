@@ -1505,9 +1505,13 @@ async function agentCommand(positionals, options = {}) {
     selection: optionString(options, 'agent') ?? null,
     nonInteractiveHint: 'Pass --agent <id> to choose one without a terminal.'
   });
-  console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
-  console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
-  console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
+  // `--json` is the result object alone.
+  const json = optionBoolean(options, 'json');
+  if (!json) {
+    console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
+    console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
+    console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
+  }
   if (session.phaseCompatibilityOverride) console.warn(`Warning: ${session.agent} is not declared for phase '${session.phaseCompatibilityOverride.phase}'. This is an audited prompt override, not approval authority.`);
   emitCommandResult(commandResult({
     operation: { id: 'agent', classification: 'mutation' },
@@ -1516,7 +1520,7 @@ async function agentCommand(positionals, options = {}) {
     // Agent selection is local to this checkout. It changes the session record but not governed
     // lifecycle state and does not publish anything.
     effects: effects({ filesChanged: true })
-  }), { postState: workflow });
+  }), { json, postState: workflow });
 }
 
 export async function statusCommand(positionals, options) {
@@ -3475,6 +3479,7 @@ async function artifactCommand(positionals, options) {
       await saveStoryDraft(root, config, workflow);
       return registered;
     });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(artifactRegistration(workflow, phaseId, 'add', records), null, 2));
     records.forEach((record) => console.log(`${record.kind}\t${record.path}`));
     return;
   }
@@ -3484,11 +3489,18 @@ async function artifactCommand(positionals, options) {
       await saveStoryDraft(root, config, workflow);
       return scanned;
     });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(artifactRegistration(workflow, phaseId, 'scan', records), null, 2));
     if (!records.length) console.log('No changed artifacts found.');
     else records.forEach((record) => console.log(`${record.kind}\t${record.path}`));
     return;
   }
   throw new SingularityFlowError(`Unknown artifact subcommand: ${subcommand}`);
+}
+
+/** `artifact add|scan --json`: the documents registered, as one object. */
+function artifactRegistration(workflow, phaseId, action, records) {
+  return { schemaVersion: 1, resultType: 'sflow-artifact-registration', action, workId: workflow.workItem.id,
+    phase: phaseId ?? workflow.currentPhase, artifacts: records.map((record) => ({ kind: record.kind, path: record.path })) };
 }
 
 async function pullRequestCommand(positionals, options) {
@@ -3573,8 +3585,11 @@ async function pullRequestCommand(positionals, options) {
     return;
   }
 
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
-  else {
+  // `--json` is one object on stdout: the plan for a preview, and the plan with the pull request once it is opened.
+  const json = optionBoolean(options, 'json');
+  const create = optionBoolean(options, 'create');
+  if (json && !create) return console.log(JSON.stringify(plan, null, 2));
+  if (!json) {
     console.log(`Pull request for ${plan.workId}\n`);
     console.log(`  ${plan.head} → ${plan.base}   (policy: ${plan.policy})`);
     if (plan.requiredChecks.length) console.log(`  Required checks: ${plan.requiredChecks.join(', ')}`);
@@ -3584,7 +3599,7 @@ async function pullRequestCommand(positionals, options) {
 
   // Opening a pull request is an outward action, so preview is the default: it requires an
   // explicit --create plus a typed confirmation of the exact work ID.
-  if (!optionBoolean(options, 'create')) {
+  if (!create) {
     console.log('Preview only. Re-run with --create to open this pull request.');
     return;
   }
@@ -3592,6 +3607,7 @@ async function pullRequestCommand(positionals, options) {
     throw new SingularityFlowError('Pull request cancelled.');
   }
   const result = createStoryPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
+  if (json) return console.log(JSON.stringify({ ...plan, pullRequest: result }, null, 2));
   console.log(result.status === 'existing'
     ? `A pull request already exists: ${result.url}`
     : `Opened ${result.url}`);
@@ -3689,7 +3705,9 @@ async function rejectCommand(positionals, options) {
   // SF Guard (SPEC-PSS-v1 M2): a Story it requires takes the person's presence signature; checked before any write.
   const presence = workflow.resolution?.presence ? await (await import('./presence/person-records.mjs')).preparePersonPresence(root, { workflow, phase: current, actor: session.actor, action: 'phase.reject' }) : null;
   const target = optionString(options, 'to') ?? current.id;
-  console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward are invalidated, except those of steps whose inputs do not change: they are kept.`);
+  // `--json` is the result object alone; the lines below say what its data says.
+  const json = optionBoolean(options, 'json');
+  if (!json) console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward are invalidated, except those of steps whose inputs do not change: they are kept.`);
   // Inside the transaction: rejecting used to write workflow.json and the change-request decision
   // first and publish afterwards, so a refusal in the publication preflight reported that nothing
   // had happened while leaving every downstream approval invalidated and the decision durable and
@@ -3727,20 +3745,23 @@ async function rejectCommand(positionals, options) {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, accepted.config, accepted.workflow);
   });
-  console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
-  if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
-  if (phase.changeRequest.members?.length) {
-    console.log(`Members to regenerate: ${phase.changeRequest.members.join(', ')}`);
-    console.log('Every other member must come back byte-identical; anything else that changes is reported at publication.');
+  if (!json) {
+    console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
+    if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
+    if (phase.changeRequest.members?.length) {
+      console.log(`Members to regenerate: ${phase.changeRequest.members.join(', ')}`);
+      console.log('Every other member must come back byte-identical; anything else that changes is reported at publication.');
+    }
+    formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
   }
-  formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
   emitCommandResult(commandResult({
     operation: { id: 'reject', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('reject.succeeded', { phase: current.id, target: phase.id }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { changeRequestId: phase.changeRequest.id }
-  }), { postState: workflow });
+    data: { changeRequestId: phase.changeRequest.id, comment: phase.changeRequest.comment,
+      clauseIds: phase.changeRequest.clauseIds ?? [], members: phase.changeRequest.members ?? [], contextBoundary: phase.contextBoundary ?? null }
+  }), { json, postState: workflow });
 }
 
 /**
@@ -4663,6 +4684,10 @@ async function reopenCommand(positionals, options) {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, accepted.config, accepted.workflow);
   });
+  if (optionBoolean(options, 'json')) {
+    return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-story-reopened', workId: workflow.workItem.id,
+      phase: result.phase.id, changeRequestId: result.changeRequest.id, commit: publication.sha ?? null, pushed: publication.pushed === true }, null, 2));
+  }
   console.log(`Reopened ${workflow.workItem.id} at ${result.phase.id} with ${result.changeRequest.id}.`);
   console.log(publication.pushed
     ? `Decision committed and pushed.`
@@ -4747,12 +4772,19 @@ async function cancelCommand(positionals, options) {
       session: cancelSession
     })
   );
+  const remainingChanges = changedFiles(root);
+  if (optionBoolean(options, 'json')) {
+    const release = `singularity-flow cancel ${workflow.workItem.id} --release`;
+    return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-story-cancelled', workId: workflow.workItem.id,
+      phase: result.phase.id, reason: result.cancellation.reason, branch: workflowPublicationBranch(root, workflow),
+      commit: publication.sha ?? null, pushed: publication.pushed === true, uncommittedPaths: remainingChanges,
+      next: remainingChanges.length ? [{ command: release, label: 'Preview safe release' }] : [] }, null, 2));
+  }
   console.log(`Cancelled ${workflow.workItem.id} during ${result.phase.id}: ${result.cancellation.reason}`);
   console.log(`All generated artifacts and approvals remain on ${workflowPublicationBranch(root, workflow)}.`);
   console.log(publication.pushed
     ? `Cancellation committed and pushed; the Story is now archived.`
     : `Cancellation committed locally; the Story is now archived.`);
-  const remainingChanges = changedFiles(root);
   if (remainingChanges.length) {
     console.log(`${remainingChanges.length} uncommitted path(s) remain on the archived branch.`);
     printCommandRoutes(`singularity-flow cancel ${workflow.workItem.id} --release`, { label: 'Preview safe release' });
@@ -7777,6 +7809,10 @@ async function initiativeCommand(positionals, options) {
       });
     }
     if (direct.status === 'recovered') {
+      if (optionBoolean(options, 'json')) {
+        return console.log(JSON.stringify({ initiativeId, recovered: 'rolled-back-before-commit', rescuePath: direct.rescuePath ?? null,
+          next: [{ command: `singularity-flow initiative next ${initiativeId}`, label: 'Before retrying' }] }, null, 2));
+      }
       console.log(`Rolled back the interrupted pre-commit Initiative publication for ${initiativeId}.`);
       if (direct.rescuePath) console.log(`Preserved the interrupted partial bytes at ${direct.rescuePath}.`);
       printCommandRoutes(`singularity-flow initiative next ${initiativeId}`, { label: 'Before retrying' });
@@ -8244,6 +8280,9 @@ async function initiativeCommand(positionals, options) {
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'adopt', epicKey } }, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
+    if (optionBoolean(options, 'json')) {
+      return console.log(JSON.stringify({ initiativeId, epicKey, epics: result.breakdown.epics.length, stories: result.breakdown.stories.length, publication }, null, 2));
+    }
     console.log(`Adopted ${epicKey} as ${result.breakdown.epics.length} Epic and ${result.breakdown.stories.length} stories.`);
     console.log(`Source snapshot recorded · Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
@@ -8278,6 +8317,7 @@ async function initiativeCommand(positionals, options) {
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ initiativeId, planSha256, results: result.results, publication }, null, 2));
     console.log(`Applied ${result.results.length} Jira operations. Committed${publication.pushed ? ' and pushed' : ''}.`);
     result.results.forEach((receipt) => console.log(`- ${receipt.operationId}: ${receipt.jiraKey}`));
     return;
@@ -8293,6 +8333,7 @@ async function initiativeCommand(positionals, options) {
     const result = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
     const fresh = await loadInitiativeAggregate(root, initiativeId);
     const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'materialize', status: result.attempt.status } }, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ initiativeId, attempt: result.attempt, failures: result.failures, publication }, null, 2));
     console.log(`Materialization ${result.attempt.status}: ${result.attempt.stories.length - result.failures.length}/${result.attempt.stories.length} ready. Committed${publication.pushed ? ' and pushed' : ''}.`);
     result.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
     return;
@@ -8323,6 +8364,7 @@ async function initiativeCommand(positionals, options) {
       });
       const fresh = await loadInitiativeAggregate(root, initiativeId);
       const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, payload: { contractId: result.contract.id, contractVersion: result.contract.version } }, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ initiativeId, contract: result.contract, publication }, null, 2));
       console.log(`Registered ${result.contract.id}@${result.contract.version}. Committed${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
@@ -10323,15 +10365,17 @@ async function epicCommand(positionals, options) {
       initiativeMergeState(root, initiativeId)
     ]);
     const plan = epicPullRequestPlan(root, config, initiative, mergeSequence);
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
-    else {
+    // `--json` is one object on stdout, as for a Story's pull request.
+    const json = optionBoolean(options, 'json');
+    if (json && !optionBoolean(options, 'create')) return console.log(JSON.stringify(plan, null, 2));
+    if (!json) {
       console.log(`Epic pull request for ${plan.subjectId}\n`);
       console.log(`  ${plan.head} → ${plan.base}`);
       if (plan.blockedBy.length) console.log(`  Blocked by: ${plan.blockedBy.join(', ')}`);
       console.log(`\n--- title ---\n${plan.title}\n\n--- body ---\n${plan.body}\n`);
     }
     if (!optionBoolean(options, 'create')) {
-      if (!optionBoolean(options, 'json')) console.log('Preview only. Re-run with --create to open this pull request.');
+      console.log('Preview only. Re-run with --create to open this pull request.');
       return;
     }
     if (!optionBoolean(options, 'yes')
@@ -10339,6 +10383,7 @@ async function epicCommand(positionals, options) {
       throw new SingularityFlowError('Epic pull request cancelled.');
     }
     const result = createPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
+    if (json) return console.log(JSON.stringify({ ...plan, pullRequest: result }, null, 2));
     console.log(result.status === 'existing'
       ? `A pull request already exists: ${result.url}`
       : `Opened ${result.url}`);

@@ -31,11 +31,28 @@ function notSubmittedReason(readiness) {
 /**
  * What `submit` says it did: its commit, push and packet come first in what it prints, and its last
  * lines give next steps for the state before the holds were read. `next` is the next step, `review` the documents.
+ * Read only when `submit --json` gave no result object.
  */
 export function submitReport(stdout) {
   const lines = stdout.split('\n').map((line) => line.trim());
   const did = lines.filter((line) => /^(?:Commit|Committed|Push|Review packet): |^(?:Submitted|Completed) /u.test(line));
   return did.length ? did.join('\n') : lines.filter(Boolean).slice(-40).join('\n');
+}
+
+/**
+ * What `submit --json` says it did, in the facts its text names: the step and its version, whether the
+ * submission completed the step, and where it was pushed. Never its commit or packet digest: an agent relays this.
+ */
+export function submittedResult(value) {
+  const data = value?.data ?? {};
+  const messageId = value?.outcome?.messageId;
+  return {
+    phase: value?.outcome?.slots?.phase ?? null,
+    generation: data.generation ?? null,
+    status: messageId === 'submit.completed' ? 'completed' : messageId === 'submit.noop' ? 'already-submitted' : 'submitted',
+    committed: typeof data.commit === 'string',
+    pushedTo: data.pushedTo ?? null
+  };
 }
 
 export async function run({ positionals, options }) {
@@ -60,7 +77,7 @@ export async function run({ positionals, options }) {
   // First, with what follows: the readiness fields after it describe the step before submission.
   console.log(JSON.stringify({ submitIfReady: {
     submitted: true, next: nextAfterStep(shown.value, 'Submitted.'), command: readiness.nextCommand,
-    result: submitted.value ?? submitReport(submitted.stdout),
+    result: submitted.value?.operation?.id === 'submit' ? submittedResult(submitted.value) : submitReport(submitted.stdout),
     review: shown.value
   }, ...readiness }, null, 2));
 }

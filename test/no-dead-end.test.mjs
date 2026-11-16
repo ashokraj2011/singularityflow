@@ -25,7 +25,9 @@ import { slowLane } from './helpers/slow-lane.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/known-dead-ends.json'), 'utf8'));
 // Lowered as entries go. Raising one is a decision a reviewer sees, not a line in a long list.
-const CEILING = Object.freeze({ walks: 0, readOnlyFirstRoutes: 173 });
+// 176 (from 173): SPEC-SCF stage 4's three configuration-ancestry refusals, whose way through is an approver's or the
+// team's preview-then-confirm, or a restore on the Git host [2026-11-17 landing].
+const CEILING = Object.freeze({ walks: 0, readOnlyFirstRoutes: 176 });
 
 const MAJOR = process.versions.node.split('.')[0];
 // A Node this machine does not run, as a small script that runs the real one (project-node-version.test.mjs), and a

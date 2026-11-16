@@ -104,7 +104,8 @@ test('a change the person asks for after Code is published opens generation 2 in
   const preview = json(cli('phase', 'rollover', 'implementation', '--json'));
   assert.equal(preview.kind, 'requested-change');
   assert.deepEqual([preview.fromGeneration, preview.toGeneration], [1, 2]);
-  assert.deepEqual(preview.requestedChange.requests, [TYPED]);
+  // The step's name typed after the command is its target, not part of what the person asked for (OSA Stage 4, REQ-027).
+  assert.deepEqual(preview.requestedChange.requests, [ASKED]);
   assert.match(preview.confirmation, /^sha256:[a-f0-9]{64}$/u);
   assert.equal(preview.command, `singularity-flow phase rollover implementation --confirm ${preview.confirmation}`);
   // The confirmation is the person's, as for any rollover: /sf-confirm runs it once on their word.
@@ -150,7 +151,7 @@ test('a change the person asks for after Code is published opens generation 2 in
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   const after = await workflowOf(item);
   assert.equal(after.phases.implementation.generation, 2);
-  assert.ok((after.askedFor ?? []).some((entry) => entry.phase === 'implementation' && entry.generation === 2 && entry.text === TYPED),
+  assert.ok((after.askedFor ?? []).some((entry) => entry.phase === 'implementation' && entry.generation === 2 && entry.text === ASKED),
     JSON.stringify(after.askedFor));
   // Generation 1's publication and its bytes are intact, under generation 2.
   assert.equal(run('git', ['merge-base', '--is-ancestor', publishedHead, 'HEAD'], { allowFailure: true }).status, 0);

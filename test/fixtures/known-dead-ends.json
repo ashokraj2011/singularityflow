@@ -221,6 +221,14 @@
         "APPROVAL_IDENTITY_NOT_AUTHORIZED",
         "APPROVAL_SELF_APPROVAL_PROHIBITED"
       ]
+    },
+    {
+      "codes": [
+        "SKP_AMENDMENT_ANCESTRY_LIMIT",
+        "SKP_AMENDMENT_ANCESTRY_REWRITTEN",
+        "SKP_AMENDMENT_ANCESTRY_UPGRADE_REQUIRED"
+      ],
+      "reason": "sflow/config's history no longer proves where today's configuration came from (SPEC-SCF stage 4). The way through is a person's: an approver previews and then confirms adopting it without ancestry (story approvers refresh --adopt-without-ancestry), the team upgrades the repository's minimum build (workspace refresh-configuration, preview then confirm), or the history is restored on the Git host. Each first route is that preview."
     }
   ],
   "journeys": {

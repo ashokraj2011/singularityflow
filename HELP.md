@@ -365,14 +365,16 @@ A partial install (`--cli-only`, `--vscode-only`, `--skip-copilot`) or an out-of
 same version, and an older build then refuses records that a newer one wrote.
 
 - `singularity-flow product status` compares the build each surface runs with the build the
-  installation receipt recorded. It also lists the configuration reviews this build opened and each
-  repository's last required-build check on this machine.
+  installation receipt recorded. It also says what this build's configuration pass did to each
+  registered repository's `sflow/config`, and each repository's last required-build check on this machine.
 - `singularity-flow product align` brings a lagging surface to that installed build from the bytes
   the receipt retained, then verifies it. It never downgrades a newer surface, never replaces a
   development checkout, and never runs while an install or its recovery owns the product surfaces.
-- `singularity-flow product reviews` opens this build's configuration reviews: one review-only
-  proposal per registered repository whose approved configuration lags. It runs once per build and
-  reports a pass already recorded; nothing is applied until a person merges each review.
+- `singularity-flow product reviews` runs this build's configuration pass: each registered repository
+  whose approved configuration lags gets this build's configuration on its `sflow/config` directly,
+  and its superseded history and review branches are removed [owner, 2026-11-16]. A host that
+  refuses the push gets a review branch, named in full with its link. It runs once per build and
+  reports a pass already recorded.
 
 A new build runs one alignment pass before its first mutation command, and VS Code runs one after a
 window opens. If the CLI running the command was the one replaced, the command continues on the
@@ -1255,12 +1257,14 @@ or modified. Collisions or changed refs are retained/refused, not overwritten. A
 requires a fresh preview to reconcile. Do not delete the archive tags: this is branch-list cleanup,
 not a promise to reclaim Git-object disk space.
 
-The same cleanup also runs by itself after each capability activation, capability map publication
-or workspace configuration refresh that changes the state mirror: one batch per publication, with the
-same preview, confirmation and leases, retiring only `sflow/config-history/*` branches. It never fails
-the publication; a refusal or unknown outcome is a note naming the manual command, and the next
-publication retries. Set `ledger.configurationHistory.autoClear: false` in `singularity/workflow.yml`
-to turn it off, or `ledger.configurationHistory.keepRecent` to change the count kept.
+No history branch is written any more, and an upgrade removes the old ones [owner, 2026-11-16]: once
+`sflow/config` holds the installed build's configuration, the installer, VS Code's after-install
+pass and `workspace refresh-configuration` delete every `sflow/config-history/*` branch, its archive
+tag and every `sflow/config-refresh/*` review branch on that repository, each under a lease on the
+commit it was seen at. Nothing reads them: a Story reads its own pinned copy. `sflow/config`,
+`sflow/config-change/*` proposals, `state`, Story and application branches are never deleted. A ref
+the host refuses to delete (a deletion rule) is reported and is harmless where it is.
+`ledger.configurationHistory` stays valid and does nothing.
 
 `capability inspect-repository` remains a one-release compatibility diagnostic. An
 `already-mapped` result identifies the existing lead, repository ID, and capabilities, so no
@@ -1454,11 +1458,18 @@ singularity-flow workspace impact promote <DIRECTORY> <ANALYSIS-ID>
 
 `workspace refresh-configuration` does not use the currently checked-out application branch. It
 discovers every unique repository in registered non-archived workspaces, prepares and validates the
-package merge in isolated clones, and proposes each repository's result on a
-`sflow/config-refresh/*` review branch. It never changes `sflow/config` itself: a person approves
-the proposal by merging that branch. The package baseline records the proposing build, and a build
-older than that one is told it needs a newer build instead of proposing. Existing Story snapshots
-remain unchanged. Re-run the command after a partial failure; completed repositories become no-ops.
+package merge in isolated clones, and publishes each repository's result straight to its
+`sflow/config` as your own Git identity: installing, or running this command, is the one step
+[owner, 2026-11-16]. It then removes that repository's superseded `sflow/config-history/*` branches,
+their archive tags and its `sflow/config-refresh/*` review branches, and prints what it did, for
+example "Updated sflow/config in billing, catalog, storefront to this build; removed 27 old history and review
+branches." The package baseline records the build, and a build older than that one is told it needs
+a newer build instead of publishing. A host that refuses the push (branch protection) gets the change
+on a review branch instead, printed in full with a link to merge it. A team edit that no longer works
+with the packaged files is kept, and that repository prints the one command that takes the packaged
+version. None of these holds up another repository. `--review-only` proposes on review branches
+instead. Existing Story snapshots remain unchanged. Re-run the command after a partial failure;
+completed repositories become no-ops.
 
 `workspace reinitialize` is the safe plan-first repair for installed framework content. It restores
 only missing seeds or exact current/historical registered framework seeds, plus their

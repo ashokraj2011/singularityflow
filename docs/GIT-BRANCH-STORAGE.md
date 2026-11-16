@@ -116,21 +116,17 @@ activated on this branch directly.
 
 ### `sflow/config-history/<CONFIGURATION-COMMIT>`
 
-Each history branch is an immutable pointer to one exact approved `sflow/config`
-commit. The full commit SHA is part of the branch name.
+Earlier builds kept one of these per approved `sflow/config` commit, an immutable
+pointer with the full commit SHA in its name, and history cleanup archived older ones
+as tags of the same name (`refs/tags/sflow/config-history/<commit>`).
 
-State publication retains a history branch for each distinct approved configuration
-commit it uses. Publishing the same commit again reuses its existing ref, while
-successive approved changes add new refs. This is why a repository with a long
-configuration history can show many `sflow/config-history/*` branches.
-
-These refs keep older approved configuration fetchable after `sflow/config` advances
-and protect it from remote object garbage collection. A history branch for SHA A may
-only point to SHA A. It is not a new configuration proposal and should not be merged.
-State mirrors record the exact history branch they used, and historical policy reads
-fetch that branch by name. SFlow therefore does not automatically delete these refs.
-Pruning them would require a versioned history-authority migration that updates all
-readers and preserves older work across workspaces and machines.
+SFlow no longer writes them, and nothing reads them [owner, 2026-11-16]: a running
+Story reads its own pinned copy, `sflow/config` only moves forward, and every proof
+that once named a history ref fetches the commit by object instead. An upgrade (the
+installer, VS Code's after-install pass or `workspace refresh-configuration`) deletes
+every `sflow/config-history/*` branch and archive tag on a repository once its
+`sflow/config` holds the installed build's configuration, each under a lease on the
+commit it was seen at. A ref the host refuses to delete is reported and harmless.
 
 ## Review and onboarding branches
 
@@ -180,15 +176,16 @@ review refs by branch-name pattern.
 
 ### `sflow/config-refresh/*`
 
-Configuration refresh normally publishes an approved three-way merge directly to
-`sflow/config` when policy allows it. If protection, review policy, or a concurrent
-authority change prevents that update, SFlow retains the exact candidate on a branch
-with this prefix.
+Configuration refresh publishes its three-way merge directly to `sflow/config`
+[owner, 2026-11-16]. Only when the host refuses that push (branch protection, a ruleset
+or a hook) does SFlow keep the exact candidate on a branch with this prefix, printed in
+full with a compare link (`--review-only` also proposes here when a person asks).
 
 Merge the reported refresh branch into `sflow/config` through normal controls and
 rerun `singularity-flow workspace refresh-configuration`. The rerun verifies the
 winning configuration and completes the state mirror; it does not regenerate a
-different candidate silently.
+different candidate silently. Once `sflow/config` holds the build's configuration, the
+upgrade deletes every `sflow/config-refresh/*` branch with the history refs.
 
 ## Configured state branch
 
@@ -272,9 +269,9 @@ must not be used as a way to bypass a blocker.
 |---|---|
 | `sflow/govern/*` | Remove only after the proposal is merged, intentionally declined, or superseded. |
 | `sflow/config-change/*` | A completed activation may remove its exact proposal branch when approved ancestry and the remote commit lease are verified. Squash-only, pending, or unproven proposals remain; guarded discard is available for a proven stale proposal. |
-| `sflow/config-refresh/*` | Remove after the reviewed configuration is merged and refresh reports the repository current. |
+| `sflow/config-refresh/*` | The upgrade deletes them once `sflow/config` holds the installed build's configuration. |
 | Story or Initiative branches | Follow normal repository retention after completion/merge. Until then, the branch is the lifecycle authority. |
-| `sflow/config-history/*` | Retain. Automatic pruning requires a versioned history-authority migration; current state mirrors and historical reads depend on the exact ref. |
+| `sflow/config-history/*` (branches and archive tags) | The upgrade deletes them once `sflow/config` holds the installed build's configuration; nothing reads them [owner, 2026-11-16]. |
 | `sflow/config` | Do not delete casually. Re-creating it creates a new authority history and can make existing proposals unrelated. |
 | Configured state branch | Do not treat it as a cache. Some projections can be rebuilt, but append-only proof and authority lineage may not be recoverable. |
 

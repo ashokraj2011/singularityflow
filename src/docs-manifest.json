@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "1e068a35572054d52eb64e4e93764f2d887f07ca",
+  "sourceCommit": "04a6f2adc68891674a1d4a0d5fb2cdd3606a0a80",
   "topicCount": 93,
-  "contentSha256": "633ae844260fccd1961afa730ef8c4af975b186c263aeb4ba00bb680bdf21e87",
+  "contentSha256": "a847a15f3b5728823f39a9d4b4733e18d7551fd64814d0e2f8b0e8e40be45eb4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 23,
-      "sha256": "7972bda349526b1440e8d24ab15867d703ba743541c3ec3265383e05dc466a50",
+      "version": 24,
+      "sha256": "604842a54c9f5d218fc289c7922e560b58e278daac65f2f6a4f7248ce3633334",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -344,8 +344,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 42,
-      "sha256": "3439d3bec124b5ca3f847064326cb32dc63e4f699278ae61ab13ee83eeac4344",
+      "version": 43,
+      "sha256": "4d142ece5530901e65f24463abfd180f21a04ce2d366f3cd0abb64140a194c2d",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },

@@ -270,13 +270,12 @@ Input declarations are validated in all modes, including ordering and work-type 
 
 ### Configuration history retention
 
-Approved snapshots use source-addressed `sflow/config-history/<commit>` identities. A confirmed
-`configuration cleanup-history` plan archives older canonical branch refs as lightweight tags of
-the same identity before deleting the branch refs, atomically and with exact leases. The latest
-10 snapshots and current approved snapshot remain by default. Each push is bounded to 100 snapshot
-retirements, and the inventory is bounded to 1,000 branches. Archive collisions, symbolic refs,
-stale confirmations and failed observations do not authorize deletion. Post-push observation,
-not exit status alone, establishes completion.
+Earlier builds kept source-addressed `sflow/config-history/<commit>` branches, and
+`configuration cleanup-history` archived older ones as tags of the same identity. No build writes
+them any more and nothing reads them [owner, 2026-11-16]: a Story reads its own pin, and the legacy
+state-mirror proof, SGOS and onboarding fetch a source commit by object. An upgrade deletes every
+history branch, archive tag and `sflow/config-refresh/*` review branch on a repository once its
+`sflow/config` holds the build's configuration, each under a lease on the commit it was seen at.
 
 Readers and retention accept either the direct branch or exact archive tag; tags cannot mask a
 conflicting branch or object. Archived configuration remains fetchable for legacy mirror binding,

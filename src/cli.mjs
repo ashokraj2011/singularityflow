@@ -1505,9 +1505,13 @@ async function agentCommand(positionals, options = {}) {
     selection: optionString(options, 'agent') ?? null,
     nonInteractiveHint: 'Pass --agent <id> to choose one without a terminal.'
   });
-  console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
-  console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
-  console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
+  // `--json` is the result object alone.
+  const json = optionBoolean(options, 'json');
+  if (!json) {
+    console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
+    console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
+    console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
+  }
   if (session.phaseCompatibilityOverride) console.warn(`Warning: ${session.agent} is not declared for phase '${session.phaseCompatibilityOverride.phase}'. This is an audited prompt override, not approval authority.`);
   emitCommandResult(commandResult({
     operation: { id: 'agent', classification: 'mutation' },
@@ -1516,7 +1520,7 @@ async function agentCommand(positionals, options = {}) {
     // Agent selection is local to this checkout. It changes the session record but not governed
     // lifecycle state and does not publish anything.
     effects: effects({ filesChanged: true })
-  }), { postState: workflow });
+  }), { json, postState: workflow });
 }
 
 export async function statusCommand(positionals, options) {
@@ -3573,8 +3577,11 @@ async function pullRequestCommand(positionals, options) {
     return;
   }
 
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
-  else {
+  // `--json` is one object on stdout: the plan for a preview, and the plan with the pull request once it is opened.
+  const json = optionBoolean(options, 'json');
+  const create = optionBoolean(options, 'create');
+  if (json && !create) return console.log(JSON.stringify(plan, null, 2));
+  if (!json) {
     console.log(`Pull request for ${plan.workId}\n`);
     console.log(`  ${plan.head} → ${plan.base}   (policy: ${plan.policy})`);
     if (plan.requiredChecks.length) console.log(`  Required checks: ${plan.requiredChecks.join(', ')}`);
@@ -3584,7 +3591,7 @@ async function pullRequestCommand(positionals, options) {
 
   // Opening a pull request is an outward action, so preview is the default: it requires an
   // explicit --create plus a typed confirmation of the exact work ID.
-  if (!optionBoolean(options, 'create')) {
+  if (!create) {
     console.log('Preview only. Re-run with --create to open this pull request.');
     return;
   }
@@ -3592,6 +3599,7 @@ async function pullRequestCommand(positionals, options) {
     throw new SingularityFlowError('Pull request cancelled.');
   }
   const result = createStoryPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
+  if (json) return console.log(JSON.stringify({ ...plan, pullRequest: result }, null, 2));
   console.log(result.status === 'existing'
     ? `A pull request already exists: ${result.url}`
     : `Opened ${result.url}`);
@@ -3689,7 +3697,9 @@ async function rejectCommand(positionals, options) {
   // SF Guard (SPEC-PSS-v1 M2): a Story it requires takes the person's presence signature; checked before any write.
   const presence = workflow.resolution?.presence ? await (await import('./presence/person-records.mjs')).preparePersonPresence(root, { workflow, phase: current, actor: session.actor, action: 'phase.reject' }) : null;
   const target = optionString(options, 'to') ?? current.id;
-  console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward are invalidated, except those of steps whose inputs do not change: they are kept.`);
+  // `--json` is the result object alone; the lines below say what its data says.
+  const json = optionBoolean(options, 'json');
+  if (!json) console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward are invalidated, except those of steps whose inputs do not change: they are kept.`);
   // Inside the transaction: rejecting used to write workflow.json and the change-request decision
   // first and publish afterwards, so a refusal in the publication preflight reported that nothing
   // had happened while leaving every downstream approval invalidated and the decision durable and
@@ -3727,20 +3737,23 @@ async function rejectCommand(positionals, options) {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, accepted.config, accepted.workflow);
   });
-  console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
-  if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
-  if (phase.changeRequest.members?.length) {
-    console.log(`Members to regenerate: ${phase.changeRequest.members.join(', ')}`);
-    console.log('Every other member must come back byte-identical; anything else that changes is reported at publication.');
+  if (!json) {
+    console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
+    if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
+    if (phase.changeRequest.members?.length) {
+      console.log(`Members to regenerate: ${phase.changeRequest.members.join(', ')}`);
+      console.log('Every other member must come back byte-identical; anything else that changes is reported at publication.');
+    }
+    formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
   }
-  formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
   emitCommandResult(commandResult({
     operation: { id: 'reject', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('reject.succeeded', { phase: current.id, target: phase.id }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { changeRequestId: phase.changeRequest.id }
-  }), { postState: workflow });
+    data: { changeRequestId: phase.changeRequest.id, comment: phase.changeRequest.comment,
+      clauseIds: phase.changeRequest.clauseIds ?? [], members: phase.changeRequest.members ?? [], contextBoundary: phase.contextBoundary ?? null }
+  }), { json, postState: workflow });
 }
 
 /**
@@ -10323,15 +10336,17 @@ async function epicCommand(positionals, options) {
       initiativeMergeState(root, initiativeId)
     ]);
     const plan = epicPullRequestPlan(root, config, initiative, mergeSequence);
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
-    else {
+    // `--json` is one object on stdout, as for a Story's pull request.
+    const json = optionBoolean(options, 'json');
+    if (json && !optionBoolean(options, 'create')) return console.log(JSON.stringify(plan, null, 2));
+    if (!json) {
       console.log(`Epic pull request for ${plan.subjectId}\n`);
       console.log(`  ${plan.head} → ${plan.base}`);
       if (plan.blockedBy.length) console.log(`  Blocked by: ${plan.blockedBy.join(', ')}`);
       console.log(`\n--- title ---\n${plan.title}\n\n--- body ---\n${plan.body}\n`);
     }
     if (!optionBoolean(options, 'create')) {
-      if (!optionBoolean(options, 'json')) console.log('Preview only. Re-run with --create to open this pull request.');
+      console.log('Preview only. Re-run with --create to open this pull request.');
       return;
     }
     if (!optionBoolean(options, 'yes')
@@ -10339,6 +10354,7 @@ async function epicCommand(positionals, options) {
       throw new SingularityFlowError('Epic pull request cancelled.');
     }
     const result = createPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
+    if (json) return console.log(JSON.stringify({ ...plan, pullRequest: result }, null, 2));
     console.log(result.status === 'existing'
       ? `A pull request already exists: ${result.url}`
       : `Opened ${result.url}`);

@@ -62,7 +62,7 @@ export async function guideCommand(positionals, options) {
           rank: 'LATER'
         })
       ]
-    }));
+    }), { json });
     return;
   }
   const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');

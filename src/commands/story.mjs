@@ -1070,7 +1070,12 @@ export async function storyCommand(positionals, options) {
         throughGeneration: optionNumber(options, 'through'),
         actor: identity(root).email ?? 'unknown'
       });
-      if (!result) return console.log(`Story ${workflow.workItem.id} has no open interval to acknowledge.`);
+      if (!result) {
+        // Nothing open is an answer too, in the form the caller asked for.
+        const nothing = `Story ${workflow.workItem.id} has no open interval to acknowledge.`;
+        return console.log(optionBoolean(options, 'json')
+          ? JSON.stringify({ workId: workflow.workItem.id, acknowledged: false, open: false, reason: nothing }, null, 2) : nothing);
+      }
       // Local, uncommitted state: an acknowledgment is a note that a human read something, not a
       // governed publication. `saveDraft` is the same door every other in-phase mutation uses.
       await new StoryStateStore(root, config).saveDraft(workflow);

@@ -19,7 +19,7 @@ related:
   - sequence-gates
   - pins
   - changing-requirements
-version: 8
+version: 9
 ---
 A story moves through the phases of its pinned work type (e.g. requirements → design → implementation → verification). Each phase produces artifacts as numbered generations; a rejection requires a fresh generation — history is never rewritten. State lives in `singularity/work-items/<ID>/` on the story branch: workflow.json (authority), artifacts, approvals, context, telemetry, evidence.
 
@@ -40,6 +40,13 @@ published**, even though it already exists on disk. Submit remains unavailable
 until the phase-generation skill has produced and recorded an immutable
 publication. The successful boundary is displayed as **Published generation N
 — ready to submit**. Submission never silently generates or publishes content.
+
+While a step's next version is open, the step is being written: readiness says
+to write that version (`generation-required`, with the step's own work command,
+such as `/sf-code`), never "ready to submit" or "review version N". `submit`
+refuses with `PHASE_VERSION_BEING_WRITTEN`, and its first route writes the open
+version. Next steps, the session and the step's task say the same, so a turn
+that opened version N+1 keeps its task until that version is published.
 
 ## Repair before publication
 

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "5d27c41c80ad6b0e35feb4afa5f751c19e0ef618",
+  "sourceCommit": "ce1b89eccd1441c1f20e0be92eb676e233652b3b",
   "topicCount": 93,
-  "contentSha256": "d7dade8eea0c8ae6e0401997b18c47957e9c34eecad0e46a0888384e1b8e1bee",
+  "contentSha256": "ae694d7600766f172e0a84766296ee8bfa2e9cc6b9d7d726b09ae5080204fa8d",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -480,8 +480,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 28,
-      "sha256": "365d0f3e12c2d90d89528e62ce3735ceb4ca6c87a4b9a22a1f7a53dc2648f3dc",
+      "version": 29,
+      "sha256": "03662194e456bd9a425c37277c8053eabec9553a816633eb7a318e0a9c76f5d2",
       "routingSha256": "577f0f1190e3501547da6cb682abb89060388d4998e3b7a349fda9762b9e914d",
       "file": "recovery.md"
     },
@@ -576,8 +576,8 @@
     {
       "id": "sequence-gates",
       "title": "Sequence gates and submission",
-      "version": 5,
-      "sha256": "d6f3b08e1e7514389bc0bee435c2041d379e04f62300eb2343010911900032dc",
+      "version": 6,
+      "sha256": "690745d5134fccaa5c9a8aacc47b0142a679c072845990bea4d6bf2fc4f06d83",
       "routingSha256": "33e8926d2944073e4592ede7af57a6157686383cb9c55d14e098952138abcbae",
       "file": "sequence-gates.md"
     },
@@ -640,8 +640,8 @@
     {
       "id": "story-lifecycle",
       "title": "Story lifecycle, phases, and generations",
-      "version": 8,
-      "sha256": "3a9829497e47f9a84525afe33594ba82c6bc365969dd49755c04a49a19cb9b60",
+      "version": 9,
+      "sha256": "a3bdc6baf2c6a9895b962a37f2e92f1e7fb969c81935d7690ad5fa298034175b",
       "routingSha256": "32819c13477cbc8def612db26bbb518d093899f317c211adfc448d319667ead0",
       "file": "story-lifecycle.md"
     },

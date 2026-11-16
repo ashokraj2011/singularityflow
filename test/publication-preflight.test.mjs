@@ -3333,9 +3333,11 @@ test('prepare refuses a consumed code generation before writing next-generation 
     () => inContext(context.root, () => preparePhaseInputs(
       context.root, context.config, context.workflow, 'implementation'
     )),
+    // A published version changes only by its next version, which the person starts; never recovery [OSA:REQ-011, C11].
     (error) => error.code === 'GENERATION_INTENT_ALREADY_CONSUMED'
-      && /recover DELIVERY-1 --phase implementation --json/.test(error.message)
-      && /exact phase-begin action before preparing/.test(error.message)
+      && /singularity-flow phase rollover implementation --json/.test(error.message)
+      && error.details?.nextAction?.command === 'singularity-flow phase rollover implementation --json'
+      && !/\brecover\b/.test(error.message)
   );
 
   assert.equal(await readFile(context.target, 'utf8'), artifactBefore,

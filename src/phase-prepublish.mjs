@@ -13,6 +13,8 @@ import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
+import { versionFactsOf } from './phase-generation-need.mjs';
+import { consumedOpeningMismatch, explicitlyReopened } from './kernel/step-versions.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { exactFileAtObject, changes } from './git.mjs';
 import { workingTreeAction } from './collaboration.mjs';
@@ -386,13 +388,16 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
         code: 'phase.generation-intent.required', category: 'code-delivery', path: null, line: null,
         message: error.message, details: { sourceCode: error.code ?? null }
       });
-      const consumed = phase.generationIntent?.status === 'consumed';
-      actions.push({ command: consumed
-        ? `singularity-flow recover ${id} --phase ${phase.id} --json`
-        : `singularity-flow phase begin ${phase.id}`,
-        skill: consumed ? '/sf-recover' : '/sf-code', detail: consumed
+      // Recover only positive damage; a returned or published code step opens its next version [OSA:REQ-003, C1].
+      const facts = versionFactsOf(workflow, phase);
+      const damaged = consumedOpeningMismatch(facts);
+      const preview = !damaged && phase.generationIntent?.status === 'consumed' && !explicitlyReopened(facts);
+      actions.push({ command: damaged ? `singularity-flow recover ${id} --phase ${phase.id} --json`
+        : preview ? `singularity-flow phase rollover ${phase.id} --json` : `singularity-flow phase begin ${phase.id}`,
+        skill: damaged ? '/sf-recover' : '/sf-code', detail: damaged
           ? 'Inspect the guarded phase rollover in recovery; do not overwrite a published result or route back to /sf-code before recovery clears.'
-          : 'Open the code generation before changing source, then recheck.' });
+          : preview ? `Preview ${phase.id}'s next version and ask the person to confirm it; the published one stays.`
+            : 'Open the code generation before changing source, then recheck.' });
     }
   }
   // A step that delivers no code meets its publication's change-scope refusal here, from the same

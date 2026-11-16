@@ -212,12 +212,12 @@ function optionValueRaw(argv, name) {
 
 /**
  * A refusal whose own first route writes the step, by its work command (`prepare`, `phase begin`, `phase enter` or
- * `phase rollover` of that step), or that says the step is being written: nothing is damaged, and that route is the way
- * on. Recover and `phase show` are not added beside it. Skills take a refusal's first read-only step, so with them added
- * an agent went to recover or the documents view instead of writing the step, and round again [OSA:REQ-022, C3].
+ * `phase rollover` of that step): nothing is damaged, and that route is the way on. Recover and `phase show` are not added
+ * beside it. Skills take a refusal's first read-only step, so with them added an agent went to recover or the documents
+ * view instead of writing the step, and round again [OSA:REQ-022, C3]. A refusal that the step is being written
+ * (PHASE_VERSION_BEING_WRITTEN) leads with that same route, so its route is the one test (no `details` flag: none set one).
  */
 function routesToWritingTheStep(error, phaseId) {
-  if (error?.details?.stepBeingWritten === true) return true;
   const argv = explicitCommands(error)[0]?.argv ?? [];
   return (argv[0] === 'prepare' && argv[1] === phaseId)
     || (argv[0] === 'phase' && ['begin', 'enter', 'rollover'].includes(argv[1]) && argv[2] === phaseId);

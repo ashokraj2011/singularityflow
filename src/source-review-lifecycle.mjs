@@ -507,9 +507,20 @@ async function readCommittedJson(root, file, label) {
   return JSON.parse(utf8(bytes, label));
 }
 
+// The Story record as the current commit holds it. The checkout's copy may lawfully differ: a rollover to the
+// next generation changes it before anything is committed. Only the committed bytes are read, so a local edit
+// can never add the lifecycle event a review record needs.
+function committedStoryWorkflow(root, workflowFile) {
+  const committed = committedSourceReviewFile(root, posix(path.relative(root, workflowFile)));
+  if (committed.status !== 0 || !Buffer.isBuffer(committed.stdout)) {
+    throw new SingularityFlowError('Story workflow is not in the current Story commit.', { code: 'SOURCE_REVIEW_RECORD_UNPUBLISHED' });
+  }
+  return JSON.parse(utf8(committed.stdout, 'Story workflow'));
+}
+
 async function assertRetainedLifecycleEvent(root, config, workflow, record, kind, sidecarFile) {
   const workflowFile = path.join(root, itemRelative(config, workflow.workItem.id), 'workflow.json');
-  const committed = await readCommittedJson(root, workflowFile, 'Story workflow');
+  const committed = committedStoryWorkflow(root, workflowFile);
   const matches = (committed.publicationProjections ?? []).filter((entry) => (
     entry?.event?.eventId === record.lifecycleEventId
   ));

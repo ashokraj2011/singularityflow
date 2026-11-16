@@ -140,6 +140,11 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   const opened = sflowJson('phase', 'rollover', 'implement', '--confirm', preview.value.confirmation);
   assert.equal(opened.status, 0, JSON.stringify(opened.value));
   assert.equal(opened.value.generationIntent.generation, 2);
+  // The rollover changed the Story record in the checkout, uncommitted; the entry to generation 2 still reads
+  // generation 1's review from the commit, so the code step is not held as unverifiable [incident 2026-11-16].
+  const entry = sflowJson('phase', 'enter', 'implement', '--compose');
+  assert.doesNotMatch(JSON.stringify(entry.value), /SOURCE_REVIEW_RECORD_UNPUBLISHED/u, JSON.stringify(entry.value).slice(0, 3000));
+  assert.doesNotMatch(JSON.stringify(entry.value), /attention-required/u, JSON.stringify(entry.value.act ?? entry.value).slice(0, 3000));
 
   // Generation 2 corrects it; its own review is ready, and the step submits.
   await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 — return the approved value 2, as the intake asks\nexport const value = 2;\n');

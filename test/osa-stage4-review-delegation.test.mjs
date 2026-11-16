@@ -98,7 +98,9 @@ test('a publication that owes its review starts it through the qualified delegat
   assert.equal(delegation.pending.capability, REVIEW_DELEGATION_CAPABILITY);
   assert.match(delegation.pending.words, /^intake version 1 waits for its independent review: this host has no qualified way to start it, so nothing was reviewed\./u);
   assert.match(handoff.instruction, /No sub-agent tool: end with "Run this in a new chat:" and \/sf-review-source intake\./u);
-  assert.doesNotMatch(JSON.stringify(handoff), /codex|claude|gemini|another harness/iu, 'no other harness is ever named');
+  // Only Copilot's own sub-agent tools start it; no other harness is a fallback.
+  assert.match(handoff.instruction, /with the task tool: agent_type 'sflow-source-reviewer'/u);
+  assert.ok(Object.values(REVIEW_DISPATCH_MODES).flatMap((mode) => mode.tools).every((tool) => ['task', 'runsubagent', 'run_subagent'].includes(tool)));
 });
 
 test('only a qualified sub-agent tool starts the reviewer; any other is refused with the fresh-conversation route, and the author gains no authority', async (t) => {

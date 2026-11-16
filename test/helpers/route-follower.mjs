@@ -107,7 +107,9 @@ export function skillEntries(skillsRoot = SKILLS) {
     const refreshAfterBegin = /Successful begin: refresh entry once/u.test(body);
     // "The current step's own agent work is this turn's": /sf-next takes the step's work route in its own turn (D2).
     const worksInTurn = /The current step's own agent work is this turn's/u.test(body);
-    map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn,
+    // "`/sf-code` and `/sf-phase` are one work command": a route naming either is the turn's own work (D1).
+    const oneWorkCommand = /`\/sf-code` and `\/sf-phase` are one work command/u.test(body);
+    map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn, oneWorkCommand,
       ...(delegate && !entry ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
   }
   for (const known of map.values()) {
@@ -436,6 +438,12 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       continue;
     }
     if (done({ story, result: taken.result, record: storyRecord(story), trail })) return { reached: true, findings, trail, steps: step, next: taken.next ?? null, last: taken.result ?? null, views };
+    // D1: in a turn of the work command, a route naming its other name is this turn's own work, run here by its command.
+    const named = taken.next?.copilot ? skillOf(taken.next.copilot) : null;
+    if (named && named !== turn && entries.get(turn)?.oneWorkCommand && entries.get(named)?.oneWorkCommand && !taken.next.inTurn
+        && taken.next.shell && (taken.next.copilot.trim().split(/\s+/u)[1] ?? current()) === current()) {
+      taken.next = { ...taken.next, inTurn: true, source: `${taken.next.source ?? 'route'} (one work command)` };
+    }
     // A skill that does the current step's own work in its turn (/sf-next, D2) takes the step's work route there: the
     // work command's steps run in the same turn, with no second command typed [OSA:REQ-025, journey J].
     const host = guard.skill && entries.get(guard.skill)?.worksInTurn ? guard.skill : null;
@@ -622,6 +630,7 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     if (within && guard?.skill === within) {
       // The work command's steps, run inside the turn of the skill that does them (/sf-next): no new prompt.
       guard.hosts = { ...(guard.hosts ?? {}), [skill]: within };
+      entry.within = within;
       entry.did = `${within} does the step's own work in its turn, by ${skill}'s steps`;
     } else if (guard) {
       // The person types the skill: a new turn of the chat, as Copilot's hooks see it.

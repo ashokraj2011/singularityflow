@@ -37,14 +37,14 @@ async function quickFixAtCode(t, W, options = {}) {
 }
 
 /**
- * Refusing AI and harness ports: a `copilot`, `gh copilot` and model CLI on PATH that record any run and fail. With
- * SINGULARITY_FLOW_NO_MODEL (journeyRepository sets it), no model runs; with these, no harness either.
+ * Refusing AI and harness ports: Copilot's executables on PATH record any run and fail, so no harness runs; with
+ * SINGULARITY_FLOW_NO_MODEL (journeyRepository sets it), every kernel-owned model invocation is refused too.
  */
 async function refusingPorts(base) {
   const bin = path.join(base, 'refusing-ports');
   const log = path.join(base, 'ports-invoked.log');
   await mkdir(bin, { recursive: true });
-  for (const name of ['copilot', 'github-copilot-cli', 'claude', 'codex', 'openai']) {
+  for (const name of ['copilot', 'github-copilot-cli']) {
     await writeFile(path.join(bin, name), `#!/bin/sh\necho "${name} $*" >> '${log}'\nexit 97\n`);
     await chmod(path.join(bin, name), 0o755);
   }
@@ -77,7 +77,7 @@ test('journey J: a fresh-chat /sf-next writes, publishes and reviews a code step
   assert.equal(walk.reached, true, report(walk));
   assert.deepEqual(walk.findings, [], report(walk));
   assert.deepEqual(typedCommands(walk), ['/sf-next'], `the person typed only /sf-next\n${report(walk)}`);
-  assert.ok(walk.trail.some((entry) => /^\/sf-next does the step's own work in its turn, by \/sf-code's steps/u.test(entry.did ?? '')), report(walk));
+  assert.ok(walk.trail.some((entry) => entry.within === '/sf-next' && /^\/sf-code\b/u.test(entry.taking ?? '')), `/sf-code's steps ran inside /sf-next's turn\n${report(walk)}`);
   assert.ok(walk.trail.some((entry) => /the agent wrote implement \([1-9]\d* file\(s\) through the guard\)/u.test(entry.did ?? '')), report(walk));
   assert.ok(ranCommands(walk).some((line) => /^singularity-flow phase begin implement\b/u.test(line)), 'the code version opened in the same turn');
   assert.ok(publishedGeneration(storyRecord(story), 'implement') >= 1);
@@ -96,7 +96,7 @@ test('journey J: a fresh-chat /sf-next writes and publishes a document step in i
   assert.equal(walk.reached, true, report(walk));
   assert.deepEqual(walk.findings, [], report(walk));
   assert.deepEqual(typedCommands(walk), ['/sf-next'], `the person typed only /sf-next\n${report(walk)}`);
-  assert.ok(walk.trail.some((entry) => /^\/sf-next does the step's own work in its turn, by \/sf-phase's steps/u.test(entry.did ?? '')), report(walk));
+  assert.ok(walk.trail.some((entry) => entry.within === '/sf-next' && /^\/sf-phase\b/u.test(entry.taking ?? '')), `/sf-phase's steps ran inside /sf-next's turn\n${report(walk)}`);
   assert.ok(walk.trail.some((entry) => /the agent wrote intake \([1-9]\d* file\(s\) through the guard\)/u.test(entry.did ?? '')), report(walk));
 });
 
@@ -168,7 +168,8 @@ test('D5: a returned kernel-built step\'s next version opens only on the person\
   // Version 1, built and published by its generator, then submitted and returned by its person.
   assert.equal(run('prepare', 'poc-lite-plan').status, 0);
   const published = run('phase', 'prepublish', 'poc-lite-plan', '--for-agent', '--publish-if-ready');
-  assert.equal(published.value?.publishIfReady?.published, true, JSON.stringify(published.value).slice(0, 2000));
+  assert.equal(published.status, 0, JSON.stringify(published.value).slice(0, 2000));
+  assert.equal(publishedGeneration(storyRecord(story), 'poc-lite-plan'), 1, JSON.stringify(published.value?.act ?? published.value).slice(0, 2000));
   story.cli('submit', 'poc-lite-plan');
   story.cli('reject', 'poc-lite-plan', '--to', 'poc-lite-plan', '--reason', 'The plan must name the changed module explicitly.');
   // The kernel's route is the step's preview, asked of the person, by its work command; its generator does not run first.
@@ -191,7 +192,7 @@ test('D5: a returned kernel-built step\'s next version opens only on the person\
   // Then its generator builds version 2, and it is published.
   assert.equal(run('prepare', 'poc-lite-plan').status, 0);
   const second = run('phase', 'prepublish', 'poc-lite-plan', '--for-agent', '--publish-if-ready');
-  assert.equal(second.value?.publishIfReady?.published, true, JSON.stringify(second.value).slice(0, 2000));
-  assert.equal(publishedGeneration(storyRecord(story), 'poc-lite-plan'), 2);
+  assert.equal(second.status, 0, JSON.stringify(second.value).slice(0, 2000));
+  assert.equal(publishedGeneration(storyRecord(story), 'poc-lite-plan'), 2, JSON.stringify(second.value?.act ?? second.value).slice(0, 2000));
   assert.deepEqual(ports.invoked(), [], 'no AI or harness port was called');
 });

@@ -165,12 +165,16 @@ test('choosing at a decision when none is waiting routes to the Story\'s next st
     { code: 'DECISION_NOT_PENDING', route: WRITE_PLANNING });
 });
 
-test('the decision list for a step the Story lacks routes to the Story\'s next step', async (t) => {
+test('the decision list for a misspelt step routes to the same list for the step it is nearest', async (t) => {
+  // A misspelt step is a typing mistake, not where the Story stands: main's unknown-step handling (6343414ae) names the
+  // Story's steps and the same command with the nearest one; test/unknown-step-refusals.test.mjs covers it in full.
   const root = await gitRepository(t);
   const error = await refusalOf(() => blockingDecisionFacts(root, {}, unwrittenPlan(), { phaseId: 'plannign' }));
-  const { envelope } = routed(error, ['decisions', 'PLAN-0', '--phase', 'plannign', '--for-agent', '--json'],
-    { code: 'DECISIONS_PHASE_UNKNOWN', route: WRITE_PLANNING });
-  assert.doesNotMatch(JSON.stringify(envelope), /--phase plannign --json/u, 'no recovery of a step that does not exist');
+  assert.equal(error.code, 'DECISIONS_PHASE_UNKNOWN', error.message);
+  const envelope = refusalEnvelope(error, ['decisions', 'PLAN-0', '--phase', 'plannign', '--for-agent', '--json']);
+  const act = agentAct(envelope);
+  assert.equal(act.do.shell, 'singularity-flow decisions PLAN-0 --phase planning --for-agent --json', JSON.stringify(act.do));
+  assert.doesNotMatch(JSON.stringify(envelope), /--phase plannign --json|singularity-flow recover\b|\/sf-recover/u, 'no recovery of a step that does not exist');
 });
 
 test('an intent amendment that is not waiting for a decision routes to the Story\'s next step', async (t) => {

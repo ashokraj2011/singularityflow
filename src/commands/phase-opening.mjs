@@ -285,6 +285,11 @@ export async function changedFilesSuccessor(root, config, workflow, phase, plan,
   return { preview, outcome: opened.outcome, replayed: opened.replayed };
 }
 
+/** The step's preview as a person runs it in their own terminal, which asks them the proposal's question [D3, OSA:REQ-030]. */
+export async function askingRoute(phaseId, skill = null) {
+  return (await import('../safe-command-guidance.mjs')).safeCommandGuidance({ argv: ['phase', 'rollover', phaseId], skill });
+}
+
 /**
  * `phase rollover <step>` for a step a person's return, a rejection, an amendment or a legacy local opening reopened, code
  * or document: the preview asks the person, and `--confirm` opens it on their yes [D3, OSA:REQ-030].
@@ -319,7 +324,7 @@ export async function returnedSuccessorRollover(root, config, workflow, phase, o
     if (await askAtTerminal(question)) { supplied = confirmation; typed = true; }
     else {
       console.log(question);
-      printCommandRoutes(safeCommandGuidance({ argv: ['phase', 'rollover', phase.id], skill }), { label: 'To start it, run this in your own terminal, which asks you, or ask Copilot' });
+      printCommandRoutes(await askingRoute(phase.id, skill), { label: 'To start it, run this in your own terminal, which asks you, or ask Copilot' });
       return console.log('Nothing was changed.');
     }
   }

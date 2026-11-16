@@ -315,7 +315,9 @@ export async function unboundAnswerReason(file, record, options, { localChat = f
   const yesNo = yesNoCommand(positionals, options, version);
   const sided = yesNo ? yesNoProblem(ledger, yesNo, { localChat }) : null;
   if (sided) return sided;
-  const words = await (async () => {
+  // A next version stands on the person's yes to its exact proposal, whose confirmation binds any --reason it carries; an
+  // authoring turn keeps none of the words typed with its skill [SCS:REQ-040], so they are not read here.
+  const words = yesNo?.successor ? null : await (async () => {
     // A question whose answer never reached this hook proves nothing either way, so it refuses nothing.
     if (!ledger.delivered && (localChat || ledger.asked)) return null;
     const said = [...ledger.answers, ledger.prompt].filter(Boolean);

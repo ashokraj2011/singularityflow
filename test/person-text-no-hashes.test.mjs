@@ -312,12 +312,15 @@ test('a reviewed quick-fix Story, walked through the CLI: no person text, card o
   assert.match(preview.stdout, /"Correct what the review of generation 1 found: .*explain-the-value/u);
   assert.match(preview.stdout, /Shell: singularity-flow phase rollover implement\n/u, 'a person confirms in their own terminal');
   if (TYPED_TERMINAL_AVAILABLE) {
-    // In a person's own terminal the same command asks them, and opens the generation bound to what it showed.
+    // In a person's own terminal the same command asks them the proposal's own question, in versions and with no digest
+    // [OSA §7.1, Stage 2], and opens the version bound to what it showed.
     const typed = await typedInTerminal({ argv: [process.execPath, cli, '--no-model', 'phase', 'rollover', 'implement'], cwd: root, env: repo.env,
-      prompt: 'Type yes to start implement generation 2, or press Enter to cancel: ', answer: 'yes' });
+      prompt: "Start version 2 of Implement to fix the review's findings? Published version 1 and its recorded tests will stay unchanged. "
+        + 'Type yes to start it, or press Enter to cancel: ', answer: 'yes' });
     assert.equal(typed.status, 0, typed.output);
     check('sflow phase rollover implement (typed yes)', typed.output);
-    assert.match(typed.output, /Opened implement generation 2 for the change asked for\./u);
+    assert.match(typed.output, /Start implement version 2 for a change \(version 1 stays as published\):/u);
+    assert.match(typed.output, /Opened implement version 2 for the change asked for\. Version 1 stays as published\./u);
   } else {
     // No terminal to type in here: the agent's route, with the confirmation it passes after the person's yes.
     sflowJson('phase', 'rollover', 'implement', '--confirm', sflowJson('phase', 'rollover', 'implement').value.confirmation);

@@ -1468,8 +1468,9 @@ function askedForItem(workflow, context, entry, facts) {
       does: `Returns ${name} to its author: ${reopenWords(workflow, facts.phase)}; its author accounts for it there.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: facts.phase }], context) }, '/sf-reject');
   }
-  const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new generation now that this one is published'}: within the plan, with the clauses it implements, or as the departure recorded for it.`;
-  return item(personalStep({ id: 'account', label: 'Its author accounts for it in /sf-code', command: facts.open ? account : `singularity-flow phase begin ${facts.phase}`, words,
+  // Published: the next version, which opens only on the person's yes [D3, OSA:REQ-030], by the route the facts name (its preview).
+  const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new version that opens on the person\'s yes'}: within the plan, by its clauses, or as its departure.`;
+  return item(personalStep({ id: 'account', label: 'Its author accounts for it in /sf-code', command: facts.open ? account : facts.route?.command ?? `singularity-flow phase rollover ${facts.phase} --json`, words,
     decidedBy: { groups: [], labels: [], allowed: false, author: true, words } }), '/sf-code');
 }
 
@@ -1575,33 +1576,35 @@ function settledItems(workflow, context) {
 }
 
 /**
- * The next generation a published step needs [owner, 2026-11-13]: its files changed after publication, or the person
- * asked for a change since, and the published generation holds neither, so it is not submitted with them. Once only
+ * The next version a published step needs [owner, 2026-11-13]: its files changed after publication, or the person
+ * asked for a change since, and the published version holds neither, so it is not submitted with them. Once only
  * the step's own skill asked it, in chat ("Would you like me to open generation 2?"); it is on the card now, each
- * choice with what it does. Both stay the person's own steps: their terminal previews the rollover and asks them to
- * confirm, and the step's skill still asks it yes or no in chat. Nothing is recorded from the list.
+ * choice with what it does. Both stay the person's own steps: their terminal previews the next version and asks them to
+ * confirm, and the step's skill still asks it yes or no in chat. Nothing is recorded from the list. `asked`: its preview
+ * waits for the person's yes, or their yes is kept, so that question asks it once [D3, OSA:REQ-030] and this row keeps
+ * only leaving the change out.
  */
 function rolloverItem(workflow, context, entry) {
   const name = stepName(workflow, entry.phase);
   const shown = entry.paths.length ? `${listWords(entry.paths.slice(0, 5))}${entry.paths.length > 5 ? ` and ${entry.paths.length - 5} more` : ''}` : null;
   const asked = entry.requests.length ? `The person asked for a change after it was published: ${entry.requests.map((text) => `"${text}"`).join('; ')}.` : '';
-  const kept = `generation ${entry.generation} and its ${entry.code ? 'evidence and test results' : 'review'} stay as published`;
+  const kept = `version ${entry.generation} and its ${entry.code ? 'evidence and test results' : 'review'} stay as published`;
   const anyoneHere = (words) => anyone(`Whoever works on ${name} takes this step. ${words}`.trim());
-  const options = [personalStep({ id: 'start-next-generation', label: `Start generation ${entry.next} of ${name}${shown ? ` with ${shown}` : ' for the change'}`,
-    command: entry.command, words: `Your terminal previews generation ${entry.next} and asks you to confirm it; ${kept}.`,
-    does: `Opens generation ${entry.next} of ${name} with the change; ${kept}.`, decidedBy: anyoneHere('') })];
+  const options = entry.asked ? [] : [personalStep({ id: 'start-next-generation', label: `Start version ${entry.next} of ${name}${shown ? ` with ${shown}` : ' for the change'}`,
+    command: entry.command, words: `Your terminal previews version ${entry.next} and asks you to confirm it; ${kept}.`,
+    does: `Opens version ${entry.next} of ${name} with the change; ${kept}.`, decidedBy: anyoneHere('') })];
   if (entry.keepOut) {
     options.push(personalStep({ id: 'set-aside', label: `Leave the change out: set ${shown} aside`, command: entry.keepOut,
-      words: `Recovery shows the set-aside route; a private copy is kept, and generation ${entry.generation} is submitted as it is.`,
-      does: `Sets the changed files aside with a private copy; generation ${entry.generation} goes ahead as published, without them.`,
+      words: `Recovery shows the set-aside route; a private copy is kept, and version ${entry.generation} is submitted as it is.`,
+      does: `Sets the changed files aside with a private copy; version ${entry.generation} goes ahead as published, without them.`,
       decidedBy: anyoneHere('') }));
   }
   return {
-    kind: 'generation-rollover', title: `Start generation ${entry.next} of ${name}, or leave the change out`,
-    why: [shown ? `${shown} changed after generation ${entry.generation} of ${name} was published, and that generation does not hold ${entry.paths.length === 1 ? 'it' : 'them'}, so it is not submitted with ${entry.paths.length === 1 ? 'it' : 'them'}.` : '',
-      asked, `Start generation ${entry.next} with the change, or leave it out.`].filter(Boolean).join(' '),
+    kind: 'generation-rollover', title: entry.asked ? `Leave the change out of ${name} instead of starting version ${entry.next}` : `Start version ${entry.next} of ${name}, or leave the change out`,
+    why: [shown ? `${shown} changed after version ${entry.generation} of ${name} was published, and that version does not hold ${entry.paths.length === 1 ? 'it' : 'them'}, so it is not submitted with ${entry.paths.length === 1 ? 'it' : 'them'}.` : '',
+      asked, entry.asked ? `Starting version ${entry.next} with the change is asked on its own; or leave the change out.` : `Start version ${entry.next} with the change, or leave it out.`].filter(Boolean).join(' '),
     options,
-    details: { phase: entry.phase, generation: entry.generation, next: entry.next, paths: entry.paths, requested: entry.requests.length > 0,
+    details: { phase: entry.phase, generation: entry.generation, next: entry.next, paths: entry.paths, requested: entry.requests.length > 0, ...(entry.asked ? { asked: true } : {}),
       ...(entry.chatRoute ? { chatRoute: entry.chatRoute } : {}), commands: options.map((option) => option.action.command) }
   };
 }

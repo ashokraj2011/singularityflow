@@ -305,6 +305,36 @@ test('a retained correction routes compact phase entry to explicit successor pre
   });
 });
 
+test('a person who edits the published document after its review asked for corrections is asked the review\'s question, never refused [stage5b.md section 5]', async t => {
+  const { root, phaseId } = await publishedSpecificationStory(t, { copied: false });
+  const packet = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
+  const report = reviewReport(packet);
+  report.findings = [{ id: 'F-001', severity: 'blocking', clauseId: `${WORK_ID}:REQ-001`,
+    message: 'The save behavior needs a precise persisted-status requirement.' }];
+  await mkdir(path.dirname(packet.stagingPath), { recursive: true });
+  await writeFile(packet.stagingPath, JSON.stringify(report));
+  assert.equal(completeAgentResult(cli(root, 'review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--json')).status, 'correction-required');
+  // The person corrects the published document before saying yes to its next version.
+  const artifact = path.join(root, packet.artifact.path);
+  const corrected = `${await readFile(artifact, 'utf8')}\nThe saved status is displayed only after durable persistence.\n`;
+  await writeFile(artifact, corrected);
+  const head = git(root, 'rev-parse', 'HEAD');
+  const status = git(root, 'status', '--short');
+  // The preview asks the review's own question, with its findings as the change asked for, and changes nothing.
+  const preview = completeAgentResult(cli(root, 'phase', 'rollover', phaseId, '--json'));
+  assert.equal(preview.mutates, false);
+  assert.match(preview.question, /^Start version 2 of .+ to fix the review's findings\? Published version 1 will stay unchanged\.$/u);
+  assert.equal(preview.requestedChange.requests.length, 1, JSON.stringify(preview.requestedChange));
+  assert.match(preview.requestedChange.requests[0], /^Correct what the review of .+ found: Reviewer finding 'F-001': The save behavior needs a precise persisted-status requirement\.$/u);
+  assert.deepEqual([git(root, 'rev-parse', 'HEAD'), git(root, 'status', '--short')], [head, status], 'the preview changes nothing');
+  // The person's yes opens version 2; their edit stays as its draft's start, and preparing it keeps the edit.
+  openNextVersion(root, phaseId);
+  assert.equal(await readFile(artifact, 'utf8'), corrected, 'the person\'s edit is kept');
+  cli(root, 'prepare', phaseId, '--no-model', '--json');
+  assert.equal(await readFile(artifact, 'utf8'), corrected);
+  assert.equal(completeAgentResult(cli(root, 'phase', 'enter', phaseId, '--for-agent', '--json')).inspectionGeneration, 2);
+});
+
 test('compact review entry binds once and preserves every exact review material and report contract', async t => {
   const { root, phaseId } = await publishedSpecificationStory(t, { copied: true, humanAnswers: true });
   const full = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));

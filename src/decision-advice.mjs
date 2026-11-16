@@ -301,6 +301,8 @@ export function itemRecommendation(workflow, item) {
     case 'appeal':
       return only ? rec(item, only.id, 'An approver of the plan reviews the exact diff; nothing else accounts for the scope.') : lean('review the exact diff; account for it only if the changes belong in scope.');
     case 'generation-rollover':
+      // Starting the version is asked on its own (its preview's question): this row only leaves the change out.
+      if (details.asked) return lean(`answer the question about version ${details.next} first; leave the change out only if it does not belong in this step.`);
       return details.requested ? rec(item, 'start-next-generation', 'The person asked for this change after the step was published.')
         : (details.paths ?? []).length === 1 ? lean(`keep ${details.paths[0]} in a new version if it belongs in this step; otherwise set it aside.`)
           : lean(`keep ${listWords(details.paths ?? []) || 'the changed files'} in a new version if they belong in this step; otherwise set them aside.`);

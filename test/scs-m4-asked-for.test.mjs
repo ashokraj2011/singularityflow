@@ -231,10 +231,11 @@ test('SCS REQ-042: an instruction left unaccounted holds the code step\'s approv
   const published = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
   assert.equal(published.status, 0, published.stdout + published.stderr);
   const listed = () => { const list = repo.sflowJson('decisions', 'QF-1'); return list.value.data ?? list.value; };
-  // Published, its open generation is gone: the author's next step begins the next one, never an account that is refused.
+  // Published, its open generation is gone: the author's next step previews the next version, which opens only on the
+  // person's yes [D3, OSA:REQ-030], never an account that is refused.
   let packet = listed();
   let item = packet.items.find((entry) => entry.kind === 'asked-for');
-  assert.equal(item.options[0].action.command, 'singularity-flow phase begin implement');
+  assert.equal(item.options[0].action.command, 'singularity-flow phase rollover implement --reason "<what to change>" --json');
   assert.equal(item.decidedBy.allowed, false);
   repo.sflow('submit', 'implement');
   // The list: one item for it, quoted, holding the approval.
@@ -257,13 +258,30 @@ test('SCS REQ-042: an instruction left unaccounted holds the code step\'s approv
   assert.ok(item.details.commands.some((command) => command.startsWith('singularity-flow departure account --work-id QF-1 --instruction 2 ')));
   recorded = await state();
   assert.equal(recorded.phases.implement.status, 'awaiting_approval');
-  // That route ends where it says: returned, a new generation accounts for it, and nothing holds the approval.
+  // That route ends where it says: returned, a new version accounts for it, and nothing holds the approval.
   const returned = repo.run(process.execPath, [cli, '--no-model', 'reject', 'implement', '--work-id', 'QF-1', '--to', 'implement', '--reason', 'Account for the log line the person asked for', '--json']);
   assert.equal(returned.status, 0, returned.stdout + returned.stderr);
   item = listed().items.find((entry) => entry.kind === 'asked-for');
-  assert.equal(item.options[0].action.command, 'singularity-flow phase begin implement');
-  const begun = repo.run(process.execPath, [cli, '--no-model', 'phase', 'begin', 'implement', '--json']);
+  // Version 2 is a successor: the item names its preview, which asks the person, never an opening without their yes [D3].
+  assert.equal(item.options[0].action.command, 'singularity-flow phase rollover implement --json');
+  const head = () => repo.must('git', ['rev-parse', 'HEAD']).trim();
+  const worktree = () => repo.must('git', ['status', '--short']);
+  const [beforeYes, statusBeforeYes] = [head(), worktree()];
+  const unasked = repo.run(process.execPath, [cli, '--no-model', 'phase', 'begin', 'implement', '--json']);
+  assert.notEqual(unasked.status, 0, 'version 2 never opens without the person\'s yes');
+  assert.match(unasked.stdout + unasked.stderr, /VERSION_CONSENT_REQUIRED/u);
+  assert.deepEqual([head(), worktree()], [beforeYes, statusBeforeYes], 'nothing changed');
+  // The route the item names: the preview asks the question and changes nothing; the person's yes, in their own terminal,
+  // is the confirmation it returns.
+  const preview = repo.sflowJson('phase', 'rollover', 'implement');
+  assert.equal(preview.status, 0, JSON.stringify(preview.value));
+  assert.equal(preview.value.mutates, false);
+  assert.equal(preview.value.toGeneration, 2);
+  assert.match(preview.value.question, /^Start version 2 of /u);
+  assert.deepEqual([head(), worktree()], [beforeYes, statusBeforeYes], 'the preview changes nothing');
+  const begun = repo.run(process.execPath, [cli, '--no-model', 'phase', 'rollover', 'implement', '--confirm', preview.value.confirmation, '--json']);
   assert.equal(begun.status, 0, begun.stdout + begun.stderr);
+  assert.equal((await state()).phases.implement.generationIntent?.status, 'open', 'version 2 is open');
   assert.match(listed().items.find((entry) => entry.kind === 'asked-for').options[0].action.command, /^singularity-flow departure account --work-id QF-1 --instruction 2 /u);
   const late = repo.sflowJson('departure', 'account', '--instruction', '2', '--clauses', 'QF-1:AC-001');
   assert.equal(late.status, 0, JSON.stringify(late.value));

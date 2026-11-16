@@ -56,6 +56,31 @@ export async function noteRequestedChange(root, workflow, phase, reason) {
   return words.text;
 }
 
+/**
+ * The route to the version an instruction left unaccounted is accounted for in, once the step's own version is published
+ * [SCS:REQ-042]: a reopened step's preview of its next version, as the kernel names it, else the preview of a change the
+ * person asks for. Each opens only on the person's yes [D3, OSA:REQ-030]; null when neither applies.
+ */
+export async function nextVersionRoute(root, workflow, phase) {
+  const { decision, route } = await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase);
+  if (['open-version', 'build-version'].includes(decision?.next?.operation) && route?.command) return { command: route.command, skill: route.skill ?? null };
+  const requested = requestedSuccessorAction(workflow, phase);
+  return requested?.command ? { command: requested.command, skill: requested.skill ?? null } : null;
+}
+
+/**
+ * Whether `version` of the step is already asked as its own question: its preview's proposal waits for the person's yes
+ * on this Story as it stands, or their yes is kept for it (story-version-consent.mjs) [D3, OSA:REQ-030, Stage 4]. The
+ * decisions list then asks it once, as that question, on every card and in the terminal.
+ */
+export async function successorAsked(root, workflow, phase, version) {
+  const [{ gitDirectories }, { pendingProposalRecord }, { head }] = await Promise.all([import('./story-version-acceptance.mjs'),
+    import('./story-version-consent.mjs'), import('./git.mjs')]);
+  const directories = gitDirectories(root);
+  const record = directories ? await pendingProposalRecord(directories.commonDir, { workId: workflow.workItem.id, phase: phase.id, lifecycleRevision: head(root) }) : null;
+  return Boolean(record) && record.proposal.consent === 'required' && Number(record.proposal.version) === Number(version);
+}
+
 /** The value the person confirms: the published generation, its exact bytes and the words that ask for the change. */
 export function requestedSuccessorConfirmation(workflow, phase, resultDigest, requests) {
   return `sha256:${createHash('sha256').update(JSON.stringify({ kind: 'requested-successor', workId: workflow.workItem.id,
@@ -128,7 +153,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     // Kept here, sealed, so the hook that hears the person's answer binds it to this exact proposal.
     await opening.recordPreview(root, { ...proposed, confirmation: expected });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
-    console.log(`Start ${phase.id} generation ${next} for a change (generation ${phase.generation} stays as published):`);
+    console.log(`Start ${phase.id} version ${next} for a change (version ${phase.generation} stays as published):`);
     for (const request of requests) console.log(`  · "${request.replace(/\s+/gu, ' ')}"`);
     // A person confirms the step and generation they just read, never a digest [no hashes shown]: in their own
     // terminal this same process asks, and binds the digest it derived above; `--json` keeps it for an agent.
@@ -153,7 +178,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
       next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: `${skill} ${phase.id}`,
         reason: `Author draft ${next} for what was asked in this step; it is checked${(await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id) ? ' and reviewed' : ''} again before it is published.` } };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else console.log(`Opened ${phase.id} draft ${next} for the change asked for. Draft ${phase.generation} stays as published.`);
+    else console.log(`Opened ${phase.id} version ${next} for the change asked for. Version ${phase.generation} stays as published.`);
     return;
   }
   const intent = phase.generationIntent;
@@ -162,7 +187,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: `/sf-code ${phase.id}`,
       reason: `Author generation ${intent.generation} for what was asked; its tests run again before it is published.` } };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-  else console.log(`Opened ${phase.id} generation ${intent.generation} for the change asked for. Generation ${phase.generation} stays as published.`);
+  else console.log(`Opened ${phase.id} version ${intent.generation} for the change asked for. Version ${phase.generation} stays as published.`);
 }
 
 /** A document step's published draft as the person saw it: its generation, commit and authored text. */
@@ -183,12 +208,23 @@ async function documentDraftDigest(root, config, workflow, phase) {
 export async function reviewCorrectionRequest(root, config, workflow, phase) {
   const { sourceReviewRequired } = await import('./source-review-policy.mjs');
   if (!sourceReviewRequired(workflow, phase.id)) return null;
+  const lifecycle = await import('./source-review-lifecycle.mjs');
   let status;
-  try { status = await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phase.id); }
-  catch { return null; }
-  if (status?.status !== 'correction-required' || !status.reportSha256 || Number(status.generation) !== Number(phase.generation)) return null;
-  const blocking = (status.findings ?? []).filter((entry) => entry.code !== 'human-disposition-required').slice(0, 5)
-    .map((entry) => String(entry.message ?? entry.code).replace(/\s+/gu, ' ').slice(0, 300));
+  try { status = await lifecycle.readSourceReviewStatus(root, config, workflow, phase.id); }
+  catch { status = null; }
+  let blocking;
+  if (status?.status === 'correction-required' && status.reportSha256 && Number(status.generation) === Number(phase.generation)) {
+    blocking = (status.findings ?? []).filter((entry) => entry.code !== 'human-disposition-required');
+  } else if (!status || status.status === 'stale') {
+    // A person who edited the published document after its review asked for corrections changed what that review is bound
+    // to, not what it asked: the retained report of this version still asks for its corrections, so the next version is
+    // still to fix them, asked as the review's question [stage5b.md section 5, decision 5].
+    const report = await lifecycle.retainedReviewReport(root, config, workflow, phase.id);
+    blocking = (report?.findings ?? []).filter((entry) => entry?.severity === 'blocking' && String(entry.message ?? '').trim()
+      && (!entry.ownerPhase || entry.ownerPhase === phase.id)).map((entry) => ({ message: `Reviewer finding '${entry.id}': ${entry.message}` }));
+    if (!blocking.length) return null;
+  } else return null;
+  const words = blocking.slice(0, 5).map((entry) => String(entry.message ?? entry.code).replace(/\s+/gu, ' ').slice(0, 300));
   // Named by its generation, never its digest: these words are shown and kept as "Asked for" [no hashes shown].
-  return `Correct what the review of generation ${phase.generation} found: ${blocking.join(' | ') || 'its blocking findings'}`.slice(0, 2000);
+  return `Correct what the review of generation ${phase.generation} found: ${words.join(' | ') || 'its blocking findings'}`.slice(0, 2000);
 }

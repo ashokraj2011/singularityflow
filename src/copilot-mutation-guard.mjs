@@ -389,7 +389,9 @@ export async function captureMutationTurn(payload, record, {
 } = {}) {
   const file = recordFile(payload);
   if (!file) return;
-  if (answerLedgerTurn(record)) await answerBinding().then(binding => binding.startAnswerLedger(file, record, payload.prompt)).catch(() => {});
+  // Only a decision turn's typed words are read against its commands. An authoring turn's yes is its answer to the question
+  // tool, so its turn record keeps none of what was typed: those words live only, redacted, in the Story's own record [SCS:REQ-040].
+  if (answerLedgerTurn(record)) await answerBinding().then(binding => binding.startAnswerLedger(file, record, ANSWER_BOUND_SKILLS.has(skillName(record.skill)) ? payload.prompt : '')).catch(() => {});
   let root = null;
   try {
     const candidate = await resolveRoot(payload);

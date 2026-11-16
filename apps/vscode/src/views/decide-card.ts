@@ -15,7 +15,7 @@ import { collectReviewConfirmation } from './review-confirmation.ts';
 import { createTerminalIn } from '../terminal-start.ts';
 import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
-  versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionItemPacket, type DecisionPacket,
+  versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
 import { approvalRows, checkNames, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
@@ -61,19 +61,12 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
   let packet = await readList(client, workId);
   // A step's next version waiting for the person's yes is asked on this card, and what they answered here.
   let declined: VersionOpeningPacket | null = null;
-  let started: VersionOpeningPacket | null = null;
   /**
-   * The engine's own row for the same next version (decision-list.mjs rolloverItem, a step in the person's terminal) asks
-   * what the card's question asks. Once the person said yes here it is answered; while the question is on the page, or
-   * after "Not now", a row that offers nothing but starting that version is not asked twice. A row that can also leave
-   * the change out stays.
+   * The list as the engine gives it. Its older row for the same next version (decision-list.mjs rolloverItem) no longer
+   * offers starting it while its preview waits for the person's yes or their yes is kept: the question asks that once, here
+   * as on the Copilot CLI card and in the terminal, and the row keeps only leaving the change out [stage5b.md section 5].
    */
-  const covered = (item: DecisionItemPacket) => {
-    const target = started ?? versionOpeningOf(packet) ?? declined;
-    return Boolean(target) && item.kind === 'generation-rollover' && item.details?.phase === target!.phase && Number(item.details?.next) === Number(target!.version)
-      && (Boolean(started) || item.options.every((option) => option.id === 'start-next-generation'));
-  };
-  const shown = (): DecisionPacket => ({ ...packet, items: packet.items.filter((item) => !covered(item)) });
+  const shown = (): DecisionPacket => packet;
   // A chat that asked carries on when nothing waits: only a person who opened this page sees a review nothing waits on,
   // or the approval, whose row opens its page [owner, 2026-11-13].
   const waiting = () => (askedInChat ? openRows(shown()) : [...decideRows(shown()), ...approvalRows(shown())]);
@@ -195,7 +188,6 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         try {
           const outcome = versionConsentOutcome(await client.run(versionConsentArgv(now), undefined, { priority: 'interactive' }));
           recorded = [...recorded, 'version-opening'];
-          started = now;
           // Kept: a view that fails to refresh never turns it into a failure.
           await Promise.resolve(refresh?.()).catch(() => undefined);
           await reread();

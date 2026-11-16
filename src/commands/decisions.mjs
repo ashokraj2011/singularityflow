@@ -259,6 +259,11 @@ export function packetText(packet) {
   const headline = packet.plain?.headline ? `Decide ${packet.workId} · ${packet.phaseLabel ?? packet.phase}. ${packet.plain.headline}` : packet.headline;
   const lines = [headline, ...(packet.recorded?.length ? ['', 'Recorded plan accounting (separate from visual sign-off):',
     ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : [])];
+  // A step's next version waiting for the person's yes, asked once as both cards ask it; here, the step's own preview asks
+  // them in their terminal [D3, OSA:REQ-030]. Its older list row keeps only leaving the change out.
+  const opening = packet.versionOpening;
+  if (opening) lines.push('', opening.question, 'Answer it in your own terminal, which asks you, or on the Decide card:',
+    ...formatCommandRouteLines({ command: opening.terminal ?? null, copilotCommand: packet.record?.share ?? null, modelFreeCommand: VSCODE_DECISIONS_CARD }));
   if (!packet.items.length && !packet.offered?.length && !packet.settled?.length) return `${lines.join('\n')}\n`;
   lines.push('');
   const settled = settledItems(packet);
@@ -662,7 +667,7 @@ function changedList(packet, confirm, phaseId) {
 async function versionOpeningOf(root, workflow) {
   const phase = workflow.phases?.[workflow.currentPhase];
   if (!phase || workflow.status !== 'in_progress') return null;
-  const [{ gitDirectories }, consent, { head }, { kernelRoute }] = await Promise.all([import('../story-version-acceptance.mjs'),
+  const [{ gitDirectories }, consent, { head }, { askingRoute, kernelRoute }] = await Promise.all([import('../story-version-acceptance.mjs'),
     import('../story-version-consent.mjs'), import('../git.mjs'), import('./phase-opening.mjs')]);
   const directories = gitDirectories(root);
   if (!directories) return null;
@@ -672,7 +677,27 @@ async function versionOpeningOf(root, workflow) {
   // number, with nothing open; the opening operation checks the proposal again when it runs.
   const { decision } = await kernelRoute(root, workflow, phase);
   if (phase.status !== 'in_progress' || decision.version.writing !== null || Number(decision.version.proposedNext) !== Number(record.proposal.version)) return null;
-  return { workId: workflow.workItem.id, phase: phase.id, version: record.proposal.version, question: record.question, confirmation: record.confirmation, digest: record.digest };
+  // In a terminal, the step's own preview asks it (`terminal`): what the decisions text shows [D3].
+  return { workId: workflow.workItem.id, phase: phase.id, version: record.proposal.version, question: record.question, confirmation: record.confirmation, digest: record.digest,
+    terminal: (await askingRoute(phase.id))?.command ?? null };
+}
+
+/**
+ * A yes for Story `workId` is kept only in a checkout of that Story. One that holds another Story keeps nothing and is never
+ * switched to `workId` (the record's own branch checkout would switch it, under a person who moved on): the refusal names
+ * the Story's own checkout, as the machine's Story index knows it, and the route that opens it [stage5b.md section 5].
+ */
+async function versionConsentCheckout(root, workId) {
+  const index = await import('../story-index.mjs');
+  const facts = await index.checkoutGitFacts(root).catch(() => null);
+  const current = facts ? await index.storyInCheckout(root, { facts }).catch(() => null) : null;
+  if (!current || current.workId === workId || (current.aliases ?? []).includes(workId)) return;
+  const found = await index.lookupStoryCheckouts(workId).catch(() => ({ valid: [] }));
+  const own = found.valid.filter(index.isLifecycle)[0]?.checkoutPath ?? null;
+  const open = `singularity-flow session open ${workId}`;
+  refused(`This checkout holds Story ${current.workId}, so the yes for ${workId} was not kept here and the checkout was not switched. `
+    + `Answer it in ${workId}'s own checkout${own ? `, ${own}` : ''}: open it with ${open}, then ask again.`, 'VERSION_CONSENT_WRONG_TARGET',
+  { workId, actualWorkId: current.workId, storyCheckout: { workId, checkoutPath: own }, nextAction: { command: open, skill: '/sf-session' } });
 }
 
 /**
@@ -682,6 +707,7 @@ async function versionOpeningOf(root, workflow) {
  * changed proposal, another step or a moved Story opens nothing. Like every `decisions record`, a chat turn never runs it.
  */
 async function recordVersionConsent(root, options, workId) {
+  if (workId) await versionConsentCheckout(root, workId);
   const { workflow } = await storyContext(root, workId, { record: true, fetch: false });
   const confirmation = optionString(options, 'version-consent');
   const expect = optionString(options, 'expect');

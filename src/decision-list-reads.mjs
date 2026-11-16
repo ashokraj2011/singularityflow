@@ -267,14 +267,20 @@ async function convergenceFacts(root, config, workflow, phase, unavailable) {
 /**
  * A code step's instructions the person typed that are not accounted for yet [SCS:REQ-042], quoted; null when none.
  */
-async function askedForFacts(workflow, phase) {
+async function askedForFacts(root, workflow, phase) {
   if (!(workflow.askedFor ?? []).some((entry) => entry.phase === phase.id)) return null;
+  const source = (name) => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', name)).href);
   const [{ phaseRequiresCodeDelivery }, { instructionAccounting }, { typedFocusOff }] = await Promise.all([import('./code-delivery-policy.mjs'),
     // From the CLI source, as the departures are: the VS Code bundles load it only for a Story that has one.
-    import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href), import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for.mjs')).href)]);
+    source('asked-for-records.mjs'), source('asked-for.mjs')]);
   if (!phaseRequiresCodeDelivery(phase) || typedFocusOff(workflow)) return null;
   const entries = instructionAccounting(workflow, phase.id).filter((entry) => !entry.account);
-  return entries.length ? { phase: phase.id, open: workflow.currentPhase === phase.id && phase.status === 'in_progress' && phase.generationIntent?.status === 'open', entries } : null;
+  if (!entries.length) return null;
+  const open = workflow.currentPhase === phase.id && phase.status === 'in_progress' && phase.generationIntent?.status === 'open';
+  // Published and not submitted: it is accounted for in the next version, which opens only on the person's yes [D3, OSA:REQ-030].
+  const route = open || phase.status === 'awaiting_approval' ? null
+    : await source('requested-successor.mjs').then((module) => module.nextVersionRoute(root, workflow, phase)).catch(() => null);
+  return { phase: phase.id, open, ...(route ? { route } : {}), entries };
 }
 
 /**
@@ -299,10 +305,15 @@ async function rolloverFacts(root, config, workflow, phase) {
     if (!after && !requests.length) return null;
     const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: after?.paths ?? [] });
     const chatRoute = phaseRequiresCodeDelivery(phase) ? `/sf-code ${phase.id}` : action?.copilotCommand?.replace(/ <what to change>$/u, '') ?? null;
-    return { phase: phase.id, generation: Number(phase.generation), next: Math.max(Number(phase.generation), Number(phase.generationHighWatermark ?? 0)) + 1,
+    const next = Math.max(Number(phase.generation), Number(phase.generationHighWatermark ?? 0)) + 1;
+    const keepOut = after?.uncommitted?.length ? `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` : null;
+    // Its preview waits for the person's yes, or their yes is kept: that question asks it, once, so this row keeps only
+    // leaving the change out, and is not shown when it has nothing else [D3, OSA:REQ-030].
+    const asked = await requested.successorAsked(root, workflow, phase, next).catch(() => false);
+    if (asked && !keepOut) return null;
+    return { phase: phase.id, generation: Number(phase.generation), next,
       paths: after?.paths ?? [], uncommitted: after?.uncommitted ?? [], requests: requests.map((text) => String(text).replace(/\s+/gu, ' ').trim().slice(0, 200)),
-      command: `singularity-flow phase rollover ${phase.id}`, keepOut: after?.uncommitted?.length ? `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` : null,
-      chatRoute, code: phaseRequiresCodeDelivery(phase) };
+      command: `singularity-flow phase rollover ${phase.id}`, keepOut, ...(asked ? { asked: true } : {}), chatRoute, code: phaseRequiresCodeDelivery(phase) };
   } catch { return null; }
 }
 
@@ -555,7 +566,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     rollover: answering ? await rolloverFacts(root, config, workflow, phase) : null,
     departures: workflow.status === 'in_progress' ? await departureFacts(root, config, workflow, phase) : null,
     convergence,
-    askedFor: workflow.status === 'in_progress' ? await askedForFacts(workflow, phase) : null,
+    askedFor: workflow.status === 'in_progress' ? await askedForFacts(root, workflow, phase) : null,
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,

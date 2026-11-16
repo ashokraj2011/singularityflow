@@ -177,9 +177,21 @@ test('the decisions list carries the advice on every item, the approval and the 
   }
   const rollover = packet.items.find((item) => item.kind === 'generation-rollover');
   assert.deepEqual(rollover.options.map((entry) => entry.id), ['start-next-generation', 'set-aside']);
-  assert.equal(rollover.options[0].does, 'Opens generation 3 of Implementation with the change; generation 2 and its evidence and test results stay as published.');
+  assert.equal(rollover.options[0].does, 'Opens version 3 of Implementation with the change; version 2 and its evidence and test results stay as published.');
   assert.match(rollover.recommended.words, /^Recommended: Keep src\/late\.js in a new version if it belongs in this step; otherwise set it aside\.$/u);
   assert.equal(rollover.options[0].action.command, 'singularity-flow phase rollover implementation', 'the person\'s own terminal previews it and asks them to confirm');
+  // Its preview waits for the person's yes, or their yes is kept: that question asks it once, on every card and in the
+  // terminal, and this row keeps only leaving the change out, in versions [D3, OSA:REQ-030, stage5b.md section 5].
+  const asked = packetOf(story(), { rollover: { phase: 'implementation', generation: 2, next: 3, paths: ['src/late.js'], uncommitted: ['src/late.js'], requests: [],
+    command: 'singularity-flow phase rollover implementation', keepOut: `singularity-flow recover ${WORK} --phase implementation --json`, asked: true,
+    chatRoute: '/sf-code implementation', code: true } }).items.find((item) => item.kind === 'generation-rollover');
+  assert.deepEqual(asked.options.map((entry) => entry.id), ['set-aside']);
+  assert.equal(asked.title, 'Leave the change out of Implementation instead of starting version 3');
+  assert.match(asked.why, /^src\/late\.js changed after version 2 of Implementation was published, .* Starting version 3 with the change is asked on its own; or leave the change out\.$/u);
+  assert.equal(asked.options[0].does, 'Sets the changed files aside with a private copy; version 2 goes ahead as published, without them.');
+  assert.match(asked.recommended.words, /^Recommended: Answer the question about version 3 first; leave the change out only if it does not belong in this step\.$/u);
+  assert.equal(asked.yesNo ?? null, null, 'nothing asks it in chat a second time');
+  assert.doesNotMatch(JSON.stringify(asked), /generation [0-9]|Generation [0-9]/u, 'a person reads versions');
   // The node pin's try passed: pin it.
   assert.equal(packet.items.find((item) => item.kind === 'node-pin').recommended.option, 'pin-node');
   // The workflow says why scope does not apply here.

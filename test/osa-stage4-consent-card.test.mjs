@@ -82,6 +82,57 @@ test('the decisions card asks the step\'s next version with the proposal\'s own 
   assert.deepEqual(record.consent.binding, { workId: W, phase: 'intake', version: 2, from: 1, confirmation: preview.confirmation });
 });
 
+test('the list asks a waiting next version once: no older row asks it beside the question, and the terminal shows that question [stage5b.md section 5]', async (t) => {
+  const { story, preview } = await previewedSuccessor(t);
+  const list = () => { const listed = json(story, ['decisions', W]).value; return listed.data ?? listed; };
+  const rollovers = (packet) => packet.items.filter((item) => item.kind === 'generation-rollover');
+  let packet = list();
+  assert.equal(packet.versionOpening.version, 2);
+  assert.deepEqual(rollovers(packet), [], 'its preview waits for the person\'s yes: that question asks it, once');
+  // The terminal shows the same question, answered by the step's own preview there, or on the Decide card.
+  const text = story.raw(['decisions', W]);
+  assert.equal(text.status, 0, text.stderr.slice(-2000));
+  assert.ok(text.stdout.includes(`\n${preview.question}\nAnswer it in your own terminal, which asks you, or on the Decide card:\n- Copilot: /sf-decide ${W}\n`
+    + '- Shell: singularity-flow phase rollover intake\n'), text.stdout);
+  // The yes kept: nothing asks it again, the question nor the row.
+  json(story, ['decisions', 'record', W, '--version-consent', packet.versionOpening.confirmation, '--expect', packet.versionOpening.digest]);
+  packet = list();
+  assert.equal(packet.versionOpening, undefined);
+  assert.deepEqual(rollovers(packet), []);
+  // The Story moved since: that proposal no longer stands, so the row offers starting the version again, in versions.
+  story.git('commit', '-q', '--allow-empty', '-m', 'Another change on the Story');
+  packet = list();
+  assert.equal(packet.versionOpening, undefined);
+  const [row] = rollovers(packet);
+  assert.equal(row?.title, 'Start version 2 of Scope and plan, or leave the change out', JSON.stringify(packet.items.map((item) => item.title)));
+  assert.deepEqual(row.options.map((entry) => entry.id), ['start-next-generation']);
+  assert.match(row.options[0].label, /^Start version 2 of Scope and plan for the change$/u);
+});
+
+test('a yes for one Story, run in a checkout that holds another, keeps nothing and never switches that checkout [stage5b.md section 5]', async (t) => {
+  const { story } = await previewedSuccessor(t);
+  const listed = json(story, ['decisions', W]).value;
+  const opening = (listed.data ?? listed).versionOpening;
+  // The person starts another Story in the same checkout.
+  story.cli('start', 'CRD-2', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Another change', '--description', 'Another.');
+  assert.equal(story.git('branch', '--show-current'), 'CRD-2');
+  const head = story.git('rev-parse', 'HEAD');
+  const refused = json(story, ['decisions', 'record', W, '--version-consent', opening.confirmation, '--expect', opening.digest], { fail: true });
+  assert.notEqual(refused.status, 0);
+  assert.equal(refused.value.error.code, 'VERSION_CONSENT_WRONG_TARGET', JSON.stringify(refused.value).slice(0, 2000));
+  assert.equal(refused.value.error.message, `This checkout holds Story CRD-2, so the yes for ${W} was not kept here and the checkout was not switched. `
+    + `Answer it in ${W}'s own checkout: open it with singularity-flow session open ${W}, then ask again.`);
+  assert.equal(refused.value.error.details.nextAction, `singularity-flow session open ${W}`);
+  assert.equal(refused.value.remediationPlan.steps[0].copilotCommand, '/sf-session');
+  assert.deepEqual([story.git('branch', '--show-current'), story.git('rev-parse', 'HEAD')], ['CRD-2', head], 'the checkout stays where the person put it');
+  // In the Story's own checkout the same proposal still waits: nothing was kept for it, and its yes is kept there.
+  story.git('checkout', '-q', W);
+  const again = json(story, ['decisions', W]).value;
+  assert.equal((again.data ?? again).versionOpening.digest, opening.digest, 'still waiting for the person');
+  const kept = json(story, ['decisions', 'record', W, '--version-consent', opening.confirmation, '--expect', opening.digest]).value;
+  assert.equal((kept.data ?? kept).consent.surface, 'decisions-card');
+});
+
 test('the card asks a waiting next version first, as its own question; "Not now" records nothing', async () => {
   const opening = { workId: W, phase: 'intake', version: 2, question: 'Start version 2 of Intake? Published version 1 will stay unchanged.', confirmation: 'sha256:c', digest: 'sha256:d' };
   const form = versionOpeningForm(opening);

@@ -248,12 +248,21 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const evidence = mode === 'authoring' && phase?.generationIntent?.status === 'open'
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
     : [];
-  const contract = deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence });
+  // The open version's acceptance and writer as this checkout observed them, from files only [OSA:REQ-031, REQ-034, REQ-041].
+  const opening = phase?.versionOpening ? (await import('./story-version-acceptance.mjs')).observeOpening(root, workflow, phase) : null;
+  const contract = deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence, opening });
   if (mode === 'read' && requestedMode !== 'read') {
     contract.summary = 'The phase changed during this turn. Preserve work, end this turn, and start the configured author in a new turn.';
   }
   const workflowFile = path.join(root, definition.workItemRoot, workflow.workItem.id, 'workflow.json');
   const gitIdentity = await identity(root);
+  // An open version's acceptance and writer, read from files: when either changes (a settled opening, a takeover), the
+  // turn's grant is derived again, never kept from before [OSA:REQ-031, REQ-034].
+  if (opening) {
+    for (const file of opening.files ?? []) {
+      gitIdentity.stamps.push({ file, sha256: digest(await readFile(file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) });
+    }
+  }
   // Issued staging is scoped to the exact phase/generation. Never use a wildcard private path.
   const samePhase = previous?.contract?.phaseId === contract.phaseId && previous.contract.generation === contract.generation;
   // The step's own staging files follow from the pinned contract, so every turn bound to this step
@@ -1430,6 +1439,53 @@ function proposalStepOfCall(call, cwd) {
     .find(candidate => parseCli(candidate).positionals.slice(0, 3).join(' ') === 'story intent-amendment propose');
   return argv ? { id: 'intent-amendment-proposal', argv } : null;
 }
+/**
+ * The proposal a `phase rollover` preview kept on this clone under `confirmation` (story-version-consent.mjs), read from
+ * files only, with the clone's common directory: `{ record, commonDir }`, or `{ record: null }` when there is none.
+ */
+async function successorProposal(payload, confirmation) {
+  try {
+    const value = await boundedRecord(recordFile(payload)).catch(() => null);
+    const root = value?.contract?.repositoryRoot ?? value?.repositoryRoot ?? payload.cwd;
+    const { gitDirectories } = await import('./story-version-acceptance.mjs');
+    const directories = gitDirectories(root);
+    if (!directories || typeof confirmation !== 'string') return { record: null };
+    const record = await (await import('./story-version-consent.mjs')).readProposalRecord(directories.commonDir, confirmation);
+    return { record, commonDir: directories.commonDir };
+  } catch { return { record: null }; }
+}
+
+/**
+ * A /sf-confirm turn runs the command whose code the person typed into their own prompt: for a step's next version, that
+ * typed code is their yes, kept as the grant the opening command turns into their consent receipt [OSA:REQ-030].
+ */
+async function confirmCodeGrant(payload, record) {
+  for (const call of calls(payload)) {
+    const argv = successorConfirmationOfCall(call, payload.cwd);
+    if (!argv) continue;
+    const value = await currentContract(payload, record, { reclassifyOutputs: false }).catch(() => null);
+    const { options } = parseCli(argv);
+    if (value?.contract?.turnMode !== 'confirm' || value.decisionEnded || typeof value.confirmDigest !== 'string' || options.confirm !== value.confirmDigest) continue;
+    const proposed = await successorProposal(payload, options.confirm);
+    if (!proposed.record) continue;
+    await (await import('./story-version-consent.mjs')).grantConsent(proposed.commonDir, { record: proposed.record, surface: 'confirm-code',
+      question: proposed.record.question, answer: 'yes', session: payload.sessionId ?? payload.session_id ?? null, turnId: record.turnId ?? null,
+      host: typeof payload.tool_name === 'string' ? 'vscode' : 'copilot-cli' });
+  }
+}
+
+/** In a chat with no /sf- command, a step's next version is never started: it is the person's yes, asked by its work command. */
+function successorPlainChatDenial(payload) {
+  for (const call of calls(payload)) {
+    const argv = successorConfirmationOfCall(call, payload.cwd);
+    if (!argv) continue;
+    const step = parseCli(argv).positionals[2] ?? '<step>';
+    return { permissionDecision: 'deny', next: [], permissionDecisionReason: `PHASE_MUTATION_ANSWER_UNBOUND: nothing was started. Starting a step's next version is the person's yes, and this chat named no /sf- command to ask it. `
+      + `The person types the step's own work command for ${step}, which asks them; or runs singularity-flow phase rollover ${step} in their own terminal, which asks them. Do not retry it` };
+  }
+  return null;
+}
+
 /** A confirmed `phase rollover`: the argv that starts a step's next version, held to the person's yes, or null. */
 function successorConfirmationOfCall(call, cwd) {
   if (!SHELL_INPUT_TOOLS.has(call.name)) return null;
@@ -1923,12 +1979,23 @@ async function answerBoundDenial(payload, record) {
     return null;
   }
   // A step's next version starts only on the person's yes in this turn; the agent never answers it [owner, 2026-11-16].
+  // The yes must answer a question that named the exact version the preview proposed, and becomes the sealed grant the
+  // opening command turns into the person's consent receipt [OSA:REQ-030, §7.1].
   if (SUCCESSOR_BOUND_MODES.has(mutationTurnMode(record.skill))) for (const call of toolCalls) {
     const argv = successorConfirmationOfCall(call, payload.cwd);
     if (!argv) continue;
     const { positionals, options } = parseCli(argv);
-    const reason = await (await answerBinding()).unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals }).catch(() => null);
+    const proposed = await successorProposal(payload, options.confirm);
+    const preview = [safeCommandGuidance({ argv: ['phase', 'rollover', positionals[2] ?? '<step>', '--json'] })].filter(Boolean);
+    if (!proposed.record) return { ...mutationDenial(null, `PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. This confirmation names no version previewed on this machine, so the person's yes cannot be bound to it. Run the preview (singularity-flow phase rollover ${positionals[2] ?? '<step>'} --json), ask the person its question, and run the confirmation it returns.`, [], { routes: preview }), recoverable: true };
+    const binding = await answerBinding();
+    const version = proposed.record.proposal.version;
+    const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals, version }).catch(() => null);
     if (reason) return { ...mutationDenial(null, reason, [], { routes: [safeCommandGuidance({ argv })].filter(Boolean) }), recoverable: true };
+    const reply = await binding.successorReply(file, record, version, positionals[2] ?? null).catch(() => null);
+    await import('./story-version-consent.mjs').then((consent) => consent.grantConsent(proposed.commonDir, { record: proposed.record, surface: 'question-tool',
+      question: reply?.asked, session: payload.sessionId ?? payload.session_id ?? null, turnId: record.turnId ?? null,
+      host: typeof payload.tool_name === 'string' ? 'vscode' : 'copilot-cli' })).catch(() => null);
   }
   if (!ANSWER_BOUND_SKILLS.has(skillName(record.skill))) return null;
   // The turn's contract, read once and only for a proposal: whether change impact holds it to a yes.
@@ -1958,7 +2025,7 @@ async function answerBoundDenial(payload, record) {
 
 export async function mutationToolGuard(payload = {}) {
   const record = await turn(payload);
-  if (!record) return personStepDenial(payload) ?? {};
+  if (!record) return personStepDenial(payload) ?? successorPlainChatDenial(payload) ?? {};
   // A turn reads its terminals' commands below; text typed into a running shell is read here.
   const typed = personStepDenial(payload, { tools: new Set(['write_bash']) });
   if (typed) return typed;
@@ -1995,6 +2062,7 @@ export async function mutationToolGuard(payload = {}) {
     }
   }
   if (decision.permissionDecision !== 'deny') await noteCardOpened(payload, record).catch(() => {});
+  if (decision.permissionDecision !== 'deny') await confirmCodeGrant(payload, record).catch(() => {});
   await observeEdits(payload, record, decision).catch(() => {});
   return decision;
 }

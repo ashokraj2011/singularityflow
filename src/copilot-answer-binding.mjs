@@ -166,7 +166,7 @@ function reasonLengthProblem(positionals, options) {
  * applicability and a plan row (`only`), whose no records nothing. `names` are the words its row's question carries
  * (decision-advice.mjs yesNoOf); `ids` what names another row of the same kind; `typed` its options as the list numbers them.
  */
-function yesNoCommand([command, sub, third], options) {
+function yesNoCommand([command, sub, third], options, version = null) {
   const text = (flag) => [options[flag]].flat().filter((value) => typeof value === 'string');
   if (command === 'upstream-issue' && sub === 'revalidate') {
     const records = { unchanged: 'yes', return: 'no' }[options.outcome];
@@ -189,7 +189,7 @@ function yesNoCommand([command, sub, third], options) {
   // Starting a step's next version (`phase rollover --confirm`) in an authoring turn: only on the person's own yes to a question
   // that asks to start it, in this turn; a no, Not now, the host's own reply or no answer starts nothing [owner, 2026-11-16].
   if (command === 'phase' && sub === 'rollover' && typeof options.confirm === 'string') {
-    return { records: 'yes', proposal: true, successor: true, row: `rollover ${third}`, names: [], ids: NEVER, yes: ['start it'], no: ["don't start", 'do not start'],
+    return { records: 'yes', proposal: true, successor: true, version, row: `rollover ${third}`, names: [], ids: NEVER, yes: ['start it'], no: ["don't start", 'do not start'],
       typed: { yes: NEVER, no: NEVER }, terminal: `singularity-flow phase rollover ${third ?? '<step>'}` };
   }
   if (command === 'decision' && sub === 'plan' && (options['add-location'] !== undefined || options['add-supporting'] !== undefined)) {
@@ -198,6 +198,9 @@ function yesNoCommand([command, sub, third], options) {
   }
   return null;
 }
+
+/** A question that asks to start a version: that exact one when the preview's number is known. */
+const successorQuestion = (version) => new RegExp(`\\b(?:start|open|begin)\\b[^?]*\\b(?:version|generation|draft) ${Number.isSafeInteger(version) ? version : '\\d+'}\\b`, 'u');
 
 // Hyphens and underscores read as spaces on both sides, so "fix-design" is named by "Fix design".
 const named = (text) => comparable(text).replace(/[-_]+/gu, ' ');
@@ -224,8 +227,9 @@ function yesNoAnswer(ledger, yesNo) {
   const replies = ledger.replies.map((reply, index) => ({ reply, index, side: sideOf(reply, yesNo) }))
     .filter((entry) => entry.side && (!entry.reply.usedBy || entry.reply.usedBy === yesNo.row));
   // A proposal stands only on the answer to a question that asked whether to propose it, never on another yes; a next
-  // version only on one that asked to start it ("Start version 2 to fix the review's findings?").
-  if (yesNo.proposal) return replies.filter((entry) => (yesNo.successor ? /\b(?:start|open|begin)\b[^?]*\b(?:version|generation|draft) \d+\b/u : /\bpropose\b/u)
+  // version only on one that asked to start that exact version ("Start version 2 of Code to fix the review's findings?"),
+  // its number the one the preview proposed [OSA §7.1, REQ-030].
+  if (yesNo.proposal) return replies.filter((entry) => (yesNo.successor ? successorQuestion(yesNo.version) : /\bpropose\b/u)
     .test(named(entry.reply.asked))).at(-1) ?? { problem: 'none' };
   const names = (entry) => yesNo.names.length && yesNo.names.every((word) => named(entry.reply.asked).includes(named(word)));
   // A one-choice item reads only a question that names it, never one about an amendment or a departure.
@@ -293,7 +297,7 @@ function successorProblem(found, ledger, yesNo, { localChat }) {
     return `${REFUSAL} This chat's answers do not reach SFlow, so the person's yes to starting the next version cannot be read here; do not ask again in this chat. ${theirs}`;
   }
   if (found.problem === 'none') {
-    return `${REFUSAL} Starting the step's next version is the person's yes, never this turn's. Ask them "Start version N to …? Version N-1 and its tests stay." (Yes, No) with your question tool (ask_user; in VS Code, vscode_askQuestions), and run it again only after their Yes. ${theirs}`;
+    return `${REFUSAL} Starting the step's next version is the person's yes, never this turn's. Ask them the preview's question, which names version ${Number.isSafeInteger(yesNo.version) ? yesNo.version : 'N'} ("Start version ${Number.isSafeInteger(yesNo.version) ? yesNo.version : 'N'} of …?"; Yes, No), with your question tool (ask_user; in VS Code, vscode_askQuestions), and run it again only after their Yes. ${theirs}`;
   }
   if (found.problem === 'ambiguous') return `${REFUSAL} The person answered yes and no together; ask "Start version N?" on its own (Yes, No), and start it only after their Yes.`;
   if (found.side === 'not-now' || found.side === 'no') return `${REFUSAL} The person did not say yes to starting the next version: start nothing, and tell them the published version stays as it is.`;
@@ -304,11 +308,11 @@ function successorProblem(found, ledger, yesNo, { localChat }) {
  * Why this decision command is not what the person answered in this turn, or null. `localChat`: VS Code's own chat.
  * `positionals` name the command, so its reason's length and a yes or no it records are checked too [owner, 2026-11-14].
  */
-export async function unboundAnswerReason(file, record, options, { localChat = false, positionals = [] } = {}) {
+export async function unboundAnswerReason(file, record, options, { localChat = false, positionals = [], version = null } = {}) {
   const length = reasonLengthProblem(positionals, options);
   if (length) return length;
   const ledger = await readLedger(file, record.turnId);
-  const yesNo = yesNoCommand(positionals, options);
+  const yesNo = yesNoCommand(positionals, options, version);
   const sided = yesNo ? yesNoProblem(ledger, yesNo, { localChat }) : null;
   if (sided) return sided;
   const words = await (async () => {
@@ -334,4 +338,11 @@ export async function unboundAnswerReason(file, record, options, { localChat = f
     await writeLedger(file, { ...ledger, replies: ledger.replies.map((reply, index) => (index === found.index ? { ...reply, usedBy: yesNo.row } : reply)) });
   }
   return null;
+}
+
+/** The person's yes that starts `version` in this turn, as the host delivered it: `{ asked, texts }`, or null. */
+export async function successorReply(file, record, version, step = null) {
+  const ledger = await readLedger(file, record.turnId);
+  const found = yesNoAnswer(ledger, yesNoCommand(['phase', 'rollover', step], { confirm: 'x' }, version));
+  return found?.reply && found.side === 'yes' ? { asked: found.reply.asked, texts: found.reply.texts } : null;
 }

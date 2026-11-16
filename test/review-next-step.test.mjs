@@ -68,7 +68,8 @@ test('the incident: a code step\'s correction-required review leads to /sf-code 
   assert.deepEqual([next.nextSkill, next.copilotCommand, next.nextCommand], ['/sf-code', '/sf-code implementation', 'singularity-flow phase rollover implementation --json']);
   assert.equal(next.actions.length, 1, 'one turn: nothing before /sf-code');
   assert.equal(next.actions[0].label, "Fix the review's findings (version 2)");
-  assert.match(next.actions[0].reason, /asks "Start version 2 to fix the review's findings\? Version 1 and its tests stay\."; on their yes it starts version 2 and fixes them in the same turn/u);
+  // The question with its actual numbers and the step's name; no tests are promised that were not recorded [OSA §7.1].
+  assert.match(next.actions[0].reason, /^\/sf-code asks the person "Start version 2 of Implementation to fix the review's findings\?" and, on their yes, fixes them in the same turn\.$/u);
   assert.equal(next.presentation, PRESENTATION, 'the person\'s Shell line is the one that asks them in their own terminal');
   assert.doesNotMatch(JSON.stringify(next), /sf-recover|guarded code successor boundary/u);
   // The agent reads act first: act.show is that block, a review turn ends on it, and the tail says it is the person's.
@@ -87,16 +88,19 @@ test('the incident: a code step\'s correction-required review leads to /sf-code 
     /1\. Now — Fix the review's findings \(version 2\)\n {3}- Copilot: \/sf-code implementation\n {3}- Shell: singularity-flow phase rollover implementation --json\n/u);
 });
 
-test('a document step a review asks to correct goes to its own drafting skill, with the same plain label and block', () => {
+test('a document step a review asks to correct goes to its own drafting skill, which asks the person first [D3, journey I]', () => {
   const workflow = story({ code: false });
   const phase = workflow.phases.specification;
   const next = sourceReviewContinuation(workflow, phase, REVIEW);
-  assert.deepEqual([next.nextSkill, next.nextCommand], ['/sf-phase', 'singularity-flow prepare specification']);
+  // Stage 2: a document's next version opens on the person's yes too, through the same preview and opening [OSA:REQ-030].
+  assert.deepEqual([next.nextSkill, next.nextCommand], ['/sf-phase', 'singularity-flow phase rollover specification --json']);
   assert.equal(next.actions[0].label, "Fix the review's findings (version 2)");
-  assert.equal(next.presentation, ["Now — Fix the review's findings (version 2)", '- Copilot: `/sf-phase`',
-    '- Shell: `singularity-flow prepare specification`', '- VS Code (model-free): not available for this action'].join('\n'));
-  // A document's next draft needs no rollover: its entry prepares it in the same turn, as before.
-  assert.equal(phaseAuthoringEntry(workflow, phase, { review: REVIEW }).status, 'successor-preparation-required');
+  assert.equal(next.presentation, ["Now — Fix the review's findings (version 2)", '- Copilot: `/sf-phase specification`',
+    '- Shell: `singularity-flow phase rollover specification`', '- VS Code (model-free): not available for this action'].join('\n'));
+  const entry = phaseAuthoringEntry(workflow, phase, { review: REVIEW });
+  assert.equal(entry.status, 'successor-confirmation-required');
+  assert.equal(entry.successor.question, "Start version 2 of Specification to fix the review's findings? Published version 1 will stay unchanged.");
+  assert.equal(entry.successor.preview.command, 'singularity-flow phase rollover specification --json');
 });
 
 test('/sf-code\'s entry asks the person to start version 2 with the review\'s findings, and version 2 is authored with them', () => {
@@ -105,7 +109,7 @@ test('/sf-code\'s entry asks the person to start version 2 with the review\'s fi
   const entry = phaseAuthoringEntry(workflow, phase, { review: REVIEW });
   assert.equal(entry.status, 'successor-confirmation-required');
   assert.equal(entry.targetGeneration, 2);
-  assert.equal(entry.successor.question, "Start version 2 to fix the review's findings? Version 1 and its tests stay.");
+  assert.equal(entry.successor.question, "Start version 2 of Implementation to fix the review's findings? Published version 1 will stay unchanged.");
   assert.deepEqual(entry.successor.choices, ['Yes', 'No']);
   assert.deepEqual(entry.successor.findings.map((entry) => [entry.id, entry.check, entry.at ?? null]),
     [['F-1', 'tests', 'test/calc.test.mjs:12'], ['F-2', 'quality', 'src/calc.mjs:30'], ['F-3', 'plan', null]], 'blocking findings only, where each points');
@@ -235,7 +239,19 @@ async function codeTurn(t) {
 }
 
 const CONFIRM = `singularity-flow phase rollover implementation --confirm sha256:${'c'.repeat(64)} --json`;
-const QUESTION = "Start version 2 to fix the review's findings? Version 1 and its tests stay.";
+const QUESTION = "Start version 2 of Implementation to fix the review's findings? Published version 1 will stay unchanged.";
+/** What `phase rollover implementation --json` keeps on this clone when it previews version 2 (story-version-consent.mjs). */
+async function previewed(root, { version = 2 } = {}) {
+  const { gitDirectories } = await import('../src/story-version-acceptance.mjs');
+  const { recordProposal, readGrant } = await import('../src/story-version-consent.mjs');
+  const { commonDir } = gitDirectories(root);
+  await mkdir(path.join(commonDir, 'singularity-flow'), { recursive: true });
+  await writeFile(path.join(commonDir, 'singularity-flow', 'pending-publication-integrity.key'), `${Buffer.alloc(32, 7).toString('base64')}\n`);
+  const digest = `sha256:${'d'.repeat(64)}`;
+  await recordProposal(commonDir, { proposal: { workId: 'PMC-1', phase: 'implementation', step: 'Implementation', version, from: { published: 1 } },
+    digest, question: QUESTION, confirmation: `sha256:${'c'.repeat(64)}`, principal: { name: 'Review Next Tester', email: 'review-next@example.test' } });
+  return { grant: () => readGrant(commonDir, digest) };
+}
 /** The question tool's call and the person's (or the host's) answer, as Copilot CLI and VS Code's agent host hand them to the hooks. */
 async function asked(payload, question, answer) {
   const call = { ...payload, toolName: 'ask_user', toolArgs: { question, choices: ['Yes', 'No'] } };
@@ -246,12 +262,19 @@ async function asked(payload, question, answer) {
 test('an agent never answers the version 2 confirmation: a confirmed rollover in an authoring turn needs the person\'s own yes in it', async (t) => {
   const f = await codeTurn(t);
   const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  // A confirmation of nothing previewed here binds to no version: refused before any question is read [OSA §7.1].
+  const blind = await f.enter('/sf-code implementation', 'code-blind');
+  await asked(blind, QUESTION, 'User responded: Yes');
+  const unpreviewed = await shell(blind, CONFIRM);
+  assert.equal(unpreviewed.permissionDecision, 'deny');
+  assert.match(unpreviewed.permissionDecisionReason, /^PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded\. This confirmation names no version previewed on this machine/u);
+  const preview = await previewed(f.root);
   // Nobody was asked: the agent ran the confirmation itself.
   const unasked = await f.enter('/sf-code implementation', 'code-unasked');
   assert.deepEqual(await shell(unasked, 'singularity-flow phase rollover implementation --json'), {}, 'the preview is a read the turn runs');
   const refused = await shell(unasked, CONFIRM);
   assert.equal(refused.permissionDecision, 'deny');
-  assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded\. Starting the step's next version is the person's yes, never this turn's\. Ask them "Start version N to …\? Version N-1 and its tests stay\." \(Yes, No\) with your question tool \(ask_user; in VS Code, vscode_askQuestions\)/u);
+  assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded\. Starting the step's next version is the person's yes, never this turn's\. Ask them the preview's question, which names version 2 \("Start version 2 of …\?"; Yes, No\), with your question tool \(ask_user; in VS Code, vscode_askQuestions\)/u);
   assert.match(refused.permissionDecisionReason, /- Copilot: \/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}/u, 'the person\'s own route: the code they type');
   assert.doesNotMatch(refused.permissionDecisionReason, /sha256:/u, 'no digest is shown to a person');
   // Its short code is the same command: the agent cannot type it for the person either.
@@ -261,9 +284,11 @@ test('an agent never answers the version 2 confirmation: a confirmed rollover in
   assert.match(byCode.permissionDecisionReason, /^PHASE_MUTATION_ANSWER_UNBOUND/u);
   // The host answered instead of the person (Autopilot), the person said no, or the question asked something else.
   for (const [session, question, answer, words] of [
-    ['code-host', QUESTION, 'The user is not available to respond and will review your work later.', /Ask them "Start version N/u],
+    ['code-host', QUESTION, 'The user is not available to respond and will review your work later.', /Ask them the preview's question, which names version 2/u],
     ['code-no', QUESTION, 'User responded: No', /did not say yes to starting the next version: start nothing/u],
-    ['code-other', 'Shall I go on?', 'User responded: Yes', /Ask them "Start version N/u]]) {
+    ['code-other', 'Shall I go on?', 'User responded: Yes', /Ask them the preview's question, which names version 2/u],
+    // A yes to another version than the one previewed is not a yes to this one [OSA:REQ-030, wrong target].
+    ['code-wrong-version', 'Start version 3 of Implementation?', 'User responded: Yes', /Ask them the preview's question, which names version 2/u]]) {
     const payload = await f.enter('/sf-code implementation', session);
     await asked(payload, question, answer);
     const denied = await shell(payload, CONFIRM);
@@ -271,9 +296,16 @@ test('an agent never answers the version 2 confirmation: a confirmed rollover in
     assert.match(denied.permissionDecisionReason, words, session);
   }
   // The person's own Yes to that question, in this turn: the confirmation runs, and the turn goes on to the fix.
+  assert.equal(await preview.grant(), null, 'no yes, no grant');
   const yes = await f.enter('/sf-code implementation', 'code-yes');
   await asked(yes, QUESTION, 'User responded: Yes');
   assert.deepEqual(await shell(yes, CONFIRM), {});
+  // The host's delivery of that yes is kept, sealed, as the grant the opening command turns into the person's receipt.
+  const granted = await preview.grant();
+  assert.equal(granted.surface, 'question-tool');
+  assert.deepEqual(granted.binding, { workId: 'PMC-1', phase: 'implementation', version: 2 });
+  assert.match(granted.question, /start version 2 of implementation/u);
+  assert.equal(granted.principal.email, 'review-next@example.test', 'the identity that previewed it, never one the model passed');
   // A yes from an earlier turn is not this turn's.
   const later = await f.enter('/sf-code implementation', 'code-yes');
   assert.equal((await shell(later, CONFIRM)).permissionDecision, 'deny', 'a new turn asks again');
@@ -286,6 +318,12 @@ test('an agent never answers the version 2 confirmation: a confirmed rollover in
   // The person's own /sf-confirm turn runs the code they typed, as before; it is not held to a question.
   const confirm = await f.enter(`/sf-confirm phase rollover implementation --confirm sha256:${'c'.repeat(64)}`, 'code-confirm');
   assert.notEqual((await shell(confirm, CONFIRM)).permissionDecisionReason?.startsWith('PHASE_MUTATION_ANSWER_UNBOUND') ?? false, true);
+  // The code the person typed into their own prompt is their yes: kept as a grant of its own surface.
+  assert.equal((await preview.grant()).surface, 'confirm-code');
+  // In a chat with no /sf- command, starting a version is never run.
+  const plain = await mutationToolGuard({ cwd: f.root, sessionId: 'no-skill-chat', toolName: 'bash', toolArgs: { command: CONFIRM, cwd: f.root } });
+  assert.equal(plain.permissionDecision, 'deny');
+  assert.match(plain.permissionDecisionReason, /^PHASE_MUTATION_ANSWER_UNBOUND: nothing was started\. Starting a step's next version is the person's yes, and this chat named no \/sf- command/u);
 });
 
 test('whether a review runs as the author\'s sub-agent is SFlow\'s word to it, never the model\'s guess', async (t) => {

@@ -24,6 +24,7 @@ import { recordCopilotSession } from '../src/session.mjs';
 import { boundedAgentOutput, boundedAgentText } from '../src/agent-output.mjs';
 import { commandLineWithoutSkill, OWN_TERMINAL_STEPS, ownTerminalStep, skillForCommandLine } from '../src/command-skills.mjs';
 import { clarificationStagingPath, phaseStagingPaths, sourceReviewStagingPath } from '../src/phase-staging-paths.mjs';
+import { acceptOpening } from './helpers/accepted-opening.mjs';
 
 test('all generated context, JSON, catalog, refusal and text files get exact read-only hints in linked worktrees', async t => {
   const f = await fixture(t);
@@ -202,6 +203,12 @@ test('prompt submission announces the exact code prerequisite before a denied ed
   assert.equal((await mutationToolGuard(edit)).permissionDecision, 'deny');
   f.phase.generationHighWatermark = 2;
   f.phase.generationIntent = { status: 'open', generation: 3 };
+  // Opened only on this checkout, as an older build did: it grants nothing until the opening operation promotes it [OSA §14].
+  await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+  await refreshMutationContracts(f.root, f.accepted);
+  assert.equal((await mutationToolGuard(edit)).permissionDecision, 'deny', 'a legacy local opening of version 3 grants nothing');
+  // The opening operation's version 3, accepted on the shared branch and held by this checkout: code authoring is ready.
+  await acceptOpening(f.root, f.workflow, f.phase, { version: 3 });
   await writeFile(f.workflowFile, JSON.stringify(f.workflow));
   await refreshMutationContracts(f.root, f.accepted);
   assert.deepEqual(await mutationToolGuard(edit), {});

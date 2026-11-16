@@ -10,6 +10,7 @@ import { decidableUpstreamStep, raiseUpstreamIssue } from '../src/upstream-issue
 import { discardPreparedStoryWorktree, preparedStoryWorktreePath, prepareStoryWorktree } from '../src/story-worktree.mjs';
 import { phaseExplicitlyReopened } from '../src/sequence.mjs';
 import { phaseAuthoringEntry } from '../src/phase-authoring-entry.mjs';
+import { phaseAuthoringProgress } from '../src/phase-authoring-progress.mjs';
 import { classifyStoryGateFailures } from '../src/gate-recovery.mjs';
 import { terminalRecoveryActions, terminalRisk } from '../src/evidence/terminal.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
@@ -100,17 +101,19 @@ test('a start checkout left at an older base names its own commit, and discardin
   });
 });
 
-test('a code step a skill amendment reopened is prepared again, not rolled over', () => {
+test('a code step a skill amendment reopened is written again in its own entry, not rolled over', () => {
   const code = { id: 'implementation', status: 'in_progress', generation: 2, generationPolicy: { task: 'code' },
     generationIntent: { id: 'GI-2', status: 'consumed', generation: 2 },
     skillAmendmentRevalidation: { id: 'SAM-001', state: 'affected', generationAtAdoption: 2 } };
   const workflow = { workItem: { id: 'DEAD-1' }, status: 'in_progress', currentPhase: 'implementation',
     phaseOrder: ['implementation'], phases: { implementation: code } };
   assert.equal(phaseExplicitlyReopened(workflow, code), true);
+  // The entry is the step's own writing, as its edit permission says; its task opens version 3 first [OSA:REQ-010, C13].
   const entry = phaseAuthoringEntry(workflow, code);
-  assert.equal(entry.reason, 'code-rework-preparation-required');
-  assert.equal(entry.actions[0].command, 'singularity-flow prepare implementation');
-  assert.match(entry.actions[0].reason, /reopened by a skill amendment/u);
+  assert.equal(entry.status, 'authoring-entry');
+  const progress = phaseAuthoringProgress(workflow, code);
+  assert.equal(progress.stage, 'open-code-generation');
+  assert.equal(progress.next.command, 'singularity-flow phase begin implementation --json');
   // Once the next generation is published the amendment no longer reopens it.
   assert.equal(phaseExplicitlyReopened(workflow, { ...code, generation: 3 }), false);
 });

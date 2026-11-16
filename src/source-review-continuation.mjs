@@ -2,7 +2,7 @@
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
 import { stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, opensCodeVersion, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { formatCommandRouteLines, modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
@@ -88,6 +88,9 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
       ? [action('/sf-code', `singularity-flow phase rollover ${phase.id} --json`,
         fix ? `/sf-code shows the person the review's findings and asks "Start version ${generation} to fix the review's findings? Version ${generation - 1} and its tests stay."; on their yes it starts version ${generation} and fixes them in the same turn.`
           : `/sf-code previews version ${generation} of ${phase.id} and asks the person to confirm it; version ${generation - 1} and its tests stay as published.`, fix)]
+      // A code step with no version open opens it first, as its entry, edit permission and task say: one command (C13).
+      : opensCodeVersion(phase) ? [action(generationSkillForPhase(phase, workflow), `singularity-flow phase begin ${phase.id} --json`,
+        `Open version ${generation} of ${phase.id}, then write and publish it; the published version and its tests stay. ${sourceReviewRequired(workflow, phase.id) ? 'Its review follows its publication.' : 'Its submission follows its publication.'}`, fix)]
       : [action(generationSkillForPhase(phase, workflow), `singularity-flow prepare ${phase.id}`,
         `Resume the phase author and prepare generation ${generation}. Preserve any private corrected draft, author it at the returned artifact path, then draft-check and prepublish. Publish only when the returned gates are ready; ${sourceReviewRequired(workflow, phase.id) ? 'review the published successor afterward' : 'follow its returned submission handoff'}.`, fix)];
   } else if (review?.pendingDispositions?.length) {

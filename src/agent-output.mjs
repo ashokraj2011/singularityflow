@@ -482,6 +482,13 @@ export function agentAct(result) {
         how: 'Show the person successor.findings in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and fix the findings in this same turn. On No, or with no question tool, give the person next and end; never answer it yourself.' },
       said: oneLine(`The review of ${result.phase ?? 'this step'} asked for corrections: ask the person whether to start version ${result.successor.targetGeneration ?? 'N+1'} to fix them, and on their Yes do it now.`) },
     result.successor.preview);
+    // `author` only where the edit permission grants an edit; otherwise its next is the step's way on [OSA:REQ-010, C7].
+    // The entry said "write now" and the permission "no edits" in one reply, and the agent went round both [2026-11-16].
+    const permission = result.status === 'authoring-entry' ? result.mutationContract ?? null : null;
+    if (permission && !permission.applicationEdits && !(permission.artifacts ?? []).length) return withRoute({ state: 'next', do: null,
+      read: ['mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : [])],
+      said: oneLine(`${permission.summary ?? 'No edit is permitted in this step now.'} Take do: it is this step's way on.`) },
+    firstNow(permission.next) ?? permission.next?.[0] ?? null);
     if (result.status === 'authoring-entry') return { state: 'author', do: null, read: [...(result.authoring ? ['authoring'] : []), 'mutationContract', ...(result.reviewCorrection ? ['reviewCorrection'] : []), ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : []),
       ...openUpstream(result), ...(result.clarification?.checkpoint?.newQuestionAction ? ['clarification.checkpoint.newQuestionAction'] : []),
       ...(result.recovery?.requiresRecovery ? ['recovery'] : result.generatesCode ? [...(result.recovery?.blockers?.length ? ['recovery.blockers'] : []), 'recovery.testExecution'] : []), ...(result.generatesCode ? ['intent'] : []),

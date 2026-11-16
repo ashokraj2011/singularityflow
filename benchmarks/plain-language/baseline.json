@@ -14,7 +14,7 @@
   "count-without-name": 30,
   "draft-for-version": 15,
   "generic-route": 6374,
-  "jargon": 1410,
+  "jargon": 1409,
   "length": 701
  },
  "unroutedCodes": [
@@ -3950,9 +3950,6 @@
    "8f8ab95e6672": "length",
    "9e19e4670330": "jargon:generation length",
    "e3396ae086e3": "jargon:generation length"
-  },
-  "src/phase-authoring-entry.mjs": {
-   "b240f4c69abf": "jargon:generation"
   },
   "src/phase-entry-authoring.mjs": {
    "737e8a9a2301": "length",

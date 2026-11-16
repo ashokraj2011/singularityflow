@@ -8,7 +8,7 @@ import path from 'node:path';
 import { exists, nowIso, SingularityFlowError } from './util.mjs';
 import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import { action, because, commandResult, noEffects, refused, withCommandResult } from './narration/command-result.mjs';
-import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, opensCodeVersion } from './code-delivery-policy.mjs';
 import { gitDir, rememberedActor } from './git.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer,
@@ -104,7 +104,9 @@ export function sequenceGuidance(workflow) {
         ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
         : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
       actions: [
-        copilotAction({ skill: generationSkillForPhase(phase, workflow), command: `singularity-flow prepare ${phase.id}` }),
+        // A code step with no version open opens it first, as its entry and task say (source-review-continuation.mjs).
+        copilotAction({ skill: generationSkillForPhase(phase, workflow), command: !convergence && opensCodeVersion(phase)
+          ? `singularity-flow phase begin ${phase.id} --json` : `singularity-flow prepare ${phase.id}` }),
         ...(publication ? [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: publication })] : [])
       ]
     };

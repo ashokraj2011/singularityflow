@@ -4,6 +4,7 @@ import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } fr
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 
@@ -179,6 +180,15 @@ export const TEST_SCOPES = Object.freeze(['all-configured', 'changed-and-affecte
 /** The test scope a Story runs under now: its latest change, else what intake chose [TCE:REQ-090]. */
 export function storyTestScope(workflow) {
   return workflow?.testScopeChanges?.at(-1)?.to ?? workflow?.resolution?.testExecutionMode ?? 'changed-and-affected';
+}
+
+/**
+ * A code step to be written with no version open: `phase begin` (its work command's) opens one before any code changes,
+ * as its entry, its edit permission and its task say. One command for it on every surface [OSA:REQ-010, C13].
+ */
+export function opensCodeVersion(phase) {
+  return phaseRequiresCodeDelivery(phase) && !(phase?.generationIntent?.status === 'open'
+    && Number(phase.generationIntent.generation) === nextPhaseGeneration(phase));
 }
 
 /**

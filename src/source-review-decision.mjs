@@ -1,6 +1,7 @@
 /** An exact human disposition packet; preparing it never grants reviewer or lifecycle authority. */
 import { createHash } from 'node:crypto';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { storyNextDetails } from './sequence.mjs';
 import { assertConfirmation } from './text-lines.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -9,7 +10,7 @@ export function sourceReviewDecisionPacket({ workflow, phaseId, status, findingI
   if (!pending || !status.reportSha256 || status.status === 'stale'
       || status.generation !== workflow.phases[phaseId]?.generation) throw new SingularityFlowError(
     'Review the exact current pending disposition before recording a human decision.',
-    { code: 'SOURCE_REVIEW_DISPOSITION_NOT_PENDING' });
+    { code: 'SOURCE_REVIEW_DISPOSITION_NOT_PENDING', details: storyNextDetails(workflow) });
   if (typeof reason !== 'string' || !reason.trim()) throw new SingularityFlowError(
     'A human-authored reason is required for a source review disposition.',
     { code: 'SOURCE_REVIEW_DISPOSITION_REASON_REQUIRED' });

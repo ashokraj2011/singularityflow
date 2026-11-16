@@ -18,7 +18,7 @@ import { clarificationRecordRelative } from './story-paths.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
-import { phaseNeedsGeneration } from './sequence.mjs';
+import { phaseNeedsGeneration, storyNextDetails } from './sequence.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding, sourceReviewScenarioIds } from './source-grounded-review.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
@@ -42,22 +42,34 @@ function actorIdentity(actor) { return {
 }; }
 function itemRelative(config, workId) { return posix(path.join(config.workItemRoot ?? 'singularity/work-items', workId)); }
 
+/** A step the Story lacks, or one its review does not cover: with its steps and the Story's next action. */
+export function sourceReviewStepRefusal(workflow, phaseId) {
+  return workflow.phases?.[phaseId]
+    ? new SingularityFlowError(`Source review applies only to a step the Story's review covers; '${phaseId}' is not one.`,
+      { code: 'SOURCE_REVIEW_NOT_APPLICABLE', details: { phase: phaseId, ...storyNextDetails(workflow) } })
+    : new SingularityFlowError(`Story '${workflow.workItem.id}' has no '${phaseId}' step; its steps are ${(workflow.phaseOrder ?? []).join(', ')}.`,
+      { code: 'SOURCE_REVIEW_STEP_UNKNOWN', details: { requestedPhase: phaseId, ...storyNextDetails(workflow) } });
+}
+
 export function sourceReviewDirectory(root, config, workflow, phaseId) {
-  if (!sourceReviewKind(workflow, phaseId)) {
-    throw new SingularityFlowError(`Source review applies only to a step the Story's review covers; '${phaseId}' is not one.`);
-  }
-  const phase = workflow.phases?.[phaseId];
-  if (!phase) throw new SingularityFlowError(`Story has no '${phaseId}' phase.`);
+  if (!sourceReviewKind(workflow, phaseId)) throw sourceReviewStepRefusal(workflow, phaseId);
+  const phase = workflow.phases[phaseId];
   return path.join(root, itemRelative(config, workflow.workItem.id), 'context', 'reviews',
     phaseId, `gen-${phase.generation}`);
 }
+
+/** A step reviewed only while it is the Story's current one, in progress: an earlier, later or submitted step waits for the Story's next action. */
+export const sourceReviewStepNotCurrent = (workflow, phase, action) => new SingularityFlowError(
+  `Source review ${action} needs '${phase.id}' to be the Story's current step, in progress; it is ${phase.status}${workflow.currentPhase && workflow.currentPhase !== phase.id ? ` and the Story is at '${workflow.currentPhase}'` : ''}.`,
+  { code: 'SOURCE_REVIEW_STEP_NOT_CURRENT', details: { phase: phase.id, phaseStatus: phase.status, ...storyNextDetails(workflow) } });
 
 function checkPublishedGeneration(workflow, phaseId) {
   const phase = workflow.phases?.[phaseId];
   if (!phase || !['in_progress', 'awaiting_approval', 'approved'].includes(phase.status)
       || !Number.isSafeInteger(phase.generation) || phase.generation < 1) {
-    throw new SingularityFlowError(`Phase '${phaseId}' must have a published generation before source review.`, {
-      code: 'SOURCE_REVIEW_GENERATION_REQUIRED'
+    // Nothing is published to review yet: the Story's next step (writing it, or an earlier step) is the way on.
+    throw new SingularityFlowError(`'${phaseId}' has no published generation yet, so there is nothing to review; review it once it is published.`, {
+      code: 'SOURCE_REVIEW_GENERATION_REQUIRED', details: { phase: phaseId, ...storyNextDetails(workflow) }
     });
   }
   return phase;
@@ -350,7 +362,7 @@ async function loadSourceReviewInput(root, config, workflow, phaseId) {
   const approved = kind === 'planning'
     ? latestStepBefore(workflow, phaseId, (candidate) => stepResponsibilities(workflow, candidate.id).includes('scope')) : null;
   if (kind === 'planning' && approved?.status !== 'approved') throw new SingularityFlowError(
-    'Planning review requires an approved specification.', { code: 'SOURCE_REVIEW_SPEC_NOT_APPROVED' }
+    'Planning review requires an approved specification.', { code: 'SOURCE_REVIEW_SPEC_NOT_APPROVED', details: storyNextDetails(workflow) }
   );
   const base = itemRelative(config, workflow.workItem.id);
   await prefetchSourceReviewFiles(root, [`${base}/source.json`, `${base}/USER-STORY.md`, `${base}/documents.json`,
@@ -1030,7 +1042,7 @@ export async function retainSourceReviewDecision(root, config, workflow, phaseId
   actor, authority, publicationEvent) {
   const pending = status.pendingDispositions?.find((entry) => entry.id === id);
   if (!pending) throw new SingularityFlowError(`No pending source review disposition '${id}' exists.`, {
-    code: 'SOURCE_REVIEW_DISPOSITION_NOT_PENDING'
+    code: 'SOURCE_REVIEW_DISPOSITION_NOT_PENDING', details: storyNextDetails(workflow)
   });
   if (typeof reason !== 'string' || !reason.trim()) throw new SingularityFlowError(
     'A human-authored reason is required for a source review disposition.',

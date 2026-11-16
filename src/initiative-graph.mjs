@@ -6,6 +6,7 @@ import {
 } from './initiative-evidence.mjs';
 import { loadInitiative, saveInitiativeDraft } from './state-stores.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
+import { initiativeNextDetails } from './initiative-next.mjs';
 
 export function initiativeNode(type, ...parts) {
   return `${type}:${parts.join('/')}`;
@@ -237,9 +238,11 @@ export async function rejectInitiative(root, {
   if (!reason?.trim()) throw new SingularityFlowError('Initiative rejection reason is required.');
   let loaded = await loadInitiative(root, initiativeId);
   const selectedPhase = phaseId ?? loaded.initiative.currentPhase;
-  if (selectedPhase !== loaded.initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${loaded.initiative.currentPhase ?? 'complete'}'.`);
+  if (selectedPhase !== loaded.initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${loaded.initiative.currentPhase ?? 'complete'}'; cannot reject '${selectedPhase ?? 'none'}'.`,
+    { code: 'INITIATIVE_PHASE_NOT_CURRENT', details: initiativeNextDetails(loaded.initiative) });
   const phase = loaded.initiative.phases[selectedPhase];
-  if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Initiative phase '${selectedPhase}' is ${phase.status}; rejection requires awaiting_approval.`);
+  if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Initiative phase '${selectedPhase}' is ${phase.status}; rejection requires awaiting_approval.`,
+    { code: 'INITIATIVE_PHASE_NOT_AWAITING_APPROVAL', details: initiativeNextDetails(loaded.initiative) });
   const target = rejectionTarget(loaded.initiative, selectedPhase, subject);
   const actor = identity(root);
   if (!isAuthorized(loaded.initiative.resolution, target.policy, actor)) throw new SingularityFlowError(`${actor.email?.toLowerCase() ?? actor.name} is not authorized to reject ${target.type} '${target.id}'. Required authority: ${authorityDescription(target.policy)}.`);

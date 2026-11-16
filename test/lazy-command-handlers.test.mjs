@@ -642,7 +642,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // repository.remote-contains) and the state marker through the source facade (SDA-AC-001, 2026-11-16). No new eager file.
     // 9,677,600 (measured 9,677,573): the agents home (9,676,845) merged with main 27361670a and its registered Git query for
     // a reset's Story checkout reads (+728) [2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_677_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,679,700 (measured 9,679,678): a refusal about where the Story stands names the Story's own next step
+    // (sequence.mjs storyNextDetails and storyClosedRefusal +1,301) at its throw sites in state.mjs (+57),
+    // story-lineage.mjs (+126) and phase-lifecycle.mjs (+230), and an Epic's its own (initiative-state.mjs +391, which
+    // loads initiative-next.mjs only when it refuses) [owner, 2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_679_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

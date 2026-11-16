@@ -4,6 +4,7 @@ import path from 'node:path';
 import { gitDir, head } from './git.mjs';
 import { loadCopilotSession } from './session.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
+import { storyNextDetails } from './sequence.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { configurationReadSnapshot } from './configuration-read-scope.mjs';
@@ -45,7 +46,8 @@ function options(entries) {
 function approvalContext(workflow) {
   const phase = workflow?.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
   if (!phase || phase.status !== 'awaiting_approval') {
-    throw new SingularityFlowError(`Work item '${workflow?.workItem?.id ?? 'unknown'}' has no phase awaiting approval.`);
+    throw new SingularityFlowError(`Work item '${workflow?.workItem?.id ?? 'unknown'}' has no phase awaiting approval${phase ? `: '${phase.id}' is ${phase.status}` : ''}.`,
+      { code: 'APPROVAL_PHASE_NOT_AWAITING', details: storyNextDetails(workflow) });
   }
   const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
     entry.phase === phase.id && entry.generation === phase.generation

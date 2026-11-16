@@ -120,6 +120,25 @@ export function sequenceGuidance(workflow) {
   };
 }
 
+/**
+ * A refusal about where the Story stands (its step unpublished, not current, not waiting, or no such step) names
+ * the Story's own next action, from the guidance above: refusal plans lead with it, never command help or a
+ * repair of a step that needs none [owner, 2026-11-16: /sf-review-source on an unwritten plan got /sf-help].
+ */
+export function storyNextDetails(workflow) {
+  // Building the refusal never fails on what it describes: a Story the guidance cannot read keeps the plain plan.
+  let guidance = null;
+  try { guidance = sequenceGuidance(workflow); } catch { /* the refusal itself still stands */ }
+  const next = guidance?.actions.find((entry) => entry.command);
+  return { ...(workflow?.workItem?.id ? { workId: workflow.workItem.id } : {}), ...(next ? { storyNext: true,
+    nextAction: { command: next.command, skill: next.skill, label: `Next for this Story: ${guidance.summary}` } } : {}) };
+}
+
+/** A closed Story has no step in progress to cancel: its own next step (landing it), or a reopen. */
+export const storyClosedRefusal = (workflow) => new SingularityFlowError(
+  `Story '${workflow.workItem.id}' is closed, so it has no step in progress to cancel; reopen it when it needs changes after closing.`,
+  { code: 'STORY_CLOSED', details: storyNextDetails(workflow) });
+
 function commandLines(actions, alternativeSecond = false) {
   return actions.flatMap((action, index) => actionCommandLines(
     action,

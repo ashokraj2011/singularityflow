@@ -568,6 +568,50 @@ test('entry never interprets an explicit other Story or historical phase as sele
     const refusal = completeAgentResult(result.stdout);
     assert.equal(refusal.error.code, code, result.stderr || result.stdout);
   }
+  // A step that is not the current one, or one the Story lacks: the Story's own next step, never a recovery of a
+  // step that needs none, nor command help [owner, 2026-11-16].
+  for (const args of [['phase', 'enter', 'release', '--compose', '--json'], ['phase', 'draft-check', 'relase', '--json']]) {
+    const refusal = completeAgentResult(item.invoke(...args).stdout);
+    assert.deepEqual(refusal.remediationPlan.steps.map((step) => step.command),
+      ['singularity-flow prepare specification', 'singularity-flow nextsteps ENTRY-1 --json'], args.join(' '));
+    assert.equal(refusal.remediationPlan.steps[0].copilotCommand, '/sf-phase', args.join(' '));
+  }
+  assert.equal(completeAgentResult(item.invoke('phase', 'draft-check', 'relase', '--json').stdout).error.code, 'PHASE_DRAFT_UNKNOWN');
+  assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
+});
+
+// The owner's Story (2026-11-16): the specification approved, planning in progress at generation 0, and
+// /sf-review-source planning. Its refusal routed only to /sf-help, and the agent made up /sf-session. Planning
+// is not written yet: the way on is writing it with /sf-phase, then the review.
+test('reviewing a step not written yet routes to writing it, from the agent entry and the plain command', async t => {
+  const item = await fixture(t, { planningInputs: true });
+  for (const args of [['review-source', 'context', 'planning', '--for-agent', '--json'], ['review-source', 'context', 'planning', '--json']]) {
+    const result = item.invoke(...args);
+    assert.notEqual(result.status, 0, args.join(' '));
+    const refusal = completeAgentResult(result.stdout);
+    assert.equal(refusal.error.code, 'SOURCE_REVIEW_GENERATION_REQUIRED', result.stderr || result.stdout);
+    assert.equal(refusal.remediationPlan.steps[0].command, 'singularity-flow prepare planning', args.join(' '));
+    assert.equal(refusal.remediationPlan.steps[0].copilotCommand, '/sf-phase', args.join(' '));
+    assert.doesNotMatch(JSON.stringify(refusal), /singularity-flow help|\/sf-help|\/sf-session/u, args.join(' '));
+    if (args.includes('--for-agent')) assert.deepEqual([refusal.act.state, refusal.act.do.copilot, refusal.act.do.shell],
+      ['refused', '/sf-phase', 'singularity-flow prepare planning']);
+  }
+  // A planning session for a step that is not the current one, or not in progress: the same next step.
+  const { createPlanningContext } = await import('../src/planning.mjs');
+  const { refusalRemediationPlan } = await import('../src/refusal-remediation.mjs');
+  for (const [phase, code, change] of [['specification', 'PLANNING_STEP_NOT_CURRENT', null],
+    ['planning', 'PLANNING_STEP_NOT_IN_PROGRESS', (state) => { state.phases.planning.status = 'awaiting_approval'; }]]) {
+    const file = path.join(item.root, 'team/stories/ENTRY-1/workflow.json');
+    const original = await readFile(file, 'utf8');
+    if (change) { const state = JSON.parse(original); change(state); await writeFile(file, `${JSON.stringify(state, null, 2)}\n`); }
+    try {
+      await assert.rejects(createPlanningContext(item.root, { scope: 'work-item', id: 'ENTRY-1', phase, agent: 'architect' }), (error) => {
+        assert.equal(error.code, code, error.message);
+        assert.equal(refusalRemediationPlan(error, ['editor', 'planning-context', '--scope', 'work-item']).steps[0].id, 'story-next-action', code);
+        return true;
+      });
+    } finally { await writeFile(file, original); }
+  }
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
 });
 

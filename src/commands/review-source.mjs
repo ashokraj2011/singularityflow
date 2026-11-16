@@ -9,7 +9,7 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, effects, noEffects, action as narrationAction, noop, succeeded } from '../narration/command-result.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import path from 'node:path';
-import { sourceReviewContext, readSourceReviewStatus, sourceReviewInput, checkSourceReviewReport, scopedSourceReviewerSession, evaluateSubmittedSourceReview, retainSourceReview, retainSourceReviewDecision } from '../source-review-lifecycle.mjs';
+import { sourceReviewContext, sourceReviewStepNotCurrent, sourceReviewStepRefusal, readSourceReviewStatus, sourceReviewInput, checkSourceReviewReport, scopedSourceReviewerSession, evaluateSubmittedSourceReview, retainSourceReview, retainSourceReviewDecision } from '../source-review-lifecycle.mjs';
 import { sourceReviewContextText } from '../source-review-context-display.mjs';
 import { sourceReviewStagingProtocol } from '../source-review-staging.mjs';
 import { commandRouteLines, safeCommandGuidance } from '../safe-command-guidance.mjs';
@@ -74,14 +74,12 @@ export async function reviewSourceCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     return console.log(`Source review: not required for ${workflow.workItem.id} ${phaseId}; ${result.reason}`);
   }
-  if (!sourceReviewKind(workflow, phaseId)) {
-    throw new SingularityFlowError(`Source review applies only to a step the Story's review covers; '${phaseId}' is not one.`);
-  }
+  // A step the Story lacks, or one its review does not cover: the Story's next step is the way on.
+  if (!sourceReviewKind(workflow, phaseId)) throw sourceReviewStepRefusal(workflow, phaseId);
   if (!workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Current branch is not registered for Story '${workflow.workItem.id}'.`);
   }
-  const phase = workflow.phases?.[phaseId];
-  if (!phase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no '${phaseId}' phase.`);
+  const phase = workflow.phases[phaseId];
   const emitReview = (operation, outcome, changed, data) => emitCommandResult(commandResult({
     operation: { id: `review-source.${operation}`, classification: changed ? 'mutation' : 'read' },
     subject: { kind: 'story', id: workflow.workItem.id }, outcome,
@@ -102,9 +100,7 @@ export async function reviewSourceCommand(positionals, options) {
   const stagingPath = path.join(gitDir(root), 'singularity-flow', 'source-reviews',
     `${workflow.workItem.id}-${phaseId}-gen${phase.generation}.json`);
   if (action === 'context') {
-    if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
-      throw new SingularityFlowError(`Source review context requires current in-progress phase '${phaseId}'.`);
-    }
+    if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') throw sourceReviewStepNotCurrent(workflow, phase, 'context');
     const packet = await sourceReviewContext(root, config, workflow, phaseId, stagingPath);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(packet, null, 2));
     console.log(sourceReviewContextText(packet));
@@ -124,9 +120,7 @@ export async function reviewSourceCommand(positionals, options) {
       workId: workflow.workItem.id, phase: phaseId, status: status.status
     }), false, status);
   }
-  if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
-    throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
-  }
+  if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') throw sourceReviewStepNotCurrent(workflow, phase, action);
   if (action !== 'check' && action !== 'decision-context') {
     const { assertNoPendingPublication } = await import('../story-publication-pending.mjs');
     await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);

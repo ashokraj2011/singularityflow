@@ -10076,7 +10076,7 @@ Human-decision-only: no direct repository edits, reviewer retention, tests, publ
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2305 body tokens</span>
+          <span class="pill">~2348 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review-source</code></dd></div>
@@ -10107,7 +10107,7 @@ Review: first run `singularity-flow review-source context --for-agent --json` on
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** reuse this invocation&#39;s review entry: require `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-Every step of a new Story is reviewed, code included; its submission waits for this review. Explicit `stage`/`check`/`submit`: relay once. `status`: read. Legacy `decide`: retain phase/finding/reason; hand off to `/sf-review-decide` in a new turn. Never confirm/decide as reviewer. Unknown: help, stop.
+Every step of a new Story is reviewed, code included; its submission waits for this review. Explicit `stage`/`check`/`submit`: relay once. `status`: read. Legacy `decide`: retain phase/finding/reason; hand off to `/sf-review-decide` in a new turn. Never confirm/decide as reviewer. A refused entry is not unavailable: its `act.do` is the next step (the author&#39;s `/sf-phase`, or an earlier step&#39;s route); show it as returned and add no route of your own. Unknown: help, stop.
 
 **Resume the operation:** read `progress` first. `author-report`: write the report now. `repair-report`: read the exact existing `stagingPath`, preserve its work, apply the returned repairs and check the changed packet. `retain-report`: run `progress.nextAction` now. `retained`: report the retained result and its continuation, then end. `read-error`: preserve work and report the exact blocker. A check&#39;s `reload-context`: inputs changed; follow its act (fresh context, review again). `afterRetention` is future guidance until retention succeeds. Never finish merely because reading is done, decline to retain honest correction-required findings, or relay the context command while report authoring remains. A host continuation marked `SFLOW_SOURCE_REVIEW_INCOMPLETE` belongs to this same invocation: reuse its entry and reads, then finish the outstanding write/check/retain step. A real authority, input or tool failure remains a stop. `agentOutput.view` describes the display, never the review; use the issued safe ranges, including an omitted field&#39;s `read` ranges when present.
 

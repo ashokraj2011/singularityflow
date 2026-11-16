@@ -17,7 +17,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 31
+version: 32
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -198,7 +198,10 @@ singularity-flow configuration approve <SETUP-BRANCH> --lead <REPOSITORY-URL> --
 
 `configuration approve` and `configuration reject` take capability and setup proposals like every other proposal;
 `capability activate` and `capability setup-activate` are the same approval by their earlier names, with their own
-arguments, `--acknowledge-unprotected` among them.
+arguments, `--acknowledge-unprotected` among them. Run from anywhere, each takes your SF Guard signature under the
+policy of the repository the proposal is on; while SF Guard is on, someone who cannot sign is refused with the reason
+and the way forward. Its proposer (the author of its first commit) may not approve it where
+`approvalSecurity.allowSelfApproval` is `false`.
 
 Activation requires explicit approval. Git cannot attest whether branch protection is configured,
 so a direct update by `capability setup-activate` additionally requires `--acknowledge-unprotected` (`configuration

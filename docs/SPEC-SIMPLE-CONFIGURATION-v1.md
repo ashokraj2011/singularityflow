@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 15 November 2026
-**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026). Stage 2 is built (branch scf-stage2, 16 November 2026), with two pieces of stage 3 the owner asked for with it: a proposal ID per proposer (ER-F9) and a kept Studio draft moved onto a newer configuration (ER-F10). Stages 3 and 4 are built (branch scf-stage3, 16 November 2026); stage 5 is not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct); stage 3's package proposals follow D10 (see stage 3 below). Stage 1e was extended to fresh-install and local-reset the same day (D11).
+**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026). Stage 2 is built (branch scf-stage2, 16 November 2026), with two pieces of stage 3 the owner asked for with it: a proposal ID per proposer (ER-F9) and a kept Studio draft moved onto a newer configuration (ER-F10). Stages 3 and 4 are built (branch scf-stage3, 16 November 2026), with the owner's 17 November answers (D12) on 17 November 2026; stage 5 is not. The owner decision of 16 November 2026 (D10, section 7) supersedes SCF:REQ-014's review-only rule for upgrades and pulls stage 4's history-ref removal into the upgrade (branch upgrade-direct); stage 3's package proposals follow D10 (see stage 3 below). Stage 1e was extended to fresh-install and local-reset the same day (D11).
 **Namespace:** SCF. No other document uses it.
 **Source baseline:** main bd90bcc46. File references are to that commit.
 **Inputs:** the four analyses of 2026-11-15 (workspaces, upgrades, editing and review, configuration history).
@@ -324,7 +324,9 @@ Built 16 November 2026 (branch scf-stage3):
   them onto a newer one on reopen; the discard-only reload is gone (SCF:REQ-013, ER-F8). A build session already keeps
   its moves, and `/sf-fix-workflow` its change set, as operations bound to the configuration they read (stage 2, ER-F12).
 - 3g. Approval refuses a change that gives a workflow a `workflow validate` problem the current `sflow/config` did not
-  have (ER-F7, from Appendix A's third list).
+  have (ER-F7, from Appendix A's third list). The refusal names its fix route: the fix is made in the proposal, so its
+  proposer withdraws it (their drafts come back to fix) and anyone else rejects it with the problems as its reason,
+  bound to the revision refused (`configuration reject <BRANCH> --confirm <COMMIT> --reason ...`).
 - 3h. Package proposals, as D10 leaves them: an upgrade publishes directly. `--review-only` now makes a package proposal
   (`sflow/config-change/package/upgrade-*`) that `configuration approve` lands; `--rollback` lets an older stamped build
   propose going back (`.../rollback-to-<date>-*`), listing what it removes (D8). An approval refuses a package proposal
@@ -333,9 +335,14 @@ Built 16 November 2026 (branch scf-stage3):
   first text: "package proposals under `sflow/config-change/package/` through the same engine" would have put every
   upgrade through a proposal; D10 wins, so only a person's `--review-only` or `--rollback` makes one.
 - 3i. Capability and repository setup proposals are approved and rejected with `configuration approve` and `configuration
-  reject` too: the same view, the revision named, SF Guard's signature from a checkout of their repository, then their
-  own engines. `capability activate` and `capability setup-activate` stay as the same approval by their earlier names,
-  with their own arguments and refusals (SCF:REQ-010).
+  reject` too: the same view, the revision named, SF Guard's signature, then their own engines. `capability activate`
+  and `capability setup-activate` stay as the same approval by their earlier names, with their own arguments and
+  refusals (SCF:REQ-010). As D12 says, wherever the command runs, the signature is taken under the SF Guard policy of
+  the repository the proposal is on (read from its `sflow/config`); a person who cannot sign is refused with the
+  reason and route, never approved unsigned. Their proposer is read as for every other proposal (the author of its
+  first own commit; a setup proposal creating `sflow/config` by its own commit's author), shown in the view, and D4
+  applies: with `allowSelfApproval: false` the proposer is refused, and so is anyone when Git records no proposer (an
+  older build's placeholder author). Their proposer rejecting one withdraws it.
 
 **Stage 4 — Remove the old machinery.** (D10 pulled part of it into the upgrade on 16 November 2026: history refs are
 no longer written; auto-clean is deleted; the upgrade deletes the old history and review refs; onboarding, SGOS,
@@ -359,9 +366,10 @@ Built 16 November 2026 (branch scf-stage3):
 - 4c. `doctor`, `configuration validate` and `workflow fix` read `sflow/config` (refreshed, as its files are) outside a
   Story checkout and name the commit they read; a Story checkout keeps its pin (ER-F5).
 - 4d. The unbounded commits-only ancestry fetch; proof v2, bounded at 1 MiB, written only where the repository's minimum
-  build reads it (builds stamped from 2026-11-17); D9's adoption without ancestry for `story approvers refresh`
+  build reads it (builds stamped from the landing day); D9's adoption without ancestry for `story approvers refresh`
   (`--adopt-without-ancestry`); skill and test-command amendments refuse a rewrite with its cause and route (SCF:REQ-020,
-  CH-F2). The date is when v2 readers start; set it to the day this lands on main.
+  CH-F2). The landing day is when v2 readers start: it is one constant, `ANCESTRY_PROOF_V2_READERS_SINCE` in
+  `src/skp-amendment-audit.mjs`, set to the day this lands on main when it is integrated (owner, 2026-11-17).
 - 4e. What D10 left of the one-time removal: the upgrade's local pass also removes each clone's private upload refs
   (`refs/singularity/transport/configuration*`) for commits `sflow/config` already holds (CH-F9, in part). Recreate &
   sync backup tags stay, as SCF:REQ-003 says.
@@ -438,6 +446,15 @@ Decided the same day, after stage 1e:
   (`repository.worktrees`); and a workspace clone with a Story's branch checked out in it, with no checkout of its
   own, is one while it holds uncommitted work or commits no remote has, so the reset refuses with the same
   message. Clean and published, it goes with its workspace as before.
+
+Decided 17 November 2026, by the owner ("ok") on the stage 3 and 4 questions:
+
+- **D12. Approvals that must be signed, and the ones that need not be.** (1) ER-F7 stays a strict block, and its
+  refusal names the fix route (3g). (2) D5's inline self-enrollment at Story start may be unsigned; it is recorded as
+  `Self-approved: yes`. (3) When a person's removal history cannot be read, they cannot self-enroll: the enrollment
+  waits for another person. (4) Proof v2's readers start on the landing day, one constant (4d). (5) A difference that
+  is only the build's stamp still publishes nothing (D10's second answer). Capability and setup approvals always take
+  SF Guard's signature wherever they run, never unsigned, and record their proposer so D4 applies to them (3i).
 
 ## Appendix A — The findings
 

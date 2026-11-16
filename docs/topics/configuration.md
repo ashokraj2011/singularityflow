@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 29
+version: 30
 commands:
   - configuration
   - workflow
@@ -64,12 +64,16 @@ capability and setup proposals, and an upgrade the Git host would not take direc
 proposal of every kind, and `configuration reject` rejects one: it is the person's signed step on every surface.
 Capability and setup proposals are handed to their own engines after the same view and the same named revision
 (`--lead <URL>` names their repository); `capability activate` and `capability setup-activate` are the same approval by
-their earlier names, with their own arguments and refusals. VS Code's buttons are
+their earlier names, with their own arguments and refusals. Wherever you run them, they take your SF Guard signature
+under that repository's own policy, and while SF Guard is on a person who cannot sign is refused, with the reason and
+what to do, never approved unsigned. Their proposer is the author of the proposal's first commit, as for every other
+proposal, and its proposer rejecting one withdraws it. VS Code's buttons are
 **Review and approve**, **Finish and approve** and **Save and approve**: each proposes, then asks once, saying when it
 is a self-approval. `workflow activate <BRANCH> --confirm <REVISION>` is the same approval.
 
 `approvalSecurity.allowSelfApproval` governs configuration approvals as it governs Story steps. With it `false` (the
-`regulated` default), the author of a proposal cannot approve it: someone else does. A team repository allows it, and
+`regulated` default), the author of a proposal cannot approve it: someone else does, and a proposal whose author Git
+does not record (an older build's placeholder) is rejected and proposed again. A team repository allows it, and
 the approval commit records it (`Self-approved: yes`); a `poc` repository approves its own changes and says so. Only
 workflow approvals are added to `singularity/configuration-transactions.json`; a people or package approval is recorded
 by its approval commit (`Sflow-Proposal`, `Proposed-by`, `Approved-by`), so older builds keep reading that file.
@@ -83,7 +87,9 @@ never added back to it at Story start, and an approval that would add its own ap
 proposal; approve it with `configuration approve`.
 
 An approval is refused when it would give a workflow a problem that `workflow validate` reports and the current
-`sflow/config` did not have: fix it and propose it again.
+`sflow/config` did not have. The refusal names the route: the fix is made in the proposal, so its proposer withdraws it
+(`configuration reject`; their drafts come back to fix) and proposes it again, and anyone else rejects it with the
+problems as its reason.
 
 Workflow Studio keeps unpublished changes as edits against the configuration they were read from, never a full copy.
 When `sflow/config` moves, open or kept, they move onto it and Studio names any value both changed; nothing is

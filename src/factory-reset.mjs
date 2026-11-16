@@ -7,6 +7,7 @@ import {
 } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { gitCommonDir, gitDir } from './git.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import { localDocumentStoreDirectory } from './document-storage.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
 import { assertNoActiveSubjectLocks, withRepositoryResetBarrier } from './subject-lock.mjs';
@@ -188,19 +189,21 @@ async function linkedWorktreeFolders(root, depth = 3) {
 
 /** What a Story checkout holds that only it has: changed or new files, or commits no remote has yet. */
 async function storyCheckoutWork(checkout) {
-  const git = (args) => run('git', args, { cwd: checkout, allowFailure: true, timeoutMs: 30000 });
-  const privateGit = git(['rev-parse', '--absolute-git-dir']);
-  if (privateGit.status !== 0) return { branch: null, work: ['unreadable'] };
-  const branch = git(['symbolic-ref', '--quiet', '--short', 'HEAD']).stdout.trim() || null;
-  const work = [];
-  const status = git(['status', '--porcelain=v1', '--untracked-files=normal', '--ignore-submodules=dirty']);
-  if (status.status !== 0) return { branch, work: ['unreadable'] };
-  if (status.stdout.trim()) work.push('uncommitted');
-  const pending = await pendingPublications([path.join(privateGit.stdout.trim(), LOCAL_RUNTIME_ROOT)]).catch(() => []);
-  const remotes = git(['remote']).stdout.trim();
-  const head = git(['rev-parse', '--verify', '--quiet', 'HEAD']).stdout.trim();
-  const published = !remotes || !head || git(['for-each-ref', '--count=1', '--contains', head, '--format=%(refname)', 'refs/remotes']).stdout.trim();
-  if (pending.length || !published) work.push('unpublished');
+  // Registered queries only (SDA-AC-001); a read Git cannot answer keeps the checkout as holding work.
+  const query = (id, params) => { try { return { value: executeGitQuery(checkout, id, params) }; } catch { return null; } };
+  const paths = query('repository.paths');
+  if (!paths) return { branch: null, work: ['unreadable'] };
+  const revision = query('repository.revision');
+  if (!revision) return { branch: null, work: ['unreadable'] };
+  const { branchName, commit, changedFiles } = revision.value;
+  const branch = branchName && branchName !== '(detached)' ? branchName : null;
+  const work = changedFiles.length ? ['uncommitted'] : [];
+  const pending = await pendingPublications([path.join(paths.value.gitDir, LOCAL_RUNTIME_ROOT)]).catch(() => []);
+  const remotes = query('repository.remotes');
+  const head = commit && commit !== '(initial)' ? commit : null;
+  const published = !remotes?.value.length || !head || query('repository.remote-contains', { commit: head })?.value;
+  if (!remotes) work.push('unreadable');
+  else if (pending.length || !published) work.push('unpublished');
   return { branch, work, pending };
 }
 

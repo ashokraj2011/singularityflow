@@ -43,6 +43,7 @@ import {
   frozenRemoteTransport, isPortableAbsoluteGitPath, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
+import { sourceFileAt } from './source-inspection.mjs';
 import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { gitDisabledHooksPath } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
@@ -1795,12 +1796,12 @@ async function stateCarriesConfigurationCopy(remote, stateCommit, { env = proces
         { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' }
       );
     }
-    const listed = run('git', ['ls-tree', '--full-tree', '--name-only', 'HEAD', '--', STATE_CONFIGURATION_MANIFEST],
-      { cwd: source, allowFailure: true, env: frozen.env });
-    if (listed.status !== 0) {
+    // Through the source facade (SDA-AC-001); the clone holds its objects, so nothing is fetched lazily.
+    const listed = sourceFileAt(source, 'HEAD', STATE_CONFIGURATION_MANIFEST, { env: frozen.env, offline: true });
+    if (listed.status === 'unavailable') {
       throw new SingularityFlowError(`Cannot inspect branch '${STATE_CONFIGURATION_BRANCH}' at ${stateCommit}.`, { code: 'REMOTE_UNKNOWN' });
     }
-    return listed.stdout.split(/\r?\n/u).includes(STATE_CONFIGURATION_MANIFEST);
+    return listed.status === 'present';
   } finally {
     await removeTemporaryTree(source);
   }

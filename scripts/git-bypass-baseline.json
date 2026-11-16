@@ -856,9 +856,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 35
+        "command-run": 34
       },
-      "digest": "2e4a1a0733d549fc1d29576fb71d07f610be1b2c5e018b4a163884d64ca05caf"
+      "digest": "ba24bc91edaa9c85d8f8e329d4130ca5fe686428e528c4c7d5e0923089a7c5c8"
     },
     "src/creation-git-context.mjs": {
       "counts": {
@@ -1002,10 +1002,9 @@
     },
     "src/factory-reset.mjs": {
       "counts": {
-        "command-git": 6,
-        "command-run": 8
+        "command-run": 7
       },
-      "digest": "6250dcc7b2a6d06ac07a22b97aef53db8b3d30a19b0a780632ec1019c61fac7e"
+      "digest": "d1844060c44d2669c0e3131c505b3c766b879d6c3a4930b576d34f04c063d863"
     },
     "src/fault-repair.mjs": {
       "counts": {

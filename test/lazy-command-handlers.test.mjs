@@ -623,7 +623,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,668,500 (measured 9,668,466): outside a Story checkout the approved configuration is found by each configured
     // remote's exact sflow/config ref, not a pattern over every remote (approved-configuration-reader.mjs +846), and the
     // state marker clone keeps its objects (configuration-branch.mjs +92) [SPEC-SCF stage 1, 2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_668_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,669,200 (measured 9,669,194): a reset's Story checkout reads go through registered Git queries (git-query.mjs
+    // repository.remote-contains) and the state marker through the source facade (SDA-AC-001, 2026-11-16). No new eager file.
+    assert.ok(closure.bytes <= 9_669_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -947,7 +949,8 @@ test('the common session projection does not import attach, state stores or publ
   // No new eager file.
   // 4,262,200 (measured 4,262,175): stage 1 on top of the stable build's 4,260,782, measured on the merge with main
   // 4ac5c5c40 (2026-11-15).
-  assert.ok(current.bytes <= 4_262_200, `session current loads ${current.bytes} source bytes`);
+  // 4,262,850 (measured 4,262,833): the registered Git query a reset's Story checkout reads use (SDA-AC-001, 2026-11-16).
+  assert.ok(current.bytes <= 4_262_850, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

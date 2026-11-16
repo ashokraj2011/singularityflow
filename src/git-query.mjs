@@ -247,6 +247,18 @@ const descriptors = [
   descriptor('repository.remotes', {
     argv: () => ['remote'], dependency: 'configuration', parser: lines
   }),
+  // Whether any remote-tracking ref already holds a commit: a reset keeps a checkout whose commits no remote has.
+  descriptor('repository.remote-contains', {
+    validate(params) {
+      const commit = String(params?.commit ?? '');
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit)) {
+        throw new SingularityFlowError('A remote containment read needs an exact Git object ID.', { code: 'GIT_QUERY_INPUT_INVALID' });
+      }
+      return Object.freeze({ commit });
+    },
+    argv: (params) => ['for-each-ref', '--count=1', '--contains', params.commit, '--format=%(refname)', 'refs/remotes'],
+    parser: (result) => text(result) !== ''
+  }),
   descriptor('sgos.configured-remotes', {
     argv: () => ['remote'], dependency: 'configuration', allowFailure: true,
     parser(result) {

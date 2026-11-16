@@ -95,9 +95,12 @@ test('a change the person asks for after a document step is published opens draf
   assert.equal(opened.mutates, true);
   assert.deepEqual(opened.opened, { generation: 2, status: 'open' });
   assert.equal(opened.next.copilotCommand, '/sf-phase planning');
-  // The same code again confirms nothing: what it confirmed has moved on.
-  const again = run(process.execPath, [CLI, '--no-model', 'confirm', code, '--json'], { allowFailure: true });
-  assert.notEqual(again.status, 0, again.stdout);
+  // The same code again opens nothing new: it replays the opening it made, the same operation, with no question and no
+  // commit (a lost reply is answered this way) [OSA:REQ-033].
+  const openedHead = git('rev-parse', 'HEAD');
+  const again = json(cli('confirm', code, '--json'));
+  assert.deepEqual([again.replayed, again.mutates, again.opening.operationId], [true, false, opened.opening.operationId]);
+  assert.equal(git('rev-parse', 'HEAD'), openedHead);
   const reopened = await workflowOf(item);
   assert.equal(phaseNeedsGeneration(reopened, reopened.phases.planning), true, 'draft 2 is open in the same step');
   assert.equal(reopened.currentPhase, 'planning');

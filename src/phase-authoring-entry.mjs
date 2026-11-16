@@ -53,7 +53,7 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
     // [D3, OSA:REQ-030]. So does an older build's local opening of a successor, which the opening operation promotes.
     const opened = versionNumbers(versionFactsOf(workflow, phase));
     const legacy = opened.ok && opened.writing > 1 && versionFactsOf(workflow, phase).opening?.record === 'legacy';
-    if (opened.ok && !deterministic && (legacy || (opened.writing === null && opened.published >= 1))) {
+    if (opened.ok && (!deterministic || phaseRequiresCodeDelivery(phase)) && (legacy || (opened.writing === null && opened.published >= 1))) {
       const route = legacy ? copilotAction({ command: `singularity-flow phase rollover ${phase.id} --json` }) : sourceReviewContinuation(workflow, phase).actions[0];
       return successorAsk(workflow, phase, { route, reason: legacy ? 'legacy-promotion' : NEED_REASONS[versionNeed(versionFactsOf(workflow, phase))] ?? 'requested-change' });
     }

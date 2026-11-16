@@ -154,18 +154,31 @@ test('real code publication offers the review and its snapshot without starting 
   assert.equal(agentReview.act.ask.tool.input.workId, 'QF-1');
   assert.equal(agentReview.data.outcome.workId, 'QF-1');
   assert.equal(outcome.value.data.outcome.routes.continue.command, 'singularity-flow nextsteps QF-1 --for-agent --json');
-  assert.equal(outcome.value.data.outcome.routes.repair.command, 'singularity-flow phase begin implement --work-id QF-1 --json');
-  assert.equal(outcome.value.data.outcome.routes.repair.copilotCommand, '/sf-code');
+  assert.equal(outcome.value.data.outcome.routes.repair.command, 'singularity-flow phase rollover implement --work-id QF-1 --json');
+  assert.equal(outcome.value.data.outcome.routes.repair.copilotCommand, '/sf-code implement');
   assert.deepEqual(await readFile(workflowFile), workflowBytes);
   assert.equal(repo.must('git', ['rev-parse', 'HEAD']), beforeHead);
   assert.equal(repo.must('git', ['status', '--porcelain']), beforeStatus);
-  const mismatched = repo.sflowJson('phase', 'begin', 'implement', '--work-id', 'NOT-THIS-STORY');
+  const mismatched = repo.sflowJson('phase', 'rollover', 'implement', '--work-id', 'NOT-THIS-STORY');
   assert.notEqual(mismatched.status, 0, 'a repair admission cannot silently ignore the requested Story');
   assert.deepEqual(await readFile(workflowFile), workflowBytes);
-  const admitted = repo.sflowJson('phase', 'begin', 'implement', '--work-id', 'QF-1');
-  assert.equal(admitted.status, 0, JSON.stringify(admitted));
+  // A repair is version 2, which opens only on the person's yes [D3, OSA:REQ-030]: `phase begin` alone opens nothing and
+  // names the preview; the preview asks the person, and their yes opens it.
+  const begun = repo.sflowJson('phase', 'begin', 'implement', '--work-id', 'QF-1');
+  assert.equal(begun.value.error?.code, 'VERSION_CONSENT_REQUIRED', JSON.stringify(begun.value).slice(0, 1500));
+  assert.match(JSON.stringify(begun.value.error.details.nextAction), /singularity-flow phase rollover implement --json/u);
+  assert.equal(begun.value.remediationPlan.steps[0].command, 'singularity-flow phase rollover implement --json');
+  assert.deepEqual(await readFile(workflowFile), workflowBytes);
+  const preview = repo.sflowJson('phase', 'rollover', 'implement', '--work-id', 'QF-1', '--reason', 'Say in the code why the value is two');
+  assert.equal(preview.status, 0, JSON.stringify(preview.value).slice(0, 1500));
+  assert.equal(preview.value.mutates, false);
+  assert.equal(preview.value.question, 'Start version 2 of Implement? Published version 1 and its recorded tests will stay unchanged.');
+  const admitted = repo.sflowJson(...preview.value.argv);
+  assert.equal(admitted.status, 0, JSON.stringify(admitted.value).slice(0, 1500));
   const successor = JSON.parse(await readFile(workflowFile));
   assert.equal(successor.phases.implement.generationIntent.status, 'open');
   assert.equal(successor.phases.implement.generationIntent.generation, 2);
   assert.equal(successor.phases.implement.generation, 1, 'the first publication is preserved');
+  assert.equal(successor.phases.implement.versionOpening.version, 2);
+  assert.equal(successor.phases.implement.versionOpening.consent.surface, 'terminal', 'the person\'s own yes, at their terminal');
 });

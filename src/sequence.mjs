@@ -98,9 +98,9 @@ export function sequenceGuidance(workflow) {
         ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
         : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
       actions: [
-        // A code step with no version open opens it first, as its entry and task say (source-review-continuation.mjs).
-        copilotAction({ skill: generationSkillForPhase(phase, workflow), command: !convergence && opensCodeVersion(phase)
-          ? `singularity-flow phase begin ${phase.id} --json` : `singularity-flow prepare ${phase.id}` }),
+        // A published step's next version opens on the person's yes [OSA:REQ-030].
+        copilotAction({ skill: generationSkillForPhase(phase, workflow), command: !convergence && phase.generation > 0 ? `singularity-flow phase rollover ${phase.id} --json`
+          : !convergence && opensCodeVersion(phase) ? `singularity-flow phase begin ${phase.id} --json` : `singularity-flow prepare ${phase.id}` }),
         ...(publication ? [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: publication })] : [])
       ]
     };
@@ -141,6 +141,8 @@ function openVersionGuidance(workflow) {
   const step = workflow?.currentPhase;
   const phase = workflow?.pendingDecision ? null : workflow?.phases?.[step];
   if (phase?.status !== 'in_progress' || !successorGenerationOpen(phase)) return null;
+  // An older build's local opening is promoted first [§14].
+  if (versionFactsOf(workflow, phase).opening?.record === 'legacy') return null;
   const skill = generationSkillForPhase(phase, workflow);
   return skill ? { summary: `Write version ${phase.generationIntent?.generation ?? phase.versionOpening?.version} of ${step}, then publish it.`,
     actions: [copilotAction({ skill, command: `singularity-flow prepare ${step}` })] } : null;

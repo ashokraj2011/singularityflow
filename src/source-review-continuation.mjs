@@ -85,9 +85,8 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     classification = 'successor-publication-required'; generation = nextPhaseGeneration(phase);
     // The review's corrections, in plain words: the person gives one yes to start the next version (owner, 2026-11-16).
     const fix = !phaseNeedsGeneration(workflow, phase) && reviewAsksForCorrection(review) ? `Fix the review's findings (version ${generation})` : null;
-    // A published step's next version, for any reason (a return, a rejection or a review's corrections), opens in its own
-    // work command, which asks the person and goes straight on to the fix in the same turn [D3, OSA:REQ-030]. /sf-recover
-    // found "no recovery required" for unchanged bytes and ran nothing (owner, 2026-11-16).
+    // A published step's next version opens in its own work command, which asks the person, then fixes it in the same
+    // turn [D3, OSA:REQ-030]; /sf-recover found nothing to recover for unchanged bytes (owner, 2026-11-16).
     const code = phaseRequiresCodeDelivery(phase);
     const successor = Number(phase.generation ?? 0) >= 1 && (code || (!phaseUsesDeterministicGeneration(phase) && phase.generationPolicy?.requirement !== 'none'));
     const skill = code ? '/sf-code' : String(author).replace(/^\/sflow-/u, '/sf-');

@@ -101,19 +101,22 @@ test('a start checkout left at an older base names its own commit, and discardin
   });
 });
 
-test('a code step a skill amendment reopened is written again in its own entry, not rolled over', () => {
+test('a code step a skill amendment reopened asks the person for version 3 in its own entry, then writes it [OSA:REQ-030]', () => {
   const code = { id: 'implementation', status: 'in_progress', generation: 2, generationPolicy: { task: 'code' },
     generationIntent: { id: 'GI-2', status: 'consumed', generation: 2 },
     skillAmendmentRevalidation: { id: 'SAM-001', state: 'affected', generationAtAdoption: 2 } };
   const workflow = { workItem: { id: 'DEAD-1' }, status: 'in_progress', currentPhase: 'implementation',
     phaseOrder: ['implementation'], phases: { implementation: code } };
   assert.equal(phaseExplicitlyReopened(workflow, code), true);
-  // The entry is the step's own writing, as its edit permission says; its task opens version 3 first [OSA:REQ-010, C13].
+  // The step's own entry, in its work command: version 3 is a next version, so it opens only on the person's yes (D3), and
+  // the entry and its task name the same preview [OSA:REQ-010, REQ-030, C13].
   const entry = phaseAuthoringEntry(workflow, code);
-  assert.equal(entry.status, 'authoring-entry');
+  assert.equal(entry.status, 'successor-confirmation-required');
+  assert.deepEqual([entry.actions[0].skill, entry.actions[0].command], ['/sf-code', 'singularity-flow phase rollover implementation --json']);
+  assert.match(entry.actions[0].reason, /Start version 3 of implementation\? Published version 2 will stay unchanged\./u);
   const progress = phaseAuthoringProgress(workflow, code);
   assert.equal(progress.stage, 'open-code-generation');
-  assert.equal(progress.next.command, 'singularity-flow phase begin implementation --json');
+  assert.equal(progress.next.command, 'singularity-flow phase rollover implementation --json');
   // Once the next generation is published the amendment no longer reopens it.
   assert.equal(phaseExplicitlyReopened(workflow, { ...code, generation: 3 }), false);
 });

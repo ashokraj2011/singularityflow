@@ -137,14 +137,11 @@ async function phaseSubcommand(positionals, options) {
         { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`, skill: successorSkillForPhase(phase, workflow) } } });
       return (await import('../own-correction-rollover.mjs')).ownCorrectionRollover(root, config, workflow, phase, options);
     }
-    // Unchanged published bytes: the next generation opens for a change the person asks for; a step a person's return,
-    // a rejection or an amendment reopened (or a legacy local opening) opens on their yes the same way [OSA:REQ-030].
+    // Unchanged published bytes: a reopened step's or an asked-for next version, on the person's yes [OSA:REQ-030].
     if (!plan) {
-      const requested = await import('../requested-successor.mjs');
-      if (!requested.requestedSuccessorEligible(workflow, phase) && await (await import('./phase-opening.mjs')).successorAwaitsConsent(workflow, phase)) {
-        return (await import('./phase-opening.mjs')).returnedSuccessorRollover(root, config, workflow, phase, options);
-      }
-      return requested.requestedSuccessorRollover(root, config, workflow, phase, options);
+      const opening = await import('./phase-opening.mjs');
+      if (await opening.successorAwaitsConsent(workflow, phase)) return opening.returnedSuccessorRollover(root, config, workflow, phase, options);
+      return (await import('../requested-successor.mjs')).requestedSuccessorRollover(root, config, workflow, phase, options);
     }
     if (optionString(options, 'reason', null) !== null && plan.action.mode !== 'manual' && plan.action.command) {
       await (await import('../requested-successor.mjs')).noteRequestedChange(root, workflow, phase, optionString(options, 'reason'));

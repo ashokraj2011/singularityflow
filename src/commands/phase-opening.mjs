@@ -188,8 +188,9 @@ export async function beginVersion(root, config, workflow, phase, options) {
   }
   const legacy = numbers.ok && numbers.writing !== null && facts.opening?.record === 'legacy';
   const { proposal, digest, question } = await proposalNow(root, workflow, phase);
-  if (proposal.consent === 'required') throw consentRequired(phase, proposal, (await kernelRoute(root, workflow, phase)).route,
-    legacy ? ' (an older build opened it on this checkout only)' : '');
+  // Asked to begin a next version: its preview asks the person, in the code step's own work command [OSA:REQ-030].
+  if (proposal.consent === 'required') throw consentRequired(phase, proposal, (await import('../safe-command-guidance.mjs')).safeCommandGuidance({
+    argv: ['phase', 'rollover', phase.id, '--json'] }), legacy ? ' (an older build opened it on this checkout only)' : '');
   const result = await openSuccessor(root, config, workflow, phase, { proposal, digest, question,
     open: legacy ? legacyOpening(root) : codeOpening(root, config, { adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
       confirm: optionString(options, 'confirm') }) });
@@ -308,8 +309,10 @@ export async function returnedSuccessorRollover(root, config, workflow, phase, o
     'GENERATION_ROLLOVER_STALE', preview);
   const result = await openSuccessor(root, config, workflow, phase, { proposal, digest, question, typed,
     open: legacy ? legacyOpening(root) : code ? codeOpening(root, config) : documentOpening() });
-  const value = { ...preview, mutates: true, nextAction: null, opening: result.outcome, replayed: result.replayed,
-    ...(code ? {} : { opened: { generation: proposal.version, status: 'open' } }), next: (await kernelRoute(root, workflow, phase)).route };
+  // What follows is the kernel's next for the open version: writing it, in this same turn.
+  const after = (await kernelRoute(root, workflow, phase)).route;
+  const value = { ...preview, mutates: true, nextAction: after, opening: result.outcome, replayed: result.replayed,
+    ...(code ? {} : { opened: { generation: proposal.version, status: 'open' } }), next: after };
   return printOpened(options, value, `Opened ${phase.id} version ${proposal.version}. ${preview.preserved}`);
 }
 
@@ -330,7 +333,7 @@ export async function replayConfirmed(root, config, workflow, phase, confirmatio
   const settled = await o.reconcileOpening(root, config, workflow, phase, { operationId });
   return printOpened(options, { schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'replayed', workId: workflow.workItem.id, phase: phase.id,
     fromGeneration: record.proposal.from?.published ?? null, toGeneration: record.proposal.version, question: record.question, confirmation,
-    mutates: false, replayed: true, opening: settled.outcome, next: (await kernelRoute(root, workflow, phase)).route },
+    mutates: false, replayed: true, opening: settled.outcome, nextAction: (await kernelRoute(root, workflow, phase)).route },
   `Version ${record.proposal.version} of ${phase.id} was already opened by this confirmation; nothing new was opened.`) ?? true;
 }
 

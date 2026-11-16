@@ -71,7 +71,12 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     { safeCommandGuidance }, { nextPhaseGeneration }, { printCommandRoutes }] = await Promise.all([
     askedFor(), import('./util.mjs'), import('./state-stores.mjs'), import('./safe-command-guidance.mjs'), import('./phase-generation.mjs'),
     import('./commands/shared/print-command-routes.mjs')]);
-  if (!requestedSuccessorEligible(workflow, phase)) throw new SingularityFlowError(
+  // A retained review asking corrections opens the next version on the person's yes, also on a step a person's return
+  // once reopened and that has published since (its change request stays open until approval) [OSA:REQ-030].
+  const [{ versionFactsOf }, { beingWritten }] = await Promise.all([import('./phase-generation-need.mjs'), import('./kernel/step-versions.mjs')]);
+  const published = Number(phase.generation ?? 0) >= 1 && !beingWritten(versionFactsOf(workflow, phase));
+  const reviewed = requestedSuccessorEligible(workflow, phase) || !published ? null : await reviewCorrectionRequest(root, config, workflow, phase);
+  if (!requestedSuccessorEligible(workflow, phase) && !reviewed) throw new SingularityFlowError(
     `Phase '${phase.id}' has no changed consumed generation to roll over.`, { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: null });
   let supplied = optionString(options, 'confirm');
   const given = optionString(options, 'reason', null);
@@ -139,7 +144,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   const opened = await opening.openSuccessor(root, config, workflow, phase, { ...proposed, typed,
     open: code ? opening.codeOpening(root, config) : opening.documentOpening() });
   if (!code) {
-    const result = { ...preview, mutates: true, nextAction: null, opened: { generation: next, status: 'open' }, opening: opened.outcome, replayed: opened.replayed,
+    const result = { ...preview, mutates: true, nextAction: (await opening.kernelRoute(root, workflow, phase)).route, opened: { generation: next, status: 'open' }, opening: opened.outcome, replayed: opened.replayed,
       next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: `${skill} ${phase.id}`,
         reason: `Author draft ${next} for what was asked in this step; it is checked${(await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id) ? ' and reviewed' : ''} again before it is published.` } };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
@@ -147,7 +152,8 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     return;
   }
   const intent = phase.generationIntent;
-  const result = { ...preview, mutates: true, nextAction: null, generationIntent: intent, opening: opened.outcome, replayed: opened.replayed,
+  // What follows is the kernel's next for the open version: writing it, in this same turn.
+  const result = { ...preview, mutates: true, nextAction: (await opening.kernelRoute(root, workflow, phase)).route, generationIntent: intent, opening: opened.outcome, replayed: opened.replayed,
     next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: `/sf-code ${phase.id}`,
       reason: `Author generation ${intent.generation} for what was asked; its tests run again before it is published.` } };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));

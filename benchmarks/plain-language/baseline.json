@@ -12,10 +12,10 @@
  },
  "totals": {
   "count-without-name": 30,
-  "draft-for-version": 15,
-  "generic-route": 6372,
-  "jargon": 1404,
-  "length": 701
+  "draft-for-version": 14,
+  "generic-route": 6371,
+  "jargon": 1402,
+  "length": 700
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -613,7 +613,6 @@
   "GENERATION_PUBLICATION_BINDING_REQUIRED",
   "GENERATION_PUBLICATION_INVALID",
   "GENERATION_PUBLICATION_MISSING",
-  "GENERATION_ROLLOVER_ROUTE_UNAVAILABLE",
   "GITHUB_ISSUE_REFERENCE_INVALID",
   "GITHUB_ISSUE_RESPONSE_INVALID",
   "GITHUB_ISSUE_UNAVAILABLE",
@@ -3103,7 +3102,6 @@
    "bca95821404c": "jargon:generation"
   },
   "src/commands/phase-lifecycle.mjs": {
-   "38bf22acd8f9": "jargon:digest jargon:generation",
    "3c916e2fa9a5": "jargon:projection",
    "5ea1f215a666": "jargon:deterministic jargon:kernel jargon:projection",
    "750414717da4": "jargon:generation",
@@ -4247,7 +4245,6 @@
   },
   "src/requested-successor.mjs": {
    "41909f1ea329": "jargon:generation",
-   "48d5373c5c01": "draft-for-version",
    "562147324f2a": "jargon:generation",
    "65607d0c886d": "jargon:generation length",
    "c159c117355d": "jargon:generation length",
@@ -4340,8 +4337,7 @@
    "45fb6de6a362": "count-without-name length",
    "4f3adf8d04da": "jargon:successor",
    "8e0bef09a883": "jargon:generation jargon:successor length",
-   "a98568a8b7da": "jargon:generation jargon:published-generation jargon:successor",
-   "d4581a595dad": "length"
+   "a98568a8b7da": "jargon:generation jargon:published-generation jargon:successor"
   },
   "src/source-review-decision.mjs": {
    "c14c67e495b4": "jargon:packet"

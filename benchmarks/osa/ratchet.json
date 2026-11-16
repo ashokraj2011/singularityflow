@@ -6,16 +6,6 @@
   "exempt": "src/kernel/ is the decision owner and holds no counted site by design.",
   "exceptions": [
     {
-      "module": "phase-generation-need.mjs",
-      "family": "intentReads",
-      "stage0": 1,
-      "ceiling": 2,
-      "kind": "normalizer",
-      "owner": "the Story record's adapter (OSA:REQ-040)",
-      "deletion": "none: versionFactsOf is the approved record normalizer; Stage 5 checks it is the only raw reader left",
-      "why": "phase-inspection-generation.mjs (2 reads) moved in; the reads are versionFactsOf's normalization into kernel facts"
-    },
-    {
       "module": "phase-mutation-contract.mjs",
       "family": "lifecycleCommands",
       "stage0": 0,
@@ -24,26 +14,6 @@
       "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
       "deletion": "Stage 4: decisionRoutes moves into the central map",
       "why": "decisionRoutes renders the kernel's approve-step as the approve and reject commands"
-    },
-    {
-      "module": "phase-mutation-contract.mjs",
-      "family": "skillLiterals",
-      "stage0": 1,
-      "ceiling": 2,
-      "kind": "renderer",
-      "owner": "Stage 4, the central action-to-command map (b41, OSA:REQ-021)",
-      "deletion": "Stage 4: decisionRoutes moves into the central map",
-      "why": "decisionRoutes renders the person's successor preview with the code work command"
-    },
-    {
-      "module": "phase-authoring-entry.mjs",
-      "family": "routeObjects",
-      "stage0": 2,
-      "ceiling": 3,
-      "kind": "renderer",
-      "owner": "Stage 3, entry classification (b1)",
-      "deletion": "Stage 3: phaseAuthoringEntry takes the kernel's rendered next",
-      "why": "the entry now classifies positive damage and an impossible opening first, as the permission does (shadow comparison)"
     },
     {
       "module": "phase-authoring-entry.mjs",
@@ -56,26 +26,6 @@
       "why": "the recover and phase show commands of those two classifications"
     },
     {
-      "module": "phase-authoring-entry.mjs",
-      "family": "skillLiterals",
-      "stage0": 2,
-      "ceiling": 3,
-      "kind": "renderer",
-      "owner": "Stage 3, entry classification (b1)",
-      "deletion": "Stage 3: phaseAuthoringEntry takes the kernel's rendered next",
-      "why": "the recover route's skill"
-    },
-    {
-      "module": "phase-authoring-progress.mjs",
-      "family": "skillLiterals",
-      "stage0": 1,
-      "ceiling": 2,
-      "kind": "renderer",
-      "owner": "Stage 3, the authoring task's continuation (b9, a8)",
-      "deletion": "Stage 3: the task takes its continuation from the decision",
-      "why": "a published code step no person returned: the task previews its successor with the code work command, as the entry and permission do"
-    },
-    {
       "module": "phase-prepublish.mjs",
       "family": "lifecycleCommands",
       "stage0": 9,
@@ -84,6 +34,16 @@
       "owner": "Stage 3, prepublish's lead action (b39)",
       "deletion": "Stage 3: prepublish leads with the decision's rendered next",
       "why": "Stage 0 finding 5: a returned code step opens its next version (begin, or the person's rollover preview) instead of recovery"
+    },
+    {
+      "module": "sequence.mjs",
+      "family": "lifecycleCommands",
+      "stage0": 9,
+      "ceiling": 10,
+      "kind": "renderer",
+      "owner": "Stage 3, the Story's next in sequence guidance (b37, OSA:REQ-020)",
+      "deletion": "Stage 3: sequence guidance takes the kernel's rendered next instead of its own routes",
+      "why": "a published step being written opens its next version only on the person's yes (Stage 2, D3): sequence names the step's rollover preview, as the entry, the permission and the task do"
     }
   ],
   "ceilings": {
@@ -241,9 +201,9 @@
       "lifecycleCommands": 1
     },
     "commands/phase-lifecycle.mjs": {
-      "intentReads": 2,
+      "intentReads": 1,
       "intentWrites": 1,
-      "predicateCalls": 7,
+      "predicateCalls": 3,
       "skillChooserCalls": 3,
       "routeObjects": 2,
       "lifecycleCommands": 2
@@ -515,7 +475,7 @@
     "own-correction-rollover.mjs": {
       "intentWrites": 1,
       "skillChooserCalls": 1,
-      "versionArithmetic": 2,
+      "versionArithmetic": 1,
       "routeObjects": 2,
       "lifecycleCommands": 2,
       "skillLiterals": 2
@@ -537,18 +497,15 @@
       "predicateCalls": 2
     },
     "phase-authoring-entry.mjs": {
-      "intentReads": 1,
       "predicateCalls": 2,
-      "versionArithmetic": 1,
-      "routeObjects": 3,
+      "routeObjects": 2,
       "lifecycleCommands": 5,
-      "skillLiterals": 3
+      "skillLiterals": 2
     },
     "phase-authoring-progress.mjs": {
-      "intentReads": 2,
       "predicateCalls": 3,
       "skillChooserCalls": 1,
-      "skillLiterals": 2
+      "skillLiterals": 1
     },
     "phase-authoring-summary.mjs": {
       "predicateCalls": 1,
@@ -599,8 +556,8 @@
       "lifecycleCommands": 2
     },
     "phase-generation-need.mjs": {
-      "intentReads": 2,
-      "predicateCalls": 2
+      "intentReads": 1,
+      "predicateCalls": 1
     },
     "phase-generation.mjs": {
       "intentReads": 1,
@@ -626,7 +583,7 @@
       "predicateCalls": 1,
       "skillChooserCalls": 2,
       "lifecycleCommands": 2,
-      "skillLiterals": 2
+      "skillLiterals": 1
     },
     "phase-preparation-guidance.mjs": {
       "skillChooserCalls": 1,
@@ -769,7 +726,7 @@
       "predicateCalls": 6,
       "skillChooserCalls": 3,
       "routeObjects": 7,
-      "lifecycleCommands": 9
+      "lifecycleCommands": 10
     },
     "session-read-service.mjs": {
       "versionArithmetic": 1
@@ -785,12 +742,10 @@
       "lifecycleCommands": 2
     },
     "source-review-continuation.mjs": {
-      "intentReads": 1,
       "predicateCalls": 7,
-      "skillChooserCalls": 3,
-      "versionArithmetic": 2,
+      "skillChooserCalls": 1,
       "lifecycleCommands": 8,
-      "skillLiterals": 3
+      "skillLiterals": 1
     },
     "source-review-decision.mjs": {
       "lifecycleCommands": 1

@@ -284,6 +284,11 @@ export async function readWorkflowTaskResume(root, workflow, phase, options = {}
   if (options.published === true && phase.generation > 0 && options.generation == null) options = { ...options, generation: phase.generation };
   if (!workflowTaskHasGeneration(workflow, phase, options.role, options.generation)) return null;
   const record = await readWorkflowTask(root, workflow, phase, options);
+  if (!options.nextAction && (options.role ?? 'author') === 'author') {
+    // A next version opens only on the person's yes: its preview, as the other views name it [OSA:REQ-030].
+    const progress = (await import('./phase-authoring-progress.mjs')).phaseAuthoringProgress(workflow, phase);
+    if (progress?.generation > 1 && ['open-version', 'open-code-generation'].includes(progress.stage)) options = { ...options, nextAction: progress.next };
+  }
   return workflowTaskResume(workflow, phase, { ...options, record });
 }
 

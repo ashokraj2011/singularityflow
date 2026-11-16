@@ -58,16 +58,17 @@ export function phaseTaskHeldForAnswers(result) {
  * has a task as much as version 1: with none, the turn could end after reading and the next chat said "complete" [OSA:REQ-012, C5].
  */
 export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null } = {}) {
-  if (!phase || phase.status !== 'in_progress' || workflow.currentPhase !== phase.id
-      || !stepBeingWritten(workflow, phase) || phaseUsesDeterministicGeneration(phase)) return null;
+  if (!phase || phase.status !== 'in_progress' || workflow.currentPhase !== phase.id || !stepBeingWritten(workflow, phase)) return null;
   const code = phaseRequiresCodeDelivery(phase);
-  const generation = nextPhaseGeneration(phase);
   // The kernel's predicates decide the stage, as they do the permission's next [OSA:REQ-010].
   const facts = versionFactsOf(workflow, phase);
   const numbers = versionNumbers(facts);
   // An older build's local opening of a successor is not an open version until it is promoted on the person's yes [§14].
   const legacy = numbers.ok && numbers.writing > 1 && facts.opening?.record === 'legacy';
   const writing = numbers.ok && numbers.writing !== null && !legacy;
+  // A kernel-built step has no task, but for a code successor's opening (the person's yes).
+  if (phaseUsesDeterministicGeneration(phase) && !(code && (legacy || (!writing && numbers.published >= 1)))) return null;
+  const generation = nextPhaseGeneration(phase);
   const open = code && writing;
   let stage, argv, instruction;
   let skill = generationSkillForPhase(phase, workflow);
@@ -75,13 +76,11 @@ export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null }
     stage = 'review-successor'; argv = ['recover', workflow.workItem.id, '--phase', phase.id, '--json']; skill = '/sf-recover';
     instruction = 'Preserve the published generation and current edits. Review the guarded successor boundary before changing source.';
   } else if (legacy || (!writing && (numbers.published >= 1 || numbers.next > 1))) {
-    // A successor, for any reason (a return, a rejection, a review or a request): the person confirms it first, the
-    // entry's ask, and it opens through the one opening operation [D3, OSA:REQ-030].
+    // A successor, for any reason, opens on the person's yes, the entry's ask [D3, OSA:REQ-030].
     stage = code ? 'open-code-generation' : 'open-version'; argv = ['phase', 'rollover', phase.id, '--json'];
     instruction = `Preview version ${generation} of ${phase.id} and ask the person to confirm it; version ${phase.generation} stays as published.`;
   } else if (code && !open) {
-    // Version 1 opens with `phase begin`, shared before any application edit; begin's own adoption review guards edits
-    // made before it.
+    // Version 1 opens with `phase begin`; its adoption review guards edits made before it.
     stage = 'open-code-generation'; argv = ['phase', 'begin', phase.id, '--json'];
     instruction = 'Open the exact code generation before any application edit. Existing changes require the returned adoption review; never auto-confirm or discard them.';
   } else if (draftEvidence?.draftExists && draftEvidence.draftModified) {

@@ -100,7 +100,8 @@ test('a successor opens only on the person\'s yes, binds their sealed receipt, k
   const hook = { cwd: root, sessionId: 'osa2-yes', prompt: '/sf-code implementation Return the value with its unit' };
   await recordRepositoryBoundaryTurn(hook, { captureMutation: (payload, value) => captureMutationTurn(payload, value, { resolveRoot: async () => root }) });
   const preview = previewChange(story);
-  assert.equal(preview.question, 'Start version 2 of Implementation? Published version 1 will stay unchanged.');
+  // Its actual numbers, and version 1's tests because its publication recorded a passing run [OSA §7.1].
+  assert.equal(preview.question, 'Start version 2 of Implementation? Published version 1 and its recorded tests will stay unchanged.');
   const before = await record(item);
   // In the turn, the confirmation opens nothing without the person's yes; a model-written receipt file is not one.
   const consents = path.join(gitDirectories(root).commonDir, 'singularity-flow', 'version-consents');

@@ -31,11 +31,14 @@ function publicationDigest(phase, published) {
   return published < 1 ? null : (phase.generationPublications ?? []).find((entry) => Number(entry.generation) === published)?.resultDigest ?? null;
 }
 
-/** Whether the published version recorded test executions (the question never promises tests that were not recorded). */
+/**
+ * Whether the published version recorded a passing test run: its submission's executions, or a passed run at its
+ * publication, as the review reads it (source-review-lifecycle.mjs). The question never promises tests not recorded.
+ */
 function testsRecorded(phase, published) {
   const evidence = phase.deliveryEvidence;
-  return published >= 1 && Number(evidence?.generation ?? published) === published && Array.isArray(evidence?.testExecutions)
-    && evidence.testExecutions.length > 0;
+  return published >= 1 && Number(evidence?.generation ?? published) === published && ((evidence?.testExecutions ?? []).length > 0
+    || (evidence?.preflightAttempts ?? []).some((attempt) => attempt?.status === 'passed'));
 }
 
 /**

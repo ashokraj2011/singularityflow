@@ -85,8 +85,9 @@ export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, a
     : (workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})).map(id => workflow.phases[id] && { id, ...workflow.phases[id] })
       .findLast(item => phaseRequiresCodeDelivery(item) && item.generation > 0) ?? null;
   const codeRepair = phaseRequiresCodeDelivery(phase) && phase.status === 'in_progress' && phase.generation > 0;
+  // A published step's repair is its next version, which opens only on the person's yes: its preview asks [OSA:REQ-030].
   const repair = codeRepair
-    ? ['phase', 'begin', workflow.currentPhase, '--work-id', workId, '--json']
+    ? ['phase', 'rollover', workflow.currentPhase, '--work-id', workId, '--json']
     : ['recover', workId, ...(phase ? ['--phase', phase.id ?? workflow.currentPhase] : []), '--for-agent', '--json'];
   const review = {
     resultType: 'sflow-outcome-review',

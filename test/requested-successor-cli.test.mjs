@@ -121,7 +121,8 @@ test('a change the person asks for after Code is published opens generation 2 in
 
   // In this Code turn the confirmation opens nothing without the person's yes [OSA:REQ-030]: the agent asks the preview's
   // own question, with its actual numbers (no tests were recorded for version 1, so none are promised) [§7.1].
-  assert.equal(preview.question, 'Start version 2 of Implementation? Published version 1 will stay unchanged.');
+  // Its actual numbers, and version 1's tests because its publication recorded a passing run [OSA §7.1].
+  assert.equal(preview.question, 'Start version 2 of Implementation? Published version 1 and its recorded tests will stay unchanged.');
   const unasked2 = run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'implementation', '--confirm', preview.confirmation, '--json'], { allowFailure: true });
   assert.notEqual(unasked2.status, 0);
   assert.equal(JSON.parse(unasked2.stdout).error.code, 'VERSION_CONSENT_REQUIRED');

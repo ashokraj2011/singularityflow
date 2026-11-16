@@ -134,7 +134,8 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   // /sf-code's entry asks the person to start version 2, with the review's findings and where each points.
   const asking = sflowJson('phase', 'enter', '--compose', '--for-agent').value;
   assert.equal(asking.status, 'successor-confirmation-required', JSON.stringify(asking).slice(0, 3000));
-  assert.equal(asking.successor.question, "Start version 2 to fix the review's findings? Version 1 and its tests stay.");
+  // The proposal's question, with its actual numbers; version 1's passing run is recorded, so its tests are named [OSA §7.1].
+  assert.equal(asking.successor.question, "Start version 2 of Implement to fix the review's findings? Published version 1 and its recorded tests will stay unchanged.");
   assert.deepEqual(asking.successor.findings.map((entry) => [entry.id, entry.check, entry.at]), [['explain-the-value', 'plan', 'src/value.mjs:1']]);
   const ask = (asking.act ?? agentAct(asking));
   assert.deepEqual([ask.state, ask.ask.question, ask.do.shell], ['confirm', asking.successor.question, 'singularity-flow phase rollover implement --json']);

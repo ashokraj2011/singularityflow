@@ -207,9 +207,15 @@ test('reopening an open Story, cancelling a closed one, and finalizing an unfini
 // While a step's next version is open, writing it is the Story's next step (guide.mjs phaseHandoff, main 95e25ed06):
 // the Story's guidance alone said to submit the version before it [design review, 2026-11-16].
 test('with a code step\'s version 2 open, a refusal about the Story routes to writing version 2 (/sf-code), never a submission', async (t) => {
+  // Version 2 opened by the opening operation (its pointer names it) [OSA Stage 2].
   const workflow = unwrittenPlan({ currentPhase: 'implementation', phases: { planning: { status: 'approved', generation: 1 },
-    implementation: { status: 'in_progress', generation: 1, generationIntent: { status: 'open', generation: 2 } } } });
+    implementation: { status: 'in_progress', generation: 1, generationIntent: { status: 'open', generation: 2 },
+      versionOpening: { operationId: `vo-${'a'.repeat(32)}`, version: 2, highWatermark: 2 } } } });
   const WRITE_VERSION_2 = { shell: 'singularity-flow prepare implementation', copilot: '/sf-code' };
+  // An older build's local opening of version 2 (no pointer) is promoted on the person's yes first: its preview [§14].
+  const legacy = structuredClone(workflow);
+  delete legacy.phases.implementation.versionOpening;
+  assert.equal(storyNextDetails(legacy).nextAction.command, 'singularity-flow phase rollover implementation --json');
   const { act } = routed(sourceReviewStepNotCurrent(workflow, workflow.phases.planning, 'stage'),
     ['review-source', 'stage', 'planning', '--report-json', '{}'], { code: 'SOURCE_REVIEW_STEP_NOT_CURRENT', route: WRITE_VERSION_2 });
   assert.equal(act.do.reason, 'Next for this Story: Write version 2 of implementation, then publish it.');

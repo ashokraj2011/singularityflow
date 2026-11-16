@@ -4925,7 +4925,7 @@ Nothing changes until the proposal is reviewed and activated; you never approve 
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~796 body tokens</span>
+          <span class="pill">~820 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-fresh-install</code></dd></div>
@@ -4954,7 +4954,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-This is the broadest local reset: it removes validated managed workspace roots and clones, clears managed local and Copilot state, replaces installed product surfaces, and preserves unregistered repositories and personal skills.
+This is the broadest local reset: it removes validated managed workspace roots and clones, clears managed local and Copilot state, replaces installed product surfaces, and preserves unregistered repositories and personal skills. It keeps every Story checkout: a workspace that holds one stays whole and is only forgotten.
 
 1. Require the Singularity Flow source checkout and run `singularity-flow fresh-install --checkout &quot;&lt;CHECKOUT&gt;&quot;` without `--yes`. Fresh install works only from a source checkout. With only a promoted release directory, say so and stop; the person may instead choose `/sf-local-reset` for machine state and then the release install `sf-install --release-dir &quot;&lt;DIR&gt;&quot; --artifact-key &quot;&lt;PUBLIC-KEY&gt;&quot; --dry-run`, previewed and confirmed as in `/sf-reinstall`.
 2. Show every remove, preserve, and install target. Do not summarize away physical workspace deletion.
@@ -7766,7 +7766,7 @@ This journey is model-free and repository-independent. It creates a private mach
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~971 body tokens</span>
+          <span class="pill">~994 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-local-reset</code></dd></div>
@@ -7802,7 +7802,8 @@ caches, credentials, sessions, onboarding and personalization without deleting a
 workspace, clone, branch, worktree, dirty file, manifest, or repository-local
 recovery record. With no mode flag, the compatibility mode physically deletes only
 workspace directories whose registry entry and regular `workspace.json` manifest
-prove that Singularity manages the exact path.
+prove that Singularity manages the exact path. It keeps every Story checkout: a
+workspace that holds one stays whole and is only forgotten.
 
 1. Establish the intended mode. Use `--forget-only` unless the contributor explicitly
    asks to delete physical workspace directories and their clones.

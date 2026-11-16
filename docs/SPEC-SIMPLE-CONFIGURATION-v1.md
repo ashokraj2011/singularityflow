@@ -166,7 +166,8 @@ not counted on either side: they stay, and each one now ends in a proposal.
   workspace (D3), and never under SFlow's state folder. `reset-all`, `fresh-install` and destructive `local-reset`
   MUST list every Story checkout, keep it, and refuse while one holds uncommitted or unpublished work. A workspace
   that `fresh-install` or `local-reset` would delete MUST be kept whole while it holds a Story checkout, or the
-  clone one belongs to; only its registration is forgotten (D10).
+  clone one belongs to; only its registration is forgotten (D10). Every linked worktree of a workspace clone is a
+  Story checkout, and so is a clone with a Story's branch checked out in it while it holds such work.
 - **[SCF:REQ-022]** `workspace repair <folder>` MUST fix a moved workspace (its registry entry, then
   `git worktree repair`), drop worktree entries whose folder is gone (Git's `prunable`), and recreate a managed
   Story checkout that was deleted. A command run in a moved workspace gives that one route. A workspace's own ID is
@@ -307,10 +308,15 @@ Decided 16 November 2026, after stage 1e:
   work. Now every Story checkout is kept, and each reset stops, naming the checkout and its route, while one holds
   uncommitted work or commits no remote has. A Story checkout is a linked worktree whose Git (HEAD, index, branch)
   lives in its clone, so keeping only its folder would leave it broken. The rule built is the simplest safe one,
-  for the owner to confirm: a workspace that holds a Story checkout, or the clone one belongs to, is kept whole,
+  which the owner confirmed: a workspace that holds a Story checkout, or the clone one belongs to, is kept whole,
   with its clones and documents. Only its registration is forgotten, as forget-only does, and `workspace open <DIRECTORY>` registers
   it again. Every other workspace is deleted as before. The preview marks the workspace `kept` and lists each
   Story checkout. The confirmation phrases and "Nothing was removed" on a refusal are unchanged.
+  The owner then confirmed the keep-whole rule and decided two more cases: every linked worktree of a workspace
+  clone is a Story checkout (an Auto flight's among them), listed through a registered Git query
+  (`repository.worktrees`); and a workspace clone with a Story's branch checked out in it, with no checkout of its
+  own, is one while it holds uncommitted work or commits no remote has, so the reset refuses with the same
+  message. Clean and published, it goes with its workspace as before.
 
 ## Appendix A — The findings
 

@@ -642,7 +642,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // repository.remote-contains) and the state marker through the source facade (SDA-AC-001, 2026-11-16). No new eager file.
     // 9,677,600 (measured 9,677,573): the agents home (9,676,845) merged with main 27361670a and its registered Git query for
     // a reset's Story checkout reads (+728) [2026-11-16]. No new eager file.
-    assert.ok(closure.bytes <= 9_677_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,678,100 (measured 9,678,093): the registered worktree list a reset reads for each workspace clone's linked
+    // worktrees (git-query.mjs repository.worktrees, +520; SCF:REQ-021, D10) [2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_678_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -992,7 +994,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,262,850 (measured 4,262,833): the registered Git query a reset's Story checkout reads use (SDA-AC-001, 2026-11-16).
   // 4,268,200 (measured 4,268,161): the agents home (4,267,503) merged with main 27361670a and its registered Git query
   // (+658) [2026-11-16]. No new eager file.
-  assert.ok(current.bytes <= 4_268_200, `session current loads ${current.bytes} source bytes`);
+  // 4,268,700 (measured 4,268,681): the same registered worktree list (git-query.mjs +520) [2026-11-16]. No new eager file.
+  assert.ok(current.bytes <= 4_268_700, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -22,7 +22,8 @@ caches, credentials, sessions, onboarding and personalization without deleting a
 workspace, clone, branch, worktree, dirty file, manifest, or repository-local
 recovery record. With no mode flag, the compatibility mode physically deletes only
 workspace directories whose registry entry and regular `workspace.json` manifest
-prove that Singularity manages the exact path.
+prove that Singularity manages the exact path. It keeps every Story checkout: a
+workspace that holds one stays whole and is only forgotten.
 
 1. Establish the intended mode. Use `--forget-only` unless the contributor explicitly
    asks to delete physical workspace directories and their clones.

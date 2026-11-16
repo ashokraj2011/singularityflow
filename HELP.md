@@ -288,9 +288,10 @@ There are five intentionally different reset and replacement boundaries:
 
 The full reset will not delete an existing registered path unless a regular,
 valid `workspace.json` proves that the path is a Singularity-managed workspace.
-No reset deletes a Story checkout: each preview lists them, and the reset refuses
-while one holds uncommitted work or commits no remote has
-(`RESET_STORY_CHECKOUT_HAS_WORK`). `singularity-flow workspace open <DIRECTORY>`
+No reset deletes a Story checkout, which includes every linked worktree of a
+workspace clone: each preview lists them, and the reset refuses while one holds
+uncommitted work or commits no remote has (`RESET_STORY_CHECKOUT_HAS_WORK`). It
+refuses the same way for a workspace clone with a Story's branch checked out in it. `singularity-flow workspace open <DIRECTORY>`
 registers a kept workspace again.
 It preserves the installer checkout, unregistered repositories, and personal
 skills. A one-time marker makes the reinstalled extension clear its Singularity

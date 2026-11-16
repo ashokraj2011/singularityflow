@@ -5,7 +5,7 @@ import path from 'node:path';
 import { gitEmptyConfigPath } from './platform-process.mjs';
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { copilotSkillsDirectory, uninstallDirectSkills } from './direct-skills.mjs';
-import { machineStateRoot, pendingPublicationResetRefusal, pendingPublications, resetStoryCheckouts, STORY_WORKTREES_FOLDER, storyCheckoutWorkRefusal } from './factory-reset.mjs';
+import { machineStateRoot, pendingPublicationResetRefusal, pendingPublications, resetStoryCheckouts, STORY_WORKTREES_FOLDER, storyCheckoutWork, storyCheckoutWorkRefusal } from './factory-reset.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError } from './util.mjs';
@@ -757,23 +757,40 @@ async function machineResetPlan({
   // Every Story checkout is kept (SCF:REQ-021, extended to fresh-install and local-reset by the owner on 16 November
   // 2026): those in SFlow's state folder are never deleted with it, and a workspace that holds one, or the clone one
   // belongs to, is kept whole, because the checkout's Git lives in that clone. Only its registration is forgotten, as
-  // forget-only does, and `workspace open` registers it again. The reset stops while any checkout holds work only it
-  // has. Forget-only opens no path a registration names.
-  const { storyIndexFile } = await import('./story-index.mjs');
+  // forget-only does, and `workspace open` registers it again. Every linked worktree of a workspace clone is one.
+  // The reset stops while any checkout holds work only it has. Forget-only opens no path a registration names.
+  const { storyIndexFile, storyInCheckout } = await import('./story-index.mjs');
+  const clonesOf = (manifest) => Object.values(manifest.repositories ?? {}).map((repository) => workspaceRepositoryPath(manifest, repository));
   const storyCheckouts = (await resetStoryCheckouts({ localStateRoot, workspacePaths: forgetOnly ? [] : sorted.map((workspace) => workspace.path),
+    clones: forgetOnly ? [] : sorted.flatMap((workspace) => clonesOf(workspace.manifest)),
     indexed: !forgetOnly, storyIndex: storyIndexFile(environment, home) })).map((checkout) => ({ ...checkout, disposition: 'kept' }));
+  // A clone with a Story's branch checked out in it (no checkout of its own) is that Story's checkout too: deleted with
+  // its workspace when it holds no work only it has, and the reset stops while it does (owner, 16 November 2026).
+  const storyClones = [];
   for (const workspace of sorted) {
     const { manifest } = workspace;
     delete workspace.manifest;
     if (forgetOnly) continue;
     const held = storyCheckouts.filter((checkout) => inside(workspace.path, checkout.path)
       || (checkout.commonDir && inside(workspace.path, checkout.commonDir)));
-    if (held.length) Object.assign(workspace, { disposition: 'kept', storyCheckouts: held.length });
-    else waiting.push(...await workspacePendingPublications(workspace.path, manifest));
+    if (held.length) {
+      Object.assign(workspace, { disposition: 'kept', storyCheckouts: held.length });
+      continue;
+    }
+    waiting.push(...await workspacePendingPublications(workspace.path, manifest));
+    for (const clone of clonesOf(manifest)) {
+      if (!inside(workspace.path, clone) || !(await lstat(path.join(clone, '.git')).catch(() => null))?.isDirectory()) continue;
+      const story = await storyInCheckout(clone).catch(() => null);
+      if (!story) continue;
+      const { branch, work, commonDir } = await storyCheckoutWork(clone);
+      storyClones.push({ path: await realpath(clone).catch(() => clone), workId: story.workId, branch, work, commonDir,
+        disposition: 'deleted-with-workspace' });
+    }
   }
   const deletedWorkspaces = sorted.filter((workspace) => workspace.disposition === 'deleted');
   const keptWorkspaces = sorted.filter((workspace) => workspace.disposition === 'kept');
   const holdingWork = storyCheckouts.filter((checkout) => checkout.work.length);
+  const clonesHoldingWork = storyClones.filter((clone) => clone.work.length);
   const discardWaiting = discardPendingPublications === true && waiting.length > 0;
   const waitingList = waiting.map((entry) => `${entry.kind} ${entry.id} in ${entry.repository}${entry.command ? `: ${entry.command}` : ''}`).join('; ');
   const plan = {
@@ -787,6 +804,7 @@ async function machineResetPlan({
     localStateRoot,
     workspaces: sorted,
     storyCheckouts,
+    storyClones,
     pendingPublications: waiting,
     pendingPublicationsDiscarded: discardWaiting,
     missingRegistrations,
@@ -818,6 +836,9 @@ async function machineResetPlan({
       ...installerGeneratedPaths.map((target) => `${target} (untracked Singularity state generated inside the installer checkout)`),
       ...deletedWorkspaces.map((workspace) =>
         `${workspace.path} (workspace '${workspace.name}', including every managed repository clone and document)`),
+      ...(storyClones.length ? [`${storyClones.length} clone(s) with a Story's branch checked out, deleted with their workspace: `
+        + storyClones.map((clone) => `${clone.path} (${clone.workId})`).join('; ')
+        + `${clonesHoldingWork.length ? ` (the reset refuses while one holds uncommitted or unpublished work: ${clonesHoldingWork.map((clone) => `${clone.path} holds ${clone.work.join(' and ')} work`).join('; ')})` : ''}`] : []),
       `${localStateRoot} (workspace registry, active selection, local sessions, caches, telemetry configuration, and recovery state; its ${STORY_WORKTREES_FOLDER} folder stays)`,
       ...(registryFile === path.join(localStateRoot, 'workspaces.json') ? [] : [`${registryFile} (custom workspace registry)`]),
       ...(selectionFile === path.join(localStateRoot, 'active-workspace.json') ? [] : [`${selectionFile} (custom active-workspace selection)`]),
@@ -1056,7 +1077,7 @@ async function applyMachineReset(plan, { confirmation, fault = null }, { lockPat
       operation: plan.operation === 'local-reset' ? 'Local reset' : 'Fresh install reset'
     });
   }
-  const holding = storyCheckoutWorkRefusal(plan.storyCheckouts ?? [], {
+  const holding = storyCheckoutWorkRefusal([...plan.storyCheckouts ?? [], ...plan.storyClones ?? []], {
     operation: plan.operation === 'local-reset' ? 'Local reset' : 'Fresh install reset'
   });
   if (holding) throw holding;

@@ -199,8 +199,23 @@ async function linkedWorktreeFolders(root, depth = 3) {
   return found;
 }
 
+/**
+ * A clone's linked worktrees, Auto flight ones among them, through a registered query (SDA-AC-001). Git keeps them
+ * under the clone's .git/worktrees, so a clone with none there has none; a list Git cannot give is unreadable.
+ */
+async function linkedWorktrees(clone) {
+  if (!(await readdir(path.join(clone, '.git', 'worktrees')).catch(() => [])).length) return { paths: [] };
+  let listed;
+  try { listed = executeGitQuery(clone, 'repository.worktrees'); } catch { return { paths: [], unreadable: true }; }
+  const paths = [];
+  for (const entry of listed.slice(1)) {
+    if (!entry.bare && !entry.prunable && (await lstat(path.join(entry.path, '.git')).catch(() => null))?.isFile()) paths.push(entry.path);
+  }
+  return { paths };
+}
+
 /** What a Story checkout holds that only it has: changed or new files, or commits no remote has yet. */
-async function storyCheckoutWork(checkout) {
+export async function storyCheckoutWork(checkout) {
   // Registered queries only (SDA-AC-001); a read Git cannot answer keeps the checkout as holding work.
   const query = (id, params) => { try { return { value: executeGitQuery(checkout, id, params) }; } catch { return null; } };
   const paths = query('repository.paths');
@@ -223,10 +238,11 @@ async function storyCheckoutWork(checkout) {
 
 /**
  * Every Story checkout a reset keeps (SCF:REQ-021): the Story worktrees under SFlow's state folder, where a clone
- * directly in the home folder kept them, under each registered workspace, and every linked checkout the Story index
- * names. Each says what work it holds that only it has, and the Git folder of the clone it belongs to (`commonDir`).
+ * directly in the home folder kept them, under each registered workspace, every linked worktree of a workspace clone
+ * (D10), and every linked checkout the Story index names. Each says what work it holds that only it has, and the Git
+ * folder of the clone it belongs to (`commonDir`). `clones` defaults to the clones each workspace's manifest names.
  */
-export async function resetStoryCheckouts({ localStateRoot = machineStateRoot(), workspacePaths = null, storyIndex = null, indexed = true } = {}) {
+export async function resetStoryCheckouts({ localStateRoot = machineStateRoot(), workspacePaths = null, clones = null, storyIndex = null, indexed = true } = {}) {
   const { readStoryIndex, storyIndexFile } = await import('./story-index.mjs');
   const index = indexed ? await readStoryIndex({ file: storyIndex ?? storyIndexFile() }).catch(() => ({ entries: [] })) : { entries: [] };
   let workspaces = workspacePaths;
@@ -239,6 +255,12 @@ export async function resetStoryCheckouts({ localStateRoot = machineStateRoot(),
     ...workspaces.map((workspace) => path.join(workspace, '.singularity-flow', STORY_WORKTREES_FOLDER))];
   const candidates = [];
   for (const folder of folders) candidates.push(...await linkedWorktreeFolders(folder));
+  const unreadable = [];
+  for (const clone of clones ?? await workspaceClones(workspaces)) {
+    const linked = await linkedWorktrees(clone);
+    candidates.push(...linked.paths);
+    if (linked.unreadable) unreadable.push(clone);
+  }
   for (const entry of index.entries ?? []) {
     if ((await lstat(path.join(entry.checkoutPath, '.git')).catch(() => null))?.isFile()) candidates.push(entry.checkoutPath);
   }
@@ -252,7 +274,23 @@ export async function resetStoryCheckouts({ localStateRoot = machineStateRoot(),
     seen.set(key, { path: key, workId: named?.workId ?? null, branch, work, commonDir, insideStateFolder: inside(stateRoot, key),
       ...(pending.length ? { sync: pending.map((entry) => entry.command).filter(Boolean) } : {}) });
   }
+  // A clone whose worktrees Git cannot list may hide one with work: it stops the reset as a checkout Git cannot read.
+  for (const clone of unreadable) {
+    const key = await realpath(clone).catch(() => path.resolve(clone));
+    if (!seen.has(key)) seen.set(key, { path: key, workId: null, branch: null, work: ['unreadable'], commonDir: path.join(key, '.git'), insideStateFolder: false });
+  }
   return [...seen.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/** The clones each workspace's manifest names; a workspace that cannot be read names none. */
+async function workspaceClones(workspaces) {
+  const { readWorkspace, workspaceRepositoryPath } = await import('./workspace-manifest.mjs');
+  const clones = [];
+  for (const workspace of workspaces) {
+    const manifest = await readWorkspace(workspace).catch(() => null);
+    for (const repository of Object.values(manifest?.repositories ?? {})) clones.push(workspaceRepositoryPath(manifest, repository));
+  }
+  return clones;
 }
 
 function samePath(left, right) {

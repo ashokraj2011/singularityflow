@@ -8260,10 +8260,18 @@ test('the Story\'s next command waits in Copilot Chat\'s input once per state, a
   await mkdir(path.dirname(turnMarker), { recursive: true });
   await writeFile(turnMarker, `${root}\n`);
   t.after(() => rm(turnMarker, { force: true }));
+  // A crashed turn's marker from two days ago goes when the window starts.
+  const crashed = path.join(path.dirname(turnMarker), 'e'.repeat(64));
+  await writeFile(crashed, `${root}\n`);
+  const twoDaysAgo = (Date.now() - 2 * 24 * 60 * 60 * 1000) / 1000;
+  await utimes(crashed, twoDaysAgo, twoDaysAgo);
+  t.after(() => rm(crashed, { force: true }));
   const windowValues = new Map();
   const first = host(true);
   await loadExtension(first.api).activate(context(new Map(), windowValues));
   await until(() => nextItem(first.registered), { what: 'the Next button while the turn is open' });
+  await until(() => !existsSync(crashed), { what: 'the crashed turn\'s marker to be removed' });
+  assert.ok(existsSync(turnMarker), 'a turn still answering is left alone');
   await new Promise((resolve) => setTimeout(resolve, 1_500));
   assert.equal(fills(first.registered).length, 0, 'no fill while Copilot is still answering');
   await rm(turnMarker);

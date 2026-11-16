@@ -44,7 +44,7 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedA
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
-import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING } from './chat-prefill.ts';
+import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns } from './chat-prefill.ts';
 import { copilotTurnDirectory } from '../../../src/copilot-mode.mjs';
 import {
   phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
@@ -6085,6 +6085,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // A turn that ends removes its marker: the state it ended on is filled then. Watched from the machine folder,
   // which exists, as the Copilot Story follower watches its own; window focus re-checks a missed event.
   const turnDirectory = copilotTurnDirectory();
+  // A crashed turn's marker is never removed by a stop: this repository's older than a day go when the window starts.
+  void removeOldCopilotTurns(turnDirectory, repository).catch(() => 0);
   const turnWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
     vscode.Uri.file(path.dirname(turnDirectory)), `${path.basename(turnDirectory)}/*`));
   context.subscriptions.push(turnWatcher,

@@ -20,11 +20,13 @@
  * of one: a fill then, and an Enter, would steer or queue into that turn. SFlow's own prompt and stop
  * hooks keep an open-turn marker for a repository that uses SFlow (copilotTurnDirectory() in
  * src/copilot-mode.mjs), so the fill waits until the turn has ended and then fills the state it ended
- * on. A marker older than TURN_STALE_MS (a turn that crashed or never stopped) is ignored.
+ * on. A marker older than TURN_STALE_MS (a turn that crashed or never stopped) is ignored, and
+ * removeOldCopilotTurns clears this repository's that are older than a day when the extension starts.
+ * The hooks never sweep: their only work is the one write and its removal.
  *
  * No `vscode` import: extension.ts supplies the host, so tests drive this in plain Node.
  */
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { readdir, readFile, realpath, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { routedCommandGuidance } from './copilot-command.ts';
@@ -119,10 +121,13 @@ export function nextChatPrefill(snapshot: RepositorySnapshot | null | undefined)
 // --- Copilot turns in flight ---------------------------------------------------------------------
 
 /**
- * How long an open-turn marker holds the fill. A turn that runs tests can take minutes; one that crashed
- * never closes its marker, so past this the marker is ignored and the fill goes ahead.
+ * How long an open-turn marker holds the fill. A turn that runs tests can take many minutes, and a fill
+ * in the middle of one (an Enter then steers it) is worse than a late fill after a turn that crashed and
+ * never closed its marker; the Next button fills at any time. Past this the marker is ignored.
  */
-export const TURN_STALE_MS = 10 * 60 * 1000;
+export const TURN_STALE_MS = 30 * 60 * 1000;
+/** A marker this old is a turn that crashed: the extension removes this repository's when it starts. */
+export const TURN_REMOVE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 function within(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
@@ -153,6 +158,33 @@ export async function copilotTurnOpen(directory: string, repository: string,
     } catch { /* a marker removed while it was read is a turn that ended */ }
   }
   return { open: until !== null, until };
+}
+
+/**
+ * Remove this repository's markers older than a day: a crashed turn's, which nothing else removes. Only a
+ * marker whose chat folder is the repository or inside it; another repository's or a parent folder's chat is
+ * left alone. Bounded as copilotTurnOpen; returns how many went.
+ */
+export async function removeOldCopilotTurns(directory: string, repository: string,
+  { now = Date.now(), olderThanMs = TURN_REMOVE_AFTER_MS }: { now?: number; olderThanMs?: number } = {}): Promise<number> {
+  let names: string[];
+  try { names = await readdir(directory); } catch { return 0; }
+  const root = await realpath(repository).catch(() => path.resolve(repository));
+  let removed = 0;
+  for (const name of names.filter((entry) => /^[a-f0-9]{64}$/u.test(entry)).slice(0, 200)) {
+    try {
+      const file = path.join(directory, name);
+      const info = await stat(file);
+      if (!info.isFile() || info.size > 4096 || now - info.mtimeMs < olderThanMs) continue;
+      const folder = (await readFile(file, 'utf8')).split(/\r?\n/u)[0]?.trim() ?? '';
+      if (!folder || !path.isAbsolute(folder)) continue;
+      const cwd = await realpath(folder).catch(() => path.resolve(folder));
+      if (!within(root, cwd)) continue;
+      await unlink(file);
+      removed += 1;
+    } catch { /* already gone, or not ours to judge */ }
+  }
+  return removed;
 }
 
 // --- @sflow requests in flight ------------------------------------------------------------------

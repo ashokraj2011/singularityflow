@@ -9,14 +9,14 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, isChatRoute, nextChatPrefill, TURN_STALE_MS, participantRequestEnded, participantRequestStarted, PREFILL_COMMAND, PREFILL_SETTING
+  CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, isChatRoute, nextChatPrefill, removeOldCopilotTurns, TURN_REMOVE_AFTER_MS, TURN_STALE_MS, participantRequestEnded, participantRequestStarted, PREFILL_COMMAND, PREFILL_SETTING
 } = await import(pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', 'chat-prefill.ts')).href);
 
 const phase = (id, label, status, generation) => ({ id, label, status, generation, artifacts: [], approvals: [] });
@@ -323,6 +323,35 @@ test('the open-turn reader counts a fresh marker for this repository only, and n
   await writeFile(path.join(turns, 'not-a-marker'), `${repository}\n`);
   await writeFile(path.join(turns, `.${hash('e')}.123`), `${repository}\n`);
   assert.equal((await copilotTurnOpen(turns, repository)).open, false, 'only a session\'s marker counts, not a write in flight');
+});
+
+test('a marker holds the fill for 30 minutes, and the extension clears this repository\'s older than a day', async (t) => {
+  assert.equal(TURN_STALE_MS, 30 * 60 * 1000, 'a late fill after a crash beats an Enter that steers a running turn');
+  assert.equal(TURN_REMOVE_AFTER_MS, 24 * 60 * 60 * 1000);
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-chat-turn-sweep-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const turns = path.join(base, 'copilot-turns');
+  const repository = path.join(base, 'work', 'app');
+  await mkdir(path.join(repository, 'packages', 'web'), { recursive: true });
+  await mkdir(path.join(base, 'work', 'other'), { recursive: true });
+  await mkdir(turns, { recursive: true });
+  const day = 24 * 60 * 60 * 1000;
+  const marker = async (seed, folder, ageMs) => {
+    const file = path.join(turns, seed.repeat(64).slice(0, 64));
+    await writeFile(file, `${folder}\n`);
+    const at = (Date.now() - ageMs) / 1000;
+    await utimes(file, at, at);
+  };
+  await marker('a', repository, 2 * day);
+  await marker('b', path.join(repository, 'packages', 'web'), day + 60_000);
+  await marker('c', repository, day - 60_000);
+  await marker('d', path.join(base, 'work', 'other'), 3 * day);
+  await marker('e', path.join(base, 'work'), 3 * day);
+  await writeFile(path.join(turns, 'notes.txt'), `${repository}\n`);
+  assert.equal(await removeOldCopilotTurns(turns, repository), 2);
+  assert.deepEqual((await readdir(turns)).sort(), ['c'.repeat(64), 'd'.repeat(64), 'e'.repeat(64), 'notes.txt'],
+    'a fresh marker, another repository\'s, a parent folder\'s chat and a stranger file stay');
+  assert.equal(await removeOldCopilotTurns(path.join(base, 'missing'), repository), 0);
 });
 
 test('the setting and the command are contributed, and the setting is documented', async () => {

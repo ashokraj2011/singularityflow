@@ -85,7 +85,8 @@ export async function runVerb(verb, argv, { positionals, options }) {
     // Planning changes nothing. The underlying operations the reader is handed are what mutate, and
     // they are named rather than run, so this result can never over-claim.
     effects: noEffects(),
-    why: plan.why.map((entry) => because(entry.code, entry.source, { ref: plan.checkpoint.reason })),
+    // Each reason keeps its own slots (the work type and the verb), so its words name them [OSA:AC-019].
+    why: plan.why.map((entry) => because(entry.code, entry.source, { ref: plan.checkpoint.reason, slots: entry.slots ?? {} })),
     next: plan.next.map(fastPathCommandAction),
     restState: restStateFor(plan),
     // The fast-path payload travels whole, so every surface projects the same milestone and

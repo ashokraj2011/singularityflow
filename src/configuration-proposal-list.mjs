@@ -75,7 +75,7 @@ export async function listEveryConfigurationProposal(root, { lead = null, env = 
     }
     return reviews.length;
   });
-  const leadUrl = lead ?? await import('./organisation.mjs').then(({ listLeadRepositories }) => listLeadRepositories())
+  const leadUrl = lead ?? await import('./lead-repositories.mjs').then(({ listLeadRepositories }) => listLeadRepositories())
     .then((leads) => leads?.[0]?.url ?? null).catch(() => null);
   if (leadUrl) {
     await read('capability', async () => {
@@ -85,7 +85,8 @@ export async function listEveryConfigurationProposal(root, { lead = null, env = 
         proposals.push({ kind: 'capability', id: entry.branch, branch: entry.branch, revision: entry.proposalCommit ?? null,
           state: entry.merged ? 'approved' : entry.valid === false ? 'blocked' : 'proposed',
           author: entry.proposer ?? null, subjects: [entry.capabilityId ?? entry.capability?.id].filter(Boolean),
-          act: { label: 'Read it, then activate it', command: `singularity-flow capability proposal ${entry.branch} --lead ${leadUrl}` } });
+          // Approved like every other proposal [SCF:REQ-010].
+          act: { label: 'Read it, then approve or reject it', command: `${approveCommand(entry.branch)} --lead ${leadUrl}` } });
       }
       return listed.length;
     });
@@ -95,7 +96,7 @@ export async function listEveryConfigurationProposal(root, { lead = null, env = 
       for (const entry of listed) {
         proposals.push({ kind: 'onboarding', id: entry.branch, branch: entry.branch, revision: entry.proposalCommit ?? null,
           state: entry.merged ? 'approved' : 'proposed', author: null, subjects: ['Repository setup'],
-          act: { label: 'Read it, then activate it', command: entry.inspectCommand ?? null } });
+          act: { label: 'Read it, then approve or reject it', command: `${approveCommand(entry.branch)} --lead ${leadUrl}` } });
       }
       return listed.length;
     });

@@ -11,7 +11,7 @@ import { SingularityFlowError } from '../util.mjs';
 export const CONFIGURATION_DRAFT_SUBCOMMANDS = Object.freeze(['drafts', 'propose', 'discard', 'proposals', 'approve', 'reject']);
 const OPTIONS = Object.freeze({
   drafts: ['json'], propose: ['json', 'message', 'background-sync'], discard: ['json', 'all', 'listing'], proposals: ['json', 'lead'],
-  approve: ['json', 'yes', 'confirm', 'pick'], reject: ['json', 'yes', 'confirm', 'reason']
+  approve: ['json', 'yes', 'confirm', 'pick', 'lead'], reject: ['json', 'yes', 'confirm', 'reason', 'lead']
 });
 
 function validate(subcommand, positionals, options) {
@@ -107,6 +107,25 @@ export async function run({ subcommand, positionals, options, root, apply, print
       lead: typeof options.lead === 'string' ? options.lead : null });
     if (json) return console.log(JSON.stringify(result, null, 2));
     return console.log((await import('../configuration-proposal-list.mjs')).proposalListLines(result).join('\n'));
+  }
+  // Capability and repository setup proposals are approved and rejected here too, by their own engines [SCF:REQ-010].
+  const routes = await import('../configuration-proposal-routes.mjs');
+  const delegated = routes.delegatedProposalKind(positionals[2]);
+  if (delegated) {
+    const { optionString } = await import('../util.mjs');
+    const repository = await routes.delegatedProposalRepository(root, delegated, optionString(options, 'lead', null));
+    const common = { yes: options.yes === true, confirm: optionString(options, 'confirm', null),
+      interactive: !json && Boolean(input.isTTY && output.isTTY), ask, print: json ? () => {} : (line) => console.log(line),
+      inspect: (branch) => routes.inspectDelegatedProposal(delegated, repository, branch) };
+    const result = subcommand === 'approve'
+      ? await drafts.approveDelegatedProposal(root, positionals[2], delegated, { ...common,
+        activate: (branch, { confirm, reviewed }) => routes.activateDelegatedProposal(root, delegated, repository, branch, { confirm, reviewed }) })
+      : await drafts.rejectDelegatedProposal(root, positionals[2], delegated, { ...common, reason: optionString(options, 'reason', null),
+        remove: (branch, decision) => routes.removeDelegatedProposal(delegated, repository, branch, { ...decision, cwd: root }),
+        agent: async () => (await import('../presence/person-records.mjs')).agentStarted() });
+    if (json) console.log(JSON.stringify(result, null, 2));
+    if (result.status === 'review-required' || result.status === 'activation-pending') process.exitCode = 2;
+    return;
   }
   const { activateWorkflowConfigurationProposal, configurationProposalCommitStatus, inspectWorkflowConfigurationProposal,
     listWorkflowConfigurationProposals, finishInterruptedApproval, removeRejectedConfigurationProposal } = await import('../configuration-proposal.mjs');

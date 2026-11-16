@@ -1084,6 +1084,24 @@ export async function finishInterruptedApproval(root, branch, { proposalCommit =
  */
 export async function removeRejectedConfigurationProposal(root, requestedBranch, { confirm, env = process.env, session = null } = {}) {
   const branch = workflowProposalBranch(requestedBranch);
+  const remoteSession = session ?? new GitRemoteSession({ env: enterpriseGitEnvironment(env) });
+  const remote = await proposalRemote(root, remoteSession);
+  return removeProposalBranch(remote, branch, { confirm, cwd: root, env, session: remoteSession });
+}
+
+/**
+ * Remove one proposal branch of any kind on `remote` (`sflow/config-change/<kind>/*`), with a lease on the exact
+ * revision the person was shown: a proposal that moved since is refused, never removed with a revision nobody saw.
+ * Returns `{ status: 'removed' | 'already-absent', branch, proposalCommit }`.
+ */
+export async function removeProposalBranch(remote, requestedBranch, { confirm, cwd = process.cwd(), env = process.env, session = null } = {}) {
+  const branch = String(requestedBranch ?? '').trim();
+  if (!/^sflow\/config-change\/(?:workflow|capability|onboarding|people|package)\/[a-z0-9._/-]+$/u.test(branch)
+      || branch.includes('..') || branch.includes('//') || branch.endsWith('/')) {
+    throw new SingularityFlowError(`A configuration proposal must be a branch beneath 'sflow/config-change/<kind>/'.`, {
+      code: 'WORKFLOW_PROPOSAL_BRANCH_INVALID', details: { nextAction: { command: 'singularity-flow configuration proposals', label: 'See the proposals' } }
+    });
+  }
   const proposalCommit = String(confirm ?? '').trim();
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(proposalCommit)) {
     throw new SingularityFlowError('Rejecting a proposal names the exact revision that was shown.', {
@@ -1092,7 +1110,6 @@ export async function removeRejectedConfigurationProposal(root, requestedBranch,
   }
   const gitEnv = enterpriseGitEnvironment(env);
   const remoteSession = session ?? new GitRemoteSession({ env: gitEnv });
-  const remote = await proposalRemote(root, remoteSession);
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
   const ref = `refs/heads/${branch}`;
   const observe = async () => {
@@ -1109,7 +1126,7 @@ export async function removeRejectedConfigurationProposal(root, requestedBranch,
     });
   }
   const pushed = await runRemoteGitAsync(['push', '--porcelain', `--force-with-lease=${ref}:${proposalCommit}`, '--', transport.remote, `:${ref}`],
-    { cwd: root, operation: 'remote-push', env: transport.env });
+    { cwd, operation: 'remote-push', env: transport.env });
   // An exit status is not proof either way: read the branch again.
   const after = await observe();
   if (after == null) return { status: 'removed', branch, proposalCommit };

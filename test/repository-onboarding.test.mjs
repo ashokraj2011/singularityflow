@@ -2191,6 +2191,59 @@ test('a setup proposal is visible, reviewable, and activates only its exact revi
   }
 });
 
+// SPEC-SCF one way in [SCF:REQ-010]: a setup proposal is approved and rejected like every other proposal.
+test('a setup proposal is approved with configuration approve and rejected with configuration reject [SCF:REQ-010]', async () => {
+  // A person's steps, run as a person: whatever started this test run, no agent marker reaches them.
+  const personEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => !['AI_AGENT', 'COPILOT_CLI'].includes(name)));
+  const cli = (cwd, args) => run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), ...args], { cwd, env: personEnv, allowFailure: true });
+  const approveFixture = await repositoryFixture();
+  const rejectFixture = await repositoryFixture('second-application');
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(approveFixture.base, 'leads.json');
+  try {
+    const propose = async (fixture) => {
+      const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
+      const applied = await applyRepositoryOnboarding(fixture.remote, { mode: 'recreate', confirmPlan: plan.planId });
+      const checkout = path.join(fixture.base, 'checkout');
+      run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.base });
+      run('git', ['config', 'user.name', 'Setup Approver'], { cwd: checkout });
+      run('git', ['config', 'user.email', 'approver@example.test'], { cwd: checkout });
+      return { ...applied.proposal, checkout };
+    };
+    const configuration = (fixture) => run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`],
+      { cwd: fixture.remote, allowFailure: true }).status;
+    const proposal = await propose(approveFixture);
+    // The revision shown is the one approved: without it, nothing changes.
+    const unnamed = cli(proposal.checkout, ['configuration', 'approve', proposal.branch, '--lead', approveFixture.remote, '--json']);
+    assert.notEqual(unnamed.status, 0);
+    assert.equal(JSON.parse(unnamed.stdout).error.code, 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', unnamed.stdout);
+    assert.equal(configuration(approveFixture), 1, 'sflow/config is not created without the revision named');
+    const approved = cli(proposal.checkout, ['configuration', 'approve', proposal.branch, '--lead', approveFixture.remote,
+      '--confirm', proposal.commit, '--json']);
+    assert.equal(approved.status, 0, approved.stdout || approved.stderr);
+    const result = JSON.parse(approved.stdout);
+    assert.equal(result.kind, 'onboarding');
+    assert.equal(result.activated, true);
+    assert.equal(result.targetCommit, proposal.commit);
+    assert.equal(configuration(approveFixture), 0);
+
+    const rejected = await propose(rejectFixture);
+    const refused = cli(rejected.checkout, ['configuration', 'reject', rejected.branch, '--lead', rejectFixture.remote,
+      '--confirm', rejected.commit, '--reason', 'Set it up from the team template instead', '--json']);
+    assert.equal(refused.status, 0, refused.stdout || refused.stderr);
+    const rejection = JSON.parse(refused.stdout);
+    assert.deepEqual([rejection.kind, rejection.status, rejection.removal], ['onboarding', 'rejected', 'removed']);
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${rejected.branch}`],
+      { cwd: rejectFixture.remote, allowFailure: true }).status, 1, 'the rejected proposal\'s branch is gone');
+    assert.equal(configuration(rejectFixture), 1, 'nothing in sflow/config changed');
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(approveFixture.base, { recursive: true, force: true });
+    await rm(rejectFixture.base, { recursive: true, force: true });
+  }
+});
+
 test('a moved source blocks activation of an earlier setup proposal', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;

@@ -613,6 +613,43 @@ test('a repository already recorded against the configuration branch is repaired
   });
 });
 
+// SPEC-SCF one way in [SCF:REQ-010]: a capability proposal is approved and rejected like every other proposal, and
+// capability activate stays as the same approval by its earlier name.
+test('a capability proposal is approved and rejected through configuration approve and reject [SCF:REQ-010]', async (t) => {
+  const org = await remotes('platform', 'service', 'web');
+  t.after(() => removeTemporaryTree(org.base));
+  const previous = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  t.after(() => { if (previous == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY; else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previous; });
+  await mapAndMerge(org.platform, { capabilityId: 'platform-app', name: 'Platform app', kind: 'delivery', repositoryUrl: org.platform });
+  const checkout = path.join(org.base, 'approver');
+  run('git', ['clone', '-q', '--no-local', org.platform, checkout]);
+  run('git', ['config', 'user.name', 'Capability Approver'], { cwd: checkout });
+  run('git', ['config', 'user.email', 'approver@example.test'], { cwd: checkout });
+  const [{ approveDelegatedProposal, rejectDelegatedProposal }, routes] = await Promise.all([
+    import('../src/configuration-drafts.mjs'), import('../src/configuration-proposal-routes.mjs')]);
+  const printed = [];
+  const common = { print: (line) => printed.push(line), inspect: (branch) => routes.inspectDelegatedProposal('capability', org.platform, branch) };
+  const activate = (branch, decision) => routes.activateDelegatedProposal(checkout, 'capability', org.platform, branch, decision);
+
+  const service = await mapCapability(org.platform, { capabilityId: 'service-api', kind: 'delivery', repositoryUrl: org.service });
+  assert.equal(routes.delegatedProposalKind(service.branch), 'capability');
+  await assert.rejects(() => approveDelegatedProposal(checkout, service.branch, 'capability', { ...common, activate }),
+    { code: 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED' }, 'the approval names the revision shown');
+  const approved = await approveDelegatedProposal(checkout, service.branch, 'capability', { ...common, activate, confirm: service.commit });
+  assert.equal(approved.kind, 'capability');
+  assert.equal(approved.activated, true);
+  assert.ok(printed.some((line) => line === `Capability proposal ${service.branch}`), printed.join('\n'));
+  assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout, /service-api:/u);
+
+  const web = await mapCapability(org.platform, { capabilityId: 'web-api', kind: 'delivery', repositoryUrl: org.web });
+  const rejected = await rejectDelegatedProposal(checkout, web.branch, 'capability', { ...common, confirm: web.commit, reason: 'Not this quarter',
+    remove: (branch, decision) => routes.removeDelegatedProposal('capability', org.platform, branch, { ...decision, cwd: checkout }) });
+  assert.deepEqual([rejected.kind, rejected.status, rejected.removal], ['capability', 'rejected', 'cancelled']);
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${web.branch}`], { cwd: org.platform, allowFailure: true }).status, 1);
+  assert.doesNotMatch(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout, /web-api:/u);
+});
+
 test('map, value-level activation, repository and team proposals change only their own lines in configuration folded at 80 columns', async () => {
   const org = await remotes('platform', 'service', 'web', 'worker');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);

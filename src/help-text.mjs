@@ -1053,12 +1053,13 @@ Usage:
                                                         drop drafts: a number from the list with that list's --listing, or a draft ID
   singularity-flow configuration proposals [--lead URL] [--json]
                                                         Every proposal and draft of every kind, with its author, its state and its next step
-  singularity-flow configuration approve [<PROPOSAL>] [--confirm <REVISION> | --yes] [--pick <FILE>#<FIELD>=proposal|current] [--json]
+  singularity-flow configuration approve [<PROPOSAL>] [--confirm <REVISION> | --yes] [--pick <FILE>#<FIELD>=proposal|current] [--lead URL] [--json]
                                                         Show what approving it changes, value by value, and approve exactly the revision shown;
                                                         --yes approves only the revision shown last; --pick keeps one value where both changed;
-                                                        run it again on an approved proposal to finish what an interruption left
-  singularity-flow configuration reject <PROPOSAL> [--confirm <REVISION> | --yes] [--reason TEXT] [--json]
-                                                        Reject a proposal with a reason, or withdraw your own; nothing in sflow/config changes
+                                                        run it again on an approved proposal to finish what an interruption left;
+                                                        capability and setup proposals too (--lead names their repository)
+  singularity-flow configuration reject <PROPOSAL> [--confirm <REVISION> | --yes] [--reason TEXT] [--lead URL] [--json]
+                                                        Reject a proposal of any kind with a reason, or withdraw your own; nothing in sflow/config changes
   singularity-flow configuration transactions [--json]     Inspect retained configuration operations; the journal grants no authority
   singularity-flow configuration reconcile <CFT-ID> [--json]  Finish one kept operation by its ID; approving the same proposal again does the same
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]
@@ -1338,7 +1339,7 @@ Usage:
   singularity-flow capability setup-proposal <SETUP-BRANCH> [--lead URL] [--json]
   singularity-flow capability setup-activate <SETUP-BRANCH> [--lead URL]
     --confirm <FULL-COMMIT> [--acknowledge-unprotected] [--json]
-    (review and activate an exact repository setup proposal; the source plan and target ref are
+    (the same approval as configuration approve <SETUP-BRANCH>, by its earlier name; the source plan and target ref are
      rechecked, and direct push requires explicit acknowledgement. Protected refs use external review.)
   singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
     [--include-proposals] [--refresh] [--state-branch NAME] [--json]
@@ -1413,7 +1414,8 @@ Usage:
      the repaired commit must be reviewed again and approved/application branches are unchanged)
   singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT>
     [--acknowledge-unprotected] [--json]
-    (review and normally merge one exact proposal into sflow/config, then record its audit;
+    (the same approval as configuration approve <REVIEW-BRANCH>, by its earlier name: it merges one exact proposal
+     into sflow/config, then records its audit;
      protection is unknown until the real exact-CAS update; a direct attempt requires explicit acknowledgement;
      application main is never written)
     (a capability that ships has its lead's model; one that groups others composes theirs)

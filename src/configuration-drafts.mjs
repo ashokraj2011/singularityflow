@@ -1296,3 +1296,102 @@ export async function rejectProposal(root, branch, {
   return { schemaVersion: 1, resultType: 'configuration-rejection', status: withdrawn ? 'withdrawn' : 'rejected', branch,
     proposalCommit: revision, reason: reason ?? null, record: recorded ?? null, removal: removed?.status ?? null, restored };
 }
+
+/** A capability or setup proposal as a person reads it before deciding: what it is, its revision and its files. */
+function delegatedViewLines(kind, reviewed) {
+  const label = kind === 'capability' ? 'Capability proposal' : 'Repository setup proposal';
+  const files = (reviewed.changedFiles ?? []).map((entry) => `  ${String(entry.status ?? '').padEnd(4)} ${(entry.paths ?? [entry.path]).filter(Boolean).join(' -> ')}`);
+  return [`${label} ${reviewed.branch}`, `  Revision ${reviewed.proposalCommit ?? '(unknown)'}`,
+    ...(reviewed.merged ? [`  Already in ${reviewed.targetBranch ?? 'sflow/config'}.`] : files.length ? files : ['  No file changes.']),
+    ...(reviewed.failure?.message ? [`  It cannot be approved yet: ${reviewed.failure.message}`] : [])];
+}
+
+/**
+ * The revision a decision names [SCF:REQ-006]: `--confirm`, or with `--yes` the one this machine last showed; in a
+ * terminal, the person's yes right after the view. Null when they said no.
+ */
+async function decidedRevision(root, branch, revision, { yes, confirm, interactive, ask, question, command }) {
+  if (confirm != null || yes) {
+    const named = confirm != null ? String(confirm).trim() : await shownRevision(root, branch);
+    if (named !== revision) {
+      await recordShown(root, branch, revision);
+      fail(named ? `Proposal ${branch} changed after you were shown it, so nothing was decided. Read it again above, then: ${command}`
+        : `Read the proposal above, then decide exactly this revision: ${command}`,
+      named ? 'CONFIGURATION_APPROVE_PROPOSAL_MOVED' : 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', { nextAction: command, shown: revision });
+    }
+    return revision;
+  }
+  if (!interactive || typeof ask !== 'function') {
+    await recordShown(root, branch, revision);
+    fail(`Read the proposal above, then decide exactly this revision: ${command}`, 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', { nextAction: command, shown: revision });
+  }
+  return /^y(?:es)?$/iu.test(String(await ask(question) ?? '').trim()) ? revision : null;
+}
+
+/**
+ * Approve a capability or repository setup proposal through `configuration approve`, like every other proposal
+ * [SCF:REQ-010]: show it, bind the approval to the revision shown, then `activate(root, branch, { confirm, reviewed })`
+ * signs it and hands it to its own engine.
+ */
+export async function approveDelegatedProposal(root, branch, kind, {
+  yes = false, confirm = null, interactive = false, ask = null, print = (line) => console.log(line), inspect, activate
+}) {
+  const reviewed = { ...(await inspect(branch)), branch };
+  for (const line of delegatedViewLines(kind, reviewed)) print(line);
+  if (reviewed.valid === false && !reviewed.merged) {
+    fail(`Proposal ${branch} cannot be approved: ${reviewed.failure?.message ?? 'it changes files outside the configuration'}`,
+      reviewed.failure?.code ?? 'CONFIGURATION_PROPOSAL_INVALID', { nextAction: 'singularity-flow configuration proposals' });
+  }
+  const revision = reviewed.proposalCommit;
+  const decided = await decidedRevision(root, branch, revision, { yes, confirm, interactive, ask,
+    question: 'Approve this proposal for new Stories? This updates sflow/config. [y/N] ',
+    command: `singularity-flow configuration approve ${branch} --confirm ${revision}` });
+  if (!decided) {
+    print('Nothing was approved.');
+    return { schemaVersion: 1, resultType: 'configuration-approval', kind, status: 'declined', activated: false, branch };
+  }
+  const result = await activate(branch, { confirm: decided, reviewed });
+  if (result?.activated !== false && result?.status !== 'review-required') {
+    print('Approved. New Stories use these changes; Stories already running keep the configuration they started with.');
+    if (result?.presence?.status === 'unsigned') print(`SF Guard: approved without a signature, because ${result.presence.reason}.`);
+  } else if (result?.externalAction) {
+    print(`sflow/config only accepts reviewed merges here. Merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch} on the Git host.`);
+  } else {
+    print(`The approval did not complete: ${result?.failure?.message ?? 'the update was not accepted'}. Nothing else changed; retry with singularity-flow configuration approve ${branch}.`);
+  }
+  return { schemaVersion: 1, resultType: 'configuration-approval', kind, ...result, branch };
+}
+
+/**
+ * Reject a capability or repository setup proposal through `configuration reject` [SCF:REQ-009, REQ-010]: show it,
+ * bind the decision to the revision shown, then `remove(branch, { confirm, reason })`. A person's step.
+ */
+export async function rejectDelegatedProposal(root, branch, kind, {
+  yes = false, confirm = null, reason = null, interactive = false, ask = null, print = (line) => console.log(line),
+  inspect, remove, agent = () => false
+}) {
+  const reviewed = { ...(await inspect(branch)), branch };
+  if (reviewed.merged) {
+    fail(`Proposal ${branch} is already approved, so it cannot be rejected. To undo it, propose the change back.`, 'CONFIGURATION_REJECT_ALREADY_APPROVED',
+      { nextAction: 'singularity-flow configuration proposals' });
+  }
+  for (const line of delegatedViewLines(kind, reviewed)) print(line);
+  const revision = reviewed.proposalCommit;
+  const command = `singularity-flow configuration reject ${branch} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}`;
+  const decided = await decidedRevision(root, branch, revision, { yes, confirm, interactive, ask,
+    question: 'Reject this proposal? Nothing in sflow/config changes. [y/N] ', command });
+  if (!decided) {
+    print('Nothing was rejected.');
+    return { schemaVersion: 1, resultType: 'configuration-rejection', kind, status: 'declined', branch };
+  }
+  if (interactive && !reason && typeof ask === 'function') reason = String(await ask('Why? (the author reads this) ') ?? '').trim() || null;
+  if (await agent()) {
+    fail(`Rejecting a configuration proposal is a person's step, and an agent started this command. Nothing was changed. Run it in your own terminal: ${command}`,
+      'PSS_CARD_NOT_SHOWN', { nextAction: { command, label: `Run in your own terminal: ${command}` } });
+  }
+  const removed = await remove(branch, { confirm: decided, reason: reason ?? 'Rejected with configuration reject; no reason was given.' });
+  print(`Rejected: ${branch}. Nothing in sflow/config changed.`);
+  if (reason) print(`Reason kept with it: ${reason}`);
+  return { schemaVersion: 1, resultType: 'configuration-rejection', kind, status: 'rejected', branch, proposalCommit: decided,
+    reason: reason ?? null, removal: removed?.status ?? null };
+}

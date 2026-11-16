@@ -89,22 +89,23 @@ function assertFirstActivation(f, result, counters) {
   assert.equal(result.status, 'activated');
   assert.equal(result.audit.recorded, true);
   assert.equal(result.audit.sequence, 1);
-  assert.equal(result.projection.published, true);
+  assert.equal(result.projection, undefined, 'no configuration copy is written to the state branch (SCF:REQ-003)');
   assert.equal(result.portability.portable, true);
   assert.equal(result.proposalCleanup.status, 'deleted');
   assert.equal(counters['git.remote.command.push'], 4,
-    'configuration, combined audit/mirror, delivery link, then exact proposal retirement');
+    'configuration, audit, delivery link, then exact proposal retirement');
   assert.ok(counters['git.spawns'] <= 145, `unexpected Git process fan-out: ${counters['git.spawns']}`);
+  // No configuration copy follows the audit on the state branch (SCF:REQ-003): the audit itself is on it.
   const tip = readGit(f.lead, ['rev-parse', 'state']);
-  const audit = readGit(f.lead, ['rev-parse', `${tip}^`]);
-  assert.equal(audit, result.audit.ledgerCommit);
+  const audit = result.audit.ledgerCommit;
+  assert.equal(git(f.lead, ['merge-base', '--is-ancestor', audit, tip], { allowFailure: true }).status, 0);
   const rootHead = JSON.parse(readGit(f.lead, ['show', `${audit}^:ledger/head.json`]));
   assert.equal(rootHead.sequence, 0);
   assert.equal(readGit(f.lead, ['rev-list', '--parents', '-n', '1', `${audit}^`]).split(' ').length, 1);
   for (const remote of [f.lead, f.delivery]) assert.equal(readGit(remote, ['rev-parse', 'main']), f.main);
 }
 
-test('first activation publishes root, audit and projection together without cloning application history', async t => {
+test('first activation publishes root and audit together without cloning application history', async t => {
   const f = await fixture(t);
   const proposed = await mapCapability(f.lead, { capabilityId: 'service', kind: 'delivery', repositoryUrl: f.delivery });
   const approved = readGit(f.lead, ['rev-parse', 'sflow/config']);
@@ -141,7 +142,7 @@ test('first activation retains sequential recovery when the server does not adve
   const { result, counters } = await timed(() => activate(f, proposed));
   assert.equal(result.status, 'activated');
   assert.equal(result.audit.recorded, true);
-  assert.equal(result.projection.published, true);
+  assert.equal(result.projection, undefined, 'no configuration copy is written to the state branch (SCF:REQ-003)');
   assert.equal(result.portability.portable, true);
   assert.ok(counters['git.remote.command.push'] > 4, 'the real unsupported server used sequential recovery');
   const before = readGit(f.lead, ['rev-parse', 'state']);

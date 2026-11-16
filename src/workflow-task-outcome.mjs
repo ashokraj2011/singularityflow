@@ -63,8 +63,8 @@ export async function recordRefusalOutcome(root, workflow, phase, refusal) {
   // The mark of the Story record as it stays on disk: a refused transaction may have changed the one in memory.
   let kept = workflow;
   try {
-    const [{ readFile }, path] = await Promise.all([import('node:fs/promises'), import('node:path')]);
-    kept = JSON.parse(await readFile(path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json'), 'utf8'));
+    const [{ readFile }, path, { readRecord }] = await Promise.all([import('node:fs/promises'), import('node:path'), import('./schema-migrations.mjs')]);
+    kept = readRecord('story-workflow', await readFile(path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json'), 'utf8')).record;
   } catch { kept = workflow; }
   const blockedCode = outcomeCode(outcome, refusal.code, kept);
   if (!blockedCode) return null;

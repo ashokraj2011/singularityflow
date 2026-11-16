@@ -12,9 +12,9 @@
  },
  "totals": {
   "count-without-name": 30,
-  "draft-for-version": 14,
+  "draft-for-version": 13,
   "generic-route": 6371,
-  "jargon": 1402,
+  "jargon": 1397,
   "length": 700
  },
  "unroutedCodes": [
@@ -3629,8 +3629,7 @@
   },
   "src/guide.mjs": {
    "4a3399a1235c": "length",
-   "95904d54e97b": "jargon:generation length",
-   "f898ae27e4ba": "jargon:deterministic jargon:projection"
+   "95904d54e97b": "jargon:generation length"
   },
   "src/harness-imports.mjs": {
    "56ab89dcfad9": "jargon:envelope",
@@ -3938,7 +3937,6 @@
    "e558de61efd5": "jargon:idempotent length"
   },
   "src/own-correction-rollover.mjs": {
-   "09b696a0d95d": "draft-for-version jargon:generation",
    "508aec8ccfd5": "jargon:generation length"
   },
   "src/owner-step-evidence.mjs": {
@@ -3968,9 +3966,7 @@
    "ba6fbf17050b": "jargon:digest jargon:generation jargon:successor"
   },
   "src/phase-mutation-contract.mjs": {
-   "3498942be008": "jargon:successor",
    "3f32bd3dce91": "jargon:retained",
-   "6572d5112aa7": "jargon:generation",
    "a253cc79f31c": "jargon:binding",
    "cc3571cb84f3": "jargon:kernel",
    "d9c2a7b36623": "jargon:packet jargon:staging"

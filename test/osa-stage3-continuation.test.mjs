@@ -150,7 +150,7 @@ test('with no remote to publish to, publication says so plainly, with its way on
     state: { write: () => writeFile(path.join(root, 'story-state.json'), '{}\n') }
   }), (error) => {
     assert.equal(error.code, 'PUBLICATION_REMOTE_AUTHORITY_MISSING');
-    assert.match(error.message, /has no remote of that name to publish to\. Nothing was changed\./u);
+    assert.match(error.message, /^This checkout has no remote named 'origin' to publish to\. Nothing was changed\./u);
     assert.doesNotMatch(error.message, /changed after its exact push authority/u);
     assert.equal(error.details.nextAction.command, 'git remote add origin <url>');
     return true;

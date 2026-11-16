@@ -140,7 +140,7 @@ export function phaseSubmissionPresentation(
     const corrections = Boolean(skill) && skill !== '/sf-review-source';
     return {
       kind: 'source-review-required',
-      statusLabel: corrections ? `Published generation ${published} — its review asked for corrections`
+      statusLabel: corrections ? `Published version ${published} — its review asked for corrections`
         : `Published generation ${published} — source review required`,
       detail: corrections ? 'the next version starts only on your yes; the published one stays as it is'
         : 'independent source review must be recorded before submission',

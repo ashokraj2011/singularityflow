@@ -660,13 +660,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (phase-mutation-contract.mjs), the step's work command on its refusals and task routes (generation-boundary.mjs,
     // source-review-lifecycle.mjs, code-delivery-policy.mjs opensCodeVersion, safe-command-guidance.mjs, command-skills.mjs)
     // and no containment beside a refusal that writes the step (refusal-remediation.mjs) [OSA Stage 1]. No new eager file.
-    // 9,747,050 (measured 9,747,027 for phase-lifecycle.mjs, +52,493): SPEC-OSA v1.1 Stage 3. Every surface that names a
+    // 9,747,600 (measured 9,747,581 for phase-lifecycle.mjs, +53,047): SPEC-OSA v1.1 Stage 3. Every surface that names a
     // step's next action takes it from the kernel's one decision [OSA:REQ-020], so sequence.mjs, guide.mjs and
     // source-review-continuation.mjs now reach the reducer (kernel/step-state.mjs, 35,067 bytes: 28,961 at Stage 2, +6,106 for the
     // task outcomes, the advisory view of an opening and the no-progress classifier) and its adapter and renderer (step-decision.mjs, 15,138 bytes, moved out of
     // phase-mutation-contract.mjs, which these handlers do not load). Their own deleted branches give a little back. The task
-    // outcome reader (workflow-task-outcome.mjs) and the task record stay lazy. Two new eager files: submit.mjs 473 of 473.
-    assert.ok(closure.bytes <= 9_747_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // outcome reader (workflow-task-outcome.mjs) and the task record stay lazy; next steps and readiness name a code step's own
+    // opening and its task's wait (+554 after the journeys). Two new eager files: submit.mjs 473 of 473.
+    assert.ok(closure.bytes <= 9_747_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -943,8 +943,9 @@ export class GitPublicationUnitOfWork {
  */
 function missingPublicationRemote(remote) {
   return new SingularityFlowError(
-    `This Story is shared through the remote '${remote}', and this checkout has no remote of that name to publish to. Nothing was changed. `
-      + `Add it in your own terminal (git remote add ${remote} <url>), then run the same command again; for a Story kept on this laptop only, turn its publication off in the workflow configuration.`,
+    `This checkout has no remote named '${remote}' to publish to. Nothing was changed. `
+      + `Add it in your own terminal (git remote add ${remote} <url>), then run the same command again.`,
     { code: 'PUBLICATION_REMOTE_AUTHORITY_MISSING', details: { remote, owner: 'person',
-      nextAction: { command: `git remote add ${remote} <url>`, label: `Add the remote '${remote}' this Story is published to, then run the same command again` } } });
+      alternative: 'A Story kept on this laptop only turns its publication off in the workflow configuration.',
+      nextAction: { command: `git remote add ${remote} <url>`, label: `Add the remote '${remote}', then run the command again` } } });
 }

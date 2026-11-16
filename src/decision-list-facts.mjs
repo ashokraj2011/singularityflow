@@ -19,7 +19,7 @@ import { conformancePhasesOf, isConformancePhase } from './phase-roles.mjs';
 import { DIFFERENCE_VERDICTS, OPEN_UPSTREAM_ISSUE_STATUSES, conformanceGapDecisions, decisionHeadline, decisionListRoute, decisionListRouteLine,
   upstreamIssueStates } from './upstream-routes.mjs';
 import { workDir } from './story-paths.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, unknownStepDetails } from './util.mjs';
 
 const sha256 = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
@@ -95,8 +95,9 @@ async function reportGaps(root, config, workflow, step, at) {
 export async function blockingDecisionFacts(root, config, workflow, { phaseId = workflow?.currentPhase ?? null, at = new Date().toISOString() } = {}) {
   const phase = phaseId ? workflow?.phases?.[phaseId] ?? null : null;
   if (!phase) {
+    // A step typed by mistake: the plan names the Story's steps and the same list for one of them [owner, 2026-11-16].
     throw new SingularityFlowError(phaseId ? `Story ${workflow?.workItem?.id} has no step ${phaseId}.` : `Story ${workflow?.workItem?.id} has no current step.`,
-      { code: 'DECISIONS_PHASE_UNKNOWN' });
+      { code: 'DECISIONS_PHASE_UNKNOWN', ...(phaseId ? { details: unknownStepDetails(workflow, phaseId) } : {}) });
   }
   const reports = [];
   const unavailable = [];

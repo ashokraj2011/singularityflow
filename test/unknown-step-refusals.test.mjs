@@ -236,6 +236,11 @@ test('approve or reject of a step the Story does not have: the same decision on 
     { code: 'PHASE_UNKNOWN', first: "singularity-flow reject implement --reason 'The tests do not cover the rounding.' --json" });
 });
 
+test('the decision list for a misspelt step: the same list for the step it is nearest, not the Story\'s next action (decision-list-facts.mjs)', async () => {
+  const envelope = await refusal('decisions', 'QF-1', '--phase', 'implemnt');
+  assertEnvelope(envelope, { code: 'DECISIONS_PHASE_UNKNOWN', requested: 'implemnt', first: 'singularity-flow decisions QF-1 --phase implement --json' });
+});
+
 test('recover of a step the Story does not have: the same recovery of the current step (collaboration.mjs)', async () => {
   assertEnvelope(await refusal('recover', 'QF-1', '--phase', 'bogus'), { code: 'RECOVERY_PHASE_UNKNOWN', first: 'singularity-flow recover QF-1 --phase implement --json' });
 });

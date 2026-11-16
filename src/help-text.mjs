@@ -110,7 +110,7 @@ Usage:
   singularity-flow tests run [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--json]
   singularity-flow tests summary [--capability ID | --work-id ID [--phase PHASE]] [--run RUN-ID | --latest] [--json]
   singularity-flow tests base --work-id ID [--phase PHASE] [--command ID]... [--json]
-  singularity-flow tests node --work-id ID --node MAJOR [--phase PHASE] [--command ID]... [--json]
+  singularity-flow tests node --work-id ID --node MAJOR [--phase PHASE] [--command ID]... [--within SECONDS] [--json]
   singularity-flow app-review plan|start|status|inspect|feedback|repair|recheck|accept|capture|defer|close [SESSION] [--work-id ID] [--json]
   singularity-flow app-review browser install
   singularity-flow outcome [WORK-ID] [--capability ID] [--json]
@@ -977,7 +977,7 @@ Usage:
   singularity-flow decision witness-defer [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --to STEP --reason TEXT [--json]
   singularity-flow decision visual-risk [WORK-ID] [--fetch] --comparison VISUAL-ID --expires YYYY-MM-DD --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
-  singularity-flow decisions [WORK-ID] [--phase PHASE] [--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]]... [--json]
+  singularity-flow decisions [WORK-ID] [--phase PHASE] [--probe|--no-probe] [--probe-wait SECONDS] [--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]]... [--json]
   singularity-flow decisions record [WORK-ID] [--phase PHASE] (--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]... [--confirm sha256:DIGEST] | --answers FILE) [--fetch] [--json]
   singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT] [--fetch] [--json]
   singularity-flow gateway serve --transport stdio [--workspace WORKSPACE]

@@ -222,7 +222,8 @@ test('the VS Code card asks each item its dispositions, the clauses an update-in
 test('the Copilot CLI forms ask the same: each disposition by its words, then what the chosen one needs', () => {
   const packet = packetOf();
   const [page] = rowForms(rows(packet));
-  assert.deepEqual(page.form.requestedSchema.properties.decision0.enum, ['Leave undecided', ...DISPOSITIONS.map((id) => DISPOSITION_WORDS[id])]);
+  // Its choices in the list's order, Leave undecided last [owner, 2026-11-16].
+  assert.deepEqual(page.form.requestedSchema.properties.decision0.enum, [...DISPOSITIONS.map((id) => DISPOSITION_WORDS[id]), 'Leave undecided']);
   const [clause] = rows(packet);
   const detail = detailForm(clause, clause.options.find((entry) => entry.id === 'update-intent'));
   assert.match(detail.requestedSchema.properties.clause.title, /^The clauses the specification should change, for REQ-002/u);
@@ -452,7 +453,8 @@ test('what the plan settled is offered beside the list: it asks nobody, holds no
   assert.deepEqual(answer.options[1].effects[0].replaces, { disposition: 'rework', actor: 'lead@example.invalid' });
   // Each host shows it, and opens its file.
   const html = decideHtml({ ...packet, repositoryPath: '/repo' });
-  assert.match(html.slice(html.indexOf('<tr data-item="d7"')), /^<tr data-item="d7"[^>]*>\s*<td><button type="button" class="dc-link" data-open="package\.json">/u);
+  // Its question first, then the file to open [owner, 2026-11-16].
+  assert.match(html.slice(html.indexOf('<tr data-item="d7"')), /^<tr data-item="d7"[^>]*>\s*<td><strong>[^<]+<\/strong> <button type="button" class="dc-link" data-open="package\.json">package\.json<\/button>/u);
   assert.deepEqual(cardRows(packet).slice(-2).map((entry) => entry.id), ['d7', 'd8']);
   // Nobody but the approvers, and never once the step is published.
   assert.equal(settledOf(packetOf(story({ anyone: false }), { ...table(), settled: SETTLED }))[0].decidedBy.allowed, false);

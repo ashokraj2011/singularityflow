@@ -60,8 +60,15 @@ export interface DecisionItemPacket {
   options: DecisionOptionPacket[];
   decidedBy: DecisionDecidedBy;
   details?: Record<string, unknown>;
-  /** The answer SFlow recommends from its facts, or what to weigh when it has none [owner, 2026-11-13]. */
-  recommended?: { option: string | null; why: string; words: string };
+  /** The answer SFlow recommends from its facts [owner, 2026-11-13]; `check` when it is "Check first" [owner, 2026-11-16]. */
+  recommended?: { option: string | null; why: string; words: string; check?: boolean };
+  /**
+   * The item in plain words, the same on every host [owner, 2026-11-16]: its question, why and "Recommended: …"; `later`
+   * for one nobody can answer yet; `settled` for what SFlow settled for the person.
+   */
+  plain?: { question?: string; why?: string; recommended?: string | null; check?: string; later?: string; settled?: string };
+  /** A read-only check SFlow runs itself before the answer is recommended, offered first until it has a result. */
+  check?: { kind: string; status: string; label: string; does: string; command?: string; cutShort?: boolean; seconds?: number };
   /** A chat may ask it as a plain yes or no, bound to the person's own typed answer. */
   chatYesNo?: boolean; yesNo?: { question: string; yes: string; no: string | null; route: string };
   /** SFlow settled it for the person: shown under "Settled for you", with its evidence and an Undo. */
@@ -100,6 +107,8 @@ export interface DecisionPacket {
   recorded?: Array<{ id: string; kind: string; summary: string; at?: string }>;
   status: 'decisions-needed' | 'nothing-to-decide' | string;
   headline: string; rule?: string;
+  /** The headline in plain words, and what nobody can answer yet, one line each [owner, 2026-11-16]. */
+  plain?: { headline: string; later: string[] };
   items: DecisionItemPacket[];
   /** Offered beside what waits: on the list's digest and record, in nobody's count. */
   offered?: DecisionItemPacket[];
@@ -382,8 +391,9 @@ function assertWorkId(workId: string): string {
 }
 
 /** The read: the list as it stands now. */
-export function decisionListArgv(workId: string, phase: string | null = null): string[] {
-  return ['decisions', assertWorkId(workId), ...phaseArgs(phase), '--json'];
+export function decisionListArgv(workId: string, phase: string | null = null, { probe = null as number | null } = {}): string[] {
+  // With `probe`, SFlow first runs the checks an answer depends on, for at most that many seconds (decision-probes.mjs).
+  return ['decisions', assertWorkId(workId), ...phaseArgs(phase), ...(probe ? ['--probe', '--probe-wait', String(probe)] : []), '--json'];
 }
 
 /** The preview: the same list with the choices, which records nothing and returns the summary. */

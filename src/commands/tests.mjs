@@ -18,7 +18,7 @@ const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node']);
 const OPTIONS = Object.freeze({
   plan: ['capability', 'work-id', 'phase', 'command', 'json'],
   base: ['work-id', 'phase', 'command', 'json'],
-  node: ['work-id', 'phase', 'command', 'node', 'json'],
+  node: ['work-id', 'phase', 'command', 'node', 'within', 'json'],
   run: ['capability', 'work-id', 'phase', 'command', 'environment', 'expect-command', 'json'],
   summary: ['capability', 'work-id', 'phase', 'run', 'latest', 'json']
 });
@@ -666,8 +666,17 @@ async function baseStory(root, options) {
  * throwaway copy of this checkout that holds the version file a pin would create, so the answer is what
  * pinning it would give. Never evidence: it records no attempt and refuses nothing, and it leaves the
  * checkout as it was. A model asks this instead of a chain of shell commands (bin-opr2).
+ *
+ * The decisions card asks it itself before it shows a Node pin (decision-probes.mjs), `--within SECONDS`: each
+ * command's own timeout is cut to what is left, so the check ends on time and cleans up after itself as any run
+ * does, and a command cut short says so (`cutShort`) instead of failing. The answer is kept with the code it was
+ * found on (nodeProbeState), so the same code is never checked twice.
  */
-async function nodeStory(root, options) {
+export async function tryStoryNode(root, options) {
+  const within = optionString(options, 'within', null);
+  const seconds = within === null ? null : Number(within);
+  if (within !== null && (!Number.isInteger(seconds) || seconds < 1 || seconds > 7200)) fail(`tests node --within takes whole seconds from 1 to 7200; '${String(within).slice(0, 20)}' is not.`);
+  const deadline = seconds === null ? null : Date.now() + seconds * 1000;
   const version = String(optionString(options, 'node', '') ?? '').replace(/^v/u, '');
   const [{ installedNodeOfMajor, keepNodeTry, NODE_PIN_FILE, nodePinVersion }, { installedNodeVersions }] = await Promise.all([
     import('../node-pin.mjs'), import('../project-node-version.mjs')]);
@@ -682,11 +691,19 @@ async function nodeStory(root, options) {
   const context = await storyContext(root, options);
   const { phase, commands } = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, { phaseId: optionString(options, 'phase', null) });
   const scope = { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id };
+  const codeState = await (await import('../node-pin.mjs')).nodeProbeState(root, context.config, context.workflow);
   const pathContext = applicationPathContext(context.config, context.workflow);
   const untracked = new Set(untrackedFiles(root));
   const included = changedFiles(root).filter((file) => isApplicationChangePath(file, { ...pathContext, untracked: untracked.has(file) }));
   const results = [];
   for (const command of context.select(commands)) {
+    const left = deadline === null ? null : deadline - Date.now();
+    if (left !== null && left < 1000) {
+      results.push({ commandId: command.id, status: 'not-run', cutShort: true, why: `it did not start within ${seconds} seconds` });
+      continue;
+    }
+    // What is left of the time, never more than the command's own limit: the run then ends as a timed-out gate does.
+    const bounded = left === null ? command : { ...command, timeoutMs: Math.max(1000, Math.floor(Math.min(command.timeoutMs ?? Number.POSITIVE_INFINITY, left))) };
     const candidate = await materializeCandidate(root, { included, treeHash: async () => 'not-compared' });
     if (!candidate.available) {
       results.push({ commandId: command.id, status: 'not-run', why: candidate.reason });
@@ -694,16 +711,20 @@ async function nodeStory(root, options) {
     }
     try {
       await writeFile(path.join(candidate.root, NODE_PIN_FILE), `${major}\n`);
-      const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [command], { candidateRoot: candidate.root, candidateIsOtherCode: true });
+      const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [bounded], { candidateRoot: candidate.root, candidateIsOtherCode: true });
       try {
         const parsed = await parseTestResult(root, command, { startedAt: check.startedAt }).catch(() => null);
-        // Exit 127 is the shell finding no runner in the copy: that says nothing about this Node.
-        results.push(check.exitCode === 127 && !parsed?.tests ? { commandId: command.id, status: 'not-run', exitCode: 127, tests: null, why: 'its runner was not found in the throwaway copy of this checkout' }
+        // Exit 127 is the shell finding no runner in the copy: that says nothing about this Node. Nor does a run the
+        // time cut short, unless its own limit was what ended it.
+        const cut = check.timedOut === true && bounded !== command && bounded.timeoutMs < (command.timeoutMs ?? Number.POSITIVE_INFINITY);
+        results.push(cut ? { commandId: command.id, status: 'not-run', cutShort: true, tests: null, why: `it did not finish within ${seconds} seconds` }
+          : check.exitCode === 127 && !parsed?.tests ? { commandId: command.id, status: 'not-run', exitCode: 127, tests: null, why: 'its runner was not found in the throwaway copy of this checkout' }
           : { commandId: command.id, status: check.status, exitCode: check.exitCode ?? null, tests: parsed?.tests ?? null });
       } finally { await kernel.restoreTransientQualityResult(check); }
     } finally { await candidate.dispose(); }
   }
-  const answer = { workId: scope.workId, phase: phase.id, version: major, node, head: head(root), at: new Date().toISOString(), results };
+  const answer = { workId: scope.workId, phase: phase.id, version: major, node, head: head(root), ...(codeState ? { state: codeState } : {}),
+    ...(seconds === null ? {} : { within: seconds }), at: new Date().toISOString(), results };
   await keepNodeTry(root, scope.workId, answer);
   return { resultType: 'sflow-test-node', scope, ...answer };
 }
@@ -794,7 +815,7 @@ export async function run(_argv, { positionals, options = {} }) {
   }
   if (subcommand === 'node') {
     if (!story) fail('tests node asks about a Story step; name it with --work-id.');
-    const result = await nodeStory(root, options);
+    const result = await tryStoryNode(root, options);
     const { nodeTryWords } = await import('../node-pin.mjs');
     const told = await nodeTryWords(root, result.workId, result.version);
     // What the answer leads to: a person's choice when it passes there, and the step's own repair when it does not.
@@ -809,6 +830,8 @@ export async function run(_argv, { positionals, options = {} }) {
       return summaryUpdateAfterDecision(root, config, workflow);
     }).catch(() => null) : null;
     const next = summaryUpdate ? [{ command: prepublish, skill: '/sf-code', label: summaryUpdate.words }]
+      // A check that ran out of time or could not run says nothing either way: the person's choice stays on the list.
+      : told && told.known === false ? [{ command: `singularity-flow decisions ${result.workId}`, skill: '/sf-decide', label: told.words }]
       : told?.passed && pinned ? [{ command: prepublish, skill: '/sf-code', label: `Node ${result.version} is already pinned in ${NODE_PIN_FILE}: prepublish the step again; its tests run on it.` }]
       : told?.passed ? [{ command: `singularity-flow decisions ${result.workId}`, skill: '/sf-decide', label: `A person chooses Pin Node ${result.version}.` }]
         : [{ command: prepublish, skill: '/sf-code', label: 'It fails there too, so the Node is not what stops it: repair it in this step.' }];

@@ -17,8 +17,12 @@ import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
   type DecisionAnswers, type DecisionPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { approvalRows, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
+import { approvalRows, checkNames, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
   guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
+
+// How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
+const CHECK_SECONDS = 60;
+const CHECK_FIRST_SECONDS = 900;
 
 export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; summaryUpdate?: string; next?: unknown }
 
@@ -28,9 +32,9 @@ const openBeside = (file: string) => vscode.commands.executeCommand('vscode.open
 
 let open: vscode.WebviewPanel | null = null;
 
-async function readList(client: SingularityFlowClient, workId: string): Promise<DecisionPacket> {
+async function readList(client: SingularityFlowClient, workId: string, { probe = null as number | null } = {}): Promise<DecisionPacket> {
   client.invalidateReads();
-  const packet = decisionPacketFrom(await client.run(decisionListArgv(workId), undefined, { priority: 'interactive' }));
+  const packet = decisionPacketFrom(await client.run(decisionListArgv(workId, null, { probe }), undefined, { priority: 'interactive' }));
   if (!packet || packet.workId !== workId) throw new Error('The decision list could not be read.');
   return packet;
 }
@@ -87,6 +91,20 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       : drafted.length ? { status: 'drafted', recorded, drafted, message: `No decision was recorded. ${drafted.join(' ')}` }
         : { status: 'cancelled', message: 'No decision was recorded.' });
     const reread = async () => { packet = await readList(client, workId).catch(() => packet); };
+    // What an answer depends on, SFlow checks itself, read-only and bounded, and the rows recommend from it [owner, 2026-11-16].
+    const check = async (seconds: number, { asked = false } = {}) => {
+      const names = checkNames(packet);
+      if (!names.length || busy) return;
+      busy = true;
+      render(null, `Checking: ${names.join('; ')} (up to ${seconds >= 120 ? `${Math.round(seconds / 60)} minutes` : `${seconds} seconds`}; nothing is recorded).`);
+      packet = await readList(client, workId, { probe: seconds }).catch(() => packet);
+      busy = false;
+      // Closed while it checked: nothing to show it on.
+      if (settled) return;
+      panel.reveal();
+      // The row itself says so when the first check ran out of time; only a check the person asked for is reported.
+      render(null, asked && checkNames(packet).length ? 'The check did not finish in time; nothing was recorded.' : null);
+    };
     const optionOf = (message: InboundMessage) => decideRows(packet).find((item) => item.id === stringField(message, 'item'))
       ?.options.find((option) => option.id === stringField(message, 'option'));
     // A row's own step, or a held package's accept command for a person who may accept it [CQF:REQ-052]: always from the list as read.
@@ -98,6 +116,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     };
     const router = registerMessageRouter('singularityFlow.decide', {
       'decide.cancel': () => finish(notNow()),
+      // "Check first", chosen on a row: what the person typed stays on the page.
+      'decide.check': async (message) => { draft = decideDraftFrom(message); await check(CHECK_FIRST_SECONDS, { asked: true }); },
       'decide.open': async (message) => {
         const file = stringField(message, 'path');
         // A row offered beside the list opens its file too: a convergence answer someone may change names the file it is about [SCS:REQ-034].
@@ -196,5 +216,6 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     });
     panel.onDidDispose(() => { open = null; finish(notNow()); });
     render();
+    void check(CHECK_SECONDS);
   });
 }

@@ -30,6 +30,7 @@ import { pathToFileURL } from 'node:url';
 
 import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
 import { blockingDecisionFacts, evidenceDecisionFacts, phaseEndsStory } from './decision-list-facts.mjs';
+import { withPlainWords } from './decision-plain.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -521,7 +522,8 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     : { pending: requests, inactive: [], bindings: [], unavailable: [] };
   blocking.unavailable = [...(blocking.unavailable ?? []), ...commandReviews.unavailable];
   // A count reads no test command unless a run failed: then the pin is what the step waits on, and it is counted.
-  const offeredPin = await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: !answering }).catch(() => null);
+  // A list a person answers reads what SFlow's own check found for this code (decision-probes.mjs); a count needs none of it.
+  const offeredPin = await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: !answering, probe: answering }).catch(() => null);
   // A Node the repository names is settled before the tests run, never asked [owner, 2026-11-13]; undone, it is asked again.
   const nodePin = offeredPin?.source && (await import('./settled-decisions.mjs')).settleableNodePin(workflow, phase, offeredPin) ? null : offeredPin;
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
@@ -589,7 +591,8 @@ export async function readPendingList(root, config, workflow, { phaseId = null, 
   const facts = await decisionListFacts(root, config, workflow, { phaseId: phaseId ?? workflow.currentPhase, at, ...known });
   const actor = offline && !process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? identity(root, { offline: true }) : actionActor(root);
   const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
-  const packet = decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase, card });
+  // Every item in plain words, the same on every host [owner, 2026-11-16].
+  const packet = withPlainWords(workflow, decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase, card }));
   const storyNext = packet.items?.length ? null : await storyNextStep(workflow);
   return { ...packet, ...(storyNext ? { next: storyNext } : {}),
     sheet: await sheetOf(root, workflow, packet, { approvalCheck: facts.approvalCheck, authorities, actor, card }) };

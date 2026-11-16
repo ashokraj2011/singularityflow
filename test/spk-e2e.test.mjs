@@ -584,7 +584,7 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   const firstAnswer = adjudicateAbsent();
   const others = iteration.facts.filter((entry) => entry.id !== absent.id);
   // Each answer says what is still owed, where "Blocking findings: none" used to read as finished.
-  assert.match(firstAnswer, others.length ? new RegExp(`${others.length} of ${iteration.facts.length} still need a decision: ${others[0].id}`) : /All 1 decided\./u);
+  assert.match(firstAnswer, others.length ? new RegExp(`${others.length} of ${iteration.facts.length} still ${others.length === 1 ? 'needs' : 'need'} a decision: ${others[0].id}`) : /All 1 decided\./u);
   // The same answer again records nothing, and says so; a different one says what it replaced.
   const repeated = adjudicateAbsent();
   assert.match(repeated, new RegExp(`Already recorded: rework on ${absent.id} at .*Nothing changed\\.`));

@@ -10,6 +10,7 @@
  * Reads only. An answer here informs, and refuses nothing. A value reaches this module as a version or not
  * at all, and never becomes a path: `.nvmrc` is the only file it names.
  */
+import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -47,16 +48,38 @@ const nodeTry = async (root, workId) => {
   return Array.isArray(answer?.results) ? answer : null;
 };
 
-/** What `tests node` last found for this version, as a sentence for a person; null when nothing was asked. */
-export async function nodeTryWords(root, workId, version, { head = null } = {}) {
+/**
+ * The code a `tests node` answer is about: the application source and the test inputs, never the Story's own records,
+ * so a decision recorded meanwhile does not make the answer stale and a changed line of code does [owner, 2026-11-16].
+ * Null when it cannot be read; an answer is then never taken as current.
+ */
+export async function nodeProbeState(root, config, workflow) {
+  try {
+    const { sourceTreeHash, testInputTreeHash } = await import('./state-stores.mjs');
+    const [tree, inputs] = await Promise.all([sourceTreeHash(root, config, workflow), testInputTreeHash(root, config, workflow)]);
+    return `sha256:${createHash('sha256').update(JSON.stringify([tree, inputs ?? null])).digest('hex')}`;
+  } catch { return null; }
+}
+
+/**
+ * What `tests node` last found for this version, as a sentence for a person; null when nothing was asked. `current`
+ * says it was found on this same code (`state`, nodeProbeState), or, for an answer kept before states were, at this
+ * same commit; `known` that it ran to the end, so it says whether the tests pass.
+ */
+export async function nodeTryWords(root, workId, version, { head = null, state = null } = {}) {
   const answer = await nodeTry(root, workId);
   if (answer?.version !== version) return null;
   const counts = answer.results.map((entry) => (entry.tests ? `${entry.tests.passed} of ${entry.tests.discovered} passed` : entry.status)).join(', ');
   const passed = answer.results.length > 0 && answer.results.every((entry) => entry.status === 'passed');
-  const later = head && answer.head !== head ? ' The code has been committed since, so that answer may be out of date.' : '';
+  const current = state && answer.state ? answer.state === state : head ? answer.head === head : true;
+  const later = current ? '' : ' The code has changed since, so that answer may be out of date.';
   const unrun = answer.results.find((entry) => entry.status === 'not-run');
-  if (unrun) return { passed: false, words: `Whether it passes on Node ${answer.node} is still not known: ${unrun.why ?? 'it did not run'}.${later}` };
-  return { passed, words: `${passed ? 'It passes' : 'It does not pass'} on Node ${answer.node} (${counts}), on a throwaway copy of this checkout; nothing was recorded as evidence.${later}` };
+  const cut = answer.results.find((entry) => entry.cutShort);
+  if (unrun) {
+    return { passed: false, known: false, current, ...(cut ? { cutShort: true, seconds: answer.within ?? null } : {}),
+      words: `Whether it passes on Node ${answer.node} is still not known: ${unrun.why ?? 'it did not run'}.${later}` };
+  }
+  return { passed, known: true, current, words: `${passed ? 'It passes' : 'It does not pass'} on Node ${answer.node} (${counts}), on a throwaway copy of this checkout; nothing was recorded as evidence.${later}` };
 }
 
 function latestFailed(attempts, nodeCommandIds) {
@@ -89,6 +112,7 @@ export async function nodePinOffer(root, commands, { attempts = [], environment 
   const other = (await installedNodeVersions(environment).catch(() => [])).find((version) => version.split('.')[0] !== String(running ?? '').split('.')[0]);
   if (!other) return null;
   return { file: NODE_PIN_FILE, version: other.split('.')[0], node: other, running, stage: 'failed', commandId: failed.commandId,
+    cause: `The tests stopped because ${running ? `Node ${running} here` : 'the Node here'} is not the version they need; Node ${other} is installed`,
     words: `The latest run of ${failed.commandId} stopped because the toolchain here is not the version the build needs${running ? `: this machine runs Node ${running}` : ''}.` };
 }
 
@@ -102,8 +126,21 @@ export async function otherInstalledNode(root, command, { environment = process.
   return other ? { version: other.split('.')[0], node: other } : null;
 }
 
-/** The pin to offer for an open code step of a Story, as the decision list and recovery read it; null when there is none. */
-export async function storyNodePin(root, config, workflow, phase, { environment = process.env, known = null, failedOnly = false } = {}) {
+/**
+ * What SFlow's own check found for a pin on this code (decision-probes.mjs): `checked` when it ran to the end on this
+ * same code, else `unknown`, with `cutShort` when its last try ran out of time. Only `checked` answers are words a
+ * person weighs; an answer for other code is asked again.
+ */
+function probeOf(tried) {
+  if (tried?.current && tried.known) return { status: 'checked', passed: tried.passed };
+  return { status: 'unknown', ...(tried?.current && tried.cutShort ? { cutShort: true, seconds: tried.seconds } : {}) };
+}
+
+/**
+ * The pin to offer for an open code step of a Story, as the decision list and recovery read it; null when there is none.
+ * `probe: true` (the decision list a person answers) reads what SFlow's check found for this same code.
+ */
+export async function storyNodePin(root, config, workflow, phase, { environment = process.env, known = null, failedOnly = false, probe = false } = {}) {
   if (phase?.status !== 'in_progress' || phase.generationIntent?.status !== 'open') return null;
   const [{ latestStepAttempts }, { workDirRelative }, { head }] = await Promise.all([
     import('./verification/attempts.mjs'), import('./story-paths.mjs'), import('./git.mjs')]);
@@ -116,9 +153,12 @@ export async function storyNodePin(root, config, workflow, phase, { environment 
   const commands = known ?? (await resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id }).catch(() => ({ commands: [] }))).commands;
   const offer = await nodePinOffer(root, commands, { attempts, environment });
   const current = head(root);
+  const state = offer && probe ? await nodeProbeState(root, config, workflow) : null;
   if (offer) {
-    const tried = await nodeTryWords(root, workId, offer.version, { head: current }).catch(() => null);
-    return { ...offer, phase: phase.id, ...(tried ? { tried } : {}) };
+    const tried = await nodeTryWords(root, workId, offer.version, { head: current, state }).catch(() => null);
+    // An answer found on other code is no answer: SFlow checks again before the card asks [owner, 2026-11-16].
+    const shown = probe ? (tried?.current && tried.known ? tried : null) : tried;
+    return { ...offer, phase: phase.id, ...(shown ? { tried: shown } : {}), ...(probe ? { probe: probeOf(tried), state } : {}) };
   }
   // No file says the Node is at fault, but the same tests fail here and pass on another installed one: that is what `tests node` found.
   const answer = await nodeTry(root, workId).catch(() => null);
@@ -127,5 +167,6 @@ export async function storyNodePin(root, config, workflow, phase, { environment 
   if (!await installedNodeOfMajor(answer.version, environment)) return null;
   const tried = await nodeTryWords(root, workId, answer.version, { head: current }).catch(() => null);
   return { file: NODE_PIN_FILE, version: answer.version, node: answer.node, running: null, stage: 'failed', commandId: failed.commandId, phase: phase.id, ...(tried ? { tried } : {}),
+    ...(probe && tried ? { probe: probeOf(tried) } : {}), cause: `The tests fail on the Node here and pass on Node ${answer.node}`,
     words: `The latest run of ${failed.commandId} failed here, and the same tests pass on Node ${answer.node}.` };
 }

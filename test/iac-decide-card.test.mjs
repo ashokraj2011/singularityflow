@@ -115,7 +115,8 @@ test('a scope approver decides a pending amendment on the card, with what it cha
   assert.match(html, new RegExp(`Or in your own terminal:</span>\\s*<code>${decide('approve')}</code><button type="button" class="secondary" data-copy="approve">`, 'u'));
   const table = decisionsTable(packet);
   assert.ok(table.includes('- AC-001 is revised from "The user sees the value 1." to "The user sees the value 2."'), table);
-  assert.ok(table.includes(`Your decision, on the forms below; or in your terminal: Reject AMD-001: \`${decide('reject')}\``), table);
+  // Each choice on its own line, what it does, and its own terminal command beside it.
+  assert.match(table, new RegExp(`\\n- Reject AMD-001: [^\\n]+ Or in your terminal: \`${decide('reject').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\`\\.`, 'u'), table);
 });
 
 test('who may not decide it is named, and a plan approver signs only the rows it carries', () => {

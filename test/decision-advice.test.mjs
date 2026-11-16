@@ -12,6 +12,7 @@ import test from 'node:test';
 
 import { noteQuestionAnswered, noteQuestionAsked, startAnswerLedger, unboundAnswerReason } from '../src/copilot-answer-binding.mjs';
 import { advisedItem, itemRecommendation, optionDoes, yesNoOf } from '../src/decision-advice.mjs';
+import { plainItem, withPlainWords } from '../src/decision-plain.mjs';
 import { decisionPacket, PENDING_ITEM_KINDS } from '../src/decision-list.mjs';
 import { packetText } from '../src/commands/decisions.mjs';
 import { formatCommandRouteLines, modelFreeCommandForArgv, VSCODE_DECIDE_CARD } from '../src/model-free-commands.mjs';
@@ -41,8 +42,9 @@ function story({ status = 'in_progress' } = {}) {
   };
 }
 const actor = { name: 'Decider', email: 'decider@example.invalid', login: null };
-const packetOf = (workflow, facts) => decisionPacket(workflow, { phaseId: 'implementation', at: AT, gaps: [], issues: [], candidates: [], reuseProblems: [],
-  testRisks: [], unavailable: [], state: {}, ...facts }, { authorities: workflow.resolution.approvalAuthorities, actor, at: AT });
+// As `decisions` reads it: with every item's plain words (decision-list-reads.mjs).
+const packetOf = (workflow, facts) => withPlainWords(workflow, decisionPacket(workflow, { phaseId: 'implementation', at: AT, gaps: [], issues: [], candidates: [], reuseProblems: [],
+  testRisks: [], unavailable: [], state: {}, ...facts }, { authorities: workflow.resolution.approvalAuthorities, actor, at: AT }));
 
 /** A list with most kinds on it at once, built from the same facts `decisions` reads. */
 function broadPacket(workflow = story()) {
@@ -111,7 +113,12 @@ test('every item kind the list builds has a recommendation or says what to weigh
     if (recommended.option) {
       assert.ok(item.options.some((entry) => entry.id === recommended.option && entry.available !== false), `${kind}: recommends a choice it does not offer`);
       assert.match(recommended.words, /^Recommended: /u, kind);
-    } else assert.match(recommended.words, /^(?:No recommendation|Recommended first): /u, kind);
+    // Every item recommends [owner, 2026-11-16]: a choice, what to do first, or which choice when.
+    } else assert.match(recommended.words, /^Recommended(?: first)?: /u, kind);
+    assert.doesNotMatch(recommended.words, /No recommendation/u, kind);
+    // And in plain words: a question, why in one sentence, and the recommendation.
+    const plain = plainItem(workflow, item);
+    assert.ok(plain.later || (plain.question?.endsWith('?') && plain.why && /^Recommended: /u.test(plain.recommended)), `${kind}: ${JSON.stringify(plain)}`);
     for (const entry of item.options) {
       assert.ok(typeof entry.does === 'string' && entry.does.length > 10, `${kind}/${entry.id}: no effect said`);
       assert.doesNotMatch(entry.does, HASH, `${kind}/${entry.id}`);
@@ -134,12 +141,18 @@ test('each recommendation follows its facts: a run on unchanged code, a failed c
   assert.deepEqual([risk.option, /^Recommended first: fix the environment/u.test(risk.words)], [null, true]);
   // A proposal the Story moved under is refreshed; an amendment nobody can judge for the person is left to weigh.
   assert.equal(rec({ kind: 'intent-amendment', details: { status: 'proposed' }, options: [choice('refresh', { recommended: true }), choice('reject'), choice('approve')] }).option, 'refresh');
-  assert.match(rec({ kind: 'intent-amendment', details: { status: 'proposed' }, options: [choice('reject'), choice('approve')] }).words, /^No recommendation: whether the approved clauses should change/u);
+  assert.match(rec({ kind: 'intent-amendment', details: { status: 'proposed' }, options: [choice('reject'), choice('approve')] }).words, /^Recommended: Approve it only if the approved clauses should change as shown/u);
   // An approval nothing holds: approve; one still held: decide what holds it first.
   assert.equal(rec({ kind: 'approval', details: { ready: true, heldBy: [] }, options: [choice('approve')] }).option, 'approve');
   assert.match(rec({ kind: 'approval', details: { ready: false, heldBy: ['d1', 'd2'] }, options: [choice('approve')] }).words, /^Recommended first: decide d1 and d2 above/u);
-  // A scope statement no clause states: SFlow cannot tell which disposition, and says what to weigh.
-  assert.match(rec({ kind: 'owed-decision', details: { scopeItem: 'SRI-1' }, options: [choice('scope-included'), choice('scope-excluded')] }).words, /^No recommendation: whether a clause of this Story states it/u);
+  // A scope statement no clause states: no one disposition is right whatever the facts, so it says which one when.
+  assert.match(rec({ kind: 'owed-decision', details: { scopeItem: 'SRI-1' }, options: [choice('scope-included'), choice('scope-excluded')] }).words, /^Recommended: Included, naming its clause, if this Story delivers it/u);
+  // A Node pin: from SFlow's own check of this code, or "Check first" until it has one [owner, 2026-11-16].
+  const pin = (details) => rec({ kind: 'node-pin', details: { version: '22', ...details }, options: [choice('pin-node')] });
+  assert.deepEqual([pin({ tried: true }).option, pin({ tried: true }).why], ['pin-node', 'Tests pass on Node 22 (checked).']);
+  assert.match(pin({ tried: false }).words, /^Recommended: Leave it: tests fail on Node 22 too \(checked\), so the Node is not the cause\.$/u);
+  assert.deepEqual([pin({}).check, pin({}).option], [true, null]);
+  assert.equal(pin({ probe: { status: 'unknown', cutShort: true, seconds: 60 } }).why, 'The check did not finish within 60 seconds.');
 });
 
 test('what a choice does names the generation it opens and the one that stays, and the day a risk ends', () => {
@@ -165,7 +178,7 @@ test('the decisions list carries the advice on every item, the approval and the 
   const rollover = packet.items.find((item) => item.kind === 'generation-rollover');
   assert.deepEqual(rollover.options.map((entry) => entry.id), ['start-next-generation', 'set-aside']);
   assert.equal(rollover.options[0].does, 'Opens generation 3 of Implementation with the change; generation 2 and its evidence and test results stay as published.');
-  assert.match(rollover.recommended.words, /^No recommendation: whether src\/late\.js belongs in this step: keep it in a new generation, or set it aside\.$/u);
+  assert.match(rollover.recommended.words, /^Recommended: Keep src\/late\.js in a new generation if it belongs in this step; otherwise set it aside\.$/u);
   assert.equal(rollover.options[0].action.command, 'singularity-flow phase rollover implementation', 'the person\'s own terminal previews it and asks them to confirm');
   // The node pin's try passed: pin it.
   assert.equal(packet.items.find((item) => item.kind === 'node-pin').recommended.option, 'pin-node');
@@ -253,7 +266,7 @@ test('every host shows the recommendation and what each choice does; the approva
   const accept = risk.options[0];
   // VS Code's Decide card.
   const html = decideHtml(packet);
-  assert.ok(html.includes('Recommended first: fix the environment and run unit again.'), 'the recommendation');
+  assert.ok(html.includes('Recommended: Fix the environment and run unit again.'), 'the recommendation, in plain words');
   assert.ok(html.includes(`<li><strong>${accept.label}</strong>: ${accept.does.replaceAll('(', '(')}`), 'what the choice does');
   assert.doesNotMatch(html, /<option[^>]* selected/u, 'shown, never preselected');
   const card = decideHtml({ ...awaiting, packetSha256: `sha256:${'b'.repeat(64)}` });
@@ -266,23 +279,25 @@ test('every host shows the recommendation and what each choice does; the approva
   assert.match(page, /data-approval-open="d\d+">Review and approve<\/button>/u);
   assert.match(DECISION_LIST_SCRIPT, /decisions\.approval/u);
   assert.match(await readFile(new URL('../apps/vscode/src/views/decision-list.ts', import.meta.url), 'utf8'), /'decisions\.approval': \(\) => \{ void vscode\.commands\.executeCommand\('singularityFlow\.openApprovals'\); \}/u);
-  // Copilot CLI's card: the table, what each choice does, and the approval's own row.
+  // Copilot CLI's card: each question, what each choice does, and the approval's own question.
   const table = decisionsTable(awaiting);
-  assert.match(table, /Recommended first: fix the environment and run unit again/u);
+  assert.match(table, /\nRecommended: Fix the environment and run unit again\.\n/u);
   assert.ok(table.includes(`- ${accept.label}: ${accept.does}`), table);
-  assert.match(table, /\| Approve Implementation \| [^|]+ \| Review its documents and approve with \/sf-approve implementation --work-id DEC-7; or in your terminal: `singularity-flow approve implementation --work-id DEC-7 --fetch` \|/u);
+  assert.ok(table.includes('**2. Approve Implementation?**'), table);
+  assert.ok(table.includes('- Review and approve Implementation: /sf-approve implementation --work-id DEC-7 opens its documents; or in your terminal: `singularity-flow approve implementation --work-id DEC-7 --fetch`.'), table);
   assert.equal(cardRows(awaiting).some((item) => item.kind === 'approval'), false, 'the approval is never answered on a form');
   // A choice's own form says what it does before its own words on when to choose it.
   assert.ok(detailForm(risk, accept).message.startsWith(`${risk.title}: ${accept.label}. ${accept.does} ${accept.words}`), detailForm(risk, accept).message);
   // Its forms mark the recommended choice in the list itself, and still read the plain label back; nothing is preselected.
   const departure = packet.items.find((item) => item.kind === 'departure');
   const [{ form }] = rowForms([departure]);
-  assert.deepEqual(form.requestedSchema.properties.decision0.enum, ['Leave undecided', 'Accept (recommended)', 'Reject']);
+  // The recommended choice first [owner, 2026-11-16], never preselected: no default, and Leave undecided still offered.
+  assert.deepEqual(form.requestedSchema.properties.decision0.enum, ['Accept (recommended)', 'Reject', 'Leave undecided']);
   assert.equal(form.requestedSchema.properties.decision0.default, undefined);
   assert.equal(choicesFromRows([departure], { decision0: 'Accept (recommended)' }).picks[0].option.id, 'accept');
   // The terminal.
   const text = packetText(awaiting);
-  assert.match(text, /\n {3}Recommended first: fix the environment and run unit again\./u);
+  assert.match(text, /\n {3}Recommended: Fix the environment and run unit again\./u);
   assert.match(text, /\n {3}accept-test-risk: Accept that these tests cannot run here, until a date\n {6}Accepted until 2026-12-13 \(or the day you choose\): the tests still run/u);
   assert.match(text, /\n {3}Recommended: Review and approve Implementation\. Nothing on this list holds it/u);
   for (const shown of [html, page, table, text]) assert.doesNotMatch(shown.replace(/data-digest="sha256:[a-f0-9]{64}"/gu, ''), /sha256:[a-f0-9]{8}/u);
@@ -294,10 +309,11 @@ test('what SFlow settled for the person shows under "Settled for you" on every h
     evidence: ['The workflow names no scope step.'], decidedBy: { allowed: true, words: 'You may decide this.' },
     options: [{ id: 'undo', label: 'Undo: decide it yourself', recommended: false, does: 'Opens it again for you to decide.', effects: [{ kind: 'undo' }], needs: {}, decidedBy: { allowed: true, words: '' } }] };
   const withSettled = { ...packet, settled: [settled] };
-  assert.match(decideHtml(withSettled), /<h2>Settled for you<\/h2>[\s\S]*The workflow names no scope step\.[\s\S]*value="undo"/u);
+  // One line each, "Undo if wrong" [owner, 2026-11-16]; VS Code keeps its evidence behind a detail.
+  assert.match(decideHtml(withSettled), /<h2>Settled for you<\/h2>[\s\S]*Scope does not apply\. Undo if wrong\.[\s\S]*<details class="dc-detail"><summary>What it rests on<\/summary>[\s\S]*The workflow names no scope step\.[\s\S]*value="undo"/u);
   assert.ok(decideRows(withSettled).some((item) => item.id === 'd40'), 'its Undo is chosen and recorded like any answer');
-  assert.match(decisionsTable(withSettled), /\*\*Settled for you\.\*\*[\s\S]*Scope does not apply: The workflow settles it[\s\S]*- The workflow names no scope step\./u);
-  assert.match(packetText(withSettled), /Settled for you \(undo any of them below\):\n\nd40\. Scope does not apply\n[\s\S]* {3}- The workflow names no scope step\.[\s\S]*undo: Undo: decide it yourself/u);
+  assert.match(decisionsTable(withSettled), /\n\*\*Settled for you\.\*\* Scope does not apply\. Undo if wrong\.$/u);
+  assert.match(packetText(withSettled), /Settled for you:\n\nd40\. Scope does not apply\. Undo if wrong\.\n {3}undo: Undo: decide it yourself/u);
   assert.match(decisionListHtml(buildDecisionListView(withSettled)), /<h2>Settled for you<\/h2>[\s\S]*Undo: decide it yourself/u);
 });
 

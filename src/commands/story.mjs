@@ -1830,6 +1830,8 @@ export async function storyAdjudicateCommand(positionals, options) {
   const answers = answersFile ? await adjudicationAnswers(answersFile) : null;
   const itemIds = answers ? answers.map((entry) => entry.itemId) : [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
   const result = await writeAdjudications(root, config, options, { answers, itemIds, expect: optionString(options, 'expect') });
+  // The person's answers from the decisions page renew the Copilot turn that opened it [owner, 2026-11-16].
+  if (answers) await import('../copilot-mutation-guard.mjs').then((guard) => guard.renewTurnAfterCardAnswer(root, accepted.workflow.workItem.id)).catch(() => {});
   const { decisions, unchanged, earlier, projection, authority, phaseId } = result;
 
   if (answers) return console.log(JSON.stringify(answersRecorded(result), null, 2));

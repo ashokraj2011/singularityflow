@@ -6,7 +6,8 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationToolProtocol, mutationTurnMode } from './phase-mutation-contract.mjs';
-import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
+import { asSflowCommand, copilotModeFile, mentionsHookCli, noteTurnRenewal, readCopilotMode, readTurnRenewal, TURN_WINDOW_MS, turnWindowStart,
+  withTurnRenewal } from './copilot-mode.mjs';
 // The guard runs on every tool call: the staging-path helper loads only when a turn's record is built
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
@@ -23,11 +24,11 @@ import { normalizeConfirmCode, resolveConfirmCode } from './confirm-code.mjs';
 import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
 import { COPILOT_HOOKS_PROTECTED, isCopilotHooksPath } from './governed-roots.mjs';
 
-const MAX_AGE = 30 * 60 * 1000;
+const MAX_AGE = TURN_WINDOW_MS;
 
-/** Whether this explicit turn's permissions have lapsed (MAX_AGE from its prompt). */
+/** Whether this explicit turn's permissions have lapsed (MAX_AGE from its prompt, or from the person's last answer in it). */
 function turnExpired(record) {
-  return Number.isFinite(record?.recordedAt) && Date.now() - record.recordedAt > MAX_AGE;
+  return Number.isFinite(record?.recordedAt) && Date.now() - turnWindowStart(record) > MAX_AGE;
 }
 
 /**
@@ -37,7 +38,7 @@ function turnExpired(record) {
 function turnExpiredDenial(record) {
   const skill = `/sf-${String(record?.skill ?? 'phase').replace(/^\/?(?:sf|sflow)-/u, '')}`;
   return { permissionDecision: 'deny', next: [], permissionDecisionReason:
-    `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from its prompt and have ended; nothing was written. `
+    `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from ${Number.isFinite(record?.renewedAt) ? 'the person\'s last answer in it' : 'its prompt'} and have ended; nothing was written. `
     + `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. `
     + `No Shell command renews a Copilot turn.\n\n${formatCommandRouteLines({ copilotCommand: skill }).join('\n')}` };
 }
@@ -61,6 +62,10 @@ function unissuedDraftOption(call, scope, mode, field, pick) {
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
 // Copilot CLI's question tool and VS Code's vscode_askQuestions, as calls() spells them.
 const QUESTION_TOOLS = new Set(['ask_user', 'vscode_askquestions']);
+// The decisions cards a turn opens with a Story ID, as calls() spells them: Copilot CLI's sflow_decide and sflow_adjudicate,
+// VS Code's singularityFlow_decide, _adjudicate and _witnessReview, and their reference names. The person answers on them.
+const CARD_TOOLS = new Set(['sflow_decide', 'sflow_adjudicate', 'singularityflow_decide', 'singularityflow_adjudicate',
+  'singularityflow_witnessreview', 'sflowdecide', 'sflowadjudicate', 'sflowwitnessreview']);
 const FILE_READS = new Set(['read', 'read_file', 'readfile', 'read_text_file', 'view', 'get_file']);
 // An agent may raise an issue or propose an amendment; only an approver decides or revalidates.
 const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'revalidate']);
@@ -188,10 +193,11 @@ async function withTurnRecordLock(file, action) {
 async function turn(payload) {
   if (readCopilotMode().paused || !key(payload)) return null;
   try {
-    const record = readRecord('copilot-repository-boundary', await readFile(path.join(directory(), `${key(payload)}.json`), 'utf8')).record;
+    const file = path.join(directory(), `${key(payload)}.json`);
+    const record = readRecord('copilot-repository-boundary', await readFile(file, 'utf8')).record;
     if (record.sessionId !== (payload.sessionId ?? payload.session_id)
         || record.modeChangedAt !== readCopilotMode().changedAt) return null;
-    return record;
+    return await withTurnRenewal(record, file);
   } catch {
     // Corruption must not silently release an explicitly opted-in session's edit lock.
     try {
@@ -549,7 +555,7 @@ function issuedReadFile(payload, turnId, suffix) {
 async function outputPathMismatch(payload, record, call) {
   const owner = await boundedRecord(recordFile(payload)).catch(() => null);
   const root = owner?.contract?.repositoryRoot ?? owner?.repositoryRoot;
-  if (!root || owner.turnId !== record.turnId || Date.now() - owner.recordedAt > MAX_AGE) return null;
+  if (!root || owner.turnId !== record.turnId || turnExpired(record)) return null;
   for (const target of targets(call.args)) {
     const absolute = editTarget(target, call.args.cwd ?? payload.cwd ?? root);
     const suffix = absolute && issuedSuffix(absolute);
@@ -1588,7 +1594,7 @@ async function currentContract(payload, record, { reclassifyOutputs = true } = {
   const value = await boundedRecord(recordFile(payload));
   if (record.corrupt || !value.contract || value.turnId !== record.turnId || value.sessionId !== record.sessionId
       || !Number.isFinite(record.recordedAt) || Date.now() < record.recordedAt
-      || Date.now() - record.recordedAt > MAX_AGE) throw new Error('Missing or expired contract');
+      || turnExpired(record)) throw new Error('Missing or expired contract');
   if (digest(await readFile(value.binding.workflowFile)) !== value.binding.workflowSha256) throw new Error('Phase changed; refresh contract');
   for (const stamp of value.binding.stamps) {
     if (digest(await readFile(stamp.file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) !== stamp.sha256) throw new Error('Checkout identity changed; refresh contract');
@@ -1626,7 +1632,7 @@ async function importTeamTurn(payload, record) {
   const value = await boundedRecord(recordFile(payload)).catch(() => null);
   if (!value || record.corrupt || value.turnId !== record.turnId || value.sessionId !== record.sessionId
       || !Number.isFinite(record.recordedAt) || Date.now() < record.recordedAt
-      || Date.now() - record.recordedAt > MAX_AGE) return null;
+      || turnExpired(record)) return null;
   return value;
 }
 
@@ -1859,6 +1865,12 @@ export async function settleObservedEdits(payload) {
   await unlink(pending).catch(() => {});
 }
 
+/** A person's answer to this turn's question restarts its window; a host's own reply, a declined or empty one renews nothing. */
+async function renewOnAnswer(payload, record) {
+  const answer = (await answerBinding()).answerOfQuestion(payload);
+  if (answer && !answer.canned && answer.texts.length) await noteTurnRenewal(recordFile(payload), record, { renewedAt: Date.now() });
+}
+
 /** A host ends a turn only after its tools return, so a question asked now is answered by the next stop. */
 async function noteTaskQuestion(payload, record) {
   if (!calls(payload).some(call => QUESTION_TOOLS.has(call.name))) return;
@@ -1946,8 +1958,49 @@ export async function mutationToolGuard(payload = {}) {
       } catch { /* Advisory tracking cannot change this tool's permission decision. */ }
     }
   }
+  if (decision.permissionDecision !== 'deny') await noteCardOpened(payload, record).catch(() => {});
   await observeEdits(payload, record, decision).catch(() => {});
   return decision;
+}
+
+/**
+ * The decisions card this turn opens for its Story, noted beside the turn's record: the person's answer on it, which the
+ * card records with its own CLI command outside this chat, renews this turn (renewTurnAfterCardAnswer). Only a card's
+ * call reads or writes anything here.
+ */
+async function noteCardOpened(payload, record) {
+  const workId = calls(payload).find(call => CARD_TOOLS.has(call.name))?.args?.workId;
+  if (record.corrupt || typeof workId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(workId)) return;
+  const value = await boundedRecord(recordFile(payload)).catch(() => null);
+  const root = value?.turnId === record.turnId ? value.contract?.repositoryRoot ?? value.repositoryRoot : null;
+  // Another Story's card renews nothing of this turn's.
+  if (typeof root !== 'string' || (value.contract?.workId ?? workId) !== workId) return;
+  await noteTurnRenewal(recordFile(payload), record, { card: { workId, root, openedAt: Date.now() } });
+}
+
+/**
+ * A person's answer recorded on a decisions card for `workId` in `root` (`decisions record --answers`, `story adjudicate
+ * --answers`, `decision witness`, which no chat may run) restarts the window of the turn that opened that card, while it is
+ * still its session's turn. The card runs its command outside the chat, so the CLI cannot tell which chat it was: of two
+ * turns holding a card for this Story here, only one not answered since it opened counts, and with two such, neither.
+ * Returns the renewed turn's ID, or null. Never Git; one small file read per live turn.
+ */
+export async function renewTurnAfterCardAnswer(root, workId, { now = Date.now() } = {}) {
+  if (readCopilotMode().paused || !root || typeof workId !== 'string') return null;
+  root = await realpath(root).catch(() => path.resolve(root));
+  const held = [];
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.renewal\.json$/u.test(name))) {
+    const noted = await readTurnRenewal(path.join(directory(), name));
+    if (noted?.card?.workId !== workId || noted.card.root !== root || !Number.isFinite(noted.card.openedAt)) continue;
+    const record = await turn({ sessionId: noted.sessionId });
+    if (record && !record.corrupt && record.turnId === noted.turnId) held.push({ noted, record });
+  }
+  const waiting = held.filter(({ noted }) => !(noted.card.answeredAt >= noted.card.openedAt));
+  const [chosen, ...others] = held.length === 1 ? held : waiting;
+  if (!chosen || others.length) return null;
+  await noteTurnRenewal(recordFile({ sessionId: chosen.record.sessionId }), chosen.record,
+    { renewedAt: now, card: { ...chosen.noted.card, answeredAt: now } });
+  return chosen.record.turnId;
 }
 
 /**
@@ -2345,7 +2398,9 @@ async function shellSnapshot(root, contract) {
 
 export async function mutationPostToolGuard(payload = {}) {
   const record = await turn(payload);
-  if (record && ANSWER_BOUND_SKILLS.has(skillName(record.skill)) && calls(payload).some(call => QUESTION_TOOLS.has(call.name))) {
+  const question = Boolean(record) && calls(payload).some(call => QUESTION_TOOLS.has(call.name));
+  if (question && !record.corrupt) await renewOnAnswer(payload, record).catch(() => {});
+  if (question && ANSWER_BOUND_SKILLS.has(skillName(record.skill))) {
     await answerBinding().then(binding => binding.noteQuestionAnswered(recordFile(payload), record, payload)).catch(() => {});
     return {};
   }
@@ -2635,7 +2690,7 @@ export async function recordSourceReviewProgress(root, progress) {
     const value = await boundedRecord(file).catch(() => null);
     if (value?.contract?.repositoryRoot !== root || skillName(value.skill) !== 'review-source') continue;
     const record = await turn({ sessionId: value.sessionId });
-    if (!record || record.turnId !== value.turnId || turnExpired(value)
+    if (!record || record.turnId !== value.turnId || turnExpired(record)
         || value.contract.turnMode !== 'read-only-review' || value.contract.workId !== progress.workId
         || value.contract.phaseId !== progress.phaseId || value.contract.generation !== progress.generation
         || !value.contract.allow.staging.includes(path.resolve(progress.stagingPath))) continue;
@@ -2661,7 +2716,7 @@ export async function recordPhaseTaskProgress(root, progress) {
         || value.contract.phaseId !== progress.phaseId || !Number.isInteger(progress.generation)
         || progress.generation !== Number(value.contract.generation) + 1) continue;
     const record = await turn({ sessionId: value.sessionId });
-    if (!record || record.turnId !== value.turnId || turnExpired(value) || value.decisionEnded) continue;
+    if (!record || record.turnId !== value.turnId || turnExpired(record) || value.decisionEnded) continue;
     const prior = value.taskOperation;
     // A continuation spent on the person's answers leaves the authoring its own.
     value.taskOperation = { ...progress, continued: prior?.continued === true && !['record-answers', 'refresh-entry'].includes(prior.state),
@@ -2683,7 +2738,7 @@ export async function recordPhaseTaskAnswers(root, { workId, phaseId, generation
         || value.contract.workId !== workId || operation.phaseId !== phaseId || operation.generation !== generation
         || value.contract.turnMode !== 'authoring') continue;
     const record = await turn({ sessionId: value.sessionId });
-    if (!record || record.turnId !== value.turnId || turnExpired(value) || value.decisionEnded) continue;
+    if (!record || record.turnId !== value.turnId || turnExpired(record) || value.decisionEnded) continue;
     value.taskOperation = { ...operation, continued: false, ...(completed
       ? { state: 'refresh-entry', blocked: false, nextAction: safeCommandGuidance({ argv: ['phase', 'enter', phaseId, '--work-id', workId, '--compose', '--for-agent', '--json'] }) }
       : { state: 'blocked', blocked: true }) };
@@ -2703,7 +2758,7 @@ export async function recordPhaseTaskCheck(root, result) {
         || value.contract.workId !== result.workId || operation.phaseId !== result.phase
         || operation.generation !== result.generation || value.contract.turnMode !== 'authoring') continue;
     const record = await turn({ sessionId: value.sessionId });
-    if (!record || record.turnId !== value.turnId || turnExpired(value) || value.decisionEnded) continue;
+    if (!record || record.turnId !== value.turnId || turnExpired(record) || value.decisionEnded) continue;
     const repair = result.status === 'correction-required' && result.correction?.sameTurn === true;
     const publication = result.status === 'ready' && typeof result.commands?.publish === 'string'
       ? safeCommandGuidance({ command: result.commands.publish }) : null;
@@ -2766,7 +2821,7 @@ export async function issueMutationReadPaths(root, targets) {
     const value = await boundedRecord(file).catch(() => null);
     if ((value?.contract?.repositoryRoot ?? value?.repositoryRoot) !== root) continue;
     const record = await turn({ sessionId: value.sessionId });
-    if (!record || record.turnId !== value.turnId || Date.now() - value.recordedAt > MAX_AGE) continue;
+    if (!record || record.turnId !== value.turnId || turnExpired(record)) continue;
     // Immutable per-file entries avoid read/modify/write races between parallel CLI results.
     // They are removed at turn replacement/end; output pruning still owns the actual files.
     for (const target of paths) {
@@ -2933,7 +2988,7 @@ export async function mutationGuardDiagnostics(root) {
     const value = await boundedRecord(path.join(directory(), name)).catch(() => null);
     if (value?.contract?.repositoryRoot === path.resolve(root)) active.push({
       phase: value.contract.phaseId, turnMode: value.contract.turnMode,
-      findings: value.findings ?? [], expired: Date.now() - value.recordedAt > MAX_AGE });
+      findings: value.findings ?? [], expired: turnExpired(await withTurnRenewal(value, path.join(directory(), name))) });
   }
   return { edits: 'host-qualification-required', shell: 'detected-when-postToolUse-runs', sandbox: false, active,
     detail: 'A hook file is not runtime proof. Unsupported hosts retain lifecycle detection; native and paused turns are unchanged.' };

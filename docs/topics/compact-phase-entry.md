@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 18
+version: 19
 ---
 # Compact phase entry for Copilot
 
@@ -143,6 +143,20 @@ The prompt-submission hook announces the bound turn's edit permission and prereq
 tool attempts a source write. `/sf-next` is kernel-only: it returns the explicit configured authoring
 handoff, not permission to inline `/sf-code`. The authoring skill completes the summary, repair and
 authorized publication, then returns submission guidance; raw edits alone are not its endpoint.
+
+A turn's permissions last 30 minutes, so an agent never keeps acting unattended. They run from the
+turn's prompt, and a person's answer inside the turn starts the 30 minutes again: an answer to the
+agent's question (`ask_user` in Copilot CLI, `vscode_askQuestions` in VS Code), or the decisions
+card the turn opened, once its confirm records the person's choices (`decisions record --answers`,
+`story adjudicate --answers` or `decision witness`, which no chat may run). Waiting for the person
+no longer uses up the agent's time. Only that turn is renewed, never another chat's, another
+Story's or a later turn of the same chat. An agent's own tool call, a host's automatic reply and a
+skipped question renew nothing. If two chats hold the card for one Story, the card's command cannot
+say which chat it answers: the one whose card has no answer yet is renewed, and neither while both
+wait. The answer is one small file beside the turn's record, read only once the 30 minutes from the
+prompt have passed. When the window ends, the next refused change says
+`PHASE_MUTATION_TURN_EXPIRED` and names the skill to invoke again; a window that ran from an answer
+says so.
 
 ### Read the entry packet
 

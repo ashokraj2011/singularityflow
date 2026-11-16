@@ -1,8 +1,8 @@
-# SPEC-OSA v1.1 — Stage 0 records
+# SPEC-OSA v1.1 — implementation records
 
-These are the Stage 0 implementation records for [SPEC-OSA v1.1](../SPEC-OSA-ONE-STEP-AUTHOR-v1.1.md) (section 13, Stage 0; plan section 2), on branch `osa-s0`, from `d7a976821`.
-
-They record the baseline. No Stage 1 work is claimed.
+These are the implementation records for [SPEC-OSA v1.1](../SPEC-OSA-ONE-STEP-AUTHOR-v1.1.md):
+- **Stage 0** (section 13; plan section 2), on branch `osa-s0`, from `d7a976821`. It records the baseline.
+- **Stage 1** (plan section 3), on branch `osa-v11-s1`, from `293a2e9a8`: [stage1.md](stage1.md) and [stage1-perf.md](stage1-perf.md). See "Stage 1" at the end.
 
 ## The records
 
@@ -98,3 +98,47 @@ These are planning estimates for one engineer. They exclude waiting for host qua
 | 4 | 4–6 days | **5–7** | 15 alias contradictions, `/sf-next`'s authoring turn, one session-opening path, and a reviewer delegation adapter with capability detection. |
 | 5 | 3–5 days | **3–5** | About 75 direct and 11 aliased intent reads and 44 version-arithmetic sites to remove behind the ratchet, plus the final performance and Node 26 qualification. |
 | **Total** | 20–31 days | **25–35 engineer-days** | |
+
+## Stage 1
+
+| # | Deliverable | Where |
+|---|---|---|
+| 1 | Contracts, the reducer, the predicates, the adapter and the migrated cohort | [stage1.md](stage1.md) §1–§5 |
+| 2 | Shadow comparison and its resolved differences | [stage1.md](stage1.md) §6; `scripts/osa-shadow.mjs` |
+| 3 | Stage 0 findings in the cohort, and those recorded for Stages 2 and 3 | [stage1.md](stage1.md) §7 |
+| 4 | The AC-020 ratchet, its counts and its named exceptions | [stage1.md](stage1.md) §8; `benchmarks/osa/ratchet.json` |
+| 5 | The first comparative hot-path measurements | [stage1-perf.md](stage1-perf.md); `benchmarks/osa/perf-stage1.json` |
+| 6 | Budgets and acceptance rows | [stage1.md](stage1.md) §10–§11 |
+
+**Exit gate (plan section 3).**
+
+| Gate item | Result |
+|---|---|
+| AC-001–AC-009 and AC-020 pass for the migrated cohort | **Met** for the cohort ([stage1.md](stage1.md) §11). AC-008 carries one declared restatement owned by Stage 4. |
+| No contradictory entry and permission | **Met.** One decision and one basis; the shadow comparison finds no cohort difference on 672 records. |
+| No new competing policy owner | **Met.** The ratchet's rises are eight named exceptions: one normalizer and seven renderers of the kernel's decision, each with a deletion target. |
+| Broader surface coverage stays explicitly pending | **Yes:** Stage 3's surfaces and their five declared shadow classes ([stage1.md](stage1.md) §6, §12) |
+| A real authoring route reaches completion through the guard, with independent expected results | Journeys F and G and the incident journeys: see "Targeted runs at Stage 1" |
+
+
+## Targeted runs at Stage 1
+
+Node 22.14.0, through the isolated runner at concurrency 2. No touched set and no full run: the heavy run comes at the end, by the owner's rule.
+
+| Run | Files | Result |
+|---|---|---|
+| Stage 1 qualification | `osa-stage1-kernel`, `osa-stage1-guard`, `osa-stage1-shadow`, `osa-stage1-skills`, `osa-ratchet`, `osa-stage0` | pass |
+| The cohort and its neighbours | `step-routes-stage1`, `step-being-written`, `phase-mutation-contract`, `phase-entry`, `kernel-step-routes`, `review-next-step`, `phase-authoring-continuation`, `phase-authoring-progress`, `dead-end-routes`, `rework-lifecycle`, `phase-appeals`, `phase-prepublish`, `phase-governance-routing`, `iac-chat`, `document-step-routes`, `code-documentation-advisory`, `workflow-task-completion`, `workflow-task-resume`, `refusal-story-next`, `unknown-step-refusals`, `refusal-remediation` | pass (517 tests in the final rerun, 14 slow-lane skips) |
+| Must stay green | `source-inspection`, `git-bypass-audit`, `sda-inventory`, `lazy-command-handlers`, `exit-ratchet`, `plain-language`, `skill-efficiency`, `skills-html`, `journey-routes` (fast tier), `documentation-privacy`, `documentation-consolidation`, `docs-layer` | pass |
+| Wider neighbours | 28 more files reading the changed helpers (`agent-output*`, `documents`, `lifecycle-transitions`, `skp-amendment-*`, `spk-gate`, `test-plan`, `workflow`, `vscode-phase-prepublish`, …), `cli-bundle`, `publication-preflight`, `review-visual-evidence`, `post-code-handoff`, `copilot-turn-renewal`, `agent-hooks`, `phase-generation`, `grounding-paths`, `mig-lint` | pass (413 tests), except one red that is also red at `293a2e9a8` (below) |
+| Slow lane (`SINGULARITY_FLOW_TEST_SLOW=1`) | `journey-stories`: journeys B, E, F and G, through the real guard | **pass**, 22 checks and the same 4 KNOWN_BAD todos as Stage 0: `osa-stage-2` twice in F, `osa-stage-3` in G, `osa-stage-3-c9` in B. Stage 1 fixes none of them and adds none. Run at `ac6fba431`. |
+| Slow lane | `kernel-step-routes`, `review-every-step-cli`, `journey-routes`, `vscode-bundle-budget` | pass, except `vscode-bundle-budget`'s two build checks (below) |
+| Repository check | `node check-iso.mjs <worktree>` (`scripts/check.mjs`) | pass: 3,770 checks |
+
+**Reds that are not Stage 1's.** Each was also run on `293a2e9a8` in a detached worktree:
+- `phase-publication-readiness`, "missing MCP evidence and a missing required host are actionable without starting any server": red at the base too.
+- `vscode-bundle-budget`, "the built VS Code CommonJS closure remains inside the reviewed budget" and "concurrent bundle-budget builds use isolated output directories": `runtime-prewarm.cjs` measures 114,827 bytes against 114,803 at the base and on this branch alike. The kernel does not enter that bundle. `gateway-runtime.cjs` stays within its ceiling: 879 modules of 882, 7,156,555 bytes.
+
+**A red the stage fixed:** `publication-preflight`, "prepare refuses a consumed code generation", red at `293a2e9a8` ([stage1.md](stage1.md) §7).
+
+**Not run:** the full suite and the weekly Node 26 run, which are the owner's heavy run at the end.

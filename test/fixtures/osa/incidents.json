@@ -173,7 +173,7 @@
           "1cfb2c986",
           "7a2bbf482"
         ],
-        "remaining": "Stage 1 asserts the expected next above (operation, target, role) against the decision, not only the route's spelling."
+        "remaining": "Stage 1: test/osa-stage1-kernel.test.mjs asserts the expected next above (operation, target, role) against the decision."
       }
     },
     {
@@ -734,7 +734,7 @@
           "4787ce1ef",
           "ce1b89ecc"
         ],
-        "remaining": "The guard builds its permission without the entry's handoff (copilot-mutation-guard.mjs createRecord): the grant agrees, its next does not (decision inventory finding 1)."
+        "remaining": "Fixed in Stage 1: the guard and the entry derive one permission from one decision, so their next agrees (test/osa-stage1-guard.test.mjs; decision inventory finding 1)."
       }
     },
     {

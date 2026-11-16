@@ -1,0 +1,1210 @@
+{
+  "schemaVersion": 1,
+  "specification": "SPEC-OSA v1.1 Stage 0 performance baseline (AC-022)",
+  "method": {
+    "script": "scripts/osa-perf-baseline.mjs",
+    "samples": 5,
+    "modes": [
+      "source",
+      "bundle"
+    ],
+    "fixture": "test/helpers/route-follower.mjs journeyRepository, quick-fix Story",
+    "cold": "empty NODE_COMPILE_CACHE per sample",
+    "warm": "the cache a priming run wrote",
+    "counted": "one cold and one warm run with the counting preload",
+    "entryBeforeBegin": 0
+  },
+  "source": {
+    "commit": "293a2e9a8a61ca8f09aa130bd7dd16d80046c370",
+    "dirty": false
+  },
+  "machine": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpus": 10,
+    "memoryGiB": 24,
+    "node": "v22.14.0",
+    "loadavgStart": [
+      8.9,
+      9.1,
+      9.7
+    ],
+    "loadavgEnd": [
+      9.9,
+      9.1,
+      9.6
+    ]
+  },
+  "startedAt": "2026-11-16T16:53:29.184Z",
+  "finishedAt": "2026-11-16T16:56:21.382Z",
+  "results": [
+    {
+      "state": "document-v1-being-written",
+      "mode": "source",
+      "request": "guard",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "decision": "allow (no decision)",
+        "stdoutBytes": 3
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 249.6,
+        "minMs": 186.9,
+        "maxMs": 286.5
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 137.9,
+        "minMs": 127.8,
+        "maxMs": 145.7
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 83,
+            "source": 80,
+            "bundleChunks": 0,
+            "dependencies": 1
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 95,
+          "fileReadsBy": {
+            "readFileSync": 72,
+            "promises.readFile": 23
+          },
+          "directoryReads": 0,
+          "stats": 56
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 83,
+            "source": 80,
+            "bundleChunks": 0,
+            "dependencies": 1
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 96,
+          "fileReadsBy": {
+            "readFileSync": 72,
+            "promises.readFile": 24
+          },
+          "directoryReads": 0,
+          "stats": 57
+        }
+      }
+    },
+    {
+      "state": "document-v1-being-written",
+      "mode": "source",
+      "request": "guard-other-file",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "decision": "deny",
+        "reason": "PHASE_MUTATION_PATH_DENIED (<repository>/src/value.mjs). May edit this phase's artifacts only. Do not implement application code in this phase.\n\n- Copilot: /sf-phase\n- Shell: singularity-flow prepare ",
+        "stdoutBytes": 1866
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 164.6,
+        "minMs": 163.7,
+        "maxMs": 182.2
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 114.6,
+        "minMs": 101.1,
+        "maxMs": 143
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 86,
+            "source": 83,
+            "bundleChunks": 0,
+            "dependencies": 1
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 85,
+          "fileReadsBy": {
+            "readFileSync": 72,
+            "promises.readFile": 13
+          },
+          "directoryReads": 0,
+          "stats": 37
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 86,
+            "source": 83,
+            "bundleChunks": 0,
+            "dependencies": 1
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 85,
+          "fileReadsBy": {
+            "readFileSync": 72,
+            "promises.readFile": 13
+          },
+          "directoryReads": 0,
+          "stats": 37
+        }
+      }
+    },
+    {
+      "state": "document-v1-being-written",
+      "mode": "source",
+      "request": "entry",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "act": "author",
+        "entryStatus": "authoring-entry",
+        "error": null,
+        "stdoutBytes": 3342
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 1228.9,
+        "minMs": 1157.3,
+        "maxMs": 1415
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 1035.9,
+        "minMs": 974.6,
+        "maxMs": 1188.4
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 606,
+            "source": 524,
+            "bundleChunks": 0,
+            "dependencies": 80
+          },
+          "gitProcesses": 26,
+          "git": {
+            "cat-file": 5,
+            "config": 2,
+            "rev-parse": 3,
+            "diff-tree": 1,
+            "status": 5,
+            "diff": 5,
+            "ls-files": 2,
+            "ls-tree": 3
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 199,
+          "fileReadsBy": {
+            "readFileSync": 113,
+            "promises.readFile": 86
+          },
+          "directoryReads": 37,
+          "stats": 3093
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 606,
+            "source": 524,
+            "bundleChunks": 0,
+            "dependencies": 80
+          },
+          "gitProcesses": 26,
+          "git": {
+            "cat-file": 5,
+            "config": 2,
+            "rev-parse": 3,
+            "diff-tree": 1,
+            "status": 5,
+            "diff": 5,
+            "ls-files": 2,
+            "ls-tree": 3
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 199,
+          "fileReadsBy": {
+            "readFileSync": 113,
+            "promises.readFile": 86
+          },
+          "directoryReads": 37,
+          "stats": 3097
+        }
+      }
+    },
+    {
+      "state": "document-v1-being-written",
+      "mode": "source",
+      "request": "next",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "now": {
+          "command": "singularity-flow prepare intake",
+          "skill": "/sf-phase"
+        },
+        "error": null,
+        "stdoutBytes": 12418
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 470.5,
+        "minMs": 435.9,
+        "maxMs": 562.5
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 332.7,
+        "minMs": 299.6,
+        "maxMs": 334.8
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 397,
+            "source": 315,
+            "bundleChunks": 0,
+            "dependencies": 80
+          },
+          "gitProcesses": 3,
+          "git": {
+            "remote": 2,
+            "for-each-ref": 1
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 110,
+          "fileReadsBy": {
+            "readFileSync": 92,
+            "promises.readFile": 18
+          },
+          "directoryReads": 10,
+          "stats": 375
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 397,
+            "source": 315,
+            "bundleChunks": 0,
+            "dependencies": 80
+          },
+          "gitProcesses": 3,
+          "git": {
+            "remote": 2,
+            "for-each-ref": 1
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 110,
+          "fileReadsBy": {
+            "readFileSync": 92,
+            "promises.readFile": 18
+          },
+          "directoryReads": 10,
+          "stats": 375
+        }
+      }
+    },
+    {
+      "state": "document-v1-being-written",
+      "mode": "bundle",
+      "request": "guard",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "decision": "allow (no decision)",
+        "stdoutBytes": 3
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 191,
+        "minMs": 116.2,
+        "maxMs": 198.9
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 109,
+        "minMs": 92.2,
+        "maxMs": 111.1
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 10,
+            "source": 4,
+            "bundleChunks": 4,
+            "dependencies": 0
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 25,
+          "fileReadsBy": {
+            "readFileSync": 2,
+            "promises.readFile": 23
+          },
+          "directoryReads": 1,
+          "stats": 56
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 10,
+            "source": 4,
+            "bundleChunks": 4,
+            "dependencies": 0
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 26,
+          "fileReadsBy": {
+            "readFileSync": 2,
+            "promises.readFile": 24
+          },
+          "directoryReads": 1,
+          "stats": 57
+        }
+      }
+    },
+    {
+      "state": "document-v1-being-written",
+      "mode": "bundle",
+      "request": "guard-other-file",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "decision": "deny",
+        "reason": "PHASE_MUTATION_PATH_DENIED (<repository>/src/value.mjs). May edit this phase's artifacts only. Do not implement application code in this phase.\n\n- Copilot: /sf-phase\n- Shell: singularity-flow prepare ",
+        "stdoutBytes": 1866
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 122.7,
+        "minMs": 119.2,
+        "maxMs": 135.8
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 74.2,
+        "minMs": 71.7,
+        "maxMs": 77.5
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 9,
+            "source": 3,
+            "bundleChunks": 4,
+            "dependencies": 0
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 15,
+          "fileReadsBy": {
+            "readFileSync": 2,
+            "promises.readFile": 13
+          },
+          "directoryReads": 1,
+          "stats": 37
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 9,
+            "source": 3,
+            "bundleChunks": 4,
+            "dependencies": 0
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 15,
+          "fileReadsBy": {
+            "readFileSync": 2,
+            "promises.readFile": 13
+          },
+          "directoryReads": 1,
+          "stats": 37
+        }
+      }
+    },
+    {
+      "state": "document-v1-being-written",
+      "mode": "bundle",
+      "request": "entry",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "act": "author",
+        "entryStatus": "authoring-entry",
+        "error": null,
+        "stdoutBytes": 3342
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 1017.5,
+        "minMs": 926.8,
+        "maxMs": 1109.9
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 892,
+        "minMs": 805.6,
+        "maxMs": 1094.1
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 19,
+            "source": 3,
+            "bundleChunks": 14,
+            "dependencies": 0
+          },
+          "gitProcesses": 26,
+          "git": {
+            "cat-file": 5,
+            "config": 2,
+            "rev-parse": 3,
+            "diff-tree": 1,
+            "status": 5,
+            "diff": 5,
+            "ls-files": 2,
+            "ls-tree": 3
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 145,
+          "fileReadsBy": {
+            "readFileSync": 43,
+            "promises.readFile": 102
+          },
+          "directoryReads": 38,
+          "stats": 3198
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 19,
+            "source": 3,
+            "bundleChunks": 14,
+            "dependencies": 0
+          },
+          "gitProcesses": 26,
+          "git": {
+            "cat-file": 5,
+            "config": 2,
+            "rev-parse": 3,
+            "diff-tree": 1,
+            "status": 5,
+            "diff": 5,
+            "ls-files": 2,
+            "ls-tree": 3
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 145,
+          "fileReadsBy": {
+            "readFileSync": 43,
+            "promises.readFile": 102
+          },
+          "directoryReads": 38,
+          "stats": 3202
+        }
+      }
+    },
+    {
+      "state": "document-v1-being-written",
+      "mode": "bundle",
+      "request": "next",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "now": {
+          "command": "singularity-flow prepare intake",
+          "skill": "/sf-phase"
+        },
+        "error": null,
+        "stdoutBytes": 12418
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 707.8,
+        "minMs": 536.2,
+        "maxMs": 714.3
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 472,
+        "minMs": 462.1,
+        "maxMs": 660.3
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 244,
+            "source": 148,
+            "bundleChunks": 14,
+            "dependencies": 80
+          },
+          "gitProcesses": 3,
+          "git": {
+            "remote": 2,
+            "for-each-ref": 1
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 122,
+          "fileReadsBy": {
+            "readFileSync": 98,
+            "promises.readFile": 24
+          },
+          "directoryReads": 11,
+          "stats": 378
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 244,
+            "source": 148,
+            "bundleChunks": 14,
+            "dependencies": 80
+          },
+          "gitProcesses": 3,
+          "git": {
+            "remote": 2,
+            "for-each-ref": 1
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 122,
+          "fileReadsBy": {
+            "readFileSync": 98,
+            "promises.readFile": 24
+          },
+          "directoryReads": 11,
+          "stats": 378
+        }
+      }
+    },
+    {
+      "state": "code-v1-open",
+      "mode": "source",
+      "request": "guard",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "decision": "allow (no decision)",
+        "stdoutBytes": 3
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 232.5,
+        "minMs": 218.4,
+        "maxMs": 249
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 118.5,
+        "minMs": 111.9,
+        "maxMs": 121.8
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 83,
+            "source": 80,
+            "bundleChunks": 0,
+            "dependencies": 1
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 95,
+          "fileReadsBy": {
+            "readFileSync": 72,
+            "promises.readFile": 23
+          },
+          "directoryReads": 0,
+          "stats": 52
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 83,
+            "source": 80,
+            "bundleChunks": 0,
+            "dependencies": 1
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 96,
+          "fileReadsBy": {
+            "readFileSync": 72,
+            "promises.readFile": 24
+          },
+          "directoryReads": 0,
+          "stats": 53
+        }
+      }
+    },
+    {
+      "state": "code-v1-open",
+      "mode": "source",
+      "request": "guard-other-file",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "decision": "deny",
+        "reason": "PHASE_MUTATION_PATH_DENIED (<repository>/singularity/work-items/OSA-PERF-1/artifacts/intake/intake.md). May edit application paths within pinned policy; the summary is built by `singularity-flow prepa",
+        "stdoutBytes": 2098
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 183.3,
+        "minMs": 156.3,
+        "maxMs": 192.4
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 118.1,
+        "minMs": 111.6,
+        "maxMs": 126.7
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 86,
+            "source": 83,
+            "bundleChunks": 0,
+            "dependencies": 1
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 85,
+          "fileReadsBy": {
+            "readFileSync": 72,
+            "promises.readFile": 13
+          },
+          "directoryReads": 0,
+          "stats": 41
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 86,
+            "source": 83,
+            "bundleChunks": 0,
+            "dependencies": 1
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 85,
+          "fileReadsBy": {
+            "readFileSync": 72,
+            "promises.readFile": 13
+          },
+          "directoryReads": 0,
+          "stats": 41
+        }
+      }
+    },
+    {
+      "state": "code-v1-open",
+      "mode": "source",
+      "request": "entry",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "act": "author",
+        "entryStatus": "authoring-entry",
+        "error": null,
+        "stdoutBytes": 3477
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 1575.1,
+        "minMs": 1546.6,
+        "maxMs": 1751.9
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 1576.9,
+        "minMs": 1320.4,
+        "maxMs": 2275.4
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 632,
+            "source": 550,
+            "bundleChunks": 0,
+            "dependencies": 80
+          },
+          "gitProcesses": 34,
+          "git": {
+            "cat-file": 6,
+            "config": 3,
+            "status": 5,
+            "diff": 7,
+            "ls-files": 4,
+            "rev-parse": 4,
+            "diff-tree": 1,
+            "show": 1,
+            "ls-tree": 3
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 276,
+          "fileReadsBy": {
+            "readFileSync": 115,
+            "promises.readFile": 161
+          },
+          "directoryReads": 87,
+          "stats": 6449
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 632,
+            "source": 550,
+            "bundleChunks": 0,
+            "dependencies": 80
+          },
+          "gitProcesses": 34,
+          "git": {
+            "cat-file": 6,
+            "config": 3,
+            "status": 5,
+            "diff": 7,
+            "ls-files": 4,
+            "rev-parse": 4,
+            "diff-tree": 1,
+            "show": 1,
+            "ls-tree": 3
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 276,
+          "fileReadsBy": {
+            "readFileSync": 115,
+            "promises.readFile": 161
+          },
+          "directoryReads": 87,
+          "stats": 6451
+        }
+      }
+    },
+    {
+      "state": "code-v1-open",
+      "mode": "source",
+      "request": "next",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "now": {
+          "command": "singularity-flow prepare implement",
+          "skill": "/sf-code"
+        },
+        "error": null,
+        "stdoutBytes": 10829
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 890,
+        "minMs": 721.2,
+        "maxMs": 1079.5
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 524.4,
+        "minMs": 451,
+        "maxMs": 692.6
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 564,
+            "source": 482,
+            "bundleChunks": 0,
+            "dependencies": 80
+          },
+          "gitProcesses": 3,
+          "git": {
+            "remote": 2,
+            "for-each-ref": 1
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 128,
+          "fileReadsBy": {
+            "readFileSync": 92,
+            "promises.readFile": 36
+          },
+          "directoryReads": 14,
+          "stats": 427
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 564,
+            "source": 482,
+            "bundleChunks": 0,
+            "dependencies": 80
+          },
+          "gitProcesses": 3,
+          "git": {
+            "remote": 2,
+            "for-each-ref": 1
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 128,
+          "fileReadsBy": {
+            "readFileSync": 92,
+            "promises.readFile": 36
+          },
+          "directoryReads": 14,
+          "stats": 427
+        }
+      }
+    },
+    {
+      "state": "code-v1-open",
+      "mode": "bundle",
+      "request": "guard",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "decision": "allow (no decision)",
+        "stdoutBytes": 3
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 114.2,
+        "minMs": 104.9,
+        "maxMs": 124.9
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 69.3,
+        "minMs": 67.1,
+        "maxMs": 84.3
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 10,
+            "source": 4,
+            "bundleChunks": 4,
+            "dependencies": 0
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 25,
+          "fileReadsBy": {
+            "readFileSync": 2,
+            "promises.readFile": 23
+          },
+          "directoryReads": 1,
+          "stats": 52
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 10,
+            "source": 4,
+            "bundleChunks": 4,
+            "dependencies": 0
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 26,
+          "fileReadsBy": {
+            "readFileSync": 2,
+            "promises.readFile": 24
+          },
+          "directoryReads": 1,
+          "stats": 53
+        }
+      }
+    },
+    {
+      "state": "code-v1-open",
+      "mode": "bundle",
+      "request": "guard-other-file",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "decision": "deny",
+        "reason": "PHASE_MUTATION_PATH_DENIED (<repository>/singularity/work-items/OSA-PERF-1/artifacts/intake/intake.md). May edit application paths within pinned policy; the summary is built by `singularity-flow prepa",
+        "stdoutBytes": 2098
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 116.8,
+        "minMs": 109.9,
+        "maxMs": 134.1
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 69.6,
+        "minMs": 66.8,
+        "maxMs": 76
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 9,
+            "source": 3,
+            "bundleChunks": 4,
+            "dependencies": 0
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 15,
+          "fileReadsBy": {
+            "readFileSync": 2,
+            "promises.readFile": 13
+          },
+          "directoryReads": 1,
+          "stats": 41
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 9,
+            "source": 3,
+            "bundleChunks": 4,
+            "dependencies": 0
+          },
+          "gitProcesses": 0,
+          "git": {},
+          "otherProcesses": 0,
+          "nodeProcesses": 0,
+          "fileReads": 15,
+          "fileReadsBy": {
+            "readFileSync": 2,
+            "promises.readFile": 13
+          },
+          "directoryReads": 1,
+          "stats": 41
+        }
+      }
+    },
+    {
+      "state": "code-v1-open",
+      "mode": "bundle",
+      "request": "entry",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "act": "author",
+        "entryStatus": "authoring-entry",
+        "error": null,
+        "stdoutBytes": 3477
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 1602.7,
+        "minMs": 1547.2,
+        "maxMs": 1956.7
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 1216.6,
+        "minMs": 1040.4,
+        "maxMs": 1233.9
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 93,
+            "source": 74,
+            "bundleChunks": 16,
+            "dependencies": 1
+          },
+          "gitProcesses": 37,
+          "git": {
+            "cat-file": 6,
+            "config": 3,
+            "status": 5,
+            "diff": 7,
+            "ls-files": 4,
+            "rev-parse": 6,
+            "diff-tree": 1,
+            "show": 1,
+            "ls-tree": 4
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 295,
+          "fileReadsBy": {
+            "readFileSync": 118,
+            "promises.readFile": 177
+          },
+          "directoryReads": 90,
+          "stats": 6548
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 93,
+            "source": 74,
+            "bundleChunks": 16,
+            "dependencies": 1
+          },
+          "gitProcesses": 37,
+          "git": {
+            "cat-file": 6,
+            "config": 3,
+            "status": 5,
+            "diff": 7,
+            "ls-files": 4,
+            "rev-parse": 6,
+            "diff-tree": 1,
+            "show": 1,
+            "ls-tree": 4
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 295,
+          "fileReadsBy": {
+            "readFileSync": 118,
+            "promises.readFile": 177
+          },
+          "directoryReads": 90,
+          "stats": 6550
+        }
+      }
+    },
+    {
+      "state": "code-v1-open",
+      "mode": "bundle",
+      "request": "next",
+      "outcome": {
+        "status": 0,
+        "signal": null,
+        "now": {
+          "command": "singularity-flow prepare implement",
+          "skill": "/sf-code"
+        },
+        "error": null,
+        "stdoutBytes": 10829
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 995.7,
+        "minMs": 965.2,
+        "maxMs": 1024.1
+      },
+      "warm": {
+        "samples": 5,
+        "medianMs": 501.3,
+        "minMs": 459.5,
+        "maxMs": 540.4
+      },
+      "counts": {
+        "cold": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 244,
+            "source": 148,
+            "bundleChunks": 14,
+            "dependencies": 80
+          },
+          "gitProcesses": 3,
+          "git": {
+            "remote": 2,
+            "for-each-ref": 1
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 140,
+          "fileReadsBy": {
+            "readFileSync": 98,
+            "promises.readFile": 42
+          },
+          "directoryReads": 15,
+          "stats": 430
+        },
+        "warm": {
+          "instrumentedProcesses": 1,
+          "modules": {
+            "total": 244,
+            "source": 148,
+            "bundleChunks": 14,
+            "dependencies": 80
+          },
+          "gitProcesses": 3,
+          "git": {
+            "remote": 2,
+            "for-each-ref": 1
+          },
+          "otherProcesses": 1,
+          "nodeProcesses": 0,
+          "fileReads": 140,
+          "fileReadsBy": {
+            "readFileSync": 98,
+            "promises.readFile": 42
+          },
+          "directoryReads": 15,
+          "stats": 430
+        }
+      }
+    }
+  ]
+}

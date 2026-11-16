@@ -66,16 +66,16 @@ test('a step not being written is never sent to recover by its edit permission; 
   for (const [name, workflow] of Object.entries(states)) {
     const phase = workflow.phases.implement;
     assert.equal(stepBeingWritten(workflow, phase), false, name);
-    // With no handoff given (the edit guard), the planner's list; with the Story's next action (the entry), that action.
-    const bare = deriveMutationContract({ definition: {}, workflow });
-    assert.doesNotMatch(JSON.stringify(bare.next), /\brecover\b|\/sf-recover/u, name);
-    assert.equal(bare.next[0].command, 'singularity-flow nextsteps --json', name);
-    const handed = deriveMutationContract({ definition: {}, workflow,
-      handoff: [{ skill: '/sflow-submit', command: 'singularity-flow submit implement --work-id OSA-2', reason: 'Submit published implement.' }] });
-    assert.equal(handed.next[0].command, 'singularity-flow submit implement --work-id OSA-2', name);
-    assert.match(handed.summary, /not being written/u, name);
+    // The edit guard and the entry derive one permission from one decision: the same next, with no handoff only the entry
+    // passed (Stage 0 finding 1: the guard said `nextsteps`, the entry the Story's next) [OSA:REQ-010, AC-001].
+    const contract = deriveMutationContract({ definition: {}, workflow });
+    assert.doesNotMatch(JSON.stringify(contract.next), /\brecover\b|\/sf-recover/u, name);
+    const expected = workflow.phases.implement.status === 'awaiting_approval'
+      ? 'singularity-flow approve implement --work-id OSA-2 --fetch' : 'singularity-flow status OSA-2 --submission-readiness --json';
+    assert.equal(contract.next[0].command, expected, name);
+    assert.match(contract.summary, /not being written/u, name);
     // Nothing to wait for before editing a step that is not being written.
-    assert.equal(mutationContractPresentation(handed).sourceEditPrerequisite, null, name);
+    assert.equal(mutationContractPresentation(contract).sourceEditPrerequisite, null, name);
   }
 });
 
@@ -84,7 +84,10 @@ test('recover stays only where something is damaged: a consumed intent that is n
   const workflow = codeStory({ generation: 2, generationIntent: { status: 'consumed', generation: 1 }, reworkRevalidation: { generation: 2 } });
   const contract = deriveMutationContract({ definition: {}, workflow });
   assert.equal(contract.policy.editable, true);
+  assert.equal(contract.policy.step.state, 'damaged');
   assert.match(contract.next[0].command, /^singularity-flow recover OSA-2 --phase implement\b/u);
+  // Damage preserves the affected work: nothing of the step is writable until recovery reconciles it [OSA:REQ-014].
+  assert.deepEqual([contract.allow.artifacts, contract.allow.application], [[], false]);
 });
 
 test('phase show\'s continuation never names recover when the readiness read fails: it gives the planner\'s own next action [OSA:REQ-011, C1]', async () => {

@@ -3,7 +3,7 @@ import { recordSha256 } from './records.mjs';
 import { readSourceReviewDraft } from './source-review-progress.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { CLARIFICATION_RESPONSE_FORMAT } from './phase-staging-paths.mjs';
-import { reviewCompletionTurn, workflowCompletionTurn, nativeFileReadCalls, nativeReadFailureRecovery, saveReviewCompletionTurn } from './copilot-mutation-guard.mjs';
+import { reviewCompletionTurn, workflowCompletionTurn, nativeFileReadCalls, nativeReadFailureRecovery, saveReviewCompletionTurn, taskVersion } from './copilot-mutation-guard.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 
@@ -139,7 +139,7 @@ export async function workflowTaskAgentStop(payload = {}) {
   const operation = value?.taskOperation;
   if (!operation || operation.continued || operation.blocked || operation.complete
       || operation.kind !== 'phase-authoring' || operation.workId !== value.contract.workId
-      || operation.phaseId !== value.contract.phaseId || operation.generation !== Number(value.contract.generation) + 1) return {};
+      || operation.phaseId !== value.contract.phaseId || operation.generation !== taskVersion(value)) return {};
   const answers = ANSWER_STATES.includes(operation.state);
   const next = answers || ['publish-ready', 'prepare-successor', 'load-context', 'validate-draft', 'open-code-generation'].includes(operation.state) ? safeCommandGuidance(operation.nextAction)
     : safeCommandGuidance(operation.recheck);

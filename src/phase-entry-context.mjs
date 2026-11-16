@@ -13,7 +13,7 @@ import { contextBoundaryPresentation, pendingContextBoundary } from './context-p
 import { storyRequestSummary } from './story-request-summary.mjs';
 import { approvedInputPhases } from './phase-input-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { sequenceGuidance, storyNextDetails } from './sequence.mjs';
+import { storyNextDetails } from './sequence.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { PHASE_JOURNEY_CONTRACT } from './phase-journey.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
@@ -21,11 +21,6 @@ import { assertStoryNotArchived } from './governance-archive.mjs';
 import { deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { repositoryCheckStatus } from './repository-check-cache.mjs';
-
-/** The Story's next actions (sequence.mjs), the same a refusal about its state leads with; none when they cannot be read. */
-function storyHandoff(workflow) {
-  try { return sequenceGuidance(workflow).actions; } catch { return null; }
-}
 
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
   allowTerminal = false, turnMode = 'authoring' } = {}) {
@@ -72,9 +67,8 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     repositoryChecks: repositoryCheckStatus(root),
     personalization: resolvePersonalization({ root }), ...binding,
-    // A step not being written gets the Story's own next action as its permission's next, never recover [OSA:REQ-011, C1].
-    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence,
-      handoff: phase && workflow.currentPhase === phase.id ? storyHandoff(workflow) : null })),
+    // The same decision and basis the edit guard derives its permission from: one grant and one next [OSA:REQ-010, C7].
+    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence })),
     authoringContract: phaseAuthoringContract(definition, workflow, phase),
     build: { description: versionLine(), ...BUILD_INFO },
     continuationReview: phase ? { contractRevision: PHASE_JOURNEY_CONTRACT, readOnly: true,

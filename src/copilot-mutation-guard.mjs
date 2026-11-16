@@ -214,6 +214,13 @@ async function turn(payload) {
   }
 }
 
+/** The version this turn's task works on: its open one, else its decision's (watermark included), else generation + 1 [C22]. */
+export function taskVersion(value) {
+  if (Number.isSafeInteger(value?.openGeneration)) return value.openGeneration;
+  const decided = value?.contract?.policy?.step?.version;
+  return Number.isSafeInteger(decided) ? decided : Number(value?.contract?.generation ?? 0) + 1;
+}
+
 async function loadStory(root) {
   return (await import('./accepted-story-execution.mjs')).loadAcceptedStoryExecution(root);
 }
@@ -2154,18 +2161,19 @@ async function publishedReviewerStart(payload, record, delegations) {
   const contract = value?.contract;
   if (!contract || value.turnId !== record.turnId || value.sessionId !== record.sessionId || contract.turnMode !== 'authoring'
       || !contract.workId || !contract.phaseId || !contract.repositoryRoot) return false;
+  // The bound Story record only, never a Story load with Git on the pre-tool path [OSA:REQ-041, decision inventory a12].
   let workflow;
-  try { ({ workflow } = await loadStory(contract.repositoryRoot)); } catch { return false; }
+  try { workflow = JSON.parse(await readFile(value.binding?.workflowFile, 'utf8')); } catch { return false; }
   const phase = workflow?.phases?.[contract.phaseId];
   const generation = Number(phase?.generation);
   if (workflow?.workItem?.id !== contract.workId || workflow.currentPhase !== contract.phaseId || phase?.status !== 'in_progress'
       || !Number.isSafeInteger(generation) || generation < 1) return false;
-  const [{ sourceReviewRequired }, { phaseNeedsGeneration, successorGenerationOpen }, { subagentName }] = await Promise.all([
-    import('./source-review-policy.mjs'), import('./phase-generation-need.mjs'), import('./review-subagent.mjs')]);
-  if (successorGenerationOpen(phase) || phaseNeedsGeneration(workflow, phase) || !sourceReviewRequired(workflow, phase.id)) return false;
-  // Exactly the version this turn was writing: its open generation, else the one after the version it was bound to.
-  const writing = Number.isSafeInteger(value.openGeneration) ? value.openGeneration : Number(contract.generation ?? 0) + 1;
-  if (generation !== writing) return false;
+  const [{ sourceReviewRequired }, { versionFactsOf }, { currentVersionPublished, needsVersion }, { subagentName }] = await Promise.all([
+    import('./source-review-policy.mjs'), import('./phase-generation-need.mjs'), import('./kernel/step-versions.mjs'), import('./review-subagent.mjs')]);
+  const facts = versionFactsOf(workflow, phase);
+  if (!currentVersionPublished(facts) || needsVersion(facts) || !sourceReviewRequired(workflow, phase.id)) return false;
+  // Exactly the version this turn was writing: its open version, else the one its decision named.
+  if (generation !== taskVersion(value)) return false;
   // Published in this turn: after its prompt.
   if (!(workflow.history ?? []).some(event => event?.event === 'phase_generated' && event.phase === phase.id
       && event.detail === `generation ${generation}` && Date.parse(event.at) >= record.recordedAt)) return false;
@@ -2792,7 +2800,7 @@ export async function recordPhaseTaskProgress(root, progress) {
     if (!value?.taskCompletionRequested || !value.taskEntryRequested || value.contract?.repositoryRoot !== root
         || value.contract.turnMode !== 'authoring' || value.contract.workId !== progress.workId
         || value.contract.phaseId !== progress.phaseId || !Number.isInteger(progress.generation)
-        || progress.generation !== Number(value.contract.generation) + 1) continue;
+        || progress.generation !== taskVersion(value)) continue;
     const record = await turn({ sessionId: value.sessionId });
     if (!record || record.turnId !== value.turnId || turnExpired(record) || value.decisionEnded) continue;
     const prior = value.taskOperation;

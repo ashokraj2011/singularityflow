@@ -1,7 +1,8 @@
 /** Read-only drafting milestones. Neither source changes nor tests imply publication. */
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
-import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
-import { stepBeingWritten } from './phase-generation-need.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
+import { stepBeingWritten, versionFactsOf } from './phase-generation-need.mjs';
+import { consumedOpeningMismatch, explicitlyReopened, hasOpenVersion } from './kernel/step-versions.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
@@ -61,13 +62,18 @@ export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null }
       || !stepBeingWritten(workflow, phase) || phaseUsesDeterministicGeneration(phase)) return null;
   const code = phaseRequiresCodeDelivery(phase);
   const generation = nextPhaseGeneration(phase);
-  const open = code && phase.generationIntent?.status === 'open'
-    && Number(phase.generationIntent.generation) === generation;
+  // The kernel's predicates decide the stage, as they do the permission's next [OSA:REQ-010].
+  const facts = versionFactsOf(workflow, phase);
+  const open = code && hasOpenVersion(facts);
   let stage, argv, instruction;
   let skill = generationSkillForPhase(phase, workflow);
-  if (code && phase.generationIntent?.status === 'consumed' && !consumedByPublishedGeneration(phase)) {
+  if (code && consumedOpeningMismatch(facts)) {
     stage = 'review-successor'; argv = ['recover', workflow.workItem.id, '--phase', phase.id, '--json']; skill = '/sf-recover';
     instruction = 'Preserve the published generation and current edits. Review the guarded successor boundary before changing source.';
+  } else if (code && !open && phase.generationIntent?.status === 'consumed' && !explicitlyReopened(facts)) {
+    // Not returned by a person: the person confirms its next version (the entry's ask).
+    stage = 'open-code-generation'; argv = ['phase', 'rollover', phase.id, '--json']; skill = '/sf-code';
+    instruction = `Preview version ${generation} of ${phase.id} and ask the person to confirm it; version ${phase.generation} stays as published.`;
   } else if (code && !open) {
     // A step returned for rework still holds the intent its published generation consumed. Its
     // successor opens with `phase begin` from that publication (recovery has nothing to repair

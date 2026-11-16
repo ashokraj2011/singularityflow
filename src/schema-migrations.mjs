@@ -2733,7 +2733,9 @@ const families = [
     steps: [migration(1, 2, identity(2))],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-decision\.json$/]
   }),
-  family({ id: 'skill-configuration-ancestry', currentVersion: 1, immutable: true }),
+  // v2 (SCF:REQ-020): a chain longer than 128 commits, bounded by size instead, or an approver's adoption without
+  // ancestry (D9). Written only where the repository's minimum build reads it; a stored v1 proof keeps its identity.
+  family({ id: 'skill-configuration-ancestry', currentVersion: 2, immutable: true, steps: [migration(1, 2, identity(2))] }),
   family({ id: 'skill-version-adoption-summary', currentVersion: 2, unversionedAs: 1,
     steps: [migration(1, 2, identity(2))] }),
   family({ id: 'skill-version-rejection-binding', currentVersion: 1, immutable: true }),

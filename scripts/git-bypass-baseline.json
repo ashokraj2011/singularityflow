@@ -1559,12 +1559,6 @@
       },
       "digest": "0d2e9c485ec1af420095cbf194ca840725d3e2ddf19482f2755f75fb7dbf1e94"
     },
-    "src/skp-amendment-audit.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "f2c8007a40a7874a58a2618c55cebc40ab74eab5bf47d38b4ceab8ff176ca19a"
-    },
     "src/skp-docker-hash-probe.mjs": {
       "counts": {
         "process-import": 1,
@@ -1906,6 +1900,12 @@
         "command-run": 3
       },
       "digest": "ddae2db76cc383fed8f741240a35bd356800cf0b8ca89a783b7b48d195315626"
+    },
+    "src/skp-ancestry-capture.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "b8cea35fc03c22ad8655b152285125ce006407387791d9b0230c428a01d843ce"
     }
   }
 }

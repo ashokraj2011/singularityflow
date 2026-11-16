@@ -55,7 +55,8 @@ test('configuration ancestry cannot treat commit-message prose as a parent edge'
 test('portable ancestry refuses future dialects, incomplete chains and ambiguous retained bytes', () => {
   const { retained, subject } = proof();
   for (const change of [
-    (copy) => { copy.schemaVersion = 2; },
+    // v2 (SCF:REQ-020) is a known dialect now; the next one is not.
+    (copy) => { copy.schemaVersion = 3; },
     (copy) => { copy.commits.pop(); },
     (copy) => { copy.commits.reverse(); },
     (copy) => { copy.commits[0].bytesBase64 += '\n'; },

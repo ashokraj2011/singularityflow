@@ -7,7 +7,7 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 const fail = (message, code) => { throw new SingularityFlowError(message, { code }); };
-const allowedOptions = new Set(['work-id', 'reason', 'confirm', 'json']);
+const allowedOptions = new Set(['work-id', 'reason', 'confirm', 'adopt-without-ancestry', 'json']);
 const runtime = {
   loadAcceptedStoryExecution, resolveNewStoryConfigurationAuthority, loadStoryConfigurationSnapshot,
   async preview(...args) { return (await import('../story-approver-refresh.mjs')).previewStoryApproverRefresh(...args); },
@@ -18,7 +18,7 @@ const runtime = {
 export async function refreshStoryApprovers({ root, positionals = [], options = {} }, overrides = {}) {
   const dependencies = { ...runtime, ...overrides };
   if (Object.keys(options).some((key) => !allowedOptions.has(key))) {
-    fail('Unsupported approvers refresh option. Use --reason, --work-id, --confirm or --json.', 'APR_ARGUMENT_INVALID');
+    fail('Unsupported approvers refresh option. Use --reason, --work-id, --confirm, --adopt-without-ancestry or --json.', 'APR_ARGUMENT_INVALID');
   }
   if (positionals.length > 1) fail('Supply at most one Story ID.', 'APR_ARGUMENT_INVALID');
   const positional = positionals[0] ?? null;
@@ -34,8 +34,12 @@ export async function refreshStoryApprovers({ root, positionals = [], options = 
   const authority = await dependencies.resolveNewStoryConfigurationAuthority(root, { pinnedRemote });
   if (!authority) fail('The Story\'s configuration authority could not be resolved. Inspect Git access and retry the preview.', 'APR_AUTHORITY_REQUIRED');
   const approvedConfigurationSnapshot = await dependencies.loadStoryConfigurationSnapshot(authority);
+  // --adopt-without-ancestry: sflow/config was rewritten outside SFlow, and the approver adopts it for this
+  // Story's approvers in the same step, recorded as adopted without ancestry (SPEC-SCF D9).
+  const adoptWithoutAncestry = optionBoolean(options, 'adopt-without-ancestry');
   return dependencies[confirm ? 'apply' : 'preview'](root, config, workflow, {
-    approvedConfigurationSnapshot, reason: optionString(options, 'reason'), ...(confirm ? { confirm } : {})
+    approvedConfigurationSnapshot, reason: optionString(options, 'reason'), ...(confirm ? { confirm } : {}),
+    ...(adoptWithoutAncestry ? { adoptWithoutAncestry: true } : {})
   });
 }
 

@@ -225,7 +225,7 @@
   "harness-event": [{ "schemaVersion": 1 }],
   "workflow-snapshot-reference": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "skill-version-adoption-decision": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
-  "skill-configuration-ancestry": [{ "schemaVersion": 1 }],
+  "skill-configuration-ancestry": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "skill-version-adoption-summary": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "amendment-revalidation": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "skill-version-rejection-binding": [{ "schemaVersion": 1 }],

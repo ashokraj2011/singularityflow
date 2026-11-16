@@ -26,7 +26,7 @@ import { head, identity } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
-import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
+import { adoptConfigurationWithoutAncestry, captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { actorKey, transactStory } from './state-stores.mjs';
 import { prospectiveTestCommandAmendments as PROSPECTIVE } from './test-command-amendment-contracts.mjs';
 import { approverRefreshDecisionPath, captureWorkflowApproverRefresh, verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
@@ -60,7 +60,38 @@ async function staleningRecords(root, config, workflow, at) {
   return records;
 }
 
-async function refreshCandidate(root, config, workflow, { approvedConfigurationSnapshot, reason } = {}) {
+// Ancestry refusals an approver answers by adopting the configuration without ancestry (D9).
+const ADOPTABLE = new Map([['SKP_AMENDMENT_ANCESTRY_REWRITTEN', 'sflow-config-rewritten'],
+  ['SKP_AMENDMENT_ANCESTRY_LIMIT', 'ancestry-beyond-proof-limit']]);
+const quotedReason = (reason) => `"${reason.replaceAll('"', '\\"')}"`;
+
+/**
+ * The refresh's configuration ancestry: proven, or, when sflow/config was rewritten outside SFlow and
+ * the approver confirmed adopting it (`--adopt-without-ancestry`, part of the plan they confirm),
+ * recorded as adopted without ancestry, confirmed by that approver (D9).
+ */
+async function refreshAncestry(candidate, snapshot, source) {
+  try {
+    return await captureSkillConfigurationAncestry(snapshot, source);
+  } catch (error) {
+    const cause = ADOPTABLE.get(error?.code);
+    if (!cause || !candidate.adoptWithoutAncestry) {
+      if (cause) {
+        error.details = { ...(error.details ?? {}), nextAction: { command: adoptionCommand(candidate, { confirm: false }),
+          label: 'An approver adopts it without ancestry, in their own terminal' } };
+      }
+      throw error;
+    }
+    return adoptConfigurationWithoutAncestry(snapshot, source, { cause, confirmedBy: candidate.actor });
+  }
+}
+
+function adoptionCommand(candidate, { confirm = true } = {}) {
+  return `singularity-flow story approvers refresh ${candidate.workId} --reason ${quotedReason(candidate.reason)} --adopt-without-ancestry`
+    + (confirm ? ` --confirm ${candidate.adoptionPlanSha256}` : '');
+}
+
+async function refreshCandidate(root, config, workflow, { approvedConfigurationSnapshot, reason, adoptWithoutAncestry = false } = {}) {
   const { storyPublicationPending } = await import('./state.mjs');
   if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) {
     fail('Publish or set aside the waiting Story commit before refreshing its approvers.', 'APR_PUBLICATION_PENDING');
@@ -105,23 +136,60 @@ async function refreshCandidate(root, config, workflow, { approvedConfigurationS
   const id = `APR-${String((workflow.approverRefreshes ?? []).length + 1).padStart(3, '0')}`;
   const core = { id, workId: workflow.workItem.id, from, to, additions, actor: actorKey(live), authorityGroup: match.authorityGroup,
     sourceHead: head(root), reason: text };
-  return { ...core, planSha256: approverRefreshDigest(core), ignored, blockers, proposed, match, at };
+  // Adopting without ancestry is part of what the approver confirms, so it has its own plan digest (D9).
+  const adoptionPlanSha256 = approverRefreshDigest({ ...core, adoption: 'without-ancestry' });
+  return { ...core, planSha256: adoptWithoutAncestry ? adoptionPlanSha256 : approverRefreshDigest(core), adoptionPlanSha256,
+    adoptWithoutAncestry: Boolean(adoptWithoutAncestry), ignored, blockers, proposed, match, at };
 }
 
-function preview(candidate) {
+function preview(candidate, ancestry = null) {
   const blocked = candidate.blockers.length > 0;
-  return { schemaVersion: 1, resultType: 'approver-refresh-preview', status: blocked ? 'blocked' : 'ready',
+  // Ancestry the apply would not find: the approver adopts the configuration without it, or the team upgrades first.
+  const adopt = !blocked && ancestry?.adoptable && !candidate.adoptWithoutAncestry;
+  const held = !blocked && ancestry && !ancestry.adoptable;
+  const status = blocked || held ? 'blocked' : adopt ? 'needs-adoption' : 'ready';
+  return { schemaVersion: 1, resultType: 'approver-refresh-preview', status,
     refreshId: candidate.id, workId: candidate.workId, planSha256: candidate.planSha256,
     additions: candidate.additions, notApplied: candidate.ignored, blockers: candidate.blockers,
+    ...(ancestry ? { ancestry: { code: ancestry.code, cause: ancestry.cause ?? null, message: ancestry.message } } : {}),
+    ...(candidate.adoptWithoutAncestry ? { adoptWithoutAncestry: true } : {}),
     from: candidate.from, to: candidate.to, recordedBy: { actor: candidate.actor, authorityGroup: candidate.authorityGroup },
     executed: false, stateChanged: false,
     legalActions: blocked ? candidate.blockers.map((entry) => ({ id: `resolve-${entry.id}`, command: entry.command, label: entry.words }))
-      : [{ id: 'refresh-approvers', command: `singularity-flow story approvers refresh ${candidate.workId} --reason "${candidate.reason.replaceAll('"', '\\"')}" --confirm ${candidate.planSha256}`,
+      : held ? [{ id: 'upgrade-first', command: ancestry.nextAction?.command ?? null, label: ancestry.nextAction?.label ?? ancestry.message }]
+      : adopt ? [{ id: 'adopt-without-ancestry', command: adoptionCommand(candidate),
+        label: 'After reviewing the additions: adopt it without ancestry' }]
+      : [{ id: 'refresh-approvers', command: `singularity-flow story approvers refresh ${candidate.workId} --reason ${quotedReason(candidate.reason)}${candidate.adoptWithoutAncestry ? ' --adopt-without-ancestry' : ''} --confirm ${candidate.planSha256}`,
         label: 'In your own terminal, after reviewing the added members: record the refresh' }] };
 }
 
+/**
+ * The preview proves the ancestry the apply records, so it never says ready for a refresh the apply
+ * would refuse (CH-F2). Only a refusal that is about ancestry changes the preview; a fetch that fails
+ * leaves it to the apply, which checks again.
+ */
+async function previewAncestry(candidate, options, source) {
+  if (candidate.blockers.length) return null;
+  try { await captureSkillConfigurationAncestry(options.approvedConfigurationSnapshot, source); return null; }
+  catch (error) {
+    const cause = ADOPTABLE.get(error?.code);
+    if (cause) {
+      // Recording the adoption needs the newer proof format that the repository's minimum build must read.
+      const adoptable = error.code !== 'SKP_AMENDMENT_ANCESTRY_REWRITTEN' || error.details?.v2Readable !== false;
+      return { code: error.code, cause, message: error.message, adoptable,
+        ...(adoptable ? {} : { nextAction: { command: 'singularity-flow workspace refresh-configuration',
+          label: 'Upgrade this repository to this build, then preview again' } }) };
+    }
+    if (error?.code === 'SKP_AMENDMENT_ANCESTRY_UPGRADE_REQUIRED') {
+      return { code: error.code, message: error.message, adoptable: false, nextAction: error.details?.nextAction ?? null };
+    }
+    return null;
+  }
+}
+
 export async function previewStoryApproverRefresh(root, config, workflow, options = {}) {
-  return preview(await refreshCandidate(root, config, workflow, options));
+  const candidate = await refreshCandidate(root, config, workflow, options);
+  return preview(candidate, await previewAncestry(candidate, options, workflow.resolution.configurationSource));
 }
 
 async function writeOnce(root, relative, record) {
@@ -162,7 +230,8 @@ export async function applyStoryApproverRefresh(root, config, workflow, options 
       const fresh = await refreshCandidate(root, config, current, options);
       if (fresh.planSha256 !== initial.planSha256 || fresh.blockers.length) fail('The Story or its approved configuration changed during review. Preview the refresh again.', 'APR_REFRESH_STALE');
       const authorization = await consume(root, grant.token, card.plan, card.action, { requireTerminalPresentation: true });
-      const configurationAncestry = await captureSkillConfigurationAncestry(options.approvedConfigurationSnapshot, current.resolution.configurationSource);
+      const configurationAncestry = await refreshAncestry(fresh, options.approvedConfigurationSnapshot, current.resolution.configurationSource);
+      const adopted = configurationAncestry.adoptedWithoutAncestry ? ' Adopted without ancestry: sflow/config was rewritten outside SFlow, confirmed by this approver.' : '';
       const decision = { schemaVersion: currentSchemaVersion('approver-refresh-decision'), kind: 'approver-refresh-decision', id: fresh.id, workId: fresh.workId, status: 'approved',
         approvedAt: fresh.at, reason: fresh.reason, from: fresh.from, to: fresh.to, additions: fresh.additions,
         actor: fresh.actor, authorityGroup: fresh.authorityGroup, identityAssurance: fresh.match.identityAssurance ?? null,
@@ -181,8 +250,9 @@ export async function applyStoryApproverRefresh(root, config, workflow, options 
       PROSPECTIVE.set(current, { reference: structuredClone(reference), policySha256: current.resolution.policySha256 });
       const added = Object.entries(fresh.additions).map(([group, members]) => `${members.length} to ${group}`).join(', ');
       current.history.push({ at: fresh.at, actor: fresh.actor, agent: null, event: 'approvers_refreshed', phase: current.currentPhase ?? null,
-        detail: `${fresh.id}: added ${added} from configuration ${fresh.to.configurationCommit.slice(0, 12)}; snapshot revision ${reference.revision}. ${fresh.reason}` });
-      return { refreshId: fresh.id, additions: fresh.additions, workflowSnapshot: reference };
+        detail: `${fresh.id}: added ${added} from configuration ${fresh.to.configurationCommit.slice(0, 12)}; snapshot revision ${reference.revision}.${adopted} ${fresh.reason}` });
+      return { refreshId: fresh.id, additions: fresh.additions, workflowSnapshot: reference,
+        ...(adopted ? { adoptedWithoutAncestry: configurationAncestry.adoptedWithoutAncestry } : {}) };
     }, { exactWorkItemPaths });
     return { schemaVersion: 1, resultType: 'approver-refresh', status: publication.pushed === false ? 'publication-pending' : 'applied',
       applied: true, stateChanged: true, ...value, publication };

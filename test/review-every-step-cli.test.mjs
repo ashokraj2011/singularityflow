@@ -151,6 +151,9 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   const prepared = sflowJson('phase', 'enter', 'implement', '--compose');
   assert.doesNotMatch(JSON.stringify(prepared.value), /SOURCE_REVIEW_INPUT_UNPUBLISHED|SOURCE_REVIEW_RECORD_UNPUBLISHED|attention-required/u,
     JSON.stringify(prepared.value.authoring?.entry ?? prepared.value.act ?? null).slice(0, 3000));
+  // Its code may be written now: the open version is editable, not a retained one to recover [incident 2026-11-16, 15:50].
+  assert.equal(prepared.value.mutationContract?.applicationEdits, true, JSON.stringify(prepared.value.mutationContract ?? null).slice(0, 1500));
+  assert.equal(prepared.value.codeAuthoringReady, true);
   const session = sflowJson('nextsteps', 'QF-1');
   assert.doesNotMatch(JSON.stringify(session.value.act ?? session.value).slice(0, 4000), /review-source/u,
     `with version 2 open, the next step writes it; version 1 is not offered for review again: ${JSON.stringify(session.value.actions?.[0] ?? null)}`);

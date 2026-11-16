@@ -1,5 +1,6 @@
 /** Pinned phase permissions, not a filesystem sandbox or a new lifecycle authority. */
 import path from 'node:path';
+import { successorGenerationOpen } from './phase-generation-need.mjs';
 import { lstatSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -127,7 +128,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const code = phaseRequiresCodeDelivery(phase);
   const openGeneration = code && phase?.generationIntent?.status === 'open'
     && Number(phase.generationIntent.generation) === nextPhaseGeneration(phase);
-  const editable = phase?.status === 'in_progress' && phaseNeedsGeneration(workflow, phase);
+  // A next version the person opened (rollover) is written now, like a step that needs its first [real Story, 2026-11-16].
+  const editable = phase?.status === 'in_progress' && (phaseNeedsGeneration(workflow, phase) || successorGenerationOpen(phase));
   const deterministic = phase?.generationPolicy?.allowedProducers?.length === 1
     && phase.generationPolicy.allowedProducers[0] === 'deterministic';
   const ownsCode = (workflow?.phaseOrder ?? []).slice(0, (workflow?.phaseOrder ?? []).indexOf(phase?.id))

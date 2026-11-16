@@ -2,7 +2,7 @@
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { stepBeingWritten, versionFactsOf } from './phase-generation-need.mjs';
-import { consumedOpeningMismatch, explicitlyReopened, hasOpenVersion } from './kernel/step-versions.mjs';
+import { consumedOpeningMismatch, hasOpenVersion, reopenedByReturn } from './kernel/step-versions.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
@@ -70,7 +70,7 @@ export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null }
   if (code && consumedOpeningMismatch(facts)) {
     stage = 'review-successor'; argv = ['recover', workflow.workItem.id, '--phase', phase.id, '--json']; skill = '/sf-recover';
     instruction = 'Preserve the published generation and current edits. Review the guarded successor boundary before changing source.';
-  } else if (code && !open && phase.generationIntent?.status === 'consumed' && !explicitlyReopened(facts)) {
+  } else if (code && !open && phase.generationIntent?.status === 'consumed' && !reopenedByReturn(facts)) {
     // Not returned by a person: the person confirms its next version (the entry's ask).
     stage = 'open-code-generation'; argv = ['phase', 'rollover', phase.id, '--json']; skill = '/sf-code';
     instruction = `Preview version ${generation} of ${phase.id} and ask the person to confirm it; version ${phase.generation} stays as published.`;

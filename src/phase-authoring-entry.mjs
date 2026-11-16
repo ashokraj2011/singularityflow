@@ -1,4 +1,3 @@
-import { phaseExplicitlyReopened } from './sequence.mjs';
 import { requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
@@ -6,7 +5,7 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { reviewAsksForCorrection, reviewCorrection, sourceReviewContinuation } from './source-review-continuation.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
-import { consumedOpeningMismatch, versionNumbers } from './kernel/step-versions.mjs';
+import { consumedOpeningMismatch, reopenedByReturn, versionNumbers } from './kernel/step-versions.mjs';
 
 /** Read-only entry classification. Only explicit prepare can reserve a document successor. */
 export function phaseAuthoringEntry(workflow, phase, { review = null, reviewError = null } = {}) {
@@ -14,9 +13,9 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
   // precedence 1 and 3) [OSA:REQ-003, REQ-004].
   const facts = workflow.currentPhase === phase.id && phase.status === 'in_progress' ? versionFactsOf(workflow, phase) : null;
   const numbers = facts ? versionNumbers(facts) : null;
-  if (numbers && (!numbers.ok || numbers.opening !== 'none' && numbers.opening !== 'applicable')) return {
+  if (numbers && (!numbers.ok || numbers.opening === 'ahead' || numbers.opening === 'invalid')) return {
     status: 'attention-required', reason: 'opening-not-applicable', actions: [copilotAction({ command: `singularity-flow phase show ${phase.id} --json`,
-      reason: `Inspect ${phase.id}: its open version's number was used or skipped, so nothing is written until a person resolves it.` })] };
+      reason: `Inspect ${phase.id}: its open version's number is past the next one or unreadable, so nothing is written until a person resolves it.` })] };
   if (facts && phaseRequiresCodeDelivery(phase) && consumedOpeningMismatch(facts)) return {
     status: 'attention-required', reason: 'successor-boundary-damaged', actions: [copilotAction({ skill: '/sf-recover',
       command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
@@ -36,7 +35,7 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
     // A code step returned for rework, or reopened by a skill amendment, is written now: its edit permission grants the
     // step's files and its authoring task opens the next version with `phase begin` before any application edit. The entry
     // said "next: prepare" while the permission and the task said `phase begin`, two commands for one step [OSA:REQ-010, C13].
-    if (phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !phaseExplicitlyReopened(workflow, phase)) return {
+    if (phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !reopenedByReturn(versionFactsOf(workflow, phase))) return {
       status: 'attention-required', reason: 'code-rollover-required',
       actions: [copilotAction({ skill: '/sf-code', command: `singularity-flow phase rollover ${phase.id} --json`,
         reason: `Preview starting version ${Number(phase.generation ?? 0) + 1} of ${phase.id} and ask the person to confirm it; version ${phase.generation} and its tests stay as published.` })] };

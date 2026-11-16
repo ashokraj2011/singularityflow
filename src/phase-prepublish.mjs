@@ -14,7 +14,7 @@ import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
-import { consumedOpeningMismatch, explicitlyReopened } from './kernel/step-versions.mjs';
+import { consumedOpeningMismatch, reopenedByReturn } from './kernel/step-versions.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { exactFileAtObject, changes } from './git.mjs';
 import { workingTreeAction } from './collaboration.mjs';
@@ -391,7 +391,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
       // Recover only positive damage; a returned or published code step opens its next version [OSA:REQ-003, C1].
       const facts = versionFactsOf(workflow, phase);
       const damaged = consumedOpeningMismatch(facts);
-      const preview = !damaged && phase.generationIntent?.status === 'consumed' && !explicitlyReopened(facts);
+      const preview = !damaged && phase.generationIntent?.status === 'consumed' && !reopenedByReturn(facts);
       actions.push({ command: damaged ? `singularity-flow recover ${id} --phase ${phase.id} --json`
         : preview ? `singularity-flow phase rollover ${phase.id} --json` : `singularity-flow phase begin ${phase.id}`,
         skill: damaged ? '/sf-recover' : '/sf-code', detail: damaged

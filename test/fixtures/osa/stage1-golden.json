@@ -924,7 +924,7 @@
   },
   {
    "id": "G22",
-   "covers": "a rejected code step no person returned is previewed for consent",
+   "covers": "a rejected code step: the rejection is a person's return, so its successor opens from the publication",
    "facts": {
     "phase": "implementation",
     "kind": "code",
@@ -951,10 +951,11 @@
       "version": 2,
       "consent": "required",
       "reason": "rejected",
-      "opening": "successor-preview"
+      "opening": "return"
      }
     }
-   }
+   },
+   "note": "A person's rejection authorized the successor, as a return for rework does; consent is still required (D3)."
   },
   {
    "id": "G23",
@@ -1287,7 +1288,7 @@
   },
   {
    "id": "G32",
-   "covers": "an opening at a used number applies to nothing",
+   "covers": "an opening at a used number opens nothing: the published version stays current",
    "facts": {
     "phase": "implementation",
     "kind": "code",
@@ -1297,28 +1298,40 @@
     "generationIntent": {
      "status": "open",
      "generation": 2
-    }
+    },
+    "reviewRequired": false
    },
    "expected": {
-    "state": "invalid",
+    "state": "published",
+    "version": {
+     "published": 1,
+     "writing": null,
+     "highWatermark": 3,
+     "proposedNext": 4
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": false,
+     "currentVersionPublished": true
+    },
     "edit": {
      "eligible": false
     },
     "next": {
-     "kind": "observe",
-     "operation": "inspect",
+     "kind": "agent-work",
+     "operation": "submit-version",
      "target": {
       "phase": "implementation",
-      "version": null
+      "version": 1
      },
-     "principalKind": "human",
-     "role": "person",
+     "principalKind": "agent",
+     "role": "author",
      "reasonCodes": [
       "OPENING_NOT_APPLICABLE"
      ]
     }
    },
-   "note": "Decision inventory S15: P-2 called it open and V-7 not; numbers are not reused (4.3)."
+   "note": "Decision inventory S15: P-2 called it open and V-7 not. Numbers are not reused (4.3), so the stale opening applies to nothing and is stated as a reason; a restored checkpoint can leave one, so it is not an impossible record."
   },
   {
    "id": "G33",
@@ -1478,6 +1491,82 @@
     "turnMode": "read-only-review",
     "role": "reviewer"
    }
+  },
+  {
+   "id": "G39",
+   "covers": "an opening a restored checkpoint left below the watermark: the step opens the next free number, with consent",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 0,
+    "generationHighWatermark": 4,
+    "generationIntent": {
+     "status": "open",
+     "generation": 1
+    }
+   },
+   "expected": {
+    "state": "not-started",
+    "version": {
+     "published": 0,
+     "writing": null,
+     "highWatermark": 4,
+     "proposedNext": 5
+    },
+    "next": {
+     "kind": "person-consent",
+     "operation": "open-version",
+     "target": {
+      "phase": "implementation",
+      "version": 5
+     },
+     "principalKind": "human",
+     "role": "author",
+     "inputs": {
+      "version": 5,
+      "consent": "required"
+     },
+     "reasonCodes": [
+      "OPENING_NOT_APPLICABLE"
+     ]
+    }
+   },
+   "note": "Section 7.2: only the first reservation of version 1 omits consent; version 5 is a successor number."
+  },
+  {
+   "id": "G40",
+   "covers": "a version written by its own required reviewer is previewed for a successor no person returned",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "authorConflict": true
+   },
+   "expected": {
+    "state": "reopened",
+    "next": {
+     "kind": "person-consent",
+     "operation": "open-version",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "human",
+     "inputs": {
+      "version": 2,
+      "consent": "required",
+      "reason": "author-conflict",
+      "opening": "successor-preview"
+     }
+    }
+   },
+   "note": "The author conflict's hold (b14) is a Stage 3 item; Stage 1's kernel sees it as the reason a version is needed."
   }
  ]
 }

@@ -538,7 +538,7 @@
     },
     "phase-authoring-entry.mjs": {
       "intentReads": 1,
-      "predicateCalls": 3,
+      "predicateCalls": 2,
       "versionArithmetic": 1,
       "routeObjects": 3,
       "lifecycleCommands": 5,

@@ -93,10 +93,10 @@ test('a code step returned for rework opens its successor with phase begin, not 
   assert.equal(workflowNextSteps(source)[0].command, 'singularity-flow phase begin team-repair --json');
   assert.equal(deriveMutationContract({ definition: {}, workflow: source }).next[0].command, progress.next.command);
   // Published and not reopened: nothing to open, and nothing is damaged, so the permission names the step's own way on,
-  // never recover [OSA:REQ-011, C1].
+  // its submission readiness, never recover; the guard and the entry name the same [OSA:REQ-011, REQ-010, C1].
   delete phase.rejectedAt;
   assert.equal(phaseAuthoringProgress(source, phase), null);
-  assert.equal(deriveMutationContract({ definition: {}, workflow: source }).next[0].command, 'singularity-flow nextsteps --json');
+  assert.equal(deriveMutationContract({ definition: {}, workflow: source }).next[0].command, 'singularity-flow status PROGRESS-1 --submission-readiness --json');
 });
 
 test('all seeded/example phases and future document/code phases use structural milestones', async () => {

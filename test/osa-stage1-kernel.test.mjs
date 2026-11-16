@@ -33,7 +33,7 @@ function stepOf(facts) {
     ...(facts.generationHighWatermark === null || facts.generationHighWatermark === undefined ? {} : { recordedHighWatermark: facts.generationHighWatermark }),
     opening: facts.generationIntent ? { status: facts.generationIntent.status, version: facts.generationIntent.generation } : null,
     publicationRecorded: (facts.generation ?? 0) >= 1, rework: facts.rework === undefined ? null : { version: facts.rework },
-    amendment: null, rejection: facts.rejected ? { rewritten: false } : null, authorConflict: false, changeRequestOpen: false,
+    amendment: null, rejection: facts.rejected ? { rewritten: false } : null, authorConflict: facts.authorConflict === true, changeRequestOpen: false,
     intentAmendmentPending: false,
     kind: { executionOwner: facts.kind === 'kernel-document' ? 'kernel' : 'agent', code: facts.kind === 'code',
       changeCapabilities: facts.producers?.includes('deterministic') ? [] : CAPABILITIES[facts.kind] },
@@ -114,7 +114,7 @@ function assertShape(decision, where) {
 // ---------------------------------------------------------------------------------------------------- golden fixtures
 
 test('Stage 1 golden fixtures: every case decides as the specification says [OSA:REQ-001, REQ-005]', () => {
-  assert.equal(golden.cases.length, 38);
+  assert.equal(golden.cases.length, 40);
   const covered = golden.cases.map((entry) => entry.covers).join('\n');
   // The plan's qualification list, each covered by at least one case (plan section 3).
   for (const topic of [/open successor with publication history/u, /no prior publication/u, /future-phase inspection/u, /last phase/u,

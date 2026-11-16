@@ -44,10 +44,13 @@ export function versionNeed(facts) {
 }
 export const needsVersion = (facts) => versionNeed(facts) !== null;
 
-/** Being written: in progress, needing a version or with one open. Invalid counters or openings are not [§12.1]. */
+/**
+ * Being written: in progress, needing a version or with one open. Invalid counters, or an opening past the next number,
+ * are not [§12.1]; an opening at a used number opens nothing (a restored checkpoint leaves one) but needs no repair.
+ */
 export function beingWritten(facts) {
   const numbers = facts?.status === 'in_progress' ? versionNumbers(facts) : null;
-  return Boolean(numbers?.ok && ['none', 'applicable'].includes(numbers.opening) && (needsVersion(facts) || numbers.writing !== null));
+  return Boolean(numbers?.ok && numbers.opening !== 'ahead' && (needsVersion(facts) || numbers.writing !== null));
 }
 
 /** A consumed opening that is the published version's receipt (a return for rework leaves this). */
@@ -64,6 +67,9 @@ export function publishedVersionRecorded(facts) {
   if (!Number.isSafeInteger(published) || published < 1 || facts.opening?.status === 'open') return false;
   return consumedByPublishedVersion(facts) || facts.publicationRecorded === true;
 }
+
+/** A person's return or rejection authorized the successor: it opens from the publication, not by a new preview. */
+export const reopenedByReturn = (facts) => explicitlyReopened(facts) || Boolean(facts?.rejection && !facts.rejection.rewritten);
 
 /** Reopened by a person's return (change request, rework, affected amendment, unrevalidated intent amendment). */
 export function explicitlyReopened(facts) {

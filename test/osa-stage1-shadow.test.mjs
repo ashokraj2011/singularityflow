@@ -13,11 +13,9 @@ import { shadowDifferences } from '../scripts/osa-shadow.mjs';
 
 /** The declared differences, by surface and class: the most each may show, its owner and why it is not a fault here. */
 const DECLARED = {
-  'sequence sequence-ignores-amendment-pause': { max: 296, owner: 'Stage 3 (b16 sequenceGuidance)', why: 'sequence reads no amendment pause; the permission and entry send the person to the decisions card' },
+  'sequence sequence-ignores-amendment-pause': { max: 312, owner: 'Stage 3 (b16 sequenceGuidance)', why: 'sequence reads no amendment pause; the permission and entry send the person to the decisions card' },
   'sequence sequence-writes-a-damaged-step': { max: 48, owner: 'Stage 3 (b16)', why: 'sequence routes damage to begin or prepare; the permission and entry recover it' },
-  'sequence sequence-writes-an-invalid-opening': { max: 32, owner: 'Stage 3 (b16)', why: 'sequence treats an opening at a used number as a step to submit or write' },
-  'sequence submit-led-by-readiness': { max: 16, owner: 'Stage 3 (b15, b16)', why: 'the permission leads with the readiness read, which names the exact submission; sequence names submit directly' },
-  'sequence published-code-successor-previewed': { max: 8, owner: 'Stage 3 (b16, c9 opensCodeVersion)', why: 'a published code step no person returned: the person previews its successor (D3); sequence says begin' }
+  'sequence submit-led-by-readiness': { max: 20, owner: 'Stage 3 (b15, b16)', why: 'the permission leads with the readiness read, which names the exact submission; sequence names submit directly' }
 };
 
 test('the shadow comparison: the cohort agrees with the kernel; the rest differs only as declared, and no more [plan section 3]', async () => {

@@ -5,10 +5,10 @@
  * operation identifiers, inputs, logical targets and reason codes, never a shell string, skill name, question wording or
  * prompt [OSA:REQ-021]; host adapters render them (phase-mutation-contract.mjs `decisionRoutes`).
  */
-import { versionNumbers, needsVersion, versionNeed, beingWritten, consumedOpeningMismatch, explicitlyReopened } from './step-versions.mjs';
+import { versionNumbers, needsVersion, versionNeed, beingWritten, consumedOpeningMismatch, reopenedByReturn } from './step-versions.mjs';
 
 export { versionNumbers, hasPublishedVersion, hasOpenVersion, currentVersionPublished, needsVersion, beingWritten,
-  consumedByPublishedVersion, consumedOpeningMismatch, publishedVersionRecorded, explicitlyReopened, versionNeed } from './step-versions.mjs';
+  consumedByPublishedVersion, consumedOpeningMismatch, publishedVersionRecorded, explicitlyReopened, reopenedByReturn, versionNeed } from './step-versions.mjs';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 export const DECISION_SCHEMA_VERSION = 1;
@@ -65,6 +65,10 @@ const NO_EDIT = (reasons) => ({ eligible: false, scopeReference: null, permitted
 
 function decision(snapshot, state, next, { version = null, publication = null, edit = NO_EDIT([]), obligations = [], task = null } = {}) {
   const subject = snapshot?.subject ?? {};
+  // An opening at a used number (a restored checkpoint leaves one) opens nothing: it is stated, never written into [§4.3].
+  if (snapshot?.step && versionNumbers(snapshot.step).opening === 'superseded' && !next.reasonCodes.includes('OPENING_NOT_APPLICABLE')) {
+    next = { ...next, reasonCodes: [...next.reasonCodes, 'OPENING_NOT_APPLICABLE'] };
+  }
   const kind = snapshot?.step?.kind ?? {};
   return { schemaVersion: DECISION_SCHEMA_VERSION,
     subject: { projectId: text(subject.projectId) ?? null, workId: text(subject.workId) ?? null,
@@ -179,8 +183,6 @@ export function stepState(snapshot) {
   const numbers = versionNumbers(facts);
   if (!numbers.ok) return invalid(snapshot, numbers.code, targetOf(facts.id));
   if (numbers.opening === 'ahead' || numbers.opening === 'invalid') return invalid(snapshot, 'OPENING_AHEAD_OF_COUNTERS', targetOf(facts.id));
-  // An opening whose number was used or passed applies to nothing: it is stated, never written into [§4.3].
-  if (numbers.opening === 'superseded' && facts.status === 'in_progress') return invalid(snapshot, 'OPENING_NOT_APPLICABLE', targetOf(facts.id));
   const version = { published: numbers.published, writing: numbers.writing, highWatermark: numbers.highWatermark, proposedNext: numbers.proposedNext };
   const publication = published3(numbers);
   const base = { version, publication };
@@ -250,7 +252,7 @@ export function stepState(snapshot) {
   }
   // A published step a person's return, an amendment or a rejection reopened: its successor needs the person's yes [D3].
   if (successor) {
-    const reopenedBy = explicitlyReopened(facts) ? 'return' : 'successor-preview';
+    const reopenedBy = reopenedByReturn(facts) ? 'return' : 'successor-preview';
     const inputs = { version: numbers.proposedNext, consent: 'required', reason: successor.toLowerCase().replaceAll('_', '-'), from: numbers.published, opening: reopenedBy };
     if (kernelBuilt) return decision(snapshot, 'kernel-build', action('person-consent', 'build-version', { target: target(numbers.proposedNext), principalKind: 'human',
       inputs: { producer: 'deterministic', ...inputs }, reasonCodes: [successor, 'KERNEL_BUILT'], then: ['publish-version'] }),

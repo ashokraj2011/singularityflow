@@ -4,7 +4,9 @@ These are the implementation records for [SPEC-OSA v1.1](../SPEC-OSA-ONE-STEP-AU
 - **Stage 0** (section 13; plan section 2), on branch `osa-s0`, from `d7a976821`. It records the baseline.
 - **Stage 1** (plan section 3), on branch `osa-v11-s1`, from `293a2e9a8`: [stage1.md](stage1.md) and [stage1-perf.md](stage1-perf.md). See "Stage 1" at the end.
 - **Stage 2** (plan section 4), on branch `osa-v11-s2`, from `90e7095cc`: [stage2.md](stage2.md). See "Stage 2" at the end.
-- **Stage 3** (plan section 5), on branch `osa-v11-s3`, from `91dac87bb`: [stage3.md](stage3.md). See "Stage 3" at the end.
+- **Stage 3** (plan section 5), on branch `osa-v11-s3`, from `91dac87bb`, completed on `osa-v11-s3b`: [stage3.md](stage3.md). See "Stage 3" at the end.
+- **Stage 4** (plan section 6), on branch `osa-v11-s4`, from `osa-v11-s3` at `dac523e22`: [stage4.md](stage4.md). See "Stage 4" at the end.
+- **Stage 5** (plan section 7), on branch `osa-v11-s5`, from the 11-17 landing at `d5522e815`, beside `osa-v11-s5b`: [stage5.md](stage5.md), [coverage-matrix.md](coverage-matrix.md), [stage5-perf.md](stage5-perf.md) and [activation.md](activation.md). See "Stage 5" at the end.
 
 ## The records
 
@@ -188,3 +190,42 @@ The targeted runs are listed in [stage2.md](stage2.md) §10. **Not run:** the fu
 | No generic work command broadens a source, review or approval permission | **Met:** the guard's grants are unchanged (`osa-stage1-guard`); a view is `turnMode: view` and grants nothing |
 
 The targeted runs are listed in [stage3.md](stage3.md) §10. **Not run:** the full suite and the weekly Node 26 run, which are the owner's heavy run at the end.
+
+## Stage 4
+
+| # | Deliverable | Where |
+|---|---|---|
+| 1 | One work command for `/sf-code` and `/sf-phase`, and the central action-to-command map | [stage4.md](stage4.md) §1–§2 |
+| 2 | `/sf-next` does the step's own work in its turn | [stage4.md](stage4.md) §3 |
+| 3 | Writing aliases as compatibility adapters | [stage4.md](stage4.md) §4 |
+| 4 | Independent review through a qualified delegation | [stage4.md](stage4.md) §5 |
+| 5 | The decisions card as a consent surface; document version 1 behind the owner's switch | [stage4.md](stage4.md) §6–§7 |
+| 6 | Ratchet, budgets, decisions for the owner and acceptance rows | [stage4.md](stage4.md) §8–§10b |
+
+**Exit gate (plan section 6).**
+
+| Gate item | Result |
+|---|---|
+| D1, D2 and D5 qualified for each declared host mode | **Met** for the guard, the CLI and the skill texts; live Copilot is the owner's daily paid run ([stage4.md](stage4.md) §10) |
+| Aliases keep their compatibility contract | **Partly:** the cases pinned at Stage 4; the rest are AC-019's, on `osa-v11-s5b` |
+| Review claims match retained reports | **Met** (`osa-stage4-review-delegation`) |
+
+## Stage 5
+
+| # | Deliverable | Where |
+|---|---|---|
+| 1 | The duplicates removed, the map as the one renderer, the refusals that named recovery for healthy work | [stage5.md](stage5.md) §1–§4 |
+| 2 | The guard reads the task stage; a running execution after publication | [stage5.md](stage5.md) §5 |
+| 3 | The reducer behind the planners' rare paths, with the measured budgets | [stage5.md](stage5.md) §6 |
+| 4 | The final owner set and the tightened ratchet | [stage5.md](stage5.md) §7–§8 |
+| 5 | Requirement and acceptance coverage | [coverage-matrix.md](coverage-matrix.md) |
+| 6 | Comparative hot-path measurements | [stage5-perf.md](stage5-perf.md) |
+| 7 | Staged activation and reversal | [activation.md](activation.md) |
+
+**Exit gate (plan section 7).**
+
+| Gate item | Result |
+|---|---|
+| Every applicable requirement and acceptance row is qualified, with explicit limitations | **Met with named limitations** ([coverage-matrix.md](coverage-matrix.md) section 3); the rows owned by `osa-v11-s5b` are marked there |
+| No supported surface keeps an independent authoring-state decision | **Partly.** Every surface takes the step's state and primary action from the kernel, and only the final owner set runs the reducer; some planners still build a route in place, held by the ratchet so they cannot grow ([stage5.md](stage5.md) §8, §11) |
+| Ratchets, journeys, compatibility and performance gates pass | See [stage5.md](stage5.md) §10. The heavy Node 22 run and the weekly Node 26 run have not run |

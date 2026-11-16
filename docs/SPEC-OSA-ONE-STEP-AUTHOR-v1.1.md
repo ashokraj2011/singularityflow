@@ -6,7 +6,7 @@
 | Specification | SPEC-OSA |
 | Version | 1.1, revised specification. Supersedes [v1](SPEC-OSA-ONE-STEP-AUTHOR-v1.md). |
 | Date | 16 November 2026 |
-| Status | Approved by the owner on 16 November 2026 ("yes and implement"), with three corrections applied in this text: the Node 22 landing rule (section 14), restored requirement and acceptance numbers (sections 11 and 12), and the incident-fix baseline counting the stop-the-loops work (section 13, Stage 0). Implementation starts at Stage 0. |
+| Status | Approved by the owner on 16 November 2026 ("yes and implement"), with three corrections applied in this text: the Node 22 landing rule (section 14), restored requirement and acceptance numbers (sections 11 and 12), and the incident-fix baseline counting the stop-the-loops work (section 13, Stage 0). **Stages 0 to 5 are built** ([docs/osa/README.md](osa/README.md)). **Still unqualified:** the heavy Node 22 run of the whole suite and the weekly Node 26 run after it; the live Copilot rows (the owner's daily paid Story run); a reversal to a pre-OSA build run for real; and the Stage 5 rows built beside it on `osa-v11-s5b` (VS Code's decisions card, the hook's alias lists, the remaining AC-019 cases). Limitations per row: [coverage-matrix.md](osa/coverage-matrix.md). |
 | Approval history | v1 was approved on 16 November 2026. That approval does not stand in for implementation qualification. |
 | Source baseline | Stage 0 resolves and records the actual starting commit on main. |
 | Implementation plan | Included later in this document. |

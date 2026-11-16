@@ -402,7 +402,7 @@ const SDA_ROUTED = Object.freeze({
   CONFIGURATION_DRAFTS_LIMIT: [[['skill', 'edit', 'review'], {}]],
   CONFIGURATION_DRAFT_OPERATION_REUSED: [[['skill', 'edit', 'review'], { operationId: 'op-1', draftId: 'cdo-1' }]],
   CONFIGURATION_DRAFT_UNKNOWN: [[['configuration', 'discard', 'cdo-9'], {}]],
-  CONFIGURATION_ENTITY_CONFLICT: [[['configuration', 'publish'], { pointers: ['/a'], nextAction: { command: 'singularity-flow configuration recreate-sync --json' } }]],
+  CONFIGURATION_ENTITY_CONFLICT: [[['configuration', 'approve'], { pointers: ['/a'], nextAction: { command: "singularity-flow configuration approve sflow/config-change/workflow/x --confirm abc --pick 'singularity/workflow.yml#/a=<proposal|current>'" } }]],
   CONFIGURATION_PROJECTION_BASE_UNAVAILABLE: [[['configuration', 'publish'], {}]],
   CONFIGURATION_PROPOSAL_PUBLICATION_PENDING: [[['configuration', 'propose'], { intentId: INTENT, nextAction: `singularity-flow sync ${INTENT}`, recoveryCommands: [`singularity-flow push status ${INTENT}`] }]],
   ENV_FILES_REPOSITORY_DEFERRED: [[['env', 'files', '--repository', 'app'], { repository: 'app', nextAction: REPAIR }]],

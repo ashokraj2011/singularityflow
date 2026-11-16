@@ -27,7 +27,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
    For `delivery`, add `--repository <GIT-URL>`; `collection` omits it.
 
-5. Show `singularity-flow capability proposal <REVIEW-BRANCH> --lead <LEAD-URL> --json`. After approval run `singularity-flow capability activate <REVIEW-BRANCH> --lead <LEAD-URL> --confirm <FULL-PROPOSAL-COMMIT> --json`; ask separately before `--acknowledge-unprotected`. `singularity-flow capability publish` repairs projection only.
+5. Show `singularity-flow capability proposal <REVIEW-BRANCH> --lead <LEAD-URL> --json`. After approval run `singularity-flow capability activate <REVIEW-BRANCH> --lead <LEAD-URL> --confirm <FULL-PROPOSAL-COMMIT> --json`; ask separately before `--acknowledge-unprotected`. `singularity-flow capability publish` repairs locators only.
 6. On a value conflict, run the returned `singularity-flow capability discard-proposal` once confirmed, then the returned `singularity-flow capability edit` or `map` again. Preview a returned `singularity-flow capability rebase-proposal`. Consent separately to each confirmation; never auto-activate.
 
 ## Cancel or replace a pending mapping

@@ -6,8 +6,9 @@ import { SingularityFlowError } from './util.mjs';
 
 export async function syncConfigurationProposal(intentId, options = {}) {
   const intent = await readTransportIntent(intentId, options);
-  if (!/^sflow\.configuration\.workflow\.[a-z0-9-]+$/u.test(intent.scope?.operation ?? '')
-      || !intent.targetRef?.startsWith('refs/heads/sflow/config-change/workflow/')
+  // Every kind one engine approves: workflow, people and package proposals [SCF:REQ-005].
+  const kind = /^sflow\.configuration\.(workflow|people|package)\.[a-z0-9-]+$/u.exec(intent.scope?.operation ?? '')?.[1];
+  if (!kind || !intent.targetRef?.startsWith(`refs/heads/sflow/config-change/${kind}/`)
       || intent.expectedRemote !== null
       || intent.scope?.requiredLocalRef !== `refs/singularity/transport/configuration-proposals/${intent.sourceCommit}`) {
     throw new SingularityFlowError('Background sync accepts only retained, create-only configuration proposals.', {

@@ -54,29 +54,40 @@ export async function run(argv, { positionals, options }) {
     value = method === 'proposal' ? await api.inspectWorkflowConfigurationProposal(root, parameters.branch)
       : await api.listWorkflowConfigurationProposals(root, { includeMerged: parameters.includeMerged, includeDiff: false });
   }
+  if (method === 'proposal') {
+    // Whoever reads it is the one who would approve it: say whether that is a self-approval and whether the
+    // repository allows one [SCF:REQ-011, D4], in the view and for VS Code's acknowledgement.
+    let approver = null;
+    try { approver = (await import('../git.mjs')).configurationCommitIdentity(root); } catch { approver = null; }
+    const self = Boolean(approver?.email && value.proposer?.email
+      && approver.email.trim().toLowerCase() === value.proposer.email.trim().toLowerCase());
+    value.selfApproval = { self, allowed: value.approvalPolicy?.allowSelfApproval !== false, profile: value.approvalPolicy?.profile ?? null };
+    if (value.viewLines) value.viewLines = (await import('../configuration-approval-view.mjs')).proposalViewLines(value, { approver });
+  }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(value, null, 2));
   if (method === 'proposals') {
     if (!value.length) return console.log('No workflow configuration proposals are waiting.');
     for (const proposal of value) {
       const subjects = (proposal.workflows ?? []).map(entry => `${entry.id} (${entry.change})`).join(', ');
-      console.log(`${proposal.branch}  ${proposal.merged ? 'merged' : proposal.valid ? 'pending review' : 'blocked'}`);
+      // Its state and who proposed it [SCF:REQ-009, REQ-010].
+      console.log(`${proposal.branch}  ${proposal.merged ? 'merged' : !proposal.valid ? 'blocked' : proposal.state === 'needs-choice' ? 'needs a choice' : 'pending review'}${proposal.proposer?.name ? `  by ${proposal.proposer.name}` : ''}`);
       if (subjects) console.log(`  workflows: ${subjects}`);
       // The repository's own test commands belong to no workflow [RTC:REQ-007].
       if (proposal.repositoryTests) console.log(`  ${repositoryTestsWords(proposal.repositoryTests)} (${proposal.repositoryTests.change})`);
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
     }
+    // Every kind, drafts and capability proposals too, are in the one list [SCF:REQ-010].
+    console.log('Every configuration proposal, of every kind: singularity-flow configuration proposals');
     return;
   }
-  console.log(`${value.branch}`);
-  console.log(`  target: ${value.targetBranch}`);
-  console.log(`  status: ${value.merged ? 'already merged' : value.valid ? 'ready for review' : 'invalid'}`);
-  for (const workflow of value.workflows) console.log(`  ${workflow.change.padEnd(8)} ${workflow.governs} workflow ${workflow.id}`);
   if (value.repositoryTests) console.log(`  ${value.repositoryTests.change.padEnd(8)} ${repositoryTestsWords(value.repositoryTests)}`);
-  for (const file of value.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
-  if (value.invalidFiles.length) console.log(`  refused files: ${value.invalidFiles.join(', ')}`);
+  // What approving it lands, field by field and line by line, not only file names [SCF:REQ-008].
+  for (const line of value.viewLines ?? []) console.log(line);
+  if (!value.viewLines) for (const file of value.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
+  console.log(`  status: ${value.merged ? 'already merged' : !value.valid ? 'invalid' : value.state === 'needs-choice' ? 'needs a choice' : 'ready for review'}`);
   // The way forward, for the person who may change the approved configuration (src/cli.mjs prints the same).
   if (value.activation) {
-    console.log(`Activate it: ${value.activation.command}`);
+    console.log(`Approve it: ${value.activation.command}`);
     console.log(`  ${value.activation.acknowledgement}`);
     console.log(`  VS Code: ${value.activation.vscode}`);
   }

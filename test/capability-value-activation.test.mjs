@@ -473,7 +473,8 @@ test('the capability map and a lead\'s catalog are read from exact objects in pl
 
   const { result: organisation, commands } = await pooled(() => readOrganisation(org.platform, { refresh: true, cacheRoot }));
   assert.deepEqual(clonesOf(commands, 'sflow/config'), [], 'the approved configuration is read in place, not cloned');
-  assert.equal(organisation.stateProjection.status, 'current', 'the asset comparison with the state mirror ran on pool objects');
+  // The map is read from sflow/config only; the state branch's old copy is never compared or read (SCF:REQ-001, REQ-003).
+  assert.equal(organisation.stateProjection, undefined);
   assert.deepEqual(organisation.capabilities.map((capability) => capability.id).sort(), ['platform-app', 'worker-api']);
   assert.deepEqual(organisation, await readOrganisation(org.platform, { refresh: true, cacheRoot }),
     'the pool and the clone read the same organisation');

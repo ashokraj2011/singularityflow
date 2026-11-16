@@ -283,9 +283,8 @@ test('a reviewed configuration proposal retains the complete approved skill pack
   }
 });
 
-test('configuration proposal refuses an authority commit move even when file bytes are unchanged', async () => {
+test('a proposal is made on the authority commit its editor read; one rewritten out of its history is refused (SCF:REQ-005)', async () => {
   const item = await fixture();
-  let mutated = false;
   try {
     const tree = run('git', ['rev-parse', `${item.approved}^{tree}`], { cwd: item.story }).stdout.trim();
     const moved = run('git', [
@@ -293,16 +292,31 @@ test('configuration proposal refuses an authority commit move even when file byt
       'commit-tree', tree, '-p', item.approved, '-m', 'move authority without changing files'
     ], { cwd: item.story }).stdout.trim();
     run('git', ['push', '-q', '--force', 'origin', `${moved}:refs/heads/sflow/config`], { cwd: item.story });
+    const expectedAuthority = { kind: 'approved-configuration-ref', commit: item.approved,
+      sourceCommit: item.approved, remoteFingerprint: remoteFingerprint(item.remote) };
+    let mutated = false;
+    const proposal = await proposeConfigurationChange(item.story, {
+      operation: 'save-file', subject: 'workflow.yml', message: 'made on the commit the editor read', expectedAuthority,
+      async mutate(root) {
+        mutated = true;
+        const file = path.join(root, 'singularity/workflow.yml');
+        await writeFile(file, `${await readFile(file, 'utf8')}\n# edited on the commit the editor read\n`);
+      }
+    }, { env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox } });
+    assert.equal(mutated, true);
+    assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', `${proposal.branch}^`]).stdout.trim(), item.approved,
+      'its parent is the commit the editor read, not the newer authority');
 
+    // History rewritten outside SFlow: the commit the editor read is no longer in sflow/config's history.
+    const rewritten = run('git', ['-c', 'user.name=Authority mover', '-c', 'user.email=authority@example.test',
+      'commit-tree', tree, '-m', 'rewrite authority history'], { cwd: item.story }).stdout.trim();
+    run('git', ['push', '-q', '--force', 'origin', `${rewritten}:refs/heads/sflow/config`], { cwd: item.story });
+    mutated = false;
     await assert.rejects(() => proposeConfigurationChange(item.story, {
-      operation: 'save-file', subject: 'workflow.yml', message: 'must not mutate stale authority',
-      expectedAuthority: {
-        kind: 'approved-configuration-ref', commit: item.approved,
-        sourceCommit: item.approved, remoteFingerprint: remoteFingerprint(item.remote)
-      },
+      operation: 'save-file', subject: 'workflow.yml', message: 'must not mutate a rewritten authority', expectedAuthority,
       async mutate() { mutated = true; }
     }), (error) => error.code === 'CONFIGURATION_PROPOSAL_AUTHORITY_CHANGED'
-      && /commit changed after this editor loaded/i.test(error.message));
+      && /no longer in its history/i.test(error.message));
     assert.equal(mutated, false, 'authority identity CAS runs before the proposed mutation');
   } finally {
     await rm(item.base, { recursive: true, force: true });
@@ -390,7 +404,7 @@ test('configuration save proposal identities distinguish equal basenames in diff
       assert.equal(saved.status, 0, `${saved.stderr}\n${saved.stdout}`);
       const proposal = JSON.parse(saved.stdout);
       const subjectHash = createHash('sha256').update(relative).digest('hex').slice(0, 12);
-      assert.match(proposal.branch, new RegExp(`${subjectHash}-[0-9a-f]{8}-[0-9a-f]{12}$`));
+      assert.match(proposal.branch, new RegExp(`${subjectHash}-by[0-9a-f]{8}-[0-9a-f]{8}-[0-9a-f]{12}$`), 'the subject, its proposer\'s key, base and tree');
       branches.push(proposal.branch);
     }
 
@@ -433,7 +447,7 @@ test('configuration save bounds long filename proposal refs and retains full-pat
     assert.ok(Buffer.byteLength(component) <= 96,
       `proposal ref component must remain conservatively portable, got ${Buffer.byteLength(component)} bytes`);
     const pathDigest = createHash('sha256').update(relative).digest('hex').slice(0, 12);
-    assert.match(component, new RegExp(`${pathDigest}-[0-9a-f]{8}-[0-9a-f]{12}$`),
+    assert.match(component, new RegExp(`${pathDigest}-by[0-9a-f]{8}-[0-9a-f]{8}-[0-9a-f]{12}$`),
       'the bounded ref must preserve the full normalized path digest');
     assert.equal(run('git', [
       '--git-dir', item.remote, 'show-ref', '--verify', '--quiet', `refs/heads/${proposal.branch}`
@@ -514,9 +528,9 @@ test('workflow proposals publish from approved configuration without changing th
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',
       '--label', 'Customer onboarding', '--description', 'A reviewed delivery path.',
-      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--phases', 'requirements,implementation-spec,implementation', '--governs', 'story',
       '--planned-claims', 'required', '--clause-phases', 'requirements',
-      '--claim-owners', 'implementation=requirements',
+      '--claim-owners', 'implementation=implementation-spec',
       '--propose', '--json'
     ], {
       cwd: item.story,
@@ -548,16 +562,17 @@ test('workflow proposals publish from approved configuration without changing th
     const proposed = YAML.parse(run('git', [
       '--git-dir', item.remote, 'show', `${result.branch}:singularity/workflow.yml`
     ]).stdout);
-    assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['requirements', 'implementation']);
+    // Planned by its implementation-spec step, so `workflow validate` finds no problem and it can be approved (ER-F7).
+    assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['requirements', 'implementation-spec', 'implementation']);
     assert.equal(proposed.workTypes['customer-onboarding'].plannedClaims.mode, 'required');
     assert.equal(result.nextAction, `singularity-flow workflow proposal ${result.branch} --json`);
 
     const retried = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',
       '--label', 'Customer onboarding', '--description', 'A reviewed delivery path.',
-      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--phases', 'requirements,implementation-spec,implementation', '--governs', 'story',
       '--planned-claims', 'required', '--clause-phases', 'requirements',
-      '--claim-owners', 'implementation=requirements',
+      '--claim-owners', 'implementation=implementation-spec',
       '--propose', '--json'
     ], {
       cwd: item.story,
@@ -612,23 +627,24 @@ test('workflow proposals publish from approved configuration without changing th
     // The review is the way forward [RTC:REQ-007]: the exact activation line, what its flag means,
     // and the VS Code place, in --json and in text.
     assert.equal(review.nextAction,
-      `singularity-flow workflow activate ${result.branch} --confirm ${result.commit} --acknowledge-unprotected`);
-    assert.equal(review.activation.vscode, 'Workflow Studio → Changes → Review and activate');
+      `singularity-flow configuration approve ${result.branch} --confirm ${result.commit}`);
+    assert.equal(review.activation.vscode, 'Workflow Studio → Changes → Review and approve');
     const reviewText = spawnSync(process.execPath, [
       cli, 'workflow', 'proposal', result.branch
     ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
     assert.equal(reviewText.status, 0, reviewText.stderr || reviewText.stdout);
-    assert.ok(reviewText.stdout.includes(`Activate it: ${review.nextAction}\n`), reviewText.stdout);
-    assert.match(reviewText.stdout, /--acknowledge-unprotected says you accept that SFlow updates sflow\/config itself\. Where the server protects/u);
-    assert.match(reviewText.stdout, /VS Code: Workflow Studio → Changes → Review and activate/u);
+    assert.ok(reviewText.stdout.includes(`Approve it: ${review.nextAction}\n`), reviewText.stdout);
+    assert.match(reviewText.stdout, /Approving updates sflow\/config with exactly this revision\. Where the server protects/u);
+    assert.match(reviewText.stdout, /VS Code: Workflow Studio → Changes → Review and approve/u);
 
-    const unacknowledged = spawnSync(process.execPath, [
-      cli, 'workflow', 'activate', result.branch, '--confirm', result.commit, '--json'
+    // Activating names the exact revision; without it nothing moves, and the refusal names the approve route.
+    const unconfirmed = spawnSync(process.execPath, [
+      cli, 'workflow', 'activate', result.branch, '--json'
     ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-    assert.notEqual(unacknowledged.status, 0);
-    assert.match(unacknowledged.stdout, /cannot prove whether.*protected/is);
+    assert.notEqual(unconfirmed.status, 0);
+    assert.match(unconfirmed.stdout, /configuration approve/u);
     assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(), item.approved,
-      'an unprotected authority does not move without its separate acknowledgement');
+      'an authority does not move without the revision named');
 
     const realGit = realGitForTest();
     const wrappers = path.join(item.base, 'git-wrappers');
@@ -726,9 +742,9 @@ test('workflow activation keeps a generic pre-receive refusal pending with its d
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'security-scanned-flow',
       '--label', 'Security scanned flow', '--description', 'A reviewed delivery path.',
-      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--phases', 'requirements,implementation-spec,implementation', '--governs', 'story',
       '--planned-claims', 'required', '--clause-phases', 'requirements',
-      '--claim-owners', 'implementation=requirements',
+      '--claim-owners', 'implementation=implementation-spec',
       '--propose', '--json'
     ], {
       cwd: item.story,

@@ -1,4 +1,4 @@
-import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { authorityCheckRead, withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { doctorSnapshot, doctorText } from '../doctor.mjs';
@@ -47,15 +47,30 @@ export async function doctorCommand(positionals, options) {
   // including a new repository with no workflow. Routing already excludes the active workspace;
   // configuration overlay resolution must do the same or a missing/stale selection elsewhere on
   // the laptop can fail before the invoking checkout is measured at all.
+  // Outside a Story checkout, doctor checks the configuration new work uses, sflow/config, never this checkout's
+  // own singularity/ files, and says which commit it checked [SCF:REQ-001, finding ER-F5].
   const report = optionBoolean(options, 'performance')
     ? await inspect()
-    : await withApprovedConfigurationRead(root, inspect);
+    : await withApprovedConfigurationRead(root, async (authority) => namedConfigurationChecks(await inspect(), authority),
+      authorityCheckRead(root, { refreshAuthority: !optionBoolean(options, 'offline') }));
   const { buildCurrency, buildCurrencyLine } = await import('../build-currency.mjs');
   const update = buildCurrency();
   if (update) report.update = update;
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
   else process.stdout.write(`${doctorText(report)}${update ? `\n! ${buildCurrencyLine(update)}\n` : ''}`);
   if (!report.healthy) process.exitCode = 2;
+}
+
+/** Say which sflow/config commit the configuration checks read, so a problem is never sought in the checkout. */
+function namedConfigurationChecks(report, authority) {
+  if (!authority?.commit || authority.kind === 'working-tree') return report;
+  const branch = String(authority.ref ?? authority.branch ?? 'sflow/config').replace(/^refs\/(?:heads|remotes\/[^/]+)\//u, '');
+  for (const entry of report?.checks ?? []) {
+    if (!['configuration', 'initialization-assets'].includes(entry.id)) continue;
+    entry.message = `On ${branch} (${authority.commit.slice(0, 12)}): ${entry.message}`;
+    if (entry.status === 'fail') entry.fix = 'Repair it with a proposal: singularity-flow configuration restore (back to its newest commit that loads), or singularity-flow workflow fix.';
+  }
+  return report;
 }
 
 /**

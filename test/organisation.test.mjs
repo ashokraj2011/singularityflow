@@ -56,6 +56,7 @@ import {
   canonicalJson as ledgerCanonicalJson, sha256 as ledgerSha256
 } from '../src/ledger.mjs';
 import { changedLines, foldYamlFile, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
+import { writeLegacyStateCopy } from './helpers/legacy-state-copy.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
 // These tests read configuration through the clone path unless one names its own pool. The
@@ -612,6 +613,151 @@ test('a repository already recorded against the configuration branch is repaired
   });
 });
 
+// SPEC-SCF one way in [SCF:REQ-010]: a capability proposal is approved and rejected like every other proposal, and
+// capability activate stays as the same approval by its earlier name.
+test('a capability proposal is approved and rejected through configuration approve and reject [SCF:REQ-010]', async (t) => {
+  const org = await remotes('platform', 'service', 'web');
+  t.after(() => removeTemporaryTree(org.base));
+  const previous = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  t.after(() => { if (previous == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY; else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previous; });
+  await mapAndMerge(org.platform, { capabilityId: 'platform-app', name: 'Platform app', kind: 'delivery', repositoryUrl: org.platform });
+  const checkout = path.join(org.base, 'approver');
+  run('git', ['clone', '-q', '--no-local', org.platform, checkout]);
+  run('git', ['config', 'user.name', 'Capability Approver'], { cwd: checkout });
+  run('git', ['config', 'user.email', 'approver@example.test'], { cwd: checkout });
+  const [{ approveDelegatedProposal, rejectDelegatedProposal }, routes] = await Promise.all([
+    import('../src/configuration-drafts.mjs'), import('../src/configuration-proposal-routes.mjs')]);
+  const printed = [];
+  const common = { print: (line) => printed.push(line), inspect: (branch) => routes.inspectDelegatedProposal('capability', org.platform, branch) };
+  const activate = (branch, decision) => routes.activateDelegatedProposal(checkout, 'capability', org.platform, branch, decision);
+
+  const service = await mapCapability(org.platform, { capabilityId: 'service-api', kind: 'delivery', repositoryUrl: org.service });
+  assert.equal(routes.delegatedProposalKind(service.branch), 'capability');
+  await assert.rejects(() => approveDelegatedProposal(checkout, service.branch, 'capability', { ...common, activate }),
+    { code: 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED' }, 'the approval names the revision shown');
+  const approved = await approveDelegatedProposal(checkout, service.branch, 'capability', { ...common, activate, confirm: service.commit });
+  assert.equal(approved.kind, 'capability');
+  assert.equal(approved.activated, true);
+  assert.ok(printed.some((line) => line.startsWith(`Capability proposal ${service.branch} by `)), printed.join('\n'));
+  assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout, /service-api:/u);
+
+  const web = await mapCapability(org.platform, { capabilityId: 'web-api', kind: 'delivery', repositoryUrl: org.web });
+  const rejected = await rejectDelegatedProposal(checkout, web.branch, 'capability', { ...common, confirm: web.commit, reason: 'Not this quarter',
+    remove: (branch, decision) => routes.removeDelegatedProposal('capability', org.platform, branch, { ...decision, cwd: checkout }) });
+  assert.deepEqual([rejected.kind, rejected.status, rejected.removal], ['capability', 'rejected', 'cancelled']);
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${web.branch}`], { cwd: org.platform, allowFailure: true }).status, 1);
+  assert.doesNotMatch(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout, /web-api:/u);
+});
+
+// Every capability approval [owner, 2026-11-17]: SF Guard's signature under the policy of the repository the proposal
+// is on, wherever the command runs, or a refusal with the way forward; its proposer, read as for every other proposal,
+// may not approve it where allowSelfApproval is false, and neither may anyone when Git records no proposer.
+test('a capability approval run outside the repository is signed or refused, and its proposer may not approve it', async (t) => {
+  const org = await remotes('platform', 'service', 'web', 'worker');
+  t.after(() => removeTemporaryTree(org.base));
+  const previous = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  t.after(() => { if (previous == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY; else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previous; });
+  await mapAndMerge(org.platform, { capabilityId: 'platform-app', name: 'Platform app', kind: 'delivery', repositoryUrl: org.platform });
+  // Each person works in another repository's checkout, not the capability map's.
+  const person = (name, remote, label, email) => {
+    const checkout = path.join(org.base, name);
+    run('git', ['clone', '-q', '--no-local', remote, checkout]);
+    run('git', ['config', 'user.name', label], { cwd: checkout });
+    run('git', ['config', 'user.email', email], { cwd: checkout });
+    return checkout;
+  };
+  const alice = person('alice', org.service, 'Alice Proposer', 'alice@example.test');
+  const bob = person('bob', org.web, 'Bob Approver', 'bob@example.test');
+  const tip = () => run('git', ['rev-parse', 'refs/heads/sflow/config'], { cwd: org.platform }).stdout.trim();
+  // A change to sflow/config landed outside SFlow (D6) sets the policy.
+  const allowSelfApproval = async (allowed) => {
+    const editor = path.join(org.base, `policy-${allowed}`);
+    run('git', ['clone', '-q', '--no-local', '--branch', 'sflow/config', org.platform, editor]);
+    run('git', ['config', 'user.name', 'Policy Editor'], { cwd: editor });
+    run('git', ['config', 'user.email', 'policy@example.test'], { cwd: editor });
+    const file = path.join(editor, 'singularity', 'workflow.yml');
+    const workflow = YAML.parse(await readFile(file, 'utf8'));
+    workflow.approvalSecurity = { ...(workflow.approvalSecurity ?? {}), allowSelfApproval: allowed };
+    await writeFile(file, YAML.stringify(workflow));
+    run('git', ['commit', '-qam', `allowSelfApproval: ${allowed}`], { cwd: editor });
+    run('git', ['push', '-q', 'origin', 'sflow/config'], { cwd: editor });
+  };
+  await allowSelfApproval(false);
+  const routes = await import('../src/configuration-proposal-routes.mjs');
+  const { approveDelegatedProposal } = await import('../src/configuration-drafts.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const signed = [];
+  const sign = async (policyRoot, step) => {
+    signed.push({ step, workflow: await readFile(path.join(policyRoot, 'singularity', 'workflow.yml'), 'utf8'),
+      origin: run('git', ['remote', 'get-url', 'origin'], { cwd: policyRoot }).stdout.trim() });
+    return { schema: 'sflow.presence.v1', chainId: 'test-chain', approver: 'bob', action: step.action, at: new Date().toISOString(),
+      recordSha256: `sha256:${'b'.repeat(64)}`, keyId: 'test-key', signature: 'test-signature' };
+  };
+  const cannotSign = async () => { throw new SingularityFlowError('no key', { code: 'PSS_KEY_NOT_REGISTERED' }); };
+
+  // The proposer is Alice, from her own checkout; she may not approve it here, and is refused before any signature.
+  const proposal = await mapCapability(org.platform, { capabilityId: 'service-api', kind: 'delivery', repositoryUrl: org.service, initiatingRoot: alice });
+  const before = tip();
+  await assert.rejects(() => routes.activateDelegatedProposal(alice, 'capability', org.platform, proposal.branch, { confirm: proposal.commit, signStep: sign }),
+    { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED' });
+  const printed = [];
+  await assert.rejects(() => approveDelegatedProposal(alice, proposal.branch, 'capability', { print: (line) => printed.push(line),
+    inspect: (branch) => routes.inspectDelegatedProposal('capability', org.platform, branch),
+    identity: () => ({ name: 'Alice Proposer', email: 'alice@example.test' }), activate: () => assert.fail('never reached') }),
+  { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED' }, 'configuration approve refuses before asking for the revision');
+  assert.ok(printed.includes(`Capability proposal ${proposal.branch} by Alice Proposer`), printed.join('\n'));
+  assert.ok(printed.some((line) => /needs another person to approve/u.test(line)), printed.join('\n'));
+  assert.equal(signed.length, 0);
+
+  // Bob cannot sign: refused with the reason and the way forward, and nothing moves.
+  await assert.rejects(() => routes.activateDelegatedProposal(bob, 'capability', org.platform, proposal.branch, { confirm: proposal.commit, signStep: cannotSign }),
+    (error) => {
+      assert.equal(error.code, 'PSS_KEY_NOT_REGISTERED');
+      assert.match(error.message, /SF Guard is on, so this approval needs your presence signature, and you have no presence key registered\. Nothing was approved\./u);
+      assert.equal(error.details.nextAction.command, 'singularity-flow guard register');
+      return true;
+    });
+  assert.equal(tip(), before, 'nothing was approved unsigned');
+
+  // Bob signs, under the capability map's own SF Guard policy although he runs it from another repository.
+  const approved = await routes.activateDelegatedProposal(bob, 'capability', org.platform, proposal.branch, { confirm: proposal.commit, signStep: sign });
+  assert.equal(approved.activated, true);
+  assert.equal(signed.length, 1);
+  assert.equal(signed[0].origin, org.platform);
+  assert.match(signed[0].workflow, /allowSelfApproval: false/u, 'the policy read is the capability map\'s sflow/config');
+  assert.equal(signed[0].step.record.proposalCommit, proposal.commit);
+  assert.deepEqual(approved.approval, { proposer: { name: 'Alice Proposer', email: 'alice@example.test' },
+    approver: { name: 'Bob Approver', email: 'bob@example.test' }, selfApproved: false });
+  assert.equal(approved.presence.status, 'published', JSON.stringify(approved.presence));
+  assert.match(run('git', ['log', '--all', '--format=%s'], { cwd: org.platform }).stdout, /\[configuration\]\[sf-guard\] approval seal/u);
+
+  // An older build's proposal names no proposer (its placeholder author): nobody may approve it while a second person
+  // is needed, and where self-approval is allowed it is approved as a possible self-approval.
+  const legacy = await mapCapability(org.platform, { capabilityId: 'worker-api', kind: 'delivery', repositoryUrl: org.worker, initiatingRoot: alice });
+  const rewriter = path.join(org.base, 'legacy');
+  run('git', ['clone', '-q', '--no-local', org.platform, rewriter]);
+  run('git', ['fetch', '-q', 'origin', `${legacy.branch}:refs/legacy`], { cwd: rewriter });
+  const placeholder = run('git', ['commit-tree', 'refs/legacy^{tree}', '-p', 'refs/legacy^', '-m',
+    run('git', ['log', '-1', '--format=%B', 'refs/legacy'], { cwd: rewriter }).stdout], {
+    cwd: rewriter, env: { ...process.env, GIT_AUTHOR_NAME: 'Singularity Flow', GIT_AUTHOR_EMAIL: 'unknown@invalid' }
+  }).stdout.trim();
+  run('git', ['push', '-q', '--force', 'origin', `${placeholder}:refs/heads/${legacy.branch}`], { cwd: rewriter });
+  await assert.rejects(() => routes.activateDelegatedProposal(bob, 'capability', org.platform, legacy.branch, { confirm: placeholder, signStep: sign }),
+    (error) => {
+      assert.equal(error.code, 'CONFIGURATION_PROPOSER_UNKNOWN');
+      assert.equal(error.details.nextAction.command, `singularity-flow configuration reject ${legacy.branch}`);
+      return true;
+    });
+  assert.equal(signed.length, 1, 'refused before any signature');
+  await allowSelfApproval(true);
+  const possible = await routes.activateDelegatedProposal(bob, 'capability', org.platform, legacy.branch, { confirm: placeholder, signStep: sign });
+  assert.equal(possible.activated, true);
+  assert.equal(possible.approval.proposer, null);
+  assert.equal(possible.approval.selfApproved, 'unknown');
+});
+
 test('map, value-level activation, repository and team proposals change only their own lines in configuration folded at 80 columns', async () => {
   const org = await remotes('platform', 'service', 'web', 'worker');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -1019,12 +1165,12 @@ test('repository inspection finds an exact URL in registered capability maps wit
   const projected = await inspectCapabilityRepository(org.service, {
     leadUrl: org.platform, refresh: true
   });
-  assert.equal(projected.matches[0].sourceBranch, 'state',
-    'inspection preserves which projection supplied the bytes');
+  assert.equal(projected.matches[0].sourceBranch, 'sflow/config',
+    'inspection reads the approved configuration, never a copy on the state branch (SCF:REQ-003)');
   assert.equal(projected.matches[0].configurationBranch, 'sflow/config');
   assert.equal(projected.matches[0].configurationCommit,
     run('git', ['rev-parse', 'refs/heads/sflow/config'], { cwd: org.platform }).stdout.trim(),
-    'the UI lease remains bound to approved configuration when the bytes came from state');
+    'the UI lease remains bound to approved configuration');
 
   const missing = await inspectCapabilityRepository(org.unmapped, { leadUrl: org.platform });
   assert.equal(missing.status, 'not-onboarded');
@@ -2835,7 +2981,7 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   }).stdout, /calculator/);
   assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim(), mainBefore,
     'activating governed configuration never writes the application default branch');
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
   assert.equal(activated.audit.recorded, true);
   assert.equal(activated.proposalCleanup.status, 'deleted');
   assert.equal(run('git', ['show-ref', '--verify', '--quiet',
@@ -2859,24 +3005,9 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
     file.paths.includes('singularity/capabilities.yml')));
   assert.ok('proposer' in activationEntry.payload);
   assert.ok('approver' in activationEntry.payload);
-  assert.match(run('git', ['show', 'state:singularity/capabilities.yml'], {
-    cwd: org.platform
-  }).stdout, /calculator/);
-  const mirror = JSON.parse(run('git', ['show', 'state:configuration/manifest.json'], {
-    cwd: org.platform
-  }).stdout);
-  assert.equal(mirror.source.commit, activated.targetCommit);
-  assert.ok(mirror.files['singularity/workflow.yml']);
-  assert.ok(mirror.files['singularity/capabilities.yml']);
-  assert.equal(mirror.assets['singularity/workflow.yml'].sha256,
-    mirror.files['singularity/workflow.yml']);
-  assert.match(mirror.assets['singularity/workflow.yml'].object, /^[0-9a-f]{40,64}$/);
-  assert.match(mirror.assets['singularity/workflow.yml'].mode, /^100(?:644|755)$/);
-  assert.deepEqual(Object.keys(mirror.files).sort(), run('git', [
-    'ls-tree', '-r', '--name-only', 'state', '--', 'singularity', '.github/agents'
-  ], { cwd: org.platform }).stdout.trim().split('\n').filter((file) =>
-    !file.startsWith('singularity/work-items/') && !file.startsWith('singularity/world-model/')
-      && !file.startsWith('singularity/ledger/')).sort());
+  // sflow/config alone is the configuration: the state branch carries the audit, never a copy (SCF:REQ-003).
+  assert.equal(run('git', ['ls-tree', '-r', '--name-only', 'state', '--', 'configuration',
+    'singularity/capabilities.yml', 'singularity/workflow.yml'], { cwd: org.platform }).stdout.trim(), '');
   assert.deepEqual(await listCapabilityProposals(org.platform), []);
   const history = await listCapabilityProposals(org.platform, { includeMerged: true });
   assert.deepEqual(history, [], 'the approved merge and ledger retain history after review-ref cleanup');
@@ -3360,7 +3491,7 @@ test('capability activation accepts a native Copilot display name without changi
     acknowledgeUnprotected: true
   });
   assert.equal(activated.audit.recorded, true);
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
   assert.match(run('git', [
     'show', 'sflow/config:singularity/agents/poc-test-developer.agent.md'
   ], { cwd: org.platform }).stdout, /^name: Playwright Test Engineer$/m);
@@ -3408,7 +3539,7 @@ test('capability review and activation do not negotiate unrelated monorepo histo
     acknowledgeUnprotected: true
   });
   assert.equal(activated.audit.recorded, true);
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
 });
 
 test('capability activation records an identical concurrent authority update as external', {
@@ -3467,7 +3598,7 @@ process.exit(result.status == null ? 1 : result.status);
   assert.equal(activated.targetBefore, null,
     'the current reviewer must not be audited as owner of a transition performed externally');
   assert.equal(activated.audit.recorded, true);
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
 });
 
 test('protected activation returns a resumable review receipt and exact post-merge recovery', async () => {
@@ -3516,7 +3647,7 @@ exit 0
   assert.equal(recovered.activated, true);
   assert.equal(recovered.alreadyMerged, true);
   assert.equal(recovered.audit.recorded, true);
-  assert.equal(recovered.projection.published, true);
+  assert.equal(recovered.projection, undefined, 'no configuration copy goes to the state branch');
 });
 
 test('a generic pre-receive hook refusal remains activation-pending with its safe diagnostic', async () => {
@@ -3757,7 +3888,7 @@ test('an externally merged proposal can append its activation audit and projecti
   assert.equal(activated.targetBefore, proposed.baseCommit);
   assert.equal(activated.protection.enforced, null);
   assert.equal(activated.audit.recorded, true);
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
   const event = JSON.parse(run('git', [
     'show', `state:ledger/events/${activated.audit.eventId}.json`
   ], { cwd: org.platform }).stdout);
@@ -3857,11 +3988,9 @@ exit 0
     'the audit records the later approved policy snapshot independently of its recovered target');
   assert.equal(recovered.audit.policyConfigurationCommit, advancedTarget);
   assert.equal(entries[0].transport.publishedCommit, acceptedTarget);
-  const manifest = JSON.parse(run('git', [
-    'show', 'state:configuration/manifest.json'
-  ], { cwd: org.platform }).stdout);
-  assert.equal(manifest.source.commit, advancedTarget,
-    'projection uses the current eligible authority rather than recovered older bytes');
+  assert.equal(run('git', ['ls-tree', '-r', '--name-only', 'state', '--', 'configuration'], {
+    cwd: org.platform
+  }).stdout.trim(), '', 'no configuration copy goes to the state branch (SCF:REQ-003)');
 });
 
 test('activation recovers an exact merged proposal after the provider deletes its source branch', async () => {
@@ -3899,7 +4028,7 @@ test('activation recovers an exact merged proposal after the provider deletes it
   assert.equal(activated.mergeEvidence, 'commit-ancestry');
   assert.equal(activated.proposalCommit, proposed.commit);
   assert.equal(activated.audit.recorded, true);
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
 });
 
 test('deleted proposal recovery refuses a symbolic local recovery ref even when it resolves to the reviewed commit', {
@@ -4043,7 +4172,7 @@ test('a squash-merged proposal is recognized without moving approved configurati
     cwd: org.platform
   }).stdout.trim(), advanced, 'retrospective acknowledgement must not create a second merge');
   assert.equal(activated.audit.recorded, true);
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
 });
 
 test('partial content from a multi-commit proposal is not mistaken for a squash merge', async () => {
@@ -4133,20 +4262,21 @@ test('an externally merged invalid capability map is refused before audit or pro
   }).status, 1);
 });
 
-test('activation success survives a later projection failure with an exact repair command', async () => {
+test('activation completes on its audit alone: the state branch takes no configuration copy after it', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   const first = await mapCapability(org.platform, {
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   await mergeProposal(org.platform, first);
-  await publishOrganisationCapabilityMap(org.platform);
+  // A state branch as an earlier build left it, with its old configuration copy.
+  await writeLegacyStateCopy(org.platform);
 
   const proposed = await mapCapability(org.platform, {
     capabilityId: 'calculator', name: 'Calculator', kind: 'collection', parent: 'commerce'
   });
-  // Without atomic pushes the audit and the projection are published separately, so the projection
-  // can fail after its audit has landed.
+  // Without atomic pushes the audit is published on its own. A configuration copy used to follow it as a second push to
+  // the state branch; none does now (SCF:REQ-003), so a branch that refuses every later push holds nothing back.
   run('git', ['config', 'receive.advertiseAtomic', 'false'], { cwd: org.platform });
   const hook = path.join(org.platform, 'hooks', 'pre-receive');
   const counter = path.join(org.platform, 'hooks', 'state-push-count');
@@ -4172,11 +4302,10 @@ exit 0
     acknowledgeUnprotected: true
   });
   assert.equal(activated.activated, true);
-  assert.equal(activated.status, 'activation-complete-projection-pending');
+  assert.equal(activated.status, 'activated');
   assert.equal(activated.audit.recorded, true);
-  assert.equal(activated.projection.published, false);
-  assert.equal(activated.projection.pending, true);
-  assert.match(activated.nextAction.command, /capability publish/);
+  assert.equal(activated.projection, undefined);
+  assert.equal((await readFile(counter, 'utf8')).trim(), '1', 'the audit was the only push to the state branch');
   assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
     cwd: org.platform
   }).stdout, /calculator/);
@@ -4190,7 +4319,8 @@ async function activationFixture() {
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   await mergeProposal(org.platform, first);
-  await publishOrganisationCapabilityMap(org.platform);
+  // A state branch as an earlier build left it, carrying its old configuration copy.
+  await writeLegacyStateCopy(org.platform);
   const proposed = await mapCapability(org.platform, {
     capabilityId: 'calculator', name: 'Calculator', kind: 'collection', parent: 'commerce'
   });
@@ -4221,7 +4351,7 @@ function activationEvents(remote, proposalCommit) {
   ], { cwd: remote }).stdout)).filter((entry) => entry.subject?.workId === `capability-proposal:${proposalCommit}`);
 }
 
-test('activation publishes its audit and state projection atomically, then retires its proposal', async () => {
+test('activation publishes its audit atomically, with no configuration copy, then retires its proposal', async () => {
   const { org, proposed, stateBefore } = await activationFixture();
   const pushes = await recordPushes(org.platform);
   const timer = commandTimer('capability-activate-atomic', { commandClass: 'mutation' });
@@ -4232,7 +4362,7 @@ test('activation publishes its audit and state projection atomically, then retir
   assert.equal(activated.status, 'activated');
   assert.equal(activated.audit.recorded, true);
   assert.equal(activated.audit.duplicate, false);
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
   assert.equal(activated.proposalCleanup.status, 'deleted');
   // Authority and prior-audit observations, the checkout clone and its two fetches, the decision
   // push, publication, and exact leased proposal retirement. Cleanup adds two observations and
@@ -4240,7 +4370,6 @@ test('activation publishes its audit and state projection atomically, then retir
   // retained or cleaned any more [owner, 2026-11-16].
   assert.deepEqual({ push: counters['git.remote.command.push'],
     advertisements: counters['git.remote.command.ls-remote'] }, { push: 3, advertisements: 6 });
-  assert.equal(activated.projection.historyCleanup, undefined);
   const clones = counters['git.remote.command.clone'] ?? 0;
   const fetches = counters['git.remote.command.fetch'] ?? 0;
   assert.ok(clones <= 1 && fetches >= 2 && clones + fetches <= 3,
@@ -4256,22 +4385,17 @@ test('activation publishes its audit and state projection atomically, then retir
   assert.ok(cleanupPush.includes(`refs/heads/${proposed.branch}`),
     'the later cleanup transaction only retires the exact completed proposal');
 
-  // Exactly the sequential shape: the mirror commit sits on the audit commit, which sits on the
-  // state tip the activation observed.
+  // Exactly the sequential shape: the audit commit sits on the state tip the activation observed,
+  // and no configuration copy follows it (SCF:REQ-003).
   const tip = run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim();
-  assert.equal(tip, activated.projection.commit);
-  assert.equal(run('git', ['rev-parse', `${tip}^`], { cwd: org.platform }).stdout.trim(),
-    activated.audit.ledgerCommit);
+  assert.equal(tip, activated.audit.ledgerCommit);
   assert.equal(run('git', ['rev-parse', `${activated.audit.ledgerCommit}^`], {
     cwd: org.platform
   }).stdout.trim(), stateBefore);
   assert.equal(run('git', ['rev-parse', '--verify', '--quiet', history], { cwd: org.platform, allowFailure: true }).status, 1);
-  const manifest = JSON.parse(run('git', ['show', 'state:configuration/manifest.json'], {
+  assert.equal(run('git', ['diff', '--name-only', stateBefore, 'state', '--', 'configuration', 'singularity/capabilities.yml'], {
     cwd: org.platform
-  }).stdout);
-  assert.deepEqual(manifest.source, { branch: 'sflow/config', commit: merge });
-  assert.equal(manifest.history, undefined, 'the mirror names its repository instead of a history ref');
-  assert.match(manifest.subject.repositoryIdentity, /^sha256:[0-9a-f]{64}$/u);
+  }).stdout.trim(), '', 'the old configuration copy is untouched and no new one is written');
   const [event] = activationEvents(org.platform, proposed.commit);
   assert.equal(event.transport.pinRef.startsWith('refs/singularity/pins/organisation/'), true);
   assert.equal(run('git', ['rev-parse', event.transport.pinRef], { cwd: org.platform }).stdout.trim(), merge);
@@ -4298,7 +4422,6 @@ test('an activation retains no history ref and changes none an earlier build lef
   const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
     confirm: proposed.commit, acknowledgeUnprotected: true });
   assert.equal(activated.status, 'activated');
-  assert.equal(activated.projection.historyCleanup, undefined, 'no automatic history cleanup runs');
   assert.deepEqual(histories(), before, 'the upgrade removes old history; an activation neither adds nor archives any');
   assert.equal(histories().includes(activated.targetCommit), false);
   assert.equal(run('git', ['for-each-ref', 'refs/tags/sflow/config-history/'], { cwd: org.platform }).stdout.trim(), '');
@@ -4323,16 +4446,16 @@ exit 0
     confirm: proposed.commit, acknowledgeUnprotected: true
   });
   assert.equal(activated.status, 'activated');
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
   assert.equal(activated.proposalCleanup.status, 'deleted');
   const counts = (await readFile(log, 'utf8')).trim().split('\n').map(Number);
-  // The atomic publication names the state branch and the event pin, and the sequential recovery no longer pushes a
-  // history ref: no history ref is retained [owner, 2026-11-16].
-  assert.deepEqual(counts, [1, 2, 1, 1, 1, 1],
+  // The atomic publication names the state branch and the event pin. The sequential recovery pushes the pin and the
+  // audit; no history ref is retained [owner, 2026-11-16] and no configuration copy follows (SCF:REQ-003).
+  assert.deepEqual(counts, [1, 2, 1, 1, 1],
     'one refused publication, sequential recovery, then a separate proposal cleanup');
   assert.equal(activationEvents(org.platform, proposed.commit).length, 1);
   assert.equal(run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim(),
-    activated.projection.commit);
+    activated.audit.ledgerCommit);
 });
 
 test('an atomic activation whose acknowledgement was lost is not published twice', {
@@ -4363,11 +4486,11 @@ exit 0
   await writeFile(hook, '#!/bin/sh\nexit 0\n');
   assert.equal(activated.status, 'activated');
   assert.equal(activated.audit.duplicate, false);
-  assert.equal(activated.projection.published, true);
+  assert.equal(activated.projection, undefined, 'no configuration copy goes to the state branch');
   assert.equal(activationEvents(org.platform, proposed.commit).length, 1,
     'the verified landing is reported once, never appended again');
   assert.equal(run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim(),
-    activated.projection.commit);
+    activated.audit.ledgerCommit);
 });
 
 test('mapping leaves nothing behind: the lead is borrowed, not checked out', async () => {
@@ -4441,7 +4564,7 @@ test('map captures configured commit identity before enterprise Git isolation', 
   }
 });
 
-test('activation freezes configured identity across isolated merge, audit, and projection commits', async () => {
+test('activation freezes configured identity across isolated merge and audit commits', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   const globalConfig = path.join(org.base, 'activation-author.gitconfig');
@@ -4480,10 +4603,11 @@ test('activation freezes configured identity across isolated merge, audit, and p
   assert.deepEqual(run('git', [
     'show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', 'sflow/config'
   ], { cwd: org.platform }).stdout.trim().split('\0'), expected);
+  // The ledger's own commits; no configuration copy follows them (SCF:REQ-003).
   const stateIdentities = run('git', [
-    'log', '-3', '--format=%an%x00%ae%x00%cn%x00%ce', 'state'
+    'log', '--format=%an%x00%ae%x00%cn%x00%ce', 'state'
   ], { cwd: org.platform }).stdout.trim().split(/\r?\n/).filter(Boolean);
-  assert.equal(stateIdentities.length, 3);
+  assert.ok(stateIdentities.length >= 1);
   for (const fields of stateIdentities) assert.deepEqual(fields.split('\0'), expected);
 });
 
@@ -4546,49 +4670,7 @@ test('activation uses repository-local identity from an editor-equivalent initia
   });
 });
 
-test('projection recovery freezes repository-local identity before its isolated checkout', async () => {
-  const org = await remotes('platform');
-  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
-  const initial = await mapCapability(org.platform, {
-    capabilityId: 'projection-foundation', kind: 'collection'
-  });
-  await activateCapabilityProposal(org.platform, initial.branch, {
-    confirm: initial.commit, acknowledgeUnprotected: true
-  });
-  const proposed = await mapCapability(org.platform, {
-    capabilityId: 'projection-local-identity', kind: 'collection'
-  });
-  await mergeProposal(org.platform, proposed);
-  const initiatingRoot = path.join(org.base, 'projection-initiator');
-  run('git', ['clone', '-q', '--branch', 'main', org.platform, initiatingRoot], { cwd: org.base });
-  run('git', ['config', 'user.name', 'Projection Repairer'], { cwd: initiatingRoot });
-  run('git', ['config', 'user.email', 'projection-repairer@example.test'], {
-    cwd: initiatingRoot
-  });
-  const emptyGlobal = path.join(org.base, 'empty-projection-global.gitconfig');
-  await writeFile(emptyGlobal, '');
-  const initiatingEnv = {
-    ...process.env,
-    NODE_ENV: 'production',
-    GIT_CONFIG_GLOBAL: emptyGlobal,
-    GIT_CONFIG_SYSTEM: os.devNull
-  };
-  delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
-
-  const published = await publishOrganisationCapabilityMap(org.platform, {
-    initiatingRoot,
-    initiatingEnv
-  });
-  assert.equal(published.published, true);
-  assert.deepEqual(run('git', [
-    'show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', 'state'
-  ], { cwd: org.platform }).stdout.trim().split('\0'), [
-    'Projection Repairer', 'projection-repairer@example.test',
-    'Projection Repairer', 'projection-repairer@example.test'
-  ]);
-});
-
-test('required SSH signing survives activation and state projection isolation', async (t) => {
+test('required SSH signing survives activation and audit isolation', async (t) => {
   const probe = spawnSync('ssh-keygen', ['-V'], { encoding: 'utf8' });
   if (probe.error?.code === 'ENOENT') {
     t.skip('ssh-keygen is unavailable');
@@ -6081,7 +6163,7 @@ test('a capability that ships declares its repository; a grouping declares none'
   assert.equal(read.repositories.api.url, org.api);
 });
 
-test('organisation reads prefer the state mirror and reuse a SHA-validated durable cache', async () => {
+test('organisation reads take sflow/config and reuse a SHA-validated durable cache', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
@@ -6089,10 +6171,11 @@ test('organisation reads prefer the state mirror and reuse a SHA-validated durab
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   await mergeProposal(org.platform, proposal);
-  await publishOrganisationCapabilityMap(org.platform);
+  // A state branch as an earlier build left it, with its old copy; it is never read (SCF:REQ-003).
+  await writeLegacyStateCopy(org.platform);
 
   const first = await readOrganisation(org.platform, { refresh: true });
-  assert.equal(first.sourceBranch, 'state');
+  assert.equal(first.sourceBranch, 'sflow/config', 'the map is read from sflow/config, never a state copy (SCF:REQ-003)');
   assert.equal(first.cached, false);
   assert.equal(first.stale, false);
   const second = await readOrganisation(org.platform);
@@ -6107,11 +6190,10 @@ test('organisation reads prefer the state mirror and reuse a SHA-validated durab
   run('git', ['config', 'user.name', 'Review User'], { cwd: stateAdvance });
   run('git', ['commit', '--allow-empty', '-qm', 'Advance state receipt only'], { cwd: stateAdvance });
   run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateAdvance });
-  const advancedState = run('git', ['rev-parse', 'HEAD'], { cwd: stateAdvance }).stdout.trim();
   const afterStateAdvance = await readOrganisation(org.platform);
-  assert.equal(afterStateAdvance.cached, false,
-    'the configuration cache must observe its independently moving state source');
-  assert.equal(afterStateAdvance.sourceCommit, advancedState);
+  assert.equal(afterStateAdvance.cached, true,
+    'a state-only commit is not the configuration, so the sflow/config tip still validates the cache');
+  assert.equal(afterStateAdvance.sourceCommit, first.sourceCommit);
   assert.deepEqual(afterStateAdvance.capabilities, first.capabilities);
 
   const cacheFile = organisationCacheFile(org.platform);
@@ -6138,7 +6220,8 @@ test('capability inspection refuses with the restore routes when sflow/config is
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   await mergeProposal(org.platform, proposal);
-  await publishOrganisationCapabilityMap(org.platform);
+  // The copy on the state branch is one an earlier build wrote; no build writes one now (SCF:REQ-003).
+  await writeLegacyStateCopy(org.platform);
   const governed = await readOrganisation(org.platform, { refresh: true });
   assert.equal(governed.governed, true);
   run('git', ['--git-dir', org.platform, 'update-ref', '-d', 'refs/heads/sflow/config']);
@@ -6148,11 +6231,12 @@ test('capability inspection refuses with the restore routes when sflow/config is
       assert.equal(error.code, 'STORY_CONFIGURATION_AUTHORITY_MISSING', error.message);
       assert.equal(error.details.reason, 'configuration-branch-missing');
       assert.equal(error.details.stateCommit, stateCommit);
-      assert.match(error.message, /^sflow\/config is missing on '.*', so no new work can start there\. SFlow reads configuration only from sflow\/config, never from the copy on the 'state' branch/u);
+      assert.match(error.message, /^sflow\/config is missing on '.*', so no new work can start there\. Restore it: singularity-flow configuration restore/u);
       const { refusalRemediationPlan } = remediation;
       const steps = refusalRemediationPlan(error, ['capability', 'organisation', org.platform]).steps;
-      assert.deepEqual(steps.map((step) => step.id).slice(0, 2), ['restore-configuration-from-clone', 'preview-configuration-restore']);
-      assert.equal(steps[1].command, `singularity-flow capability onboard ${org.platform} --dry-run`);
+      // One route [SCF:REQ-002, D7].
+      assert.deepEqual(steps.map((step) => step.id).slice(0, 1), ['preview-configuration-restore']);
+      assert.equal(steps[0].command, 'singularity-flow configuration restore');
       return true;
     }, `refresh ${refresh}`);
   }
@@ -6200,7 +6284,7 @@ test('organisation cache preserves newer-schema upgrade guidance', async () => {
   });
 });
 
-test('organisation reads completely verify a configured non-default state branch', async () => {
+test('organisation reads take sflow/config with a configured non-default state branch and an old copy on it', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
@@ -6223,40 +6307,26 @@ test('organisation reads completely verify a configured non-default state branch
   } finally {
     await rm(checkout, { recursive: true, force: true });
   }
-  const beforePublication = await readOrganisation(org.platform, { refresh: true });
-  assert.equal(beforePublication.sourceBranch, 'sflow/config');
-  assert.equal(beforePublication.stateProjection.status, 'missing');
-  assert.equal(beforePublication.stateProjection.branch, 'organisation-state');
+  const before = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(before.sourceBranch, 'sflow/config');
+  assert.equal(Object.hasOwn(before, 'stateProjection'), false);
   assert.equal((await readOrganisation(org.platform)).cached, true);
 
+  // `capability publish` writes no copy (SCF:REQ-003), and a copy an earlier build left there is never read.
   await publishOrganisationCapabilityMap(org.platform);
-
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/organisation-state'],
+    { cwd: org.platform, allowFailure: true }).status, 1, 'no copy went to the custom state branch');
+  await writeLegacyStateCopy(org.platform, { branch: 'organisation-state' });
   const organisation = await readOrganisation(org.platform);
-  assert.equal(organisation.cached, false,
-    'publishing the previously missing custom state ref invalidates the config-tip cache');
-  assert.equal(organisation.sourceBranch, 'organisation-state');
-  assert.equal(organisation.stateProjection.status, 'current');
+  assert.equal(organisation.cached, true, 'the old copy is not the configuration, so the cache stands');
+  assert.equal(organisation.sourceBranch, 'sflow/config');
   assert.equal(organisation.capabilities[0].id, 'commerce');
-  assert.equal((await readOrganisation(org.platform)).cached, true);
-
-  const stateAdvance = path.join(org.base, 'advance-organisation-state');
-  run('git', ['clone', '-q', '--branch', 'organisation-state', org.platform, stateAdvance], {
-    cwd: org.base
-  });
-  run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: stateAdvance });
-  run('git', ['config', 'user.name', 'Review User'], { cwd: stateAdvance });
-  run('git', ['commit', '--allow-empty', '-qm', 'Advance custom state receipt'], {
-    cwd: stateAdvance
-  });
-  run('git', ['push', '-q', 'origin', 'HEAD:organisation-state'], { cwd: stateAdvance });
-  const advanced = await readOrganisation(org.platform);
-  assert.equal(advanced.cached, false,
-    'a state-only publication on a custom branch invalidates the cache');
-  assert.equal(advanced.sourceCommit,
-    run('git', ['rev-parse', 'HEAD'], { cwd: stateAdvance }).stdout.trim());
+  const refreshed = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(refreshed.sourceBranch, 'sflow/config');
+  assert.equal(refreshed.sourceCommit, run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim());
 });
 
-test('organisation fsck rejects a self-consistent state mirror that diverges from its claimed source', async () => {
+test('an old state copy that diverges from sflow/config is never read and fsck has no copy to check', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
@@ -6264,44 +6334,29 @@ test('organisation fsck rejects a self-consistent state mirror that diverges fro
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   await mergeProposal(org.platform, mapped);
-  await publishOrganisationCapabilityMap(org.platform);
-
+  await writeLegacyStateCopy(org.platform);
   const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-divergent-state-mirror-'));
   try {
     run('git', ['clone', '-q', '--branch', 'state', org.platform, checkout]);
     run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: checkout });
     run('git', ['config', 'user.name', 'Review User'], { cwd: checkout });
-    const relative = 'singularity/agents/developer.agent.md';
-    const file = path.join(checkout, relative);
-    const contents = `${await readFile(file, 'utf8')}\n<!-- divergent mirror fixture -->\n`;
-    await writeFile(file, contents);
-    const manifestFile = path.join(checkout, 'configuration/manifest.json');
-    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
-    const sha256 = createHash('sha256').update(contents).digest('hex');
-    const object = run('git', ['hash-object', file], { cwd: checkout }).stdout.trim();
-    manifest.files[relative] = sha256;
-    manifest.assets[relative] = { ...manifest.assets[relative], sha256, object };
-    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
-    run('git', ['add', relative, 'configuration/manifest.json'], { cwd: checkout });
-    run('git', ['commit', '-qm', 'Diverge state configuration mirror'], { cwd: checkout });
+    const file = path.join(checkout, 'singularity/capabilities.yml');
+    await writeFile(file, (await readFile(file, 'utf8')).replace('Commerce', 'Diverged copy'));
+    run('git', ['add', 'singularity/capabilities.yml'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'Diverge the old state copy'], { cwd: checkout });
     run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: checkout });
   } finally {
     await rm(checkout, { recursive: true, force: true });
   }
-
   const organisation = await readOrganisation(org.platform, { refresh: true });
   assert.equal(organisation.sourceBranch, 'sflow/config');
-  assert.equal(organisation.stateProjection.status, 'invalid');
-  assert.match(organisation.stateProjection.error, /does not match the approved configuration on sflow\/config it names: its asset set differs/);
+  assert.equal(organisation.capabilities[0].name, 'Commerce');
   const fsck = await capabilityFsck(org.platform);
-  assert.equal(fsck.valid, false);
-  const projection = fsck.checks.find((entry) => entry.id === 'state-projection');
-  assert.equal(projection.status, 'fail');
-  assert.match(projection.summary, /mirror is invalid/);
-  assert.match(projection.remediation, /capability publish/);
+  assert.equal(fsck.checks.some((entry) => entry.id === 'state-projection'), false);
+  assert.equal(fsck.checks.find((entry) => entry.id === 'approved-capability-map').status, 'pass');
 });
 
-test('a reachable but lagging state mirror cannot override newer approved configuration', async () => {
+test('an old state copy behind sflow/config never overrides it', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
@@ -6309,8 +6364,8 @@ test('a reachable but lagging state mirror cannot override newer approved config
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   await mergeProposal(org.platform, mapped);
-  await publishOrganisationCapabilityMap(org.platform);
-  assert.equal((await readOrganisation(org.platform, { refresh: true })).sourceBranch, 'state');
+  await writeLegacyStateCopy(org.platform);
+  assert.equal((await readOrganisation(org.platform, { refresh: true })).sourceBranch, 'sflow/config');
 
   const edited = await editCapabilityInOrganisation(org.platform, 'commerce', {
     name: 'Commerce Platform'
@@ -6321,7 +6376,7 @@ test('a reachable but lagging state mirror cannot override newer approved config
   assert.equal(read.capabilities[0].name, 'Commerce Platform');
 });
 
-test('organisation reads fall back to configuration when no state mirror exists', async () => {
+test('organisation reads take sflow/config when no state branch exists', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
@@ -7230,9 +7285,9 @@ test('an initiative can enter its lifecycle at a later phase', async () => {
   assert.match(cli, /\[--start-phase ID\]/);
 });
 
-test('only reviewed capability configuration can be published to the state branch', async () => {
-  // A proposal is neither default-branch configuration nor governed state. Only after the normal
-  // review merge may the explicit publisher refresh the orphan projection.
+test('only reviewed capability configuration reaches sflow/config, and capability publish copies none of it to state', async () => {
+  // A proposal is neither default-branch configuration nor governed state. Only the normal review
+  // merge makes it the configuration; `capability publish` writes no copy of it (SCF:REQ-003).
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
 
@@ -7247,8 +7302,12 @@ test('only reviewed capability configuration can be published to the state branc
   await mergeProposal(org.platform, mapped);
 
   const publishedInitial = await publishOrganisationCapabilityMap(org.platform);
-  assert.equal(publishedInitial.published, true);
-  assert.equal(publishedInitial.branch, 'state');
+  assert.equal(publishedInitial.published, undefined, 'there is no copy to publish');
+  assert.equal(publishedInitial.configurationCommit,
+    run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim());
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 1, 'no state branch was written to hold a copy');
 
   const lead = path.join(org.base, 'lead');
   run('git', ['clone', '-q', org.platform, lead], { cwd: org.base });
@@ -7258,27 +7317,18 @@ test('only reviewed capability configuration can be published to the state branc
   const edited = await editCapabilityInOrganisation(org.platform, 'commerce', { name: 'Commerce platform' });
   assert.equal(edited.state.published, false);
 
-  // Neither governed copy sees the unreviewed edit.
-  run('git', ['fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state'], { cwd: lead });
-  assert.doesNotMatch(
-    run('git', ['show', 'origin/state:singularity/capabilities.yml'], { cwd: lead }).stdout,
-    /Commerce platform/);
+  // The approved configuration does not see the unreviewed edit.
   run('git', ['fetch', '-q', 'origin', '+refs/heads/sflow/config:refs/remotes/origin/sflow/config'], { cwd: lead });
   assert.doesNotMatch(
     run('git', ['show', 'origin/sflow/config:singularity/capabilities.yml'], { cwd: lead }).stdout,
     /Commerce platform/);
 
   await mergeProposal(org.platform, edited);
-  const publishedEdit = await publishOrganisationCapabilityMap(org.platform);
-  assert.equal(publishedEdit.published, true);
-  assert.equal(publishedEdit.branch, 'state');
+  await publishOrganisationCapabilityMap(org.platform);
+  assert.match((await readOrganisation(org.platform, { refresh: true })).capabilities[0].name, /Commerce platform/,
+    'readers take the reviewed map from sflow/config');
 
-  // Readable straight from the remote, with no checkout — which is how the readers reach it.
-  run('git', ['fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state'], { cwd: lead });
-  const published = run('git', ['show', 'origin/state:singularity/capabilities.yml'], { cwd: lead }).stdout;
-  assert.match(published, /Commerce platform/);
-
-  // And the reviewed configuration branch has it: the state branch is the projection, not a bypass.
+  // And the reviewed configuration branch has it.
   run('git', ['fetch', '-q', 'origin', '+refs/heads/sflow/config:refs/remotes/origin/sflow/config'], { cwd: lead });
   assert.match(run('git', ['show', 'origin/sflow/config:singularity/capabilities.yml'], { cwd: lead }).stdout,
     /Commerce platform/);
@@ -7315,7 +7365,7 @@ test('only reviewed capability configuration can be published to the state branc
     /must be 'add', 'set', or 'remove'/);
 });
 
-test('capability projection refuses a configuration commit outside the reviewed plan', async () => {
+test('capability publish refuses a configuration commit outside the reviewed plan', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   const proposal = await mapCapability(org.platform, {
@@ -7335,7 +7385,7 @@ test('capability projection refuses a configuration commit outside the reviewed 
   const afterState = run('git', ['show-ref', '--hash', 'refs/heads/state'], {
     cwd: org.platform, allowFailure: true
   }).stdout.trim() || null;
-  assert.equal(afterState, beforeState, 'a stale plan cannot create or move the state projection');
+  assert.equal(afterState, beforeState, 'a stale plan cannot create or move the state branch');
 });
 
 test('local capability authoring never creates or moves governed state', async () => {
@@ -7345,7 +7395,7 @@ test('local capability authoring never creates or moves governed state', async (
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   await mergeProposal(org.platform, proposal);
-  await publishOrganisationCapabilityMap(org.platform);
+  await writeLegacyStateCopy(org.platform);
   const stateBefore = run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim();
   const checkout = path.join(org.base, 'local-authoring');
   run('git', ['clone', '-q', '--branch', 'sflow/config', org.platform, checkout], { cwd: org.base });

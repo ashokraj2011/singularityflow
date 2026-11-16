@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 47
+version: 48
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -226,15 +226,21 @@ is `singularity-flow product reviews`: the one pass per build, which a window an
 through one machine-local record, so it never runs twice or twice at once. Step by step, it is
 `workspace refresh-configuration --confirm-plan <PLAN-ID>`. A repository whose approved
 configuration differs only in the build its package baseline names has nothing to change, and is
-reported current. If the approved configuration or the state branch moves between the pass's
+reported current. If the approved configuration moves between the pass's
 preview and its apply, as when the installer's own refresh publishes the same build, the pass
 previews once more and applies that preview; a second move fails the pass, which is tried again an
 hour later. A confirmed `--confirm-plan` refresh still refuses a plan whose authority moved. A
 window waiting to reload onto a newer build changes nothing; the reloaded build does.
-`--review-only` remains for a person who wants a review instead: it proposes on a
-`sflow/config-refresh/*` review branch, named by the approved commit it starts from and the exact
-configuration it proposes, so every teammate on the same build joins one review. A review-only
-refresh never creates a first configuration authority.
+`--review-only` remains for a person who wants a review instead: it makes a package proposal,
+`sflow/config-change/package/upgrade-*`, named by the approved commit it starts from and the exact
+configuration it proposes, so every teammate on the same build joins one proposal. It is in
+`configuration proposals` and lands with `configuration approve`, like every other proposal; an
+approval refuses a package proposal from a build older than the one `sflow/config` records. A
+review-only refresh never creates a first configuration authority. To go back from a bad release,
+run `workspace refresh-configuration --rollback` from the older build: it proposes that build's
+configuration as `sflow/config-change/package/rollback-to-<date>-*`, says what it removes, and lowers
+the repository's minimum build once approved. Only a host that refuses the direct push leaves a
+`sflow/config-refresh/*` review branch, merged on the host.
 
 A terminal has no window to wait in, so a new build's first mutation starts the same pass as a
 background worker. `singularity-flow product status` says what it updated and removed. One pass runs
@@ -380,7 +386,7 @@ new Stories consume the upgraded approved authority. This is not test or release
 
 Choose **After install → Hard cutover: discontinue old Stories…** after selecting the workspace.
 This is a separate opt-in path, never an automatic fallback from a failed upgrade. Review the listed Story IDs and exact plan once. It upgrades configuration,
-publishes a retirement registry on `sflow/config` and its state mirror, then refreshes the local
+publishes a retirement registry on `sflow/config`, then refreshes the local
 authority pins.
 
 Retired Stories become read-only. Their source, artifacts, approvals, branches and commits are

@@ -679,6 +679,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // worktree list's branch, +1,922), its three worktree mutations (git.mjs +1,091), the missing Story checkout's route on
     // the folder-gone refusal (util.mjs +526) and a workspace reference's refusals moved out to workspace-relink.mjs, which
     // stays lazy (workspace-context.mjs +641) [2026-11-16]. No new eager file.
+    // 9,696,600 (measured 9,696,563): SPEC-SCF stages 3 and 4 on 9,688,981 (+7,582): registered Git queries for a
+    // removed member's history, a restore's sources and a clone's upload refs (git-query.mjs +4,869), the restore and
+    // "does not load" routes (configuration-branch.mjs +2,500), the authority check read for doctor and validate
+    // (approved-configuration-reader.mjs +860), ancestry proof v2 readers (workflow-snapshots.mjs +580, schema-migrations.mjs
+    // +272, test-command-amendment-contracts.mjs +231) and the --rollback and --adopt-without-ancestry flags (util.mjs,
+    // command-registry.mjs +51), less the capture moved out of the eager graph (skp-amendment-audit.mjs -1,781) [2026-11-16].
+    // No new eager file.
     assert.ok(closure.bytes <= 9_751_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1060,6 +1067,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,278,500 (measured 4,278,480): SPEC-SCF stage 5 (+5,103): `workspace repair`'s registered Git queries (git-query.mjs
   // +1,922) and worktree mutations (git.mjs +1,091), the folder-gone refusal's route (util.mjs +526) and one repository key
   // for a clone's origin with a workspace reference's ID first (workspace-context.mjs +641) [2026-11-16]. No new eager file.
+  // 4,277,750 (measured 4,277,717): SPEC-SCF stages 3 and 4 on 4,273,495 (+4,222): the registered Git queries
+  // (git-query.mjs +4,869), ancestry proof v2 readers (workflow-snapshots.mjs +580, schema-migrations.mjs +272,
+  // test-command-amendment-contracts.mjs +231) and two flags (+51), less skp-amendment-audit.mjs (-1,781) [2026-11-16].
   assert.ok(current.bytes <= 4_279_100, `session current loads ${current.bytes} source bytes`);
 });
 

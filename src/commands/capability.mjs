@@ -78,23 +78,20 @@ export async function load(context = {}) {
 }
 
 /** Remote-only activation does not need the legacy Story dispatcher or launch-repository catalog. */
+/** The checkout this command runs in, or null outside any: an approval reads its SF Guard policy there. */
+async function checkoutRoot() {
+  try { return (await import('../git.mjs')).repoRoot(); } catch { return null; }
+}
+
 async function runActivation(context) {
   const options = context.options ?? {};
   const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
   if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
   const branch = requirePositional(context.positionals ?? [], 2, 'capability proposal branch');
-  const { activateCapabilityProposal } = await loadOrganisation();
-  let result = await activateCapabilityProposal(leadUrl, branch, {
-    confirm: optionString(options, 'confirm'),
-    acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected')
-  });
-  try { await rememberLeadRepository(leadUrl); }
-  catch {
-    const warning = 'Capability activation completed, but this machine could not remember its capability-map repository.';
-    result = { ...result,
-      localCache: { remembered: false, code: 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED', warning },
-      warnings: [...(result.warnings ?? []), warning] };
-  }
+  // The same signed approval as `configuration approve <BRANCH>` [SCF:REQ-010], by its earlier name: its arguments,
+  // --acknowledge-unprotected among them, and its refusals are kept.
+  const result = await (await import('../configuration-proposal-routes.mjs')).activateDelegatedProposal(await checkoutRoot(), 'capability',
+    leadUrl, branch, { confirm: optionString(options, 'confirm'), acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected') });
   if (optionBoolean(options, 'json')) { console.log(JSON.stringify(result, null, 2)); return result; }
   if (!result.activated) {
     console.log(`Capability activation is ${result.status}.`);
@@ -111,13 +108,7 @@ async function runActivation(context) {
   console.log(result.alreadyMerged
     ? `${branch} was already merged into ${result.targetBranch}.`
     : `Merged ${branch} into ${result.targetBranch}.`);
-  if (result.projection?.published) {
-    console.log(`Published the capability projection to ${result.projection.branch}.`);
-  } else {
-    console.log(result.projection?.branch
-      ? `The ${result.projection.branch} capability projection is already current.`
-      : `Capability projection not published: ${result.projection?.reason}.`);
-  }
+  if (result.presence?.status === 'failed') console.log(`SF Guard: ${result.presence.message}.`);
   if (result.nextAction?.command) await printCommandRoutes(result.nextAction.command, {
     skill: result.nextAction.skill ?? null, label: 'Recovery'
   });
@@ -495,9 +486,6 @@ async function runOnboard(context) {
   } else {
     console.log(`  changed: ${result.changed ? 'yes' : 'no'}`);
     if (result.proposal?.reviewRequired) console.log(`  review branch: ${result.proposal.branch}`);
-    if (result.stateRefresh?.pending) {
-      console.log('  configuration is ready; state refresh is pending.');
-    }
   }
   for (const warning of result.localCleanupWarnings ?? []) console.log(`Warning: ${warning}`);
   // While a setup proposal awaits review, its inspection command is the Shell route.
@@ -529,7 +517,7 @@ async function runSetupProposalCommand(subcommand, context) {
   const options = context.options ?? {};
   const repository = await setupLead(options);
   const {
-    activateRepositoryOnboardingProposal, inspectRepositoryOnboardingProposal,
+    inspectRepositoryOnboardingProposal,
     listRepositoryOnboardingProposals
   } = await import('../repository-onboarding.mjs');
   if (subcommand === 'setup-proposals') {
@@ -556,9 +544,10 @@ async function runSetupProposalCommand(subcommand, context) {
     }
   );
   const branch = required(context.positionals, 2, '<SETUP-BRANCH>');
+  // setup-activate is the same signed approval as `configuration approve <BRANCH>` [SCF:REQ-010], by its earlier name.
   const result = subcommand === 'setup-proposal'
     ? await inspectRepositoryOnboardingProposal(repository, branch)
-    : await activateRepositoryOnboardingProposal(repository, branch, {
+    : await (await import('../configuration-proposal-routes.mjs')).activateDelegatedProposal(await checkoutRoot(), 'onboarding', repository, branch, {
       confirm: optionString(options, 'confirm'),
       acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected')
     });

@@ -299,7 +299,8 @@ process.exit(result.status == null ? 1 : result.status);
     const result = JSON.parse(completed.stdout);
     assert.equal(result.activated, true);
     assert.equal(result.journalWarning.code, 'SGOS_OPERATIONAL_STORE_LOCK_TIMEOUT');
-    assert.match(result.nextAction, /^singularity-flow configuration reconcile cft-/u);
+    // Approving the same proposal again finishes what was left (SCF:REQ-009).
+    assert.equal(result.nextAction, `singularity-flow configuration approve ${proposal.branch}`);
     assert.equal(readConfigurationState(remoteText(f, CONFIGURATION_STATE_PATH)).revision, 1);
     await rm(lock);
     const reconciled = await reconcileConfigurationTransaction(f.story, result.transactionId);

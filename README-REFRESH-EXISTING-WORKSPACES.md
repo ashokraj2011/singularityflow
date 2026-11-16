@@ -181,8 +181,8 @@ sflow/config-refresh/<approved-commit-8>-<configuration-tree-12>
 ```
 
 Review and merge that branch into `sflow/config` using the repository's normal controls, then rerun
-the same refresh. The rerun is idempotent: completed repositories become no-ops, unfinished
-configuration or state publication resumes, and the state mirror is verified.
+the same refresh. The rerun is idempotent: completed repositories become no-ops and unfinished
+configuration publication resumes. SFlow writes no configuration copy to the `state` branch.
 
 ## Verify the result
 
@@ -209,7 +209,7 @@ Settings of the removed registered World Model and architecture intent can remai
 | `CONFIGURATION_REFRESH_INVALID` | Preserved files and the refreshed workflow do not form a valid executable contract. | In VS Code choose **Repair missing or outdated agents**, review the selected packaged files, and preview again. The CLI equivalent is `--resolve .github/agents/<name>.agent.md=bundled`. |
 | `review-required` | Branch protection rejected direct `sflow/config` publication. | Merge the reported `sflow/config-refresh/*` branch through its printed link, then rerun. |
 | `blocked` (one repository) | That repository's kept edit no longer works with this build's files. The others went ahead. | Run the one command the output prints for it (`--repository ID --resolve PATH=bundled`). |
-| `partial` | At least one repository or state projection did not publish. | Correct the named repository failure and rerun; completed repositories are no-ops. |
+| `partial` | At least one repository did not publish. | Correct the named repository failure and rerun; completed repositories are no-ops. |
 | Remote read failure | Git cannot inspect the configuration authority. | Restore normal Git authentication, proxy, certificate, and repository access; do not disable TLS checks. |
 
 ## Installer behavior

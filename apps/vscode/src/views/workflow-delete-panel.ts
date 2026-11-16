@@ -28,7 +28,7 @@ export interface WorkflowDeleteRequest {
   label: string;
   /** Workflow labels by selector (`story:<id>`, `initiative:<id>`), for the names the plan lists. */
   labels: Record<string, string>;
-  /** Review and activate a proposal, as Workflow Studio does. */
+  /** Review and approve a proposal, as Workflow Studio does. */
   review(branch: string): Promise<unknown>;
 }
 

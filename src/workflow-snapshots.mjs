@@ -46,7 +46,8 @@ const MAXIMUM_SKILL_ASSETS = 8192;
 const MAXIMUM_SKILL_PACKAGES = 32;
 const MAXIMUM_V2_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAXIMUM_AMENDMENT_REVISIONS = 64;
-const MAXIMUM_AMENDMENT_DECISION_BYTES = 1024 * 1024;
+// A decision carries its configuration ancestry proof: a v2 proof alone may hold 1 MiB (SCF:REQ-020).
+const MAXIMUM_AMENDMENT_DECISION_BYTES = 2 * 1024 * 1024;
 const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const QUALIFIED_SHA256 = /^sha256:[a-f0-9]{64}$/;
 const AMENDMENT_ID = /^SAM-[0-9]{3,6}$/;
@@ -627,10 +628,16 @@ async function validateApproverRefreshDecision(config, workId, decision, { previ
         policySha256: next.policy.policySha256, configurationCommit: next.policy.configurationSource.commit })
       || next.reference.revision !== decision.to.revision) fail('Approver refresh decision differs from its exact accepted parent and refreshed policy.', 'WFA_AMENDMENT_INVALID');
   assertApproverRefreshScope(previous.policy, next.policy, decision);
+  // An approver may adopt a rewritten sflow/config without ancestry (D9); the proof then names that
+  // approver, who must be the one who recorded this refresh.
   verifySkillConfigurationAncestry(decision.configurationAncestry, {
     repository: previous.policy.configurationSource.repository,
     ancestorCommit: decision.from.configurationCommit, descendantCommit: decision.to.configurationCommit
-  });
+  }, { allowAdoption: true });
+  const adoption = decision.configurationAncestry?.adoptedWithoutAncestry;
+  if (adoption && adoption.confirmedBy !== decision.actor) {
+    fail('Approver refresh adopted its configuration without ancestry, confirmed by someone other than its approver.', 'WFA_AMENDMENT_INVALID');
+  }
 }
 
 export function assertTestCommandWorkflowScope(previous, proposed, phaseId, { replay = false, decision = null } = {}) {

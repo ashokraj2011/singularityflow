@@ -1786,12 +1786,9 @@ test('no CLI anywhere fails with both places named', () => {
   }
 });
 
-test('configuration recreation preview and apply use the remote transaction budget, not the two-minute UI timer', () => {
+test('finishing an interrupted configuration approval uses the remote transaction budget, not the two-minute UI timer', () => {
   const client = new SingularityFlowClient({ location: { executable: 'node', cli: '/cli.mjs', source: 'setting' }, repository: '/repo' });
-  assert.equal(client.timeoutFor(['configuration', 'recreate-sync', '--json']), 15 * 60_000);
-  assert.equal(client.timeoutFor(['configuration', 'recreate-sync', '--apply', '--json']), 15 * 60_000);
-  assert.equal(commandClass(['configuration', 'recreate-sync', '--json']), 'read');
-  assert.equal(commandClass(['configuration', 'recreate-sync', '--apply', '--json']), 'mutation');
+  assert.equal(client.timeoutFor(['configuration', 'reconcile', 'cft-1', '--json']), 15 * 60_000);
 });
 
 test('large remote operations and lifecycle submissions get operation-appropriate long timeouts', async () => {
@@ -3944,7 +3941,6 @@ const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, gitR
 const {
   parseRepositoryOnboardingPlan, parseRepositoryOnboardingResult,
   repositoryOnboardingApplyArgv, repositoryOnboardingCanContinue,
-  repositoryOnboardingCanDeferStateRefresh,
   repositoryOnboardingCommandFailureCopy, repositoryOnboardingFailureCode,
   repositoryOnboardingModeAvailable, repositoryOnboardingPlanMatchesInput,
   repositoryOnboardingPreviewArgv
@@ -4175,34 +4171,31 @@ test('repository setup renders one primary action and keeps recovery choices und
     'Continue confirms the locator registration effect before opening its map');
   assert.equal((locatorHtml.match(/data-repository-setup-primary=/g) ?? []).length, 1);
 
+  // A current configuration needs no state copy (SCF:REQ-003): Continue writes nothing.
   const pendingStateIndex = parseRepositoryOnboardingPlan({
     ...preview,
     status: 'ready', primaryAction: 'continue',
     state: { kind: 'none', branch: 'state', commit: null },
     configuration: { ...preview.configuration, commit: 'c'.repeat(40), status: 'current' },
-    effects: [{ kind: 'state-projection', target: 'state', action: 'refresh' }]
+    effects: []
   });
   assert.ok(pendingStateIndex);
-  assert.equal(repositoryOnboardingCanDeferStateRefresh(pendingStateIndex), true);
   const pendingStateHtml = mapCapabilityHtml({
     ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: pendingStateIndex
   });
   assert.match(pendingStateHtml, /data-repository-setup-primary="continueRepositorySetup"[^>]*>Continue</);
-  assert.doesNotMatch(pendingStateHtml, /What setup will change/,
-    'continuing past an optional state refresh does not claim that it will write');
-  assert.match(pendingStateHtml, /data-repository-setup-optional-apply>Refresh portable state index/);
-  assert.match(pendingStateHtml, /not required to describe the first capability/);
+  assert.doesNotMatch(pendingStateHtml, /What setup will change/, 'continuing writes nothing');
+  assert.doesNotMatch(pendingStateHtml, /portable state index/);
   assert.equal((pendingStateHtml.match(/data-repository-setup-primary=/g) ?? []).length, 1);
   assert.match(pendingStateHtml, /does not remove the approved configuration or capability map/);
   const mixedEffects = {
     ...pendingStateIndex,
-    effects: [...pendingStateIndex.effects, { kind: 'git-ref', target: 'sflow/config', action: 'restore' }]
+    effects: [{ kind: 'git-ref', target: 'sflow/config', action: 'restore' }]
   };
-  assert.equal(repositoryOnboardingCanDeferStateRefresh(mixedEffects), false,
-    'a new or authority-changing effect never becomes optional by accident');
   assert.match(mapCapabilityHtml({
     ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: mixedEffects
-  }), /data-repository-setup-primary="applyRepositorySetup"/);
+  }), /data-repository-setup-primary="applyRepositorySetup"/,
+  'an authority-changing effect is always confirmed');
 
   const inlineFailureHtml = mapCapabilityHtml({
     ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: pendingStateIndex,
@@ -4212,10 +4205,10 @@ test('repository setup renders one primary action and keeps recovery choices und
     /data-repository-setup-status="ready"[\s\S]*?<p class="blockers" role="alert">Capability map could not be read\.<\/p>/,
     'a failed continuation is visible beside Continue instead of only below the hidden mapping form');
 
-  assert.ok(parseRepositoryOnboardingResult({
+  assert.equal(parseRepositoryOnboardingResult({
     ...result,
     status: 'ready-state-refresh-pending'
-  }, preview.planId), 'a successful setup with a deferred state refresh remains a valid result');
+  }, preview.planId), null, 'there is no state copy to wait for, so that status is no longer part of the contract');
   const reviewResult = parseRepositoryOnboardingResult({
     ...result,
     status: 'configuration-review-required',
@@ -4268,13 +4261,6 @@ test('repository setup renders one primary action and keeps recovery choices und
   const localPendingResult = parseRepositoryOnboardingResult({
     ...result,
     status: 'local-registration-pending', primaryAction: 'retry',
-    stateRefresh: {
-      status: 'pending', pending: true,
-      retry: {
-        shell: `singularity-flow capability publish ${repositoryUrl} --json`,
-        copilot: '/sf-capability-map'
-      }
-    },
     localRegistration: {
       status: 'pending', remembered: false, target: repositoryUrl,
       code: 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED', reason: 'Local write failed.',
@@ -4291,8 +4277,7 @@ test('repository setup renders one primary action and keeps recovery choices und
     'an early local-registration outcome must not hide cleanup diagnostics carried by the result');
   assert.match(pendingHtml, /disposable snapshot cleanup is pending/);
   assert.match(pendingHtml, /Retry local registration/);
-  assert.match(pendingHtml, /portable state projection also remains pending/);
-  assert.match(pendingHtml, /Copy state-refresh retry/);
+  assert.doesNotMatch(pendingHtml, /state projection|state-refresh/);
   assert.doesNotMatch(pendingHtml, /data-repository-setup-primary="applyRepositorySetup"/);
   assert.ok(parseRepositoryOnboardingPlan({
     ...preview,
@@ -6985,9 +6970,8 @@ test('workspace reinitialization renders seeded configuration and keeps capabili
         }],
         results: [{
           status: 'would-update', repository: 'platform', remote: '/git/platform.git',
-          configurationChanged: true, stateChanged: true, stateStatus: 'would-follow-configuration',
+          configurationChanged: true,
           files: ['singularity/workflow.yml'],
-          removedStatePaths: ['configuration/files/retired.yml'],
           conflicts: [
             { path: 'workflow.ledger.enabled', resolution: 'preserved-local', local: true, bundled: false },
             {
@@ -7001,14 +6985,15 @@ test('workspace reinitialization renders seeded configuration and keeps capabili
   );
   assert.match(html, /Upgrade SFlow \/ migrate compatible schemas/);
   assert.match(html, /Re-creating repository configuration does not update the installed CLI/);
-  assert.match(html, /User-created or user-modified assets\s+remain repository-owned and unchanged/);
-  assert.match(html, /immutable history, world\s+models/);
+  assert.match(html, /Files your team made or changed stay as they are/);
+  assert.match(html, /writes nothing to the state branch/, 'a refresh writes no configuration copy (SCF:REQ-003)');
+  assert.match(html, /History, the world model, application branches and source stay untouched/);
   assert.match(html, /data-config-preview="selected"/);
   assert.match(html, /data-config-preview="all"/);
   assert.match(html, /Preserved repository-owned collisions/);
   assert.match(html, /Exact reviewed paths/);
   assert.match(html, /platform:singularity\/workflow\.yml/);
-  assert.match(html, /platform:configuration\/files\/retired\.yml/);
+  assert.doesNotMatch(html, /state projection/, 'a refresh writes no state copy (SCF:REQ-003)');
   assert.match(html, /Safe reinitialization never replaces or adopts these paths/);
   assert.match(html, /Keep repository/);
   assert.doesNotMatch(html, /data-configuration-resolution=/);
@@ -7979,7 +7964,7 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the Configuration Center exposes the dashboard directly');
 });
 
-test('configuration proposals stay visible in Workflow Studio and offer exact guarded activation', async () => {
+test('configuration proposals stay visible in Workflow Studio and offer exact guarded approval', async () => {
   const extension = await readFile(source('extension.ts'), 'utf8');
   const host = await readFile(source('views/workflow-studio.ts'), 'utf8');
   const { WORKFLOW_STUDIO_SCRIPT } = await import(source('views/workflow-studio-page.ts'));
@@ -7995,11 +7980,12 @@ test('configuration proposals stay visible in Workflow Studio and offer exact gu
   // Activation lives in one helper (bd45981e); the panel hands it the proposal it just showed.
   const save = await readFile(source('views/configuration-save.ts'), 'utf8');
   assert.match(extension, /activateReviewedWorkflowProposal<[^(]*>\(inspected,/);
-  assert.match(save, /\['workflow', 'activate', reviewed\.branch, '--confirm', reviewed\.proposalCommit\]/,
-    'activation binds the complete reviewed proposal commit');
-  assert.match(save, /if \(!await boundary\.acknowledge\(\)\) return null;\s*args\.push\('--acknowledge-unprotected'\);/,
-    'a direct unprotected merge requires a second explicit acknowledgement, asked before activation starts');
-  assert.match(extension, /const acknowledge = 'Acknowledge and merge';/);
+  // The signed person step, the same on every surface [SCF:REQ-010].
+  assert.match(save, /\['configuration', 'approve', reviewed\.branch, '--confirm', reviewed\.proposalCommit\]/,
+    'approval binds the complete reviewed proposal commit');
+  assert.match(save, /if \(!reviewed\.merged && !await boundary\.acknowledge\(reviewed\.selfApproval \?\? null\)\) return null;/,
+    'a direct unprotected update requires a second explicit acknowledgement, which names a self-approval, asked before approval starts');
+  assert.match(extension, /const acknowledge = 'Acknowledge and approve';/);
   assert.match(extension, /application branch(?:es)? (?:remains|stay) unchanged/i);
   assert.match(extension, /'singularityFlow\.openDesigner': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.openWorkflowStudio'\)/,
     'the retired Designer command opens Workflow Studio');

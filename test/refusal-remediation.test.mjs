@@ -8,17 +8,15 @@ import {
   refusalEnvelope, refusalRemediationPlan, renderRefusalPlan
 } from '../src/refusal-remediation.mjs';
 
-test('a stale workflow proposal exposes read-only recreation and the one-click menu, not blind activation', () => {
-  const plan = refusalRemediationPlan(Object.assign(new Error('Proposal conflict'), {
-    code: 'WORKFLOW_PROPOSAL_CONFLICT', details: { nextAction: {
-      label: 'Preview recreation; click Recreate & sync configuration in the main panel to apply.',
-      command: 'singularity-flow configuration recreate-sync --json'
+test('a field both a proposal and sflow/config changed routes to approving with a pick, never to a blind activation', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Both changed one field'), {
+    code: 'CONFIGURATION_ENTITY_CONFLICT', details: { nextAction: {
+      label: 'Approve with your pick for each field (proposal or current)',
+      command: "singularity-flow configuration approve sflow/config-change/workflow/x --confirm abc --pick 'singularity/workflow.yml#/a=<proposal|current>'"
     } }
-  }), ['workflow', 'proposal', 'activate']);
-  assert.equal(plan.steps[0].command, 'singularity-flow configuration recreate-sync --json');
-  assert.match(plan.steps[0].copilotCommand, /sf-configuration/u);
-  assert.match(plan.steps[0].label, /Recreate & sync/u);
-  assert.equal(plan.steps.some(step => step.command?.includes('--apply')), false);
+  }), ['workflow', 'activate']);
+  assert.match(plan.steps[0].command, /^singularity-flow configuration approve .* --pick /u);
+  assert.equal(plan.steps.some(step => /recreate-sync/u.test(step.command ?? '')), false);
 });
 import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.mjs';
 

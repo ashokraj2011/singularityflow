@@ -54,13 +54,13 @@ import {
 } from './bootstrap.mjs';
 import {
   appendLedgerIntent, createLedgerIntent, findLedgerEvents, initializeLedger,
-  prepareLedgerAppend, publishToStateBranch, recordStatePublication
+  prepareLedgerAppend, recordStatePublication
 } from './ledger.mjs';
 import {
   CONFIGURATION_BRANCH, STATE_CONFIGURATION_BRANCH, STATE_CONFIGURATION_FORMAT,
   STATE_CONFIGURATION_MANIFEST,
   canonicalConfigurationAssets, configurationAssetPaths, configurationBranchHead,
-  configurationAssetPolicyFromRef, configurationBranchMissingError, configurationTreeEntries,
+  configurationAssetPolicyFromRef, configurationBranchMissingError,
   ensureConfigurationBranch, isConfigurationAsset, loadStoryConfigurationSnapshot,
   legacyStateMirrorMatchesRepository, readConfigurationSource,
   stateConfigurationHistoryBranch,
@@ -70,7 +70,7 @@ import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { normalizeSourceRoots } from './source-scope.mjs';
 import { createAndPushTransportIntent, pendingPublicationNote } from './transport-intents.mjs';
 import {
-  assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,
+  assertCredentialFreeRemote, classifyGitRemoteFailure,
   frozenRemoteTransport, remoteFingerprint, redactDiagnosticText, safeGitDiagnosticReference,
   sanitizeRemote, frozenRemoteAuthority
 } from './git-remote-diagnostics.mjs';
@@ -1656,7 +1656,7 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
 
 function organisationObservationBranches(cached) {
   const branches = new Set([CONFIGURATION_BRANCH, 'state']);
-  for (const candidate of [cached?.organisation?.sourceBranch, cached?.organisation?.stateProjection?.branch]) {
+  for (const candidate of [cached?.organisation?.sourceBranch]) {
     if (typeof candidate === 'string' && isGitRefName(candidate)) branches.add(candidate);
   }
   return branches;
@@ -2286,20 +2286,6 @@ async function declareLeadRepository(root, url) {
   await writeFile(file, renderPreservingFormatting(text, document), 'utf8');
 }
 
-function configurationAssetsFromRef(root, ref = 'HEAD', { env = process.env } = {}) {
-  return configurationTreeEntries(root, ref, null, { env });
-}
-
-function configurationAssetsMatch(stateAssets, configuredAssets, configuredPaths) {
-  const statePaths = Object.keys(stateAssets ?? {}).sort();
-  if (JSON.stringify(statePaths) !== JSON.stringify([...configuredPaths].sort())) return false;
-  return statePaths.every((relative) => {
-    const state = stateAssets[relative];
-    const configured = configuredAssets.get(relative);
-    return configured && state.object === configured.object && state.mode === configured.mode;
-  });
-}
-
 async function loadCapabilityStateSnapshot(remote, branch, commit, { env = process.env } = {}) {
   const gitEnv = enterpriseGitEnvironment(env);
   if (branch === STATE_CONFIGURATION_BRANCH) {
@@ -2488,11 +2474,8 @@ export async function readOrganisation(url, {
   // selectors from redirecting the operation and avoids repeating system/global config probes.
   const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment();
   const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
-  // A current state projection is a separately moving remote ref. Include the cached projection
-  // source in the same bounded observation as sflow/config so an unchanged configuration tip can
-  // never make a later state publication look current forever.
-  const cachedSourceBranch = String(cached?.organisation?.sourceBranch ?? '').trim();
-  const cachedProjectionBranch = String(cached?.organisation?.stateProjection?.branch ?? '').trim();
+  // The conventional state branch is observed with sflow/config: when sflow/config is missing, its old copy says
+  // this repository lost its configuration (SCF:REQ-002), and a delivery repository's locator lives there.
   const observedBranches = organisationObservationBranches(cached);
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: [...observedBranches].map((name) => `refs/heads/${name}`)
@@ -2607,26 +2590,15 @@ export async function readOrganisation(url, {
     await writeOrganisationCache(remote, null, empty);
     return { ...empty, cached: false, stale: false, cacheAgeMs: 0, remoteError: null };
   }
-  // Older cache records predate complete state-mirror verification. Refresh them once instead of
-  // preserving a capability-only projection verdict indefinitely under an unchanged config tip.
-  const cachedSourceStillCurrent = !cachedSourceBranch
-    || cachedSourceBranch === CONFIGURATION_BRANCH
-    || (isGitRefName(cachedSourceBranch)
-      && configurationObservation.refs.get(`refs/heads/${cachedSourceBranch}`)
-        === cached?.organisation?.sourceCommit);
-  const cachedProjectionStillCurrent = isGitRefName(cachedProjectionBranch)
-    && cachedProjectionBranch !== CONFIGURATION_BRANCH
-    && (configurationObservation.refs.get(`refs/heads/${cachedProjectionBranch}`) ?? null)
-      === (cached?.organisation?.stateProjection?.commit ?? null);
-  if (!refresh && cached?.tipSha === tip.sha && cached.organisation?.stateProjection
-      && cachedSourceStillCurrent && cachedProjectionStillCurrent) {
+  // The map is read from sflow/config only; the state branch's old copy is never read as the organisation
+  // (SCF:REQ-001, REQ-003). A cache an older build wrote from that copy, or before the configuration binding was
+  // recorded, is refreshed once.
+  if (!refresh && cached?.tipSha === tip.sha
+      && cached.organisation?.configurationBranch === CONFIGURATION_BRANCH
+      && cached.organisation?.configurationCommit === tip.sha
+      && cached.organisation?.sourceBranch === CONFIGURATION_BRANCH) {
     return {
       ...cached.organisation,
-      // Older cache records did not expose the configuration authority separately from the state
-      // projection. The cache key is the freshly observed configuration tip, so it is safe to add
-      // that exact binding without cloning again.
-      configurationBranch: branch,
-      configurationCommit: tip.sha,
       cached: true,
       stale: false,
       cacheAgeMs: cacheAgeMs(cached),
@@ -2694,54 +2666,16 @@ export async function readOrganisation(url, {
     const configured = run('git', ['show', `HEAD:${CAPABILITIES_PATH}`], {
       cwd: readRoot, allowFailure: true, env: transport.env
     });
-    const workflow = run('git', ['show', `HEAD:${WORKFLOW_PATH}`], {
-      cwd: readRoot, allowFailure: true, env: transport.env
-    });
-    const stateBranch = workflow.status === 0
-      ? (YAML.parse(workflow.stdout)?.ledger?.branch ?? 'state')
-      : 'state';
-    const state = configured.status === 0
-      ? await capabilityMapFromState(remote, stateBranch, {
-        env: gitEnv,
-        session,
-        // The initial advertisement always includes the conventional state branch. A custom
-        // branch discovered from workflow.yml is observed separately because it was not known at
-        // the operation boundary.
-        observation: stateBranch === 'state' ? configurationObservation : null
-      }) : null;
-    const configuredAssets = configured.status === 0
-      ? configurationAssetsFromRef(readRoot, 'HEAD', { env: transport.env }) : new Map();
-    const configuredPaths = [...configuredAssets.keys()].sort();
-    // The state branch is a mirror, never a second authority. An interrupted projection may leave
-    // it behind `sflow/config`; in that case read the approved bytes rather than presenting stale
-    // mirror contents as fresh merely because the capability file happens to match.
-    const currentState = state && !state.invalid
-      && state.configurationCommit === configurationCommit
-      && state.text === configured.stdout
-      && configurationAssetsMatch(state.assets, configuredAssets, configuredPaths)
-      ? state : null;
-    const sameSourceButDifferentAssets = state && !state.invalid
-      && state.configurationCommit === configurationCommit && !currentState;
-    const stateProjection = currentState
-      ? { status: 'current', branch: currentState.branch, commit: currentState.commit, error: null }
-      : state?.invalid
-        ? { status: 'invalid', branch: state.branch, commit: state.commit, error: state.error }
-        : sameSourceButDifferentAssets
-          ? {
-              status: 'invalid', branch: state.branch, commit: state.commit,
-              error: `The state branch's configuration does not match the approved configuration on ${CONFIGURATION_BRANCH} it names: its asset set differs.`
-            }
-        : state
-          ? { status: 'stale', branch: state.branch, commit: state.commit, error: null }
-          : { status: 'missing', branch: stateBranch, commit: null, error: null };
-    const shown = currentState ?? (configured.status === 0
+    // The map is sflow/config's own bytes. SFlow no longer writes a copy to the state branch (SCF:REQ-003), so there is
+    // no copy to compare it with or to show instead.
+    const shown = configured.status === 0
       ? { text: configured.stdout, commit: configurationCommit, branch }
-      : null);
+      : null;
     if (!shown) {
       const empty = {
         url: remote, branch, configurationBranch: branch, configurationCommit,
         sourceBranch: null, sourceCommit: configurationCommit,
-        capabilities: [], repositories: {}, governed: false, stateProjection
+        capabilities: [], repositories: {}, governed: false
       };
       await writeOrganisationCache(remote, configurationCommit, empty);
       return { ...empty, cached: false, stale: false, cacheAgeMs: 0, remoteError: null };
@@ -2758,7 +2692,6 @@ export async function readOrganisation(url, {
       configurationCommit,
       sourceBranch: shown.branch,
       sourceCommit: shown.commit,
-      stateProjection,
       capabilities: capabilityTree(definition),
       capabilityMapMode: definition.version === 2
         ? definition.management?.mode ?? 'legacy-mixed' : 'legacy-mixed',
@@ -4588,197 +4521,8 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
     }, { remoteSession, authorityObservation: observations.get(leadKey), objectProjection: true });
 }
 
-/**
- * Put the capability map on the orphan state branch as well as the branch it was edited on.
- *
- * Two copies, deliberately. The branch copy is the one a person edits and reviews, and it is the
- * one a force-push or a rebase can rewrite. The state-branch copy has no shared ancestry with any
- * code branch, so it survives the history being rewritten underneath it — and it is readable from
- * the remote without a checkout, which is what the readiness probe and every organisation-level
- * read already do.
- *
- * Best effort on purpose. The map has already been written and pushed by the time this runs; a
- * repository with no state branch, or an unreachable remote, is a reason to say so and not a reason
- * to fail an edit that has already happened. The caller reports what came back.
- */
-/**
- * The complete bounded configuration mirror of the checked-out approved configuration commit.
- * The state branch is a whole approved-configuration mirror, not a second capabilities.yml slot:
- * publishing only the edited map invalidates its manifest and makes Story startup reject the state
- * authority, so the whole mirror is rebuilt from the reviewed configuration tip.
- */
-async function capabilityMapMirrorFiles(root, { env = process.env } = {}) {
-  const configurationCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
-  const configurationFiles = {};
-  const configurationHashes = {};
-  const configurationAssets = {};
-  const configurationPaths = await configurationAssetPaths(root);
-  const canonicalAssets = await canonicalConfigurationAssets(root, configurationPaths, { env });
-  for (const relative of configurationPaths) {
-    const asset = canonicalAssets.get(relative);
-    configurationFiles[relative] = asset.contents;
-    configurationHashes[relative] = asset.sha256;
-    configurationAssets[relative] = {
-      sha256: asset.sha256,
-      object: asset.object,
-      mode: asset.mode
-    };
-  }
-  return {
-    configurationCommit, configurationPaths, configurationFiles, configurationHashes,
-    configurationAssets
-  };
-}
-
-function capabilityMapMirrorSubject(root, ledger, repositoryRemote, { env = process.env } = {}) {
-  // Remote-first callers already froze the repository identity before creating this checkout.
-  // Do not re-read the clone's mutable remote config in that case: enterprise Git wrappers can
-  // legitimately be write-only/pass-through, and the reviewed caller value is the stronger proof.
-  const repositoryUrl = repositoryRemote == null
-    ? configuredRemoteIdentity(root, ledger.remote, { direction: 'fetch', env }).url
-    : assertCredentialFreeRemote(repositoryRemote);
-  const repositoryKey = repositoryUrl ? gitRepositoryComparisonKey(repositoryUrl) : null;
-  if (!repositoryKey) {
-    throw new SingularityFlowError(
-      'Capability state publication cannot bind its mirror to one repository identity.', {
-        code: 'STATE_CONFIGURATION_MIRROR_SUBJECT_UNAVAILABLE'
-      }
-    );
-  }
-  return repositoryKey;
-}
-
-/**
- * The files and removals that bring the state branch at `stateBase` (a local ref or commit, or
- * null for a first publication) to the given mirror.
- */
-function capabilityMapStateProjection(root, mirror, {
-  history, repositoryKey, stateBase, env = process.env
-}) {
-  const {
-    configurationCommit, configurationPaths, configurationHashes, configurationAssets
-  } = mirror;
-  const configurationFiles = { ...mirror.configurationFiles };
-  const manifest = {
-    format: STATE_CONFIGURATION_FORMAT,
-    layout: 'canonical-paths',
-    subject: {
-      repositoryIdentity: `sha256:${recordSha256({ repositoryKey })}`
-    },
-    source: { branch: CONFIGURATION_BRANCH, commit: configurationCommit },
-    ...(history ? { history } : {}),
-    files: Object.fromEntries(Object.entries(configurationHashes)
-      .sort(([left], [right]) => left.localeCompare(right))),
-    assets: Object.fromEntries(Object.entries(configurationAssets)
-      .sort(([left], [right]) => left.localeCompare(right)))
-  };
-  const trackedAssets = stateBase
-    ? [...configurationTreeEntries(root, stateBase, null, { env }).keys()]
-    : [];
-  // Metadata Git could not list used to be retained as if none were tracked, and an unreadable
-  // manifest silently dropped its product; the listing also says whether the manifest exists.
-  const trackedMetadata = stateBase ? organisationGitRead(root, env, [
-    'ls-tree', '-r', '-z', '--name-only', stateBase, '--', 'configuration'
-  ], `State configuration metadata at '${stateBase}'`).split('\0').filter(Boolean) : [];
-  const previousManifest = trackedMetadata.includes(STATE_CONFIGURATION_MANIFEST)
-    ? organisationGitRead(root, env, ['show', `${stateBase}:${STATE_CONFIGURATION_MANIFEST}`],
-      `State configuration manifest at '${stateBase}'`)
-    : null;
-  if (previousManifest != null) {
-    try {
-      const previousProduct = JSON.parse(previousManifest)?.product;
-      if (previousProduct) manifest.product = previousProduct;
-    } catch { /* A malformed prior mirror is replaced by the validated complete mirror below. */ }
-  }
-  configurationFiles[STATE_CONFIGURATION_MANIFEST] = `${JSON.stringify(manifest, null, 2)}\n`;
-  const desired = new Set(configurationPaths);
-  const removePaths = [
-    ...trackedAssets.filter((relative) => !desired.has(relative)),
-    ...trackedMetadata.filter((relative) => relative.startsWith('configuration/files/'))
-  ];
-  return { configurationCommit, configurationFiles, removePaths };
-}
-
-export async function publishCapabilityMap(root, {
-  message = 'Publish the capability map', env = process.env,
-  commitIdentity = null, commitSigning = null, allowConfigurationOnly = false,
-  repositoryRemote = null
-} = {}) {
-  const file = path.join(root, CAPABILITIES_PATH);
-  if (!existsSync(file) && !allowConfigurationOnly) return {
-    status: 'not-applicable', published: false, reason: 'there is no capability map to publish'
-  };
-  const definition = await loadDefinition(root).catch(() => null);
-  const ledger = definition?.ledger ?? null;
-  // `enabled: false` is a decision this repository made, not a fault: it says the state branch is
-  // not in use here, and publishing to a branch nobody reads would be noise.
-  if (!ledger?.enabled) return {
-    status: 'policy-disabled', published: false, reason: 'the state branch is not enabled here'
-  };
-  if (ledger.publication === 'off') return {
-    status: 'policy-disabled', published: false, reason: 'state publication is disabled'
-  };
-  try {
-    const mirror = await capabilityMapMirrorFiles(root, { env });
-    const { configurationCommit } = mirror;
-    // The mirror names its repository and retains no history ref [owner, 2026-11-16].
-    const history = null;
-    const repositoryKey = capabilityMapMirrorSubject(root, ledger, repositoryRemote, { env });
-    // Retire configuration paths removed by the reviewed commit without touching runtime roots.
-    const remoteRef = `refs/remotes/${ledger.remote}/${ledger.branch}`;
-    const stateFetch = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', '--force', '--', ledger.remote,
-      `+refs/heads/${ledger.branch}:${remoteRef}`
-    ], { cwd: root, operation: 'remote-configuration', env });
-    // A successful exact fetch is already the observation publishToStateBranch needs for its CAS.
-    // Bind the publication to that SHA and do not immediately fetch the same ref a second time. If
-    // the fetch failed (including an absent first state branch), retain the ordinary refresh/bootstrap
-    // path rather than trusting a stale local remote-tracking ref.
-    const observedStateSha = stateFetch.status === 0
-      ? organisationGitRead(root, env, ['rev-parse', '--verify', '--quiet', `${remoteRef}^{commit}`],
-        `Fetched ${remoteRef}`, { absentStatus: 1 }).trim()
-      : '';
-    const observedState = /^[0-9a-f]{40,64}$/.test(observedStateSha);
-    const { configurationFiles, removePaths } = capabilityMapStateProjection(root, mirror, {
-      history, repositoryKey, stateBase: observedState ? remoteRef : null, env
-    });
-    const result = await publishToStateBranch(
-      root, ledger, configurationFiles, message, {
-        replaceRoots: ['configuration'], removePaths,
-        guardedRemoteRefs: {
-          [`refs/heads/${CONFIGURATION_BRANCH}`]: configurationCommit
-        },
-        ...(observedState ? {
-          expectedRemoteSha: observedStateSha,
-          baseRef: remoteRef,
-          refreshRemote: false
-        } : {}),
-        env, commitIdentity, commitSigning
-      });
-    // Unchanged is not a failure and must not be reported as one: an edit that touched a field the
-    // branch already agreed with is the ordinary case, not a problem to explain.
-    if (!result.changed) return {
-      status: 'current', published: false, branch: result.branch,
-      reason: 'it is already current there'
-    };
-    return { status: 'updated', published: true, branch: result.branch, commit: result.commit };
-  } catch (error) {
-    return capabilityProjectionFailure(ledger, error);
-  }
-}
-
-/** A failed state projection: fatal when this repository requires publication, else reported. */
-function capabilityProjectionFailure(ledger, error) {
-  const diagnostic = safeGitDiagnosticReference({
-    status: error?.exitCode ?? 1, error
-  }, 'Capability state projection failed');
-  if (ledger.publication === 'required') {
-    throw new SingularityFlowError(diagnostic, {
-      code: error?.code ?? 'CAPABILITY_STATE_PROJECTION_FAILED'
-    });
-  }
-  return { status: 'failed', published: false, reason: diagnostic };
-}
+// SFlow no longer copies the approved configuration to the state branch (SCF:REQ-003): sflow/config alone is the
+// configuration, and the state branch keeps the ledger and its delivery locators.
 
 /**
  * Project the canonical lead locator into every delivery repository's state branch.
@@ -4811,8 +4555,7 @@ export async function publishOrganisationCapabilityAuthorityLinks(root, leadUrl,
   const entries = [...capabilitiesByRepository].flatMap(([repositoryId, capabilityIds]) => {
     const repository = portfolio[repositoryId];
     if (!repository?.url) return [];
-    // Self-hosted authorities are already discoverable through their own sflow/config branch, and
-    // publishCapabilityMap has just mirrored that configuration to the same state branch.
+    // Self-hosted authorities are already discoverable through their own sflow/config branch.
     if (assertCredentialFreeRemote(repository.url) === authorityRemote) return [];
     const primary = {
       authorityRemote,
@@ -4842,17 +4585,17 @@ export async function publishOrganisationCapabilityAuthorityLinks(root, leadUrl,
 }
 
 /**
- * Refresh the orphan capability projection from the reviewed configuration branch of a remote lead.
+ * Publish the delivery locators of a remote lead's approved capability map (`capability publish`).
  *
  * This is intentionally separate from map/edit. Those operations only propose a review branch;
- * publishing before merge would make unreviewed configuration visible as governed state.
+ * publishing before merge would make unreviewed configuration visible as governed state. The
+ * configuration itself is never copied to the state branch (SCF:REQ-003): sflow/config is read
+ * directly, so only each delivery repository's locator is written.
  */
 export async function publishOrganisationCapabilityMap(url, {
   expectedConfigurationCommit = null,
   initiatingRoot = process.cwd(),
-  initiatingEnv = process.env,
-  publishAuthorityLinks = true,
-  allowConfigurationOnly = false
+  initiatingEnv = process.env
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -4898,7 +4641,7 @@ export async function publishOrganisationCapabilityMap(url, {
   }
   if (expectedConfigurationCommit && configurationHead.sha !== expectedConfigurationCommit) {
     throw new SingularityFlowError(
-      `Capability configuration changed after the reviewed plan. No state projection or delivery locator was changed.`, {
+      `Capability configuration changed after the reviewed plan. No delivery locator was changed.`, {
         code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
         details: capabilityRecovery({
           stage: 'projection', state: 'configuration-plan-stale', remote, recoverable: true,
@@ -4906,7 +4649,7 @@ export async function publishOrganisationCapabilityMap(url, {
             command: 'singularity-flow workspace reinitialize --dry-run --json',
             skill: '/sf-workspace'
           },
-          preserved: ['approved-configuration', 'state-projections', 'application-branches']
+          preserved: ['approved-configuration', 'application-branches']
         })
       }
     );
@@ -4935,7 +4678,7 @@ export async function publishOrganisationCapabilityMap(url, {
     const plannedConfigurationCommit = expectedConfigurationCommit ?? configurationHead.sha;
     if (clonedConfigurationCommit !== plannedConfigurationCommit) {
       throw new SingularityFlowError(
-        'Capability configuration advanced while the reviewed projection was being prepared. No delivery locator was changed.', {
+        'Capability configuration advanced while its delivery locators were being prepared. No delivery locator was changed.', {
           code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
           details: capabilityRecovery({
             stage: 'projection', state: 'configuration-plan-stale', remote, recoverable: true,
@@ -4955,14 +4698,6 @@ export async function publishOrganisationCapabilityMap(url, {
     preflightGitCommitIdentity(scratch, frozenCommitIdentity, {
       env: transport.env, signing: commitSigning
     });
-    const state = await publishCapabilityMap(scratch, {
-      message: `Publish reviewed capability map from ${baseBranch}`,
-      env: transport.env,
-      commitIdentity: frozenCommitIdentity,
-      commitSigning,
-      allowConfigurationOnly,
-      repositoryRemote: remote
-    });
     const currentConfiguration = await session.observeAsync(remote, {
       includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`], refresh: true
     });
@@ -4970,7 +4705,7 @@ export async function publishOrganisationCapabilityMap(url, {
         || currentConfiguration.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`)
           !== plannedConfigurationCommit) {
       throw new SingularityFlowError(
-        'Capability configuration advanced while its state projection was being verified. Delivery locators were left unchanged.', {
+        'Capability configuration advanced while its delivery locators were being prepared. Delivery locators were left unchanged.', {
           code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
           details: capabilityRecovery({
             stage: 'projection', state: 'configuration-plan-stale', remote, recoverable: true,
@@ -4983,18 +4718,14 @@ export async function publishOrganisationCapabilityMap(url, {
         }
       );
     }
-    const portability = publishAuthorityLinks
-      ? await publishOrganisationCapabilityAuthorityLinks(
-        scratch, remote, {
-          env: transport.env,
-          commitIdentity: frozenCommitIdentity,
-          commitSigning
-        }
-      ) : {
-        status: 'deferred', published: false,
-        reason: 'delivery locator publication requires an explicit capability publish'
-      };
-    return { baseBranch, ...state, portability };
+    const portability = await publishOrganisationCapabilityAuthorityLinks(
+      scratch, remote, {
+        env: transport.env,
+        commitIdentity: frozenCommitIdentity,
+        commitSigning
+      }
+    );
+    return { baseBranch, configurationCommit: plannedConfigurationCommit, portability };
   } finally {
     await removeTemporaryTree(scratch);
   }
@@ -5563,25 +5294,6 @@ export async function capabilityFsck(url, {
           ? `Only a previously validated capability map is available; '${organisation.branch}' could not be refreshed.`
           : `Approved capability configuration is readable from '${organisation.branch}'.`,
         { branch: organisation.branch }
-      ));
-      const projection = organisation.stateProjection ?? {
-        status: organisation.sourceBranch !== CONFIGURATION_BRANCH ? 'current' : 'missing',
-        branch: organisation.sourceBranch, commit: organisation.sourceCommit, error: null
-      };
-      const projected = !organisation.stale && projection.status === 'current';
-      const invalidProjection = projection.status === 'invalid';
-      checks.push(capabilityFsckCheck(
-        'state-projection', projected ? 'pass' : invalidProjection ? 'fail' : 'warn',
-        projected
-          ? `The approved configuration mirror is current on '${projection.branch}'.`
-          : invalidProjection
-            ? `The state-branch configuration mirror is invalid: ${projection.error}`
-            : organisation.stale
-              ? 'The state-branch projection cannot be declared current while the configuration authority is unreachable.'
-              : 'The approved configuration is readable, but its state-branch mirror is absent or stale.',
-        projected ? { branch: projection.branch, commit: projection.commit } : {
-          remediation: capabilityCommand('publish', { remote })
-        }
       ));
     }
   } catch (error) {
@@ -6754,21 +6466,21 @@ export async function repairCapabilityProposal(url, branch, {
 }
 
 /**
- * Merge one exact reviewed proposal into the configuration authority, then refresh its projection.
+ * Merge one exact reviewed proposal into the configuration authority, then record its audit.
  *
  * This is an exact leased push: it can never replace an authority revision that was not reviewed.
  * A protected `sflow/config` branch refuses it and retains the proposal for repository PR controls.
  */
 /**
- * Publish an activation's audit and state projection in one atomic push.
+ * Publish an activation's audit entry and its pin in one atomic push.
  *
- * The sequential path publishes the ledger pin, the audit entry, the retained configuration history
- * and the state mirror as four pushes bracketed by six observations. Every commit here is built
- * locally first, by the same builders that path uses, and the refs move together under one exact
- * lease each. An atomic push is all-or-nothing, so any outcome other than a verified landing returns
- * null and the caller runs the ordinary sequential publication. That path is idempotent against a
- * landing whose acknowledgement was lost: the audit key finds the recorded entry, and an existing
- * pin, history ref or mirror is reused. Servers without atomic pushes also take that path.
+ * The sequential path publishes the ledger pin and the audit entry as separate pushes bracketed by
+ * observations. Every commit here is built locally first, by the same builder that path uses, and the
+ * refs move together under one exact lease each. An atomic push is all-or-nothing, so any outcome other
+ * than a verified landing returns null and the caller runs the ordinary sequential publication. That
+ * path is idempotent against a landing whose acknowledgement was lost: the audit key finds the
+ * recorded entry, and an existing pin is reused. Servers without atomic pushes also take that path.
+ * No configuration copy goes to the state branch (SCF:REQ-003).
  */
 async function publishActivationAtomically(root, {
   remote, env, definition, intent, targetCommit, configurationCommit,
@@ -6780,7 +6492,6 @@ async function publishActivationAtomically(root, {
   const configurationRef = `refs/heads/${CONFIGURATION_BRANCH}`;
   const stateRef = `refs/heads/${ledger.branch}`;
   let audit;
-  let projection;
   try {
     // This activation's recovery read refreshed the state tracking ref. It is the build base and
     // the exact lease; a newer remote tip only makes the push refuse.
@@ -6788,25 +6499,11 @@ async function publishActivationAtomically(root, {
       env, commitIdentity, commitSigning, initializeIfAbsent: true
     });
     if (!audit) return null;
-    const mirror = await capabilityMapMirrorFiles(root, { env });
-    if (mirror.configurationCommit !== configurationCommit) return null;
-    // The mirror names its repository and retains no history ref [owner, 2026-11-16].
-    const repositoryKey = capabilityMapMirrorSubject(root, ledger, remote, { env });
-    const { configurationFiles, removePaths } = capabilityMapStateProjection(root, mirror, {
-      history: null, repositoryKey, stateBase: audit.ledgerCommit, env
-    });
-    projection = await publishToStateBranch(
-      root, ledger, configurationFiles, `Publish reviewed capability map from ${CONFIGURATION_BRANCH}`, {
-        replaceRoots: ['configuration'], removePaths,
-        guardedRemoteRefs: { [configurationRef]: configurationCommit },
-        expectedRemoteSha: audit.expectedRemoteSha, baseRef: audit.ledgerCommit,
-        refreshRemote: false, deferPush: true, env, commitIdentity, commitSigning
-      });
   } catch {
     // Nothing was published. The sequential path reports any real problem with its own recovery.
     return null;
   }
-  const stateTip = projection.changed ? projection.commit : audit.ledgerCommit;
+  const stateTip = audit.ledgerCommit;
   const session = new GitRemoteSession({
     env, runAsyncCommand: (args, options) => runRemoteCommand(args, { ...options, cwd: root })
   });
@@ -6843,28 +6540,11 @@ async function publishActivationAtomically(root, {
   });
   if (!after.ok || updates.some(([ref, commit]) => after.refs.get(ref) !== commit)) return null;
   await recordStatePublication(root, ledger, stateTip, audit.expectedRemoteSha, { env });
-  const published = {
+  return {
     audit: Object.freeze({
       duplicate: false, eventId: audit.eventId, entryHash: audit.entryHash,
       sequence: audit.sequence, ledgerCommit: audit.ledgerCommit
     })
-  };
-  // As in the sequential projection, a configuration authority that moved during publication means
-  // the mirror must not be reported current.
-  if (after.refs.get(configurationRef) !== configurationCommit) {
-    return {
-      ...published,
-      projectionError: new SingularityFlowError(
-        `The state projection source authority '${configurationRef}' changed during state publication; the state update must not be reported current.`,
-        { code: 'state_branch.source_authority_changed' }
-      )
-    };
-  }
-  return {
-    ...published,
-    state: projection.changed
-      ? { status: 'updated', published: true, branch: ledger.branch, commit: stateTip }
-      : { status: 'current', published: false, branch: ledger.branch, reason: 'it is already current there' }
   };
 }
 
@@ -6873,7 +6553,10 @@ export async function activateCapabilityProposal(url, branch, {
   acknowledgeUnprotected = false,
   initiatingRoot = process.cwd(),
   initiatingEnv = process.env,
-  cleanupTemporaryTree = removeTemporaryTree
+  cleanupTemporaryTree = removeTemporaryTree,
+  // Who proposed it, read as for every other proposal (the author of its first own commit) by
+  // `configuration approve`; the tip's author when called on its own.
+  proposer: recordedProposer = undefined
 } = {}) {
   // The borrowed clone deliberately cannot see local/global author configuration. Freeze the
   // presentation identity before creating it; authorization is resolved separately below.
@@ -7465,7 +7148,9 @@ export async function activateCapabilityProposal(url, branch, {
         cwd: root, env
       }).stdout.trim();
       const targetCommit = acceptedAuditTarget ?? currentConfigurationCommit;
-      const proposer = commitIdentity(root, ref, { env });
+      const proposer = recordedProposer !== undefined
+        ? { name: recordedProposer?.name ?? null, email: recordedProposer?.email ?? null }
+        : commitIdentity(root, ref, { env });
       const intent = createLedgerIntent({
         eventId: recoveredActivation?.eventId ?? undefined,
         eventType: 'capability-configuration-activated',
@@ -7506,7 +7191,7 @@ export async function activateCapabilityProposal(url, branch, {
       // recomputed now (the approver, the acknowledgement, the policy commit) can differ, and the
       // ledger refuses a repeated operation whose payload changed.
       if (recoveredActivation?.recorded) Object.assign(intent, recoveredActivation.recorded);
-      // The audit entry, its pin, the retained history and the state mirror normally move in one
+      // The audit entry and its pin normally move in one
       // atomic push. Anything short of a verified landing continues with the sequential publication
       // below, which keeps its audit-first recovery contract.
       const atomicAttempt = await publishActivationAtomically(root, {
@@ -7574,36 +7259,10 @@ export async function activateCapabilityProposal(url, branch, {
           policyConfigurationCommit: currentConfigurationCommit
         }
       };
-      // The checkout already contains the exact approved configuration commit this activation just
-      // validated and (when necessary) pushed. Keep it alive through projection instead of deleting
-      // it and cloning the same authority again. Audit remains first: a projection failure therefore
-      // has the same recoverable "activation complete, projection pending" contract as before.
+      // Audit remains first. The configuration is not copied to the state branch (SCF:REQ-003): sflow/config is read
+      // directly. Only each delivery repository's locator follows, from the checkout this activation already holds;
+      // one that does not land waits for `capability publish` and holds nothing else back.
       try {
-        const projectState = async () => {
-          if (atomicPublication?.projectionError) {
-            return capabilityProjectionFailure(definition.ledger, atomicPublication.projectionError);
-          }
-          if (atomicPublication) return atomicPublication.state;
-          const projectionAuthority = await session.observeAsync(remote, {
-            includeHead: false,
-            refs: [`refs/heads/${CONFIGURATION_BRANCH}`],
-            refresh: true
-          });
-          requireRemoteObservation(projectionAuthority, 'configuration authority before projection');
-          const currentAuthority = projectionAuthority.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
-          if (currentAuthority !== currentConfigurationCommit) {
-            throw new SingularityFlowError(
-              `The approved configuration ${currentAuthority ? 'changed' : 'became unavailable'} before state projection. Re-publish the current authority instead of mirroring stale bytes.`,
-              { code: 'CAPABILITY_PROJECTION_AUTHORITY_MOVED', details: { expected: currentConfigurationCommit, current: currentAuthority ?? null } }
-            );
-          }
-          return publishCapabilityMap(root, {
-            message: `Publish reviewed capability map from ${CONFIGURATION_BRANCH}`,
-            env, commitIdentity: frozenCommitIdentity, commitSigning,
-            repositoryRemote: remote
-          });
-        };
-        const state = await projectState();
         const portability = await publishOrganisationCapabilityAuthorityLinks(
           root, remote, {
             env,
@@ -7611,14 +7270,11 @@ export async function activateCapabilityProposal(url, branch, {
             commitSigning
           }
         );
-        const projection = { baseBranch: CONFIGURATION_BRANCH, ...state };
-        const projectionPending = !projection.published && !projection.branch
-          && projection.reason !== 'state publication is disabled';
         const portabilityPending = portability.portable !== true;
-        const nextAction = projectionPending || portabilityPending
+        const nextAction = portabilityPending
           ? { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' }
           : null;
-        const proposalCleanup = projectionPending || portabilityPending
+        const proposalCleanup = portabilityPending
           ? { branch: proposalBranch, proposalCommit, status: 'retained',
               reason: 'activation-follow-up-pending' }
           : await cleanupActivatedConfigurationProposal(
@@ -7627,10 +7283,7 @@ export async function activateCapabilityProposal(url, branch, {
           );
         return {
           ...activated,
-          status: projectionPending ? 'activation-complete-projection-pending'
-            : portabilityPending ? 'activation-complete-portability-pending'
-            : projection.published || projection.branch ? 'activated' : 'activated-without-projection',
-          projection: projectionPending ? { ...projection, pending: true, nextAction } : projection,
+          status: portabilityPending ? 'activation-complete-portability-pending' : 'activated',
           portability,
           proposalCleanup,
           nextAction
@@ -7639,14 +7292,12 @@ export async function activateCapabilityProposal(url, branch, {
         const nextAction = { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' };
         return {
           ...activated,
-          status: 'activation-complete-projection-pending',
-          projection: {
-            published: false, pending: true,
-            code: error?.code ?? 'CAPABILITY_STATE_PROJECTION_FAILED',
-            reason: redactDiagnosticText(error?.message ?? String(error)),
-            nextAction
+          status: 'activation-complete-portability-pending',
+          portability: {
+            status: 'pending', portable: false, outcomes: [], failures: [],
+            code: error?.code ?? 'CAPABILITY_AUTHORITY_LINK_PUBLICATION_FAILED',
+            reason: redactDiagnosticText(error?.message ?? String(error))
           },
-          portability: { status: 'pending', portable: false, outcomes: [], failures: [] },
           proposalCleanup: { branch: proposalBranch, proposalCommit, status: 'retained',
             reason: 'activation-follow-up-pending' },
           nextAction

@@ -28,9 +28,9 @@ related:
   - inbox-and-review
   - sequence-gates
   - changing-requirements
-version: 24
+version: 26
 ---
-Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
+Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. `allowSelfApproval` governs configuration approvals too: with it off, a configuration proposal needs a person other than its author. First-use enrollment is a people proposal: where self-approval is allowed and an approved change never removed the person from those groups, they approve it themselves as they start their first Story, recorded as a self-approval; otherwise it waits for someone else, and a person a reviewed change removed is never added back by their own approval. Rejections require reasons — which become pinned context the next generation literally reads.
 
 ## Purpose and prerequisites
 
@@ -78,7 +78,7 @@ These commands can change repository or machine-local state: `approve`, `reject`
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
-- If a step's approval group is empty (or its only approver left), have people added through the configuration, then run `sflow story approvers refresh <WORK-ID> --reason TEXT` to preview and, with `--confirm`, in your own terminal, record it. Only added members reach a running Story.
+- If a step's approval group is empty (or its only approver left), have people added through the configuration, then run `sflow story approvers refresh <WORK-ID> --reason TEXT` to preview and, with `--confirm`, in your own terminal, record it. Only added members reach a running Story. The refresh proves today's `sflow/config` comes from the commit the Story started from, however many approvals ago. If `sflow/config` was rewritten outside SFlow, the preview says so and offers `--adopt-without-ancestry`: the approver adopts it in the same step, recorded as adopted without ancestry. That record, and a proof longer than 128 commits, use a newer format that builds from before this reader landed cannot read, so they are written only once the repository's minimum build (the build its last upgrade recorded) reads it; until then the preview names the upgrade.
 
 ## Related topics
 

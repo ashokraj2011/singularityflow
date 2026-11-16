@@ -616,7 +616,6 @@ export async function reinitializeWorkspaces({
         ...entry,
         status: 'stale-plan',
         configurationChanged: false,
-        stateChanged: false,
         error: reason
       })),
       configurationRefresh: preview,

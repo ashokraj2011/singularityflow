@@ -376,17 +376,6 @@ test('VS Code\'s configuration, capability and admin surfaces name branches, ste
   }
   check('VS Code setup proposal (loading)', visible(setupProposalHtml(null, proposal.remote, proposal.branch, commitOf('2b3c4d5e'), true, null, null)));
 
-  // Recreate & sync: every pending proposal, by branch, author and subject.
-  const { configurationSyncConfirmation } = await view('configuration-sync-model.ts');
-  const release = `sflow/config-change/workflow/release-${hexOf('6a7b8c9d', 8)}-${hexOf('1e2f3a4b', 12)}`;
-  const sync = configurationSyncConfirmation({ status: 'preview', baseCommit: commitOf('3c4d5e6f'), targetCommit: commitOf('3c4d5e6f'), targetBranch: 'sflow/config',
-    proposals: [{ branch: release, commit: commitOf('8d9e0f1a'), merged: false, author: 'Pat Example', summary: 'Add a release step', files: ['singularity/workflow.yml'] },
-      { branch: `sflow/config-change/workflow/docs-${hexOf('2c3d4e5f', 8)}`, commit: commitOf('5b6c7d8e'), merged: true }],
-    backupRefs: [], files: ['singularity/workflow.yml'], replacements: [{ branch: release, path: 'singularity/workflow.yml', pointer: '/' }],
-    confirmation: digestOf('9a8b7c6d') });
-  assert.match(sync.detail, /sflow\/config-change\/workflow\/release by Pat Example — Add a release step/u);
-  check('VS Code configuration sync', [sync.message, sync.compactDetail, sync.detail].join('\n'));
-
   // The native reviews of a Meta-tool activation and a local runner plan: what changes and runs, not the digests they bind.
   const { metaToolPlanReview } = await import('../apps/vscode/src/sgos-meta-tool-review-model.ts');
   check('VS Code Meta-tool review', metaToolPlanReview({ operation: 'meta-tool.activate', actorId: 'principal-123', expectedRevision: 7,

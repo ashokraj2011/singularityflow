@@ -144,7 +144,7 @@ test('capability mapping reviews and activates the exact proposal instead of sto
   assert.match(content, /capability proposal <REVIEW-BRANCH>.*--json/s);
   assert.match(content, /capability activate <REVIEW-BRANCH>.*--confirm <FULL-PROPOSAL-COMMIT> --json/s);
   assert.match(content, /--acknowledge-unprotected/);
-  assert.match(content, /`singularity-flow capability publish` repairs projection only/i);
+  assert.match(content, /`singularity-flow capability publish` repairs locators only/i);
   assert.match(content, /cancel-proposal <REVIEW-BRANCH>.*--confirm <FULL-COMMIT>.*--reason <REASON> --json/s);
   assert.match(content, /--supersede-branch <REVIEW-BRANCH> --supersede-commit <FULL-COMMIT>/);
   assert.match(content, /Deletion and creation must be atomic/);

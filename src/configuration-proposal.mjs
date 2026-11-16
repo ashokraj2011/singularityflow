@@ -27,6 +27,7 @@ import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
 import { configurationCommitIdentity, exactConfigurationProposalGitTree } from './git.mjs';
+import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
 import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {
@@ -43,13 +44,19 @@ import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { createAndPushTransportIntent, createTransportIntent, transportRetryAction } from './transport-intents.mjs';
 import { openConfigurationStateService, readConfigurationTransactionJournals } from './configuration-state-service.mjs';
 import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot, readConfigurationSnapshot,
-  hydrateConfigurationProposal, configurationStateAtRef } from './configuration-state-git.mjs';
-import { isConfigurationStatePath, configurationDigest } from './configuration-state-contract.mjs';
+  hydrateConfigurationProposal, configurationStateAtRef, planConfigurationLanding, selfApproval,
+  configurationApproveCommand, PACKAGE_BASELINE_PATH } from './configuration-state-git.mjs';
+import { isConfigurationStatePath, configurationDigest, configurationProposalKind, configurationProposerKey,
+  ENGINE_PROPOSAL_KINDS } from './configuration-state-contract.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { canonicalJson } from './records.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
+/** Where proposals of `kind` live: `sflow/config-change/<kind>/` [SCF:REQ-005]. */
+const proposalPrefix = (kind = 'workflow') => `sflow/config-change/${kind}/`;
+
+export { configurationProposerKey };
 
 function expectedAuthorityIdentity(value) {
   if (value == null) return null;
@@ -89,12 +96,20 @@ function authorityChanged(message, expected, actual) {
 
 // A local persistence failure after transport must not hide an observed shared commit. The
 // prepared operation is already durable; disclose the pending journal update and exact recovery.
-async function retainConfigurationOutcome(service, id, state, reason = null) {
+async function retainConfigurationOutcome(service, id, state, reason = null, branch = null) {
   try { await service.mark(id, state, reason); return null; }
   catch (error) {
-    return { code: error.code ?? 'CONFIGURATION_JOURNAL_WRITE_FAILED',
-      nextAction: `singularity-flow configuration reconcile ${id} --json` };
+    return { code: error.code ?? 'CONFIGURATION_JOURNAL_WRITE_FAILED', nextAction: finishApprovalCommand(branch, id) };
   }
+}
+
+/**
+ * The one route that finishes an approval an interruption left [SCF:REQ-009]: approving the same
+ * proposal again. With no branch known, the retained transaction is named instead.
+ */
+function finishApprovalCommand(branch, id) {
+  return branch ? `singularity-flow configuration approve ${quoted(branch, '<PROPOSAL-BRANCH>')}`
+    : `singularity-flow configuration reconcile ${id} --json`;
 }
 
 function configurationRepositoryHead(root, env = process.env) {
@@ -201,22 +216,32 @@ function workflowProposalCommand(action, branch, commit = null, acknowledge = fa
  * refuses an unmerged proposal without it; the person still types it, so the acknowledgement stays
  * theirs. A proposal reviewed with only `workflow proposal` used to end with no way forward.
  */
-export function workflowActivationRoute(branch, commit) {
+export function workflowActivationRoute(branch, commit, clashes = []) {
+  // A field both the proposal and sflow/config changed needs the approver's pick [SCF:REQ-007]. Approval is
+  // the person's signed step, the same on every surface [SCF:REQ-010].
+  const picks = clashes.map((clash) => ` --pick '${String(clash.key).replace(/'/gu, '')}=<proposal|current>'`).join('');
   return {
-    command: `singularity-flow workflow activate ${quoted(branch, '<PROPOSAL-BRANCH>')} --confirm ${quoted(commit, '<COMMIT-SHA>')} --acknowledge-unprotected`,
-    acknowledgement: `--acknowledge-unprotected says you accept that SFlow updates ${CONFIGURATION_BRANCH} itself. `
+    command: `singularity-flow configuration approve ${quoted(branch, '<PROPOSAL-BRANCH>')} --confirm ${quoted(commit, '<COMMIT-SHA>')}${picks}`,
+    acknowledgement: `Approving updates ${CONFIGURATION_BRANCH} with exactly this revision. `
       + `Where the server protects ${CONFIGURATION_BRANCH}, the update is refused, nothing changes, and the branch is merged through the repository's review instead.`,
-    vscode: 'Workflow Studio → Changes → Review and activate'
+    vscode: 'Workflow Studio → Changes → Review and approve'
   };
 }
 
+/** The approve command for one exact proposal revision [SCF:REQ-006]. */
+function approveCommand(branch, commit) {
+  return configurationApproveCommand(quoted(branch, '<PROPOSAL-BRANCH>'), quoted(commit, '<COMMIT-SHA>'));
+}
+
+/**
+ * A proposal branch this engine inspects, lists and approves: a workflow, people or package change
+ * beneath `sflow/config-change/<kind>/` [SCF:REQ-005].
+ */
 function workflowProposalBranch(value) {
   const branch = String(value ?? '').trim();
-  if (!branch.startsWith(REVIEW_PREFIX)
-      || !/^sflow\/config-change\/workflow\/[a-z0-9._/-]+$/.test(branch)
-      || branch.includes('..') || branch.includes('//') || branch.endsWith('/')) {
+  if (!configurationProposalKind(branch)) {
     throw new SingularityFlowError(
-      `Workflow proposal must be a branch beneath '${REVIEW_PREFIX}'.`,
+      `A configuration proposal must be a branch beneath ${ENGINE_PROPOSAL_KINDS.map((kind) => `'${proposalPrefix(kind)}'`).join(', ')}.`,
       { code: 'WORKFLOW_PROPOSAL_BRANCH_INVALID' }
     );
   }
@@ -254,7 +279,8 @@ function yamlAtRef(root, ref, relative, env) {
 }
 
 function workflowChanges(reader, base, proposal) {
-  const yaml = (commit, relative) => YAML.parse(reader.file(commit, relative)?.bytes.toString('utf8') ?? '{}') ?? {};
+  // A side that is not valid YAML (a sflow/config an outside edit broke) reads as empty, so its repair still shows.
+  const yaml = (commit, relative) => { try { return YAML.parse(reader.file(commit, relative)?.bytes.toString('utf8') ?? '{}') ?? {}; } catch { return {}; } };
   const baseDefinition = yaml(base, 'singularity/workflow.yml');
   const proposedDefinition = yaml(proposal, 'singularity/workflow.yml');
   const basePortfolio = yaml(base, 'singularity/portfolio.yml');
@@ -285,7 +311,7 @@ function workflowChanges(reader, base, proposal) {
  * a change to each workflow that runs them.
  */
 function repositoryTestsChange(reader, base, proposal) {
-  const tests = (commit) => (YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {}).tests;
+  const tests = (commit) => { try { return (YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {}).tests; } catch { return undefined; } };
   const [before, after] = [tests(base), tests(proposal)];
   if (stable(before ?? null) === stable(after ?? null)) return null;
   const ids = (list) => (Array.isArray(list) ? list.map((entry) => entry?.id).filter((id) => typeof id === 'string') : []);
@@ -307,12 +333,97 @@ function repositoryTestsChange(reader, base, proposal) {
  */
 function workflowReadinessFailure(reader, base, proposal) {
   const yaml = (commit) => YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {};
+  // A base that does not load (an outside edit broke it) grants nothing to compare against: the candidate is checked
+  // in full when it is approved [SCF:REQ-002].
+  let previous;
+  try { previous = yaml(base); validateDefinition(structuredClone(previous)); } catch { return null; }
   try {
-    assertWorkflowReadinessChanges(yaml(base), yaml(proposal));
+    assertWorkflowReadinessChanges(previous, yaml(proposal));
     return null;
   } catch (error) {
     return { code: error.code ?? 'WORKFLOW_PROPOSAL_INVALID', message: error.message, ...(error.details ? { details: error.details } : {}) };
   }
+}
+
+/**
+ * The approval policy `sflow/config` holds at `commit`: whether a proposal's own author may approve it
+ * [SCF:REQ-011, D4]. Read from the YAML even when the configuration does not load, so a broken sflow/config
+ * keeps its policy; a file that cannot be read at all keeps the team default.
+ */
+function approvalPolicyAt(reader, commit) {
+  let security;
+  try {
+    const definition = YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}', { maxAliasCount: 100 }) ?? {};
+    security = normalizeApprovalSecurity(definition.approvalSecurity ?? {});
+  } catch { security = normalizeApprovalSecurity({}); }
+  return { profile: security.profile, allowSelfApproval: security.allowSelfApproval };
+}
+
+/**
+ * Why a package proposal may not be approved over `sflow/config` now, or null: it came from a build older than the
+ * one the current package baseline records [SCF:REQ-015, D1]. Going back is its own proposal, labelled as a
+ * rollback, which names the build it goes back to (D8).
+ */
+function packageOrderFailure(reader, branch, targetCommit, proposalCommit) {
+  if (configurationProposalKind(branch) !== 'package' || /\/rollback-to-/u.test(branch)) return null;
+  const build = (commit) => {
+    try { return YAML.parse(reader.file(commit, PACKAGE_BASELINE_PATH)?.bytes.toString('utf8') ?? '')?.build ?? null; }
+    catch { return null; }
+  };
+  const current = build(targetCommit);
+  const proposed = build(proposalCommit);
+  if (!current?.builtAt || !proposed?.builtAt || current.commit === proposed.commit
+      || !(Date.parse(current.builtAt) > Date.parse(proposed.builtAt))) return null;
+  return { code: 'CONFIGURATION_BUILD_TOO_OLD',
+    message: `This package proposal came from a build from ${String(proposed.builtAt).slice(0, 10)}, older than the one ${CONFIGURATION_BRANCH} holds `
+      + `(${String(current.builtAt).slice(0, 10)}); approving it would go back. Going back is its own proposal, labelled as a rollback: `
+      + 'singularity-flow workspace refresh-configuration --rollback, run from that older build.' };
+}
+
+/**
+ * Each problem `workflow validate` finds in `ids`, read in `checkout` [finding ER-F7]: keyed by workflow and
+ * finding, so the problems a landing adds are the ones its candidate has and the current sflow/config had not.
+ */
+async function workflowProblems(checkout, ids) {
+  const problems = new Map();
+  if (!ids.length) return problems;
+  const { validateWorkflows } = await import('./workflow-validation.mjs');
+  for (const id of ids) {
+    let result;
+    try { result = await validateWorkflows(checkout, { workflow: id }); }
+    catch (error) { if (error?.code === 'WORKFLOW_UNKNOWN') continue; throw error; }
+    for (const workflow of result.workflows ?? []) {
+      for (const finding of (workflow.findings ?? []).filter((entry) => entry.severity === 'problem')) {
+        problems.set(`${workflow.id}\0${finding.id ?? finding.code ?? finding.title}`, { workflow: workflow.id, title: finding.title, code: finding.code ?? null });
+      }
+      if (workflow.obligations && workflow.obligations.startable === false && !(workflow.findings ?? []).some((entry) => entry.severity === 'problem')) {
+        problems.set(`${workflow.id}\0not-startable`, { workflow: workflow.id, title: workflow.reason ?? 'A Story cannot start it.', code: 'WORKFLOW_NOT_STARTABLE' });
+      }
+    }
+  }
+  return problems;
+}
+
+/**
+ * Who a landing adds to an approval group although an approved change removed them, when the approver is that
+ * person: they are never added back by their own approval [SCF:REQ-012, finding ER-F3].
+ */
+async function selfReadmissions(checkout, reviewed, files, reader, approver, env) {
+  const { addedApprovalMembers, listsMember, PEOPLE_FILES, removedApprovalMemberships } = await import('./configuration-people-history.mjs');
+  const peoplePaths = Object.values(PEOPLE_FILES);
+  if (![...files.keys()].some((relative) => peoplePaths.includes(relative))) return [];
+  const textOf = (file) => { try { return file?.bytes ? Buffer.from(file.bytes).toString('utf8') : null; } catch { return null; } };
+  const before = {}, after = {};
+  for (const relative of peoplePaths) {
+    before[relative] = textOf(reader.file(reviewed.targetCommit, relative));
+    after[relative] = files.has(relative) ? textOf(files.get(relative)) : before[relative];
+  }
+  const own = addedApprovalMembers(before, after).filter((entry) => listsMember([entry.member], approver, entry.scope));
+  if (!own.length) return [];
+  const groups = own.map(({ scope, id }) => ({ scope, id }));
+  const removal = removedApprovalMemberships(checkout, reviewed.targetCommit, approver, groups, { env });
+  // History that cannot be read decides nothing in the approver's favour.
+  return removal.status === 'known' ? removal.removed : groups;
 }
 
 function changedConfigurationFiles(root, base, proposal, env) {
@@ -320,53 +431,63 @@ function changedConfigurationFiles(root, base, proposal, env) {
 }
 
 async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
-  includeDiff = true, env = process.env, reader, binding
+  includeDiff = true, includeView = includeDiff, env = process.env, reader, binding, choices = null
 } = {}) {
   // These exact commits were resolved just once during hydration in the same owned checkout.
   // Never carry this binding across invocations or reuse it for the final remote push proof.
-  const { targetCommit, proposalCommit, proposalBase } = binding;
+  const { targetCommit, proposalCommit, proposalBase, mergeBase, merged, proposer } = binding;
   const createdSeconds = Number(run('git', ['show', '-s', '--format=%ct', proposalCommit], { cwd: root, env }).stdout.trim());
   const proposalCreatedAt = Number.isSafeInteger(createdSeconds) && createdSeconds > 0 && createdSeconds <= 8_640_000_000_000
     ? new Date(createdSeconds * 1000).toISOString() : null;
-  const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], {
-    cwd: root, env, allowFailure: true
-  });
-  if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
-    throw new SingularityFlowError(
-      `Workflow proposal '${branch}' does not share history with '${CONFIGURATION_BRANCH}'.`,
-      { code: 'WORKFLOW_PROPOSAL_HISTORY_INVALID' }
-    );
-  }
-  const mergeBase = mergeBaseResult.stdout.trim();
-  const merged = gitIsAncestor(root, ref, 'HEAD', { env });
-  const reviewBase = merged ? proposalBase : mergeBase;
+  // The change is everything from the proposal's merge base with sflow/config to its tip, however
+  // many commits it has and whether or not the Git host merged sflow/config into it [SCF:REQ-005].
+  // A merged proposal is shown against its tip's first parent, only to say what it changed.
+  const reviewBase = proposalBase;
   await reader.hydrate([reviewBase, proposalCommit].flatMap(commit => reader.inventory(commit,
     ['singularity/workflow.yml', 'singularity/portfolio.yml'])));
   const changed = changedConfigurationFiles(root, reviewBase, ref, env);
-  const invalidFiles = changed.names.filter((file) => !isConfigurationReadPath(file));
+  const invalidFiles = changed.names.filter((file) => !isConfigurationReadPath(file)
+    && !(file === PACKAGE_BASELINE_PATH && configurationProposalKind(branch) === 'package'));
   const diff = includeDiff && invalidFiles.length === 0
     ? run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
       cwd: root, env
     }).stdout
     : null;
-  const failure = merged ? null : workflowReadinessFailure(reader, reviewBase, proposalCommit);
-  const valid = changed.names.length > 0 && invalidFiles.length === 0 && failure === null;
+  const failure = merged ? null : workflowReadinessFailure(reader, reviewBase, proposalCommit)
+    ?? packageOrderFailure(reader, branch, targetCommit, proposalCommit);
+  // What approving it lands on sflow/config now, after any re-apply, and each field both sides
+  // changed differently, with both values [SCF:REQ-007, REQ-008].
+  const landing = merged || invalidFiles.length ? null : await planConfigurationLanding(reader,
+    { proposalBase, proposalCommit, targetCommit, branch }, { env, choices });
+  const invalid = [...invalidFiles, ...(landing?.invalid ?? []).filter((file) => !invalidFiles.includes(file))];
+  const valid = changed.names.length > 0 && invalid.length === 0 && failure === null;
+  const clashes = landing?.clashes ?? [];
   // Only a proposal a person could activate now names the way to do it.
-  const activation = valid && !merged ? workflowActivationRoute(branch, proposalCommit) : null;
+  const activation = valid && !merged ? workflowActivationRoute(branch, proposalCommit, clashes) : null;
   const repositoryTests = repositoryTestsChange(reader, reviewBase, proposalCommit);
-  return {
-    remote: sanitizeRemote(remote), branch, targetBranch: CONFIGURATION_BRANCH,
+  const record = {
+    remote: sanitizeRemote(remote), branch, kind: configurationProposalKind(branch), targetBranch: CONFIGURATION_BRANCH,
     targetCommit, proposalCommit, proposalBase, proposalCreatedAt, mergeBase, merged,
     valid,
+    // The five states a person sees [SCF:REQ-009]; an invalid proposal is still proposed, with its failure.
+    state: merged ? 'approved' : clashes.length ? 'needs-choice' : 'proposed',
+    ...(proposer ? { proposer } : {}),
+    // Whether its author may approve it: sflow/config's approvalSecurity, one policy for every approval [D4].
+    approvalPolicy: approvalPolicyAt(reader, targetCommit),
     ...(failure ? { failure } : {}),
     ...(activation ? { activation, nextAction: activation.command } : {}),
-    invalidFiles, changedFiles: changed.statuses,
+    invalidFiles: invalid, changedFiles: changed.statuses,
     workflows: workflowChanges(reader, reviewBase, proposalCommit),
     ...(repositoryTests ? { repositoryTests } : {}),
+    ...(landing ? { clashCount: clashes.length } : {}),
+    ...(landing && includeView ? { lands: { fields: landing.fields, clashes, picked: landing.decided, unused: landing.unused } } : {}),
     diff: diff == null ? null
       : diff.length > 200_000 ? `${diff.slice(0, 200_000)}\n… diff truncated …\n` : diff,
     diffDeferred: diff == null
   };
+  // The approve view as lines, the same on every surface [SCF:REQ-008].
+  if (includeView) record.viewLines = (await import('./configuration-approval-view.mjs')).proposalViewLines(record);
+  return record;
 }
 
 async function proposalRemote(root, session) {
@@ -468,13 +589,14 @@ export async function listWorkflowConfigurationProposals(root, {
   const remoteSession = session ?? new GitRemoteSession({ env: gitEnv });
   const remote = await proposalRemote(root, remoteSession);
   const authorityRef = `refs/heads/${CONFIGURATION_BRANCH}`;
-  const reviewPattern = `refs/heads/${REVIEW_PREFIX}*`;
+  // Every kind this engine approves, in one list [SCF:REQ-010].
+  const reviewPatterns = ENGINE_PROPOSAL_KINDS.map((kind) => `refs/heads/${proposalPrefix(kind)}*`);
   const advertised = await remoteSession.observeAsync(remote, {
-    refs: [authorityRef, reviewPattern], includeHead: false, refresh: true
+    refs: [authorityRef, ...reviewPatterns], includeHead: false, refresh: true
   });
   requireRemoteObservation(advertised, 'workflow proposal authority');
   const branches = [...advertised.refs]
-    .filter(([ref]) => ref.startsWith(`refs/heads/${REVIEW_PREFIX}`))
+    .filter(([ref]) => ENGINE_PROPOSAL_KINDS.some((kind) => ref.startsWith(`refs/heads/${proposalPrefix(kind)}`)))
     .map(([ref, proposalCommit]) => ({
       proposalCommit,
       branch: advertisedWorkflowProposalBranch(ref)
@@ -518,7 +640,7 @@ export async function listWorkflowConfigurationProposals(root, {
       if (cloned.status !== 0) throw new SingularityFlowError(cloned.failure?.advice ?? 'Workflow authority clone failed.');
       const fetched = await runRemoteGitAsync([
         'fetch', '--quiet', '--no-tags', '--filter=blob:none', '--', transport.remote,
-        `+refs/heads/${REVIEW_PREFIX}*:refs/remotes/origin/${REVIEW_PREFIX}*`
+        ...ENGINE_PROPOSAL_KINDS.map((kind) => `+refs/heads/${proposalPrefix(kind)}*:refs/remotes/origin/${proposalPrefix(kind)}*`)
       ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
       if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Workflow proposals could not be fetched.');
       readRoot = scratch;
@@ -565,12 +687,15 @@ export async function listWorkflowConfigurationProposals(root, {
   }
 }
 
-/** Exact commits, changed files, affected workflows, and diff for one review proposal. */
-export async function inspectWorkflowConfigurationProposal(root, branch) {
+/**
+ * Exact commits, changed files, affected workflows, diff, and what approving it lands now for one
+ * review proposal. `choices` are the approver's picks for fields both sides changed (SCF:REQ-007).
+ */
+export async function inspectWorkflowConfigurationProposal(root, branch, { choices = null } = {}) {
   return withWorkflowProposalCheckout(root, branch, (
     scratch, remote, proposalBranch, ref, transport
   ) => inspectWorkflowProposalCheckout(scratch, remote, proposalBranch, ref, {
-    env: transport.env, reader: transport.reader, binding: transport.binding
+    env: transport.env, reader: transport.reader, binding: transport.binding, choices
   }), { checkout: false });
 }
 
@@ -678,7 +803,7 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
  * requires a separate explicit acknowledgement.
  */
 export async function activateWorkflowConfigurationProposal(root, branch, {
-  confirm = null, acknowledgeUnprotected = false
+  confirm = null, acknowledgeUnprotected = false, choices = null
 } = {}) {
   try {
     return await withWorkflowProposalCheckout(root, branch, async (
@@ -688,7 +813,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       env: transport.env, includeDiff: false, reader: transport.reader, binding: transport.binding
     });
     if (String(confirm ?? '').trim() !== reviewed.proposalCommit) {
-      const nextAction = workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit);
+      const nextAction = approveCommand(proposalBranch, reviewed.proposalCommit);
       throw new SingularityFlowError(
         `Confirmation must be the exact workflow proposal commit '${reviewed.proposalCommit}'. Nothing was changed. Re-run: ${nextAction}`,
         { code: 'WORKFLOW_PROPOSAL_CONFIRMATION_MISMATCH', details: { nextAction } }
@@ -705,6 +830,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       );
     }
     let alreadyMerged = reviewed.merged;
+    let approver = null;
     const stateService = await openConfigurationStateService(root, remote);
     let prepared = null;
     let journalWarning = null;
@@ -717,25 +843,67 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
     };
     if (!alreadyMerged) {
       if (!acknowledgeUnprotected) {
-        const nextAction = workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit, true);
+        const nextAction = approveCommand(proposalBranch, reviewed.proposalCommit);
         throw new SingularityFlowError(
-          `Git cannot prove whether '${CONFIGURATION_BRANCH}' is protected without attempting the real update. Nothing was changed. Review externally, or explicitly acknowledge a direct-push attempt. Re-run: ${nextAction}`,
+          `Git cannot prove whether '${CONFIGURATION_BRANCH}' is protected without attempting the real update. Nothing was changed. Approve it as a person: ${nextAction}`,
           { code: 'WORKFLOW_CONFIGURATION_UNPROTECTED', details: { nextAction } }
         );
       }
-      const actor = configurationCommitIdentity(root, { env: transport.identityEnv });
+      approver = configurationCommitIdentity(root, { env: transport.identityEnv });
+      // One policy for every approval [SCF:REQ-011, D4]: with approvalSecurity.allowSelfApproval false, a
+      // configuration change needs a person other than its author.
+      if (selfApproval(reviewed.proposer, approver) && reviewed.approvalPolicy?.allowSelfApproval === false) {
+        throw new SingularityFlowError(
+          `You proposed ${proposalBranch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was changed.`,
+          { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED', details: { proposer: reviewed.proposer ?? null,
+            nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
+        );
+      }
+      const actor = approver;
+      // What `workflow validate` finds in each workflow this changes, before and after [finding ER-F7].
+      const changedWorkflows = (reviewed.workflows ?? []).filter((row) => row.governs === 'story' && row.change !== 'removed').map((row) => row.id);
+      const problemsBefore = await workflowProblems(scratch, changedWorkflows).catch(() => null);
       prepared = await measureCommandSpan('proposal.prepare', () => prepareConfigurationStateTransaction(scratch, transport.remote, reviewed, {
         env: transport.env, runRemoteCommand: runRemoteGitAsync, actor: { name: actor.name, email: actor.email },
-        proposalId: stateService.identity(proposalBranch), objectReader: transport.reader
+        proposalId: stateService.identity(proposalBranch), objectReader: transport.reader, choices
       }));
-      await stateService.prepare(prepared.transaction, prepared.targetCommit);
+      const readmitted = await selfReadmissions(scratch, reviewed, prepared.files, transport.reader, approver, transport.env);
+      if (readmitted.length) {
+        throw new SingularityFlowError(
+          `This approval would add you back to ${readmitted.map((group) => group.id).join(', ')}, which an approved change removed you from. `
+          + 'Someone else must approve it; nothing was changed.',
+          { code: 'CONFIGURATION_SELF_READMISSION_REFUSED', details: { groups: readmitted,
+            nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
+        );
+      }
+      if (problemsBefore) {
+        const after = await workflowProblems(scratch, changedWorkflows);
+        const added = [...after].filter(([key]) => !problemsBefore.has(key)).map(([, value]) => value);
+        if (added.length) {
+          const named = [...new Set(added.map((entry) => entry.workflow))];
+          // The fix is made in the proposal, not in sflow/config: its proposer withdraws it (their drafts come back to
+          // fix), or anyone else rejects it with the problems as the reason; the fixed change is proposed again.
+          const own = selfApproval(reviewed.proposer, approver);
+          const why = `workflow validate reports ${added.length === 1 ? 'a problem' : 'problems'} in ${named.join(', ')}`;
+          throw new SingularityFlowError(
+            `Approving ${proposalBranch} would give ${named.join(', ')} ${added.length === 1 ? 'a problem' : `${added.length} problems`} \`workflow validate\` reports: `
+            + `${added.map((entry) => `${entry.workflow}: ${entry.title}`).join('; ')}. Nothing was changed. `
+            + (own ? 'Withdraw it: your drafts come back to fix, then propose them again.' : 'Reject it with that reason: its proposer fixes it and proposes it again.'),
+            { code: 'WORKFLOW_PROPOSAL_PROBLEMS', details: { problems: added, nextAction: {
+              label: own ? 'Withdraw it, fix your drafts, then propose again' : 'Reject it, so its proposer fixes it',
+              command: `singularity-flow configuration reject ${proposalBranch} --confirm ${reviewed.proposalCommit} --reason "${why}"` } } }
+          );
+        }
+      }
+      if (prepared.receipt) await stateService.prepare(prepared.transaction, prepared.targetCommit);
     }
 
     // Validate the complete transaction, including agents and routing, before a ref can
-    // move. This is the same read-only validator used by Configuration Center.
-    const baselineDefinition = validateDefinition(
-      yamlAtRef(scratch, reviewed.targetCommit, 'singularity/workflow.yml', transport.env)
-    );
+    // move. This is the same read-only validator used by Configuration Center. A current
+    // sflow/config that does not load is repaired like any other (SCF:REQ-002): it relaxes nothing.
+    let baselineDefinition = null;
+    try { baselineDefinition = validateDefinition(yamlAtRef(scratch, reviewed.targetCommit, 'singularity/workflow.yml', transport.env)); }
+    catch { baselineDefinition = null; }
     await measureCommandSpan('proposal.validate', () => import('./editor.mjs').then(({ validateEditorConfiguration }) =>
       validateEditorConfiguration(scratch, { baselineDefinition })));
     const targetCommit = configurationRepositoryHead(scratch, transport.env);
@@ -793,8 +961,8 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         protection = reviewRequired
           ? { enforced: true, detail: 'the real exact update was refused by repository review controls' }
           : { enforced: null, detail: 'the real exact update failed without review-control evidence' };
-        journalWarning = await retainConfigurationOutcome(stateService, prepared.transaction.id,
-          remoteOutcomeKnown ? 'activation-pending' : 'outcome-unknown', failure.code ?? 'REMOTE_PUSH_FAILED');
+        journalWarning = prepared.receipt ? await retainConfigurationOutcome(stateService, prepared.transaction.id,
+          remoteOutcomeKnown ? 'activation-pending' : 'outcome-unknown', failure.code ?? 'REMOTE_PUSH_FAILED', proposalBranch) : null;
         return {
           status: reviewRequired ? 'review-required' : 'activation-pending', activated: false,
           remote: sanitizeRemote(remote), branch: proposalBranch,
@@ -822,10 +990,8 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
             action: 'merge-proposal', sourceBranch: proposalBranch,
             targetBranch: CONFIGURATION_BRANCH, proposalCommit: reviewed.proposalCommit
           } : null,
-          recoveryCommand: `singularity-flow configuration reconcile ${prepared.transaction.id} --json`,
-          nextAction: workflowProposalCommand(
-            'activate', proposalBranch, reviewed.proposalCommit, !reviewRequired
-          )
+          recoveryCommand: finishApprovalCommand(proposalBranch, prepared.transaction.id),
+          nextAction: approveCommand(proposalBranch, reviewed.proposalCommit)
         };
       }
       if (!mergeEvidence) {
@@ -835,18 +1001,24 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
           detail: 'the real exact leased update was accepted for this actor'
         };
       }
-      journalWarning = await retainConfigurationOutcome(stateService, prepared.transaction.id, 'committed');
+      journalWarning = prepared.receipt ? await retainConfigurationOutcome(stateService, prepared.transaction.id, 'committed', null, proposalBranch) : null;
     }
     const proposalCleanup = await cleanupActivatedConfigurationProposal(
       remote, proposalBranch, reviewed.proposalCommit, targetCommit,
       { proofRoot: scratch, env: transport.env, remoteSession: transport.session }
     );
     let referenceSync = null;
+    let finished = null;
     if (prepared) {
       try { referenceSync = await syncConfigurationReferences(root, remote, targetCommit); }
       catch (error) { referenceSync = { status: 'attention', results: [], reason: error.code ?? 'CONFIGURATION_REFERENCE_SYNC_FAILED' }; }
-      journalWarning = await retainConfigurationOutcome(stateService, prepared.transaction.id,
-        referenceSync.status === 'complete' ? 'synced' : 'sync-pending');
+      journalWarning = prepared.receipt ? await retainConfigurationOutcome(stateService, prepared.transaction.id,
+        referenceSync.status === 'complete' ? 'synced' : 'sync-pending', null, proposalBranch) : null;
+    } else {
+      // Approved already: running approve again finishes whatever an interruption left on this machine [SCF:REQ-009].
+      finished = await finishInterruptedApproval(root, proposalBranch, { proposalCommit: reviewed.proposalCommit });
+      referenceSync = finished?.referenceSync ?? null;
+      journalWarning = finished?.journalWarning ?? null;
     }
     return {
       status: 'activated', activated: true, alreadyMerged,
@@ -856,10 +1028,13 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       mergeEvidence, protection, proposalCleanup,
       transactionId: prepared?.transaction.id ?? null, proposalId: stateService.identity(proposalBranch),
       activationMethod: prepared ? 'semantic-transaction' : 'retained-history',
-      referenceSync, journalWarning,
+      // Who proposed and who approved, as the approval commit records them [SCF:REQ-018].
+      ...(prepared ? { approval: { proposer: reviewed.proposer ?? null, approver: { name: approver.name, email: approver.email },
+        selfApproved: prepared.selfApproved, picked: prepared.decided } } : {}),
+      referenceSync, journalWarning, ...(finished ? { finished: finished.status } : {}),
       nextAction: journalWarning?.nextAction ?? (prepared && referenceSync?.status !== 'complete'
-        ? `singularity-flow configuration reconcile ${prepared.transaction.id} --json`
-        : 'singularity-flow workspace refresh-configuration')
+        ? finishApprovalCommand(proposalBranch, prepared.receipt ? prepared.transaction.id : null)
+        : finished?.nextAction ?? 'singularity-flow workspace refresh-configuration')
     };
     });
   } catch (error) {
@@ -871,6 +1046,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
     try { status = await configurationProposalCommitStatus(root, branch, confirm); }
     catch { throw error; }
     if (!status.merged || status.branchStatus !== 'absent') throw error;
+    const finished = await finishInterruptedApproval(root, branch, { proposalCommit: status.proposalCommit });
     return {
       status: 'activated', activated: true, alreadyMerged: true,
       remote: status.remote, branch: status.branch, proposalCommit: status.proposalCommit,
@@ -880,11 +1056,91 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       proposalCleanup: { branch: status.branch, proposalCommit: status.proposalCommit,
         status: 'already-absent' },
       transactionId: status.transaction?.id ?? null,
-      nextAction: status.transaction
-        ? `singularity-flow configuration reconcile ${status.transaction.id} --json`
-        : 'singularity-flow workspace refresh-configuration'
+      ...(finished ? { finished: finished.status, referenceSync: finished.referenceSync ?? null, journalWarning: finished.journalWarning ?? null } : {}),
+      nextAction: finished?.nextAction ?? 'singularity-flow workspace refresh-configuration'
     };
   }
+}
+
+/**
+ * Finish what an interrupted approval of `branch` left on this machine [SCF:REQ-009]: each retained
+ * transaction for it that is not yet synced is reconciled (proposal cleanup, reference sync, journal),
+ * which never repeats a push. Null when nothing is left unfinished, or nothing could be finished here.
+ */
+export async function finishInterruptedApproval(root, branch, { proposalCommit = null } = {}) {
+  let journals;
+  try { journals = await readConfigurationTransactionJournals(root); } catch { return null; }
+  const open = journals.transactions.filter(entry => entry.transaction?.branch === branch
+    && (!proposalCommit || entry.transaction.proposalRevision === proposalCommit)
+    && !['synced', 'superseded'].includes(entry.state));
+  let finished = null;
+  for (const entry of open) {
+    let result;
+    try { result = await reconcileConfigurationTransaction(root, entry.transaction.id); }
+    catch (error) { if (error?.code === 'CONFIGURATION_TRANSACTION_UNKNOWN') continue; throw error; }
+    if (!finished || (result.activated && !finished.activated)) finished = result;
+  }
+  return finished;
+}
+
+/**
+ * Remove a rejected or withdrawn proposal's branch [SCF:REQ-009], with a lease on the exact revision
+ * the person rejected: a proposal that moved since is refused, never removed with a revision nobody saw.
+ * Returns `{ status: 'removed' | 'already-absent', branch, proposalCommit }`.
+ */
+export async function removeRejectedConfigurationProposal(root, requestedBranch, { confirm, env = process.env, session = null } = {}) {
+  const branch = workflowProposalBranch(requestedBranch);
+  const remoteSession = session ?? new GitRemoteSession({ env: enterpriseGitEnvironment(env) });
+  const remote = await proposalRemote(root, remoteSession);
+  return removeProposalBranch(remote, branch, { confirm, cwd: root, env, session: remoteSession });
+}
+
+/**
+ * Remove one proposal branch of any kind on `remote` (`sflow/config-change/<kind>/*`), with a lease on the exact
+ * revision the person was shown: a proposal that moved since is refused, never removed with a revision nobody saw.
+ * Returns `{ status: 'removed' | 'already-absent', branch, proposalCommit }`.
+ */
+export async function removeProposalBranch(remote, requestedBranch, { confirm, cwd = process.cwd(), env = process.env, session = null } = {}) {
+  const branch = String(requestedBranch ?? '').trim();
+  if (!/^sflow\/config-change\/(?:workflow|capability|onboarding|people|package)\/[a-z0-9._/-]+$/u.test(branch)
+      || branch.includes('..') || branch.includes('//') || branch.endsWith('/')) {
+    throw new SingularityFlowError(`A configuration proposal must be a branch beneath 'sflow/config-change/<kind>/'.`, {
+      code: 'WORKFLOW_PROPOSAL_BRANCH_INVALID', details: { nextAction: { command: 'singularity-flow configuration proposals', label: 'See the proposals' } }
+    });
+  }
+  const proposalCommit = String(confirm ?? '').trim();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(proposalCommit)) {
+    throw new SingularityFlowError('Rejecting a proposal names the exact revision that was shown.', {
+      code: 'CONFIGURATION_PROPOSAL_COMMIT_INVALID', details: { nextAction: `singularity-flow configuration reject ${quoted(branch, '<PROPOSAL>')}` }
+    });
+  }
+  const gitEnv = enterpriseGitEnvironment(env);
+  const remoteSession = session ?? new GitRemoteSession({ env: gitEnv });
+  const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
+  const ref = `refs/heads/${branch}`;
+  const observe = async () => {
+    remoteSession.invalidate?.(remote);
+    const observed = await remoteSession.observeAsync(remote, { refs: [ref], includeHead: false, refresh: true });
+    requireRemoteObservation(observed, `configuration proposal '${branch}'`);
+    return observed.refs.get(ref) ?? null;
+  };
+  const before = await observe();
+  if (before == null) return { status: 'already-absent', branch, proposalCommit };
+  if (before !== proposalCommit) {
+    throw new SingularityFlowError(`Proposal ${branch} changed after you were shown it, so it was not rejected. Look at it again: singularity-flow configuration reject ${branch}`, {
+      code: 'CONFIGURATION_APPROVE_PROPOSAL_MOVED', details: { nextAction: `singularity-flow configuration reject ${quoted(branch, '<PROPOSAL>')}`, shown: before }
+    });
+  }
+  const pushed = await runRemoteGitAsync(['push', '--porcelain', `--force-with-lease=${ref}:${proposalCommit}`, '--', transport.remote, `:${ref}`],
+    { cwd, operation: 'remote-push', env: transport.env });
+  // An exit status is not proof either way: read the branch again.
+  const after = await observe();
+  if (after == null) return { status: 'removed', branch, proposalCommit };
+  const failure = pushed.failure ?? classifyGitRemoteFailure(pushed);
+  throw new SingularityFlowError(`Proposal ${branch} could not be removed from the remote: ${failure.advice ?? 'the push was refused'}. Its rejection stands; remove the branch on your Git host.`, {
+    code: after === proposalCommit ? 'CONFIGURATION_REJECT_BRANCH_KEPT' : 'CONFIGURATION_APPROVE_PROPOSAL_MOVED',
+    details: { branch, diagnostic: gitFailureDiagnostic(pushed), nextAction: `singularity-flow configuration reject ${quoted(branch, '<PROPOSAL>')}` }
+  });
 }
 
 /** Reconcile an exact retained transaction; this never re-executes an unconfirmed push. */
@@ -905,14 +1161,14 @@ export async function reconcileConfigurationTransaction(root, id) {
       && ['prepared', 'outcome-unknown', 'activation-pending', 'superseded'].includes(record.state)
       && installed.proposalId === binding.proposalId && installed.expectedAuthorityCommit === binding.expectedAuthorityCommit
       && configurationDigest(installed.changes) === configurationDigest(binding.changes)) {
-    const journalWarning = await retainConfigurationOutcome(service, id, 'superseded', `superseded-by:${installed.id}`);
+    const journalWarning = await retainConfigurationOutcome(service, id, 'superseded', `superseded-by:${installed.id}`, binding.branch);
     return { status: journalWarning ? 'sync-pending' : 'superseded', transactionId: id, activated: false, proposalInstalled: true,
       installedTransactionId: installed.id, targetCommit: observed.targetCommit, journalWarning,
       nextAction: journalWarning?.nextAction ?? 'singularity-flow workspace refresh-configuration' };
   }
   if (!observed.merged || !observed.candidateIncluded || observed.transaction?.id !== id || observed.transaction.digest !== binding.digest) {
     return { status: 'not-confirmed', transactionId: id, automaticRetry: false,
-      nextAction: workflowProposalCommand('activate', binding.branch, binding.proposalRevision, true),
+      nextAction: approveCommand(binding.branch, binding.proposalRevision),
       effects: { applicationCode: 'unchanged', worktree: 'unchanged', approvals: 'unchanged' } };
   }
   await retainConfigurationOutcome(service, id, 'committed');
@@ -920,15 +1176,15 @@ export async function reconcileConfigurationTransaction(root, id) {
   let referenceSync;
   try { referenceSync = await syncConfigurationReferences(root, remote, observed.targetCommit); }
   catch (error) {
-    const journalWarning = await retainConfigurationOutcome(service, id, 'sync-pending', error.code ?? 'CONFIGURATION_REFERENCE_SYNC_FAILED');
+    const journalWarning = await retainConfigurationOutcome(service, id, 'sync-pending', error.code ?? 'CONFIGURATION_REFERENCE_SYNC_FAILED', binding.branch);
     return { status: 'sync-pending', transactionId: id, activated: true, targetCommit: observed.targetCommit,
-      proposalCleanup: cleanup, journalWarning, nextAction: `singularity-flow configuration reconcile ${id} --json` };
+      proposalCleanup: cleanup, journalWarning, nextAction: finishApprovalCommand(binding.branch, id) };
   }
   const complete = referenceSync.status === 'complete';
-  const journalWarning = await retainConfigurationOutcome(service, id, complete ? 'synced' : 'sync-pending');
+  const journalWarning = await retainConfigurationOutcome(service, id, complete ? 'synced' : 'sync-pending', null, binding.branch);
   return { status: complete && !journalWarning ? 'synced' : 'sync-pending', transactionId: id, activated: true,
     targetCommit: observed.targetCommit, proposalCleanup: cleanup, referenceSync, journalWarning,
-    nextAction: complete && !journalWarning ? null : `singularity-flow configuration reconcile ${id} --json` };
+    nextAction: complete && !journalWarning ? null : finishApprovalCommand(binding.branch, id) };
 }
 
 function safeSlug(value) {
@@ -1033,8 +1289,14 @@ function configurationDigestInput(intent) {
 }
 
 export async function proposeConfigurationChange(root, {
-  operation, subject, message, mutate, expectedAuthority = null, verifyStaged = null, intent = null
+  operation, subject, message, mutate, expectedAuthority = null, verifyStaged = null, intent = null, kind = 'workflow'
 }, { transport = {}, env = transport.env ?? process.env, session = null } = {}) {
+  if (!ENGINE_PROPOSAL_KINDS.includes(kind)) {
+    throw new SingularityFlowError(`A configuration proposal is one of ${ENGINE_PROPOSAL_KINDS.join(', ')}, not '${kind}'.`, {
+      code: 'CONFIGURATION_PROPOSAL_KIND_INVALID',
+      details: { nextAction: { label: 'See the proposals of each kind', command: 'singularity-flow configuration proposals' } }
+    });
+  }
   if (typeof mutate !== 'function') {
     throw new SingularityFlowError('A configuration proposal needs a mutation.', {
       code: 'CONFIGURATION_PROPOSAL_MUTATION_REQUIRED'
@@ -1107,14 +1369,23 @@ export async function proposeConfigurationChange(root, {
         }
       );
     }
-    await createConfigurationProjection(root, scratch, fetched.commit, { branch: CONFIGURATION_BRANCH, env: authorityTransport.env, transport: authorityTransport });
+    const expectedSourceCommit = expected?.sourceCommit
+      ?? (expected?.kind === 'verified-state-mirror' ? null : expected?.commit);
+    // A proposal is made on the sflow/config commit its author read [SCF:REQ-005]: an editor that
+    // loaded an earlier commit still proposes, and approval re-applies its field edits onto the newer
+    // one, asking only about a field both sides changed. Only a read commit that is no longer in
+    // sflow/config's history (rewritten outside SFlow) is refused.
+    const readCommit = expectedSourceCommit && expected?.kind !== 'verified-state-mirror' && expectedSourceCommit !== fetched.commit
+      && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(expectedSourceCommit)
+      && gitCommitObjectExists(root, expectedSourceCommit, { env: authorityTransport.env })
+      && gitIsAncestor(root, expectedSourceCommit, fetched.commit, { env: authorityTransport.env })
+      ? expectedSourceCommit : fetched.commit;
+    await createConfigurationProjection(root, scratch, readCommit, { branch: CONFIGURATION_BRANCH, env: authorityTransport.env, transport: authorityTransport });
     incrementCommandCounter('configuration.proposal-projection');
 
     const baseCommit = configurationRepositoryHead(scratch, authorityTransport.env);
-    const expectedSourceCommit = expected?.sourceCommit
-      ?? (expected?.kind === 'verified-state-mirror' ? null : expected?.commit);
     if (expectedSourceCommit && expectedSourceCommit !== baseCommit) {
-      authorityChanged('The approved sflow/config commit changed after this editor loaded.', {
+      authorityChanged('The approved sflow/config commit changed after this editor loaded, and the commit it read is no longer in its history.', {
         sourceCommit: expectedSourceCommit
       }, { sourceCommit: baseCommit });
     }
@@ -1137,10 +1408,9 @@ export async function proposeConfigurationChange(root, {
     }
     // Only the exact approved base may establish managed roots and runtime exclusions. The
     // candidate workflow can request a root change for review, but cannot authorize its own files.
-    const approvedAssetPolicy = configurationAssetPolicy(
-      yamlAtRef(scratch, baseCommit, 'singularity/workflow.yml', authorityTransport.env),
-      yamlAtRef(scratch, baseCommit, 'singularity/portfolio.yml', authorityTransport.env)
-    );
+    // A base that is not valid YAML (an outside edit) still takes a repair proposal [SCF:REQ-002]: its policy is the default.
+    const tolerantYaml = (relative) => { try { return yamlAtRef(scratch, baseCommit, relative, authorityTransport.env); } catch { return {}; } };
+    const approvedAssetPolicy = configurationAssetPolicy(tolerantYaml('singularity/workflow.yml'), tolerantYaml('singularity/portfolio.yml'));
     const result = await mutate(scratch);
     run('git', ['add', '-A'], { cwd: scratch, env: authorityTransport.env });
     const files = run('git', ['diff', '--cached', '--name-only'], {
@@ -1193,12 +1463,19 @@ export async function proposeConfigurationChange(root, {
     }
 
     const tree = run('git', ['write-tree'], { cwd: scratch, env: authorityTransport.env }).stdout.trim();
+    // The proposer, from their checkout and Git configuration (SCF:REQ-018): never the OS login or a placeholder.
+    const actor = configurationCommitIdentity(root, { env: identityEnv });
     // Revisions are immutable. A new save on the same base is a new revision, not a naming dead end.
+    // The proposer's key keeps one person's proposal apart from another's for the same operation: they
+    // are separate proposals with separate IDs, never revisions of one (finding ER-F9). It is a digest,
+    // so the branch name carries no address.
+    // The branch's last component stays within 96 bytes (a portable file name with room for Git's
+    // lock suffix): a label of at most 63, the key (11), the base (9) and the tree (13).
     const logical = `${operationId}-${subjectId}`;
-    const label = logical.length <= 74 ? logical : /-[a-f0-9]{12}$/u.test(logical)
-      ? logical.slice(0, 61) + logical.slice(-13)
-      : logical.slice(0, 61) + '-' + createHash('sha256').update(logical).digest('hex').slice(0, 12);
-    const reviewBranch = `${REVIEW_PREFIX}${label}-${baseCommit.slice(0, 8)}-${tree.slice(0, 12)}`;
+    const label = logical.length <= 63 ? logical : /-[a-f0-9]{12}$/u.test(logical)
+      ? logical.slice(0, 50) + logical.slice(-13)
+      : logical.slice(0, 50) + '-' + createHash('sha256').update(logical).digest('hex').slice(0, 12);
+    const reviewBranch = `${proposalPrefix(kind)}${label}-${configurationProposerKey(actor)}-${baseCommit.slice(0, 8)}-${tree.slice(0, 12)}`;
     const stateService = await openConfigurationStateService(root, remoteUrl);
     const proposalId = stateService.identity(reviewBranch);
     // A real command: it shows the proposal and, while it waits, the exact activation line and the
@@ -1259,8 +1536,6 @@ export async function proposeConfigurationChange(root, {
     run('git', ['switch', '--quiet', '-c', reviewBranch], {
       cwd: scratch, env: authorityTransport.env
     });
-    // The proposer, from their checkout and Git configuration (SCF:REQ-018): never the OS login or a placeholder.
-    const actor = configurationCommitIdentity(root, { env: identityEnv });
     await (await repositoryCommitPolicyModule('writer', scratch)).runPolicyCommit(scratch, [
       '-c', `user.name=${actor.name}`,
       '-c', `user.email=${actor.email}`,
@@ -1302,7 +1577,7 @@ export async function proposeConfigurationChange(root, {
       targetRef: `refs/heads/${reviewBranch}`,
       expectedRemote: null,
       scope: {
-        operation: `sflow.configuration.workflow.${operationId}`,
+        operation: `sflow.configuration.${kind}.${operationId}`,
         subject: subjectId,
         baseBranch: CONFIGURATION_BRANCH,
         baseCommit,

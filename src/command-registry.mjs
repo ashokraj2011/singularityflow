@@ -38,7 +38,7 @@ const DEPARTURE_SUBCOMMANDS = Object.freeze(['record', 'account', 'list', 'show'
 const DEPARTURE_WRITES = Object.freeze(['record', 'account']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
-  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain', 'drafts'
+  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain', 'drafts', 'proposals'
 ]);
 const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish', 'enter', 'opening']);
 // Skill packages are only inspected; the skill master also has edits, which --dry-run previews.

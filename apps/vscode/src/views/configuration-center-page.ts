@@ -93,8 +93,8 @@ export function testSetupHtml(view: TestSetupView): string {
       <template id="test-command-template">${commandRow()}</template>
       <p><button type="button" class="secondary" data-test-add>Add test command</button></p>
       <p class="muted">The command must produce the selected report and execute real tests. Required commands remain required; intake separately selects changed-and-affected or all-configured execution and how to handle observed existing failures.</p>
-      <button type="submit">Save for review</button><button type="submit" data-test-activate="true" title="Saves the change as a proposal and activates it at once, the same activation as Workflow Studio → Changes → Review and activate">Save and activate</button>
-      <p class="muted">Save and activate is the same activation as Workflow Studio → Changes → Review and activate, for the proposal it just made. Where the server protects sflow/config, it is merged through the repository's review instead, and the proposal waits under Changes.</p>
+      <button type="submit">Save for review</button><button type="submit" data-test-activate="true" title="Saves the change as a proposal and approves it at once, the same approval as Workflow Studio → Changes → Review and approve">Save and approve</button>
+      <p class="muted">Save and approve approves the proposal it just made. Where sflow/config is protected, it waits under Changes for a merge on the Git host.</p>
     </form>` : `<p>${view.targets.length ? 'Choose where these tests apply before adding commands.' : 'No configured phases. Create a workflow before saving test commands.'}</p>`}
   </section>`;
 }
@@ -265,7 +265,6 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
   { label: 'Repository setup', items: [
     { label: 'Overview', glyph: 'configuration', tab: 'overview' },
     { label: 'After install', glyph: 'configuration', action: 'after-install' },
-    { label: 'Recreate & sync configuration', glyph: 'configuration', action: 'recreate-sync' },
     { label: 'Upgrade / migrate SFlow', glyph: 'configuration', action: 'capability-refresh' },
     { label: 'Repair or upgrade setup', glyph: 'configuration', action: 'repository-setup' },
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
@@ -350,7 +349,6 @@ function overview(view: ConfigurationCenterView): string {
     <div class="configuration-actions"><button class="configuration-action-row" data-action="git-policy">${icon('configuration', { size: 16 })}<span><strong>Repository commit policy</strong><small>Discover effective hooks, inspect approved message and tracking rules, and review supported checks.</small></span>${icon('next')}</button></div>
     <h2>Workflow tools</h2>
     <div class="configuration-action-list">
-      <button class="configuration-action-row" data-action="recreate-sync">${icon('configuration', { size: 16 })}<span><strong>Recreate &amp; sync configuration</strong><small>Apply pending edits to current approved configuration, archive old proposals, and sync. Lists every proposal it will replay, teammates' unreviewed ones included, and applies only that confirmed list; no Git merge or further questions. Application code and Stories stay unchanged.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="workflow-studio">${icon('workflow', { size: 16 })}<span><strong>Workflow Studio</strong><small>Design workflows, steps, agents and approvals visually, then publish once.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="shared-workflow-drafts">${icon('workflow', { size: 16 })}<span><strong>Shared workflow drafts</strong><small>Explicitly save partial drafts in the configuration authority across machines.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-copilot">${icon('agent', { size: 16 })}<span><strong>Continue active Story in Copilot</strong><small>Hand the open interval to Copilot with its Story context.</small></span>${icon('next')}</button>
@@ -589,7 +587,7 @@ export function configurationCenterHtml(
   const content = `${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}${candidateNotice}
       ${tab === 'overview' ? overview(view) : tab === 'git-policy' ? commitPolicy(view) : tab === 'tests' ? testSetupHtml(testSetup) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
   const guardedContent = pendingProposal
-    ? `<div class="notice warning" role="status"><strong>Configuration proposal pending review.</strong> The submitted settings are on <code>${escape(reviewBranchName(pendingProposal.branch))}</code> and are not approved yet. Activate it in Workflow Studio → Changes → Review and activate, or merge it into <code>${escape(pendingProposal.baseBranch)}</code>, then recheck the approved authority. If you discarded it instead, deliberately resume the approved baseline. The approved baseline below is read-only until then.<span class="grow"></span><button class="secondary" type="button" data-action="workflow-proposals">Review proposal</button><button class="secondary" id="configuration-pending-refresh" type="button">Recheck approved authority</button><button class="secondary" id="configuration-resume-approved" type="button">Resume approved baseline</button></div><fieldset disabled aria-label="Approved configuration is read-only while a proposal is pending">${content}</fieldset>`
+    ? `<div class="notice warning" role="status"><strong>Configuration proposal pending review.</strong> The submitted settings are on <code>${escape(reviewBranchName(pendingProposal.branch))}</code> and are not approved yet. Approve it in Workflow Studio → Changes → Review and approve, or merge it into <code>${escape(pendingProposal.baseBranch)}</code>, then recheck the approved authority. If you discarded it instead, deliberately resume the approved baseline. The approved baseline below is read-only until then.<span class="grow"></span><button class="secondary" type="button" data-action="workflow-proposals">Review proposal</button><button class="secondary" id="configuration-pending-refresh" type="button">Recheck approved authority</button><button class="secondary" id="configuration-resume-approved" type="button">Resume approved baseline</button></div><fieldset disabled aria-label="Approved configuration is read-only while a proposal is pending">${content}</fieldset>`
     : content;
   return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button><button class="secondary" id="configuration-runtime-resume-approved" type="button" hidden>Resume approved baseline</button></div>
@@ -629,7 +627,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
       savingForm = false;
       dirty = false;
       document.querySelectorAll('form input, form select, form textarea, form button').forEach((control) => { control.disabled = true; });
-      showRuntime('Configuration proposal ' + event.data.branch + ' is pending review into ' + event.data.baseBranch + '. Activate it in Workflow Studio → Changes → Review and activate. The submitted values are shown read-only; activate, merge or discard the proposal before editing again.', false);
+      showRuntime('Configuration proposal ' + event.data.branch + ' is pending review into ' + event.data.baseBranch + '. Approve it in Workflow Studio → Changes → Review and approve. The submitted values are shown read-only; activate, merge or discard the proposal before editing again.', false);
       const resume = document.getElementById('configuration-runtime-resume-approved');
       if (resume) resume.hidden = false;
     }

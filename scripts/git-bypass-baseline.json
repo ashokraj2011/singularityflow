@@ -869,9 +869,9 @@
     },
     "src/configuration-people.mjs": {
       "counts": {
-        "command-run": 9
+        "command-run": 12
       },
-      "digest": "d1a2525725b958337f21f286beb1924119c50856b4853a3627dd64d75cc1bb9f"
+      "digest": "0bc1d0b5a746ef548f35261bb026b64fd56bdc95fcdfe7403ea0d98a5f4a8888"
     },
     "src/configuration-object-reader.mjs": {
       "counts": {
@@ -902,23 +902,16 @@
     },
     "src/configuration-proposal.mjs": {
       "counts": {
-        "command-run": 14
+        "command-run": 13
       },
-      "digest": "be211e85eb4bf135544db5e423c37f15439e1ce3d784082f88716f4aab1a8392"
+      "digest": "f0b02be9b48581003d2de4350e9d15cc186d97f5142854a9a7b3a79c15e51e61"
     },
     "src/configuration-state-git.mjs": {
       "counts": {
-        "command-git": 10,
+        "command-git": 9,
         "command-run": 1
       },
-      "digest": "9c8b504cb81a3b6ad13df7344ee1b7b735faf2de4560fc877c7f9fb0ad136d06"
-    },
-    "src/configuration-recreate-sync.mjs": {
-      "counts": {
-        "command-git": 13,
-        "command-run": 1
-      },
-      "digest": "2e4ad9151ea6baf19aeae6786e84812c8d6e36e3de1338886fee7a3e162e5723"
+      "digest": "3de2ef5b31d7b94edf9383fb09540ced3a708c004b551f2162a06f7dc20f2391"
     },
     "src/configuration-reference-sync.mjs": {
       "counts": {
@@ -1343,9 +1336,9 @@
     },
     "src/organisation.mjs": {
       "counts": {
-        "command-run": 59
+        "command-run": 57
       },
-      "digest": "528b813d8987c67cea6183e6c5fec498896173cd798a4c2b3717267a739a9c95"
+      "digest": "de1ef0b73ecdb241dc3dc0cf28de4e2d42e3413530ed41a2a7f7bb5bd7cd5832"
     },
     "src/performance-doctor.mjs": {
       "counts": {
@@ -1573,12 +1566,6 @@
       },
       "digest": "0d2e9c485ec1af420095cbf194ca840725d3e2ddf19482f2755f75fb7dbf1e94"
     },
-    "src/skp-amendment-audit.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "f2c8007a40a7874a58a2618c55cebc40ab74eab5bf47d38b4ceab8ff176ca19a"
-    },
     "src/skp-docker-hash-probe.mjs": {
       "counts": {
         "process-import": 1,
@@ -1709,9 +1696,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 33
+        "command-run": 24
       },
-      "digest": "ec61b33a7d71c35df641cc4ee1733d7ebd06cdf96f69bf3aba0be74ab8cc0bb5"
+      "digest": "084930fd28b09c7199d46662131356f7365eb36f9ce468433b307340c72f0f6e"
     },
     "src/workspace-impact.mjs": {
       "counts": {
@@ -1914,6 +1901,30 @@
         "command-run": 1
       },
       "digest": "29978f7fb9357a01373aefdc43ff12bfb85f06eb1a612fd778197bb307d3ac42"
+    },
+    "src/git-proposal-history.mjs": {
+      "counts": {
+        "command-run": 4
+      },
+      "digest": "95b294f39889600c19ea1ceb8eb8e5e3d637fed1951c264de3cdf4aefb68714f"
+    },
+    "src/skp-ancestry-capture.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "b8cea35fc03c22ad8655b152285125ce006407387791d9b0230c428a01d843ce"
+    },
+    "src/configuration-restore.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "1646f3a1d2e4237de774d3e89555734ba80a31c38e7e881c7404189374b0a8e6"
+    },
+    "src/configuration-proposal-routes.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "361ac433f736e49bbfd5a4ea5d9ef722a6751c7389c9454da80e356d629ad891"
     }
   }
 }

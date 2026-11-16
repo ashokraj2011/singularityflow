@@ -21,7 +21,6 @@ const ACTION_COMMANDS: Record<string, string> = {
   artifacts: 'singularityFlow.openPhaseArtifacts',
   'story-analytics': 'singularityFlow.openDashboard',
   'configuration-approvals': 'singularityFlow.openConfigurationApprovals',
-  'configuration-sync': 'singularityFlow.recreateAndSyncConfiguration',
   'after-install': 'singularityFlow.afterInstall',
   about: 'singularityFlow.about',
   'favorites-manage': 'singularityFlow.manageFavorites',

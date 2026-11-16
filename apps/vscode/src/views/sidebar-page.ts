@@ -6,8 +6,7 @@ import type { SidebarNavigation } from './sidebar-navigation-model.ts';
 /**
  * The daily jobs, and only those. Every row opens a screen; none of them changes anything.
  * Artifacts, Story Analytics and the explainers live in Work tools, configuration approvals inside
- * Reviews, After install in Help & diagnostics, and Recreate & sync inside Configuration, where it
- * asks before it writes.
+ * Reviews, and After install in Help & diagnostics.
  */
 export const PRIMARY_NAVIGATION = [
   { id: 'my-work', label: 'My Work', icon: 'home', command: 'singularityFlow.myWork' },

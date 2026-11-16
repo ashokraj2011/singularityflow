@@ -70,7 +70,12 @@ export async function run(argv, { positionals, options }) {
     const { readStdinText } = await import('../read-stdin.mjs');
     answers = readFixAnswers(source === '-' ? await readStdinText() : await readFile(commandLineFile(root, source, { reads: true }), 'utf8'));
   }
-  const result = await withApprovedConfigurationRead(root, () => draftWorkflowFixes(root, { workflow, answers }), { preferAuthority: true });
+  // sflow/config's own files, as they are: a configuration that does not load is what this repairs, so it is mounted
+  // without compiling it first [SCF:REQ-002, finding ER-F5]. A Story checkout keeps its pin.
+  const { authorityCheckRead } = await import('../approved-configuration-reader.mjs');
+  const read = authorityCheckRead(root);
+  const result = await withApprovedConfigurationRead(root, () => draftWorkflowFixes(root, { workflow, answers }),
+    Object.keys(read).length ? read : { preferAuthority: true });
   const draftPath = workflowFixDraftPath(root, workflow);
   let written = false;
   if (result.changeSet || result.configurationFiles.length) {

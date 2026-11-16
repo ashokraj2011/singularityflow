@@ -24,7 +24,7 @@ export const REPOSITORY_ONBOARDING_STATUSES = [
 
 export type RepositoryOnboardingStatus = (typeof REPOSITORY_ONBOARDING_STATUSES)[number];
 export type RepositoryOnboardingResultStatus =
-  | RepositoryOnboardingStatus | 'ready-state-refresh-pending'
+  | RepositoryOnboardingStatus
   | 'configuration-review-required' | 'local-registration-pending';
 export type RepositoryOnboardingMode = 'auto' | 'migrate' | 'recreate' | 'reset-local';
 export type RepositoryOnboardingExplicitMode = Exclude<RepositoryOnboardingMode, 'auto'>;
@@ -136,15 +136,8 @@ export interface RepositoryOnboardingResult {
   organisation: unknown | null;
   receipt: unknown;
   configuration: { commit: string } | null;
-  stateRefresh: RepositoryOnboardingStateRefresh | null;
   review: RepositoryOnboardingReview | null;
   localRegistration: RepositoryOnboardingLocalRegistration | null;
-}
-
-export interface RepositoryOnboardingStateRefresh {
-  status: 'current' | 'updated' | 'not-applicable' | 'policy-disabled' | 'failed' | 'pending';
-  pending: boolean;
-  retry: { shell: string; copilot: string } | null;
 }
 
 export interface RepositoryOnboardingReview {
@@ -183,7 +176,6 @@ export interface RepositoryOnboardingLocalRegistration {
 const STATUS_SET = new Set<string>(REPOSITORY_ONBOARDING_STATUSES);
 const RESULT_STATUS_SET = new Set<string>([
   ...REPOSITORY_ONBOARDING_STATUSES,
-  'ready-state-refresh-pending',
   'configuration-review-required',
   'local-registration-pending'
 ]);
@@ -399,21 +391,6 @@ function localRegistration(value: unknown): RepositoryOnboardingLocalRegistratio
   };
 }
 
-function stateRefresh(value: unknown): RepositoryOnboardingStateRefresh | null {
-  const candidate = record(value);
-  const status = text(candidate?.status);
-  const parsedRetry = candidate?.retry == null ? null : nextActions(candidate.retry);
-  if (!candidate || !['current', 'updated', 'not-applicable', 'policy-disabled', 'failed', 'pending']
-    .includes(status ?? '') || typeof candidate.pending !== 'boolean'
-    || (candidate.retry != null && !parsedRetry)
-    || (candidate.pending === true && !parsedRetry)) return null;
-  return {
-    status: status as RepositoryOnboardingStateRefresh['status'],
-    pending: candidate.pending,
-    retry: parsedRetry
-  };
-}
-
 /** Parse a preview without accepting a mutation-shaped or future contract. */
 export function parseRepositoryOnboardingPlan(value: unknown): RepositoryOnboardingPlan | null {
   const candidate = record(value);
@@ -537,8 +514,6 @@ export function parseRepositoryOnboardingResult(
   const parsedReview = candidate?.review == null ? null : onboardingReview(candidate.review);
   const parsedLocalRegistration = candidate?.localRegistration == null
     ? null : localRegistration(candidate.localRegistration);
-  const parsedStateRefresh = candidate?.stateRefresh == null
-    ? null : stateRefresh(candidate.stateRefresh);
   if (!candidate || candidate.schemaVersion !== 1
     || candidate.kind !== 'repository-onboarding-result/v1' || candidate.applied !== true
     || typeof candidate.changed !== 'boolean' || !planId || !PLAN_ID.test(planId)
@@ -549,7 +524,6 @@ export function parseRepositoryOnboardingResult(
     || (candidate.localCleanupWarnings != null && !parsedCleanupWarnings)
     || (candidate.review != null && !parsedReview)
     || (candidate.localRegistration != null && !parsedLocalRegistration)
-    || (candidate.stateRefresh != null && !parsedStateRefresh)
     || (candidate.configuration != null && (!configurationCommit || !COMMIT.test(configurationCommit)))
     || (status === 'configuration-review-required' && !parsedReview)
     || (status === 'local-registration-pending' && !parsedLocalRegistration)) return null;
@@ -570,7 +544,6 @@ export function parseRepositoryOnboardingResult(
     organisation: candidate.organisation ?? null,
     receipt: candidate.receipt ?? null,
     configuration: configurationCommit ? { commit: configurationCommit } : null,
-    stateRefresh: parsedStateRefresh,
     review: parsedReview,
     localRegistration: parsedLocalRegistration
   };
@@ -927,23 +900,6 @@ export function repositoryOnboardingCanContinue(plan: RepositoryOnboardingPlan):
   return plan.mode !== 'reset-local'
     && (plan.status === 'ready' || plan.status === 'linked-to-team-configuration'
       || plan.status === 'sflow-repository-capability-not-mapped');
-}
-
-/**
- * A current approved map can be read before its optional portable state index is refreshed.
- * Keep every other planned effect behind the exact-plan confirmation; in particular, this must
- * never skip configuration restoration, migration, or an unfamiliar future effect.
- */
-export function repositoryOnboardingCanDeferStateRefresh(plan: RepositoryOnboardingPlan): boolean {
-  return plan.mode === 'auto'
-    && plan.status === 'ready'
-    && plan.primaryAction === 'continue'
-    && plan.configuration.status === 'current'
-    && plan.configuration.commit != null
-    && plan.effects.length > 0
-    && plan.effects.every((effect) => effect.kind === 'state-projection'
-      && effect.action === 'refresh'
-      && effect.target === plan.state.branch);
 }
 
 /** Bind a preview to the exact local locator while retaining compatibility with URL-only v1 plans. */

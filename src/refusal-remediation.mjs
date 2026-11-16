@@ -92,6 +92,13 @@ function step(id, label, command = null, kind = 'diagnostic', skill = null) {
   });
 }
 
+const ANCESTRY_ROUTED = new Set(['SKP_AMENDMENT_ANCESTRY_REWRITTEN', 'SKP_AMENDMENT_ANCESTRY_LIMIT', 'SKP_AMENDMENT_ANCESTRY_UPGRADE_REQUIRED']);
+function ancestrySteps(error) {
+  return [...explicitCommands(error).map((command, index) => step(`ancestry-route-${index + 1}`,
+    command.label ?? 'Follow the route the refusal names.', command.command, 'remediation', command.skill)),
+  ...explicitInstructions(error).map((entry, index) => ({ ...entry, id: `ancestry-instruction-${index + 1}` }))].slice(0, PLAN_STEP_LIMIT);
+}
+
 function explicitInstructions(error) {
   // Some real repairs require ownership/authority review rather than an executable command.
   // Keep those instructions; diagnostics alone must not masquerade as the way out of the block.
@@ -551,13 +558,12 @@ function missingConfigurationSteps(argv, error) {
   // The restore proposal (D7) is a later stage: these are the routes that restore it now, each reviewed by a person.
   if (error?.details?.reason === 'configuration-branch-missing') {
     const repository = /^[^\s'"`<>|;&$]+$/u.test(String(error.details.remote ?? '')) ? error.details.remote : '<REPOSITORY-URL>';
+    // One route [SCF:REQ-002, D7]: the restore shows the newest copy and every file, for a person to approve.
+    void repository;
     return [
-      step('restore-configuration-from-clone',
-        'From a clone that still has the last approved configuration (git log origin/sflow/config shows it), put it back exactly: '
-          + 'git push origin refs/remotes/origin/sflow/config:refs/heads/sflow/config. Then start the work again.', null, 'remediation'),
       step('preview-configuration-restore',
-        'Or preview restoring sflow/config from the copy on the state branch. Check every file it would restore before you confirm the plan: that copy is not proof of what was approved.',
-        `singularity-flow capability onboard ${repository} --dry-run`, 'remediation', '/sf-capability-map'),
+        'See the newest copy of sflow/config this machine holds and every file in it, then approve recreating it.',
+        'singularity-flow configuration restore', 'remediation'),
       step('diagnose-story-configuration', 'Check Git access to the repository.', 'singularity-flow workspace doctor --network --json')
     ];
   }
@@ -963,6 +969,11 @@ const KNOWN = Object.freeze({
   // three-step cap cut them behind the phase steps, so an approval turn looped on recover (2026-10-29).
   STORY_HISTORY_REWRITTEN: (argv, error) => explicitInstructions(error).slice(0, PLAN_STEP_LIMIT)
     .map((entry, index) => ({ ...entry, id: `restore-recorded-history-${index + 1}` })),
+  // A Story's configuration ancestry that cannot be proven or recorded (SPEC-SCF REQ-020, D9) names its own way out:
+  // an approver's adoption without ancestry, the upgrade the v2 proof waits for, or restoring sflow/config's history.
+  SKP_AMENDMENT_ANCESTRY_REWRITTEN: (argv, error) => ancestrySteps(error),
+  SKP_AMENDMENT_ANCESTRY_LIMIT: (argv, error) => ancestrySteps(error),
+  SKP_AMENDMENT_ANCESTRY_UPGRADE_REQUIRED: (argv, error) => ancestrySteps(error),
   // The approver refresh's refusals name their own way out; they had only story --help and doctor.
   APR_PUBLICATION_PENDING: (argv) => {
     const workId = safeWorkId(argv?.[0] === 'story' ? argv?.[3] : null) ?? safeWorkId(optionValueRaw(argv, 'work-id'));
@@ -2077,6 +2088,8 @@ function remediationPlanFor(error, argv = []) {
     'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY', 'XPL2_SUBJECT_UNKNOWN'].includes(code);
   const unknownRecoveryPhase = code === 'RECOVERY_PHASE_UNKNOWN';
   const historyRewritten = code === 'STORY_HISTORY_REWRITTEN' && explicitInstructions(error).length > 0;
+  // Ancestry refusals carry their own route; never command help or doctor beside it.
+  const ancestryRouted = ANCESTRY_ROUTED.has(code) && ancestrySteps(error).length > 0;
   // Refused for who decides, or for an answer the approver still owes: no phase repair, rejection or diagnostics.
   const identityBlocked = APPROVAL_IDENTITY_CODES.includes(code) || code === 'CLARIFICATION_AUTHORITY_REQUIRED'
     || code === 'APPROVAL_CHECKLIST_INCOMPLETE';
@@ -2106,7 +2119,7 @@ function remediationPlanFor(error, argv = []) {
   // Refusals with routes of their own kind (tests, identity, upstream inputs, decisions, holds) keep their own order.
   const ownKind = pinnedTestPolicyBlocked || identityBlocked || upstreamInputBlocked || scopeDispositionBlocked || conformanceGapBlocked
     || amendmentPending || requiredTestBlocked || qualityFindingsBlocked || qualityFindingsHeld || skillHostBlocked || repositoryRunnerBlocked
-    || riskReviewBlocked || worktreeHeld || softGateBlocked || selfGuidedBlocked || historyRewritten || approvalTerminalBlocked;
+    || riskReviewBlocked || worktreeHeld || softGateBlocked || selfGuidedBlocked || historyRewritten || ancestryRouted || approvalTerminalBlocked;
   const writingStep = Boolean(stepContext) && !ownKind && routesToWritingTheStep(error, stepContext.phaseId);
   const rawPhaseContext = writingStep ? null : stepContext;
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
@@ -2175,7 +2188,7 @@ function remediationPlanFor(error, argv = []) {
     : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
     // A soft gate's alternative to the override is the Story's own next step: name it first.
     : softGateBlocked ? [...nonDuplicateExplicit, ...known]
-    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked || historyRewritten ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked || historyRewritten || ancestryRouted ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? amendmentPending
       // The amendment and its card first, then the instruction that ends an approval turn, then the
       // same decision in a person's own terminal, which the cap keeps [owner, 2026-11-13].
@@ -2613,15 +2626,6 @@ export function refusalDetails(details) {
   if (details.decisions && typeof details.decisions === 'object' && text(details.decisions.headline)) {
     projected.decisions = compact({ headline: text(details.decisions.headline),
       count: Number.isSafeInteger(details.decisions.count) ? details.decisions.count : null });
-  }
-  // A stale or unconfirmed recreate-sync apply: the current list and digest a person must review.
-  const recreate = details.preview;
-  if (recreate?.resultType === 'sflow-configuration-recreate-sync' && /^sha256:[a-f0-9]{64}$/u.test(recreate.confirmation ?? '')) {
-    projected.preview = compact({ resultType: recreate.resultType, confirmation: recreate.confirmation, baseCommit: text(recreate.baseCommit),
-      proposalCount: Array.isArray(recreate.proposals) ? recreate.proposals.length : null,
-      proposals: list(recreate.proposals, item => item && typeof item === 'object' ? compact({ branch: text(item.branch),
-        commit: text(item.commit), merged: typeof item.merged === 'boolean' ? item.merged : null, author: text(item.author),
-        summary: text(item.summary), files: list(item.files, text) }) : null), files: list(recreate.files, text) });
   }
   if (Array.isArray(details.needs)) projected.needs = details.needs.map(String).slice(0, 5);
   if (Array.isArray(details.unclaimedPaths)) projected.unclaimedPaths = details.unclaimedPaths.map(String).slice(0, 20);

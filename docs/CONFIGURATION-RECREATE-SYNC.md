@@ -1,101 +1,20 @@
-# Recreate & sync configuration
+# Recreate & sync configuration (removed)
 
-Use **Recreate & sync configuration** in Configuration Center or from the command palette. It
-previews first, then asks once in a dialog listing every proposal it will replay — branch, tip
-commit, author, summary and files, teammates' unreviewed proposals included. That confirmed click
-authorizes exactly that list for the selected repository's configuration authority: the apply
-carries the preview's `confirmation` digest, so a proposal pushed, moved or retired after the
-review is refused (`CONFIGURATION_RECREATE_STALE`, nothing applied) and the menu asks you to review
-the current list instead. With nothing pending it only refreshes references and asks nothing. It
-does not open a merge or a model conversation.
+Recreate & sync was removed in SPEC-SCF stage 2 ([SPEC-SIMPLE-CONFIGURATION-v1](SPEC-SIMPLE-CONFIGURATION-v1.md)).
+It replayed every pending proposal at once, teammates' unreviewed ones included, and let a proposal's
+value win over a value that had already been approved (finding ER-F2).
 
-The operation reads today's `sflow/config` and all pending workflow, capability, and onboarding
-proposals on that authority. It reconstructs their intended edits instead of merging historical
-YAML text. Formatting-only changes are ignored. Unchanged proposal values never overwrite newer
-approved values. Explicit changes win at the changed key; unrelated settings survive. Overlapping
-proposals are processed oldest first, then by branch identity for equal commit timestamps.
+What replaces it:
 
-The complete result is validated before publication. Custom workflows, agents, skills, reusable
-instructions, templates, test settings and capabilities are retained when they are in the approved
-configuration or pending proposals. Unsaved editor drafts are not proposals and are not included.
+- Each proposal is approved on its own: `singularity-flow configuration approve <PROPOSAL>`, or Workflow
+  Studio → Changes → Review and activate. The approval lands exactly the change that was shown, from the
+  proposal's merge base with `sflow/config` to its tip, however many commits it has [SCF:REQ-005, REQ-006].
+- When `sflow/config` moved after the proposal was made, approval re-applies the proposal's field edits on
+  top of it. It asks only about a field both changed differently, and the approver keeps one of the two
+  values (`--pick <FILE>#<FIELD>=proposal|current`, a question in the terminal, or a choice in VS Code)
+  [SCF:REQ-007].
+- Running approve again on an approved proposal finishes whatever an interruption left [SCF:REQ-009].
 
-One atomic server update creates:
-
-- One ordinary descendant configuration commit, with no Git merge/rebase or history rewrite.
-- Commit-addressed backup tags under `sflow-config-recreate/` for the previous approved commit
-  and every original proposal commit; an occupied tag with different history is never replaced.
-- A configuration recreation log documenting original identities and replaced current values.
-- Exact retirement of the original proposal branches, only in the same transaction as their
-  backups and the updated configuration.
-
-The caller's application files, HEAD, working tree, index, Story pins, approvals and ledger are not
-changed. Known authority references in the selected workspace are refreshed to the exact new
-commit; linked Story/worktree pins and references to other authorities are preserved. Missing
-repositories are not cloned. If reference refresh needs attention, the result says so and clicking
-again retries only the remaining sync, without another configuration commit. The UI reloads the
-current authority after success. This is configuration synchronization,
-not Story migration, factory reset, package upgrade, or an automatic merge into application `main`.
-Credentials, server-side hooks, branch protection and server review requirements are never bypassed.
-Configuration validation owns the isolated candidate; application worktree hooks are not run.
-An atomic-update refusal preserves the original refs. No success is reported without a fresh
-observation proving the new commit, backups and branch retirement. Click again after resolving
-remote access or a concurrently moved authority; a completed retry is a no-op.
-
-Terminal preview (read-only). It lists each proposal and returns `confirmation` (`sha256:...`), a
-digest of the authority, approved base, every proposal tip in replay order and the resulting files:
-
-```sh
-singularity-flow configuration recreate-sync --json
-```
-
-Terminal execution of the reviewed preview, after reading that exact list:
-
-```sh
-singularity-flow configuration recreate-sync --apply --confirm sha256:<PREVIEW> --json
-```
-
-If anything changed since that preview, apply refuses with `CONFIGURATION_RECREATE_STALE`; the
-refusal carries the fresh list and digest under `details.preview`, and nothing is applied. `--apply`
-without `--confirm` is refused (`CONFIGURATION_RECREATE_CONFIRMATION_REQUIRED`) while any proposal is
-pending, except in an interactive terminal without `--json`, where it prints the exact list and asks
-before applying that previewed packet. With nothing pending it is the reference-sync no-op.
-
-Copilot: `/sf-configuration recreate-sync` previews, shows the list and applies only after you
-confirm it. The main-panel action needs no model.
-
-## Implementation boundary
-
-The isolated Git owner has a reviewed entry in `scripts/git-bypass-baseline.json`. Local calls are
-timeout- and output-bounded; remote observation, fetch and atomic push use the shared remote Git
-boundary. A blob-filtered clone materializes configuration only. Exact-byte index writes bypass
-worktree filters, and a recursive tree diff proves that no application or Story path changes,
-including when application blobs have intentionally not been downloaded. Tests exercise that
-partial-clone boundary, dirty caller preservation, concurrent proposal movement, atomic refusal,
-lost acknowledgement reconciliation and double-click coalescing. No audit rule is disabled.
-
-To inspect preserved history, use the backup tag returned in `backupRefs`. No original proposal
-commit is deleted from history. Restoring that history is a separate deliberate operation.
-
-## Slow remotes and interrupted sync
-
-Recreation downloads only admitted configuration blobs in bounded batches through the shared
-remote boundary. Local blob reads disable lazy fetching and verify the exact Git object identity;
-there is no hidden per-file network fetch. VS Code gives both preview and execution the 15-minute
-configuration-authority budget, rather than the ordinary two-minute read timeout. Each Git call
-still has its own deadline.
-
-Exact-object requests use self-contained, filtered packs instead of thin deltas against historical
-blobs deliberately excluded from the checkout. The private checkout's promisor registrations are
-removed and verified after explicit fetches, so older supported Git versions cannot silently fetch
-missing blobs despite the local-only environment flag.
-
-If the host is interrupted, the UI reports an unconfirmed outcome with the exact retry command.
-It never says nothing changed or invites activating an obsolete proposal. Click the same action
-again to reconcile the current authority; a completed remote transaction is not applied twice.
-A failed display refresh is reported separately from a confirmed remote sync.
-
-After confirmed sync, an open Workflow Studio refreshes its proposal queue. A clean editor reloads
-the approved model; an unpublished private draft is preserved and its stale preview invalidated.
-Proposal branches for the same workflow operation are grouped by verified creation time, with
-earlier versions available in a collapsed section. Unknown/equal ordering remains explicit.
-Grouping is presentation only: it discards no intent and grants no activation authority.
+`singularity-flow configuration recreate-sync` now refuses with `CONFIGURATION_RECREATE_SYNC_REMOVED` and
+names `configuration approve`. Backup tags an earlier run left (`sflow-config-recreate/*`) stay as they are
+and are never read as authority [SCF:REQ-003].

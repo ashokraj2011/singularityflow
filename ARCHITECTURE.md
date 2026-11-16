@@ -278,11 +278,13 @@ history branch, archive tag and `sflow/config-refresh/*` review branch on a repo
 `sflow/config` holds the build's configuration, each under a lease on the commit it was seen at, and
 clears each registered clone of its stale tracking refs and fetched archive tags for them.
 
-Readers and retention accept either the direct branch or exact archive tag; tags cannot mask a
-conflicting branch or object. Archived configuration remains fetchable for legacy mirror binding,
-onboarding restoration and historical platform authority. Cleanup does not change configuration,
-Stories, approvals, application worktrees or the index, and never removes proposal/application refs.
-Archive tags remain durable recovery data; no object pruning or implicit background deletion occurs.
+The same removal never changes configuration, Stories, approvals, application worktrees or the index, and never
+removes `sflow/config`, `sflow/config-change/*` proposals, the `state` branch or application refs. SFlow also no
+longer writes a configuration copy to the `state` branch [SCF:REQ-003]; one an earlier build wrote stays readable,
+is never authority, and is the last copy `configuration restore` offers when `sflow/config` is missing. Ancestry
+between a Story's pin and today's `sflow/config` is proved with one commits-only fetch and no depth limit
+[SCF:REQ-020]. In each registered clone the upgrade also removes the private upload refs for configuration
+commits that `sflow/config` already holds.
 
 ### Shared phase-authoring contract
 

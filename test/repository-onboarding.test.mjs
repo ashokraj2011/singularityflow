@@ -551,7 +551,7 @@ test('valid lifecycle-only state recognizes SFlow without inferring capability o
   }
 });
 
-test('current configuration rebuilds its projection without deleting lifecycle state', async () => {
+test('current configuration needs no state copy and leaves lifecycle state as it is', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
@@ -563,26 +563,23 @@ test('current configuration rebuilds its projection without deleting lifecycle s
       updatedAt: '2026-01-01T00:00:00.000Z'
     })}\n`;
     await publishStateFiles(fixture, { 'ledger/head.json': head });
+    const stateBefore = run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim();
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.status, 'ready');
-    assert.equal(plan.configuration.hasRepositoryMappings, true);
+    // sflow/config is the configuration; no copy of it goes to the state branch (SCF:REQ-003).
     assert.deepEqual(plan.effects, [
-      { kind: 'state-projection', target: 'state', action: 'refresh' },
       { kind: 'local-registration', target: fixture.remote, action: 'remember' }
     ]);
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId
     });
     assert.equal(result.status, 'ready');
+    assert.equal(run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim(), stateBefore);
     assert.equal(run('git', ['show', 'state:ledger/head.json'], {
       cwd: fixture.remote
     }).stdout, head);
-    assert.equal(run('git', [
-      'show-ref', '--verify', '--quiet', 'refs/heads/state'
-    ], { cwd: fixture.remote, allowFailure: true }).status, 0);
-    assert.doesNotThrow(() => JSON.parse(run('git', [
-      'show', `state:${STATE_CONFIGURATION_MANIFEST}`
-    ], { cwd: fixture.remote }).stdout));
+    assert.equal(run('git', ['show', `state:${STATE_CONFIGURATION_MANIFEST}`],
+      { cwd: fixture.remote, allowFailure: true }).status, 128, 'no copy was written');
     assert.deepEqual((await listLeadRepositories()).map((entry) => entry.url), [fixture.remote]);
 
     const stateBeforeRegistrationOnly = run('git', ['rev-parse', 'refs/heads/state'], {
@@ -654,7 +651,7 @@ test('an onboarded repository whose configuration predates this build\'s shipped
   }
 });
 
-test('a failed state projection preserves configuration and returns an exact projection-only retry', async () => {
+test('onboarding an existing configuration writes nothing to a state branch that refuses every push', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
@@ -666,65 +663,33 @@ test('a failed state projection preserves configuration and returns an exact pro
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.status, 'ready');
     assert.equal(plan.configuration.commit, configurationCommit);
-    assert.ok(plan.effects.some((effect) =>
-      effect.kind === 'state-projection' && effect.action === 'refresh'));
+    assert.equal(plan.effects.some((effect) => effect.kind === 'state-projection'), false,
+      'no copy of sflow/config goes to the state branch (SCF:REQ-003)');
     const hook = path.join(fixture.remote, 'hooks', 'pre-receive');
     await writeFile(hook, `#!/bin/sh
 while read old new ref; do
   if [ "$ref" = "refs/heads/state" ]; then
-    echo "state projection temporarily unavailable" >&2
+    echo "state branch temporarily unavailable" >&2
     exit 1
   fi
 done
 exit 0
 `);
     await chmod(hook, 0o755);
-
-    let configurationPushes = 0;
+    let pushes = 0;
     const observingRemoteCommand = async (args, options) => {
-      if (args[0] === 'push'
-          && args.some((argument) => argument.endsWith(':refs/heads/sflow/config'))) {
-        configurationPushes += 1;
-      }
+      if (args[0] === 'push') pushes += 1;
       return runRemoteGitAsync(args, options);
     };
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId, runRemoteCommand: observingRemoteCommand
     });
-    const retry = {
-      shell: renderPlatformCommand([
-        'singularity-flow', 'capability', 'onboard', fixture.remote, '--dry-run', '--json'
-      ]),
-      copilot: '/sf-capability-map'
-    };
-    assert.equal(result.status, 'ready-state-refresh-pending');
-    assert.equal(result.primaryAction, 'retry');
-    assert.equal(result.changed, true);
-    assert.equal(result.stateRefresh.pending, true);
-    assert.deepEqual(result.stateRefresh.retry, retry);
-    assert.deepEqual(result.nextActions, retry);
-    assert.equal(configurationPushes, 0);
+    assert.equal(result.status, 'ready');
+    assert.equal(result.stateRefresh, undefined);
+    assert.equal(pushes, 0, 'nothing is pushed: the configuration exists and needs no copy');
     assert.equal(run('git', [
       'show-ref', '--verify', '--quiet', 'refs/heads/state'
     ], { cwd: fixture.remote, allowFailure: true }).status, 1);
-
-    const recoveryPlan = await inspectRepositoryOnboarding(fixture.remote, {
-      runRemoteCommand: observingRemoteCommand
-    });
-    assert.equal(recoveryPlan.status, 'ready');
-    assert.equal(recoveryPlan.configuration.commit, configurationCommit);
-    assert.deepEqual(recoveryPlan.effects, [{
-      kind: 'state-projection', target: 'state', action: 'refresh'
-    }]);
-
-    await rm(hook);
-    const recovered = await applyRepositoryOnboarding(fixture.remote, {
-      confirmPlan: recoveryPlan.planId, runRemoteCommand: observingRemoteCommand
-    });
-    assert.equal(recovered.status, 'ready');
-    assert.equal(recovered.stateRefresh.pending, false);
-    assert.equal(configurationPushes, 0,
-      'retrying the projection must not repeat the configuration mutation');
     assert.equal(run('git', [
       'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`
     ], { cwd: fixture.remote }).stdout.trim(), configurationCommit);
@@ -938,7 +903,7 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
     };
     const remoteCount = (counters, verb) => counters[`git.remote.command.${verb}`] ?? 0;
     // The lead's approved configuration is re-read in place from the configuration object pool when
-    // one is available (SDA-AC-013), or cloned; its state mirror is still cloned.
+    // one is available (SDA-AC-013), or cloned. Its old state copy is never read (SCF:REQ-003).
     const leadReads = (sample) => remoteCount(sample.counters, 'clone') - sample.deliveryClones
       + (sample.counters['configuration.object-store-read'] ?? 0);
 
@@ -975,9 +940,8 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
     await assert.rejects(withCommandTiming(applyTimer, () => applyRepositoryOnboarding(
       delivery.remote, { ...options, confirmPlan: `sha256:${'0'.repeat(64)}` }
     )), { code: 'REPOSITORY_ONBOARDING_CONFIRMATION_MISMATCH' });
-    assert.ok(remoteCount(applyTimer.finish().counters, 'clone')
-      > deliveryClones - beforeApplyDeliveryClones,
-      'apply must deep-revalidate before comparing the confirmed plan');
+    assert.ok(leadReads({ counters: applyTimer.finish().counters, deliveryClones: deliveryClones - beforeApplyDeliveryClones }) > 0,
+      'apply must deep-revalidate the lead before comparing the confirmed plan');
 
     run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, unmappedCommit], {
       cwd: lead.remote
@@ -1004,7 +968,8 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
     run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateEditor });
     const advancedState = await inspectTimed();
     assert.equal(advancedState.plan.routing.verified, true);
-    assert.ok(leadReads(advancedState) > 0, 'a moved lead state ref must revalidate before the mapping stays trusted');
+    assert.equal(leadReads(advancedState), 0,
+      'the lead\'s state branch is not its configuration, so moving it leaves the warm cache standing (SCF:REQ-003)');
 
     const wrongLink = createCapabilityAuthorityLink({
       authorityRemote: lead.remote, repositoryRemote: delivery.remote,
@@ -1233,7 +1198,6 @@ test('mirror reconstruction preserves a disabled state-publication policy', asyn
       cwd: fixture.remote
     });
     const plan = await inspectRepositoryOnboarding(fixture.remote);
-    assert.equal(plan.state.stateProjectionEnabled, false);
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId
     });
@@ -1284,7 +1248,7 @@ test('a legacy unbound mirror is recoverable only when retained history proves t
   }
 });
 
-test('current configuration rebinds an unbound legacy state mirror', async () => {
+test('current configuration leaves an unbound legacy state copy exactly as it is', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
@@ -1295,15 +1259,18 @@ test('current configuration rebinds an unbound legacy state mirror', async () =>
     assert.equal(plan.configuration.status, 'current');
     assert.equal(plan.state.kind, 'configuration-mirror');
     assert.equal(plan.state.repositoryBound, false);
-    assert.ok(plan.effects.some((effect) => effect.kind === 'state-projection'));
+    // sflow/config is the configuration; an old copy is never rewritten and no new one is written (SCF:REQ-003).
+    assert.equal(plan.effects.some((effect) => effect.kind === 'state-projection'), false);
+    const stateBefore = run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim();
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId
     });
     assert.equal(result.status, 'ready');
+    assert.equal(run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim(), stateBefore);
     const manifest = JSON.parse(run('git', [
       'show', `state:${STATE_CONFIGURATION_MANIFEST}`
     ], { cwd: fixture.remote }).stdout);
-    assert.match(manifest.subject.repositoryIdentity, /^sha256:[0-9a-f]{64}$/u);
+    assert.equal(manifest.subject, undefined, 'the old copy keeps its own manifest');
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
@@ -1944,10 +1911,9 @@ test('fresh setup directly creates configuration despite a later application-onl
     assert.equal(run('git', [
       'show-ref', '--verify', '--quiet', 'refs/heads/state'
     ], { cwd: fixture.remote, allowFailure: true }).status, 1,
-    'no repository mapping exists yet, so fresh setup performs no state projection');
+    'fresh setup writes no configuration copy to a state branch (SCF:REQ-003)');
     const repeated = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(repeated.status, 'ready');
-    assert.equal(repeated.configuration.hasRepositoryMappings, false);
     assert.equal(repeated.stateRefresh, undefined);
     assert.equal(repeated.effects.some((effect) => effect.kind === 'state-projection'), false);
     assert.equal(run('git', [
@@ -2218,6 +2184,165 @@ test('a setup proposal is visible, reviewable, and activates only its exact revi
     );
     assert.equal(laterProposal.valid, true,
       'an unchanged recovery receipt remains valid in later configuration proposals');
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+// SPEC-SCF one way in [SCF:REQ-010]: a setup proposal is approved and rejected like every other proposal.
+test('a setup proposal is approved with configuration approve and rejected with configuration reject [SCF:REQ-010]', async () => {
+  // A person's steps, run as a person: whatever started this test run, no agent marker reaches them.
+  const personEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => !['AI_AGENT', 'COPILOT_CLI'].includes(name)));
+  const cli = (cwd, args) => run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), ...args], { cwd, env: personEnv, allowFailure: true });
+  const approveFixture = await repositoryFixture();
+  const rejectFixture = await repositoryFixture('second-application');
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(approveFixture.base, 'leads.json');
+  try {
+    const propose = async (fixture) => {
+      const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
+      const applied = await applyRepositoryOnboarding(fixture.remote, { mode: 'recreate', confirmPlan: plan.planId });
+      const checkout = path.join(fixture.base, 'checkout');
+      run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.base });
+      run('git', ['config', 'user.name', 'Setup Approver'], { cwd: checkout });
+      run('git', ['config', 'user.email', 'approver@example.test'], { cwd: checkout });
+      return { ...applied.proposal, checkout };
+    };
+    const configuration = (fixture) => run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`],
+      { cwd: fixture.remote, allowFailure: true }).status;
+    const proposal = await propose(approveFixture);
+    // The revision shown is the one approved: without it, nothing changes.
+    const unnamed = cli(proposal.checkout, ['configuration', 'approve', proposal.branch, '--lead', approveFixture.remote, '--json']);
+    assert.notEqual(unnamed.status, 0);
+    assert.equal(JSON.parse(unnamed.stdout).error.code, 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', unnamed.stdout);
+    assert.equal(configuration(approveFixture), 1, 'sflow/config is not created without the revision named');
+    const approved = cli(proposal.checkout, ['configuration', 'approve', proposal.branch, '--lead', approveFixture.remote,
+      '--confirm', proposal.commit, '--json']);
+    assert.equal(approved.status, 0, approved.stdout || approved.stderr);
+    const result = JSON.parse(approved.stdout);
+    assert.equal(result.kind, 'onboarding');
+    assert.equal(result.activated, true);
+    assert.equal(result.targetCommit, proposal.commit);
+    assert.equal(configuration(approveFixture), 0);
+
+    const rejected = await propose(rejectFixture);
+    const refused = cli(rejected.checkout, ['configuration', 'reject', rejected.branch, '--lead', rejectFixture.remote,
+      '--confirm', rejected.commit, '--reason', 'Set it up from the team template instead', '--json']);
+    assert.equal(refused.status, 0, refused.stdout || refused.stderr);
+    const rejection = JSON.parse(refused.stdout);
+    assert.deepEqual([rejection.kind, rejection.status, rejection.removal], ['onboarding', 'rejected', 'removed']);
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${rejected.branch}`],
+      { cwd: rejectFixture.remote, allowFailure: true }).status, 1, 'the rejected proposal\'s branch is gone');
+    assert.equal(configuration(rejectFixture), 1, 'nothing in sflow/config changed');
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(approveFixture.base, { recursive: true, force: true });
+    await rm(rejectFixture.base, { recursive: true, force: true });
+  }
+});
+
+// Every setup approval [owner, 2026-11-17]: SF Guard's signature under the policy of the repository the proposal is on,
+// wherever the command runs, or a refusal with the way forward; its proposer may not approve it where
+// allowSelfApproval is false, and neither may anyone when Git records no proposer.
+test('a setup approval run outside the repository is signed or refused, and its proposer may not approve it', async () => {
+  const personEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => !['AI_AGENT', 'COPILOT_CLI'].includes(name)));
+  const cli = (cwd, args) => run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), ...args], { cwd, env: personEnv, allowFailure: true });
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    const first = await applyRepositoryOnboarding(fixture.remote, { mode: 'recreate',
+      confirmPlan: (await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' })).planId });
+    await activateRepositoryOnboardingProposal(fixture.remote, first.proposal.branch, { confirm: first.proposal.commit, acknowledgeUnprotected: true });
+    // A change landed outside SFlow (D6): a second person is needed, and a path recreate does not carry forward.
+    const editor = path.join(fixture.base, 'policy-editor');
+    run('git', ['clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH, fixture.remote, editor], { cwd: fixture.base });
+    run('git', ['config', 'user.name', 'Policy Editor'], { cwd: editor });
+    run('git', ['config', 'user.email', 'policy@example.test'], { cwd: editor });
+    const workflowFile = path.join(editor, 'singularity', 'workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.approvalSecurity = { ...(workflow.approvalSecurity ?? {}), allowSelfApproval: false };
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    await writeFile(path.join(editor, 'singularity', 'custom-onboarding.yml'), 'custom: true\n');
+    run('git', ['add', '-A'], { cwd: editor });
+    run('git', ['commit', '-qm', 'Second person for configuration'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
+    const tip = () => run('git', ['rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: fixture.remote }).stdout.trim();
+    const before = tip();
+    const recreated = await applyRepositoryOnboarding(fixture.remote, { mode: 'recreate',
+      confirmPlan: (await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' })).planId });
+    const { branch, commit } = recreated.proposal;
+    const [proposerName, proposerEmail] = run('git', ['log', '-1', '--format=%an%x00%ae', commit], { cwd: fixture.remote }).stdout.trim().split('\0');
+    // Each person works outside the repository's checkout.
+    const person = async (name, label, email) => {
+      const directory = path.join(fixture.base, name);
+      run('git', ['init', '-q', '-b', 'main', directory], { cwd: fixture.base });
+      run('git', ['config', 'user.name', label], { cwd: directory });
+      run('git', ['config', 'user.email', email], { cwd: directory });
+      await writeFile(path.join(directory, 'README.md'), `# ${name}\n`);
+      run('git', ['add', '-A'], { cwd: directory });
+      run('git', ['commit', '-qm', 'Elsewhere'], { cwd: directory });
+      return directory;
+    };
+    const proposer = await person('proposer', proposerName, proposerEmail);
+    const other = await person('other', 'Setup Approver', 'setup.approver@example.test');
+    const routes = await import('../src/configuration-proposal-routes.mjs');
+    const { SingularityFlowError } = await import('../src/util.mjs');
+    const signed = [];
+    const sign = async (policyRoot, step) => {
+      signed.push({ step, workflow: await readFile(path.join(policyRoot, 'singularity', 'workflow.yml'), 'utf8'),
+        origin: run('git', ['remote', 'get-url', 'origin'], { cwd: policyRoot }).stdout.trim() });
+      return { schema: 'sflow.presence.v1', chainId: 'test-chain', approver: 'setup-approver', action: step.action, at: new Date().toISOString(),
+        recordSha256: `sha256:${'c'.repeat(64)}`, keyId: 'test-key', signature: 'test-signature' };
+    };
+
+    // Its proposer is refused, by configuration approve and by the earlier name, before any signature.
+    await assert.rejects(() => routes.activateDelegatedProposal(proposer, 'onboarding', fixture.remote, branch, { confirm: commit, signStep: sign }),
+      { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED' });
+    for (const args of [['configuration', 'approve'], ['capability', 'setup-activate']]) {
+      const refused = cli(proposer, [...args, branch, '--lead', fixture.remote, '--confirm', commit, '--json']);
+      assert.notEqual(refused.status, 0, refused.stdout);
+      assert.equal(JSON.parse(refused.stdout).error.code, 'CONFIGURATION_SELF_APPROVAL_REFUSED', `${args.join(' ')}: ${refused.stdout}`);
+    }
+    assert.equal(signed.length, 0);
+
+    // Someone who cannot sign is refused with the reason and the way forward; nothing is approved unsigned.
+    await assert.rejects(() => routes.activateDelegatedProposal(other, 'onboarding', fixture.remote, branch, { confirm: commit,
+      signStep: async () => { throw new SingularityFlowError('not an approver', { code: 'PSS_NOT_AN_APPROVER' }); } }), (error) => {
+      assert.equal(error.code, 'PSS_NOT_AN_APPROVER');
+      assert.match(error.message, /you are not an approver in the approved configuration\. Nothing was approved\./u);
+      assert.match(error.details.nextAction.label, /Another approver approves it/u);
+      return true;
+    });
+    assert.equal(tip(), before);
+
+    // An older build's proposal names no proposer (its placeholder author): nobody may approve it here.
+    const legacyBranch = `${branch}-legacy`;
+    const rewriter = path.join(fixture.base, 'legacy');
+    run('git', ['clone', '-q', '--no-hardlinks', fixture.remote, rewriter], { cwd: fixture.base });
+    run('git', ['fetch', '-q', 'origin', `${branch}:refs/legacy`], { cwd: rewriter });
+    const parents = run('git', ['log', '-1', '--format=%P', 'refs/legacy'], { cwd: rewriter }).stdout.trim().split(/\s+/u).filter(Boolean);
+    const placeholder = run('git', ['commit-tree', 'refs/legacy^{tree}', ...parents.flatMap((parent) => ['-p', parent]), '-m',
+      run('git', ['log', '-1', '--format=%B', 'refs/legacy'], { cwd: rewriter }).stdout], {
+      cwd: rewriter, env: { ...process.env, GIT_AUTHOR_NAME: 'Singularity Flow', GIT_AUTHOR_EMAIL: 'unknown@invalid' }
+    }).stdout.trim();
+    run('git', ['push', '-q', 'origin', `${placeholder}:refs/heads/${legacyBranch}`], { cwd: rewriter });
+    await assert.rejects(() => routes.activateDelegatedProposal(other, 'onboarding', fixture.remote, legacyBranch, { confirm: placeholder, signStep: sign }),
+      { code: 'CONFIGURATION_PROPOSER_UNKNOWN' });
+    assert.equal(signed.length, 0);
+
+    // Another person signs, under the repository's own policy although they run it elsewhere.
+    const approved = await routes.activateDelegatedProposal(other, 'onboarding', fixture.remote, branch, { confirm: commit, signStep: sign });
+    assert.equal(approved.activated, true, JSON.stringify(approved.failure ?? approved.status));
+    assert.equal(signed.length, 1);
+    assert.equal(signed[0].origin, fixture.remote);
+    assert.match(signed[0].workflow, /allowSelfApproval: false/u, 'the policy read is the repository\'s sflow/config');
+    assert.deepEqual(approved.approval, { proposer: { name: proposerName, email: proposerEmail.toLowerCase() },
+      approver: { name: 'Setup Approver', email: 'setup.approver@example.test' }, selfApproved: false });
+    assert.equal(approved.presence.status, 'published', JSON.stringify(approved.presence));
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
@@ -2855,7 +2980,7 @@ test('a local registry failure after remote setup returns an exact resumable loc
     });
     assert.equal(result.status, 'local-registration-pending');
     assert.equal(result.primaryAction, 'retry');
-    assert.equal(result.changed, true);
+    assert.equal(result.changed, false, 'sflow/config already exists and no state copy is written (SCF:REQ-003)');
     assert.equal(result.localRegistration.status, 'pending');
     assert.equal(result.localRegistration.remembered, false);
     assert.equal(result.localRegistration.target, fixture.remote);
@@ -2866,9 +2991,10 @@ test('a local registry failure after remote setup returns an exact resumable loc
     const configurationCommit = run('git', [
       'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`
     ], { cwd: fixture.remote }).stdout.trim();
-    const stateCommit = run('git', ['rev-parse', 'refs/heads/state'], {
-      cwd: fixture.remote
-    }).stdout.trim();
+    const stateAbsent = () => run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+      cwd: fixture.remote, allowFailure: true
+    }).status === 1;
+    assert.ok(stateAbsent());
 
     const recoveryPlan = await inspectRepositoryOnboarding(fixture.remote);
     assert.deepEqual(recoveryPlan.effects, [{
@@ -2882,9 +3008,7 @@ test('a local registry failure after remote setup returns an exact resumable loc
     assert.equal(run('git', [
       'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`
     ], { cwd: fixture.remote }).stdout.trim(), configurationCommit);
-    assert.equal(run('git', ['rev-parse', 'refs/heads/state'], {
-      cwd: fixture.remote
-    }).stdout.trim(), stateCommit);
+    assert.ok(stateAbsent());
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;

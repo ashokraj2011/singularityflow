@@ -630,7 +630,8 @@ test('rewritten same-authority configuration history cannot be proposed as a new
   await assert.rejects(previewStorySkillVersionProposal(root, config, workflow, {
     skillId: 'threat-model', approvedConfigurationSnapshot: unrelated,
     reason: 'Attempt to adopt a package after unrelated authority rewrite.'
-  }), { code: 'SKP_AMENDMENT_ANCESTRY_UNAVAILABLE' });
+    // The refusal names the cause: sflow/config was rewritten outside SFlow (SPEC-SCF D9).
+  }), (error) => error.code === 'SKP_AMENDMENT_ANCESTRY_REWRITTEN' && /rewritten outside SFlow/u.test(error.message));
   assert.equal(git(root, 'rev-parse', 'HEAD'), before);
   assert.equal(workflow.workflowSnapshot.revision, 1);
   assert.equal(workflow.skillVersionAmendments?.length ?? 0, 0);

@@ -220,7 +220,9 @@ current phase needs.
   One merged and deleted on the Git host is recorded as approved by `configuration approve`; one
   closed gives its drafts back as waiting, and `configuration propose` proposes them again.
 - **`configuration approve`** is the reviewer's own step, in their own terminal or Workflow Studio;
-  Copilot turns refuse it.
+  Copilot turns refuse it. Run again on an approved proposal, it finishes what an interruption left.
+- **`configuration reject <PROPOSAL> --reason <TEXT>`** rejects a proposal, or withdraws your own; the
+  reason is recorded for its author and a proposal of drafts gives them back as waiting.
 
 ## Cleanup and reset
 

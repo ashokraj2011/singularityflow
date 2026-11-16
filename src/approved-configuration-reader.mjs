@@ -2,6 +2,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import {
   configurationReadScope, isConfigurationReadPath, withConfigurationReadRoot,
@@ -397,6 +398,17 @@ export async function withRepositoryConfigurationCommitRead(root, {
 /** The read options of a CLI configuration inspection command: exact objects, never a temporary clone. */
 export const INSPECTION_READ = Object.freeze({ useObjectCache: true });
 
+/**
+ * The read options of a check of the configuration new work uses (`doctor`, `configuration validate`, `workflow
+ * fix`) [SCF:REQ-001, REQ-002, finding ER-F5]: outside a Story checkout that is `sflow/config`, refreshed, never an
+ * application checkout's `singularity/` files; its files are mounted as they are, so one that does not load is
+ * reported problem by problem instead of refused before the check runs. A Story checkout keeps its pin.
+ */
+export function authorityCheckRead(root, { refreshAuthority = true } = {}) {
+  const pinned = existsSync(path.join(root, CONFIGURATION_SOURCE_PATH));
+  return pinned ? {} : { preferAuthority: true, rawFiles: true, refreshAuthority };
+}
+
 export async function withApprovedConfigurationRead(root, fn, {
   preferAuthority = false,
   allowLocalHeads = true,
@@ -408,7 +420,9 @@ export async function withApprovedConfigurationRead(root, fn, {
   captureAuthoringBytes = false,
   useObjectCache = false,
   reuseAuthorityObservation = false,
-  authoritySession = null
+  authoritySession = null,
+  // Mount the authority's files as they are, without compiling them first (authorityCheckRead).
+  rawFiles = false
 } = {}) {
   if (freshOwnerCapture) {
     return withoutConfigurationReadScope(() => withApprovedConfigurationRead(root, fn, {
@@ -451,7 +465,7 @@ export async function withApprovedConfigurationRead(root, fn, {
   // refreshing B's remote-tracking refs here previously made Auto/CFP/help see a different policy
   // than the Story created one command later. The canonical resolver observes the chosen remote,
   // and the retained snapshot is mounted without changing this checkout or its refs.
-  const canonicalOnlineRead = refreshAuthority && canonicalRemote == null;
+  const canonicalOnlineRead = refreshAuthority && canonicalRemote == null && !rawFiles;
   if (canonicalOnlineRead) {
     // Keep fast read-only commands out of the full configuration-authority dependency graph.
     // Workspace/remote authority is needed only when this online branch is actually executed.

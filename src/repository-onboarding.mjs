@@ -22,7 +22,7 @@ import {
 } from './configuration-branch.mjs';
 import { DEFAULT_CONFIGURATION_ASSET_POLICY, configurationAssetSearchRoots, LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 import {
-  capabilityTree, flattenCapabilityTree, loadCapabilities
+  loadCapabilities
 } from './capabilities.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
 import {
@@ -1133,7 +1133,6 @@ async function verifiedMirrorFromCheckout(root, remote, branch, commit, env, run
     } : {}),
     history: manifest.history == null ? null : Object.freeze({ ...manifest.history }),
     schemaVersion: workflowVersion,
-    stateProjectionEnabled: workflow?.ledger?.enabled === true,
     compatibility,
     validationError,
     seedChanges: Object.freeze(seedChanges),
@@ -1326,7 +1325,7 @@ async function inspectConfigurationSnapshot(remote, commit, {
   if (!commit) return Object.freeze({
     branch: CONFIGURATION_BRANCH, commit: null, status: 'missing',
     schemaVersion: null, currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-    stateBranch: null, stateProjectionEnabled: false,
+    stateBranch: null,
     seedChanges: Object.freeze([]), validationError: null
   });
   const snapshot = await cloneObservedBranch(remote, CONFIGURATION_BRANCH, commit, {
@@ -1337,7 +1336,7 @@ async function inspectConfigurationSnapshot(remote, commit, {
     if (!workflowBytes) return Object.freeze({
       branch: CONFIGURATION_BRANCH, commit, status: 'invalid', schemaVersion: null,
       currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-      stateBranch: null, stateProjectionEnabled: false, seedChanges: Object.freeze([]),
+      stateBranch: null, seedChanges: Object.freeze([]),
       validationError: 'Configuration is missing singularity/workflow.yml.'
     });
     const workflow = parseYaml(workflowBytes, 'Approved workflow');
@@ -1351,12 +1350,10 @@ async function inspectConfigurationSnapshot(remote, commit, {
       return Object.freeze({
         branch: CONFIGURATION_BRANCH, commit, status: 'invalid', schemaVersion: workflowVersion,
         currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-        stateBranch: null, stateProjectionEnabled: false, seedChanges: Object.freeze([]),
+        stateBranch: null, seedChanges: Object.freeze([]),
         validationError: error?.message ?? String(error)
       });
     }
-    const stateProjectionEnabled = workflow?.ledger?.enabled === true
-      && workflow?.ledger?.publication !== 'off';
     let configuredStateBranch;
     try { configuredStateBranch = stateBranchName(workflow?.ledger?.branch); }
     catch (error) {
@@ -1364,20 +1361,20 @@ async function inspectConfigurationSnapshot(remote, commit, {
         branch: CONFIGURATION_BRANCH, commit, status: 'invalid',
         schemaVersion: workflowVersion,
         currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-        stateBranch: null, stateProjectionEnabled: false, seedChanges: Object.freeze([]),
+        stateBranch: null, seedChanges: Object.freeze([]),
         validationError: error?.message ?? String(error)
       });
     }
     if (workflowVersion > CURRENT_WORKFLOW_FORMAT_VERSION) return Object.freeze({
       branch: CONFIGURATION_BRANCH, commit, status: 'future', schemaVersion: workflowVersion,
       currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-      stateBranch: configuredStateBranch, stateProjectionEnabled,
+      stateBranch: configuredStateBranch,
       seedChanges: Object.freeze([]), validationError: null
     });
     if (workflowVersion !== CURRENT_WORKFLOW_FORMAT_VERSION) return Object.freeze({
       branch: CONFIGURATION_BRANCH, commit, status: 'invalid', schemaVersion: workflowVersion,
       currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-      stateBranch: configuredStateBranch, stateProjectionEnabled,
+      stateBranch: configuredStateBranch,
       seedChanges: Object.freeze([]),
       validationError: `Workflow schema ${workflowVersion ?? 'unknown'} is not supported for migration by this build.`
     });
@@ -1386,16 +1383,14 @@ async function inspectConfigurationSnapshot(remote, commit, {
       return Object.freeze({
         branch: CONFIGURATION_BRANCH, commit, status: 'invalid', schemaVersion: workflowVersion,
         currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-        stateBranch: configuredStateBranch, stateProjectionEnabled,
+        stateBranch: configuredStateBranch,
         seedChanges: Object.freeze([]), validationError: error?.message ?? String(error)
       });
     }
     const wrote = await initializeDefinition(snapshot.scratch);
     await loadDefinition(snapshot.scratch);
-    const capabilityDefinition = await loadCapabilities(snapshot.scratch);
-    const hasRepositoryMappings = capabilityDefinition != null
-      && flattenCapabilityTree(capabilityTree(capabilityDefinition))
-        .some((capability) => capability.repositories.length > 0);
+    // The capability map must still load; SFlow no longer copies it to the state branch (SCF:REQ-003).
+    await loadCapabilities(snapshot.scratch);
     const changed = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
       cwd: snapshot.scratch, env: snapshot.env
     }).stdout.split(/\r?\n/u).filter(Boolean).map((line) => line.slice(3)).sort();
@@ -1404,7 +1399,7 @@ async function inspectConfigurationSnapshot(remote, commit, {
       branch: CONFIGURATION_BRANCH, commit,
       status: seedChanges.length ? 'migration-required' : 'current',
       schemaVersion: workflowVersion, currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-      stateBranch: configuredStateBranch, stateProjectionEnabled, hasRepositoryMappings,
+      stateBranch: configuredStateBranch,
       seedChanges: Object.freeze(seedChanges), validationError: null
     });
   }, { cleanupWarnings, cleanupQueueRoot: queueRoot });
@@ -1506,16 +1501,8 @@ function deriveAutomaticSetup(state, configuration) {
       choices: [choice('recreate', 'Recreate configuration',
         'Build current configuration while preserving portable organisation data.', 'recreate')]
     };
-    if (configuration.stateProjectionEnabled
-        && !(state.kind === 'none' && configuration.hasRepositoryMappings === false)
-        && (['none', 'lifecycle-only'].includes(state.kind)
-          || (state.kind === 'configuration-mirror'
-            && (state.sourceCommit !== configuration.commit
-              || state.repositoryBound !== true)))) return {
-      status: 'ready', primaryAction: 'continue', canApply: true,
-      effects: [{ kind: 'state-projection', target: state.branch, action: 'refresh' }],
-      choices: [], stateRefreshPending: true
-    };
+    // sflow/config is the configuration; the state branch gets no copy of it (SCF:REQ-003), so an existing one
+    // needs nothing more here.
     return {
       status: 'ready', primaryAction: 'continue', canApply: true, effects: [], choices: []
     };
@@ -1539,7 +1526,6 @@ function deriveAutomaticSetup(state, configuration) {
       effects: [
         { kind: 'configuration-restore', target: CONFIGURATION_BRANCH, action: 'create' },
         { kind: 'configuration-migration', target: CONFIGURATION_BRANCH, action: 'propose' },
-        { kind: 'state-projection', target: state.branch, action: 'refresh' },
         { kind: 'local-registration', target: 'lead-registry', action: 'remember' }
       ], choices: []
     };
@@ -1547,7 +1533,6 @@ function deriveAutomaticSetup(state, configuration) {
       status: 'ready-to-restore', primaryAction: 'restore-and-continue', canApply: true,
       effects: [
         { kind: 'configuration-restore', target: CONFIGURATION_BRANCH, action: 'create' },
-        { kind: 'state-projection', target: state.branch, action: 'refresh' },
         { kind: 'local-registration', target: 'lead-registry', action: 'remember' }
       ],
       choices: []
@@ -1622,7 +1607,6 @@ function deriveModeSetup(mode, state, configuration) {
       effects: [
         ...(restore ? [{ kind: 'configuration-restore', target: CONFIGURATION_BRANCH, action: 'create' }] : []),
         { kind: 'configuration-migration', target: CONFIGURATION_BRANCH, action: 'propose' },
-        ...(restore ? [{ kind: 'state-projection', target: state.branch, action: 'refresh' }] : []),
         { kind: 'local-registration', target: 'lead-registry', action: 'remember' }
       ], choices: []
     };
@@ -1635,8 +1619,6 @@ function deriveModeSetup(mode, state, configuration) {
       kind: 'configuration-recreate', target: CONFIGURATION_BRANCH,
       action: configuration.commit ? 'propose' : 'create'
     },
-    ...(!configuration.commit
-      ? [{ kind: 'state-projection', target: state.branch, action: 'refresh' }] : []),
     { kind: 'local-registration', target: 'lead-registry', action: 'remember' }
     ], choices: []
   };
@@ -1774,7 +1756,7 @@ export async function inspectRepositoryOnboarding(remote, {
       configuration: Object.freeze({
         branch: CONFIGURATION_BRANCH, commit: null, status: 'unchecked', schemaVersion: null,
         currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-        stateBranch: null, stateProjectionEnabled: false,
+        stateBranch: null,
         seedChanges: Object.freeze([]), validationError: null
       }),
       observedRefs: Object.freeze({}), effects: Object.freeze(effects.map(Object.freeze)),
@@ -1825,7 +1807,7 @@ export async function inspectRepositoryOnboarding(remote, {
       configuration: Object.freeze({
         branch: CONFIGURATION_BRANCH, commit: null, status: 'missing', schemaVersion: null,
         currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-        stateBranch: null, stateProjectionEnabled: false,
+        stateBranch: null,
         seedChanges: Object.freeze([]), validationError: null
       }),
       observedRefs: Object.freeze({}), effects: Object.freeze([]), preserved: basePreserved(),
@@ -1957,9 +1939,6 @@ export async function inspectRepositoryOnboarding(remote, {
           ref: 'HEAD'
         })
       } : {}),
-    ...(setup.stateRefreshPending ? {
-      stateRefresh: Object.freeze({ status: 'pending', branch: state.branch })
-    } : {}),
     // The upgrade an automatic preview no longer requires: what it would bring, and the preview that proposes it.
     ...(selectedMode === 'auto' && configuration.status === 'migration-required' && setup.canApply ? {
       configurationUpdate: Object.freeze({
@@ -2638,45 +2617,8 @@ async function publishProposal(remote, plan, mutate, {
   }, { cleanupWarnings, cleanupQueueRoot });
 }
 
-function stateProjectionRetry(remote, plan) {
-  // Re-enter the ref-bound onboarding preview rather than the general publish command. The
-  // resulting auto-mode plan contains only the pending state projection (and, when needed, local
-  // registration), so confirmation cannot repeat the already-published configuration mutation.
-  return nextActions(remote, 'auto', plan?.state?.branch ?? STATE_BRANCH_DEFAULT);
-}
-
-async function refreshStateProjection(remote, configurationCommit, context) {
-  try {
-    const { publishOrganisationCapabilityMap } = await import('./organisation.mjs');
-    const projection = await publishOrganisationCapabilityMap(remote, {
-      expectedConfigurationCommit: configurationCommit,
-      initiatingRoot: context.initiatingRoot, initiatingEnv: context.initiatingEnv,
-      publishAuthorityLinks: false, allowConfigurationOnly: true
-    });
-    const pending = !['current', 'updated'].includes(projection.status);
-    return {
-      ...projection, status: projection.status, pending,
-      ...(pending ? { retry: stateProjectionRetry(remote, context.plan) } : {})
-    };
-  } catch (error) {
-    return {
-      status: 'pending', pending: true,
-      code: error?.code ?? 'CAPABILITY_STATE_PROJECTION_FAILED',
-      reason: error?.message ?? String(error),
-      retry: stateProjectionRetry(remote, context.plan)
-    };
-  }
-}
-
 function appliedResult(plan, values = {}) {
-  const explicitPending = ['configuration-review-required', 'local-registration-pending']
-    .includes(values.status);
-  const status = !explicitPending && values.stateRefresh?.pending
-    ? 'ready-state-refresh-pending'
-    : values.status ?? plan.status;
-  const stateRetry = status === 'ready-state-refresh-pending'
-    ? values.stateRefresh?.retry ?? null
-    : null;
+  const status = values.status ?? plan.status;
   return Object.freeze({
     schemaVersion: 1, // schema-transient: command result envelope, never persisted
     kind: REPOSITORY_ONBOARDING_RESULT_KIND,
@@ -2687,8 +2629,8 @@ function appliedResult(plan, values = {}) {
     availableModes: plan.availableModes,
     ...(plan.routing ? { routing: plan.routing } : {}),
     ...values,
-    status, primaryAction: stateRetry ? 'retry' : values.primaryAction ?? plan.primaryAction,
-    nextActions: stateRetry ?? values.nextActions ?? Object.freeze({
+    status, primaryAction: values.primaryAction ?? plan.primaryAction,
+    nextActions: values.nextActions ?? Object.freeze({
       shell: onboardingCommand(plan.repository.url),
       copilot: '/sf-capability-map'
     })
@@ -2891,17 +2833,6 @@ export async function applyRepositoryOnboarding(remote, {
   };
 
   if (selectedMode === 'auto') {
-    if (plan.status === 'ready' && plan.effects.some((effect) => effect.kind === 'state-projection'
-        && effect.action === 'refresh')) {
-      const stateRefresh = await refreshStateProjection(
-        repository, plan.configuration.commit, context
-      );
-      return finishWithRegistration(plan, repository, {
-        status: 'ready', primaryAction: 'continue',
-        changed: stateRefresh.published === true,
-        stateRefresh
-      });
-    }
     if (plan.status === 'ready') {
       return finishWithRegistration(plan, repository, {
         status: 'ready', primaryAction: 'continue', changed: false
@@ -2922,10 +2853,9 @@ export async function applyRepositoryOnboarding(remote, {
       if (restored.reviewRequired) return reviewRequiredResult(plan, restored, {
         receipt: restored.receipt
       });
-      const stateRefresh = await refreshStateProjection(repository, restored.commit, context);
       return finishWithRegistration(plan, repository, {
         status: 'ready', primaryAction: 'continue', changed: true,
-        configuration: restored, stateRefresh,
+        configuration: restored,
         receipt: restored.receipt
       });
     }
@@ -2990,13 +2920,10 @@ export async function applyRepositoryOnboarding(remote, {
         receipt: restored ? { restored, proposal } : { proposal }
       });
     }
-    const configurationCommit = proposal.reviewRequired ? baseCommit : proposal.commit;
-    const stateRefresh = restored
-      ? await refreshStateProjection(repository, configurationCommit, context) : null;
     return finishWithRegistration(plan, repository, {
       status: proposal.reviewRequired ? 'update-available' : 'ready',
       primaryAction: proposal.reviewRequired ? 'review-choices' : 'continue',
-      changed: Boolean(restored || proposal.changed), restored, proposal, stateRefresh,
+      changed: Boolean(restored || proposal.changed), restored, proposal,
       receipt: { restored, proposal }
     });
   }
@@ -3036,10 +2963,9 @@ export async function applyRepositoryOnboarding(remote, {
       if (created.reviewRequired) return reviewRequiredResult(plan, created, {
         receipt: built.receipt, omitted: plan.omitted
       });
-      const stateRefresh = await refreshStateProjection(repository, created.commit, context);
       return finishWithRegistration(plan, repository, {
         status: 'ready', primaryAction: 'continue', changed: true,
-        configuration: created, stateRefresh, omitted: plan.omitted, receipt: built.receipt
+        configuration: created, omitted: plan.omitted, receipt: built.receipt
       });
     }, context);
   }

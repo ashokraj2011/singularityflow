@@ -59,8 +59,6 @@ const CLONES = Object.freeze({
     'A local shared clone of the object pool, for a governed write that needs a checkout; reads take the pool in place.',
   'configuration-proposal.mjs#withWorkflowProposalCheckout':
     'Workflow activation, and an inspection whose object pool declined: blobless, no checkout.',
-  'configuration-recreate-sync.mjs#recreateAndSyncConfiguration':
-    'Recreate and sync replays every pending proposal onto approved history and pushes the result.',
   'configuration-proposal-cleanup.mjs#cleanupActivatedConfigurationProposal':
     'Retiring an activated proposal proves its ancestry here when no checkout was handed over.',
   'organisation.mjs#publishOrganisationCapabilityMap': 'Publishing the state mirror from the approved definition.',

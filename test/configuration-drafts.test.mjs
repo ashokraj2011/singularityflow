@@ -153,14 +153,18 @@ test('approving shows what changes, needs a yes, and activates exactly the revis
     activate: async (_root, branch, options) => { activations.push({ branch, ...options }); return { status: 'activated', activated: true }; }
   };
   await assert.rejects(approveProposal(root, null, { ...deps }), (error) => error.code === 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED'
-    && error.message.includes(`configuration approve ${reviewed.branch} --yes`));
+    && error.message.includes(`configuration approve ${reviewed.branch} --confirm ${reviewed.proposalCommit}`));
   assert.ok(printed.includes('  new: singularity/skill-library/review/SKILL.md'), printed.join('\n'));
   const declined = await approveProposal(root, null, { ...deps, interactive: true, ask: async () => 'n' });
   assert.equal(declined.status, 'declined');
   assert.deepEqual(activations, []);
   await approveProposal(root, null, { ...deps, interactive: true, ask: async () => 'yes' });
   assert.deepEqual(activations, [{ branch: reviewed.branch, confirm: reviewed.proposalCommit, acknowledgeUnprotected: true }]);
+  // --yes approves the revision shown above (SCF:REQ-006); a different named revision approves nothing.
   await approveProposal(root, reviewed.branch, { ...deps, yes: true });
+  assert.equal(activations.length, 2);
+  await assert.rejects(approveProposal(root, reviewed.branch, { ...deps, confirm: 'd'.repeat(40) }),
+    (error) => error.code === 'CONFIGURATION_APPROVE_PROPOSAL_MOVED');
   assert.equal(activations.length, 2);
   const many = { ...deps, list: async () => [{ branch: 'one' }, { branch: 'two' }] };
   await assert.rejects(approveProposal(root, null, many), (error) => error.code === 'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED'
@@ -252,8 +256,9 @@ test('end to end: three dependent changes become one proposal, approved with one
   assert.match(flow(checkout, ['configuration', 'propose']).stdout, /Proposed 3 drafts as one review\./);
   assert.equal(git(remote, 'rev-parse', 'sflow/config'), before, 'proposing approves nothing');
   const refused = flow(checkout, ['configuration', 'approve'], 1);
-  assert.match(refused.stdout, /new: singularity\/skill-library\/review\/SKILL\.md/);
-  assert.match(refused.stderr, /approve with: singularity-flow configuration approve sflow\/config-change\/\S+ --yes/);
+  // The view shows what lands, not only file names (SCF:REQ-008).
+  assert.match(refused.stdout, /New file singularity\/skill-library\/review\/SKILL\.md:\n(?: {4}.*\n)*? {4}\+ Write each comment <instruction>tone<\/instruction>/);
+  assert.match(refused.stderr, /approve exactly this revision: singularity-flow configuration approve sflow\/config-change\/\S+ --confirm [0-9a-f]{40}/);
   assert.match(flow(checkout, ['configuration', 'approve', '--yes']).stdout, /Approved\. New Stories use these changes/);
   assert.match(git(remote, 'show', 'sflow/config:singularity/skill-library/review/SKILL.md'), /<instruction>tone<\/instruction>/);
   assert.match(git(remote, 'show', 'sflow/config:singularity/skill-library/attachments.yml'), /review/);

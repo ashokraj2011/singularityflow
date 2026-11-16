@@ -1,9 +1,9 @@
 ---
 name: sflow-configuration
-description: Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.
+description: Inspect, validate or publish governed configuration without Git merge questions.
 disable-model-invocation: true
 agent: agent
-argument-hint: "show|explain [--pointer <JSON-POINTER>]|validate|save <path>|publish|transactions|reconcile <CFT-ID>|recreate-sync [--apply --confirm <digest>]"
+argument-hint: "show|explain [--pointer <JSON-POINTER>]|validate|save <path>|publish|transactions|reconcile <CFT-ID>"
 ---
 # Manage governed configuration
 
@@ -22,11 +22,10 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    the kernel re-observes shared authority and finishes only a verified transaction's reference sync.
    It never retries a push, accepts a proposal, or grants approval. Preserve `not-confirmed` or
    `sync-pending`; do not turn a prepared/cache record into an acceptance decision.
-2. For `recreate-sync`, always run the preview `singularity-flow configuration recreate-sync --json` first. Apply replays every proposal, teammates' unreviewed ones included: list each `proposals` branch, author, summary, `files` and `replacements`. Only after the person confirms that exact list (a request to recreate is not that confirmation), add `--apply --confirm <confirmation>` with that preview's value. On `CONFIGURATION_RECREATE_STALE`, show its new list and ask again; never reuse a digest. The main-panel **Recreate & sync configuration** menu performs the same model-free review. Preserve its backups and effects; never reset application code or Story history, and never apply merely because a proposal conflict was reported. The operation owns validation; do not add a pre-validation or another publication command.
-3. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
-4. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
-5. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
-6. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
-7. For drafts, run `singularity-flow configuration drafts --json`. Run a returned `singularity-flow configuration discard` or `singularity-flow configuration propose` only on the person's explicit request.
+2. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
+3. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
+4. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
+5. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
+6. For drafts, run `singularity-flow configuration drafts --json`. Run a returned `singularity-flow configuration discard` or `singularity-flow configuration propose` only on the person's explicit request.
 
 Report the exact `singularity-flow configuration ...` action on all three surfaces per the Output contract; preserve its operation and operands.

@@ -425,10 +425,10 @@ Usage:
     (--loop replaces the Story workflow's loop set; --clear-loops removes it)
   singularity-flow workflow proposals [--all] [--json]     pending configuration review branches
   singularity-flow workflow proposal <BRANCH> [--json]     exact commits, files and diff to review
-  singularity-flow workflow activate <BRANCH> --confirm <COMMIT> [--acknowledge-unprotected]
-    (the line workflow proposal prints for a waiting proposal; --acknowledge-unprotected accepts that SFlow
-     updates sflow/config itself: a protected branch refuses, nothing changes, and it is merged through review.
-     VS Code: Workflow Studio → Changes → Review and activate)
+  singularity-flow workflow activate <BRANCH> --confirm <COMMIT>
+    (the same signed approval as configuration approve <BRANCH> --confirm <COMMIT>, the line workflow proposal
+     prints for a waiting proposal: a protected branch refuses, nothing changes, and it is merged through review.
+     VS Code: Workflow Studio → Changes → Review and approve)
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT] [--propose]
   singularity-flow workflow export --workflow ID [--workflow ID...] --out FILE [--json]
                                                         export selected workflows and their complete dependency closure
@@ -1051,13 +1051,24 @@ Usage:
   singularity-flow configuration propose [--message TEXT] [--json]  Propose every draft as one review; drafts already approved are settled, not proposed
   singularity-flow configuration discard <NUMBER> --listing LISTING | <DRAFT-ID> | --all [--json]
                                                         drop drafts: a number from the list with that list's --listing, or a draft ID
-  singularity-flow configuration approve [<PROPOSAL>] [--yes] [--json]  Show what a proposal changes, confirm, and activate exactly that revision
-  singularity-flow configuration recreate-sync [--apply --confirm sha256:<PREVIEW>] [--json]  Preview lists every proposal it replays (teammates' unreviewed ones too) and its confirmation; apply replays only that reviewed list and refuses if it changed
+  singularity-flow configuration proposals [--lead URL] [--json]
+                                                        Every proposal and draft of every kind, with its author, its state and its next step
+  singularity-flow configuration approve [<PROPOSAL>] [--confirm <REVISION> | --yes] [--pick <FILE>#<FIELD>=proposal|current] [--lead URL] [--json]
+                                                        Show what approving it changes, value by value, and approve exactly the revision shown;
+                                                        --yes approves only the revision shown last; --pick keeps one value where both changed;
+                                                        run it again on an approved proposal to finish what an interruption left;
+                                                        capability and setup proposals too (--lead names their repository)
+  singularity-flow configuration reject <PROPOSAL> [--confirm <REVISION> | --yes] [--reason TEXT] [--lead URL] [--json]
+                                                        Reject a proposal of any kind with a reason, or withdraw your own; nothing in sflow/config changes
   singularity-flow configuration transactions [--json]     Inspect retained configuration operations; the journal grants no authority
-  singularity-flow configuration reconcile <CFT-ID> [--json]  Reconcile a committed operation and finish reference sync; never retry a push blindly
+  singularity-flow configuration reconcile <CFT-ID> [--json]  Finish one kept operation by its ID; approving the same proposal again does the same
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]
   singularity-flow configuration save <PATH> [--propose]    Reads replacement content from stdin; never an agent file (agents create|edit)
   singularity-flow configuration add-current-identity [--target *|story:*|initiative:*|SCOPE:GROUP] [--self-approval on|off] [--auto-enroll on|off] [--automatic] [--json]
+                                                        Propose adding you to approval groups (and any policy change) as a people proposal for configuration approve
+  singularity-flow configuration restore [--confirm <SOURCE>] [--json]
+                                                        When sflow/config is missing or does not load: show the newest copy and every file,
+                                                        then propose going back (it does not load) or recreate it (it is missing); a person's step
   singularity-flow state planes [WORK-ID] [--json]
   singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
   singularity-flow initiative profiles [--json]
@@ -1206,7 +1217,8 @@ Usage:
   singularity-flow story test-policy baseline-admission WORK-ID --phase PHASE --repository ID --record-sha256 RECORD-DIGEST
     --reason TEXT --follow-up-owner ID --remediation TEXT --expires UTC-ISO [--apply --confirm PLAN-DIGEST] [--json]
     (re-review retained baseline admission after expiry/revocation; no feature execution or automatic acceptance)
-  singularity-flow story approvers refresh [WORK-ID] --reason TEXT [--confirm PLAN-DIGEST] [--json]
+  singularity-flow story approvers refresh [WORK-ID] --reason TEXT [--adopt-without-ancestry] [--confirm PLAN-DIGEST] [--json]
+    (--adopt-without-ancestry: sflow/config was rewritten outside SFlow; an approver adopts it, recorded as adopted without ancestry)
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] [--json]
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] --apply --confirm PLAN-DIGEST [--json]
     (current active code phase; preserves published generations; fresh epoch validation; live authorized terminal review; no tests waived)
@@ -1327,7 +1339,7 @@ Usage:
   singularity-flow capability setup-proposal <SETUP-BRANCH> [--lead URL] [--json]
   singularity-flow capability setup-activate <SETUP-BRANCH> [--lead URL]
     --confirm <FULL-COMMIT> [--acknowledge-unprotected] [--json]
-    (review and activate an exact repository setup proposal; the source plan and target ref are
+    (the same approval as configuration approve <SETUP-BRANCH>, by its earlier name; the source plan and target ref are
      rechecked, and direct push requires explicit acknowledgement. Protected refs use external review.)
   singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
     [--include-proposals] [--refresh] [--state-branch NAME] [--json]
@@ -1362,11 +1374,11 @@ Usage:
   Removing a capability with children requires --reparent-children-to. Pass an empty value to move
   those direct children to the top level; older reviewed map revisions remain available in Git.
   singularity-flow capability publish [--lead URL] [--json]
-    (after a capability review branch is merged, refresh its orphan state projection)
+    (after a capability review branch is merged, publish its delivery repositories' locators)
   singularity-flow capability fsck [--lead URL | --repository DELIVERY-URL]
     [--search-known] [--portable-discovery] [--json]
     (read-only verification of registered workspace bindings, approved configuration,
-     state projection, proposal refs, and optional cross-laptop authority links; returns exact
+     proposal refs, and optional cross-laptop authority links; returns exact
      remediation commands)
   singularity-flow capability reconcile <DELIVERY-URL> --canonical-lead <URL>
     [--confirm-plan PLAN-ID] [--json]
@@ -1402,7 +1414,8 @@ Usage:
      the repaired commit must be reviewed again and approved/application branches are unchanged)
   singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT>
     [--acknowledge-unprotected] [--json]
-    (review and normally merge one exact proposal into sflow/config, then refresh its projection;
+    (the same approval as configuration approve <REVIEW-BRANCH>, by its earlier name: it merges one exact proposal
+     into sflow/config, then records its audit;
      protection is unknown until the real exact-CAS update; a direct attempt requires explicit acknowledgement;
      application main is never written)
     (a capability that ships has its lead's model; one that groups others composes theirs)
@@ -1441,10 +1454,12 @@ Usage:
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
     [--resolve PATH=local|bundled|merge] [--accept-bundled-conflicts]
-    [--confirm-plan PLAN-ID] [--review-only] [--json]
+    [--confirm-plan PLAN-ID] [--review-only | --rollback] [--json]
     (publishes each repository's packaged configuration straight to sflow/config and removes its
      old sflow/config-history/* and sflow/config-refresh/* refs; a host that refuses the push gets a
-     review branch with its link; --review-only proposes on a review branch instead)
+     review branch with its link; --review-only proposes it instead, as a package proposal that
+     configuration approve lands; --rollback lets an older build propose going back to it, labelled
+     as a rollback with what it removes)
   singularity-flow workspace reinitialize [WORKSPACE] [--repository ID]
     [--hard-cutover] [--dry-run | --confirm-plan PLAN-ID] [--json]
     (--hard-cutover explicitly retires known existing Stories, preserving their bytes read-only;

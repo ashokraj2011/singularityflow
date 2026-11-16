@@ -1,30 +1,48 @@
-/** Portable, bounded Git-commit ancestry evidence for reviewed skill adoption. */
+/**
+ * Portable Git-commit ancestry evidence: that today's `sflow/config` commit descends from the commit a
+ * running Story started from, for reviewed approver, skill-version and test-command adoption.
+ *
+ * SCF:REQ-020: one commits-only fetch of `sflow/config` with no depth limit (CH-F2: the 128-commit
+ * window left every long-lived Story unable to adopt anything after about sixty approvals). A proof
+ * that fits 128 commits is still written as v1, which every build reads. A longer chain is a v2 proof,
+ * bounded by size (1 MiB) instead of a commit count, and is written only once the repository's
+ * minimum build reads v2 (`minimumBuildReadsV2`). When there is no ancestry at all, because
+ * `sflow/config` was rewritten outside SFlow, the refusal says so and names the route (D9): an approver
+ * adopts the new configuration in the same step, recorded in a v2 proof as adopted without ancestry.
+ *
+ * Replay (verify) is here, on every Story read; capture and adoption fetch, so they load only when a
+ * command records one (skp-ancestry-capture.mjs).
+ */
 import { createHash } from 'node:crypto';
-import { mkdtemp, readdir, lstat } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { runRemoteGitAsync } from './git-execution.mjs';
-import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
-import { assertCredentialFreeRemote, frozenRemoteTransport } from './git-remote-diagnostics.mjs';
-import { PACKAGE_ROOT } from './package-root.mjs';
-import { processResultSucceeded } from './process-result.mjs';
-import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
+import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
+import { readRecord } from './schema-migrations.mjs';
+import { SingularityFlowError } from './util.mjs';
 
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
+// `commits` and `proofBytes` bound a v1 proof: every build reads it, so they never change. A v2 proof is
+// bounded by `v2ProofBytes` alone, about 2,000 commits of the measured size. `repositoryBytes` bounds the
+// commits-only scratch: 16 MiB holds roughly 70,000 commits (3,000 typical approval commits measured 330 KB
+// with their index), so the unbounded fetch needs no larger bound.
 export const SKP_ANCESTRY_LIMITS = Object.freeze({ commits: 128, commitBytes: 65536,
-  proofBytes: 512 * 1024, repositoryBytes: 16 * 1024 * 1024 });
-const CAPTURED = new WeakMap();
+  proofBytes: 512 * 1024, v2ProofBytes: 1024 * 1024, repositoryBytes: 16 * 1024 * 1024 });
+/**
+ * The first build that reads ancestry proof v2 [SCF:REQ-020]. A repository's minimum build is the build
+ * its approved package baseline names (SCF:REQ-016, `singularity/.product/configuration-baseline.yml`
+ * v2); a build is ordered by its clean stamp's `builtAt`, the source commit's time (D1). Builds made from
+ * a source commit at or after this instant read v2, so v2 is written only where the minimum build is that
+ * recent. It is set to the day this reader lands on main, here only; every reader derives from it.
+ */
+export const ANCESTRY_PROOF_V2_READERS_SINCE = '2026-11-17T00:00:00.000Z';
+export const ANCESTRY_ADOPTION_CAUSES = Object.freeze(['sflow-config-rewritten', 'ancestry-beyond-proof-limit']);
 
-function fail(message, code = 'SKP_AMENDMENT_ANCESTRY_INVALID') {
-  throw new SingularityFlowError(message, { code });
+export function fail(message, code = 'SKP_AMENDMENT_ANCESTRY_INVALID', details = undefined) {
+  throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
 }
 function exact(value, keys) {
   return value && typeof value === 'object' && !Array.isArray(value)
     && Object.keys(value).sort().join('\0') === [...keys].sort().join('\0');
 }
-function commitParents(bytes, oid, format) {
+export function commitParents(bytes, oid, format) {
   if (!Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > SKP_ANCESTRY_LIMITS.commitBytes
       || createHash(format).update(`commit ${bytes.length}\0`).update(bytes).digest('hex') !== oid) {
     fail('Configuration ancestry contains bytes that do not identify their exact Git commit.');
@@ -42,24 +60,45 @@ function commitParents(bytes, oid, format) {
   return parents;
 }
 
-/** Replays retained object hashes/parent edges; requires no Git, remote, or machine-local cache. */
-export function verifySkillConfigurationAncestry(proof, { repository, ancestorCommit, descendantCommit }) {
-  try { readRecord('skill-configuration-ancestry', proof); }
+const PROOF_KEYS = ['schemaVersion', 'kind', 'repository', 'ancestorCommit', 'descendantCommit', 'objectFormat', 'commits'];
+
+/**
+ * Replays retained object hashes/parent edges; requires no Git, remote, or machine-local cache. A v1
+ * proof holds at most 128 commits; a v2 proof any number within 1 MiB. A v2 proof may instead record
+ * that an approver adopted the configuration without ancestry (D9); only a caller that records such an
+ * adoption with its own approver binding (an approver refresh) passes `allowAdoption`.
+ */
+export function verifySkillConfigurationAncestry(proof, { repository, ancestorCommit, descendantCommit }, {
+  allowAdoption = false
+} = {}) {
+  let storedVersion;
+  try { storedVersion = readRecord('skill-configuration-ancestry', proof).storedVersion; }
   catch { fail('Configuration ancestry has no supported registered reader.'); }
-  if (!exact(proof, ['schemaVersion', 'kind', 'repository', 'ancestorCommit', 'descendantCommit',
-    'objectFormat', 'commits'])
+  const v2 = storedVersion === 2;
+  const adoption = v2 && proof && Object.hasOwn(proof, 'adoptedWithoutAncestry') ? proof.adoptedWithoutAncestry : null;
+  if (!exact(proof, adoption ? [...PROOF_KEYS, 'adoptedWithoutAncestry'] : PROOF_KEYS)
       || proof.kind !== 'skill-configuration-ancestry'
       || proof.repository !== repository || proof.ancestorCommit !== ancestorCommit
       || proof.descendantCommit !== descendantCommit || !OID.test(ancestorCommit ?? '')
       || !OID.test(descendantCommit ?? '') || ancestorCommit === descendantCommit
       || ancestorCommit.length !== descendantCommit.length
       || proof.objectFormat !== (ancestorCommit.length === 40 ? 'sha1' : 'sha256')
-      || !Array.isArray(proof.commits) || !proof.commits.length
-      || proof.commits.length > SKP_ANCESTRY_LIMITS.commits
-      || Buffer.byteLength(JSON.stringify(proof)) > SKP_ANCESTRY_LIMITS.proofBytes) {
+      || !Array.isArray(proof.commits) || (adoption ? proof.commits.length !== 0 : !proof.commits.length)
+      || (!v2 && proof.commits.length > SKP_ANCESTRY_LIMITS.commits)
+      || Buffer.byteLength(JSON.stringify(proof)) > (v2 ? SKP_ANCESTRY_LIMITS.v2ProofBytes : SKP_ANCESTRY_LIMITS.proofBytes)) {
     fail('Configuration ancestry does not bind the exact prior and next authority commits.');
   }
   assertCredentialFreeRemote(repository);
+  if (adoption) {
+    if (!allowAdoption) {
+      fail('Configuration ancestry records an adoption without ancestry, which only an approver refresh may record.');
+    }
+    if (!exact(adoption, ['cause', 'confirmedBy']) || !ANCESTRY_ADOPTION_CAUSES.includes(adoption.cause)
+        || typeof adoption.confirmedBy !== 'string' || !adoption.confirmedBy.trim() || adoption.confirmedBy.length > 512) {
+      fail('Configuration ancestry adoption does not name its cause and the approver who confirmed it.');
+    }
+    return true;
+  }
   let expected = descendantCommit;
   const seen = new Set();
   for (let index = 0; index < proof.commits.length; index += 1) {
@@ -79,112 +118,17 @@ export function verifySkillConfigurationAncestry(proof, { repository, ancestorCo
   return true;
 }
 
-async function directoryBytes(root) {
-  let total = 0;
-  const visit = async (directory) => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) fail('Configuration ancestry scratch storage contains a symlink.');
-      if (entry.isDirectory()) await visit(absolute);
-      else if (entry.isFile()) total += (await lstat(absolute)).size;
-      else fail('Configuration ancestry scratch storage contains a special file.');
-      if (total > SKP_ANCESTRY_LIMITS.repositoryBytes) {
-        fail('Configuration ancestry exceeds its bounded repository storage.', 'SKP_AMENDMENT_ANCESTRY_LIMIT');
-      }
-    }
-  };
-  await visit(root);
+/** Whether `build`, a repository's minimum build, reads ancestry proof v2 [SCF:REQ-020]. */
+export function minimumBuildReadsV2(build) {
+  return Boolean(build?.builtAt) && Date.parse(build.builtAt) >= Date.parse(ANCESTRY_PROOF_V2_READERS_SINCE);
 }
 
-/** Fetches only the exact approved source into disposable, bounded commit-only storage. */
+/** The proof that `snapshot`'s configuration descends from `priorSource`'s commit (skp-ancestry-capture.mjs). */
 export async function captureSkillConfigurationAncestry(snapshot, priorSource) {
-  // The proof names the repository as the Story recorded it, so every build replays it against the Story's own
-  // record; it is fetched from the approved authority as this clone reaches it. The two are one repository by its
-  // key (SCF:REQ-019): https or ssh, a path or file://, with or without `.git`.
-  const subject = { repository: priorSource?.repository, ancestorCommit: priorSource?.commit,
-    descendantCommit: snapshot?.sourceCommit };
-  const { sameRepository } = await import('./git-repository-identity.mjs');
-  const fetchFrom = snapshot?.authority?.remote;
-  if (!snapshot || typeof snapshot !== 'object' || typeof subject.repository !== 'string'
-      || !sameRepository(fetchFrom, subject.repository)
-      || !OID.test(subject.ancestorCommit ?? '') || !OID.test(subject.descendantCommit ?? '')
-      || subject.ancestorCommit === subject.descendantCommit
-      || subject.ancestorCommit.length !== subject.descendantCommit.length) {
-    fail('Configuration ancestry requires two exact commits on the same approved authority.');
-  }
-  const key = JSON.stringify(subject);
-  const prior = CAPTURED.get(snapshot)?.get(key);
-  if (prior) { verifySkillConfigurationAncestry(prior, subject); return structuredClone(prior); }
-  assertCredentialFreeRemote(subject.repository);
-  assertCredentialFreeRemote(fetchFrom);
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-skp-ancestry-'));
-  const objectFormat = subject.descendantCommit.length === 40 ? 'sha1' : 'sha256';
-  let objectService = null;
-  let firstFailure = null;
-  let capturedProof = null;
-  try {
-    run('git', ['init', '--bare', '--quiet', '--template=', `--object-format=${objectFormat}`, scratch],
-      { cwd: scratch, env: withoutGitProcessOverrides() });
-    const transport = frozenRemoteTransport(fetchFrom);
-    const fetched = await runRemoteGitAsync(['-c', 'fetch.unpackLimit=1', 'fetch', '--no-tags',
-      '--no-write-fetch-head', '--filter=tree:0', `--depth=${SKP_ANCESTRY_LIMITS.commits}`,
-      '--', transport.remote, subject.descendantCommit], { cwd: scratch, env: transport.env,
-      operation: 'remote-configuration', maxBuffer: 1024 * 1024 });
-    if (!processResultSucceeded(fetched)) fail('The exact configuration ancestry is unavailable from its approved authority.',
-      'SKP_AMENDMENT_ANCESTRY_UNAVAILABLE');
-    await directoryBytes(scratch);
-    // Capture is an explicit adoption operation, not part of ordinary offline proof replay.
-    // PACKAGE_ROOT selects the source owner in development and the staged CLI owner in a VSIX;
-    // the computed URL keeps its process/runtime graph out of long-lived editor read bundles.
-    const runtimeUrl = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'fos-object-service.mjs')).href;
-    const { FosGitObjectService } = await import(runtimeUrl);
-    objectService = new FosGitObjectService(scratch, {
-      maxObjectBytes: SKP_ANCESTRY_LIMITS.commitBytes
-    });
-    const pending = [{ oid: subject.descendantCommit, chain: [] }];
-    const seen = new Set();
-    while (pending.length && seen.size < SKP_ANCESTRY_LIMITS.commits) {
-      const { oid, chain } = pending.shift();
-      if (seen.has(oid)) continue;
-      seen.add(oid);
-      const result = await objectService.read(oid);
-      if (!result) continue;
-      if (result.type !== 'commit') fail('Configuration ancestry names a non-commit Git object.');
-      const bytes = Buffer.from(result.bytes);
-      const parents = commitParents(bytes, oid, objectFormat);
-      const commits = [...chain, { oid, bytesBase64: bytes.toString('base64') }];
-      if (parents.includes(subject.ancestorCommit)) {
-        const proof = { schemaVersion: currentSchemaVersion('skill-configuration-ancestry'),
-          kind: 'skill-configuration-ancestry', ...subject,
-          objectFormat, commits };
-        verifySkillConfigurationAncestry(proof, subject);
-        capturedProof = proof;
-        break;
-      }
-      for (const parent of parents) if (!seen.has(parent)) pending.push({ oid: parent, chain: commits });
-    }
-    if (!capturedProof) {
-      fail('The proposed configuration has no proven ancestry within the bounded authority history.',
-        'SKP_AMENDMENT_ANCESTRY_UNAVAILABLE');
-    }
-  } catch (error) {
-    firstFailure = error;
-    throw error;
-  } finally {
-    try {
-      const cleanup = objectService ? await objectService.close() : { terminated: true };
-      if (!cleanup.terminated) fail('Configuration ancestry worker cleanup is unproven.',
-        'SKP_AMENDMENT_ANCESTRY_UNAVAILABLE');
-      await removeTemporaryTree(scratch);
-    } catch (error) {
-      // No scratch removal occurs before worker termination is proven. Preserve the first
-      // refusal if cleanup also fails, but a successful capture cannot bypass unknown cleanup.
-      if (!firstFailure) throw error;
-    }
-  }
-  // A proof cannot become replayable until its worker and private scratch have both retired.
-  // Otherwise retrying the same approved snapshot would bypass a preceding cleanup refusal.
-  const cache = CAPTURED.get(snapshot) ?? new Map();
-  cache.set(key, structuredClone(capturedProof)); CAPTURED.set(snapshot, cache);
-  return capturedProof;
+  return (await import('./skp-ancestry-capture.mjs')).captureSkillConfigurationAncestry(snapshot, priorSource);
+}
+
+/** An approver's adoption of `snapshot`'s configuration without ancestry, as a v2 proof (D9; skp-ancestry-capture.mjs). */
+export async function adoptConfigurationWithoutAncestry(snapshot, priorSource, adoption) {
+  return (await import('./skp-ancestry-capture.mjs')).adoptConfigurationWithoutAncestry(snapshot, priorSource, adoption);
 }

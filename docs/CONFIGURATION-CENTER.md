@@ -82,8 +82,9 @@ Saving is authoring, not publication. The destination depends on the authority s
 Configuration Center:
 
 - For an external approved `sflow/config` authority, Save creates a review proposal from that exact
-  authority revision. It never writes the application or active Story checkout. Merge the proposal
-  into `sflow/config`, then refresh workspace configuration before the new policy is effective.
+  authority revision. It never writes the application or active Story checkout. Once a person approves
+  the proposal (`configuration approve`, or **Save and approve**), new Stories use it: they read `sflow/config`
+  directly, with no refresh needed.
 - For a true working-tree/local-FOS authority, Save writes a validated local draft. The
   Configuration tree then adds **Unpublished configuration**, shows the exact paths, and offers
   **Review & publish configuration**. Publication refuses unrelated changes and protected

@@ -222,6 +222,7 @@ Every public operation is classified before its implementation module is importe
 | configuration.explain | read | never | — | — |
 | configuration.export-bundle | read | never | — | — |
 | configuration.initiative-materialize-preview | read | never | — | — |
+| configuration.proposals | read | never | — | — |
 | configuration.read | read | never | — | — |
 | configuration.snapshot | read | never | — | — |
 | configuration.validate | read | never | — | — |

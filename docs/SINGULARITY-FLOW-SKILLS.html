@@ -1808,7 +1808,7 @@ This builds only; nothing is used until its proposal is reviewed and activated.
 4. Propose one small piece: write `{ title, why, moves, evidence, items, questions }` to `proposalPath` with a file-edit tool, following `guide`. Steps the person names up front are the first piece, in that order; one that writes no code follows `guide`. Reuse the repository&#39;s steps, agents, skills and instructions where they fit. Cite lines in `evidence`, list the `items` used, and ask through `questions` what you cannot infer (approval groups, loop limits, which of two rules wins). Never invent commands, people or group members. Name everything a piece removes or leaves out and what goes with it (`changes.removed[].goes`); never drop anything unsaid.
 5. Run `singularity-flow workflow build propose --build &lt;ID&gt; --proposal &lt;proposalPath&gt; --json`. Repair findings (`moves[i].field`) from what you know, at most twice; otherwise ask. Propose a finding&#39;s `fix.moves` as is; of `fix.choices`, take the one the person chose, else ask.
 6. If `#sflowWorkflowBuilder` is offered, the person has the build open in Workflow Studio: use the tool&#39;s `state` (it includes the check), `guide` (once per chat, before your first proposal), `items` (when `state` has `moreItems`), `source`, `catalog`, `asset`, `propose` and `ask` instead of steps 1-5&#39;s commands, and let them decide there. Otherwise show the piece and ask the person with `ask_user`: accept, decline with a reason, or change it. Record exactly their choice: `singularity-flow workflow build decide --build &lt;ID&gt; --proposal &lt;P&gt; --accept` or `--decline --reason &lt;TEXT&gt;`; answers: `singularity-flow workflow build answer --build &lt;ID&gt; --question &lt;Q&gt; --choice &lt;TEXT&gt;`. Never decide or answer for them.
-7. Repeat from step 3. Once the workflow has its steps, propose one piece that settles every item still `open`: `item.keepAsLink`, `item.prerequisite`, or `item.leaveOut` with the reason the material gives; ask through `questions` when you cannot tell. When `ready` (a simplify build: step 8&#39;s verify), show `changes` in full; when the person says finish, run `singularity-flow workflow build finish --build &lt;ID&gt; --propose --json` (`--out &lt;FILE&gt;` for a file). Report the proposal branch; next: Workflow Studio → Changes → Review and activate, or without VS Code the reviewer runs `singularity-flow configuration approve &lt;PROPOSAL-BRANCH&gt;` in their own terminal, which shows the change and asks. Finishing never approves or activates.
+7. Repeat from step 3. Once the workflow has its steps, propose one piece that settles every item still `open`: `item.keepAsLink`, `item.prerequisite`, or `item.leaveOut` with the reason the material gives; ask through `questions` when you cannot tell. When `ready` (a simplify build: step 8&#39;s verify), show `changes` in full; when the person says finish, run `singularity-flow workflow build finish --build &lt;ID&gt; --propose --json` (`--out &lt;FILE&gt;` for a file). Report the proposal branch; next: Workflow Studio → Changes → Review and approve, or without VS Code the reviewer runs `singularity-flow configuration approve &lt;PROPOSAL-BRANCH&gt;` in their own terminal, which shows the change and asks. Finishing never approves or activates.
 8. Simplify or assess (`build.simplify`, `build.assess`): take `candidates` one at a time, in order: `title`, `location`, `why`, `effect`. For one with a `proposal`, ask with `ask_user`: accept, or decline with a reason; record exactly that with `build decide` (assess: offer `singularity-flow workflow build decide --build &lt;ID&gt; --accept --all --json` for all of SFlow&#39;s own first). One with `notOffered` says why; you may propose your own rewrite (`--by copilot`), never changing the original workflow. Assess: read each step&#39;s parts (`singularity-flow workflow assess &lt;ID&gt; --read &lt;STEP&gt; --part &lt;N&gt; --json`), write your own findings, each quote exact, to `build.assess.findingsPath`, verify them (`singularity-flow workflow assess &lt;ID&gt; --verify &lt;build.assess.findingsPath&gt; --json`), repair each refusal in this turn, and propose accepted ones&#39; `suggestion.moves` (`--by copilot`). Before offering to finish, run `singularity-flow workflow build verify --build &lt;ID&gt; --json` (workflow validate, and workflow walk where this SFlow has it, on the result) and show each `remaining` entry (`title`, `location`, `fix`). One with a `move`: propose that move (`--by copilot`), asking nothing. For the rest, show `nextAction` when given; offer finishing only once the person explicitly accepts each as it is, then add `--accept-problem &lt;id&gt;` for each. A template fix is placeholders, never wording asked of the person.
 </code></pre>
       </div>
@@ -2189,7 +2189,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">echo</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1055 body tokens</span>
+          <span class="pill">~1049 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-doctor</code></dd></div>
@@ -2227,7 +2227,7 @@ folder or branch names, and do not repair governed state by hand.
    `singularity-flow capabilities doctor --json`, and offer `/sf-capability-map` to register one.
    Never infer a lead from the current folder or chat history.
 2. Run `singularity-flow capability fsck --lead &lt;LEAD-URL&gt; --json`. Report every failed
-   workspace binding, stale state projection, and proposal-history finding with the exact
+   workspace binding and proposal-history finding with the exact
    remediation supplied by the engine. Do not mutate anything during this check.
 3. If repository-local policy diagnostics were requested, run
    `singularity-flow workspace current --json`, change only to its verified
@@ -2272,7 +2272,7 @@ offline and must not be represented as remote publication proof.
           <span class="pill">interactive</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1291 body tokens</span>
+          <span class="pill">~1290 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-map</code></dd></div>
@@ -2313,7 +2313,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
    For `delivery`, add `--repository &lt;GIT-URL&gt;`; `collection` omits it.
 
-5. Show `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`. After approval run `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`; ask separately before `--acknowledge-unprotected`. `singularity-flow capability publish` repairs projection only.
+5. Show `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`. After approval run `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`; ask separately before `--acknowledge-unprotected`. `singularity-flow capability publish` repairs locators only.
 6. On a value conflict, run the returned `singularity-flow capability discard-proposal` once confirmed, then the returned `singularity-flow capability edit` or `map` again. Preview a returned `singularity-flow capability rebase-proposal`. Consent separately to each confirmation; never auto-activate.
 
 ## Cancel or replace a pending mapping
@@ -2575,7 +2575,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
     <details>
       <summary>
         <span class="skill-number">028</span>
-        <span class="skill-title"><strong>sflow-configuration</strong><span>Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.</span></span>
+        <span class="skill-title"><strong>sflow-configuration</strong><span>Inspect, validate or publish governed configuration without Git merge questions.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -2584,11 +2584,11 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1141 body tokens</span>
+          <span class="pill">~933 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-configuration</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|transactions|reconcile &lt;CFT-ID&gt;|recreate-sync [--apply --confirm &lt;digest&gt;]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|transactions|reconcile &lt;CFT-ID&gt;</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-configuration/SKILL.md</code></dd></div>
         </dl>
@@ -2598,10 +2598,10 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
         </div>
         <pre data-source="sflow-configuration"><code>---
 name: sflow-configuration
-description: Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.
+description: Inspect, validate or publish governed configuration without Git merge questions.
 disable-model-invocation: true
 agent: agent
-argument-hint: &quot;show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|transactions|reconcile &lt;CFT-ID&gt;|recreate-sync [--apply --confirm &lt;digest&gt;]&quot;
+argument-hint: &quot;show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|transactions|reconcile &lt;CFT-ID&gt;&quot;
 ---
 # Manage governed configuration
 
@@ -2620,12 +2620,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    the kernel re-observes shared authority and finishes only a verified transaction&#39;s reference sync.
    It never retries a push, accepts a proposal, or grants approval. Preserve `not-confirmed` or
    `sync-pending`; do not turn a prepared/cache record into an acceptance decision.
-2. For `recreate-sync`, always run the preview `singularity-flow configuration recreate-sync --json` first. Apply replays every proposal, teammates&#39; unreviewed ones included: list each `proposals` branch, author, summary, `files` and `replacements`. Only after the person confirms that exact list (a request to recreate is not that confirmation), add `--apply --confirm &lt;confirmation&gt;` with that preview&#39;s value. On `CONFIGURATION_RECREATE_STALE`, show its new list and ask again; never reuse a digest. The main-panel **Recreate &amp; sync configuration** menu performs the same model-free review. Preserve its backups and effects; never reset application code or Story history, and never apply merely because a proposal conflict was reported. The operation owns validation; do not add a pre-validation or another publication command.
-3. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
-4. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
-5. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
-6. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
-7. For drafts, run `singularity-flow configuration drafts --json`. Run a returned `singularity-flow configuration discard` or `singularity-flow configuration propose` only on the person&#39;s explicit request.
+2. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
+3. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
+4. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
+5. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
+6. For drafts, run `singularity-flow configuration drafts --json`. Run a returned `singularity-flow configuration discard` or `singularity-flow configuration propose` only on the person&#39;s explicit request.
 
 Report the exact `singularity-flow configuration ...` action on all three surfaces per the Output contract; preserve its operation and operands.
 </code></pre>
@@ -9249,7 +9248,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~917 body tokens</span>
+          <span class="pill">~915 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-refresh-configuration</code></dd></div>
@@ -9283,7 +9282,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Show each repository&#39;s current authority, candidate changes, protected conflicts, exact plan ID, and proposed `sflow/config` and state-branch effects. Show `agentsHome` the same way: each move, each stay with its reason, each install, why a move is held, and that every teammate updates SFlow, since the move lands on `sflow/config` with the rest. A preserved conflict is not consent to overwrite it.
 3. If a conflict needs resolution, ask the contributor to choose each exact `--resolve PATH=local|bundled|merge` value, then preview again with those choices. Do not select `--accept-bundled-conflicts` on their behalf.
 4. Ask for explicit confirmation of the returned plan. Only then run the same scoped command with the same resolution choices and `--confirm-plan &lt;EXACT-PLAN-ID&gt; --json`. If the plan is stale, stop and preview again; never reuse the old confirmation.
-5. Report configuration and state projection results separately, then the CLI&#39;s `summary` lines as they are: whose `sflow/config` it updated and the old history and review branches it removed. Where the host refused the update, report the exact review branch and its link; report any repository that needs a newer build with its install route. Retry only as the CLI directs; do not force-push or edit active Story snapshots.
+5. Report the configuration result for each repository, then the CLI&#39;s `summary` lines as they are: whose `sflow/config` it updated and the old history and review branches it removed. Where the host refused the update, report the exact review branch and its link; report any repository that needs a newer build with its install route. Retry only as the CLI directs; do not force-push or edit active Story snapshots.
 
 Shell: `singularity-flow workspace refresh-configuration`. Copilot: `/sf-refresh-configuration`.
 </code></pre>

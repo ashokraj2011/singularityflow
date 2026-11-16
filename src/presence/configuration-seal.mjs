@@ -13,7 +13,8 @@
  *
  * The seal records who approved; it never decides who may. Anyone with access to the repository may
  * change `sflow/config` (owner decision 2026-11-06, §10.10.1), so a person who cannot sign approves
- * unsigned, and no reader refuses the commit that leaves.
+ * unsigned, and no reader refuses the commit that leaves. Capability and setup approvals are the exception
+ * (owner, 2026-11-17): while SF Guard is on they are signed or refused, never unsigned (`strict`).
  */
 import { SingularityFlowError } from '../util.mjs';
 import { CONFIGURATION_SEAL_ROOT, parseSeal, repositorySeal, repositorySealVerdict, sealBytes, sealedRecord } from './repository-seals.mjs';
@@ -42,20 +43,24 @@ export function configurationApprovalRecord({ proposalCommit, baseCommit = null,
 /**
  * Before `configuration approve` moves anything: the approver's seal over `reviewed` (the proposal as
  * inspected), null while SF Guard is off in this repository, or `{ unsigned: <why> }` when the person
- * cannot sign. An approval stays a person's step, so an agent's process is refused either way.
+ * cannot sign. An approval stays a person's step, so an agent's process is refused either way. `strict` refuses,
+ * instead of approving unsigned, a person who cannot sign; `signStep` stands in for SF Guard's step in tests.
  */
-export async function signConfigurationApproval(root, reviewed) {
-  const { signRepositoryStep } = await import('./repository-steps.mjs');
+export async function signConfigurationApproval(root, reviewed, { actor = null, strict = false, command = null, signStep = null } = {}) {
+  const signRepositoryStep = signStep ?? (await import('./repository-steps.mjs')).signRepositoryStep;
   const record = configurationApprovalRecord({ proposalCommit: reviewed.proposalCommit, baseCommit: reviewed.targetCommit ?? null, branch: reviewed.branch ?? null });
   const files = (reviewed.changedFiles ?? []).length;
   try {
     const presence = await signRepositoryStep(root, { action: 'configuration.approve', title: `approve configuration proposal ${reviewed.branch ?? reviewed.proposalCommit}`,
       lines: [`Proposal: ${reviewed.branch ?? '(unnamed)'}`, `Proposal commit: ${reviewed.proposalCommit}`, `Changes: ${files} file(s)`,
-        'Step: approve a configuration change for new Stories'], record: { ...record } });
+        'Step: approve a configuration change for new Stories'], record: { ...record }, ...(actor ? { actor } : {}) });
     return presence ? repositorySeal(presence, record) : null;
   } catch (error) {
     const unsigned = CANNOT_SIGN[error?.code];
     if (!unsigned) throw error;
+    // A capability or setup approval is never unsigned while SF Guard is on [owner, 2026-11-17]: the reason and the
+    // way forward are said, and nothing is approved.
+    if (strict) throw strictRefusal(error, unsigned, command ?? `singularity-flow configuration approve ${reviewed.branch ?? reviewed.proposalCommit}`);
     if ((await import('./person-records.mjs')).agentStarted()) {
       const command = `singularity-flow configuration approve ${reviewed.branch ?? reviewed.proposalCommit}`;
       throw new SingularityFlowError(`Approving a configuration change is a person's step, and an agent started this command. Nothing was written. Run it in your own terminal: ${command}`,
@@ -63,6 +68,20 @@ export async function signConfigurationApproval(root, reviewed) {
     }
     return { unsigned };
   }
+}
+
+/** The refusal when a person cannot sign an approval that must be signed: the reason in plain words, and what to do. */
+function strictRefusal(error, reason, command) {
+  const nextAction = error.code === 'PSS_KEY_NOT_REGISTERED'
+    ? { command: 'singularity-flow guard register', label: 'Register your presence key in your own terminal, then approve again' }
+    : error.code === 'PSS_POLICY_UNREADABLE'
+      ? { command, label: 'Approve again once the repository can be read' }
+      : error.code === 'PSS_SIGNER_UNAVAILABLE'
+        ? { command, label: 'Approve it on the computer that holds your presence key' }
+        : { command, label: 'Another approver approves it in their own terminal' };
+  return new SingularityFlowError(`SF Guard is on, so this approval needs your presence signature, and ${reason}. Nothing was approved.`, {
+    code: error.code, details: { ...(error.details && typeof error.details === 'object' ? error.details : {}), nextAction }
+  });
 }
 
 /**

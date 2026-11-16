@@ -42,7 +42,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 106
+version: 107
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1079,9 +1079,9 @@ For a lead-repository, Workflow Studio (and every `--propose` command) performs 
 4. push one exact `sflow/config-change/workflow/...` review branch;
 5. leave the application/Story branch, index, and working tree unchanged.
 
-Merge that review branch into `sflow/config`, then run
-`singularity-flow workspace refresh-configuration`. The refresh mirrors the approved files to the
-workspace state branch and makes the workflow available to new Stories. Existing Stories remain
+Approve that proposal (`singularity-flow configuration approve <BRANCH>`), or merge it on the Git host where
+`sflow/config` is protected. New Stories read `sflow/config` directly, so the workflow is available to them at
+once. Existing Stories remain
 pinned by design. A failed push retains an exact transport intent and reports its `push status`
 recovery command.
 
@@ -1565,13 +1565,14 @@ to continue.
   Copilot records appears in Studio as it records it.
 - With model features off you build by hand: add steps, move them or take them out, and say what
   each is for. Your own changes are accepted as they are recorded (`propose --by you --accept`).
-- **Finish and activate…** finishes and activates the workflow from this page after one confirmation
-  that lists every change: one reviewed proposal is created and merged into the approved
-  configuration at its exact commit, and new Stories use it at once (server rules still apply; when
-  they refuse, the proposal waits under Changes). **Create the proposal for review** leaves it for
+- **Finish and approve…** finishes the workflow from this page after one confirmation that lists
+  every change: one proposal is created, then you approve it into the approved configuration at its
+  exact commit, after one acknowledgement that says when it is your own self-approval, and new
+  Stories use it at once (server rules still apply; when they refuse, or the repository needs another
+  person to approve configuration, the proposal waits under Changes). **Create the proposal for review** leaves it for
   another person; on a working-tree configuration **Write the files** writes it, as Publish does;
   **Save as a portable file…** saves it to import elsewhere. Afterwards the build says whether the
-  approved workflow is now exactly what it proposed (finished and activated) or the proposal is
+  approved workflow is now exactly what it proposed (finished and approved) or the proposal is
   still waiting.
 - An approval group the build creates has nobody in it until people are added in **People &
   approvals**; until then, unless the repository requires named people, whoever starts a Story is

@@ -1457,11 +1457,11 @@ test('Story start refuses with the restore routes when sflow/config is missing, 
       assert.notEqual(result.status, 0, result.stderr || result.stdout);
       const envelope = JSON.parse(result.stdout);
       assert.equal(envelope.error.code, 'STORY_CONFIGURATION_AUTHORITY_MISSING', result.stdout);
-      assert.match(envelope.error.message, /^sflow\/config is missing on '.*', so no new work can start there\. SFlow reads configuration only from sflow\/config, never from the copy on the 'state' branch \(([0-9a-f]{12})\)/u);
-      assert.ok(envelope.error.message.includes(stateCommit.slice(0, 12)), envelope.error.message);
-      assert.ok(envelope.remediationPlan.steps.some((step) => step.command === `singularity-flow capability onboard ${fixture.remote} --dry-run`),
+      assert.match(envelope.error.message, /^sflow\/config is missing on '.*', so no new work can start there\. Restore it: singularity-flow configuration restore/u);
+      void stateCommit; // the state copy is never used: the refusal routes to the restore, which shows it last
+      // One route [SCF:REQ-002, D7].
+      assert.ok(envelope.remediationPlan.steps.some((step) => step.command === 'singularity-flow configuration restore'),
         JSON.stringify(envelope.remediationPlan.steps));
-      assert.ok(envelope.remediationPlan.steps.some((step) => /git push origin refs\/remotes\/origin\/sflow\/config:refs\/heads\/sflow\/config/u.test(step.label)));
       assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
       assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: checkout }).stdout, '');
     };
@@ -1974,7 +1974,13 @@ test('enrolling an identity changes only membership lines in configuration folde
     run('git', ['config', 'user.email', 'new-developer@example.com'], { cwd: checkout });
     const enrolled = await publishCurrentIdentityToConfiguration(checkout, { target: '*' });
     assert.equal(enrolled.changed, true);
-    assert.equal(enrolled.pushed, true);
+    // Asked for, not at Story start: a people proposal, approved like any other [SCF:REQ-012].
+    assert.equal(enrolled.pushed, false);
+    assert.equal(enrolled.proposed, true);
+    const { activateWorkflowConfigurationProposal } = await import('../src/configuration-proposal.mjs');
+    const landed = await activateWorkflowConfigurationProposal(checkout, enrolled.proposal.branch,
+      { confirm: enrolled.proposal.commit, acknowledgeUnprotected: true });
+    assert.equal(landed.activated, true);
 
     // Every line outside the approval groups is as it was. Inside them only member lists change, and
     // how a changed list is laid out depends on how long its members are (a signed-in GitHub account

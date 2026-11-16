@@ -84,14 +84,21 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   }));
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');
+  const kernelBuilt = phaseKernelOwned(phase);
   const contextAdmission = phaseContextAdmission({ authoring, recovery, references,
-    deterministic: phaseKernelOwned(phase) });
+    deterministic: kernelBuilt });
   if (documentReadiness.status !== 'ready') {
     contextAdmission.allowed = false;
     contextAdmission.blockers.push({ code: 'DOCUMENT_REUPLOAD_REQUIRED', message: documentReadiness.instruction,
       documents: documentReadiness.missing.map(({ id, name, sha256 }) => ({ id, name, sha256 })) });
   }
   const canCompose = contextAdmission.allowed;
+  // A step the kernel builds (quick-fix Verify, POC Lite's document steps) is never composed or written: its
+  // generator, `prepare`, builds it. When that is the only reason composition is refused, running the generator
+  // in this turn is the step's own work. Reported as attention-required, the entry led to a read-only appeal
+  // inspection and the step was never built (journey B, 2026-11-16).
+  const deterministicGeneration = kernelBuilt && authoring.entry?.status === 'authoring-entry'
+    && contextAdmission.blockers.every(blocker => blocker.code === 'PHASE_CONTEXT_DETERMINISTIC');
   let context = null;
   if (compose && canCompose) {
     // The existing composer owns pinned inputs, immutable reuse, authority replay and locking.
@@ -199,10 +206,17 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
     : authoring.entry?.status === 'retained-generation' ? 'retained-generation'
     : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry'
       : canCompose && authoring.entry?.status === 'authoring-entry' && checkpoint.questioningAllowed ? 'clarification-required'
-        : 'attention-required';
+        : deterministicGeneration ? 'deterministic-generation' : 'attention-required';
   let next = preparationAdmitted ? authoring.entry.actions
     : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
     : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;
+  // Its own skill runs the generator; recovery's guided "create the artifact" is that same command.
+  if (status === 'deterministic-generation') next = [{
+    id: `generate:${phase.id}`, safe: true, automatic: false, confirmation: 'none', scope: 'deterministic-generation',
+    skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
+    detail: `${phase.id} is built by its deterministic generator: run this in this turn, then publish it with `
+      + `singularity-flow phase prepublish ${phase.id} --for-agent --json --publish-if-ready. Never write or edit its artifact.`
+  }, ...next.filter(action => action.id !== `prepare-artifact:${phase.id}`)];
   if (authoringAllowed && contextAdmission.pendingEvidence) next = [{
     id: `continue-draft:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
@@ -223,7 +237,7 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   const inputsBlocked = contextAdmission.blockers.some(item => item.code === 'PHASE_CONTEXT_INPUTS_NOT_READY')
     // A hold a person can settle (keep the files or set them aside) leads with that route, not the read-only inspection.
     || recovery.actions.some(action => action.id === 'set-aside-worktree');
-  if (!canCompose && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions[inputsBlocked ? 'push' : 'unshift'](recoveryActionGuidance({
+  if (!canCompose && !deterministicGeneration && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions[inputsBlocked ? 'push' : 'unshift'](recoveryActionGuidance({
     id: `inspect-continuation:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',
     detail: 'Inspect one preserved-work journey and its exact repair/human/owner route. This inspection changes nothing and cannot grant authoring or publication permission.'
@@ -251,7 +265,8 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),
     references, documentReadiness, clarification, context,
-    contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
+    // A kernel-built step has no prompt to compose: "not-admitted" told /sf-phase to relay and stop.
+    contextComposition: deterministicGeneration ? 'not-needed' : !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
     next: clarificationAction ? [checkpoint.nextAction, ...nextActions.filter(action =>
       action.id !== `resolve-clarification:${phase.id}`)] : checkpoint.rebindAction ? [checkpoint.rebindAction, ...nextActions] : nextActions,
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,

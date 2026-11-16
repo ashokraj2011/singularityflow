@@ -484,6 +484,15 @@ export function agentAct(result) {
       // ended at the questions (agent-text audit, 2026-11-11). It waits only on these answers.
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.${result.taskCompletion
         ? ' taskCompletion is blocked only on these answers: once they are given, record them and author this step in this same turn.' : ''}`) };
+    // A step the kernel builds: its generator is this turn's command to run, so `do` names no skill to type. With the
+    // route that brought the turn here (/sf-phase), a relaying agent handed the same route back [journey B, 2026-11-16].
+    if (result.status === 'deterministic-generation') {
+      const generate = firstNow(result.next);
+      return withRoute({ state: 'next', do: null, read: ['next', ...(result.taskCompletion ? ['taskCompletion'] : [])],
+        said: oneLine(`${result.phase ?? 'This step'} is built by the kernel, never written by hand: run do.shell, its generator, now in this turn, then`
+          + ` \`singularity-flow phase prepublish ${result.phase ?? '<phase>'} --for-agent --json --publish-if-ready\`. It is this turn's own work, not a route to relay.`) },
+      generate && { command: generate.commandGuidance?.command ?? generate.command, copilotCommand: null, reason: generate.detail });
+    }
     return withRoute({ state: 'next', said: oneLine(result.reason ?? `Phase entry status: ${result.status}.`), do: null }, firstNow(result.next));
   }
   if (result.resultType === 'sflow-phase-prepublish') {

@@ -169,7 +169,7 @@ test('journey B: a code review asks for corrections, and version 2 is opened, fi
     assert.ok(second.trail.some((entry) => /reviewer wrote.*ready/u.test(entry.did ?? '')), report(second));
   });
 
-  // On to the Story's end: Verify is built by the kernel and approved by its group. Until its route is right, the person
+  // On to the Story's end: Verify is built by the kernel and approved by its group. Should its route break, the person
   // types the Shell line of the route they were given, so the approval is still checked.
   const third = await followRoutes(story, {
     label: 'journey B, Verify to the end', start: second.next ?? { copilot: '/sf-next' },
@@ -179,7 +179,7 @@ test('journey B: a code review asks for corrections, and version 2 is opened, fi
     done: ({ record }) => record?.status === 'closed', maxSteps: 30
   });
   t.diagnostic(formatTrail(third.trail));
-  await check(t, 'after the code step, the Story is approved to its end by its routes, with no detour', { knownBad: 'kernel-step-route (no fix branch yet)' }, () => {
+  await check(t, 'after the code step, the Story is approved to its end by its routes, with no detour', {}, () => {
     assert.equal(third.reached, true, report(third));
     assert.deepEqual(third.findings, [], report(third));
   });

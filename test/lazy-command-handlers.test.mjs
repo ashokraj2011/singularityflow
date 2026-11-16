@@ -644,7 +644,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // a reset's Story checkout reads (+728) [2026-11-16]. No new eager file.
     // 9,678,050 (measured 9,678,048): while a step's next version is open, its next step is to write it and the last
     // version's review is not inspected again (phase-generation-need.mjs, guide.mjs, source-review-lifecycle.mjs) [2026-11-16].
-    assert.ok(closure.bytes <= 9_678_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,678,350 (measured 9,678,348): a step the kernel builds is routed straight to its generator, with no agent to select
+    // first (commands/nextsteps.mjs) and no appeal inspection at its entry [journey B, 2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_678_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "4d988dfe97409a38a8fe152c195e63d67457355f",
+  "sourceCommit": "1f275b252868ec3466b4b09d0ca204db82d21e18",
   "topicCount": 93,
-  "contentSha256": "985539d7b3db4bdc8a7de656d0131a7a051968975236c701430112d64ca556cb",
+  "contentSha256": "fe4e6991b63a7064962015de13ca14769be651575400d06fdc335dd31c8a2e53",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,8 +128,8 @@
     {
       "id": "compact-phase-entry",
       "title": "Compact phase entry for Copilot",
-      "version": 18,
-      "sha256": "d57b17ec1b20cb7cc64fe05926f55f00b05fcc034c237de07dff04df4ce4113a",
+      "version": 19,
+      "sha256": "dfbfc60f92097129de3cb90319391914db2e066bef16fcdccf11ccf5275ba54b",
       "routingSha256": "bcd885145db0455bd1ec31c50649b5056e38b66b77e10123514a20c5f3d1d0cb",
       "file": "compact-phase-entry.md"
     },

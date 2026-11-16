@@ -20,11 +20,7 @@ export const KNOWN_BAD = Object.freeze({
   'refusal-next-step': 'a refusal about the Story\'s state (a step reviewed before it is written) routes to generic /sf-help, not to writing the step',
   'review-next': 'a code review asking for corrections continues with /sf-recover, which runs `recover --fetch`, finds nothing to do and never opens version 2; '
     + 'the reviewer\'s reply has no next-step words to relay; and recovery right after the rollover routes the code step to /sf-phase-documents',
-  'turn-renew': 'a person\'s answer after the 30-minute turn window does not renew the turn, so the agent\'s next edit is denied',
-  // Found by journey B on 2026-11-16, no fix branch yet: after a quick fix's code step is submitted, nextsteps routes to
-  // /sf-resume, then /sf-phase for the kernel-built Verify step ("prepare verify"); /sf-phase's entry, phase enter, does
-  // not prepare it, returns attention-required (its summary missing) and routes to an /sf-appeal resolve inspection.
-  'kernel-step-route (no fix branch yet)': 'a quick fix\'s kernel-built Verify step is routed to /sf-phase, whose entry does not prepare it: three hand-offs, no progress, then an appeal inspection'
+  'turn-renew': 'a person\'s answer after the 30-minute turn window does not renew the turn, so the agent\'s next edit is denied'
 });
 
 const stale = new WeakMap();

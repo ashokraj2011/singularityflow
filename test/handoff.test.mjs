@@ -62,7 +62,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   // review-every-step-cli.test.mjs.
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'singularity', '.github/agents', '.github/hooks'], first);
+  run('git', ['add', 'singularity', '.github/hooks'], first);
   run('git', ['commit', '-m', 'configure workflow'], first);
   run('git', ['push', '-u', 'origin', 'main'], first);
   run('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);

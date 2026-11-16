@@ -12,6 +12,7 @@
  * this substitution possible rather than a hack.
  */
 import test from 'node:test';
+import { writeLegacyWorkflow } from './helpers/agents-layout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
 import { storyLifecycleProgress } from '../src/session-roster.mjs';
@@ -933,6 +934,8 @@ test('VS Code can explicitly discard former .sdlc data and reinitialize an unsup
   const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   await mkdir(path.join(root, '.sdlc'), { recursive: true });
   await writeFile(path.join(root, '.sdlc', 'config.json'), '{"version":1,"discard":true}\n');
+  // A legacy-layout configuration keeps its custom agents in .github/agents [AGH:REQ-025].
+  await writeLegacyWorkflow(root);
   await mkdir(path.join(root, '.github', 'agents'), { recursive: true });
   const customAgent = `---
 name: company-specialist
@@ -1058,7 +1061,7 @@ test('an application branch loads through its fetched approved sflow configurati
   run('git', ['push', 'origin', 'INIT-CHECKOUT:refs/heads/sflow/config'], { cwd: root });
   run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], { cwd: root });
   run('git', ['switch', 'main'], { cwd: root });
-  run('git', ['rm', '-r', 'singularity', '.github/agents'], { cwd: root });
+  run('git', ['rm', '-r', 'singularity'], { cwd: root });
   run('git', ['commit', '-m', 'Application main has no configuration checkout'], { cwd: root });
   assert.equal(existsSync(path.join(root, 'singularity/workflow.yml')), false);
 

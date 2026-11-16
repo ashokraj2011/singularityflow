@@ -30,6 +30,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { requiredArtifactSections } from '../artifact-required-sections.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from '../markdown-structure.mjs';
+import { agentsRootOf } from '../configuration-assets.mjs';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { isConvergencePhase, isVisualVerificationPhase } from '../phase-roles.mjs';
 import { scanGuidanceText } from '../guidance-scan.mjs';
@@ -448,7 +449,7 @@ async function stepAgent([finding], ctx) {
     const id = `${stepId}-author`.slice(0, 64);
     ctx.draft.op({ op: 'agent.create', id, label: `${label} author`.slice(0, 120), description: `Drafts ${label}.`, role: 'blank' });
     assign(id)(ctx.draft);
-    return { summary: `A new agent, ${label} author (.github/agents/${id}.agent.md), drafts ${label}: no agent can draft it now. Its instructions are the blank starter; say there how the step is drafted.` };
+    return { summary: `A new agent, ${label} author (${agentsRootOf(ctx.raw)}/${id}.agent.md), drafts ${label}: no agent can draft it now. Its instructions are the blank starter; say there how the step is drafted.` };
   }
   return { questions: [{ ask: `Which agent drafts ${label}?`, why: ambiguous ? `${plural(candidates.length, 'agent')} each say they draft it; which one the team meant is its decision.` : 'Several agents can draft it; which one the team wants is its decision.',
     choices: candidates.map((agent) => ({ id: `agent:${agent.id}`, label: agent.label ?? agent.id, effect: `${agent.label ?? agent.id} drafts ${label}${ambiguous ? '; the others stop claiming it' : ''}.`, apply: assign(agent.id) })) }] };

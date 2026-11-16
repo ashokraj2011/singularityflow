@@ -28,13 +28,12 @@ import {
   inspectSkillPackageContents, SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
   verifySkillPackage
 } from './skp-package.mjs';
-import {
-  portableConfigurationPath, portableFilesystemPathIdentity
-} from './configuration-assets.mjs';
+import { portableConfigurationPath, portableFilesystemPathIdentity, agentFileIn } from './configuration-assets.mjs';
 import {
   AGENT_LOCK_PATH, AGENT_MAPPING_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference, parseAttachedSkills,
-  portableVendoredPath, validateAgentCatalog
+  portableVendoredPath, repositoryAgentsRoot, validateAgentCatalog
 } from './agents.mjs';
+import { agentPathIn, agentsRootOf, LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 import {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, parseImportsLedger, renderImportsLedger
 } from './imports-ledger.mjs';
@@ -1218,9 +1217,11 @@ async function readAgentLock(root, { optional = true } = {}) {
 /** Whether an import record describes something a bundle carries: a file, or a generated artifact's agent. */
 function describesCarried(record, assets) {
   if (!plainObject(record?.target)) return false;
+  // An agent's record names it where its repository keeps it; the bundle names it by the portable path.
+  const carried = agentPathIn(LEGACY_AGENTS_ROOT, record.target.path);
   return record.kind === 'generated'
     ? assets.some((asset) => asset.kind === 'agent' && asset.id === record.target.agent)
-    : assets.some((asset) => asset.path === record.target.path);
+    : assets.some((asset) => asset.path === carried);
 }
 
 async function readImportsLedger(root) {
@@ -1505,7 +1506,7 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
     if (size > MAX_ASSET_BYTES) fail(`Agent '${agentId}' exceeds the portable asset limit.`,
       'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
     pushAsset({
-      kind: 'agent', id: agentId, path: `.github/agents/${agentId}.agent.md`,
+      kind: 'agent', id: agentId, path: agentFileIn(agentId),
       mediaType: 'text/markdown; charset=utf-8', size, sha256: digest(content), content
     });
     const lockEntry = lockedAgentEntry(sourceAgentLock.value, agent);
@@ -1552,7 +1553,7 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
   }
   // Skills from the skill master travel with the agents that attach them, once each.
   const attachedSkillIds = new Set([...exportedAgentText].flatMap(([agentId, content]) =>
-    parseAttachedSkills(content, `.github/agents/${agentId}.agent.md`).map((entry) => entry.id)));
+    parseAttachedSkills(content, agentFileIn(agentId)).map((entry) => entry.id)));
   for (const entry of workflowSkillAttachments) attachedSkillIds.add(entry.id);
   for (const skillId of [...attachedSkillIds].sort()) {
     const relative = librarySkillPath(skillId);
@@ -1568,7 +1569,7 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
   for (const asset of await referencedInstructionAssets(sourceRoot, assets)) pushAsset(asset);
   // A user-defined agent's folder travels with it; without it the destination cannot compose its step.
   for (const [agentId, content] of exportedAgentText) {
-    const agent = parseAgentDependencies(content, { source: `.github/agents/${agentId}.agent.md`, agentId });
+    const agent = parseAgentDependencies(content, { source: agentFileIn(agentId), agentId });
     const name = userDefinedAgentName(agent);
     if (!name) continue;
     for (const asset of await userDefinedAssets(sourceRoot, agentId, name, agent.metadata[USER_DEFINED_MANIFEST_METADATA])) pushAsset(asset);
@@ -1591,6 +1592,8 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
     .filter((key) => describesCarried(ledger.imports[key], assets))
     .map((key) => {
       const record = clone(ledger.imports[key]);
+      // A bundle carries agents at their portable path, wherever this repository keeps them [AGH:REQ-024].
+      if (record.target?.path) record.target.path = agentPathIn(LEGACY_AGENTS_ROOT, record.target.path);
       if (record.kind === 'agent') {
         const original = discovered.find((agent) => agent.id === record.target.id);
         const exported = assets.find((asset) => asset.kind === 'agent' && asset.id === record.target.id);
@@ -1751,7 +1754,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
       fail(`Workflow bundle user-defined file is not owned by a carried agent: ${asset.path}`);
     }
     if (asset.kind === 'agent' && (!ID.test(asset.id ?? '')
-        || asset.path !== `.github/agents/${asset.id}.agent.md`)) {
+        || asset.path !== agentFileIn(asset.id))) {
       fail(`Workflow bundle agent path is not canonical: ${asset.path}`);
     }
     if (asset.kind === 'skill') {
@@ -2011,7 +2014,10 @@ function linkedDependencyKind(governs, section) {
 }
 
 function targetTemplatePath(asset, storyValue, initiativeValue) {
-  if (['agent', 'vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'skill-package-file'].includes(asset.kind)) return asset.path;
+  // A bundle names its agents by the portable `.github/agents/<id>.agent.md`; import places each in
+  // the target's own agents root [AGH:REQ-024].
+  if (asset.kind === 'agent') return agentPathIn(agentsRootOf(storyValue ?? {}), asset.path);
+  if (['vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'skill-package-file'].includes(asset.kind)) return asset.path;
   const governs = asset.governs;
   const targetRoot = configuredTemplateRoot(
     governs === 'story' ? storyValue : initiativeValue, governs, storyValue
@@ -2054,17 +2060,19 @@ function mergedConfigurationValue(existing, bundle, governs, replaced = new Set(
 /** `extended` maps a reused agent to its file with the steps the import adds to it. */
 async function mergedImportAgentCatalog(root, bundle, kept = new Set(), extended = new Map()) {
   const catalog = new Map((await discoverAgents(root)).map((agent) => [agent.id, agent]));
+  const agentsRoot = await repositoryAgentsRoot(root);
   for (const asset of bundle.assets.filter((candidate) => candidate.kind === 'agent' && !kept.has(candidate.id))) {
-    const parsed = parseAgentDependencies(asset.content, { source: asset.path, agentId: asset.id });
+    const relative = agentPathIn(agentsRoot, asset.path);
+    const parsed = parseAgentDependencies(asset.content, { source: relative, agentId: asset.id });
     catalog.set(asset.id, {
-      ...parsed, scope: 'repository', file: path.join(root, asset.path), text: asset.content,
+      ...parsed, scope: 'repository', file: path.join(root, relative), text: asset.content,
       sha256: asset.sha256.replace(/^sha256:/, '')
     });
   }
   for (const [id, text] of extended) {
     const agent = catalog.get(id);
     if (!agent) continue;
-    catalog.set(id, { ...agent, ...parseAgentDependencies(text, { source: agent.source ?? `.github/agents/${id}.agent.md`, agentId: id }),
+    catalog.set(id, { ...agent, ...parseAgentDependencies(text, { source: agent.source ?? agentFileIn(id), agentId: id }),
       text, sha256: digest(text).replace(/^sha256:/, '') });
   }
   return catalog;
@@ -2444,7 +2452,7 @@ async function importNaming(target, bundle, values, agents) {
   // server's descriptor, or a template.
   const occupied = async (kind, id) => {
     if (taken.get(kind)?.has(id)) return true;
-    const relative = kind === 'agent' ? `.github/agents/${id}.agent.md`
+    const relative = kind === 'agent' ? `${agentsRootOf(values.story)}/${id}.agent.md`
       : kind === 'mcp-server' ? mcpDescriptorPath(id) : kind === 'skill' ? librarySkillPath(id) : kind === 'instruction' ? instructionPath(id)
         : kind === 'template-file' ? id : null;
     return relative != null && (await portableTargetState(target.root, relative)).exists;

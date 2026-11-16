@@ -138,7 +138,7 @@ test('an MCP skill is previewed with consent, vendored, read offline, kept by re
   const changes = [{ op: 'import.skill', agent: 'architect', id: 'security-checklist', source: reference, sha256: preview.sha256, phases: ['design'] }];
   const applied = await planStudioChangeSet(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes }, { write: true });
   assert.equal(applied.valid, true, JSON.stringify(applied.problems));
-  const agent = await readFile(path.join(root, '.github/agents/architect.agent.md'), 'utf8');
+  const agent = await readFile(path.join(root, 'singularity/agents/architect.agent.md'), 'utf8');
   assert.match(agent, /\| security-checklist \| mcp:\/\/docs\/prompt\/security-checklist \| design \| no \|/);
   const vendored = await readFile(path.join(root, 'singularity/imports/agents/architect/skill-security-checklist.md'));
   assert.equal(sha256(vendored), preview.sha256);
@@ -194,7 +194,7 @@ test('installing an MCP server adds its governed policy, grants the chosen agent
     label: 'Ticket search', hostReference: 'tickets', agents: ['architect'], phases: ['design'], tools: ['search'],
     approval: 'confirm', evidence: { captureToolCalls: true, captureResults: false }
   });
-  assert.match(await readFile(path.join(root, '.github/agents/architect.agent.md'), 'utf8'), /tickets\/search/);
+  assert.match(await readFile(path.join(root, 'singularity/agents/architect.agent.md'), 'utf8'), /tickets\/search/);
   assert.equal(await readFile(path.join(root, 'singularity/imports/mcp/tickets.json'), 'utf8'), bytes.toString('utf8'));
   assert.equal(existsSync(path.join(root, '.vscode/mcp.json')) && JSON.parse(await readFile(path.join(root, '.vscode/mcp.json'), 'utf8')).servers.tickets, undefined, 'no host entry is written by the import');
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'install tickets'], root);
@@ -208,6 +208,6 @@ test('installing an MCP server adds its governed policy, grants the chosen agent
   assert.equal(removed.valid, true, JSON.stringify(removed.problems));
   const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.equal(after.mcpServers.tickets, undefined);
-  assert.doesNotMatch(await readFile(path.join(root, '.github/agents/architect.agent.md'), 'utf8'), /tickets\//);
+  assert.doesNotMatch(await readFile(path.join(root, 'singularity/agents/architect.agent.md'), 'utf8'), /tickets\//);
   assert.equal(existsSync(path.join(root, 'singularity/imports/mcp/tickets.json')), false);
 });

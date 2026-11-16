@@ -53,7 +53,9 @@ test('every root the initializer writes is a root a bootstrap stages', async (t)
     assert.ok(covered, `${name} is written by initializeDefinition but no governed root stages it`);
   }
   assert.ok(GOVERNED_ROOTS.includes('singularity'));
-  assert.ok(GOVERNED_ROOTS.includes('.github/agents'));
+  // SFlow's agents are in singularity/agents now; a team's .github/agents is not SFlow's to stage [AGH:REQ-009].
+  assert.ok(!GOVERNED_ROOTS.includes('.github/agents'));
+  assert.ok(!written.includes('.github'), 'initialization writes nothing under .github');
 });
 
 test('the branch guard protects main even when work is cut from another branch', async (t) => {

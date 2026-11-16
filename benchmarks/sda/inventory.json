@@ -5,45 +5,52 @@
     "gitSites": {
       "total": 1439,
       "read": 819,
-      "write": 352,
-      "remote": 158,
+      "write": 355,
+      "remote": 155,
       "dynamic": 110
     },
-    "gitModules": 185,
-    "directLocalGitSitesOutsideGitModules": 986,
-    "localGitReadsOutsideGitModules": 618,
-    "writeSites": 1125,
-    "yamlReadModules": 115,
-    "lifetimes": 55,
-    "timeouts": 187,
+    "gitModules": 184,
+    "directLocalGitSitesOutsideGitModules": 984,
+    "localGitReadsOutsideGitModules": 613,
+    "writeSites": 1203,
+    "yamlReadModules": 124,
+    "lifetimes": 60,
+    "timeouts": 188,
     "byClass": {
       "shared-state": {
-        "modules": 129,
-        "gitSites": 705,
-        "gitWrites": 187,
-        "gitRemote": 93,
-        "writeSites": 361
+        "modules": 137,
+        "gitSites": 704,
+        "gitWrites": 188,
+        "gitRemote": 91,
+        "writeSites": 384
       },
       "artifact": {
-        "modules": 28,
+        "modules": 29,
         "gitSites": 23,
         "gitWrites": 4,
         "gitRemote": 1,
-        "writeSites": 64
+        "writeSites": 66
+      },
+      "local-authored": {
+        "modules": 19,
+        "gitSites": 31,
+        "gitWrites": 8,
+        "gitRemote": 4,
+        "writeSites": 86
       },
       "installation": {
-        "modules": 23,
-        "gitSites": 27,
+        "modules": 24,
+        "gitSites": 28,
         "gitWrites": 5,
         "gitRemote": 5,
-        "writeSites": 165
+        "writeSites": 170
       },
       "local-operational": {
-        "modules": 22,
+        "modules": 23,
         "gitSites": 9,
         "gitWrites": 1,
         "gitRemote": 0,
-        "writeSites": 73
+        "writeSites": 76
       },
       "projection": {
         "modules": 38,
@@ -53,25 +60,18 @@
         "writeSites": 108
       },
       "source-control": {
-        "modules": 71,
+        "modules": 76,
         "gitSites": 549,
-        "gitWrites": 128,
-        "gitRemote": 46,
-        "writeSites": 196
-      },
-      "local-authored": {
-        "modules": 16,
-        "gitSites": 31,
-        "gitWrites": 8,
-        "gitRemote": 4,
-        "writeSites": 69
+        "gitWrites": 130,
+        "gitRemote": 45,
+        "writeSites": 208
       },
       "surface": {
-        "modules": 42,
+        "modules": 48,
         "gitSites": 54,
         "gitWrites": 14,
         "gitRemote": 8,
-        "writeSites": 89
+        "writeSites": 105
       }
     },
     "unclassified": []
@@ -199,11 +199,27 @@
       ]
     },
     {
+      "module": "agents-home-migration.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
       "module": "agents.mjs",
       "class": "shared-state",
       "git": {},
       "writes": 1,
       "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "amended-drafts.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
       "lifetimes": []
     },
     {
@@ -301,6 +317,16 @@
           "kind": "timeout"
         },
         {
+          "name": "timeout",
+          "value": 2000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeout",
+          "value": 2000,
+          "kind": "timeout"
+        },
+        {
           "name": "timeoutMs",
           "value": 2000,
           "kind": "timeout"
@@ -311,11 +337,11 @@
       "module": "approved-configuration-reader.mjs",
       "class": "shared-state",
       "git": {
-        "read": 8,
+        "read": 7,
         "remote": 2,
         "dynamic": 1
       },
-      "localReads": 8,
+      "localReads": 7,
       "writes": 2,
       "yamlReads": 2,
       "lifetimes": []
@@ -327,6 +353,14 @@
         "read": 1
       },
       "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "asked-for.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 3,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -623,7 +657,7 @@
       "module": "candidate-isolation.mjs",
       "class": "source-control",
       "git": {},
-      "writes": 9,
+      "writes": 7,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -900,6 +934,22 @@
       "lifetimes": []
     },
     {
+      "module": "commands/decision-plan-amendment.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/findings.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
       "module": "commands/guard.mjs",
       "class": "surface",
       "git": {},
@@ -939,6 +989,14 @@
       "class": "surface",
       "git": {},
       "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/review-source.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -1099,7 +1157,7 @@
       "git": {
         "read": 1
       },
-      "writes": 0,
+      "writes": 1,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -1108,6 +1166,14 @@
       "class": "surface",
       "git": {},
       "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/workflow-fix.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 2,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -1222,13 +1288,13 @@
       "module": "configuration-branch.mjs",
       "class": "shared-state",
       "git": {
-        "read": 20,
-        "write": 11,
-        "remote": 12,
+        "read": 19,
+        "write": 14,
+        "remote": 11,
         "dynamic": 3
       },
-      "localReads": 18,
-      "writes": 12,
+      "localReads": 17,
+      "writes": 13,
       "yamlReads": 5,
       "lifetimes": [
         {
@@ -1260,6 +1326,17 @@
       "git": {},
       "writes": 0,
       "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-local-history-prune.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3,
+        "write": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
       "lifetimes": []
     },
     {
@@ -1359,7 +1436,7 @@
       },
       "localReads": 6,
       "writes": 0,
-      "yamlReads": 3,
+      "yamlReads": 4,
       "lifetimes": []
     },
     {
@@ -1439,6 +1516,20 @@
       "lifetimes": []
     },
     {
+      "module": "confirm-code.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "CONFIRM_CODE_MAX_AGE_MS",
+          "value": 604800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
       "module": "constitution.mjs",
       "class": null,
       "git": {},
@@ -1486,6 +1577,14 @@
       "lifetimes": []
     },
     {
+      "module": "copilot-answer-binding.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
       "module": "copilot-chat-usage.mjs",
       "class": "surface",
       "git": {},
@@ -1525,12 +1624,17 @@
       "module": "copilot-mutation-guard.mjs",
       "class": "surface",
       "git": {},
-      "writes": 7,
+      "writes": 9,
       "yamlReads": 0,
       "lifetimes": [
         {
           "name": "MAX_AGE",
           "value": 1800000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "TURN_RECORD_LOCK_STALE_MS",
+          "value": 5000,
           "kind": "lifetime"
         }
       ]
@@ -1539,7 +1643,7 @@
       "module": "copilot-repository-boundary.mjs",
       "class": "surface",
       "git": {},
-      "writes": 4,
+      "writes": 5,
       "yamlReads": 0,
       "lifetimes": [
         {
@@ -1548,6 +1652,14 @@
           "kind": "lifetime"
         }
       ]
+    },
+    {
+      "module": "copilot-session-usage.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
     },
     {
       "module": "copilot-story-follow.mjs",
@@ -1622,6 +1734,14 @@
           "kind": "timeout"
         }
       ]
+    },
+    {
+      "module": "departure-records.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
     },
     {
       "module": "direct-skills.mjs",
@@ -1720,7 +1840,7 @@
         "read": 1
       },
       "localReads": 1,
-      "writes": 3,
+      "writes": 4,
       "yamlReads": 12,
       "lifetimes": []
     },
@@ -1760,7 +1880,7 @@
       "module": "environment-files.mjs",
       "class": "local-authored",
       "git": {},
-      "writes": 17,
+      "writes": 21,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -1777,7 +1897,7 @@
       "class": "shared-state",
       "git": {
         "read": 4,
-        "write": 4,
+        "write": 3,
         "remote": 1,
         "dynamic": 1
       },
@@ -1850,12 +1970,12 @@
       "module": "factory-reset.mjs",
       "class": "installation",
       "git": {
-        "read": 5,
+        "read": 6,
         "write": 2
       },
       "localReads": 5,
-      "writes": 21,
-      "yamlReads": 0,
+      "writes": 22,
+      "yamlReads": 1,
       "lifetimes": []
     },
     {
@@ -1902,6 +2022,80 @@
       "writes": 3,
       "yamlReads": 0,
       "lifetimes": []
+    },
+    {
+      "module": "findings/ci-scanners.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "findings/dependency-changes.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "findings/register/config.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "findings/register/report.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "findings/register/store.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "VISIBILITY_TTL_MS",
+          "value": 604800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "findings/required-checks.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "FRESH_MS",
+          "value": 60000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "findings/servers.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
     },
     {
       "module": "first-run-guide.mjs",
@@ -2370,13 +2564,13 @@
       "module": "git.mjs",
       "class": "source-control",
       "git": {
-        "read": 131,
+        "read": 132,
         "write": 60,
         "remote": 12,
         "dynamic": 6,
         "unknown": 1
       },
-      "localReads": 131,
+      "localReads": 132,
       "writes": 10,
       "yamlReads": 0,
       "lifetimes": [
@@ -2927,8 +3121,8 @@
       "git": {
         "read": 52,
         "write": 20,
-        "remote": 17,
-        "dynamic": 2
+        "remote": 16,
+        "dynamic": 3
       },
       "localReads": 52,
       "writes": 12,
@@ -3233,6 +3427,22 @@
       "lifetimes": []
     },
     {
+      "module": "node-pin.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "node-version-settle.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
       "module": "observation-compiler.mjs",
       "class": "local-operational",
       "git": {},
@@ -3270,8 +3480,8 @@
         "dynamic": 1
       },
       "localReads": 42,
-      "writes": 18,
-      "yamlReads": 36,
+      "writes": 19,
+      "yamlReads": 35,
       "lifetimes": [
         {
           "name": "CAPABILITY_PUSH_RECOVERY_TTL_MS",
@@ -3359,6 +3569,14 @@
       "lifetimes": []
     },
     {
+      "module": "plain-chat-prompts.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 9,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
       "module": "planning.mjs",
       "class": "shared-state",
       "git": {
@@ -3390,9 +3608,9 @@
     },
     {
       "module": "plugin.mjs",
-      "class": null,
+      "class": "installation",
       "git": {},
-      "writes": 0,
+      "writes": 4,
       "yamlReads": 0,
       "lifetimes": [
         {
@@ -4014,6 +4232,14 @@
       ]
     },
     {
+      "module": "repository-dependencies.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
       "module": "repository-facts.mjs",
       "class": "source-control",
       "git": {
@@ -4021,6 +4247,14 @@
       },
       "localReads": 1,
       "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-hooks.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 3,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -4045,12 +4279,20 @@
       "class": "source-control",
       "git": {
         "read": 17,
-        "write": 7,
+        "write": 9,
         "dynamic": 5
       },
       "localReads": 16,
       "writes": 10,
-      "yamlReads": 11,
+      "yamlReads": 10,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-projects-source.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
       "lifetimes": []
     },
     {
@@ -4071,6 +4313,20 @@
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
+    },
+    {
+      "module": "review-subagent.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "FRAME_MAX_AGE_MS",
+          "value": 1800000,
+          "kind": "lifetime"
+        }
+      ]
     },
     {
       "module": "review.mjs",
@@ -4334,6 +4590,14 @@
       "lifetimes": []
     },
     {
+      "module": "settled-decisions.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
       "module": "sgos/authority-git-transport.mjs",
       "class": "shared-state",
       "git": {
@@ -4388,11 +4652,6 @@
           "name": "timeoutMs",
           "value": 5000,
           "kind": "timeout"
-        },
-        {
-          "name": "timeoutMs",
-          "value": 5000,
-          "kind": "timeout"
         }
       ]
     },
@@ -4415,11 +4674,6 @@
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
-        {
-          "name": "timeoutMs",
-          "value": 5000,
-          "kind": "timeout"
-        },
         {
           "name": "timeoutMs",
           "value": 5000,
@@ -4478,7 +4732,7 @@
         "remote": 1,
         "dynamic": 2
       },
-      "writes": 3,
+      "writes": 2,
       "yamlReads": 1,
       "lifetimes": []
     },
@@ -4641,7 +4895,7 @@
       "module": "source-review-staging.mjs",
       "class": "source-control",
       "git": {},
-      "writes": 2,
+      "writes": 3,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -4710,7 +4964,7 @@
         "unknown": 1
       },
       "localReads": 19,
-      "writes": 13,
+      "writes": 14,
       "yamlReads": 0,
       "lifetimes": [
         {
@@ -5234,6 +5488,14 @@
       "lifetimes": []
     },
     {
+      "module": "verification/base-run.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
       "module": "verification/incremental-verification-graph.mjs",
       "class": "artifact",
       "git": {},
@@ -5266,6 +5528,20 @@
       "lifetimes": []
     },
     {
+      "module": "vscode-host-version.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
       "module": "vsix-source-manifest.mjs",
       "class": "installation",
       "git": {},
@@ -5278,7 +5554,7 @@
       "class": null,
       "git": {},
       "writes": 0,
-      "yamlReads": 2,
+      "yamlReads": 3,
       "lifetimes": []
     },
     {
@@ -5396,6 +5672,14 @@
       "lifetimes": []
     },
     {
+      "module": "workflow-build/simplify.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
       "module": "workflow-build/store.mjs",
       "class": "shared-state",
       "git": {},
@@ -5416,7 +5700,15 @@
       "class": null,
       "git": {},
       "writes": 0,
-      "yamlReads": 2,
+      "yamlReads": 4,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-fix/index.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
       "lifetimes": []
     },
     {
@@ -5482,6 +5774,22 @@
       },
       "writes": 8,
       "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-walk/sandbox.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 7,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-walk/walk.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 1,
       "lifetimes": []
     },
     {
@@ -5572,11 +5880,11 @@
       "module": "workspace-configuration-refresh.mjs",
       "class": "source-control",
       "git": {
-        "read": 21,
+        "read": 19,
         "write": 12,
-        "remote": 10
+        "remote": 9
       },
-      "localReads": 21,
+      "localReads": 19,
       "writes": 33,
       "yamlReads": 8,
       "lifetimes": [

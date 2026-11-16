@@ -16,6 +16,7 @@ import {
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
 import { isLocalDocument } from '../document-storage.mjs';
 import { isLocalDocumentReadScope, localDocumentReadScope } from './auto-document-scope.mjs';
+import { AGENTS_HOME, LEGACY_AGENTS_ROOT } from '../configuration-assets.mjs';
 
 function digest(value) { return `sha256:${recordSha256(value)}`; }
 
@@ -169,7 +170,7 @@ export async function buildAutoPhaseContract(root, {
   ].map(normalizeScope));
   const forbiddenScope = unique([
     'singularity/workflow.yml', 'singularity/capabilities.yml',
-    'singularity/templates/**', '.github/agents/**'
+    'singularity/templates/**', `${AGENTS_HOME}/**`, `${LEGACY_AGENTS_ROOT}/**`
   ]);
   const recordCreatedAt = state.createdAt;
   const context = {

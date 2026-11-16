@@ -288,7 +288,7 @@ for repository-owned configuration:
   templates (built from sections) and artifact sets; review and activate
   configuration proposals; export and import workflow bundles.
 - **Agents** (Workflow Studio → Agents) — the one place agents in
-  `.github/agents/*.agent.md` are created and changed: instructions, tools,
+  `singularity/agents/*.agent.md` are created and changed: instructions, tools,
   knowledge views, the steps each one drafts, and skills and remote sources from
   the Library. A new agent and its steps are one review.
 - **Agent Delivery & Instruction Designer** — shows each agent read-only and opens

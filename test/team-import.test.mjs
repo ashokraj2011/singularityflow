@@ -542,7 +542,7 @@ test('a separate review-only agent can review the planning step, staged as revie
       kind: 'destination-policy', reason: 'A separate review-only agent keeps the plan review independent of its author.' });
   });
   assert.equal(result.state, 'portable-ready', JSON.stringify(result.findings, null, 2));
-  const staged = await readFile(path.join(path.dirname(inspection.candidate.path), 'stage', '.github', 'agents', 'delivery-plan-reviewer.agent.md'), 'utf8');
+  const staged = await readFile(path.join(path.dirname(inspection.candidate.path), 'stage', 'singularity', 'agents', 'delivery-plan-reviewer.agent.md'), 'utf8');
   assert.match(staged, /sflow-mode: read-only-review/u);
 });
 

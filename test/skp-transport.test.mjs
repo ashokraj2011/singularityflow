@@ -112,7 +112,7 @@ async function fixture(t, { sourcePaths = [] } = {}) {
   const targetDefinition = await config(target);
   targetDefinition.version = 3;
   await saveConfig(target, targetDefinition);
-  await writeFile(path.join(source, '.github/agents/threat-producer.agent.md'), `---
+  await writeFile(path.join(source, 'singularity/agents/threat-producer.agent.md'), `---
 name: threat-producer
 description: Produce the reviewed threat model.
 tools: []
@@ -271,7 +271,7 @@ test('self-rehashed skill bundles cannot widen a non-default or compatibility-ov
   const value = await fixture(t);
   const bundle = await value.exportBundle();
   const before = await readFile(path.join(value.target, 'singularity/workflow.yml'));
-  const developerPath = path.join(value.target, '.github/agents/developer.agent.md');
+  const developerPath = path.join(value.target, 'singularity/agents/developer.agent.md');
   // The destination's packaged developer remains approved, but its absent repository override
   // leaves a new file to import. A same-path collision must not be what protects its tool limits.
   await rm(developerPath);
@@ -349,7 +349,8 @@ test('live matching bytes cannot replace an approved snapshot, and v1 keeps its 
   await saveConfig(value.target, historical);
   // Exporters before v9 copied each agent whole; v9 scopes the copy to the exported steps.
   for (const asset of ordinary.assets.filter((candidate) => candidate.kind === 'agent')) {
-    asset.content = await readFile(path.join(value.target, asset.path), 'utf8');
+    // A bundle names an agent by its portable path; this repository keeps it in its agents home (SPEC-AGH).
+    asset.content = await readFile(path.join(value.target, asset.path.replace(/^\.github\/agents\//u, 'singularity/agents/')), 'utf8');
     asset.size = Buffer.byteLength(asset.content, 'utf8');
     asset.sha256 = `sha256:${createHash('sha256').update(asset.content).digest('hex')}`;
     if (ordinary.agentLocks?.[asset.id]) ordinary.agentLocks[asset.id].sourceSha256 = asset.sha256.replace(/^sha256:/, '');

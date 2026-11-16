@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
@@ -79,7 +80,7 @@ async function publishStateConfigurationMirror(base, remote) {
   await cp(path.join(approved, 'singularity'), path.join(publisher, 'singularity'), {
     recursive: true
   });
-  await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
+  if (existsSync(path.join(approved, '.github'))) await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
   const sourceCommit = git(approved, 'rev-parse', 'HEAD');
   // The history ref an earlier build retained for its mirror; no build writes one any more [owner, 2026-11-16].
   const history = { branch: `sflow/config-history/${sourceCommit}`, commit: sourceCommit };

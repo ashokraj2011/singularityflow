@@ -163,7 +163,7 @@ test('Auto continuation, P1 controls, and checkpoints use the accepted Story roo
   const acceptedWorkflow = JSON.parse(await readFile(storyWorkflowPath, 'utf8'));
   const savedPhase = acceptedWorkflow.phases[flight.story.phase];
   const savedAgent = savedPhase.defaultAgent;
-  const agentRelative = `.github/agents/${savedAgent}.agent.md`;
+  const agentRelative = `singularity/agents/${savedAgent}.agent.md`;
   const agentPath = path.join(story.worktree, agentRelative);
 
   const attempt = buildAutoAttempt({

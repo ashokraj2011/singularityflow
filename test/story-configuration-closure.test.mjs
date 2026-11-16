@@ -81,9 +81,9 @@ test('the spec-driven closure carries its four agents and six templates, and rec
   const f = await approvedFixture(t);
   const closure = await storyConfigurationClosure(f.snapshot, ['spec-driven-standard']);
   const paths = closure.entries.map(entry => entry.relative);
-  assert.deepEqual(paths.filter(relative => relative.startsWith('.github/agents/')), [
-    '.github/agents/architect.agent.md', '.github/agents/developer.agent.md',
-    '.github/agents/product-owner.agent.md', '.github/agents/qa.agent.md'
+  assert.deepEqual(paths.filter(relative => relative.startsWith('singularity/agents/')), [
+    'singularity/agents/architect.agent.md', 'singularity/agents/developer.agent.md',
+    'singularity/agents/product-owner.agent.md', 'singularity/agents/qa.agent.md'
   ]);
   assert.equal(paths.filter(relative => relative.startsWith('singularity/templates/')).length, 6);
   assert.equal(paths.some(relative => relative.startsWith('singularity/skill-library/')), false,
@@ -100,7 +100,7 @@ test('the spec-driven closure carries its four agents and six templates, and rec
     assert.equal(entry.derived.object, approved.get(entry.relative).object, `${entry.relative} names its approved object`);
   }
   assert.equal(closure.derived['singularity/workflow.yml'].transform, 'work-type-projection');
-  const developer = closure.entries.find(entry => entry.relative === '.github/agents/developer.agent.md').contents.toString('utf8');
+  const developer = closure.entries.find(entry => entry.relative === 'singularity/agents/developer.agent.md').contents.toString('utf8');
   assert.match(developer, /sflow-phases: "implementation"/);
   const workflow = YAML.parse(closure.entries.find(entry => entry.relative === 'singularity/workflow.yml').contents.toString('utf8'));
   assert.deepEqual(Object.keys(workflow.workTypes), ['spec-driven-standard']);
@@ -296,7 +296,7 @@ test('a whole Story on a closure-only branch starts, publishes, submits, approve
   const initFiles = git(app, 'show', '--name-only', '--format=', 'HEAD').split('\n')
     .filter(relative => !relative.startsWith('singularity/work-items/'));
   assert.ok(initFiles.length < approvedFiles / 5, `the init commit carries ${initFiles.length} of ${approvedFiles} configuration files`);
-  assert.equal(initFiles.filter(relative => relative.startsWith('.github/agents/')).length, 4);
+  assert.equal(initFiles.filter(relative => relative.startsWith('singularity/agents/')).length, 4);
   assert.match(cli('validate'), /workflow is valid/);
   // Doctor exits non-zero for this fixture's unrelated warnings (no model provider, unassigned step).
   const doctor = spawnCli('doctor');

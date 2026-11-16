@@ -62,7 +62,7 @@ test('approve and reject use saved templates and agents even when live resources
   raw.workTypes['spec-driven-standard'].templateOverrides.specification = 'unavailable-new-spec.md';
   await writeFile(file, YAML.stringify(raw));
   // Also break discovery of the live agent without touching its accepted Git closure.
-  await writeFile(path.join(root, '.github/agents/product-owner.agent.md'), '---\ninvalid: [\n');
+  await writeFile(path.join(root, 'singularity/agents/product-owner.agent.md'), '---\ninvalid: [\n');
   // Committed, because a lifecycle decision refuses uncommitted authored changes before anything else.
   run('git', ['commit', '-qam', 'break the live template and agent'], { cwd: root });
   const before = run('git', ['status', '--porcelain'], { cwd: root }).stdout;

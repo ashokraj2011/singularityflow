@@ -67,8 +67,8 @@ async function repository() {
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Editor Tester', email: 'editor@example.com' }];
   await writeFile(portfolioPath, YAML.stringify(portfolio));
   // Leave one governed agent to resolve from the installed engine. This is the production shape
-  // for repositories that use a packaged default without copying it into .github/agents.
-  await unlink(path.join(root, '.github/agents/product-designer.agent.md'));
+  // for repositories that use a packaged default without copying it into singularity/agents.
+  await unlink(path.join(root, 'singularity/agents/product-designer.agent.md'));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
@@ -298,7 +298,7 @@ test('read-only snapshots load approved configuration without copying it onto th
   const root = await repository();
   run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], root);
   run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], root);
-  run('git', ['rm', '-r', 'singularity', '.github/agents'], root);
+  run('git', ['rm', '-r', 'singularity'], root);
   run('git', ['commit', '-m', 'Keep application main free of governed configuration'], root);
 
   const before = {
@@ -724,22 +724,22 @@ test('visual editor configuration saves validate atomically and publish scoped c
   const template = await readFile(path.join(root, templatePath), 'utf8');
   await saveConfigurationFile(root, templatePath, `${template}\nEditor-only design guidance.\n`);
   await assert.rejects(() => saveConfigurationFile(root, 'singularity/agents.lock.yml', 'version: 1\nagents: {}\n'), /read-only/i);
-  await mkdir(path.join(root, '.github/agents'), { recursive: true });
-  await writeFile(path.join(root, '.github/agents/reviewer.agent.md'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
+  await mkdir(path.join(root, 'singularity/agents'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/agents/reviewer.agent.md'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
   // Agents change only through Workflow Studio's change set; a whole-file save names that route.
-  await assert.rejects(() => saveConfigurationFile(root, '.github/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n'),
+  await assert.rejects(() => saveConfigurationFile(root, 'singularity/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n'),
     (error) => error.code === 'CONFIGURATION_AGENT_FILE_STUDIO_ONLY' && /agents edit reviewer/.test(error.message));
-  assert.equal(await readFile(path.join(root, '.github/agents/reviewer.agent.md'), 'utf8'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
+  assert.equal(await readFile(path.join(root, 'singularity/agents/reviewer.agent.md'), 'utf8'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
   const mappingPath = path.join(root, 'singularity/agent-mappings.yml');
   const originalMappings = await readFile(mappingPath, 'utf8');
   await assert.rejects(() => saveConfigurationFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: missing-pack\n'), /unknown agent/i);
   assert.equal(await readFile(mappingPath, 'utf8'), originalMappings);
   await saveConfigurationFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: reviewer\n');
-  await assert.rejects(() => deleteConfigurationFile(root, '.github/agents/reviewer.agent.md'), /Copilot agent mapping enterprise-reviewer/);
+  await assert.rejects(() => deleteConfigurationFile(root, 'singularity/agents/reviewer.agent.md'), /Copilot agent mapping enterprise-reviewer/);
   assert.equal((await validateEditorConfiguration(root)).valid, true);
   const published = await publishEditorConfiguration(root, 'Configure visual editor template');
   assert.equal(published.pushed, false);
-  assert.deepEqual(published.files.sort(), ['.github/agents/reviewer.agent.md', 'singularity/agent-mappings.yml', templatePath].sort());
+  assert.deepEqual(published.files.sort(), ['singularity/agents/reviewer.agent.md', 'singularity/agent-mappings.yml', templatePath].sort());
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure visual editor template/);
 });
 
@@ -1439,7 +1439,7 @@ test('Story diagnostics and editor lifecycle reads survive live root and agent r
   const liveWorkflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   liveWorkflow.workItemRoot = 'governed/live-story-root';
   await writeFile(workflowPath, YAML.stringify(liveWorkflow));
-  await unlink(path.join(root, '.github/agents/product-owner.agent.md'));
+  await unlink(path.join(root, 'singularity/agents/product-owner.agent.md'));
 
   // These are independent public entry points. Each must locate the accepted Story under its
   // saved root before loading policy; today's mutable root and agent catalog are not Story truth.

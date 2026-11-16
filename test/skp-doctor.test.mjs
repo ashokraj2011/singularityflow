@@ -193,7 +193,7 @@ async function retainedStory(t) {
     omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({ responsibility,
       reason: 'Skill doctor fixture of one analysis step that changes no repository code.', authority: 'product-approvers' })) };
   await writeFile(workflowFile, YAML.stringify(definition));
-  await writeFile(path.join(root, '.github', 'agents', 'report-producer.agent.md'), [
+  await writeFile(path.join(root, 'singularity', 'agents', 'report-producer.agent.md'), [
     '---', 'name: report-producer', 'description: Governed report producer.', 'model: [auto]',
     'tools: [read, search, ask_user]', 'metadata:', '  sflow-label: "Report producer"',
     '  sflow-phases: "analysis"', '  sflow-default-for: "analysis"',

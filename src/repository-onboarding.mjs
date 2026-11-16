@@ -20,9 +20,7 @@ import {
   configurationTreeEntries, isConfigurationAsset, legacyStateMirrorMatchesRepository,
   stateConfigurationHistoryBranch
 } from './configuration-branch.mjs';
-import {
-  DEFAULT_CONFIGURATION_ASSET_POLICY, configurationAssetSearchRoots
-} from './configuration-assets.mjs';
+import { DEFAULT_CONFIGURATION_ASSET_POLICY, configurationAssetSearchRoots, LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 import {
   capabilityTree, flattenCapabilityTree, loadCapabilities
 } from './capabilities.mjs';
@@ -2197,7 +2195,7 @@ async function createConfigurationRootCandidate(remote, plan, {
 function committedCandidatePaths(root, commit, env) {
   return run('git', [
     'diff-tree', '--root', '--no-commit-id', '--name-only', '-r', commit, '--',
-    'singularity', '.github/agents'
+    'singularity', LEGACY_AGENTS_ROOT
   ], { cwd: root, env }).stdout.split(/\r?\n/u).filter(Boolean).sort();
 }
 

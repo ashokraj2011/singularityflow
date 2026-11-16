@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 44
+version: 47
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -211,7 +211,7 @@ that repository reports that it needs a build from that date or later, with the 
 holds up no other repository. Builds from before this format refuse a v2 baseline in every refresh
 route, naming the v1 format they expect, so an older installation can no longer downgrade a
 repository; upgrade it to publish again.
-Configuration remains at its canonical paths (`singularity/**` and `.github/agents/**`); only the
+Configuration remains at its canonical paths (`singularity/**`, and `.github/agents/**` for a repository whose agents have not moved yet); only the
 projection manifest lives under `configuration/`. Refresh removes stale managed configuration and
 the older `configuration/files/**` layout, while preserving runtime state such as
 `singularity/world-model/**`. Existing Story configuration snapshots remain immutable; new Stories
@@ -252,6 +252,57 @@ and requires a new preview. `--accept-bundled-conflicts` remains the broad migra
 explicitly selecting every packaged value. Reruns are idempotent: current repositories become
 no-ops, a host-refused review is reported again, and an unreachable repository is reported without
 holding up the others.
+
+### Agents move to singularity/agents
+
+SFlow's step agents now live in `singularity/agents/`, and `.github/agents/` is left to your
+team's own Copilot agents. A repository set up by an earlier build keeps its agents in
+`.github/agents/` and works exactly as before until the upgrade moves them. The upgrade does it
+for you: every `workspace refresh-configuration` and `workspace reinitialize` of such a repository
+carries it in the same candidate as the rest of the package update.
+
+What the upgrade moves:
+
+- **Moves:** each file in `.github/agents/` that is SFlow's moves to `singularity/agents/` with
+  the same name and the same bytes, so Git shows it as a rename. A file is SFlow's when its front
+  matter carries an `sflow-` setting, when its bytes are a packaged agent's, or when the workflow
+  names its agent (in `singularity/agent-mappings.yml`, an `agents:` list, or a skill attachment).
+  `singularity/workflow.yml` gains `agentPromptsRoot: singularity/agents` in the same change.
+- **Stays:** every other file stays where it is, untouched, and the preview lists it as
+  "stays: your own agent". An agent APM deployed stays as "deployed by APM". A team file that has
+  the name of one of SFlow's agents but is not SFlow's (no `sflow-` setting, other bytes) stays,
+  and SFlow's own agent of that name is installed in `singularity/agents/` instead.
+- **Held:** when `singularity/agents/` already has a file of the same name with other bytes,
+  nothing moves and the preview names both files. Keep one of them in `sflow/config`, then
+  preview again. The rest of the package update goes ahead. The move is held the same way when
+  `singularity/workflow.yml` already names an `agentPromptsRoot` of its own, which the
+  configuration carries: remove that key in `sflow/config` to move the agents, then preview again.
+
+How it lands: like every package update, straight on `sflow/config` in the same one-click upgrade
+[owner, 2026-11-16]: the installer's refresh, the terminal's, `/sf-refresh-configuration`, a
+confirmed `--confirm-plan`, and the pass VS Code runs when a new build loads. Only where the host
+refuses the push (branch protection) does the move wait on a `sflow/config-refresh/*` review branch,
+printed in full with its link; merge it there and run the refresh again to complete the state
+mirror. Once the configuration records `singularity/agents` there is nothing left to move, so
+running it again changes nothing.
+
+Have every teammate update SFlow. The move carries the v2 package baseline with the build that made
+it, so an older build's refresh is refused for that repository and names the build it needs,
+instead of moving the agents back.
+
+- **Shell:** `singularity-flow workspace refresh-configuration --dry-run` prints
+  `Agents move to singularity/agents:` with a `moves:`, `stays:` or `installs:` line per file, then
+  the route that applies the plan.
+- **Copilot:** `/sf-refresh-configuration` shows the same moves and stays from the preview's
+  `agentsHome` and asks you to confirm the plan, which applies it.
+- **VS Code:** **After install → Preview safe reinitialization** lists them before you confirm;
+  a new build's pass moves them with the rest of the update and says so.
+
+Stories already running carry on unchanged: each keeps the agents its own pinned configuration
+recorded when it started, finishes with them, and needs nothing from you. New Stories use
+`singularity/agents/`. A teammate still on an earlier build reads a moved repository's packaged
+agents and ignores customized ones in `singularity/agents/` when it starts a Story, so update every
+machine.
 
 For the complete safe upgrade/recovery path, use `workspace reinitialize --dry-run`, review its
 seeded configuration and schema report, then apply the returned plan with

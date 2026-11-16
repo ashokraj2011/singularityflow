@@ -11,7 +11,7 @@ import {
   type WorkspaceConfigurationRefreshResult,
   type WorkspaceCapabilityAttachScope,
   type WorkspaceFosAction, type WorkspaceFosOutcome, type WorkspaceRecoveryAction,
-  isSafeWorkspaceReinitializationPreview
+  isSafeWorkspaceReinitializationPreview, agentsHomeSummary
 } from './workspaces-model.ts';
 import { escape, icon, repositoryWebLink } from './webview.ts';
 import { commandGuidanceHtml } from './command-guidance.ts';
@@ -469,7 +469,8 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
               ? ` · <a href="${escape(repository.compareUrl)}">merge it on the Git host</a>` : ''}</span>` : ''}${repository.route
             ? `<br><span class="muted">Resolve: <code>${escape(repository.route)}</code></span>` : ''}`
             : `<span class="muted">${escape(repository.files?.length ?? 0)} packaged files
-              · ${escape(repository.conflicts?.length ?? 0)} preserved collisions</span>`}</td>
+              · ${escape(repository.conflicts?.length ?? 0)} preserved collisions</span>`}
+            ${agentsHomeSummary(repository.agentsHome).length ? `<details><summary>${escape(agentsHomeSummary(repository.agentsHome)[0])}</summary><ul>${agentsHomeSummary(repository.agentsHome).slice(1).map((line) => `<li><code>${escape(line)}</code></li>`).join('')}</ul></details>` : ''}</td>
         </tr>`).join('')}</tbody>
       </table>` : '<p class="muted">No registered workspace repositories were found.</p>'}
       ${changedPaths.length || removedPaths.length ? `<h3>Exact reviewed paths</h3>

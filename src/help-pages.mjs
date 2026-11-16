@@ -16,6 +16,7 @@
 import { HELP } from './help-text.mjs';
 import { canonicalCommand, commandDefinition, COMMAND_REGISTRY } from './command-registry.mjs';
 import { skillsForCommand } from './command-skills.mjs';
+import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 const BIN_ALIASES = new Map([
   ['about', ['sflow-about']],
@@ -1370,7 +1371,7 @@ const PAGES = Object.freeze({
       'apm.lock.yaml. Commit all three, so every clone and every Story uses the same agents.',
       'apm status reads those files and checks each deployed file against the lock: missing, changed since apm',
       'install wrote it, or not committed. It names the packages, what each one deployed, the agents in',
-      '.github/agents that are not from APM, and the APM CLI on this machine. It fetches nothing and changes nothing.',
+      `${LEGACY_AGENTS_ROOT} that are not from APM, and the APM CLI on this machine. It fetches nothing and changes nothing.`,
       'apm install runs APM\'s own apm install in your terminal and commits exactly what it changed on an apm/ branch',
       '(a new apm/install-<package>, or the apm/ branch you are on), for a pull request. It first needs the APM files',
       'committed, a checkout that is not a Story\'s, and the APM CLI version apm.yml pins (x-sflow.apm-cli; the first',

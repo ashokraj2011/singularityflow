@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import {
@@ -89,7 +90,7 @@ async function publishStateMirror(fixture, {
   await cp(path.join(approved, 'singularity'), path.join(publisher, 'singularity'), {
     recursive: true
   });
-  await cp(path.join(approved, '.github'), path.join(publisher, '.github'), {
+  if (existsSync(path.join(approved, '.github'))) await cp(path.join(approved, '.github'), path.join(publisher, '.github'), {
     recursive: true
   });
   const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: approved }).stdout.trim();
@@ -173,7 +174,7 @@ async function prepareConfigurationProposalMode(fixture, mode) {
     ], { cwd: fixture.base });
     run('git', ['config', 'user.name', 'Migration Source'], { cwd: editor });
     run('git', ['config', 'user.email', 'migration@example.test'], { cwd: editor });
-    await rm(path.join(editor, '.github', 'agents', 'developer.agent.md'));
+    await rm(path.join(editor, 'singularity', 'agents', 'developer.agent.md'));
     run('git', ['add', '-A'], { cwd: editor });
     run('git', ['commit', '-qm', 'Retain an older packaged configuration'], { cwd: editor });
     run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
@@ -617,7 +618,7 @@ test('an onboarded repository whose configuration predates this build\'s shipped
     run('git', ['clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH, fixture.remote, editor], { cwd: fixture.base });
     run('git', ['config', 'user.name', 'Older Build'], { cwd: editor });
     run('git', ['config', 'user.email', 'older@example.test'], { cwd: editor });
-    await rm(path.join(editor, '.github', 'agents', 'developer.agent.md'));
+    await rm(path.join(editor, 'singularity', 'agents', 'developer.agent.md'));
     run('git', ['add', '-A'], { cwd: editor });
     run('git', ['commit', '-qm', 'Configuration from an older SFlow'], { cwd: editor });
     run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
@@ -1437,7 +1438,9 @@ test('recreate writes the packaged starters as written and changes only what it 
     assert.equal(starter.ledger.enabled, true);
     const storyGroups = Object.keys(starter.approvalAuthorities);
     assert.deepEqual(workflow.removed, storyGroups.map(() => '    members: []'));
-    assert.deepEqual(workflow.added.filter((line) => !member.test(line)), []);
+    // A recreated configuration records the agents home, as init writes it [AGH:REQ-006].
+    const agentsHome = ["# SFlow's step agents live in singularity/agents; .github/agents is the team's own.", 'agentPromptsRoot: singularity/agents'];
+    assert.deepEqual(workflow.added.filter((line) => !member.test(line)), agentsHome);
     // In the portfolio: each approval group's members and the repository declaration.
     const portfolio = await change('portfolio.yml');
     const initiativeGroups = Object.keys(YAML.parse(await readFile(new URL('../templates/portfolio.yml', import.meta.url), 'utf8'))
@@ -2720,7 +2723,7 @@ test('migrate and recreate preserve conflicting review refs and report review re
           ], { cwd: fixture.base });
           run('git', ['config', 'user.name', 'Migration Source'], { cwd: editor });
           run('git', ['config', 'user.email', 'migration@example.test'], { cwd: editor });
-          await rm(path.join(editor, '.github', 'agents', 'developer.agent.md'));
+          await rm(path.join(editor, 'singularity', 'agents', 'developer.agent.md'));
           run('git', ['add', '-A'], { cwd: editor });
           run('git', ['commit', '-qm', 'Retain an older packaged configuration'], { cwd: editor });
           run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });

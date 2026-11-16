@@ -850,9 +850,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 37
+        "command-run": 36
       },
-      "digest": "b8148b18465557d0b8d6e1af3de0f91cd082b2f571b60e3f719e9f0348e806da"
+      "digest": "de5292686f09767fb4b354d20cbadb4cbd63477e6eb1aaf226ac79e6c9d5a9ed"
     },
     "src/creation-git-context.mjs": {
       "counts": {
@@ -989,10 +989,9 @@
     },
     "src/factory-reset.mjs": {
       "counts": {
-        "command-git": 6,
-        "command-run": 8
+        "command-run": 7
       },
-      "digest": "6250dcc7b2a6d06ac07a22b97aef53db8b3d30a19b0a780632ec1019c61fac7e"
+      "digest": "d1844060c44d2669c0e3131c505b3c766b879d6c3a4930b576d34f04c063d863"
     },
     "src/fault-repair.mjs": {
       "counts": {
@@ -1439,7 +1438,7 @@
       "counts": {
         "command-run": 30
       },
-      "digest": "0a10c6f60c87311de49f2215667eb97b600027fa9a282505e09efb19554177d1"
+      "digest": "2f123a176d36aa920e8c2c1f2d75a1edd5118c111c55076d78fa9c229c5dd0ff"
     },
     "src/return-locator.mjs": {
       "counts": {
@@ -1451,7 +1450,7 @@
       "counts": {
         "command-run": 1
       },
-      "digest": "794e873c03251bb64fd22e3c42402eb84e8d4e9cde65f5539c7fa7efce9d7b0e"
+      "digest": "3384efd6e1e45c0654cbe189ff6d231e469f092c38ae0fe606a3eb38c6a97dfd"
     },
     "src/revision/current-context.mjs": {
       "counts": {
@@ -1703,9 +1702,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 35
+        "command-run": 33
       },
-      "digest": "52a3b630831a45bbfafa5bed7464a1df06af791f3059b746cac47403ab306206"
+      "digest": "ec61b33a7d71c35df641cc4ee1733d7ebd06cdf96f69bf3aba0be74ab8cc0bb5"
     },
     "src/workspace-impact.mjs": {
       "counts": {

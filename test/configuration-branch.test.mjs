@@ -509,7 +509,7 @@ test('configuration bootstrap advances exact historical packaged agents before p
     assert.equal(result.created, true);
     for (const name of agents) {
       const published = run('git', [
-        'show', `${CONFIGURATION_BRANCH}:.github/agents/${name}`
+        'show', `${CONFIGURATION_BRANCH}:singularity/agents/${name}`
       ], { cwd: fixture.remote }).stdout;
       const bundled = await readFile(new URL(`../templates/agents/${name}`, import.meta.url), 'utf8');
       assert.equal(published, bundled, `${name} remained pinned to retired package bytes`);
@@ -711,7 +711,7 @@ test('custom configuration roots materialize while an old custom world-model out
     assert.ok(approvedPaths.includes('governance/templates/common/implementation.md'));
     assert.ok(approvedPaths.includes('governance/prompts/worldmodel-builder.md'));
     assert.equal(approvedPaths.includes('governance/world-model/manifest.json'), false);
-    assert.ok(approvedPaths.includes('.github/agents/developer.agent.md'));
+    assert.ok(approvedPaths.includes('singularity/agents/developer.agent.md'));
     assert.equal(approvedPaths.includes('governance/application.txt'), false);
     assert.equal(approvedPaths.includes('singularity/world-model/manifest.json'), false);
 
@@ -738,7 +738,7 @@ test('custom configuration roots materialize while an old custom world-model out
     const materialized = await materializeConfigurationSnapshot(checkout, { remote: fixture.remote });
     assert.ok(materialized.paths.includes('governance/templates/common/implementation.md'));
     assert.equal(materialized.paths.includes('governance/world-model/manifest.json'), false);
-    assert.ok(materialized.paths.includes('.github/agents/developer.agent.md'));
+    assert.ok(materialized.paths.includes('singularity/agents/developer.agent.md'));
     assert.equal(materialized.paths.includes('governance/application.txt'), false);
     assert.equal(materialized.paths.includes('singularity/world-model/manifest.json'), false);
     assert.equal(JSON.parse(await readFile(

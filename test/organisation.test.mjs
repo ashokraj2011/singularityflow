@@ -231,10 +231,10 @@ async function publishHistoricalPackagedAgents(remote, proposal, names = [
     for (const name of names) {
       await cp(
         new URL(`./fixtures/packaged-agents/ba513/${name}`, import.meta.url),
-        path.join(checkout, '.github/agents', name)
+        path.join(checkout, 'singularity/agents', name)
       );
     }
-    run('git', ['add', '--', ...names.map((name) => `.github/agents/${name}`)], {
+    run('git', ['add', '--', ...names.map((name) => `singularity/agents/${name}`)], {
       cwd: checkout
     });
     run('git', ['commit', '-qm', 'Reproduce historical packaged agents'], { cwd: checkout });
@@ -417,10 +417,10 @@ async function recordNativeAgentDisplayName(remote, agentId, displayName) {
     run('git', ['clone', '-q', '--branch', 'sflow/config', remote, checkout]);
     run('git', ['config', 'user.email', 'a@b.com'], { cwd: checkout });
     run('git', ['config', 'user.name', 'A B'], { cwd: checkout });
-    const file = path.join(checkout, '.github', 'agents', `${agentId}.agent.md`);
+    const file = path.join(checkout, 'singularity', 'agents', `${agentId}.agent.md`);
     const content = await readFile(file, 'utf8');
     await writeFile(file, content.replace(/^name:\s*.*$/m, `name: ${displayName}`));
-    run('git', ['add', '.github/agents'], { cwd: checkout });
+    run('git', ['add', 'singularity/agents'], { cwd: checkout });
     run('git', ['commit', '-qm', 'Use native Copilot agent display name'], { cwd: checkout });
     run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: checkout });
   } finally {
@@ -2914,10 +2914,10 @@ test('review repairs an exact historical agent/MCP mismatch on the proposal bran
     for (const name of ['product-designer.agent.md', 'qa.agent.md']) {
       await cp(
         new URL(`./fixtures/packaged-agents/ba513/${name}`, import.meta.url),
-        path.join(authoring, '.github/agents', name)
+        path.join(authoring, 'singularity/agents', name)
       );
     }
-    run('git', ['add', '.github/agents/product-designer.agent.md', '.github/agents/qa.agent.md'], {
+    run('git', ['add', 'singularity/agents/product-designer.agent.md', 'singularity/agents/qa.agent.md'], {
       cwd: authoring
     });
     run('git', ['commit', '-qm', 'Reproduce historical packaged agents'], { cwd: authoring });
@@ -3002,7 +3002,7 @@ test('review repairs an exact historical agent/MCP mismatch on the proposal bran
   assert.notEqual(repaired.proposalCommit, incompatibleCommit);
   assert.equal(repaired.reviewRequired, true);
   assert.deepEqual(repaired.changedFiles, [
-    '.github/agents/product-designer.agent.md', '.github/agents/qa.agent.md'
+    'singularity/agents/product-designer.agent.md', 'singularity/agents/qa.agent.md'
   ]);
   assert.match(repaired.activationAction.command, new RegExp(repaired.proposalCommit));
   assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(),
@@ -3013,10 +3013,10 @@ test('review repairs an exact historical agent/MCP mismatch on the proposal bran
     'diff', '--name-only', `${incompatibleCommit}..${repaired.proposalCommit}`
   ], { cwd: org.platform }).stdout.trim().split('\n'), repaired.changedFiles);
   assert.match(run('git', [
-    'show', `${repaired.proposalCommit}:.github/agents/product-designer.agent.md`
+    'show', `${repaired.proposalCommit}:singularity/agents/product-designer.agent.md`
   ], { cwd: org.platform }).stdout, /"figma\/\*"/);
   assert.match(run('git', [
-    'show', `${repaired.proposalCommit}:.github/agents/qa.agent.md`
+    'show', `${repaired.proposalCommit}:singularity/agents/qa.agent.md`
   ], { cwd: org.platform }).stdout, /"playwright\/\*"/);
 
   await assert.rejects(
@@ -3202,7 +3202,7 @@ test('capability review does not offer package repair for a customized MCP misma
     run('git', ['clone', '-q', '--branch', proposed.branch, org.platform, authoring]);
     run('git', ['config', 'user.email', 'custom-agent@example.test'], { cwd: authoring });
     run('git', ['config', 'user.name', 'Custom Agent Fixture'], { cwd: authoring });
-    const designerPath = path.join(authoring, '.github/agents/product-designer.agent.md');
+    const designerPath = path.join(authoring, 'singularity/agents/product-designer.agent.md');
     const designer = await readFile(designerPath, 'utf8');
     assert.match(designer, /, "figma\/\*"/);
     await writeFile(designerPath, designer.replace(', "figma/*"', ''));
@@ -3210,10 +3210,10 @@ test('capability review does not offer package repair for a customized MCP misma
     // mismatch and therefore cannot authorize an automatic compatibility-repair offer.
     await cp(
       new URL('./fixtures/packaged-agents/ba513/developer.agent.md', import.meta.url),
-      path.join(authoring, '.github/agents/developer.agent.md')
+      path.join(authoring, 'singularity/agents/developer.agent.md')
     );
-    run('git', ['add', '.github/agents/product-designer.agent.md',
-      '.github/agents/developer.agent.md'], { cwd: authoring });
+    run('git', ['add', 'singularity/agents/product-designer.agent.md',
+      'singularity/agents/developer.agent.md'], { cwd: authoring });
     run('git', ['commit', '-qm', 'Customize designer and retain unrelated old package asset'], {
       cwd: authoring
     });
@@ -3278,11 +3278,11 @@ test('review fully validates an already-merged proposal before recording activat
     for (const name of ['product-designer.agent.md', 'qa.agent.md']) {
       await cp(
         new URL(`./fixtures/packaged-agents/ba513/${name}`, import.meta.url),
-        path.join(review, '.github/agents', name)
+        path.join(review, 'singularity/agents', name)
       );
     }
-    run('git', ['add', '.github/agents/product-designer.agent.md',
-      '.github/agents/qa.agent.md'], { cwd: review });
+    run('git', ['add', 'singularity/agents/product-designer.agent.md',
+      'singularity/agents/qa.agent.md'], { cwd: review });
     run('git', ['commit', '-qm', 'Reproduce externally merged historical agents'], { cwd: review });
     run('git', ['push', '-q', 'origin', `HEAD:${proposed.branch}`], { cwd: review });
     run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: review });
@@ -3362,7 +3362,7 @@ test('capability activation accepts a native Copilot display name without changi
   assert.equal(activated.audit.recorded, true);
   assert.equal(activated.projection.published, true);
   assert.match(run('git', [
-    'show', 'sflow/config:.github/agents/poc-test-developer.agent.md'
+    'show', 'sflow/config:singularity/agents/poc-test-developer.agent.md'
   ], { cwd: org.platform }).stdout, /^name: Playwright Test Engineer$/m);
 });
 
@@ -6271,7 +6271,7 @@ test('organisation fsck rejects a self-consistent state mirror that diverges fro
     run('git', ['clone', '-q', '--branch', 'state', org.platform, checkout]);
     run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: checkout });
     run('git', ['config', 'user.name', 'Review User'], { cwd: checkout });
-    const relative = '.github/agents/developer.agent.md';
+    const relative = 'singularity/agents/developer.agent.md';
     const file = path.join(checkout, relative);
     const contents = `${await readFile(file, 'utf8')}\n<!-- divergent mirror fixture -->\n`;
     await writeFile(file, contents);

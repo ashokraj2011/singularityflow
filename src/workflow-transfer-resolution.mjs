@@ -17,6 +17,7 @@ import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { librarySkillPath } from './skill-library.mjs';
 import { instructionPath } from './instruction-library.mjs';
 import { renameInstructionSlots, skillInstructionIds } from './skill-instruction-composition.mjs';
+import { agentFileIn } from './configuration-assets.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -343,7 +344,6 @@ export function importPlanText(plan, file, { propose = false } = {}) {
 // Importing under a new name
 
 const IMPORTED_LABEL = ' (imported)';
-const AGENT_ROOT = '.github/agents';
 const AGENT_VENDOR_ROOT = 'singularity/imports/agents';
 const MCP_VENDOR_ROOT = 'singularity/imports/mcp';
 /** A fast-path verb without a list owns the step named for it (src/fast-path.mjs). */
@@ -804,9 +804,9 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
       }
     }
     if (renamed) {
-      movedPaths.set(asset.path, `${AGENT_ROOT}/${to}.agent.md`);
+      movedPaths.set(asset.path, agentFileIn(to));
       asset.id = to;
-      asset.path = `${AGENT_ROOT}/${to}.agent.md`;
+      asset.path = agentFileIn(to);
       if (lock) {
         lock.source = asset.path;
         delete bundle.agentLocks[from];

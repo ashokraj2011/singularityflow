@@ -15,6 +15,7 @@
  */
 import path from 'node:path';
 import YAML from 'yaml';
+import { LEGACY_AGENTS_ROOT, isAgentFilePath } from '../configuration-assets.mjs';
 
 export const TEAM_IMPORT_FORMAT_VERSION = 1;
 
@@ -87,7 +88,7 @@ export function recognizeFormat(relative, toolDirectories = new Set()) {
   const segments = relative.split('/');
   const name = segments.at(-1);
   const lower = relative.toLowerCase();
-  if (/^\.github\/agents\/[^/]+\.md$/u.test(lower)) return 'copilot-agent';
+  if (isAgentFilePath(lower) && lower.startsWith(`${LEGACY_AGENTS_ROOT}/`)) return 'copilot-agent';
   if (/\.agent\.md$/u.test(lower)) return 'copilot-agent';
   if (/\.chatmode\.md$/u.test(lower)) return 'copilot-chatmode';
   if (/\.instructions\.md$/u.test(lower)) return 'scoped-instructions';

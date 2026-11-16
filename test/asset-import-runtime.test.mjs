@@ -69,7 +69,7 @@ async function repository() {
     }))
   };
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/hooks'], root);
   execute('git', ['commit', '-m', 'initial'], root);
   const remote = `${root}.git`;
   execute('git', ['init', '--bare', '-b', 'main', remote], root);
@@ -102,7 +102,7 @@ test('a skill and a template imported from links are vendored, reviewed once, an
   const vendored = await readFile(path.join(root, 'singularity/imports/agents/architect/skill-security-review.md'));
   assert.equal(sha256(vendored), skill.sha256, 'the vendored skill is the exact previewed bytes');
   assert.equal(await readFile(path.join(root, 'singularity/templates/imported/threat-model.md'), 'utf8'), TEMPLATE, 'no newline is added to an imported template');
-  const agentText = await readFile(path.join(root, '.github/agents/architect.agent.md'), 'utf8');
+  const agentText = await readFile(path.join(root, 'singularity/agents/architect.agent.md'), 'utf8');
   assert.match(agentText, /\| security-review \| https:\/\/skills\.example\.org\/team\/security-review\/SKILL\.md \| design \| no \| 1048576 \|/);
   const lock = YAML.parse(await readFile(path.join(root, 'singularity/agents.lock.yml'), 'utf8'));
   assert.equal(lock.agents.architect.sourceSha256, sha256(agentText));

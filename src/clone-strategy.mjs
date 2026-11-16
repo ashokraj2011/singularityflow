@@ -1,10 +1,11 @@
 import { normalizeSourceRoots } from './source-scope.mjs';
 import { classifyGitRemoteFailure } from './git-remote-diagnostics.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 export const CLONE_MODES = Object.freeze(['full', 'blobless', 'blobless-sparse']);
 export const CLONE_FALLBACKS = Object.freeze(['refuse', 'full']);
-export const REQUIRED_SPARSE_ROOTS = Object.freeze(['.github/agents', 'singularity']);
+export const REQUIRED_SPARSE_ROOTS = Object.freeze([LEGACY_AGENTS_ROOT, 'singularity']);
 
 /** Normalize the clone contract once so CLI, workspace journal, and repair use identical behavior. */
 export function normalizeCloneStrategy(value = {}, label = 'Repository clone strategy') {

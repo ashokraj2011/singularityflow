@@ -101,7 +101,7 @@ branch, independent of application history, and stores configuration only:
 - `singularity/capabilities.yml`;
 - `singularity/portfolio.yml`;
 - governed phase, policy, model-tier, and integration configuration;
-- `.github/agents/*.agent.md`;
+- `singularity/agents/*.agent.md` (`.github/agents/*.agent.md` for a repository whose agents have not moved yet);
 - prompts, skills, templates, and other approved configuration assets.
 
 The lead repository's `sflow/config` owns the organisation capability map. Each
@@ -136,7 +136,7 @@ them, deleting refs only.
 
 This is the first-governance proposal for an existing application repository. It is
 based on the application branch and contains the initial `singularity/**` and
-`.github/agents/**` files for normal repository review. During bootstrap, SFlow also
+`singularity/agents/**` files (`.github/agents/**` on the legacy layout) for normal repository review. During bootstrap, SFlow also
 creates the independent `sflow/config` and state branches without changing the
 application default branch.
 

@@ -93,7 +93,7 @@ test('a marketplace import is verified against the published hash and keeps the 
   const changes = [{ op: 'import.skill', agent: 'architect', id: 'a11y-review', source: 'market:acme/a11y-review', sha256: preview.sha256, phases: ['design'] }];
   const applied = await planStudioChangeSet(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes }, { write: true, fetchImpl });
   assert.equal(applied.valid, true, JSON.stringify(applied.problems));
-  const agent = await readFile(path.join(root, '.github/agents/architect.agent.md'), 'utf8');
+  const agent = await readFile(path.join(root, 'singularity/agents/architect.agent.md'), 'utf8');
   assert.match(agent, /\| a11y-review \| https:\/\/cdn\.example\.org\/a11y\.md \| design \| no \|/);
   const ledger = YAML.parse(await readFile(path.join(root, 'singularity/imports.lock.yml'), 'utf8'));
   assert.deepEqual(

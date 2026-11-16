@@ -50,7 +50,7 @@ test('byte drift and extra governed assets cannot use a previously validated def
   await appendFile(path.join(f.target, 'singularity/workflow.yml'), '\n# same semantics, changed bytes\n');
   await assert.rejects(loadMaterializedConfigurationDefinition(f.target, f.snapshot), /changed after materialization/);
   await materializeConfigurationSnapshot(f.target, { snapshot: f.snapshot });
-  await writeFile(path.join(f.target, '.github/agents/extra.agent.md'), '# Unexpected\n');
+  await writeFile(path.join(f.target, 'singularity/agents/extra.agent.md'), '# Unexpected\n');
   await assert.rejects(loadMaterializedConfigurationDefinition(f.target, f.snapshot), /asset set changed/);
 });
 test('materialized reuse still checks live output-root containment and refuses changed snapshot data', async t => {

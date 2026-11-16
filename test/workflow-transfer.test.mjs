@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { toLegacyAgentsLayout } from './helpers/agents-layout.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
@@ -83,6 +84,8 @@ async function initializedRepository(t, prefix) {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
   t.after(() => rm(root, { recursive: true, force: true }));
   await initializeDefinition(root);
+  // These cases test transfer on the legacy layout; agents-home-transfer.test.mjs crosses layouts.
+  await toLegacyAgentsLayout(root);
   return root;
 }
 

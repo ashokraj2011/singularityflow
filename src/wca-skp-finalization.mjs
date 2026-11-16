@@ -6,6 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
+import { isAgentFilePath, LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { compileSkillPhaseProposal, compileConfirmedSkillPhase, configurationPhaseFromCompiledSkill,
@@ -155,7 +156,7 @@ function replacementReview(data, rows) {
     closed(capturedAgent, ['id', 'scope', 'source', 'text', 'phases', 'defaultFor', 'tools', 'worldModelViews', 'dependencies']);
     id(capturedAgent.id); body(capturedAgent.text, 256 * 1024);
     if (!['repository', 'plugin', 'bundled'].includes(capturedAgent.scope)
-        || (capturedAgent.scope === 'repository' ? !/^\.github\/agents\/[^/]+(?:\.agent)?\.md$/u.test(capturedAgent.source)
+        || (capturedAgent.scope === 'repository' ? !isAgentFilePath(capturedAgent.source)
           : capturedAgent.source !== `${capturedAgent.scope}/${capturedAgent.id}.agent.md`)) fail('An impact agent must retain its exact registered source scope and stable path.');
     const origin = capturedAgent.scope === 'repository' ? 'approved-catalog' : 'installed-agent-registry';
     const locks = data.dependencyLocks.filter((lock) => lock.kind === 'agent' && lock.id === capturedAgent.id);
@@ -256,7 +257,7 @@ function groupReplacementReview(data, rows) {
     closed(agent, ['id', 'scope', 'source', 'text', 'phases', 'defaultFor', 'tools', 'worldModelViews', 'dependencies']);
     id(agent.id); body(agent.text, 256 * 1024);
     if (!['repository', 'plugin', 'bundled'].includes(agent.scope)
-        || (agent.scope === 'repository' ? !/^\.github\/agents\/[^/]+(?:\.agent)?\.md$/u.test(agent.source)
+        || (agent.scope === 'repository' ? !isAgentFilePath(agent.source)
           : agent.source !== `${agent.scope}/${agent.id}.agent.md`)) fail('A grouped impact agent has an unsupported source.');
     const origin = agent.scope === 'repository' ? 'approved-catalog' : 'installed-agent-registry';
     const locks = data.dependencyLocks.filter((lock) => lock.kind === 'agent' && lock.id === agent.id);
@@ -353,10 +354,10 @@ function body(value, maximum) {
   return value;
 }
 /** The current candidate Agent Markdown dialect, reconstructed from retained literals only. */
-export function renderWorkflowSkillCandidateAgent(retainedInputs, agentId) {
-  return renderCandidateAgent(copy(retainedInputs), agentId);
+export function renderWorkflowSkillCandidateAgent(retainedInputs, agentId, agentsRoot = LEGACY_AGENTS_ROOT) {
+  return renderCandidateAgent(copy(retainedInputs), agentId, agentsRoot);
 }
-function renderCandidateAgent(retainedInputs, agentId) {
+function renderCandidateAgent(retainedInputs, agentId, agentsRoot = LEGACY_AGENTS_ROOT) {
   id(agentId); closed(retainedInputs, ['request', 'assets']);
   const request = retainedInputs.request;
   if (!plain(request) || !Array.isArray(retainedInputs.assets)) fail('Retained candidate agent inputs are required.');
@@ -394,7 +395,8 @@ function renderCandidateAgent(retainedInputs, agentId) {
     return reference?.source === 'candidate' && reference.kind === 'agent' && reference.id === agentId;
   }).map((phase) => id(phase.id));
   if (new Set(phases).size !== phases.length || !phases.length || phases.length > WCA_SKP_FINALIZATION_LIMITS.phases) fail('The selected candidate agent has no unique bounded phase assignment.');
-  const path = portable(`.github/agents/${id(request.id)}-${agentId}.agent.md`);
+  // In the root the approved configuration records [AGH:REQ-022].
+  const path = portable(`${agentsRoot}/${id(request.id)}-${agentId}.agent.md`);
   const rendered = `---\n${YAML.stringify({ name: agentId, description: agent.description, tools: [], metadata: {
     'sflow-phases': phases.join(','), 'sflow-default-for': phases.join(',') } })}---\n${prompt}\n`;
   return { path, text: rendered };

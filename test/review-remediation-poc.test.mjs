@@ -236,7 +236,7 @@ test('FIX:AC-605 complete public review-remediation path survives a second check
   git(second, ['config', 'user.name', 'POC Operator']);
   git(second, ['config', 'user.email', 'poc.operator@example.invalid']);
   invoke(env, second, ['resume', workId]);
-  const liveAgentPath = path.join(second, '.github', 'agents', 'architect.agent.md');
+  const liveAgentPath = path.join(second, 'singularity', 'agents', 'architect.agent.md');
   const liveAgent = await readFile(liveAgentPath, 'utf8');
   await writeFile(liveAgentPath, `${liveAgent}\nLIVE_AGENT_REPLACEMENT_MUST_NOT_RUN\n`);
   accepted = await loadAcceptedStoryExecution(second, workId);

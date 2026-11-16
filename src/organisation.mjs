@@ -96,7 +96,7 @@ import { prepareConfigurationObjectCheckout } from './configuration-object-store
 import { cloneCapabilityConfiguration } from './capability-configuration-checkout.mjs';
 import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {
-  isRetiredPackagedAsset, RETIRED_PACKAGED_ASSET_SHA256
+  isRetiredPackagedAsset, packagedAssetRegistryPath, RETIRED_PACKAGED_ASSET_SHA256
 } from './packaged-asset-history.mjs';
 import {
   capabilityAuthorityId, CAPABILITY_AUTHORITY_BRANCH, CAPABILITY_AUTHORITY_LINK_PATH,
@@ -1102,7 +1102,8 @@ function gitRefHasRepairableMcpAgentMismatch(root, ref, error, {
   const sources = new Set((error?.details?.mismatches ?? [])
     .map((mismatch) => mismatch?.agentSource)
     .filter((relative) => typeof relative === 'string'
-      && Object.hasOwn(RETIRED_PACKAGED_ASSET_SHA256, relative)));
+      // A moved packaged agent keeps its registered history [AGH:REQ-010].
+      && Object.hasOwn(RETIRED_PACKAGED_ASSET_SHA256, packagedAssetRegistryPath(relative))));
   for (const relative of sources) {
     const shown = run('git', ['show', `${ref}:${relative}`], {
       cwd: root, env, allowFailure: true

@@ -41,6 +41,7 @@ import {
   type RepositoryOnboardingPlan,
   type RepositoryOnboardingResult
 } from './repository-onboarding-model.ts';
+import { LEGACY_AGENTS_ROOT } from '../../../../src/configuration-assets.mjs';
 
 interface OrganisationCapability {
   id: string;
@@ -262,7 +263,7 @@ function savedMapRequest(operation: Pick<MapCapabilityOperation, 'argv' | 'capab
     mode: cloneMode,
     filter: 'blob:none',
     sparseCone: cloneMode === 'blobless-sparse'
-      ? normalizedList([...csv(sparseConeValue ?? ''), '.github/agents', 'singularity']) : [],
+      ? normalizedList([...csv(sparseConeValue ?? ''), LEGACY_AGENTS_ROOT, 'singularity']) : [],
     fallback: cloneFallback!
   };
   return {

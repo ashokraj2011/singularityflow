@@ -14,7 +14,7 @@ related:
   - model-independence
   - assignments-and-watchlists
   - skill-master
-version: 9
+version: 10
 ---
 Phase activation selects an agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
@@ -39,6 +39,25 @@ An agent can attach skills from the skill master, each for some of its steps and
 when to use it; in those steps the skills' instructions are part of its prompt. Any agent, a
 seeded workflow's included, can be attached skills in `singularity/skill-library/attachments.yml`
 without changing the agent (`sflow explain skill-master`).
+
+## Where agents live
+
+SFlow's step agents live in `singularity/agents/<id>.agent.md`. `.github/agents/` is where
+Copilot looks for your team's own custom agents, so SFlow leaves it to you: it does not write,
+read or check anything there, and a team agent with the same name as one of SFlow's (`developer`,
+`qa`, `architect`) no longer takes its place. The one exception is APM: an agent APM deployed
+into `.github/agents`, listed in `apm.lock.yaml`, can still draft a step it is bound to.
+
+`singularity/workflow.yml` records where a repository keeps its agents, with
+`agentPromptsRoot: singularity/agents`. A repository set up before this change has no such line
+and keeps its agents in `.github/agents` until its upgrade moves them. That move is one reviewed
+configuration change; see **Agents move to singularity/agents** in
+[Installation, initialization, and upgrades](installation-and-upgrades.md). A Story keeps the
+agents it started with, so a Story already running finishes as it began.
+
+SFlow's agents do not appear in Copilot's agent picker once they live in `singularity/agents`.
+Nothing needs them there: a step's skill composes the step's prompt with its agent's
+instructions, whichever agent the chat is in.
 
 ## One way to make or change an agent
 

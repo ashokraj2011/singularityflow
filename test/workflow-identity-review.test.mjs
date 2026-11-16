@@ -21,16 +21,16 @@ const save = async (root, value) => writeFile(path.join(root, 'singularity/workf
 
 test('same-scope duplicate IDs refuse instead of hiding one agent; packaged shadowing still works', async (t) => {
   const root = await repo(t);
-  const original = await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8');
-  await writeFile(path.join(root, '.github/agents/duplicate.agent.md'), original);
+  const original = await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8');
+  await writeFile(path.join(root, 'singularity/agents/duplicate.agent.md'), original);
   await assert.rejects(() => discoverAgents(root), { code: 'AGENT_ID_COLLISION' });
-  await rm(path.join(root, '.github/agents/duplicate.agent.md'));
+  await rm(path.join(root, 'singularity/agents/duplicate.agent.md'));
   assert.equal((await discoverAgents(root)).filter((agent) => agent.id === 'developer').length, 1);
 });
 
 test('independent duplication copies all editable contracts and native names without changing seeds', async (t) => {
   const root = await repo(t);
-  const file = path.join(root, '.github/agents/developer.agent.md');
+  const file = path.join(root, 'singularity/agents/developer.agent.md');
   await writeFile(file, (await readFile(file, 'utf8')).replace('name: developer', 'name: Feature Development Agent (No Jira)'));
   const before = await config(root), original = await readFile(file, 'utf8');
   const input = { sourceId: 'feature', targetId: 'my-feature', label: 'My feature', independent: true };
@@ -128,7 +128,7 @@ test('duplicate skill IDs can be renamed and agent attachments follow the new id
   value.workTypes['custom-flow'] = structuredClone(value.workTypes.feature); await save(root, value);
   const text = librarySkillText({ id: 'review-checklist', description: 'Review changes.', instructions: 'Check the changes against the specification.' });
   const skill = path.join(root, librarySkillPath('review-checklist')); await mkdir(path.dirname(skill), { recursive: true }); await writeFile(skill, text);
-  const agentFile = path.join(root, '.github/agents/developer.agent.md');
+  const agentFile = path.join(root, 'singularity/agents/developer.agent.md');
   await writeFile(agentFile, (await readFile(agentFile, 'utf8')) + '\n## Attached skills\n\n| Skill | Phases | When to use it |\n| --- | --- | --- |\n| review-checklist | implementation | Review changes |\n');
   const input = { sourceId: 'custom-flow', targetId: 'other-flow', label: 'Other flow', independent: true,
     resolutions: { 'skill:review-checklist': { action: 'rename', to: 'other-checklist' } } };
@@ -146,7 +146,7 @@ test('independent duplication carries the skills the attachments file attaches t
   const attachments = path.join(root, SKILL_ATTACHMENTS_PATH);
   await writeFile(attachments, 'attachments:\n  - skill: review-checklist\n    agent: developer\n    steps: [implementation]\n    use: Review changes\n');
   const attachmentsBefore = await readFile(attachments, 'utf8');
-  const developer = path.join(root, '.github/agents/developer.agent.md');
+  const developer = path.join(root, 'singularity/agents/developer.agent.md');
   const developerBefore = await readFile(developer, 'utf8');
   const input = { sourceId: 'feature', targetId: 'my-feature', label: 'My feature', independent: true };
   const plan = await planWorkflowCopy(root, input); assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));

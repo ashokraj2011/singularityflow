@@ -43,6 +43,7 @@ import {
   frozenRemoteTransport, isPortableAbsoluteGitPath, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
+import { sourceFileAt } from './source-inspection.mjs';
 import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { gitDisabledHooksPath } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
@@ -54,7 +55,7 @@ import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context
 import { acquireFileLease, inspectFileLease } from './file-lease.mjs';
 import {
   configurationAssetPolicy, configurationAssetSearchRoots, DEFAULT_CONFIGURATION_ASSET_POLICY,
-  isConfigurationAssetPath,
+  isConfigurationAssetPath, LEGACY_AGENTS_ROOT,
   mergeConfigurationAssetPolicies
 } from './configuration-assets.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
@@ -849,7 +850,20 @@ export async function prepareConfigurationBootstrapWorktree(root, {
     run('git', ['switch', '--quiet', '--orphan', CONFIGURATION_BRANCH], { cwd: root, env });
     await clearScratchWorktree(root);
     await copyAssets(seed, root);
-    const wrote = await initializeDefinition(root);
+    // A branch with no workflow.yml becomes a configuration on the agents home [AGH:REQ-006]: the
+    // agents in its .github/agents that are SFlow's move there, byte for byte, and the team's own are
+    // left on the branch, not imported. A move that is held keeps the legacy layout for the upgrade.
+    let agentsRoot = null;
+    if (!importedWorkflow) {
+      const { applyAgentsHomeMigration, planAgentsHomeMigration } = await import('./agents-home-migration.mjs');
+      const plan = await planAgentsHomeMigration(root, {});
+      if (plan?.status === 'held') agentsRoot = LEGACY_AGENTS_ROOT;
+      else {
+        await applyAgentsHomeMigration(root, plan);
+        await rm(path.join(root, ...LEGACY_AGENTS_ROOT.split('/')), { recursive: true, force: true });
+      }
+    }
+    const wrote = await initializeDefinition(root, agentsRoot ? { agentsRoot } : {});
     if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(root, branch);
     if (!importedCapabilityMap) {
       await rm(path.join(root, 'singularity/capabilities.yml'), { force: true });
@@ -1688,12 +1702,12 @@ async function stateCarriesConfigurationCopy(remote, stateCommit, { env = proces
         { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' }
       );
     }
-    const listed = run('git', ['ls-tree', '--full-tree', '--name-only', 'HEAD', '--', STATE_CONFIGURATION_MANIFEST],
-      { cwd: source, allowFailure: true, env: frozen.env });
-    if (listed.status !== 0) {
+    // Through the source facade (SDA-AC-001); the clone holds its objects, so nothing is fetched lazily.
+    const listed = sourceFileAt(source, 'HEAD', STATE_CONFIGURATION_MANIFEST, { env: frozen.env, offline: true });
+    if (listed.status === 'unavailable') {
       throw new SingularityFlowError(`Cannot inspect branch '${STATE_CONFIGURATION_BRANCH}' at ${stateCommit}.`, { code: 'REMOTE_UNKNOWN' });
     }
-    return listed.stdout.split(/\r?\n/u).includes(STATE_CONFIGURATION_MANIFEST);
+    return listed.status === 'present';
   } finally {
     await removeTemporaryTree(source);
   }
@@ -3197,6 +3211,15 @@ async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPat
   return writeCapturedStoryConfigurationAssets(captured, destination);
 }
 
+/** The asset policy of the captured approved workflow.yml and portfolio.yml. */
+function capturedAssetPolicy(captured) {
+  const yamlFromSnapshot = (relative) => {
+    const entry = captured.find((candidate) => candidate.relative === relative);
+    return entry ? YAML.parse(entry.contents.toString('utf8')) ?? {} : {};
+  };
+  return configurationAssetPolicy(yamlFromSnapshot('singularity/workflow.yml'), yamlFromSnapshot('singularity/portfolio.yml'));
+}
+
 /**
  * Mount one already-verified Story configuration snapshot for a read-only operation.
  *
@@ -3211,18 +3234,10 @@ export async function withStoryConfigurationSnapshotRead(root, snapshot, fn, { s
     ['singularity/workflow.yml', 'singularity/portfolio.yml'].includes(entry.relative))
     .map((entry) => entry.relative);
   const policyAssets = captureStoryConfigurationSnapshotAssets(snapshot, { selectPaths: policyPaths });
-  const yamlFromSnapshot = (relative) => {
-    const entry = policyAssets.find((candidate) => candidate.relative === relative);
-    if (!entry) return {};
-    return YAML.parse(entry.contents.toString('utf8')) ?? {};
-  };
   // Compute the policy from the complete retained snapshot before applying a selected-path view.
   // Deriving it from the partial scratch directory would treat an omitted portfolio as defaults and
   // could silently broaden which custom roots the read scope accepts.
-  const assetPolicy = configurationAssetPolicy(
-    yamlFromSnapshot('singularity/workflow.yml'),
-    yamlFromSnapshot('singularity/portfolio.yml')
-  );
+  const assetPolicy = capturedAssetPolicy(policyAssets);
   if (selectPaths != null) {
     const selected = [...new Set(selectPaths)];
     if (!selected.includes('singularity/workflow.yml')
@@ -3388,7 +3403,9 @@ export async function materializeConfigurationSnapshot(root, {
   const captured = captureStoryConfigurationSnapshotAssets(verifiedSnapshot);
   {
     const baseCommit = configurationRepositoryHead(root);
-    const before = configurationTreeEntries(root, baseCommit);
+    // Configuration is what the approved policy says, not the checkout's default [AGH:CON-003].
+    const approvedPolicy = capturedAssetPolicy(captured);
+    const before = configurationTreeEntries(root, baseCommit, approvedPolicy);
     const selection = workTypes?.length
       ? await storyBranchConfigurationClosure(root, verifiedSnapshot, workTypes, agents, baseCommit, before)
       : { closure: null, reason: null };
@@ -3405,7 +3422,7 @@ export async function materializeConfigurationSnapshot(root, {
     // Preserve identical ordinary files and their index/stat identities. Deleting and rewriting
     // every template made Windows rescan/re-hash the entire closure during initial publication.
     // This is byte equality, not an mtime cache; final provenance verification remains mandatory.
-    const current = new Set(await configurationAssetPaths(root));
+    const current = new Set(await configurationAssetPaths(root, approvedPolicy));
     for (const entry of materialized) {
       if (!current.has(entry.relative)) continue;
       const target = path.join(root, entry.relative), info = await lstat(target);

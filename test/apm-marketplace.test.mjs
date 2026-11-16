@@ -103,7 +103,7 @@ async function source(space) {
   const root = await space.repository('app');
   git(root, 'push', '-q', '-u', 'origin', 'main');
   ok(space.flow(root, ['init']));
-  await writeFile(path.join(root, '.github/agents/reviewer.agent.md'), REVIEWER);
+  await writeFile(path.join(root, 'singularity/agents/reviewer.agent.md'), REVIEWER);
   await mkdir(path.join(root, 'singularity/skill-library/code-review'), { recursive: true });
   await writeFile(path.join(root, 'singularity/skill-library/code-review/SKILL.md'), CODE_REVIEW);
   git(root, 'add', '-A');
@@ -207,7 +207,7 @@ test('a later publish is the next version, the same files publish nothing, and a
   assert.equal(same.unchanged, true);
   assert.equal(same.committed, false);
 
-  await writeFile(path.join(app, '.github/agents/reviewer.agent.md'), REVIEWER.replace('carefully.', 'carefully, test by test.'));
+  await writeFile(path.join(app, 'singularity/agents/reviewer.agent.md'), REVIEWER.replace('carefully.', 'carefully, test by test.'));
   await assert.rejects(publishApmPackage(app, { agents: ['reviewer'], marketplace: '../catalog', ...injected(space) }),
     (error) => error.code === 'APM_PUBLISH_UNCOMMITTED' && /reviewer\.agent\.md/u.test(error.message));
   git(app, 'commit', '-q', '-am', 'reviewer reads test by test');
@@ -256,7 +256,7 @@ test('publish refuses what would not work or should not travel, before anything 
   git(app, 'add', '-A');
   git(app, 'commit', '-q', '-m', 'house style');
   await refused({ agents: ['reviewer'], skills: ['house-style'] }, 'APM_PUBLISH_UNSUPPORTED');
-  await writeFile(path.join(app, '.github/agents/reviewer.agent.md'), REVIEWER.replace('carefully.', `carefully. Use token ghp_${'a1B2'.repeat(9)}.`));
+  await writeFile(path.join(app, 'singularity/agents/reviewer.agent.md'), REVIEWER.replace('carefully.', `carefully. Use token ghp_${'a1B2'.repeat(9)}.`));
   git(app, 'commit', '-q', '-am', 'oops');
   await assert.rejects(publishApmPackage(app, { agents: ['reviewer'], marketplace: '../catalog', ...injected(space) }),
     (error) => error.code === 'APM_PUBLISH_SECRET' && /reviewer\.agent\.md:\d+ \(GitHub token\)/u.test(error.message) && !error.message.includes('a1B2a1B2'));

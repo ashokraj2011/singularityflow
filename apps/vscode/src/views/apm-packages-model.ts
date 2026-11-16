@@ -2,6 +2,7 @@
  * The repository's APM packages as the panel reads them: `singularity-flow apm status --json`
  * (sflow-apm-status), checked before it is shown. No process or repository operation lives here.
  */
+import { LEGACY_AGENTS_ROOT } from '../../../../src/configuration-assets.mjs';
 export interface ApmPrimitive { kind: string; name: string; target: string }
 export interface ApmPackage {
   label: string; version: string | null; commit: string | null; depth: number;
@@ -81,7 +82,7 @@ export function apmView(raw: unknown): ApmView | null {
     .map((item) => item.name)))].filter((name) => AGENT_ID.test(name) && !unreadable.has(name)).sort();
   return {
     state: status.state, project, lockedBy: lock ? optionalText(lock.apmVersion) : null, packages, apmAgents,
-    ownAgents: texts(status.unmanagedAgents).map((file) => file.replace(/^\.github\/agents\//u, '').replace(/(?:\.agent)?\.md$/u, ''))
+    ownAgents: texts(status.unmanagedAgents).map((file) => file.slice(file.startsWith(`${LEGACY_AGENTS_ROOT}/`) ? LEGACY_AGENTS_ROOT.length + 1 : 0).replace(/(?:\.agent)?\.md$/u, ''))
       .filter((id) => AGENT_ID.test(id)),
     bindings, unusable, findings, cli: optionalText(record(status.cli)?.found), nextActions
   };

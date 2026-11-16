@@ -157,7 +157,7 @@ test('starter installs agents, usable artifact contracts and a catalog entry wit
   config.mcpServers.playwright.agents = config.mcpServers.playwright.agents.filter((id) => id !== 'scenario-tester');
   await writeFile(configPath, YAML.stringify(config));
   for (const id of ['document-analyst', 'scenario-tester', 'scenario-developer']) {
-    await rm(path.join(root, `.github/agents/${id}.agent.md`));
+    await rm(path.join(root, `singularity/agents/${id}.agent.md`));
   }
   await rm(path.join(root, 'singularity/templates/document-test-repair'), { recursive: true });
   await installWorkflow(root, ID);
@@ -174,7 +174,7 @@ test('starter installs agents, usable artifact contracts and a catalog entry wit
   assert.deepEqual(catalog.codePhases, ['scenario-repair']);
   const simulation = (await simulateWorkflow(root, ID))[0];
   assert.deepEqual(simulation.phases.map((phase) => phase.id), PHASES);
-  const agentPath = path.join(root, '.github/agents/scenario-tester.agent.md');
+  const agentPath = path.join(root, 'singularity/agents/scenario-tester.agent.md');
   const custom = `${await readFile(agentPath, 'utf8')}\nRepository-specific safety instruction.\n`;
   await writeFile(agentPath, custom);
   await installWorkflow(root, ID, { replace: true });

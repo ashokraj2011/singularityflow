@@ -97,7 +97,7 @@ with another baseline.
 An explanation covers the repository's application code. Singularity Flow's own files are not code
 to explain and never appear as change units, hunks, regions or subject statements:
 
-- the governed roots `singularity/` and `.github/agents/`;
+- the governed roots `singularity/` (with its agents in `singularity/agents/`) and `.github/agents/`;
 - every root the repository configures (`workItemRoot`, `initiativeRoot`, `templatesRoot`,
   `agentPromptsRoot`, the world-model output directories and `governedRoots`), read from
   `singularity/workflow.yml` itself, so one malformed agent file cannot turn a work-item root back

@@ -156,6 +156,7 @@ import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli
 import {
   alignProductSurfaces, codeLauncher, LoadedBundle, openConfigurationReviews, type ProductAlignmentHost
 } from './product-alignment.ts';
+import { LEGACY_AGENTS_ROOT } from '../../../src/configuration-assets.mjs';
 
 let extensionLifetime = new AbortController();
 
@@ -4959,7 +4960,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // A retained Story Intake panel owns no configuration authority of its own. Its draft stays
       // intact, but installed and available workflows must now come from the replacement bytes.
       await lazyPanels().IntakePanel.configurationChanged(repository);
-      const completedMessage = 'The current Singularity Flow format is installed locally. Application source and Git history were preserved; remote sflow/config and state branches were not changed. Review all generated SFlow changes in Source Control—including singularity/, packaged .github/agents files, and any recovered custom-agent files—then commit and publish through your normal review path.';
+      const completedMessage = 'The current Singularity Flow format is installed locally. Application source and Git history were preserved; remote sflow/config and state branches were not changed. Review all generated SFlow changes in Source Control—including singularity/, packaged agent files, and any recovered custom-agent files—then commit and publish through your normal review path.';
       const next = verificationWarning
         ? await showCompactWarningMessage(
           'The repository was factory reset, but cleanup or the post-reset check needs attention.',
@@ -8274,7 +8275,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return null;
     }
     // Singularity Flow's own records and agent files are not application code (code-explainer-model).
-    if (['singularity', '.github/agents', '.singularity-flow'].some((root) => relative === root || relative.startsWith(`${root}/`))) {
+    if (['singularity', LEGACY_AGENTS_ROOT, '.singularity-flow'].some((root) => relative === root || relative.startsWith(`${root}/`))) {
       showRefusal('This is one of Singularity Flow\'s own files, not application code, so it is not explained. Open an application file instead.', { headline: 'Not application code' });
       return null;
     }

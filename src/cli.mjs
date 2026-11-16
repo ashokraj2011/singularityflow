@@ -4,6 +4,9 @@ import { withReadScope } from './read-scope.mjs';
 import { preparedPhaseNextActions } from './commands/shared/prepared-phase-next-actions.mjs';
 import { acceptedStoryExecutionIfPresent } from './commands/shared/accepted-story-execution-if-present.mjs';
 import { printCommandRoutes } from './commands/shared/print-command-routes.mjs';
+// A route is given as its argv: a platform-quoted line is no command safeCommandGuidance accepts, so it
+// printed "could not be safely displayed" where a confirm route belonged [AGH:REQ-019].
+const routeArgv = ([executable, ...argv]) => ({ executable, argv });
 import { sessionRepositoryAuthority } from './commands/shared/session-repository-authority.mjs';
 import { gitAnswer } from './commands/shared/git-answer.mjs';
 import { sessionDiscoveryConfiguration } from './commands/shared/session-discovery-configuration.mjs';
@@ -3214,7 +3217,7 @@ async function mcpCommand(positionals, options) {
         console.log(`Playwright authentication profile '${preview.profileId}' is ready to ${preview.status}.`);
         // A person confirms the reviewed storage state by its short code, never its digest (confirm-code.mjs).
         console.log('Review the local source. No state was changed.');
-        printCommandRoutes(renderPlatformCommand(['singularity-flow', 'mcp', 'auth', 'import', 'playwright',
+        printCommandRoutes(routeArgv(['singularity-flow', 'mcp', 'auth', 'import', 'playwright',
           ...(profileId ? ['--profile', profileId] : []), ...(storageState ? ['--storage-state', storageState] : []), '--confirm', preview.confirmation]),
         { label: 'Then confirm it' });
         return;
@@ -5438,7 +5441,7 @@ async function workflowCommand(positionals, options) {
       if (plan.changedPaths?.length) console.log(`  Changed paths: ${plan.changedPaths.join(', ')}`);
       // Confirmed by the plan's short code, never its digest (confirm-code.mjs).
       const resolveAll = options['resolve-all'];
-      printCommandRoutes(renderPlatformCommand(['singularity-flow', 'workflow', subcommand, sourceId, targetId, '--label', label,
+      printCommandRoutes(routeArgv(['singularity-flow', 'workflow', subcommand, sourceId, targetId, '--label', label,
         ...(subcommand === 'copy' && optionBoolean(options, 'independent') ? ['--independent'] : []),
         ...optionStrings(options, 'resolve').flatMap((value) => ['--resolve', value]),
         ...(resolveAll === true ? ['--resolve-all'] : resolveAll ? ['--resolve-all', String(resolveAll)] : []),
@@ -9293,6 +9296,7 @@ async function workspaceCommand(positionals, options) {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else if (!result.results.length) console.log('No registered workspace repositories require configuration refresh.');
     else {
+      const { agentsHomeLines } = await import('./agents-home-migration.mjs');
       console.log(`${result.dryRun ? 'Configuration refresh preview' : 'Configuration refresh'}: ${result.status}`);
       for (const item of result.results) {
         const configuration = item.configurationChanged ? 'configuration updated' : 'configuration unchanged';
@@ -9302,6 +9306,7 @@ async function workspaceCommand(positionals, options) {
         for (const conflict of item.conflicts ?? []) {
           console.log(`    Conflict: ${conflict.path} · ${conflict.resolution}`);
         }
+        for (const line of agentsHomeLines(item.agentsHome)) console.log(line);
         if (item.proposalBranch) console.log(`    Review branch: ${item.proposalBranch}`);
         if (item.compareUrl) console.log(`    Merge it here: ${item.compareUrl}`);
         if (item.error) console.log(`    ${item.error}`);
@@ -9313,7 +9318,7 @@ async function workspaceCommand(positionals, options) {
       // A preview's plan is confirmed by its short code, never its plan ID (confirm-code.mjs).
       if (result.dryRun && result.planId) {
         const workspace = positionals[2] ?? optionString(options, 'workspace');
-        printCommandRoutes(renderPlatformCommand(['singularity-flow', 'workspace', 'refresh-configuration', ...(workspace ? [workspace] : []),
+        printCommandRoutes(routeArgv(['singularity-flow', 'workspace', 'refresh-configuration', ...(workspace ? [workspace] : []),
           ...optionStrings(options, 'repository').flatMap((value) => ['--repository', value]),
           ...(optionBoolean(options, 'accept-bundled-conflicts') ? ['--accept-bundled-conflicts'] : []),
           ...optionStrings(options, 'resolve').flatMap((value) => ['--resolve', value]),
@@ -9323,6 +9328,9 @@ async function workspaceCommand(positionals, options) {
         const stalePlan = result.results.some((item) => item.status === 'stale-plan');
         if (stalePlan) {
           console.log('Do not repeat that confirmation: the plan changed. Remove --confirm-plan, add --dry-run, review the refreshed preview, then confirm it by the code it gives.');
+        } else if (['proposed', 'partial'].includes(result.status) && result.results.some((item) => item.agentsHome?.status === 'proposed' && item.proposalBranch)) {
+          // [AGH:REQ-016] only a host that refused the push leaves the move on a review [owner, 2026-11-16].
+          console.log('Merge each review branch above into sflow/config to land it and its agents move. Re-run this command afterwards to complete the state mirror.');
         } else if (result.status === 'partial') {
           console.log('Each repository above that needs a person says why and what to do, and held up no other. After that, re-run the same command; current repositories become no-ops.');
         } else if (result.status === 'blocked') {
@@ -9357,6 +9365,7 @@ async function workspaceCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else {
+      const { agentsHomeLines } = await import('./agents-home-migration.mjs');
       console.log(`Workspace reinitialization${result.dryRun ? ' preview' : ''}: ${result.status}`);
       for (const item of result.results) {
         const configuration = item.configurationChanged ? 'configuration update' : 'configuration current';
@@ -9365,6 +9374,7 @@ async function workspaceCommand(positionals, options) {
         for (const conflict of item.conflicts ?? []) {
           console.log(`    Conflict: ${conflict.path} · ${conflict.resolution}`);
         }
+        for (const line of agentsHomeLines(item.agentsHome)) console.log(line);
         if (item.error) console.log(`    ${item.error}`);
       }
       console.log(`Schema policy: ${result.schemaMigrationPolicy.statement}`);
@@ -9869,7 +9879,7 @@ async function workspaceCommand(positionals, options) {
         console.log(`  Preserved lead repository: ${preview.preservedLeadRepository}`);
       }
       // Confirmed by the plan's short code, never its digest (confirm-code.mjs).
-      printCommandRoutes(renderPlatformCommand(['singularity-flow', 'workspace', subcommand, workspacePath, capabilityId,
+      printCommandRoutes(routeArgv(['singularity-flow', 'workspace', subcommand, workspacePath, capabilityId,
         ...(dropLocal ? ['--drop-local'] : []), '--confirm-plan', preview.planId]), { label: 'Apply this plan' });
       return preview;
     }

@@ -9248,7 +9248,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~868 body tokens</span>
+          <span class="pill">~917 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-refresh-configuration</code></dd></div>
@@ -9279,7 +9279,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow workspace refresh-configuration [WORKSPACE-ID] [--repository REPOSITORY-ID] --dry-run --json` using only the user&#39;s explicit scope. Do not infer a repository from chat history.
-2. Show each repository&#39;s current authority, candidate changes, protected conflicts, exact plan ID, and proposed `sflow/config` and state-branch effects. A preserved conflict is not consent to overwrite it.
+2. Show each repository&#39;s current authority, candidate changes, protected conflicts, exact plan ID, and proposed `sflow/config` and state-branch effects. Show `agentsHome` the same way: each move, each stay with its reason, each install, why a move is held, and that every teammate updates SFlow, since the move lands on `sflow/config` with the rest. A preserved conflict is not consent to overwrite it.
 3. If a conflict needs resolution, ask the contributor to choose each exact `--resolve PATH=local|bundled|merge` value, then preview again with those choices. Do not select `--accept-bundled-conflicts` on their behalf.
 4. Ask for explicit confirmation of the returned plan. Only then run the same scoped command with the same resolution choices and `--confirm-plan &lt;EXACT-PLAN-ID&gt; --json`. If the plan is stale, stop and preview again; never reuse the old confirmation.
 5. Report configuration and state projection results separately, then the CLI&#39;s `summary` lines as they are: whose `sflow/config` it updated and the old history and review branches it removed. Where the host refused the update, report the exact review branch and its link; report any repository that needs a newer build with its install route. Retry only as the CLI directs; do not force-push or edit active Story snapshots.
@@ -12536,7 +12536,7 @@ Use the CLI as the authority. Never stage, commit, push, or copy unfinished sour
           <span class="pill">conversational</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~1218 body tokens</span>
+          <span class="pill">~1217 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workflow-rules</code></dd></div>
@@ -12565,7 +12565,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-`/sf-session` is setup only; stop after its report. `workflow.json` is state, `singularity/workflow.yml` defines policy, and `.github/agents` owns prompts/views.
+`/sf-session` is setup only; stop after its report. `workflow.json` is state, `singularity/workflow.yml` defines policy, and agent files own prompts/views.
 
 1. Before Story work run `singularity-flow session current --json`; require `ready`, use its `repositoryPath` as cwd, then run `singularity-flow status &lt;WORK-ID&gt; --for-agent --json`. Repository-only configuration uses its own guarded skill.
 2. Use only the returned branch, immutable `workflow.resolution.workItemRoot`, and CLI-returned artifact/input paths. Never assume a default root, skip phases, or hand-edit lifecycle state, `STATUS.md`, `documents.json`, or approvals.

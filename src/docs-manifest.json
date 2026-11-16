@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "e0273f760336f8fa9e7464835062bcc79819b638",
+  "sourceCommit": "c41473184b1f679d28b10f7b2e2d6acb4a603a0e",
   "topicCount": 93,
-  "contentSha256": "67cb866069c79b96b262acf38b56d3d2c3ffa5847e5a063e8562230858272c8f",
+  "contentSha256": "6b0f9d199a02bc274eb937ff1766fc4cc437e26631b03021cc2832c6f819241c",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -32,8 +32,8 @@
     {
       "id": "agents-and-routing",
       "title": "Agents, assignments, and model routing",
-      "version": 9,
-      "sha256": "3a6c4fa43d10d320bbecdc2b3239f2b51ab04cf31df1e65fa4289c19d1cefeab",
+      "version": 10,
+      "sha256": "e788ddbe3a0b2c470237eda93bef56a776ba38774167aa9e84e282691c137e0d",
       "routingSha256": "001a52719941c2f9910ffacf2306d9ded4e45e3a3d202f73a843fc33649dd603",
       "file": "agents-and-routing.md"
     },
@@ -120,8 +120,8 @@
     {
       "id": "code-explanation",
       "title": "Explain current code changes",
-      "version": 14,
-      "sha256": "fa4de597051949f657ef36b779161d7c0361b7c2b4479ee8e2aabf4d6bada1b7",
+      "version": 15,
+      "sha256": "a49a2b825165c8e59af34fd700a14612d036ab4613f937c39fd89564ef5af7e0",
       "routingSha256": "9967fb75a5348d3aec41f35d5ed2eb0856eb1f0f3e0098a79f75c9ddc1436b4e",
       "file": "code-explanation.md"
     },
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 25,
-      "sha256": "7b5a1eac0c0e0744628a96bd4bbd73f34ed32a5994fe01a9e1fc1e0f6bb4e081",
+      "version": 26,
+      "sha256": "a280211906dbdee7ab63f732a29fd768b8efc3b8f0f37189748c7b512e45a979",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -344,8 +344,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 44,
-      "sha256": "251726be80fe0592c4db35fc2903847edc1527c285e7127e7c4e53e144e761a8",
+      "version": 47,
+      "sha256": "a676052e149c8d2c109849b83617ee44cd38c4ea3bc4d97df25aa7cab2860a77",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
@@ -608,8 +608,8 @@
     {
       "id": "smart-initialization",
       "title": "Smart repository initialization",
-      "version": 5,
-      "sha256": "c4ce99b6eacfb722fb1bdbf004ebc4d64dfa45687e5145f2f2bf1589697f84cd",
+      "version": 6,
+      "sha256": "da0f6ffa18168427142dbf97c3855281325333f7a60030b7ccc9044bbc35ae99",
       "routingSha256": "e090e2b732fd9a3a198bc89359fb479e0fc8302cf1806c9c61891e0e019c12bf",
       "file": "smart-initialization.md"
     },
@@ -704,8 +704,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 105,
-      "sha256": "7f157d3e82c4ce00fcdc23b6440760b571f8987657c631abc27fd5951289d87c",
+      "version": 106,
+      "sha256": "cf63ab64305b2fe549c3b01596982dbf32a3570d632a9e4455b0446d4ad321d9",
       "routingSha256": "38bb5bce292c6f41c7f3a7b688849a3b0342eeeddb14286a50488eead607e0c2",
       "file": "workflow-authoring.md"
     },
@@ -736,8 +736,8 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 27,
-      "sha256": "d7d9ee2f18df17e00de38ea869fa15511b5cc68bb84699b169f7343841b7167c",
+      "version": 28,
+      "sha256": "25f2fc8c185fdc99e62b52d500d226636611afd69c8f9d71a8dcf4318140d182",
       "routingSha256": "5c112c0653f816dd58697fe7898162ae44cb1679460dc56dece3daa01073e94a",
       "file": "workspaces-and-sessions.md"
     },

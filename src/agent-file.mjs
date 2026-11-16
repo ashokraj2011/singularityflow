@@ -1,5 +1,5 @@
 /**
- * An agent file as every route writes it (`.github/agents/<id>.agent.md`).
+ * An agent file as every route writes it (`<agents root>/<id>.agent.md`, SPEC-AGH).
  *
  * Workflow Studio's change set (`agent.create`, `agent.update`, `phase.agent`), `agents create|edit`,
  * the progressive builder and team import all render agents here, so the same agent comes out the
@@ -53,13 +53,16 @@ export function withVsCodeTerminal(tools) {
  * an unedited packaged agent up to date, so what stays here is a file someone chose.
  */
 export async function agentFilesWithoutVsCodeTerminal(root) {
-  const directory = path.join(root, '.github', 'agents');
+  // SFlow's agents, where the repository keeps them [AGH:REQ-004]; on the agents home a team's own
+  // .github/agents is not SFlow's to report on.
+  const agentsRoot = await (await import('./agents.mjs')).repositoryAgentsRoot(root);
+  const directory = path.join(root, ...agentsRoot.split('/'));
   const names = await readdir(directory).catch(() => []);
   const found = [];
   for (const name of names.filter((entry) => /\.agent\.md$/u.test(entry)).sort()) {
     try {
       const { document } = splitAgentText(await readFile(path.join(directory, name), 'utf8'), name);
-      if (terminalMissingInVsCode(document.get('tools')?.toJSON?.())) found.push(`.github/agents/${name}`);
+      if (terminalMissingInVsCode(document.get('tools')?.toJSON?.())) found.push(`${agentsRoot}/${name}`);
     } catch { /* An unreadable agent has its own finding in the agent catalog. */ }
   }
   return found;

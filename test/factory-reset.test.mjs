@@ -7,6 +7,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { toLegacyAgentsLayout, writeLegacyWorkflow } from './helpers/agents-layout.mjs';
 import { fileURLToPath } from 'node:url';
 import { confirmCode } from '../src/confirm-code.mjs';
 import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-terminal.mjs';
@@ -217,6 +218,7 @@ async function initializedRepository(prefix) {
   git(root, 'config', 'user.email', 'factory-reset@example.com');
   await writeFile(path.join(root, 'app.txt'), 'application source remains\n');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'initial');
   return root;
@@ -360,6 +362,7 @@ test('factory reset previews, requires exact confirmation, and restores npm defa
   const beforeHead = git(root, 'rev-parse', 'HEAD');
 
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const workflow = path.join(root, 'singularity', 'workflow.yml');
   await writeFile(workflow, `${await readFile(workflow, 'utf8')}\n# local customization removed by reset\n`);
   await mkdir(path.join(root, 'singularity', 'work-items', 'WORK-1'), { recursive: true });
@@ -459,6 +462,7 @@ test('factory reset preserves an invalid custom agent outside active discovery a
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const invalidPath = path.join(root, '.github', 'agents', 'company-broken.agent.md');
   const invalidBytes = Buffer.from('---\nname: Company Broken\nmetadata: [not valid YAML\n---\nprivate recovery bytes\n');
   await writeFile(invalidPath, invalidBytes);
@@ -519,6 +523,7 @@ test('factory-reset rollback restores an invalid custom agent and removes its re
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const relative = '.github/agents/broken.agent.md';
   const invalidBytes = Buffer.from('---\nname: broken\ndescription: [invalid\n---\nbody\n');
   await writeFile(path.join(root, ...relative.split('/')), invalidBytes);
@@ -836,6 +841,8 @@ test('factory reset refuses symbolic-link parents for bundled agent targets', as
   await writeFile(path.join(root, 'app.txt'), 'source remains\n');
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
+  // A legacy-layout configuration: its agents are reset in .github/agents [AGH:REQ-025].
+  await writeLegacyWorkflow(root);
   await symlink(outside, path.join(root, '.github'));
 
   const result = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root, { ok: false });
@@ -861,6 +868,7 @@ test('ignored packaged-agent customizations require explicit discard consent', a
   await writeFile(path.join(root, '.gitignore'), '.github/agents/\n');
   git(root, 'add', 'app.txt', '.gitignore');
   git(root, 'commit', '-m', 'initial');
+  await writeLegacyWorkflow(root);
   const target = path.join(root, '.github', 'agents', 'qa.agent.md');
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, 'private ignored customization\n');
@@ -894,6 +902,7 @@ test('hard-linked packaged agents outside the reset boundary are not mutated', a
   await writeFile(path.join(root, 'app.txt'), 'source remains\n');
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
+  await writeLegacyWorkflow(root);
   const target = path.join(root, '.github', 'agents', 'qa.agent.md');
   const preserved = path.join(root, 'preserved-agent-copy.txt');
   await mkdir(path.dirname(target), { recursive: true });
@@ -926,6 +935,7 @@ test('a factory reset that fails before it takes a backup leaves the configurati
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
 
   const workflow = path.join(root, 'singularity', 'workflow.yml');
   await writeFile(workflow, `${await readFile(workflow, 'utf8')}\n# irreplaceable local customization\n`);
@@ -1073,6 +1083,7 @@ test('factory reset collision safety preserves an edited installed control tree 
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const workflow = path.join(root, 'singularity', 'workflow.yml');
   const oldWorkflow = `${await readFile(workflow, 'utf8')}\n# old configuration marker\n`;
   await writeFile(workflow, oldWorkflow);
@@ -1111,6 +1122,7 @@ test('factory reset collision safety preserves an edited installed packaged agen
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const qaAgent = path.join(root, '.github', 'agents', 'qa.agent.md');
   const oldAgent = 'old private packaged-agent customization\n';
   await writeFile(qaAgent, oldAgent);
@@ -1149,6 +1161,7 @@ test('factory reset collision safety preserves a packaged-agent inode during ord
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const qaAgent = path.join(root, '.github', 'agents', 'qa.agent.md');
   const oldAgent = 'old packaged-agent inode bytes\n';
   await writeFile(qaAgent, oldAgent);
@@ -1235,6 +1248,7 @@ test('packaged-agent installation never blesses bytes raced in before validation
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const agent = path.join(root, '.github', 'agents', 'architect.agent.md');
   await writeFile(agent, 'old private architect bytes\n');
 
@@ -1270,6 +1284,7 @@ test('invalid-custom recovery never blesses a target raced in before validation'
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const invalid = path.join(root, '.github', 'agents', 'broken.agent.md');
   const invalidBytes = Buffer.from('---\nname: Broken Agent\ndescription: [invalid\n---\nsecret\n');
   await writeFile(invalid, invalidBytes);
@@ -1307,6 +1322,7 @@ test('a packaged-agent parent symlink swap is refused before any outside write',
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const github = path.join(root, '.github');
   const displaced = path.join(root, '.github-displaced');
 
@@ -1339,6 +1355,7 @@ test('a recovered-agent parent symlink swap is refused before any outside write'
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   await writeFile(path.join(root, '.github', 'agents', 'broken.agent.md'),
     '---\nname: Broken Agent\ndescription: [invalid\n---\nprivate\n');
 
@@ -1374,6 +1391,7 @@ test('failed rollback never prunes recovery directories through a swapped parent
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   await writeFile(path.join(root, '.github', 'agents', 'broken.agent.md'),
     '---\nname: Broken Agent\ndescription: [invalid\n---\nprivate\n');
 
@@ -1488,6 +1506,7 @@ test('packaged-agent rollback refuses a file recreated after replacement withdra
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const agent = path.join(root, '.github', 'agents', 'qa.agent.md');
   await writeFile(agent, 'old qa bytes\n');
 
@@ -1526,6 +1545,7 @@ test('hard-link and copy-fallback rollback cannot replace a file raced in at pub
     git(root, 'add', 'app.txt');
     git(root, 'commit', '-m', 'initial');
     command(process.execPath, [cli, 'init'], root);
+    await toLegacyAgentsLayout(root);
     const agent = path.join(root, '.github', 'agents', 'qa.agent.md');
     await writeFile(agent, 'old qa bytes\n');
 
@@ -1651,6 +1671,7 @@ test('copy-fallback rollback retains a backup changed through an open handle', a
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   const agent = path.join(root, '.github', 'agents', 'qa.agent.md');
   await writeFile(agent, 'old qa bytes\n');
   const handle = await open(agent, 'r+');
@@ -1767,6 +1788,7 @@ test('a factory reset refuses to discard uncommitted reset-scope changes by defa
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   git(root, 'add', 'singularity');
   git(root, 'commit', '-m', 'govern');
 
@@ -1805,6 +1827,7 @@ test('reset all replaces repository controls and clears machine registrations wi
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'version: 1\n');
   await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({ workspaces: [{ path: clone }] })}\n`);
   await writeFile(path.join(clone, 'source.txt'), 'workspace source remains\n');
@@ -1938,6 +1961,7 @@ test('reset all restores machine registrations when repository replacement fails
   git(root, 'add', 'app.txt');
   git(root, 'commit', '-m', 'initial');
   command(process.execPath, [cli, 'init'], root);
+  await toLegacyAgentsLayout(root);
   await writeFile(path.join(machine, 'active-workspace.json'), '{"workspaceId":"important"}\n');
 
   const { factoryResetAll } = await import('../src/factory-reset.mjs');

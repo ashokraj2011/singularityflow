@@ -7,6 +7,7 @@ import {
   resolveWorkType, validateDefinition, validateArtifactTemplateText, validateCapturedAgentBriefHeadingContracts
 } from './config.mjs';
 import { parseAgentDependencies } from './agents.mjs';
+import { isAgentFilePath } from './configuration-assets.mjs';
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
 import { normalizeTemplateCatalog } from './template-catalog.mjs';
 import { compileSkillPhaseProposal } from './skp-contract.mjs';
@@ -758,7 +759,7 @@ function planSharedContentChanges(input, profile, kind) {
       if (kind === 'agent') {
         const id = identifier(change.id); const index = agents.findIndex((agent) => agent.id === id); const source = agents[index];
         if (!source || source.scope !== 'repository' || id.startsWith('sf-') || id.startsWith('sflow-')
-            || !/^\.github\/agents\/[^/]+(?:\.agent)?\.md$/u.test(source.source ?? '')) {
+            || !isAgentFilePath(source.source ?? '')) {
           fail('WCA_SHARED_CONTENT_SOURCE_UNAVAILABLE', 'Only the exact existing nonprivileged repository Agent Markdown file can be replaced.');
         }
         const path = contentPath(source.source); closed(change.replacement, ['text'], 'Agent text replacement');

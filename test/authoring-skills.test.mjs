@@ -351,7 +351,7 @@ async function storyRepository(configure = () => {}) {
   };
   await configure(config, root);
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/hooks'], root);
   execute('git', ['commit', '-m', 'initial'], root);
   const remote = `${root}.git`;
   execute('git', ['init', '--bare', '-b', 'main', remote], root);
@@ -449,7 +449,7 @@ test('a new step that chose /sf-design is offered it by the engine once the step
       phaseOverrides: { 'vendor-analysis': { inputs: ['intake'] } }
     };
     // The architect drafts the new step, as Workflow Studio records it in the agent's own file.
-    const agentFile = path.join(repository, '.github/agents/architect.agent.md');
+    const agentFile = path.join(repository, 'singularity/agents/architect.agent.md');
     const agent = await readFile(agentFile, 'utf8');
     await writeFile(agentFile, agent
       .replace('sflow-phases: "design,', 'sflow-phases: "vendor-analysis,design,')

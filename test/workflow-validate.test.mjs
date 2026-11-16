@@ -86,9 +86,9 @@ async function teamRepository(change = () => {}) {
   const files = {
     'singularity/templates/team/spec.md': SPEC,
     'singularity/templates/team/plan.md': PLAN(),
-    '.github/agents/team-analyst.agent.md': agentFile('team-analyst', 'Team analyst', 'team-spec'),
-    '.github/agents/team-architect.agent.md': agentFile('team-architect', 'Team architect', 'team-plan'),
-    '.github/agents/team-developer.agent.md': agentFile('team-developer', 'Team developer', 'team-build')
+    'singularity/agents/team-analyst.agent.md': agentFile('team-analyst', 'Team analyst', 'team-spec'),
+    'singularity/agents/team-architect.agent.md': agentFile('team-architect', 'Team architect', 'team-plan'),
+    'singularity/agents/team-developer.agent.md': agentFile('team-developer', 'Team developer', 'team-build')
   };
   await change({ definition, files });
   await writeFile(file, YAML.stringify(definition), 'utf8');
@@ -233,8 +233,8 @@ test('a new step no agent drafts is a located finding on the agent file, not a r
   const [finding] = problems(team).filter((entry) => entry.code.startsWith('AGENT_PHASE_'));
   assert.ok(['AGENT_PHASE_UNMAPPED', 'AGENT_PHASE_DEFAULT_MISSING'].includes(finding.code), finding.code);
   assert.deepEqual([finding.subject.step, finding.subject.workflows, finding.blocksStart], ['team-audit', ['team-flow'], true]);
-  assert.match(finding.location.file, /^\.github\/agents\/[a-z-]+\.agent\.md$/u);
-  assert.match(finding.fix.text, /^Add 'team-audit' to sflow-phases and sflow-default-for in .*\.github\/agents\/[a-z-]+\.agent\.md/u);
+  assert.match(finding.location.file, /^singularity\/agents\/[a-z-]+\.agent\.md$/u);
+  assert.match(finding.fix.text, /^Add 'team-audit' to sflow-phases and sflow-default-for in .*singularity\/agents\/[a-z-]+\.agent\.md/u);
   // The engine's own message is kept, and it is coded now.
   assert.match(finding.detail, /^Phase 'team-audit' (?:has no compatible agent\.|requires exactly one default agent; found 0\.)/u);
   assert.ok(report.repository.findings.some((entry) => entry.id === finding.id), 'it is about the agent files');
@@ -243,7 +243,7 @@ test('a new step no agent drafts is a located finding on the agent file, not a r
 
   const text = flow(root, ['workflow', 'validate', 'team-flow']);
   assert.equal(text.status, 1);
-  assert.match(text.stdout, /^ {2}problem {2}No agent (?:can draft|drafts) Team audit {2}\(\.github\/agents\/[a-z-]+\.agent\.md:\d+\)$/mu);
+  assert.match(text.stdout, /^ {2}problem {2}No agent (?:can draft|drafts) Team audit {2}\(singularity\/agents\/[a-z-]+\.agent\.md:\d+\)$/mu);
   assert.match(text.stdout, /^ {11}Fix: Add 'team-audit' to sflow-phases and sflow-default-for in /mu);
   assert.match(text.stdout, /\/sf-fix-workflow team-flow/u);
   // Every other command still refuses, coded, and its recovery plan points at validate.

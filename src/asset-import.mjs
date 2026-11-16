@@ -35,6 +35,7 @@ import { SingularityFlowError, nowIso, secureRepositoryPath, snapshot } from './
 import {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, importLedgerKey, loadImportsLedger, parseImportsLedger, renderImportsLedger
 } from './imports-ledger.mjs';
+import { AGENTS_HOME, agentFileIn } from './configuration-assets.mjs';
 
 export {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, importLedgerKey, loadImportsLedger, parseImportsLedger, renderImportsLedger
@@ -223,7 +224,7 @@ export function inspectImportContent(kind, text, { id = null, label = 'The impor
   const fileId = id ?? (typeof frontmatter?.name === 'string' && ID.test(frontmatter.name.trim()) ? frontmatter.name.trim()
     : String(frontmatter?.name ?? '').trim().toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'imported-agent');
   let parsed;
-  try { parsed = parseAgentDependencies(text, { source: `.github/agents/${fileId}.agent.md` }); }
+  try { parsed = parseAgentDependencies(text, { source: agentFileIn(fileId, AGENTS_HOME) }); }
   catch (error) { throw fail(`${label} is not a usable agent file: ${error.message}`, 'IMPORT_AGENT_INVALID'); }
   if (id && parsed.id !== id) warnings.push(`Agent '${parsed.id}' will be renamed to '${id}', retaining its source hash in the import record.`);
   if (parsed.dependencies.length) {

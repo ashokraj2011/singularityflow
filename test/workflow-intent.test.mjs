@@ -87,7 +87,7 @@ test('catalog-bound derivation compiles, imports, composes retained instructions
   assert.ok(compiled.reusedAssets.filter(item => item.kind === 'instruction').length >= 3);
   assert.equal(compiled.routeSimulation.status, 'passed');
   const root = await repository(t);
-  const before = await readFile(path.join(root, '.github/agents/demo-instruction-tester.agent.md'));
+  const before = await readFile(path.join(root, 'singularity/agents/demo-instruction-tester.agent.md'));
   const plan = await planWorkflowImport(root, compiled.bundle);
   assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
   await applyWorkflowImport(root, compiled.bundle, { expectedPlanSha256: plan.planSha256 });
@@ -95,7 +95,7 @@ test('catalog-bound derivation compiles, imports, composes retained instructions
   const phase = resolved.phases.find(item => item.id === 'demo-tagged-test');
   const prompt = await renderAgentSkills(root, { workItem: { id: 'NEW', workType: 'demo-tagged' } }, phase, { agent: 'demo-tagged-checker' });
   assert.match(prompt.text, /demo-fresh-test-evidence/u);
-  assert.deepEqual(await readFile(path.join(root, '.github/agents/demo-instruction-tester.agent.md')), before);
+  assert.deepEqual(await readFile(path.join(root, 'singularity/agents/demo-instruction-tester.agent.md')), before);
 });
 
 test('original intent, exact targets, finite loops, known asset kinds and unsupported capabilities cannot be discarded', async () => {
@@ -172,7 +172,7 @@ test('a user-created artifact-only review contract is selected from approved con
   definition.workTypes['document-review'] = { label: 'Document review', phases: ['review-analysis', 'review-findings'],
     omits: ['scope', 'plan', 'implement', 'verify', 'review'].map(responsibility => ({ responsibility, reason: 'An authoring qualification fixture that performs no application delivery.', authority: 'quality-reviewers' })) };
   await writeFile(workflowPath, YAML.stringify(definition));
-  await writeFile(path.join(root, '.github/agents/review-owner.agent.md'), '---\nname: review-owner\ndescription: Reads approved documents and writes findings only\ntools: [read, search, edit]\nmetadata:\n  sflow-phases: review-analysis, review-findings\n  sflow-default-for: review-analysis, review-findings\n---\nRead the approved inputs; write findings without modifying application code.\n');
+  await writeFile(path.join(root, 'singularity/agents/review-owner.agent.md'), '---\nname: review-owner\ndescription: Reads approved documents and writes findings only\ntools: [read, search, edit]\nmetadata:\n  sflow-phases: review-analysis, review-findings\n  sflow-default-for: review-analysis, review-findings\n---\nRead the approved inputs; write findings without modifying application code.\n');
   git(root, 'add', '.'); git(root, 'commit', '-m', 'Add reviewed document contract'); git(root, 'branch', '-f', 'sflow/config', 'HEAD');
   const sha = await withWorkflowIntentCatalog(root, {}, catalog => catalog.sourceSha256);
   const source = `<workflow version="2" id="review-flow" label="Review flow" extends="document-review" catalog="${sha}" catalog-source="approved">

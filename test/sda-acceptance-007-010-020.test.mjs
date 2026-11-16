@@ -73,8 +73,8 @@ async function repository(t, { root: place = (base) => path.join(base, 'app'), c
   for (const workType of Object.values(configuration.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(file, YAML.stringify(configuration));
   if (agent) {
-    await mkdir(path.join(root, '.github/agents'), { recursive: true });
-    await writeFile(path.join(root, `.github/agents/${agent.id}.agent.md`), [
+    await mkdir(path.join(root, 'singularity/agents'), { recursive: true });
+    await writeFile(path.join(root, `singularity/agents/${agent.id}.agent.md`), [
       '---', `name: ${agent.id}`, 'description: "Records one reviewed document step from the Story\'s own inputs."',
       'metadata:', `  sflow-phases: "${agent.phases.join(',')}"`, `  sflow-default-for: "${agent.phases.join(',')}"`, '---',
       `# ${agent.id}`, '', 'Write the step\'s one document from the Story\'s own inputs, and nothing else.', ''

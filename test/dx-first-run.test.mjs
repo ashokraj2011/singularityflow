@@ -49,9 +49,10 @@ test('end-to-end-under-budget', async () => {
     assert.equal(definition.repositoryReadiness.requiredBeforeStory, false);
     // The guide's two settings are the only lines it changes in the packaged starter: local publication, and its
     // toy quick fix unreviewed, since the walkthrough runs no model to review it. World Model grounding is no
-    // longer a setting.
+    // longer a setting. Init records the agents home in the starter it writes [AGH:REQ-006].
     assert.deepEqual(changedLines(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'), configured), {
-      removed: ['  publish: required'], added: ['  publish: off', '    sourceReview:', '      mode: off']
+      removed: ['  publish: required'], added: ["# SFlow's step agents live in singularity/agents; .github/agents is the team's own.",
+        'agentPromptsRoot: singularity/agents', '  publish: off', '    sourceReview:', '      mode: off']
     });
     assert.equal(definition.workTypes['quick-fix'].sourceReview.mode, 'off');
     assert.match(result.reviews, /^off in this walkthrough: it runs no model, so no reviewer; a real Story has a reviewer in every step$/u);

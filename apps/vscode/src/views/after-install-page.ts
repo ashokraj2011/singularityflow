@@ -1,7 +1,7 @@
 /** Guided upgrade plus a one-confirm hard cutover over the existing guarded authorities. */
 import { brandLockup, escape, icon } from './webview.ts';
 import { afterInstallComplete, safeUpgradeComplete, type AfterInstallView } from './after-install-model.ts';
-import { isSafeWorkspaceReinitializationPreview } from './workspaces-model.ts';
+import { agentsHomeSummary, isSafeWorkspaceReinitializationPreview } from './workspaces-model.ts';
 
 export function afterInstallHtml(view: AfterInstallView): string {
   const disabled = view.busy ? ' disabled' : '';
@@ -50,6 +50,7 @@ export function afterInstallHtml(view: AfterInstallView): string {
           ${repository.error ? `<p class="notice warning">${escape(repository.error)}</p>` : ''}
           ${repository.proposalBranch ? `<p>The Git host refused the update to <code>sflow/config</code>. Merge this build's configuration through normal Git review from branch:<br><code>${escape(repository.proposalBranch)}</code>${repository.compareUrl ? ` · <a href="${escape(repository.compareUrl)}">open it to merge</a>` : ''}. Then create a fresh preview.</p>` : ''}
           ${repository.conflicts?.length ? `<p class="muted">Preserved custom content: ${repository.conflicts.map(conflict => escape(conflict.path)).join(', ')}</p>` : ''}
+          ${agentsHomeSummary(repository.agentsHome).length ? `<details open><summary>${escape(agentsHomeSummary(repository.agentsHome)[0])}</summary><ul class="plain-list">${agentsHomeSummary(repository.agentsHome).slice(1).map(line => `<li><code>${escape(line)}</code></li>`).join('')}</ul></details>` : ''}
           ${repository.files?.length ? `<details><summary>${repository.files.length} configuration files</summary><ul class="plain-list">${repository.files.map(file => `<li><code>${escape(file)}</code></li>`).join('')}</ul></details>` : ''}
         </td></tr>`).join('')}</tbody></table></div>
         <details><summary>Schema compatibility, warnings and exact diagnostics</summary><pre>${escape(JSON.stringify(result, null, 2))}</pre></details>

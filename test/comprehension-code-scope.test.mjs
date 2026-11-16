@@ -21,7 +21,7 @@ import { cliJson, comprehensionSlice, createChangeRepository, git, isolatedHome 
 
 const HIDDEN = [
   'singularity/work-items/S-1/STATUS.md',
-  '.github/agents/reviewer.agent.md',
+  'singularity/agents/reviewer.agent.md',
   '.singularity-flow/story-worktrees/w/src/cart.js',
   'records/S-1/notes.md'
 ];
@@ -73,7 +73,7 @@ test('a comprehension change set keeps code, counts what it hid, and stays integ
   assert.deepEqual(changeSet.entries.map((entry) => entry.newPath).sort(), ['.github/workflows/ci.yml', 'src/cart.js']);
   assert.equal(hidden.entries, HIDDEN.length);
   assert.deepEqual(hidden.groups.map((group) => group.group),
-    ['.github/agents', '.singularity-flow/story-worktrees', 'records/S-1', 'singularity/work-items']);
+    ['.singularity-flow/story-worktrees', 'records/S-1', 'singularity/agents', 'singularity/work-items']);
   assert.equal(verifyRepositoryChangeSetIntegrity(changeSet).valid, true);
   // Git is asked only for the kept tracked paths, so patch sections pair with entries again.
   assert.deepEqual(comprehensionDiffOptions(changeSet, hidden).paths.sort(), ['.github/workflows/ci.yml', 'src/cart.js']);

@@ -14,7 +14,7 @@ The installed tutorials are `sflow explain configuration`, `sflow explain workfl
 |---|---|---|
 | Capabilities and repository ownership | Capability Designer | `singularity/capabilities.yml` and the state branch |
 | Story and Epic workflows, steps, sign-off, artifacts and configuration proposals | Workflow Studio | `singularity/workflow.yml`, `singularity/portfolio.yml` and `singularity/templates/` |
-| Agents: creating, changing and choosing the steps each one drafts | Workflow Studio → Agents | `.github/agents/` |
+| Agents: creating, changing and choosing the steps each one drafts | Workflow Studio → Agents | `singularity/agents/` |
 | Repository and work-type Auto enablement | Auto mode | `singularity/workflow.yml` |
 | Agent mappings, remote Markdown trust, prompts, skills and prompt packs | Agent Delivery & Instruction Designer | `singularity/agent-mappings.yml`, `singularity/agents.lock.yml`, `singularity/prompts/`, repository skills and packs |
 | Agents from APM packages: install, attach to steps, share | Agent Packages | `apm.yml`, `apm.lock.yaml`, `singularity/workflow.yml` `apm` |
@@ -76,7 +76,7 @@ Every governed save goes through `singularity-flow configuration save`, except a
 Agents have one route: Workflow Studio's change set, which `agents create|edit`, the builder and
 team import use too. It checks seeded-workflow protection, APM ownership and one default agent per
 step, and keeps a new agent and the steps it drafts in one draft, one proposal and one approval.
-`configuration save` refuses a file in `.github/agents/` and names that route.
+`configuration save` refuses an agent file (in `singularity/agents/`, or `.github/agents/` before the move) and names that route.
 
 Saving is authoring, not publication. The destination depends on the authority shown by the
 Configuration Center:

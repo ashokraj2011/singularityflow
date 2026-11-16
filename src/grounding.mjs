@@ -11,6 +11,7 @@ import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { loadEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
+import { agentsRootOf } from './configuration-assets.mjs';
 
 // Open file descriptors while hashing a tree. Enough to keep the disk busy, few enough not to
 // exhaust the descriptor table on a large repository.
@@ -49,7 +50,7 @@ function excludedSourcePath(file, definition = {}) {
     definition.workItemRoot ?? 'singularity/work-items',
     definition.initiativeRoot ?? 'singularity/initiatives',
     definition.templatesRoot ?? 'singularity/templates',
-    definition.agentPromptsRoot ?? '.github/agents'
+    agentsRootOf(definition)
   ].map((value) => posix(String(value)).replace(/\/$/, '')).filter(Boolean);
   return roots.some((root) => file === root || file.startsWith(`${root}/`))
     || file.startsWith('.git/') || file.startsWith('node_modules/');

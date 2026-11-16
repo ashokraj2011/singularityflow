@@ -51,7 +51,7 @@ async function fixture(t, { witness = true } = {}) {
     omits: ['scope', 'plan', 'implement', 'verify'].map(responsibility => ({ responsibility,
       reason: 'A report-only fixture with no repository delivery.', authority: 'product-approvers' }))
   };
-  const agentFile = path.join(root, '.github/agents/product-owner.agent.md');
+  const agentFile = path.join(root, 'singularity/agents/product-owner.agent.md');
   await writeFile(agentFile, (await readFile(agentFile, 'utf8'))
     .replace('sflow-phases: "intake,', `sflow-phases: "${STEP},intake,`)
     .replace('sflow-default-for: "intake,', `sflow-default-for: "${STEP},intake,`));

@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { toLegacyAgentsLayout } from './helpers/agents-layout.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-terminal.mjs';
@@ -402,6 +403,7 @@ test('explicit remote templates are copied into immutable work-item context', as
   const root = await rootWithAgent();
   for (const args of [['init', '-b', 'main'], ['config', 'user.name', 'Agent Tester'], ['config', 'user.email', 'agent@example.com']]) assert.equal(spawnSync('git', args, { cwd: root }).status, 0);
   await initializeDefinition(root);
+  await toLegacyAgentsLayout(root);
   const workflowFile = path.join(root, 'singularity/workflow.yml'); const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
   definition.git.publish = 'off'; definition.workTypes.feature.templateOverrides.design = 'agent:architecture/design-template';
   await writeFile(workflowFile, YAML.stringify(definition));

@@ -76,8 +76,9 @@ import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { disabledArchitectureIntent, dropRemovedSettings } from './removed-features.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
 import {
-  governedInitializationRoot, INITIALIZATION_MAPPINGS
+  initializationMappingsFor, withAgentsHomeSetting
 } from './initialization-assets.mjs';
+import { agentsRootOf, AGENTS_HOME } from './configuration-assets.mjs';
 import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import {
   hasRetiredPackagedAssetHistory, isCurrentPackagedAssetHash,
@@ -941,7 +942,7 @@ export function normalizeModelProviders(value = {}) {
 
 export function validateDefinition(definition, { storyBootstrap = false } = {}) {
   if (![2, 3].includes(definition?.version)) throw new SingularityFlowError('workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.', { details: { nextAction: { executable: 'singularity-flow', argv: ['factory-reset', '--dry-run'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
-  if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define Agent Markdown under .github/agents.');
+  if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError(`Legacy role-prompt configuration is no longer supported. Define Agent Markdown under ${AGENTS_HOME}.`);
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
   // Settings of removed features (the registered World Model, its views, CALM architecture intent and
@@ -1498,7 +1499,8 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     const agents = storyBootstrap ? [] : await measureCommandSpan('configuration.agents', () => agentServices.discoverAgents(definitionRoot));
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
-    definition.agentPromptsRoot = '.github/agents';
+    // Recorded by workflow.yml itself [AGH:REQ-002]: absent is the legacy .github/agents.
+    definition.agentPromptsRoot = agentsRootOf(source.parsed);
     /**
      * Refusing an unknown field is right; refusing it without naming the likely cause is not.
      *
@@ -1761,13 +1763,34 @@ export function refuseRetiredControlRoot(root) {
   }
 }
 
-export async function initializeDefinition(root, { repositoryHooks = false } = {}) {
+/**
+ * The agents root init writes for `root` [AGH:REQ-006, REQ-007]: an existing workflow.yml keeps its
+ * layout; a repository init creates gets the agents home.
+ */
+async function initializationAgentsRoot(root) {
+  const file = path.join(root, WORKFLOW_PATH);
+  if (!existsSync(file)) return AGENTS_HOME;
+  let parsed;
+  try { parsed = parseYamlText(await readFile(file, 'utf8')); } catch { parsed = null; }
+  return agentsRootOf(parsed ?? {});
+}
+
+export async function initializeDefinition(root, { repositoryHooks = false, agentsRoot: layout = null } = {}) {
   refuseRetiredControlRoot(root);
   const wrote = [];
-  for (const [source, destination] of INITIALIZATION_MAPPINGS) {
+  // A caller rebuilding a repository's configuration (factory reset) keeps its layout [AGH:REQ-025].
+  const agentsRoot = layout ?? await initializationAgentsRoot(root);
+  for (const [source, destination] of initializationMappingsFor(agentsRoot)) {
     if (await copyIfMissing(
       path.join(PACKAGE_ROOT, 'templates', source), path.join(root, destination), root
-    )) wrote.push(destination);
+    )) {
+      wrote.push(destination);
+      // A workflow.yml init creates records the agents home it writes [AGH:REQ-006].
+      if (destination === WORKFLOW_PATH && agentsRoot === AGENTS_HOME) {
+        const file = path.join(root, WORKFLOW_PATH);
+        await writeBytes(file, Buffer.from(withAgentsHomeSetting(await readFile(file, 'utf8')), 'utf8'));
+      }
+    }
   }
   // Directory mappings above are skipped once the destination exists, so re-running init on a
   // repository created by an earlier version would never receive template files added since.
@@ -1775,7 +1798,7 @@ export async function initializeDefinition(root, { repositoryHooks = false } = {
   for (const [source, destination] of [
     ['artifacts', 'singularity/templates'],
     ['starter-packs', 'singularity/templates/starter-packs'],
-    ['agents', '.github/agents'],
+    ['agents', agentsRoot],
     ['skill-library', 'singularity/skill-library'],
     ['instruction-library', 'singularity/instruction-library'],
     ['user-defined', 'singularity/user-defined']
@@ -1814,7 +1837,8 @@ export async function initializationStatus(root) {
   // ordinary branch-local repair check keeps its existing behavior.
   const definitionRoot = configurationReadRoot(root);
   const expectedFiles = [];
-  for (const [source, destination] of INITIALIZATION_MAPPINGS) {
+  const agentsRoot = existsSync(path.join(definitionRoot, WORKFLOW_PATH)) ? await initializationAgentsRoot(definitionRoot).catch(() => AGENTS_HOME) : AGENTS_HOME;
+  for (const [source, destination] of initializationMappingsFor(agentsRoot)) {
     const absolute = path.join(PACKAGE_ROOT, 'templates', source);
     if ((await readdir(path.dirname(absolute), { withFileTypes: true })).some((entry) => entry.name === path.basename(absolute) && entry.isDirectory())) {
       await initializationFiles(absolute, destination, expectedFiles);
@@ -2225,7 +2249,7 @@ export async function snapshotResolution(root, definition, resolved) {
     workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
     initiativeRoot: definition.initiativeRoot ?? 'singularity/initiatives',
     templatesRoot: definition.templatesRoot,
-    agentPromptsRoot: definition.agentPromptsRoot ?? '.github/agents',
+    agentPromptsRoot: agentsRootOf(definition),
     worldModelOutputDir: 'singularity/world-model',
     governedRoots: [...(definition.governedRoots ?? GOVERNED_ROOTS)],
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),

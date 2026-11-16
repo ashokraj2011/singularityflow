@@ -4,6 +4,35 @@ import path from 'node:path';
 export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
 
+/**
+ * Where agents live, for every reader and writer [AGH:REQ-028]. workflow.yml's `agentPromptsRoot`
+ * records the layout [AGH:REQ-002]: none is the legacy root (Copilot's, where APM deploys too),
+ * `singularity/agents` the agents home. Never inferred from which directories exist.
+ */
+export const LEGACY_AGENTS_ROOT = '.github/agents';
+export const AGENTS_HOME = 'singularity/agents';
+
+/** The agents root workflow.yml records; any other value is the legacy layout, as at the baseline [AGH:REQ-002]. */
+export function agentsRootOf(workflow) {
+  return workflow?.agentPromptsRoot === AGENTS_HOME ? AGENTS_HOME : LEGACY_AGENTS_ROOT;
+}
+
+/** That other value, a transport root of the repository's own [AGH:REQ-005], or null. */
+export function agentsTransportRootOf(workflow) {
+  const value = workflow?.agentPromptsRoot;
+  return typeof value === 'string' && value !== AGENTS_HOME && value !== LEGACY_AGENTS_ROOT ? value : null;
+}
+
+/** An agent file's repository path under either root: `<root>/<file>.md`, no subfolder. */
+export const isAgentFilePath = (relative) => /^(?:\.github|singularity)\/agents\/[^/]+\.md$/u.test(String(relative ?? ''));
+
+/** An agent file's path in `root`, the same file name; any other path unchanged. */
+export const agentPathIn = (root, relative) => (isAgentFilePath(relative) ? `${root}/${String(relative).split('/').at(-1)}` : relative);
+
+/** Agent `id`'s file in `root`; by default the path a workflow bundle names it by. */
+export const agentFileIn = (id, root = LEGACY_AGENTS_ROOT) => `${root}/${id}.agent.md`;
+
+
 const DEFAULT_RUNTIME_ROOTS = Object.freeze([
   '.sdlc',
   '.sflow',
@@ -73,17 +102,21 @@ export function configurationAssetPolicy(workflow = {}, portfolio = {}) {
   const configuredWorldModelRoot = portablePath(
     workflow.worldModel?.outputDir ?? 'singularity/world-model', 'worldModel.outputDir'
   );
+  // Agent Markdown is configuration in the root workflow.yml records [AGH:REQ-008]; on the agents
+  // home, .github/agents is the team's own but for APM agents a step is bound to [AGH:REQ-011].
+  const agentsRoot = agentsRootOf(workflow);
+  const transportRoot = agentsTransportRootOf(workflow);
   const roots = unique([
     portablePath(workflow.templatesRoot ?? 'singularity/templates', 'templatesRoot'),
-    // Governed Agent Markdown is discovered from this canonical repository location by every
-    // runtime. `agentPromptsRoot` may add an organisation/editor transport root, but it cannot
-    // remove the framework-agent authority that refresh/reinitialize must mirror and validate.
-    '.github/agents',
-    portablePath(workflow.agentPromptsRoot ?? '.github/agents', 'agentPromptsRoot'),
+    agentsRoot,
+    transportRoot ? portablePath(transportRoot, 'agentPromptsRoot') : null,
     portablePath(portfolio.templatesRoot ?? workflow.templatesRoot ?? 'singularity/templates',
       'portfolio.templatesRoot')
   ]);
+  const apmAgents = agentsRoot === LEGACY_AGENTS_ROOT ? [] : Object.keys(workflow.apm?.agents ?? {})
+    .filter((id) => /^[a-z0-9][a-z0-9-]*$/u.test(id)).flatMap((id) => [`${LEGACY_AGENTS_ROOT}/${id}.agent.md`, `${LEGACY_AGENTS_ROOT}/${id}.md`]);
   const files = unique([
+    ...apmAgents,
     // Which agents in .github/agents APM deployed, with each file's hash: read with them wherever
     // configuration is read (a Story's base, the approved configuration) [APM].
     'apm.lock.yaml',

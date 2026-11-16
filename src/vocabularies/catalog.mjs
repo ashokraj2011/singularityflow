@@ -23,7 +23,7 @@ const observational = (value, description) => ({
 /** The sole owner of first-party Story, Initiative, ad hoc landing, and governed Goal members. */
 export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
   id: 'lifecycle-event-type',
-  version: 9,
+  version: 10,
   defaultClass: 'core-observational',
   entries: {
     BINDING: governing('binding', 'Binds a governed subject to its lifecycle identity and branch.'),
@@ -73,6 +73,14 @@ export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
       since: 5
     },
     WORKFLOW_REOPENED: governing('workflow-reopened', 'Reopens a completed or previously decided workflow boundary.'),
+    VERSION_OPENED: {
+      ...governing('version-opened', 'Reserves and opens one step version on shared authority, binding the person\'s consent receipt when a successor is owed (SPEC-OSA §7.2).'),
+      since: 10
+    },
+    VERSION_WRITER_TAKEN_OVER: {
+      ...governing('version-writer-taken-over', 'Moves an open version\'s writer fence to another checkout after a verified takeover; the earlier writer is fenced (SPEC-OSA §7.3).'),
+      since: 10
+    },
     REWORK_ROLLED_FORWARD: {
       ...governing('rework-rolled-forward', 'Abandons a returned rework cone and restores its exact forward checkpoint.'),
       since: 3

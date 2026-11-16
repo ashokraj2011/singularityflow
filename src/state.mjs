@@ -592,6 +592,9 @@ export const REVIEW_EFFECTS = Object.freeze({
   [LIFECYCLE_EVENT.SKILL_AMENDMENT_APPROVED]: 'stales-submission',
   [LIFECYCLE_EVENT.SKILL_AMENDMENT_REJECTED]: 'stales-submission',
   [LIFECYCLE_EVENT.WORKFLOW_REOPENED]: 'stales-submission',
+  // Only while a step is written, never under review.
+  [LIFECYCLE_EVENT.VERSION_OPENED]: 'stales-submission',
+  [LIFECYCLE_EVENT.VERSION_WRITER_TAKEN_OVER]: 'stales-submission',
   [LIFECYCLE_EVENT.REWORK_ROLLED_FORWARD]: 'stales-submission',
   [LIFECYCLE_EVENT.SEQUENCE_OVERRIDE]: 'stales-submission',
   // Only the exact Auto human-boundary checkpoint of this submission, or a document upload offered

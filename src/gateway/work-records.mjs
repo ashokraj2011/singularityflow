@@ -112,6 +112,9 @@ export const MATERIAL_HISTORY_EVENTS = Object.freeze({
   [LIFECYCLE_EVENT.SKILL_AMENDMENT_REJECTED]: null,
   [LIFECYCLE_EVENT.WORKFLOW_REOPENED]: ['workflow_reopened', 'initiative_restarted'],
   [LIFECYCLE_EVENT.REWORK_ROLLED_FORWARD]: ['rework_rolled_forward'],
+  // A step's next version opening, and its writer moving to another checkout, are news on every surface.
+  [LIFECYCLE_EVENT.VERSION_OPENED]: ['version_opened'],
+  [LIFECYCLE_EVENT.VERSION_WRITER_TAKEN_OVER]: ['version_writer_taken_over'],
   // A person's choice at a workflow decision, or on an appeal of a step's verdict. The review-safe
   // decision lists change nothing a reviewer saw, and a route a rule chose is recorded just before
   // the approval that reached it.

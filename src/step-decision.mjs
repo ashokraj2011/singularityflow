@@ -15,6 +15,59 @@ import { intentAmendmentPause } from './intent-amendment-pause.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { submitRoute } from './submit-route.mjs';
 
+export { WORK_COMMANDS, isWorkCommand } from './command-skills.mjs';
+
+// ------------------------------------------------------------------------------------ the action-to-command map
+
+/*
+ * SPEC-OSA v1.1 §10, Stage 4: the one versioned action-to-command map [OSA:REQ-021, REQ-023, REQ-024]: per kernel operation,
+ * its Copilot command (`work`: the step's work command; `by-command`: the crosswalk's skill for its Shell command) and the
+ * Shell commands it renders as. VS Code's model-free command is always read from the exact Shell command, never assumed.
+ * `decisionRoutes` renders through it. D1: `/sf-code` and `/sf-phase` are two names of one work command (WORK_COMMANDS).
+ */
+export const ACTION_COMMAND_MAP_VERSION = 'sflow-action-command-map/v1';
+export const ACTION_MODEL_FREE = 'by-command';
+
+/** The work command a step's routes show: /sf-code for code, /sf-phase for any other step, or its configured or fixed author. */
+export function workCommandOf(phase, workflow = null) {
+  const skill = generationSkillForPhase(phase, workflow);
+  return skill ? skill.replace(/^\/sflow-/u, '/sf-') : null;
+}
+
+/** The fixed Copilot commands of the actions that are not a step's own work. */
+export const ACTION_SKILLS = Object.freeze({ recover: '/sf-recover', takeover: '/sf-session', decide: '/sf-decide', approve: '/sf-approve',
+  reject: '/sf-reject', readiness: '/sf-submit', review: '/sf-review-source' });
+
+const entry = (copilot, ...shell) => Object.freeze({ copilot, shell: Object.freeze(shell) });
+export const ACTION_COMMANDS = Object.freeze({
+  'open-version': entry('work', 'phase rollover <step> --json', 'phase begin <step> --json', 'prepare <step>'),
+  'build-version': entry('work', 'prepare <step>', 'phase rollover <step> --json'),
+  'author-version': entry('work', 'prepare <step>'),
+  'repair-version': entry('work', 'prepare <step>'),
+  'publish-version': entry('work', 'phase prepublish <step> --for-agent --json --publish-if-ready'),
+  'start-review': entry(ACTION_SKILLS.review, 'review-source context <step> --for-agent --json'),
+  'review-version': entry(ACTION_SKILLS.review, 'review-source context <step> --for-agent --json'),
+  'submit-version': entry(ACTION_SKILLS.readiness, 'status <W> --submission-readiness --json', 'submit <step>'),
+  'refresh-facts': entry(ACTION_SKILLS.readiness, 'status <W> --submission-readiness --json'),
+  'approve-step': entry(ACTION_SKILLS.approve, 'approve <step> --work-id <W> --fetch', 'reject <step> --work-id <W> --fetch --to <phase> --reason <reason>'),
+  decide: entry(ACTION_SKILLS.decide, 'decision show <W>', 'decisions <W>'),
+  'recover-operation': entry('work', 'phase opening <step> --reconcile --json', 'recover <W> --phase <step> --json'),
+  'takeover-writer': entry(ACTION_SKILLS.takeover, 'session takeover <W> --json'),
+  'refresh-authority': entry('by-command', 'refresh-branch', 'session current --for-agent --json'),
+  inspect: entry('by-command', 'phase show <step> --json', 'session current --for-agent --json'),
+  'provide-input': entry('by-command', 'documents readiness --phase <step> --work-id <W> --json'),
+  none: entry('by-command', 'nextsteps --json')
+});
+
+/** An operation's Copilot command for `phase` (null: the crosswalk decides from its Shell command); `recover`: positive damage. */
+export function actionSkill(operation, { phase = null, workflow = null, variant = null } = {}) {
+  const found = ACTION_COMMANDS[operation];
+  if (!found) return null;
+  if (operation === 'recover-operation' && variant === 'recover') return ACTION_SKILLS.recover;
+  if (found.copilot === 'work') return phase ? workCommandOf(phase, workflow) : null;
+  return found.copilot === 'by-command' ? null : found.copilot;
+}
+
 function route(argv, detail, skill = null) {
   const guidance = safeCommandGuidance({ argv, ...(skill ? { skill } : {}) });
   return { detail, ...guidance, commandGuidance: guidance,
@@ -104,7 +157,8 @@ function taskOutcomeWords(inputs, phase) {
 }
 
 /**
- * The host's rendering of the kernel's primary action [OSA:REQ-021]: the command and skill each operation maps to. The
+ * The host's rendering of the kernel's primary action [OSA:REQ-021]: the command and skill each operation maps to, from the one
+ * action-to-command map above. The
  * entry, the edit guard, the authoring task and every surface render it from the same decision, so they give one next
  * step [OSA:REQ-010, REQ-020, C7]; recovery appears only for a positively damaged step [OSA:REQ-003, C1]. `exactSubmit`:
  * a surface that names the submission itself (sequence guidance, the guide) gives its exact command, where the edit
@@ -115,37 +169,42 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
   const workId = workflow.workItem.id;
   // The action's own step: from an inspected step, the current one it names [§4.2 target].
   const phase = workflow.phases?.[next.target?.phase] ?? requested;
-  const author = generationSkillForPhase(phase, workflow);
+  // The step's own work command (D1: /sf-code and /sf-phase are one; a step's routes show the name its kind always had).
+  const author = actionSkill('author-version', { phase, workflow });
   const code = phaseRequiresCodeDelivery(phase);
   switch (next.operation) {
     // An opening whose shared acceptance is lost or uncertain is reconciled as the same operation; nothing new opens [REQ-033].
     case 'recover-operation': return [next.inputs.operation === 'version-opening'
       ? route(['phase', 'opening', phase.id, '--reconcile', '--json'], `Find out whether version ${next.inputs.version} of ${phase.id} reached the shared Story branch; this settles the same opening and opens no other version.`, author)
-      : route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')];
+      : route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', ACTION_SKILLS.recover)];
     // Another checkout holds the version's writer fence: this one inspects it, or takes it over with its writer's agreement [REQ-034].
     case 'takeover-writer': return [route(['session', 'takeover', workId, '--json'],
-      `Another checkout writes version ${next.inputs.version} of ${phase.id}. Take it over here only when that checkout's work is published or set aside; this checkout may still inspect it.`, '/sf-session')];
+      `Another checkout writes version ${next.inputs.version} of ${phase.id}. Take it over here only when that checkout's work is published or set aside; this checkout may still inspect it.`, ACTION_SKILLS.takeover)];
     case 'open-version':
       // A successor, for any reason, is previewed and opened only on the person's yes [D3, OSA:REQ-030]; version 1 opens directly.
       if (next.inputs.consent === 'required') return [route(['phase', 'rollover', phase.id, '--json'],
         `Preview starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}.`, author)];
       return [code ? route(['phase', 'begin', phase.id, '--json'], 'Open the exact code generation before application edits.', author)
         : route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', author)];
-    case 'author-version': case 'build-version': return [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', author)];
+    // A kernel-built step's next version opens on the person's yes like any successor [D3, D5]; then its generator builds it.
+    case 'build-version': if (next.inputs.consent === 'required') return [route(['phase', 'rollover', phase.id, '--json'],
+      `Preview building version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}. Its generator builds it once it opens.`, author)];
+    // falls through: the open version is built by the step's declared generator, in the work command's turn.
+    case 'author-version': return [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', author)];
     case 'decide': return [next.inputs.decision === 'story-decision'
-      ? route(['decision', 'show', workId], 'Choose what happens next; a member of the deciding group decides.', '/sf-decide')
+      ? route(['decision', 'show', workId], 'Choose what happens next; a member of the deciding group decides.', ACTION_SKILLS.decide)
       : route(['decisions', workId], next.inputs.decision === 'task-outcome' ? taskOutcomeWords(next.inputs, phase)
-        : `A person ${next.inputs.decision === 'review-disposition' ? 'decides what the review left to them' : `who approves the scope decides ${next.inputs.id ?? 'the amendment'}`} on the decisions card.`, '/sf-decide')];
-    case 'approve-step': return [commandRoute(`singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `Review submitted ${phase.id}, then approve it or return it for correction.`, '/sf-approve'),
-      commandRoute(`singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, 'Or return it for correction.', '/sf-reject')].filter(Boolean);
+        : `A person ${next.inputs.decision === 'review-disposition' ? 'decides what the review left to them' : `who approves the scope decides ${next.inputs.id ?? 'the amendment'}`} on the decisions card.`, ACTION_SKILLS.decide)];
+    case 'approve-step': return [commandRoute(`singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `Review submitted ${phase.id}, then approve it or return it for correction.`, ACTION_SKILLS.approve),
+      commandRoute(`singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, 'Or return it for correction.', ACTION_SKILLS.reject)].filter(Boolean);
     case 'submit-version': if (exactSubmit) {
       const exact = submitRoute(workflow, phase);
       return [commandRoute(exact.command, exact.reason, exact.skill)].filter(Boolean);
     }
     // falls through: submission readiness reports the review and the workflow decisions a submission records, then the exact submit.
     case 'refresh-facts': return [route(['status', workId, '--submission-readiness', '--json'],
-      `Check ${phase.id}'s submission readiness: it names its review, if one is owed, and then the exact submission.`, '/sf-submit')];
-    case 'start-review': return [route(['review-source', 'context', phase.id, '--for-agent', '--json'], 'Review the exact published version against its sources.', '/sf-review-source')];
+      `Check ${phase.id}'s submission readiness: it names its review, if one is owed, and then the exact submission.`, ACTION_SKILLS.readiness)];
+    case 'start-review': return [route(['review-source', 'context', phase.id, '--for-agent', '--json'], 'Review the exact published version against its sources.', ACTION_SKILLS.review)];
     // A step's task waits for its repair within the step's own budget: the same work command repairs and republishes it.
     case 'repair-version': return [route(['prepare', phase.id], `Repair ${phase.id} within its own work: ${next.inputs.code ?? 'its last check'} is what to fix, then publish it.`, author)];
     // The step's task waits for an input that is not on this laptop: the person restores the same original.

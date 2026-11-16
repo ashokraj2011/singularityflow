@@ -188,7 +188,7 @@ test('permissions follow pinned output policy, not names, and testing is not cod
   assert.equal(mutationPathDecision(f.contract('authoring'), 'src/App.jsx').allowed, false);
 });
 
-test('prompt submission announces the exact code prerequisite before a denied edit; kernel turns never gain authoring', async t => {
+test('prompt submission announces the exact code prerequisite before a denied edit; kernel turns never gain authoring, /sf-next does the step\'s work', async t => {
   const f = await fixture(t, { writeScope: 'source-and-artifact',
     generationPolicy: { task: 'code', requirement: 'required' } });
   const capture = (payload, record) => captureMutationTurn(payload, record, {
@@ -215,18 +215,24 @@ test('prompt submission announces the exact code prerequisite before a denied ed
   const fresh = await recordRepositoryBoundaryTurn({ ...payload, sessionId: 'open-code' }, { captureMutation: capture });
   assert.match(fresh.additionalContext, /Code authoring ready: true/);
   assert.doesNotMatch(fresh.additionalContext, /Before source edits:/);
+  // D2 (SPEC-OSA v1.1 Stage 4): /sf-next does the current step's own work in its turn, under the same permission as the
+  // work command: the open version is written there too, and its turn is told what the work command's is.
   const nextPayload = { ...payload, sessionId: 'next-only', prompt: '/sf-next' };
   const next = await recordRepositoryBoundaryTurn(nextPayload, { captureMutation: capture });
-  assert.match(next.additionalContext, /kernel-only.*no direct repository edits/);
-  assert.match(next.additionalContext, /Never inline an authoring skill/);
+  assert.match(next.additionalContext, /authoring turn, PMC-1 step custom-step/);
   assert.match(next.additionalContext, /Step author: \/sf-code\./, 'a code step names its own author');
-  // A turn that writes no code is not told whether code authoring is ready: "false" read as a blocker (office, 2026-11-11).
-  assert.doesNotMatch(next.additionalContext, /Code authoring ready/);
-  // The kernel skill's own steps run: a kernel turn is never told to stop (a /sf-submit that obeyed
+  assert.match(next.additionalContext, /Code authoring ready: true/);
+  assert.doesNotMatch(next.additionalContext, /Never inline an authoring skill/);
+  assert.deepEqual(await mutationToolGuard({ ...edit, sessionId: 'next-only' }), {});
+  // A kernel skill's turn still never authors: its own steps run, and it is never told to stop (a /sf-submit that obeyed
   // "return the configured authoring skill and stop" submitted nothing, 2026-10-26).
-  assert.match(next.additionalContext, /Carry out the invoked skill's steps in this turn\./);
-  assert.doesNotMatch(next.additionalContext, /\bstop\b/i);
-  assert.equal((await mutationToolGuard({ ...edit, sessionId: 'next-only' })).permissionDecision, 'deny');
+  const submit = await recordRepositoryBoundaryTurn({ ...payload, sessionId: 'submit-only', prompt: '/sf-submit' }, { captureMutation: capture });
+  assert.match(submit.additionalContext, /kernel-only.*no direct repository edits/);
+  assert.match(submit.additionalContext, /Never inline an authoring skill/);
+  assert.doesNotMatch(submit.additionalContext, /Code authoring ready/, 'a turn that writes no code is not told whether code authoring is ready (office, 2026-11-11)');
+  assert.match(submit.additionalContext, /Carry out the invoked skill's steps in this turn\./);
+  assert.doesNotMatch(submit.additionalContext, /\bstop\b/i);
+  assert.equal((await mutationToolGuard({ ...edit, sessionId: 'submit-only' })).permissionDecision, 'deny');
 });
 
 test('a kernel turn on an unwritten plan names the plan\'s own author, never /sf-code', async t => {
@@ -259,11 +265,11 @@ test('prompt context sends its stable rules once per conversation and keeps the 
   assert.doesNotMatch(again, /never auto-adopt or discard edits/);
   assert.ok(Buffer.byteLength(volatile(again)) <= 400, `${Buffer.byteLength(volatile(again))} volatile bytes`);
   // Other rules (a kernel-only turn), a native prompt in between, or another chat: sent whole again.
-  const kernel = (await turn('/sf-next')).additionalContext;
+  const kernel = (await turn('/sf-submit')).additionalContext;
   assert.match(kernel, /Never inline an authoring skill/);
   assert.notEqual(rules(kernel), rules(first));
   await turn('explain this file');
-  assert.match((await turn('/sf-next')).additionalContext, /Never inline an authoring skill/);
+  assert.match((await turn('/sf-submit')).additionalContext, /Never inline an authoring skill/);
   assert.match((await turn('/sf-code', 'another-chat')).additionalContext, /never auto-adopt or discard edits/);
 });
 
@@ -1683,7 +1689,9 @@ test('a turn that may not start the reviewer says to end on its new-chat route, 
   // /sf-publish's publication handed back reviewSubagent; the refusal of its task call said "Do the work here
   // yourself", the opposite of "do not review it yourself" (agent-text audit, 2026-11-11).
   const f = await fixture(t);
-  for (const skill of ['/sf-publish', '/sf-next']) {
+  // /sf-next does the step's own work since OSA Stage 4 (D2), so it starts the reviewer as the work command does; a kernel
+  // skill's turn (/sf-submit) still may not.
+  for (const skill of ['/sf-publish', '/sf-submit']) {
     const payload = await f.enter(skill, `reviewer-${skill}`);
     const reviewer = await mutationToolGuard({ ...payload, toolName: 'task',
       toolArgs: { agent_type: 'sflow-source-reviewer', prompt: '/sf-review-source custom-step' } });
@@ -2006,7 +2014,8 @@ test('a read turn answers through the four SFlow read tools, and sflow_run is re
   }
   // A turn that may run kernel actions leaves sflow_run to the host's own confirmation dialog.
   const kernel = await f.enter('/sf-next', 'gateway-next');
-  assert.equal(mutationTurnMode('/sf-next'), 'kernel-only');
+  // /sf-next is an authoring turn since OSA Stage 4 (D2); it runs kernel actions as before.
+  assert.equal(mutationTurnMode('/sf-next'), 'authoring');
   assert.deepEqual(await tool(kernel, 'sflow_run', { planId: 'pln_x' }), {});
   assert.deepEqual(await tool(kernel, 'sflow_resolve', { utterance: 'home' }), {});
   // Outside an explicit SFlow turn nothing is recorded, so the guard has nothing to say.
@@ -2127,7 +2136,8 @@ test('guided run, documentation of changed code and the reinstall preview get th
 
 test('local verification does not widen review, publication, decision, read or kernel-only turns', async t => {
   const f = await fixture(t);
-  for (const skill of ['/sf-review-source', '/sf-publish', '/sf-approve', '/sf-next', '/sf-inspect']) {
+  // /sf-next is an authoring turn since OSA Stage 4 (D2); a kernel skill (/sf-submit) keeps the restricted terminal.
+  for (const skill of ['/sf-review-source', '/sf-publish', '/sf-approve', '/sf-submit', '/sf-inspect']) {
     const payload = await f.enter(skill, `restricted-${skill}`);
     const contract = deriveMutationContract({ root: f.root, ...f.accepted, turnMode: mutationTurnMode(skill) });
     const protocol = mutationContractPresentation(contract).toolProtocol;

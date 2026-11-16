@@ -34,8 +34,8 @@ Never infer or preselect a human choice. Load only the invoked skill or the rout
 and follow its complete procedure:
 
 - [`/sf-start`](../skills/sflow-start/SKILL.md): remote base, intake, workflow, readiness and selection-receipt handling.
-- [`/sf-next`](../skills/sflow-next/SKILL.md): at most one authorized next action and its handoff; do not inline or chain the returned skill.
-- [`/sf-phase`](../skills/sflow-phase/SKILL.md): preparation then native document authoring, clarification recording, bounded correction and publication; preparation alone is not a completed artifact. [`/sf-code`](../skills/sflow-code/SKILL.md) for code, [`/sf-converge`](../skills/sflow-converge/SKILL.md) for convergence.
+- [`/sf-next`](../skills/sflow-next/SKILL.md): at most one authorized next action; the current step's own work is done in its turn by that step's work command; never chain another lifecycle action after it.
+- [`/sf-phase`](../skills/sflow-phase/SKILL.md): preparation then native document authoring, clarification recording, bounded correction and publication; preparation alone is not a completed artifact. [`/sf-code`](../skills/sflow-code/SKILL.md) is the same work command under its other name, for code or documents; [`/sf-converge`](../skills/sflow-converge/SKILL.md) for convergence.
 - [`/sf-publish`](../skills/sflow-publish/SKILL.md): publish an existing ready draft only; no authoring, submission or approval.
 - [`/sf-submit`](../skills/sflow-submit/SKILL.md): submission. [`/sf-approve`](../skills/sflow-approve/SKILL.md): exact-packet review reuse, human phase confirmation and the one-time approval receipt; never add `--yes`. End that turn before any next-phase authoring.
 

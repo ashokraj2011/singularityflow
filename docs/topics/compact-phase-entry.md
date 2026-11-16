@@ -93,7 +93,8 @@ receipt remain unchanged, and the delivered prompt audit records the refresh.
   `singularity-flow phase prepublish PHASE --for-agent --json` and
   `singularity-flow review-source context --for-agent --json`. Run `singularity-flow phase --help`
   for the exact forms supported by this build.
-- **Copilot:** `/sf-phase` and `/sf-code` start with phase entry; `/sf-next` starts with
+- **Copilot:** `/sf-phase` and `/sf-code` start with phase entry; they are two names of one work
+  command, and either writes the current step, code or document. `/sf-next` starts with
   nextsteps and delegates to `/sf-inputs`; `/sf-review-source` starts with the source-review
   context packet. `/sf-appeal` opens the guided evidence-correction review described under State
   and safety.
@@ -143,9 +144,11 @@ repair the open draft in place. Publication still requires fresh readiness and i
 human decisions, protected paths and prior-generation integrity are not waived.
 
 The prompt-submission hook announces the bound turn's edit permission and prerequisite before a
-tool attempts a source write. `/sf-next` is kernel-only: it returns the explicit configured authoring
-handoff, not permission to inline `/sf-code`. The authoring skill completes the summary, repair and
-authorized publication, then returns submission guidance; raw edits alone are not its endpoint.
+tool attempts a source write. `/sf-next` does the current step's own work in its own turn: when the
+step's next action is its work command, `/sf-next` follows that command's steps from its entry, under
+the same edit permission, and stops at a person's action. The work command completes the summary,
+repair and authorized publication, then returns submission guidance; raw edits alone are not its
+endpoint. A submission ends the turn: the next step starts in a new one.
 
 A turn's permissions last 30 minutes, so an agent never keeps acting unattended. They run from the
 turn's prompt, and a person's answer inside the turn starts the 30 minutes again: an answer to the

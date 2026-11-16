@@ -15,8 +15,8 @@ argument-hint: "<AGENT-NAME> [focus]"
 A user-defined agent is a person's own folder (a main agent and the skills it uses) that runs as a
 Story's one step: the Story was started with `/sf-start <WORK-ID> --agent <AGENT-NAME>`.
 
-Delegate once to `/sf-code` with the supplied focus: the agent's step changes code and tests unless
-it was added as a document step, which delegates once to `/sf-phase` instead. That canonical skill
+Delegate once to `/sf-code` with the supplied focus: the one work command (also named `/sf-phase`)
+writes the agent's step whether it changes code and tests or is a document step. That canonical skill
 runs the step itself: pause and session resolution, the step's composed prompt (the agent's own
 instructions followed by its folder's files), the changes, evidence and exactly-once publication.
 

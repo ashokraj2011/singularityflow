@@ -97,13 +97,17 @@ export function skillEntries(skillsRoot = SKILLS) {
     const entry = fromPause ?? fromSteps;
     const finish = commands(body).find((command) => /^singularity-flow phase prepublish\b.*--publish-if-ready/u.test(command)) ?? null;
     // An alias hands the turn to its canonical skill ("Run `/sflow-code` once", "Delegate once to `/sf-code`").
+    // The delegation sentence names it; another skill the text mentions first (/sf-call's `/sf-start … --agent`) is not it.
     const delegate = /<!-- sflow-output-contract: canonical-delegation -->/u.test(body)
-      ? /`\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n'))?.[1] ?? null : null;
+      ? (/(?:Delegate once to|Run) `\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n'))
+        ?? /`\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n')))?.[1] ?? null : null;
     // A skill whose first step picks among subcommands (`spec analyze|coverage|trace`) has no single entry.
     const choice = !entry && commands(own.join('\n')).some((command) => !PAUSE_CHECK.test(command) && command.includes('|'));
     // "Successful begin: refresh entry once": opening a code version is followed by the skill's entry again.
     const refreshAfterBegin = /Successful begin: refresh entry once/u.test(body);
-    map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin,
+    // "The current step's own agent work is this turn's": /sf-next takes the step's work route in its own turn (D2).
+    const worksInTurn = /The current step's own agent work is this turn's/u.test(body);
+    map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn,
       ...(delegate && !entry ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
   }
   for (const known of map.values()) {
@@ -318,6 +322,8 @@ export function storyState(story) {
   return { key: createHash('sha256').update(JSON.stringify([head, dirty, mark])).digest('hex').slice(0, 12), mark, head: head.slice(0, 9) };
 }
 
+// The current step's work command, in either name (D1), or the fixed writer of kernel-built convergence.
+const WORK_ROUTE = /^\/sf(?:low)?-(?:code|phase|converge)(?:\s|$)/u;
 // The states in which SFlow waits for the person: a confirmation, a question, their own terminal step.
 const PERSON_STATES = new Set(['confirm', 'confirm-in-terminal', 'ask-person', 'await-human', 'confirm-review']);
 const PLACEHOLDER = /<[A-Za-z][A-Za-z0-9_|-]*>/u;
@@ -430,6 +436,13 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       continue;
     }
     if (done({ story, result: taken.result, record: storyRecord(story), trail })) return { reached: true, findings, trail, steps: step, next: taken.next ?? null, last: taken.result ?? null, views };
+    // A skill that does the current step's own work in its turn (/sf-next, D2) takes the step's work route there: the
+    // work command's steps run in the same turn, with no second command typed [OSA:REQ-025, journey J].
+    const host = guard.skill && entries.get(guard.skill)?.worksInTurn ? guard.skill : null;
+    if (host && taken.next?.copilot && !taken.next.inTurn && !taken.next.subagent && WORK_ROUTE.test(taken.next.copilot)
+        && (taken.next.copilot.trim().split(/\s+/u)[1] ?? current()) === current()) {
+      taken.next = { ...taken.next, within: host };
+    }
     // At a hand-off the person reads their own views: each one's "now" names the agent's skill [OSA:AC-011].
     if (taken.next && !taken.next.inTurn && taken.next.copilot) {
       const agentSkill = skillOf(taken.next.copilot);
@@ -536,7 +549,8 @@ function guardedStory(story, guard, skill, contract) {
       const permit = permissionAllows(contract, relative);
       if (!permit.allowed) throw stop('author-without-permission', `act author, but the edit permission the entry returned does not allow ${relative}: ${permit.why}`);
     }
-    const turnSkill = skill ?? guard.skill ?? '/sf-code';
+    // A work command's steps run inside the skill that does them (/sf-next) are checked in that skill's turn.
+    const turnSkill = guard.hosts?.[skill] ?? skill ?? guard.skill ?? '/sf-code';
     if (!guard.turn || guard.skill !== turnSkill) {
       guard.turn = copilotTurn(story, guard.sessionId);
       guard.turn.prompt(turnSkill);
@@ -603,11 +617,19 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     command = entryCommand(entries, route.copilot, { workId: story.workId, phases, currentPhase });
     if (!command) return { finding: { kind: 'skill-without-entry', detail: `${skill}'s SKILL.md names no command to run` }, turn: skill };
     if (/<[A-Za-z][A-Za-z0-9_|-]*>/u.test(command)) return { finding: { kind: 'entry-needs-value', detail: `${skill} enters by ${command}` }, turn: skill };
-    // The person types the skill: a new turn of the chat, as Copilot's hooks see it.
-    if (guard) {
+    // The work command's own re-entry (a refresh, the answers recorded) stays inside the turn that hosts its steps.
+    const within = route.within ?? (['refresh entry', 'after answers'].includes(route.source) ? guard?.hosts?.[skill] ?? null : null);
+    if (within && guard?.skill === within) {
+      // The work command's steps, run inside the turn of the skill that does them (/sf-next): no new prompt.
+      guard.hosts = { ...(guard.hosts ?? {}), [skill]: within };
+      entry.did = `${within} does the step's own work in its turn, by ${skill}'s steps`;
+    } else if (guard) {
+      // The person types the skill: a new turn of the chat, as Copilot's hooks see it.
       guard.turn = copilotTurn(story, guard.sessionId);
       guard.turn.prompt(skill);
       guard.skill = skill;
+      guard.hosts = {};
+      if (!route.subagent && !['refresh entry', 'after answers'].includes(route.source)) entry.typed = true;
     }
   }
   if (!command) return { finding: { kind: 'no-route', detail: 'a route with neither a command nor a skill' } };

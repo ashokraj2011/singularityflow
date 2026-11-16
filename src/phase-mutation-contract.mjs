@@ -28,7 +28,7 @@ export const MUTATION_CONTRACT_VERSION = 1;
  * except approval, rejection and the person-only decisions the guard names, and no file edits.
  */
 const KERNEL_ONLY_SKILLS = new Set([
-  'inputs', 'next', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'continue',
+  'inputs', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'continue',
   'admin', 'init', 'configuration', 'documents', 'upload', 'workflows', 'workflow-rules', 'skills', 'instructions',
   'capability-map', 'workspace', 'worldmodel', 'start', 'test-setup',
   // Story lifecycle actions on a bound Story.
@@ -93,6 +93,10 @@ export function mutationTurnMode(skill) {
   // own policy like /sf-code; a closed or published generation grants it no source edits. /sf-run runs
   // the guided `run` (`next` and `submit`) and then the returned canonical author in the same turn.
   if (['specify', 'plan', 'verify', 'implement', 'call', 'scenario-repair', 'converge', 'code-docs', 'run'].includes(name)) return 'authoring';
+  // /sf-next does the current step's own agent work in its turn (D2, SPEC-OSA v1.1 Stage 4) [OSA:REQ-025]: the kernel's
+  // decision still grants its writes, so where the step's next action is a person's, or not this step's, it writes nothing,
+  // and its other actions (sync, a relayed decision, a chat reset) are the registered commands every authoring turn runs.
+  if (name === 'next') return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
   if (KERNEL_ONLY_SKILLS.has(name)) return 'kernel-only';
   // Every other skill only reads. Each registry skill's own SFlow commands are held to its turn by

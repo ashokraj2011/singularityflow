@@ -152,6 +152,11 @@ export async function noteTypedTurn(record, { gitDir, workflow, at = Date.now() 
   if (!record?.typed?.text || !gitDir || !workflow?.workItem?.id || workflow.status !== 'in_progress' || typedFocusOff(workflow)) return null;
   const phase = workflow.phases?.[workflow.currentPhase];
   if (!phase) return null;
+  // `/sf-code <step> [what to change]`: the step is the explicit target, never what the person asked for; only the rest is
+  // kept, and a step word alone keeps nothing (alias-matrix.md finding 7) [OSA:REQ-027].
+  const { workCommandArguments } = await import('./writing-aliases.mjs');
+  const { focus } = workCommandArguments(record.typed.text, workflow.phaseOrder ?? Object.keys(workflow.phases ?? {}));
+  if (!focus) return null;
   return noteAskedFor(gitDir, { workId: workflow.workItem.id, phase: phase.id, generation: askedForGeneration(phase),
-    text: record.typed.text, truncated: record.typed.truncated === true, skill: record.skill, turnId: record.turnId, at: new Date(at).toISOString() });
+    text: focus, truncated: record.typed.truncated === true, skill: record.skill, turnId: record.turnId, at: new Date(at).toISOString() });
 }

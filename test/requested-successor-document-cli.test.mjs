@@ -59,7 +59,9 @@ test('a change the person asks for after a document step is published opens draf
   const preview = json(cli('phase', 'rollover', 'planning', '--json'));
   assert.equal(preview.kind, 'requested-change');
   assert.deepEqual([preview.fromGeneration, preview.toGeneration], [1, 2]);
-  assert.deepEqual(preview.requestedChange.requests, [TYPED]);
+  // `/sf-phase planning <what to change>`: the step is the command's target, never part of what was asked (OSA Stage 4,
+  // alias-matrix.md finding 7) [OSA:REQ-027].
+  assert.deepEqual(preview.requestedChange.requests, [ASKED]);
   assert.equal(preview.copilotCommand, `/sf-confirm ${confirmCode(preview.command)}`);
   assert.ok(preview.command.endsWith(`--confirm ${preview.confirmation}`));
 

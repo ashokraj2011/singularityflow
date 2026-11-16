@@ -302,11 +302,14 @@ test('plugin provides opt-in governed prompt audit controls', async () => {
   assert.match(content, /workspace/i);
 });
 
-test('/sf-next hands an authoring route to its skill instead of preparing and stopping', async () => {
-  // A /sf-next turn is kernel-only and cannot edit files. Running an authoring route's prepare and
-  // stopping left the next /sf-next with the same prepare to run: a loop with nothing authored.
+test('/sf-next does the current step\'s own work in its turn instead of preparing and stopping', async () => {
+  // D2 (SPEC-OSA v1.1 Stage 4): /sf-next is an authoring turn for the current step's agent work. Running an authoring
+  // route's prepare and stopping once left the next /sf-next with the same prepare to run; reporting
+  // `Next in Copilot: /sf-code` and stopping made the person type a second command for the same work.
   const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
-  assert.match(next, /any `singularity-flow prepare <phase>` authoring route, do not imitate or inline it, nor run it: report `Next in Copilot: \/sf-code` or its skill and stop/);
+  assert.match(next, /The current step's own agent work is this turn's: a first `NOW` naming `\/sf-code`, `\/sf-phase` or the step's author, or its `singularity-flow prepare <phase>` or `singularity-flow phase begin <phase>` route, for the bound step\. Load that work command once and do its steps now, from its entry `singularity-flow phase enter --compose --for-agent --json` to its own boundary/);
+  assert.match(next, /never report it as next/);
+  assert.doesNotMatch(next, /report `Next in Copilot: \/sf-code`/);
 });
 
 test('initial phase skills require interactive clarification instead of silently collecting open questions', async () => {
@@ -338,14 +341,15 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(workflowAgent, /skills\/sflow-phase\/SKILL.md/);
   assert.match(workflowAgent, /skills\/sflow-code\/SKILL.md/);
   assert.match(workflowAgent, /follow its complete procedure/);
-  assert.match(next, /selected action is `\/sf-code`.*do not imitate or inline.*Next in Copilot: \/sf-code.*stop/is);
+  assert.match(next, /current step's own agent work is this turn's.*Load that work command once and do its steps now/is);
   assert.match(next, /never rewrite it to `\/sf-phase`/i);
   assert.match(next, /returned SFlow skill route[\s\S]*complete its preflight[\s\S]*at most its one authorized action/is);
   assert.match(next, /Never run `singularity-flow next`/);
   assert.match(next, /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i);
   assert.match(next, /never pair `\/sf-phase` with `singularity-flow next`/i);
   assert.match(workflowAgent, /skills\/sflow-next\/SKILL.md/);
-  assert.match(workflowAgent, /do not inline or chain the returned skill/i);
+  // D2 (OSA Stage 4): /sf-next does the current step's own work in its turn, and chains nothing after it.
+  assert.match(workflowAgent, /the current step's own work is done in its turn by that step's work command; never chain another lifecycle action after it/i);
   assert.match(requirements, /Follow entry `clarification\.checkpoint`/);
   assert.match(requirements, /`ask_user`, then record before preparation/);
   assert.match(epicRequirements, /epic sources answer/);
@@ -409,7 +413,7 @@ test('code and verification skills place qualified trace tags in the intended fi
   assert.match(verify, /@ac:WORK-ID:AC-001.*executable test/s);
   assert.match(verify, /@clause:WORK-ID:REQ-001.*trace witness/s);
   assert.doesNotMatch(verify, /@ac:AC-n/);
-  assert.match(phase, /Preserve REQ\/AC IDs; `\/sf-code` owns tags/);
+  assert.match(phase, /Preserve REQ\/AC IDs; code steps own tags/);
 });
 
 test('fast-path authoring skills execute the returned preparation checkpoint before editing', async () => {
@@ -439,11 +443,12 @@ test('code skill reads readiness and task policy from their real structured sour
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   assert.match(content, /phase enter --compose --for-agent --json/);
   assert.match(content, /(?:require|reuse entry) `ready`\/`workId`, valid `phaseAgent`; cwd=`repositoryPath`/i);
-  assert.match(content, /Require entry `phase`, `phaseAgent.valid: true`, `generatesCode: true`, `authoring.policyVerified`/);
+  // D1 (OSA Stage 4): one work command for every kind of step; `generatesCode` chooses the Code or Document clauses.
+  assert.match(content, /Require entry `phase`, `phaseAgent.valid: true`; `generatesCode: true` is a code step \(Code below\), otherwise a document step \(Document below\)/);
   assert.match(content, /never draft sign-off/);
   assert.match(content, /no duplicate lookups/i);
   // Published code goes to the outcome review (638b83ce4); the review packet is the approver's to read.
-  assert.match(content, /Published: read `outcomeReview\.agentCommand` once/);
+  assert.match(content, /[Pp]ublished: read `outcomeReview\.agentCommand` once/);
   assert.doesNotMatch(content, /`publishIfReady\.review/);
 });
 
@@ -656,7 +661,8 @@ test('Copilot phase authoring repairs structured draft findings before publicati
   assert.match(next, /Follow the selected skill/);
   assert.match(next, /complete its preflight, execute at most its one authorized action/);
   assert.match(next, /Never publish a delegated action/);
-  assert.match(next, /selected action is `\/sf-code`[\s\S]*do not imitate or inline[\s\S]*stop/is);
+  // D2 (OSA Stage 4): the current step's own work is done in this turn, never handed on as the next command.
+  assert.match(next, /current step's own agent work is this turn's[\s\S]*Load that work command once and do its steps now[\s\S]*never report it as next/is);
   assert.match(next, /ARTIFACT_AUTHORING_INCOMPLETE[\s\S]*one recheck[\s\S]*not a retry loop/is);
 });
 

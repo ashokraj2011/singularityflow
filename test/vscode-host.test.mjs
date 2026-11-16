@@ -7159,7 +7159,7 @@ test('a verified Copilot Story binding from this window\'s launch folder rebinds
   assert.equal(showsStory(), false, 'the window starts on the clone, which has no Story');
   const followDirectory = copilotStoryFollowDirectory();
   const followWatcher = registered.watchers.find((watcher) =>
-    watcher.pattern.pattern === `${path.basename(followDirectory)}/*.json`);
+    watcher.pattern.pattern.includes(`${path.basename(followDirectory)}/*.json`));
   assert.ok(followWatcher, 'Copilot Story follow records are watched');
 
   // Only the window a person is working in follows. A record seen while unfocused waits for focus.
@@ -8275,7 +8275,7 @@ test('the Story\'s next command waits in Copilot Chat\'s input once per state, a
   await new Promise((resolve) => setTimeout(resolve, 1_500));
   assert.equal(fills(first.registered).length, 0, 'no fill while Copilot is still answering');
   await rm(turnMarker);
-  const turns = first.registered.watchers.find((watcher) => watcher.pattern?.pattern === 'copilot-turns/*');
+  const turns = first.registered.watchers.find((watcher) => watcher.pattern?.pattern?.includes('copilot-turns/*'));
   assert.ok(turns, 'the open-turn markers are watched');
   turns.remove.fire({});
   const filled = await until(() => fills(first.registered)[0] ?? null, { what: 'the next command to be put in the chat input' });
@@ -10267,10 +10267,12 @@ test('terminal lifecycle and Git-common Auto writes refresh VS Code through boun
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
   assert.equal(registered.watchers.length, 5,
-    'governed state, narrow Git state, repository-private Auto state, active Story selection, and Copilot Story follow records are each watched once');
+    'governed state, narrow Git state, repository-private Auto state, active Story selection, and Copilot\'s machine-folder records are each watched once');
+  // Copilot's Story follow records and its open-turn markers (chat prefill) sit side by side: one watcher, not two.
   const followDirectory = copilotStoryFollowDirectory();
   assert.ok(registered.watchers.some((watcher) => path.resolve(watcher.pattern.base.fsPath) === path.dirname(followDirectory)
-    && watcher.pattern.pattern === `${path.basename(followDirectory)}/*.json`), 'Copilot Story follow records are watched');
+    && watcher.pattern.pattern === `{${path.basename(followDirectory)}/*.json,copilot-turns/*}`),
+  'Copilot Story follow records and open-turn markers are watched together');
   assert.ok(registered.watchers.some(watcher => watcher.pattern.pattern
     === '{HEAD,index,config,packed-refs,refs/**/*,worktrees/*/{HEAD,index}}'), 'Git/config changes invalidate read reuse');
   const repositoryWatcher = registered.watchers.find((watcher) =>

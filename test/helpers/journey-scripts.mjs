@@ -16,7 +16,16 @@ import { implementationPlan, specification } from './submitted-planning-story.mj
 import { formatTrail } from './route-follower.mjs';
 
 /** Fix branch (or a defect a journey found that has none yet) → what is wrong on main until it lands. */
-export const KNOWN_BAD = Object.freeze({});
+export const KNOWN_BAD = Object.freeze({
+  'osa-stage-2': 'SPEC-OSA stage 2 (REQ-030, C8): a code step returned for rework and republished, whose review then asks corrections, '
+    + 'opens its next version (`phase begin`, /sf-code) with no "Start version N?" asked of the person',
+  'osa-stage-3': 'SPEC-OSA stage 3 (REQ-020): after a code step is published with no review owed, the agent is routed to the outcome '
+    + 'validation offer (/sf-outcome) while next steps, phase show and submission readiness name /sf-submit',
+  'osa-stage-3-c9': 'SPEC-OSA stage 3 (REQ-026, C9): a kernel-built step\'s prepare hands its publication to /sf-publish '
+    + '(prepared-phase-next-actions.mjs) while next steps, session, phase show and readiness name its work command (/sf-converge, /sf-phase)',
+  'osa-stage-3-refusal': 'SPEC-OSA stage 3 (REQ-020, REQ-022): after a required test fails at publication, its refusal routes the person '
+    + 'to the decisions card (/sf-decide) while next steps, phase show and readiness name writing the step (/sf-code)'
+});
 
 const stale = new WeakMap();
 
@@ -42,7 +51,13 @@ export function settle(t) {
 }
 
 /** A walk's findings and trail, for an assertion message. */
-export const report = (walk) => `findings: ${JSON.stringify(walk.findings, null, 1)}\ntrail:\n${formatTrail(walk.trail)}`;
+export const report = (walk) => `findings: ${JSON.stringify(walk.findings, null, 1)}\n${walk.views?.length ? `views: ${JSON.stringify(walk.views, null, 1)}\n` : ''}trail:\n${formatTrail(walk.trail)}`;
+
+/**
+ * The person's views at every hand-off name the agent's skill [OSA:AC-011]. `except(view)` names a disagreement this
+ * stage does not close yet; such a view is reported, never ignored silently.
+ */
+export const viewsAgree = (walk, except = () => false) => assert.deepEqual(walk.views.filter((view) => !except(view)), [], report(walk));
 
 /** The findings of a walk other than those a journey expects on main until `branch` lands. */
 export const findingsOf = (walk, kinds = null) => walk.findings.filter((entry) => !kinds || kinds.includes(entry.kind));

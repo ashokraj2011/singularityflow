@@ -605,7 +605,8 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
   const { portfolio, initiative } = await loadInitiative(root, id);
   const phase = initiative.phases[phaseId];
   if (!phase) throw new SingularityFlowError(`Initiative '${id}' has no phase '${phaseId}'.`);
-  if (phase.status === 'approved') throw new SingularityFlowError(`Phase '${phaseId}' is approved; its outputs can no longer be changed.`);
+  if (phase.status === 'approved') throw new SingularityFlowError(`Phase '${phaseId}' is approved; its outputs can no longer be changed.`,
+    { code: 'INITIATIVE_PHASE_APPROVED', details: (await import('./initiative-next.mjs')).initiativeNextDetails(initiative) });
 
   const available = availableInitiativeOutputs(portfolio, initiative, phaseId);
   const availableById = new Map(available.map((output) => [output.id, output]));
@@ -800,9 +801,11 @@ export async function restartInitiative(root, id = branch(root), { reason = null
 export async function prepareInitiativePhase(root, id = branch(root), requestedPhase = null, { agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, id);
   const phaseId = requestedPhase ?? initiative.currentPhase;
-  if (!phaseId || phaseId !== initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot prepare '${phaseId ?? 'none'}'.`);
+  if (!phaseId || phaseId !== initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot prepare '${phaseId ?? 'none'}'.`,
+    { code: 'INITIATIVE_PHASE_NOT_CURRENT', details: (await import('./initiative-next.mjs')).initiativeNextDetails(initiative) });
   const phase = initiative.phases[phaseId];
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}; preparation requires in_progress.`);
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}; preparation requires in_progress.`,
+    { code: 'INITIATIVE_PHASE_NOT_IN_PROGRESS', details: (await import('./initiative-next.mjs')).initiativeNextDetails(initiative) });
   await verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId);
   // A template recorded at creation can be absent now (never installed, or deleted since). Restore
   // the packaged copy; the hash check below still rejects it if it differs from what was recorded.

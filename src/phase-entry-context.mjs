@@ -13,6 +13,7 @@ import { contextBoundaryPresentation, pendingContextBoundary } from './context-p
 import { storyRequestSummary } from './story-request-summary.mjs';
 import { approvedInputPhases } from './phase-input-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyNextDetails } from './sequence.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { PHASE_JOURNEY_CONTRACT } from './phase-journey.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
@@ -44,8 +45,8 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   const phase = workflow.phases?.[phaseId ?? workflow.currentPhase];
   if ((!phase && !(allowTerminal && !workflow.currentPhase && !phaseId))
       || (phase && phase.id !== workflow.currentPhase)) throw new SingularityFlowError(
-    'Phase entry must name the current Story phase; historical inspection uses phase show.',
-    { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } });
+    `${phaseId ? `'${phaseId}' is not the Story's current step` : 'The Story has no current step'}${workflow.currentPhase ? ` ('${workflow.currentPhase}' is)` : ''}; phase entry names the current one, and phase show inspects any.`,
+    { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase, ...storyNextDetails(workflow) } });
   const session = await agentSessionStatus(root, definition, workflow);
   const ready = (selected?.selectionStatus ?? 'ready') === 'ready' && (phase ? session.ready : true);
   // The request near the top, so an agent that reads only the start of the packet still has it,

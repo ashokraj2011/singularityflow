@@ -22,6 +22,7 @@ import { operationContext } from '../operation-context.mjs';
 import { phaseRequiresCodeDelivery, generationSkillForPhase, applicationReviewOffer, codeOutcomeReviewOffer, successorSkillForPhase } from '../code-delivery-policy.mjs';
 import { agentPublicationProducer, effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact, importManualArtifact, buildGenerationAuthorship } from '../manual-authorship.mjs';
 import { isConvergencePhase } from '../phase-roles.mjs';
+import { storyNextDetails } from '../sequence.mjs';
 import { assertIntentAmendmentNotPausing } from '../phase-governance-routing.mjs';
 import { actionActor } from './kernel.mjs';
 import path from 'node:path';
@@ -237,7 +238,7 @@ async function phaseSubcommand(positionals, options) {
     if (phaseId !== workflow.currentPhase && !['in_progress', 'awaiting_approval'].includes(phase.status)) {
       throw new SingularityFlowError(
         `Phase '${phaseId}' is not the active review draft. Check '${workflow.currentPhase ?? 'none'}' instead.`,
-        { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } }
+        { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase, ...storyNextDetails(workflow) } }
       );
     }
     const session = await loadSession(root, { required: false });

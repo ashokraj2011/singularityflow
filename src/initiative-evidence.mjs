@@ -20,6 +20,7 @@ import { changedFiles, identity } from './git.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, repoRelative, snapshot, writeText
 } from './util.mjs';
+import { initiativeNextDetails } from './initiative-next.mjs';
 import { contextBoundaryHandoff } from './context-policy.mjs';
 import { harvestInitiativeKnowledge } from './knowledge.mjs';
 // Imported for use here and re-exported so every existing caller keeps importing them from this
@@ -1011,9 +1012,11 @@ function declaresCheck(initiative, phaseId, checkId) {
 
 export async function publishInitiativePhase(root, initiativeId, phaseId, { agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
-  if (initiative.currentPhase !== phaseId) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot publish '${phaseId}'.`);
+  if (initiative.currentPhase !== phaseId) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot publish '${phaseId}'.`,
+    { code: 'INITIATIVE_PHASE_NOT_CURRENT', details: initiativeNextDetails(initiative) });
   const phase = initiative.phases[phaseId];
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}.`);
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}; publication requires in_progress.`,
+    { code: 'INITIATIVE_PHASE_NOT_IN_PROGRESS', details: initiativeNextDetails(initiative) });
   await verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId);
   const protectedPaths = initiative.resolution?.capability?.policy?.protectedPaths ?? [];
   const ignoreCase = repositoryCaseInsensitivePaths(root);
@@ -1202,9 +1205,11 @@ export async function approveInitiative(root, {
 } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const selectedPhase = phaseId ?? initiative.currentPhase;
-  if (selectedPhase !== initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'.`);
+  if (selectedPhase !== initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot approve '${selectedPhase ?? 'none'}'.`,
+    { code: 'INITIATIVE_PHASE_NOT_CURRENT', details: initiativeNextDetails(initiative) });
   const phase = initiative.phases[selectedPhase];
-  if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Initiative phase '${selectedPhase}' is ${phase.status}; approval requires awaiting_approval.`);
+  if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Initiative phase '${selectedPhase}' is ${phase.status}; approval requires awaiting_approval.`,
+    { code: 'INITIATIVE_PHASE_NOT_AWAITING_APPROVAL', details: initiativeNextDetails(initiative) });
   const authoringFindings = await initiativeOutputPlaceholderFindings(
     root, portfolio, initiative, selectedPhase
   );
@@ -1233,7 +1238,8 @@ export async function approveInitiative(root, {
     subjectHash: target.sha256
   }, bundle.invalidatedApprovals);
   const chainBefore = approvalChainProgress(target.definition, priorDecisions);
-  if (chainBefore?.satisfied) throw new SingularityFlowError(`${target.type} '${target.id}' has already completed its review chain.`);
+  if (chainBefore?.satisfied) throw new SingularityFlowError(`${target.type} '${target.id}' has already completed its review chain.`,
+    { code: 'INITIATIVE_REVIEW_CHAIN_COMPLETE', details: initiativeNextDetails(initiative) });
   if (!isAuthorized(initiative.resolution, target.definition, actor, priorDecisions)) {
     const required = chainBefore
       ? `${chainBefore.open.label} (chain step ${chainBefore.open.index + 1} of ${chainBefore.steps.length})`

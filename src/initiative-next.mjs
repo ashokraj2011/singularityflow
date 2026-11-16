@@ -296,6 +296,19 @@ export function nextInitiativeAction(initiative, phaseId = null, options = {}) {
 }
 
 /**
+ * A refusal about where an Epic stands (its phase not current, not in progress or not awaiting approval) names the
+ * Epic's own next action from the resolver above, as sequence.mjs storyNextDetails does for a Story: refusal plans
+ * lead with it, never command help [owner, 2026-11-16]. A state with no command (approved, complete) names none.
+ */
+export function initiativeNextDetails(initiative) {
+  let next = null;
+  try { next = nextInitiativeAction(initiative); } catch { /* building the refusal never fails on what it describes */ }
+  const id = initiative?.initiative?.id;
+  return { subjectKind: 'initiative', ...(id ? { workId: id } : {}), ...(next?.command ? { storyNext: true,
+    nextAction: { command: next.command, skill: next.skill, label: `Next for this Epic: ${next.title}` } } : {}) };
+}
+
+/**
  * Everything still standing between this phase and its approval, in the order it must happen.
  *
  * `initiativeNextActions` answers "what is the single next command", which is the right answer for

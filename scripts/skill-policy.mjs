@@ -300,7 +300,9 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /review-source check <phase> --report-file/,
       /at most two changed-packet repair attempts/,
       /Never mark a real gap supported merely to pass validation/,
-      /`retentionReady` is false.*stop without commit\/push/s
+      /`retentionReady` is false.*stop without commit\/push/s,
+      // Its refusal's own route, not one the agent makes up: an owner's Story got /sf-session invented [2026-11-16].
+      /A refused entry is not unavailable: its `act\.do` is the next step.*add no route of your own/
     ]
   },
   'sflow-publish': {

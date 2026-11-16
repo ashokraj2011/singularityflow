@@ -27,6 +27,7 @@ import {
   writeJson,
   writeText
 } from './util.mjs';
+import { initiativeNextDetails } from './initiative-next.mjs';
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
@@ -233,7 +234,8 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const definition = await loadDefinition(root);
   const phaseId = requestedPhase ?? initiative.currentPhase;
   if (!phaseId || phaseId !== initiative.currentPhase) {
-    throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot compose '${phaseId ?? 'none'}'.`);
+    throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot compose '${phaseId ?? 'none'}'.`,
+      { code: 'INITIATIVE_PHASE_NOT_CURRENT', details: initiativeNextDetails(initiative) });
   }
   const pinnedPhase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
   if (!pinnedPhase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);

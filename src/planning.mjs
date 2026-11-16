@@ -45,9 +45,10 @@ import {
   writeJson,
   writeText
 } from './util.mjs';
+import { initiativeNextDetails } from './initiative-next.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
-import { phasePublicationCommandForMode } from './sequence.mjs';
+import { phasePublicationCommandForMode, storyNextDetails } from './sequence.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines, authoredArtifactText } from './publication-preflight.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
@@ -299,11 +300,13 @@ async function initiativePlanningParts(root, definition, { id, phaseId, agent, t
   const { portfolio, initiative } = await loadInitiative(root, id);
   const selectedPhase = phaseId ?? initiative.currentPhase;
   if (!selectedPhase || selectedPhase !== initiative.currentPhase) {
-    throw new SingularityFlowError(`Planning is sequence-aware: initiative '${id}' is currently at '${initiative.currentPhase ?? 'complete'}', not '${selectedPhase ?? 'none'}'.`);
+    throw new SingularityFlowError(`Planning is sequence-aware: initiative '${id}' is currently at '${initiative.currentPhase ?? 'complete'}', not '${selectedPhase ?? 'none'}'.`,
+      { code: 'INITIATIVE_PHASE_NOT_CURRENT', details: initiativeNextDetails(initiative) });
   }
   const phase = initiative.resolution.phases.find((candidate) => candidate.id === selectedPhase);
   const phaseState = initiative.phases[selectedPhase];
-  if (!phase || phaseState.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${selectedPhase}' must be in_progress to start a planning session.`);
+  if (!phase || phaseState.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${selectedPhase}' must be in_progress to start a planning session.`,
+    { code: 'INITIATIVE_PHASE_NOT_IN_PROGRESS', details: initiativeNextDetails(initiative) });
   // `targetId: '*'` scopes the session to the whole phase. The contract then describes every
   // promotable output, so a single conversation can produce the complete set — a requirements
   // phase yields a specification, a traceability matrix and an open-questions log together, and
@@ -403,10 +406,12 @@ async function workItemPlanningParts(root, definition, {
   workflow ??= await loadWorkflow(root, definition, id);
   const selectedPhase = phaseId ?? workflow.currentPhase;
   if (!selectedPhase || selectedPhase !== workflow.currentPhase) {
-    throw new SingularityFlowError(`Planning is sequence-aware: work item '${id}' is currently at '${workflow.currentPhase ?? 'closed'}', not '${selectedPhase ?? 'none'}'.`);
+    throw new SingularityFlowError(`Planning is sequence-aware: work item '${id}' is currently at '${workflow.currentPhase ?? 'closed'}', not '${selectedPhase ?? 'none'}'.`,
+      { code: 'PLANNING_STEP_NOT_CURRENT', details: storyNextDetails(workflow) });
   }
   const phase = workflow.phases[selectedPhase];
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Work-item phase '${selectedPhase}' must be in_progress to start a planning session.`);
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Work-item phase '${selectedPhase}' must be in_progress to start a planning session.`,
+    { code: 'PLANNING_STEP_NOT_IN_PROGRESS', details: storyNextDetails(workflow) });
   if (targetId && targetId !== 'artifact') throw new SingularityFlowError(`Story planning supports only the 'artifact' promotion target.`);
   const itemDirectory = workDir(root, definition, id);
   const itemRelative = workDirRelative(definition, id);

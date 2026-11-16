@@ -13,6 +13,7 @@ import {
 import {
   nowIso, SingularityFlowError, snapshot, writeText
 } from './util.mjs';
+import { initiativeNextDetails } from './initiative-next.mjs';
 
 export { EPIC_PHASES };
 
@@ -175,7 +176,8 @@ function assertStoryPlanningEditable(initiative) {
   const phase = initiative.phases[EPIC_PHASES.planning];
   if (!phase) throw new SingularityFlowError('Epic does not configure the Planning package.');
   if (!['in_progress', 'approved'].includes(phase.status)) {
-    throw new SingularityFlowError(`Story edits are available when Planning is in progress or approved; it is '${phase.status}'.`);
+    throw new SingularityFlowError(`Story edits are available when Planning is in progress or approved; it is '${phase.status}'.`,
+      { code: 'EPIC_PLANNING_NOT_EDITABLE', details: initiativeNextDetails(initiative) });
   }
   return phase;
 }
@@ -525,7 +527,8 @@ export async function completeEpicPublication(root, initiativeId) {
   }
   const planning = initiative.phases[EPIC_PHASES.planning];
   const phase = initiative.phases[EPIC_PHASES.publish];
-  if (planning?.status !== 'approved') throw new SingularityFlowError('Story publication requires the approved Planning package.');
+  if (planning?.status !== 'approved') throw new SingularityFlowError('Story publication requires the approved Planning package.',
+    { code: 'EPIC_PLANNING_NOT_APPROVED', details: initiativeNextDetails(initiative) });
   if (initiative.materialization?.status !== 'complete') {
     throw new SingularityFlowError('Story publication cannot complete until every Jira/Git Story receipt is present.');
   }

@@ -2087,7 +2087,10 @@ function remediationPlanFor(error, argv = []) {
   // decision list and the statement's own routes, never "repair the phase" or a rejection.
   const scopeSteps = code === 'SCOPE_ITEMS_UNRESOLVED' ? scopeDispositionSteps(error) : [];
   const scopeDispositionBlocked = scopeSteps.length > 0;
-  const rawPhaseContext = phaseRemediationContext(argv, error);
+  // Refused for where the Story stands, with the Story's own next action (sequence.mjs storyNextDetails): that
+  // leads, then the planner's whole list. Command help and a phase repair answer other refusals [owner, 2026-11-16].
+  const storyNext = error?.details?.storyNext === true ? safeCommandGuidance(error.details.nextAction ?? {}) : null;
+  const rawPhaseContext = storyNext ? null : phaseRemediationContext(argv, error);
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
       retryCommand: null, retrySkill: null })
@@ -2107,7 +2110,7 @@ function remediationPlanFor(error, argv = []) {
       : rawPhaseContext;
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
-    testRunRiskRoute(command) ? 'renew-test-run-risk' : `producer-${index + 1}`,
+    testRunRiskRoute(command) ? 'renew-test-run-risk' : command.command === storyNext?.command ? 'story-next-action' : `producer-${index + 1}`,
     command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command,
     index === 0 || testRunRiskRoute(command) ? 'remediation' : 'diagnostic', command.skill
   ));
@@ -2142,7 +2145,12 @@ function remediationPlanFor(error, argv = []) {
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
-  const ordered = conformanceGapBlocked ? gapSteps
+  const storyWorkId = safeWorkId(error?.details?.workId);
+  // An Epic's own list is `initiative next` (initiative-next.mjs initiativeNextDetails); a Story's is nextsteps.
+  const epic = error?.details?.subjectKind === 'initiative';
+  const ordered = storyNext ? [...nonDuplicateExplicit, ...known, step('recommended-next', `Every action this ${epic ? 'Epic' : 'Story'} can take now, in order.`,
+    `singularity-flow ${epic ? 'initiative next' : 'nextsteps'}${storyWorkId ? ` ${storyWorkId}` : ''} --json`)]
+    : conformanceGapBlocked ? gapSteps
     : scopeDispositionBlocked ? scopeSteps
     : configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
     : selfGuidedBlocked ? [...nonDuplicateExplicit, ...known]
@@ -2182,7 +2190,9 @@ function remediationPlanFor(error, argv = []) {
       ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
       : [...nonDuplicateExplicit, ...known, ...genericSteps(argv)];
   const steps = deduplicate(ordered);
-  const retryLabel = skillHostBlocked
+  const retryLabel = storyNext
+    ? `Nothing was changed. Take the ${epic ? 'Epic' : 'Story'}'s next step first; this command is refused the same way until the ${epic ? 'Epic' : 'Story'} reaches it.`
+    : skillHostBlocked
     ? 'Do not retry generation, publication, submission or approval until the approved live host controls and exact delivery owner are implemented and qualified. Diagnostics cannot enable execution.'
     : repositoryRunnerBlocked
     ? 'Do not retry unchanged publication. An accepted Story-only command, an in-scope repository runner repair, an updated runtime or a reviewed command amendment must establish the structured contract; then follow the returned preparation or fresh-validation route.'

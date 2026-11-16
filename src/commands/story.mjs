@@ -2592,7 +2592,8 @@ export async function recordIntentAmendmentDecision(root, config, workflow, prop
 export async function refreshIntentAmendment(root, config, workflow, proposalId, { channel = 'terminal' } = {}) {
   const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
   if (summary?.status !== 'proposed') {
-    throw new SingularityFlowError(`Intent amendment '${proposalId}' is not awaiting a decision, so there is nothing to refresh.`, { code: 'INTENT_AMENDMENT_NOT_PENDING' });
+    throw new SingularityFlowError(`Intent amendment '${proposalId}' is not awaiting a decision, so there is nothing to refresh.`, {
+      code: 'INTENT_AMENDMENT_NOT_PENDING', details: (await import('../sequence.mjs')).storyNextDetails(workflow) });
   }
   const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
   const { intentAmendmentStaleness } = await import('../state-stores.mjs');

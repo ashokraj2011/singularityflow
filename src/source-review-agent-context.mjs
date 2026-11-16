@@ -1,5 +1,5 @@
 import { phaseEntryContext } from './phase-entry-context.mjs';
-import { sourceReviewContext } from './source-review-lifecycle.mjs';
+import { sourceReviewContext, sourceReviewStepNotCurrent } from './source-review-lifecycle.mjs';
 import { sourceReviewKind } from './phase-roles.mjs';
 import { branch, gitDir } from './git-execution.mjs';
 import { workflowBranchAllowed } from './story-paths.mjs';
@@ -82,8 +82,7 @@ export async function sourceReviewAgentContext({ cwd = process.cwd(), phaseId = 
     continuation: { actions: [] } };
   if (!workflowBranchAllowed(workflow, branch(root))) throw new SingularityFlowError(
     `Current branch is not registered for Story '${workflow.workItem.id}'.`);
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(
-    `Source review context requires current in-progress phase '${phase.id}'.`);
+  if (phase.status !== 'in_progress') throw sourceReviewStepNotCurrent(workflow, phase, 'context');
   const stagingPath = sourceReviewStagingPath(gitDir(root), workflow, phase);
   return compactSourceReviewContext(await sourceReviewContext(root, definition, workflow, phase.id, stagingPath), entry.packet);
 }

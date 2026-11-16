@@ -10,6 +10,7 @@ import { activateWorkItemSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, decideStory, transactStory } from '../state-stores.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
+import { storyNextDetails } from '../sequence.mjs';
 import { resolveDecisionChoice } from '../workflow-decisions.mjs';
 import { postPublicationStep } from './shared/post-publication-step.mjs';
 import { withRefusalMemory } from './shared/with-refusal-memory.mjs';
@@ -170,6 +171,8 @@ export async function commitCompletenessReview(root, config, workflow, { confirm
 /** The workflow's routing choice: the Story moves on, or back, as the person chose. */
 export async function commitRoutingChoice(root, config, workflow, { option, to, reason, expected }, { actor, agent = null }) {
   const pending = workflow.pendingDecision ?? null;
+  if (!pending) throw new SingularityFlowError(`Story ${workflow.workItem.id} is not waiting for a decision, so there is nothing to choose.`,
+    { code: 'DECISION_NOT_PENDING', details: storyNextDetails(workflow) });
   resolveDecisionChoice(workflow, pending, { option, to });
   if (!reason.trim()) throw new SingularityFlowError('Say why with --reason; the decision log keeps it.', { code: 'DECISION_REASON_REQUIRED' });
   const authority = requireApprovalAuthority(

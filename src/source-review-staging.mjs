@@ -156,7 +156,8 @@ async function stageReport(root, config, workflow, phaseId, reportJson) {
   try { report = JSON.parse(reportJson); } catch (error) { throw inlineReportRefusal(`The review JSON is invalid (${error.message})`, phaseId, issuedPath); }
   const { sourceReviewContext, sourceReviewInput, checkSourceReviewReport } = await import('./source-review-lifecycle.mjs');
   if (workflow.currentPhase !== phaseId || phase?.status !== 'in_progress') throw new SingularityFlowError(
-    'Review staging requires the exact current in-progress phase.', { code: 'SOURCE_REVIEW_STAGING_NOT_ACTIVE' });
+    'Review staging requires the exact current in-progress phase.', { code: 'SOURCE_REVIEW_STAGING_NOT_ACTIVE',
+      details: (await import('./sequence.mjs')).storyNextDetails(workflow) });
   const stagingPath = issuedPath;
   // Context enforces publication/successor integrity and reviewer independence before any write.
   const context = await sourceReviewContext(root, config, workflow, phaseId, stagingPath, { snapshot: false });

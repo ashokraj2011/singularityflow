@@ -654,7 +654,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // command-skills.mjs +326, safe-command-guidance.mjs +260, phase-governance-routing.mjs +132, commands/phase-lifecycle.mjs
     // +50, state.mjs +15) and the code author's route for an undelivered code step (recovery-plan.mjs +267) add 5,634.
     // No new eager file.
-    assert.ok(closure.bytes <= 9_685_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,679,700 (measured 9,679,678): a refusal about where the Story stands names the Story's own next step
+    // (sequence.mjs storyNextDetails and storyClosedRefusal +1,301) at its throw sites in state.mjs (+57),
+    // story-lineage.mjs (+126) and phase-lifecycle.mjs (+230), and an Epic's its own (initiative-state.mjs +391, which
+    // loads initiative-next.mjs only when it refuses) [owner, 2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_687_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

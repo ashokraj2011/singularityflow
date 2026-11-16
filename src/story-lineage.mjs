@@ -16,6 +16,7 @@ import { commitAndPublish, saveStoryDraft, sourceTreeDigests, sourceTreeHash, te
 import {
   gitHeadIsUnborn, gitReadOutput, nowIso, run, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';
+import { storyNextDetails } from './sequence.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
@@ -756,7 +757,8 @@ export async function finalizeStoryDelivery(root, config, workflow, { persist = 
   if (workflow.currentPhase || incomplete.length) {
     throw new SingularityFlowError(
       `Story '${workflow.workItem.id}' cannot be finalized: complete and approve every phase it runs first. `
-      + `Incomplete: ${incomplete.map((phase) => `${phase.id}=${phase.status}`).join(', ') || workflow.currentPhase}.`
+      + `Incomplete: ${incomplete.map((phase) => `${phase.id}=${phase.status}`).join(', ') || workflow.currentPhase}.`,
+      { code: 'STORY_NOT_COMPLETE', details: storyNextDetails(workflow) }
     );
   }
   if (changes(root).trim()) {

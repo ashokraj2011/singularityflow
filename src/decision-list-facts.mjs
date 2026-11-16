@@ -96,7 +96,7 @@ export async function blockingDecisionFacts(root, config, workflow, { phaseId = 
   const phase = phaseId ? workflow?.phases?.[phaseId] ?? null : null;
   if (!phase) {
     throw new SingularityFlowError(phaseId ? `Story ${workflow?.workItem?.id} has no step ${phaseId}.` : `Story ${workflow?.workItem?.id} has no current step.`,
-      { code: 'DECISIONS_PHASE_UNKNOWN' });
+      { code: 'DECISIONS_PHASE_UNKNOWN', details: { ...(phaseId ? { requestedPhase: phaseId } : {}), ...(await import('./sequence.mjs')).storyNextDetails(workflow) } });
   }
   const reports = [];
   const unavailable = [];

@@ -52,7 +52,7 @@ import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { prepareTelemetryLaunch, setTelemetryCapture, TELEMETRY_DISCLOSURE, TELEMETRY_DISCLOSURE_CONFIRMATION } from './telemetry-provision.mjs';
 import { clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit, repairPromptAudits, setPromptAudit, setPromptAuditRetention } from './prompt-audit.mjs';
 import { clearHelpMetrics, helpMetricsStatus, setHelpMetrics } from './help-metrics.mjs';
-import { assertPhaseSequence, phasePublicationCommandForMode, sequenceConfirmationRequired, withConfirmationPort } from './sequence.mjs';
+import { assertPhaseSequence, phasePublicationCommandForMode, sequenceConfirmationRequired, storyClosedRefusal, storyNextDetails, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin, verifyPluginInstallation } from './plugin.mjs';
@@ -4521,8 +4521,8 @@ async function decisionChooseCommand(positionals, options) {
   const pending = workflow.pendingDecision ?? null;
   if (!pending) {
     throw new SingularityFlowError(
-      `Story ${workflow.workItem.id} is not waiting for a decision. See its decisions with singularity-flow decision show ${workflow.workItem.id}.`,
-      { code: 'DECISION_NOT_PENDING' }
+      `Story ${workflow.workItem.id} is not waiting for a decision, so there is nothing to choose.`,
+      { code: 'DECISION_NOT_PENDING', details: storyNextDetails(workflow) }
     );
   }
   const option = optionString(options, 'option') ?? null;
@@ -4725,7 +4725,7 @@ async function cancelCommand(positionals, options) {
   // Every value the event needs comes from the state before the mutation, so the envelope is built
   // here and the cancellation itself happens in the transition.
   const cancelPhase = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
-  if (!cancelPhase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no active phase to cancel.`);
+  if (!cancelPhase) throw storyClosedRefusal(workflow);
   const cancelSession = await loadSession(root, { required: false }) ?? { actor: actionActor(root), agent: null };
   const { value: result, publication } = await transactStory(
     root,

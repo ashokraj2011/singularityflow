@@ -45,7 +45,7 @@ export function decisionsTable(list) {
   const rows = decisionRows(list).map((item) => `| ${cell(rowName(item))} | ${cell(item.ids ? list.groupWords?.[item.group] ?? planWords(item.plan) : planWords(item.plan))} | ${cell(item.decision ? decided(list, item.decision) : 'Undecided')} |`);
   // Settled rows are never a question, and a reader still sees each one and the entry that answered it.
   const settled = (list.settled ?? []).map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.settledBy))} | ${cell(item.decision ? decided(list, item.decision) : 'Settled by the plan')} |`);
-  return [`**Decide ${list.workId} · ${list.phase}.** ${list.decidedBy?.words ?? ''} ${list.open} of ${list.items.length} still ${needs(list.open)} a decision.${settled.length ? ` ${settled.length} settled by the plan, not asked.` : ''}`, '',
+  return [`**Decide ${list.workId} · ${list.phase}.** ${list.decidedBy?.words ?? ''} ${list.open} of ${list.items.length} still ${needs(list.open)} a decision, listed below.${settled.length ? ` ${settled.length} settled by the plan are below too, not asked.` : ''}`, '',
     '| What changed | What the plan already says | Decision |', '|---|---|---|', ...rows, ...settled].join('\n');
 }
 
@@ -175,5 +175,5 @@ export async function runDecisions({ ask, show, read, record, askedInChat = fals
   const named = new Map([...list.items, ...settledRows(list)].map((item) => [item.id, itemName(item)]));
   const made = answers.filter((answer) => (result.recorded ?? []).includes(answer.itemId)).map((answer) => `${named.get(answer.itemId)}: ${label(list, answer.disposition)}`);
   return { status: 'recorded', recorded: result.recorded ?? [], decided: made, unchanged: result.unchanged ?? [], remaining, next: result.next,
-    message: `${(result.recorded ?? []).length} recorded.${made.length ? ` ${made.join('. ')}.` : ''}${remaining.length ? ` ${remaining.length} still ${needs(remaining.length)} a decision.` : ' All decided.'}` };
+    message: `${(result.recorded ?? []).length} recorded.${made.length ? ` ${made.join('. ')}.` : ''}${remaining.length ? ` ${remaining.length} still ${needs(remaining.length)} a decision: ${remaining.map((id) => named.get(id) ?? id).join(', ')}.` : ' All decided.'}` };
 }

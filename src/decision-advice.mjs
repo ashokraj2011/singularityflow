@@ -182,7 +182,7 @@ export function itemRecommendation(workflow, item) {
         return lean('fix the code if the clause says what the product should do; otherwise update the spec. Accept it for now only if both can differ until a date.');
       }
       if (options.some((entry) => entry.id === 'return')) {
-        return rec(item, 'return', `The report marks it ${listWords(details.verdicts ?? [])} and no recorded run covers it, so ${stepName(workflow, details.owner)} delivers it again. Accept it as a risk only if the Story may ship without it until a date.`);
+        return rec(item, 'return', `The report marks it ${listWords(details.verdicts ?? [])} and no recorded run covers it, so ${stepName(workflow, details.owner)} delivers it again. Accept the risk only if the Story may ship without it until a date.`);
       }
       return lean(`accept it as a risk only if the Story may ship with ${listWords((details.clauses ?? []).map((id) => clauseName(workflow, id)))} ${listWords(details.verdicts ?? [])} until a date; dismiss it if the gap is not real.`);
     }
@@ -302,8 +302,8 @@ export function itemRecommendation(workflow, item) {
       return only ? rec(item, only.id, 'An approver of the plan reviews the exact diff; nothing else accounts for the scope.') : lean('review the exact diff; account for it only if the changes belong in scope.');
     case 'generation-rollover':
       return details.requested ? rec(item, 'start-next-generation', 'The person asked for this change after the step was published.')
-        : (details.paths ?? []).length === 1 ? lean(`keep ${details.paths[0]} in a new generation if it belongs in this step; otherwise set it aside.`)
-          : lean(`keep ${listWords(details.paths ?? []) || 'the changed files'} in a new generation if they belong in this step; otherwise set them aside.`);
+        : (details.paths ?? []).length === 1 ? lean(`keep ${details.paths[0]} in a new version if it belongs in this step; otherwise set it aside.`)
+          : lean(`keep ${listWords(details.paths ?? []) || 'the changed files'} in a new version if they belong in this step; otherwise set them aside.`);
     case 'approval':
       return details.ready ? rec(item, 'approve', 'Nothing on this list holds it, and its checks are recorded: review the documents and approve.')
         : first(`decide ${listWords(details.heldBy ?? [])} above; the approval waits for ${details.heldBy?.length === 1 ? 'it' : 'them'}.`);

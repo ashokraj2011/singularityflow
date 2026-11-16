@@ -92,10 +92,10 @@ async function gitRepository(t) {
 
 test('the owner\'s Story: reviewing a plan that has not been written routes to writing it (/sf-phase), never /sf-help', async () => {
   const error = await refusalOf(() => sourceReviewContext(null, {}, unwrittenPlan(), 'planning', null));
-  assert.match(error.message, /'planning' has no published generation yet, so there is nothing to review; review it once it is published\./u);
+  assert.match(error.message, /'planning' has no published version yet, so there is nothing to review; review it once it is published\./u);
   for (const argv of [['review-source', 'context', 'planning', '--for-agent', '--json'], ['review-source', 'context', 'planning', '--json']]) {
     const { act, envelope } = routed(error, argv, { code: 'SOURCE_REVIEW_GENERATION_REQUIRED', route: WRITE_PLANNING });
-    assert.match(act.said, /^SOURCE_REVIEW_GENERATION_REQUIRED: 'planning' has no published generation yet/u);
+    assert.match(act.said, /^SOURCE_REVIEW_GENERATION_REQUIRED: 'planning' has no published version yet/u);
     assert.equal(envelope.error.details.nextAction, WRITE_PLANNING.shell, 'every surface reading details.nextAction gets it too');
     assert.equal(envelope.error.details.phase, 'planning');
   }

@@ -86,7 +86,7 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     // fix in the same turn. /sf-recover found "no recovery required" for unchanged bytes and ran nothing (owner, 2026-11-16).
     actions = phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !phaseExplicitlyReopened(workflow, phase)
       ? [action('/sf-code', `singularity-flow phase rollover ${phase.id} --json`,
-        fix ? `/sf-code shows the person the review's findings and asks "Start version ${generation} to fix the review's findings? Version ${generation - 1} and its tests stay."; on their yes it starts version ${generation} and fixes them in the same turn.`
+        fix ? `/sf-code shows the findings and asks "Start version ${generation} to fix the review's findings? Version ${generation - 1} and its tests stay."; their yes starts version ${generation} and fixes them in the same turn.`
           : `/sf-code previews version ${generation} of ${phase.id} and asks the person to confirm it; version ${generation - 1} and its tests stay as published.`, fix)]
       // A code step with no version open opens it first, as its entry, edit permission and task say: one command (C13).
       : opensCodeVersion(phase) ? [action(generationSkillForPhase(phase, workflow), `singularity-flow phase begin ${phase.id} --json`,

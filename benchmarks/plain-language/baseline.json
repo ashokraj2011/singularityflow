@@ -11,11 +11,11 @@
   "skill-line": 120
  },
  "totals": {
-  "count-without-name": 30,
+  "count-without-name": 27,
   "draft-for-version": 15,
   "generic-route": 6372,
-  "jargon": 1404,
-  "length": 701
+  "jargon": 1398,
+  "length": 697
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -2064,11 +2064,9 @@
    "55f12edd713c": "jargon:durable"
   },
   "apps/vscode/src/views/adjudication-page.ts": {
-   "4f914c9e01ec": "count-without-name",
    "a55fabaac8e6": "length"
   },
   "apps/vscode/src/views/adjudication.ts": {
-   "5ea531cf7c6e": "count-without-name",
    "c68295a30ce8": "count-without-name"
   },
   "apps/vscode/src/views/after-install-model.ts": {
@@ -2734,9 +2732,6 @@
   "plugin/extensions/decisions/card.mjs": {
    "65a51c54d0d0": "length"
   },
-  "plugin/extensions/decisions/decisions.mjs": {
-   "7e2cd1365489": "count-without-name"
-  },
   "plugin/extensions/decisions/extension.mjs": {
    "148ceefd7341": "length",
    "905948ef385a": "length"
@@ -3360,11 +3355,8 @@
    "cba728ca4423": "length"
   },
   "src/decision-advice.mjs": {
-   "107319e9e898": "jargon:generation",
    "240fa5f35a06": "jargon:generation",
    "468fb74aa76f": "jargon:generation",
-   "c9b82bb099d5": "jargon:generation",
-   "ca9ed7c8e9d8": "length",
    "cc716f60431d": "jargon:generation"
   },
   "src/decision-list.mjs": {
@@ -3391,13 +3383,9 @@
    "9a6b3c180f5f": "jargon:generation",
    "b88b4d8c85ac": "jargon:generation",
    "c01d78586f5e": "length",
-   "e0922e564066": "length",
    "eb3cf2de3adc": "jargon:generation",
    "f669f5f25872": "jargon:generation",
    "fd63065456d0": "jargon:generation"
-  },
-  "src/decision-plain.mjs": {
-   "47c2ab843df2": "jargon:generation"
   },
   "src/delivery-evidence.mjs": {
    "055020bc3093": "length",
@@ -3951,8 +3939,7 @@
    "e3396ae086e3": "jargon:generation length"
   },
   "src/phase-entry-authoring.mjs": {
-   "737e8a9a2301": "length",
-   "cba811bd4b54": "jargon:deterministic length"
+   "737e8a9a2301": "length"
   },
   "src/phase-evidence-amendment.mjs": {
    "b1a0bb577c52": "length"
@@ -4340,8 +4327,7 @@
    "45fb6de6a362": "count-without-name length",
    "4f3adf8d04da": "jargon:successor",
    "8e0bef09a883": "jargon:generation jargon:successor length",
-   "a98568a8b7da": "jargon:generation jargon:published-generation jargon:successor",
-   "d4581a595dad": "length"
+   "a98568a8b7da": "jargon:generation jargon:published-generation jargon:successor"
   },
   "src/source-review-decision.mjs": {
    "c14c67e495b4": "jargon:packet"
@@ -4359,8 +4345,7 @@
    "9dfba9eecf10": "jargon:lifecycle-event",
    "a38ab81b91db": "jargon:retained",
    "c488023d32ca": "jargon:binding",
-   "dbbf480b46e6": "jargon:retained",
-   "fa7ef4860ddd": "jargon:generation jargon:published-generation"
+   "dbbf480b46e6": "jargon:retained"
   },
   "src/source-review-snapshot.mjs": {
    "97703286861d": "jargon:binding"

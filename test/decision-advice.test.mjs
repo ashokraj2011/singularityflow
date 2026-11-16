@@ -178,7 +178,7 @@ test('the decisions list carries the advice on every item, the approval and the 
   const rollover = packet.items.find((item) => item.kind === 'generation-rollover');
   assert.deepEqual(rollover.options.map((entry) => entry.id), ['start-next-generation', 'set-aside']);
   assert.equal(rollover.options[0].does, 'Opens generation 3 of Implementation with the change; generation 2 and its evidence and test results stay as published.');
-  assert.match(rollover.recommended.words, /^Recommended: Keep src\/late\.js in a new generation if it belongs in this step; otherwise set it aside\.$/u);
+  assert.match(rollover.recommended.words, /^Recommended: Keep src\/late\.js in a new version if it belongs in this step; otherwise set it aside\.$/u);
   assert.equal(rollover.options[0].action.command, 'singularity-flow phase rollover implementation', 'the person\'s own terminal previews it and asks them to confirm');
   // The node pin's try passed: pin it.
   assert.equal(packet.items.find((item) => item.kind === 'node-pin').recommended.option, 'pin-node');

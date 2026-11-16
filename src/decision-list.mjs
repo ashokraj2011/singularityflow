@@ -568,7 +568,8 @@ function nodePinItem(workflow, context, pin) {
   return {
     kind: 'node-pin',
     title: `${name}'s tests need another Node`,
-    why: `${pin.words}${pin.words.includes(`Node ${pin.node}`) ? '' : ` Node ${pin.node} is installed here.`} ${pin.tried?.words ?? `Whether the tests pass on it is not known yet; SFlow checks it before asking, and records nothing as evidence.`} ${replaces ? `Changing ${pin.file} to it amends the plan, or install Node ${replaces} and there is nothing to choose` : `Pinning it creates ${pin.file} and amends the plan`}; the code and its tests stay as they are.`,
+    // What the pin changes is its option's effect (decision-advice.mjs): the plan, never the code or its tests.
+    why: `${pin.words}${pin.words.includes(`Node ${pin.node}`) ? '' : ` Node ${pin.node} is installed here.`} ${pin.tried?.words ?? 'Not yet tried on it: SFlow checks first and records nothing.'}${replaces ? ` Or install Node ${replaces} and there is nothing to choose.` : ''}`,
     ...(probe.status === 'checked' ? {} : { check: { kind: 'node-tests', status: probe.status, label: `Check first: run the tests on Node ${pin.version}`,
       does: 'SFlow runs them once on a copy of this checkout; nothing is recorded.',
       command: tryIt, ...(probe.cutShort ? { cutShort: true, seconds: probe.seconds } : {}) } }),

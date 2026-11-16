@@ -216,7 +216,7 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   if (status === 'deterministic-generation') next = [{
     id: `generate:${phase.id}`, safe: true, automatic: false, confirmation: 'none', scope: 'deterministic-generation',
     skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
-    detail: `${phase.id} is built by its deterministic generator: run this in this turn, then publish it with `
+    detail: `SFlow builds ${phase.id} itself: run this in this turn, then publish it with `
       + `singularity-flow phase prepublish ${phase.id} --for-agent --json --publish-if-ready. Never write or edit its artifact.`
   }, ...next.filter(action => action.id !== `prepare-artifact:${phase.id}`)];
   if (authoringAllowed && contextAdmission.pendingEvidence) next = [{

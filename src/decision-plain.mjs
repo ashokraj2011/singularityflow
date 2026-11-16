@@ -228,7 +228,7 @@ export function plainSettled(workflow, entry) {
       case 'plan-accounting':
         return `${who} added ${effect.path ?? 'the file'} to ${clauseName(workflow, effect.clauseId)}'s row of the plan because ${first ?? 'that row names the file beside it'} beside it`;
       case 'own-correction':
-        return `${who} opened a new generation of ${step} to correct its own work because nobody had reviewed it yet`;
+        return `${who} opened a new version of ${step} to correct its own work because nobody had reviewed it yet`;
       default: {
         const [what, because] = String(entry.answer ?? '').split(/:\s+/u, 2);
         return because ? `${who} chose this: ${bare(what)}, because ${bare(because)}` : `${who} chose this: ${bare(what)}`;

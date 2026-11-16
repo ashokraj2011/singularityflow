@@ -68,7 +68,7 @@ test('the incident: a code step\'s correction-required review leads to /sf-code 
   assert.deepEqual([next.nextSkill, next.copilotCommand, next.nextCommand], ['/sf-code', '/sf-code implementation', 'singularity-flow phase rollover implementation --json']);
   assert.equal(next.actions.length, 1, 'one turn: nothing before /sf-code');
   assert.equal(next.actions[0].label, "Fix the review's findings (version 2)");
-  assert.match(next.actions[0].reason, /asks "Start version 2 to fix the review's findings\? Version 1 and its tests stay\."; on their yes it starts version 2 and fixes them in the same turn/u);
+  assert.match(next.actions[0].reason, /asks "Start version 2 to fix the review's findings\? Version 1 and its tests stay\."; their yes starts version 2 and fixes them in the same turn/u);
   assert.equal(next.presentation, PRESENTATION, 'the person\'s Shell line is the one that asks them in their own terminal');
   assert.doesNotMatch(JSON.stringify(next), /sf-recover|guarded code successor boundary/u);
   // The agent reads act first: act.show is that block, a review turn ends on it, and the tail says it is the person's.

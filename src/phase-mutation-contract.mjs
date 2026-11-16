@@ -133,6 +133,8 @@ export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.
   return { schemaVersion: 1, record: { family: 'story-workflow', version: Number(workflow?.schemaVersion ?? 1) },
     subject: { projectId: null, workId: workflow?.workItem?.id ?? null, requestedPhaseId: phase?.id ?? null, currentPhaseId },
     basis, sources: { lifecycle: { status: 'verified' }, configuration: { status: 'verified' }, review: { status: review ? 'verified' : 'unavailable' }, ...sources },
+    // The working record against the accepted one is not compared here (no Git per tool call): unknown, never "same".
+    differences: [{ field: 'lifecycle-record', state: 'unknown' }],
     story: { status: workflow?.status === 'cancelled' ? 'cancelled' : currentPhaseId ? 'active' : 'complete', phaseOrder: workflow?.phaseOrder ?? [],
       pendingDecision: workflow?.pendingDecision ? { id: workflow.pendingDecision.key ?? null } : null },
     step: facts(phase), current: phase && phase.id !== currentPhaseId ? facts(workflow?.phases?.[currentPhaseId]) : null,

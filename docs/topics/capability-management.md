@@ -17,7 +17,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 30
+version: 31
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -193,11 +193,16 @@ activation:
 ```bash
 singularity-flow capability setup-proposals --lead <REPOSITORY-URL> --json
 singularity-flow capability setup-proposal <SETUP-BRANCH> --lead <REPOSITORY-URL> --json
-singularity-flow capability setup-activate <SETUP-BRANCH> --lead <REPOSITORY-URL> --confirm <FULL-PROPOSAL-COMMIT> --json
+singularity-flow configuration approve <SETUP-BRANCH> --lead <REPOSITORY-URL> --confirm <FULL-PROPOSAL-COMMIT> --json
 ```
 
+`configuration approve` and `configuration reject` take capability and setup proposals like every other proposal;
+`capability activate` and `capability setup-activate` are the same approval by their earlier names, with their own
+arguments, `--acknowledge-unprotected` among them.
+
 Activation requires explicit approval. Git cannot attest whether branch protection is configured,
-so a direct update additionally requires `--acknowledge-unprotected`; it uses an exact lease and
+so a direct update by `capability setup-activate` additionally requires `--acknowledge-unprotected` (`configuration
+approve` is itself that acknowledgement); it uses an exact lease and
 cannot bypass repository protection. If protection
 requires an external review, follow that path and then recheck setup. When `sflow/config` does not
 yet exist, an authorized maintainer may need to establish it from the reviewed candidate under

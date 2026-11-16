@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9a477aed6d4423d9621db63fe5f502e9849bdc03",
+  "sourceCommit": "280758b2245433f199cb5163d6f662196b69e452",
   "topicCount": 93,
-  "contentSha256": "67c5e44b3ea6cae8eeeb96bc093b77e6ca696e71630ac3d7a1431994879784d4",
+  "contentSha256": "680960b1057a5ab01d25682d2ce1fa44f0667307a1363eac307dc87c777d7a28",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 30,
-      "sha256": "00fa81ec9c545a8f04c49229a207f344ad3d39e7a8420c348882258788539d6e",
+      "version": 31,
+      "sha256": "408672a945cddf38bd0e994ed54c31e1c20681e435258257ef65d922fe5fbaf2",
       "routingSha256": "6874a23d15e217eb6dd79f5fbdd5ca670345c6cce3d0cbd1ca82ccfaf8d94049",
       "file": "capability-management.md"
     },
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 28,
-      "sha256": "5c952b4ff0e52031d6e4ab12206713f56d7b6eeed95966bfb090e827f2efa42c",
+      "version": 29,
+      "sha256": "8bfb338c202ab091b61138d21cb09a2fd8a1f0dda772d3bce5de26a5a0bcd28d",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },

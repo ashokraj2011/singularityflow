@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 28
+version: 29
 commands:
   - configuration
   - workflow
@@ -60,8 +60,11 @@ with `singularity-flow configuration transactions --json`. See
 Every change to `sflow/config` is a proposal a person approves, of one of these kinds: workflow, people, package,
 capability or onboarding (`sflow/config-change/<kind>/*`). `singularity-flow configuration proposals` is the one list:
 drafts saved on this machine, every waiting proposal with its author and its state (draft, proposed, needs a choice),
-capability and setup proposals, and an upgrade the Git host would not take directly. `configuration approve` lands
-workflow, people and package proposals; it is the person's signed step on every surface. VS Code's buttons are
+capability and setup proposals, and an upgrade the Git host would not take directly. `configuration approve` lands a
+proposal of every kind, and `configuration reject` rejects one: it is the person's signed step on every surface.
+Capability and setup proposals are handed to their own engines after the same view and the same named revision
+(`--lead <URL>` names their repository); `capability activate` and `capability setup-activate` are the same approval by
+their earlier names, with their own arguments and refusals. VS Code's buttons are
 **Review and approve**, **Finish and approve** and **Save and approve**: each proposes, then asks once, saying when it
 is a self-approval. `workflow activate <BRANCH> --confirm <REVISION>` is the same approval.
 

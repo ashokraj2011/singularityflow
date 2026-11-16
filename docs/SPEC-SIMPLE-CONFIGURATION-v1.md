@@ -332,6 +332,10 @@ Built 16 November 2026 (branch scf-stage3):
   candidate stays on a `sflow/config-refresh/*` review branch for a merge there, as D10 says. Conflict with this stage's
   first text: "package proposals under `sflow/config-change/package/` through the same engine" would have put every
   upgrade through a proposal; D10 wins, so only a person's `--review-only` or `--rollback` makes one.
+- 3i. Capability and repository setup proposals are approved and rejected with `configuration approve` and `configuration
+  reject` too: the same view, the revision named, SF Guard's signature from a checkout of their repository, then their
+  own engines. `capability activate` and `capability setup-activate` stay as the same approval by their earlier names,
+  with their own arguments and refusals (SCF:REQ-010).
 
 **Stage 4 — Remove the old machinery.** (D10 pulled part of it into the upgrade on 16 November 2026: history refs are
 no longer written; auto-clean is deleted; the upgrade deletes the old history and review refs; onboarding, SGOS,

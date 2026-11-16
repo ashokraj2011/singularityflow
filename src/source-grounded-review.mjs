@@ -531,6 +531,7 @@ function evaluateCodeRows(report, context, findings) {
   const code = context.code ?? {};
   const sources = new Map(context.sources.map((source) => [source.id, source]));
   const byPath = new Map(context.sources.map((source) => [source.path, source]));
+  const visuals = new Map((context.visualSources ?? []).map((source) => [source.id, source]));
   const planned = code.planned ?? null;
   const delivered = code.deliveredClauses ?? [];
   const passed = new Set(code.passedTests ?? []);
@@ -552,17 +553,42 @@ function evaluateCodeRows(report, context, findings) {
     }
     byClause.set(row.clauseId, row);
     const claim = planned?.[row.clauseId] ?? null;
+    const plannedPaths = claim?.expectedPaths ?? [];
+    // A clause the plan proves with retained evidence is shown by that file, not implemented in code: code cited for it
+    // is context, never a change outside its plan, and only the evidence itself counts as its citation.
+    const shown = claim?.fulfillment === 'evidence';
     // (a) Implemented where the plan says.
     const implementation = Array.isArray(row.implementation) ? row.implementation : [];
+    let inPlan = 0;
     for (const [at, entry] of implementation.entries()) {
       const where = cite(entry, `${label} implementation ${at + 1}`, `rows[${index}].implementation[${at}]`);
-      if (where && claim && !(claim.expectedPaths ?? []).includes(where)) findings.push(finding('implementation-outside-plan',
-        `${row.clauseId} is implemented in ${where}, which its plan row does not name (planned: ${(claim.expectedPaths ?? []).join(', ') || 'none'}).`,
+      if (where && plannedPaths.includes(where)) inPlan += 1;
+      if (where && claim && !shown && !plannedPaths.includes(where)) findings.push(finding('implementation-outside-plan',
+        `${row.clauseId} is implemented in ${where}, which its plan row does not name (planned: ${plannedPaths.join(', ') || 'none'}).`,
         { clauseId: row.clauseId, check: 'plan', path: where }));
+    }
+    // An image or PDF the plan names for the clause, inspected: only a file this review offered (visualSources) may be attested.
+    const attested = Array.isArray(row.evidence) ? row.evidence : [];
+    for (const [at, entry] of attested.entries()) {
+      const field = `rows[${index}].evidence[${at}]`;
+      const source = visuals.get(entry?.sourceId);
+      if (!source) {
+        const near = nearestKnown(entry?.sourceId, [...visuals.keys()]);
+        findings.push(finding('source-unknown', `${label} evidence ${at + 1} attests '${entry?.sourceId ?? ''}', which is no image or PDF this review offered; ${knownChoiceWords(near)} from visualSources[].id.`,
+          { field: `${field}.sourceId`, ...(near.value ? { proposedEdit: { field: `${field}.sourceId`, value: near.value } } : { allowed: near.allowed }) }));
+      } else if (typeof entry.attestation !== 'string' || !entry.attestation.trim()) {
+        findings.push(finding('visual-citation-invalid', `${label} evidence ${at + 1} must say which part of ${source.path} you inspected and what it shows.`, { field }));
+      } else if (claim && !plannedPaths.includes(source.path)) {
+        findings.push(finding('evidence-outside-plan', `${label} attests ${source.path}, which ${row.clauseId}'s plan row does not name (planned: ${plannedPaths.join(', ') || 'none'}); attest it in the row of the clause it shows.`,
+          { field, clauseId: row.clauseId }));
+      } else inPlan += 1;
     }
     if (row.assessment !== 'implemented') findings.push(finding('clause-not-implemented',
       `${row.clauseId} is not implemented as the approved ${planned ? 'plan' : 'scope'} says.`, { clauseId: row.clauseId, check: 'plan' }));
-    else if (!implementation.length && claim?.fulfillment !== 'test-only') findings.push(finding('clause-implementation-uncited',
+    else if (shown && !inPlan) findings.push(finding('clause-implementation-uncited',
+      `${row.clauseId} is shown by its evidence file (${plannedPaths.join(', ')}), and no row attests it: inspect the file and record what it shows in the row's evidence.`,
+      { clauseId: row.clauseId, check: 'plan' }));
+    else if (!implementation.length && !attested.length && claim?.fulfillment !== 'test-only') findings.push(finding('clause-implementation-uncited',
       `${row.clauseId} is marked implemented without a cited file:line.`, { clauseId: row.clauseId, check: 'plan' }));
     // (b) Its own test, planned, run and passed, and proving it.
     const tested = !claim || !['not-applicable', 'non-test'].includes(claim.testDisposition);
@@ -691,8 +717,11 @@ export function evaluateSourceGroundedReview(report, context) {
       ids.add(entry.id);
       // A code finding names its check and cites a changed file's line; design blocks only for a named defect.
       if (context.kind === 'code') {
-        if (!['plan', 'tests', 'quality', 'design'].includes(entry.check) || !entry.sourceId || !Number.isSafeInteger(entry.line) || !entry.quote) {
-          findings.push(finding('finding-citation-missing', `Reviewer finding '${entry.id}' needs its check (plan, tests, quality or design) and a cited file:line.`, { field: `findings[${index}]` }));
+        // A finding about an evidence image or PDF names what was inspected there (attestation), as no line exists.
+        const visual = context.visualSources?.some((source) => source.id === entry.sourceId);
+        if (!['plan', 'tests', 'quality', 'design'].includes(entry.check) || !entry.sourceId
+            || (!visual && (!Number.isSafeInteger(entry.line) || !entry.quote))) {
+          findings.push(finding('finding-citation-missing', `Reviewer finding '${entry.id}' needs its check (plan, tests, quality or design) and a cited file:line, or for an evidence image or PDF its sourceId and attestation.`, { field: `findings[${index}]` }));
         }
         if (entry.check === 'design' && entry.severity === 'blocking' && !String(entry.defect ?? '').trim()) {
           findings.push(finding('design-blocking-without-defect', `Design finding '${entry.id}' blocks only for a real maintainability defect: name it in defect, or make it advisory.`, { field: `findings[${index}]` }));

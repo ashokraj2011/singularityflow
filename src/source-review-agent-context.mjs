@@ -55,7 +55,7 @@ export function compactSourceReviewContext(packet, binding) {
         ? 'Apply the requirement-review calibration in reviewer.effectiveInstructions; existing acceptance criteria count as coverage.'
         : REQUIREMENT_REVIEW_PROTOCOL } : {}),
       verification: packet.kind === 'code'
-        ? 'Code: run all four checks in citationGuide.checks, (a) plan, (b) tests, (c) quality and security, (d) readability and design. sources are the changed files as published; cite file:line in them. A finding names its check; design blocks only for a named defect.'
+        ? `Code: run all four checks in citationGuide.checks, (a) plan, (b) tests, (c) quality and security, (d) readability and design. sources are the changed files as published; cite file:line in them. A finding names its check; design blocks only for a named defect.${packet.citationGuide?.evidenceRule ? ' A clause proved by an evidence image or PDF (citationGuide.evidenceFiles) is inspected and attested in its row\'s evidence (citationGuide.evidenceRule).' : ''}`
         : packet.kind === 'document'
           ? 'Document: read it against each pinned source (the Story, its documents and the approved inputs this step reads); give each a cited row (citationGuide.mappingRule).'
           : 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',

@@ -21,7 +21,7 @@ import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { successorGenerationOpen } from './phase-generation-need.mjs';
 import { phaseRequiresCodeDelivery as phaseNeedsCode } from './code-delivery-policy.mjs';
-import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
+import { documentMimeType, effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding, sourceReviewScenarioIds } from './source-grounded-review.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
 import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide } from './source-review-contract.mjs';
@@ -450,8 +450,53 @@ async function stepReviewInput(root, config, workflow, phase, kind, { reviewerAg
   const quality = qualityResultsForReview(evidence.qualityFindings);
   const code = { deliveredClauses: planned ? Object.keys(planned).sort() : clauses.map((clause) => clause.id).sort(),
     planned, changedPaths: sources.filter((source) => source.id !== 'summary').map((source) => source.path), passedTests, quality };
-  const context = { ...common, sources, code, ...(planArtifact ? { plan: planArtifact } : {}) };
+  const visualSources = await plannedFileSources(root, `${itemRelative(config, workflow.workItem.id)}/evidence/`, evidence, planned, sources);
+  const context = { ...common, sources, code, ...(visualSources.length ? { visualSources } : {}), ...(planArtifact ? { plan: planArtifact } : {}) };
   return { ...context, binding: sourceReviewBinding(context) };
+}
+
+// Plan rows met by a file that is not changed code: the review offers that file, or the row could never be cited.
+const OFFERED_FULFILLMENT = new Set(['evidence', 'existing', 'document', 'configuration']);
+
+/**
+ * The files a delivered clause's plan row names that are not changed code, offered to the reviewer so the row can be
+ * cited at all. A clause the plan proves with retained evidence (a screenshot, a PDF) is shown, not implemented: its
+ * image or PDF is a visual source the reviewer inspects and attests, as a document's images are; a text file (an
+ * evidence log, a document or configuration file, behaviour that already exists) is a source cited by line. Each is
+ * the committed, published bytes, pinned to the digest its delivery recorded, also when an earlier version published
+ * it and it is unchanged. A file that is missing or not published is not offered: the row then has nothing to cite,
+ * which is the author's to correct. Rows changing product code are read from the changed files as before (an image
+ * among them too), so their reviews bind what they bound. Adds the text files to `sources`; returns the visual ones.
+ */
+async function plannedFileSources(root, evidenceDirectory, evidence, planned, sources) {
+  const fulfillment = evidence.fulfillment?.obligations ?? evidence.fulfillment;
+  const recorded = new Map();
+  for (const entry of Array.isArray(fulfillment) ? fulfillment : []) for (const item of entry?.paths ?? []) {
+    if (item?.state === 'present' && SHA256.test(String(item.sha256 ?? ''))) recorded.set(item.path, item.sha256);
+  }
+  for (const item of evidence.paths ?? []) if (item?.exists && SHA256.test(String(item.sha256 ?? '')) && !recorded.has(item.path)) recorded.set(item.path, item.sha256);
+  const offered = new Set(sources.map((source) => source.path));
+  const visualSources = [];
+  const visualType = (mimeType) => mimeType === 'application/pdf' || (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml');
+  const wanted = [...new Set(Object.values(planned ?? {}).flatMap((claim) => (claim.expectedPaths ?? [])
+    .filter((relative) => OFFERED_FULFILLMENT.has(claim.fulfillment) || relative.startsWith(evidenceDirectory))))].sort();
+  for (const relative of wanted) {
+    if (offered.has(relative) || sources.length + visualSources.length >= MAX_CITED_SOURCES) continue;
+    const mimeType = documentMimeType(relative);
+    const visual = visualType(mimeType);
+    let file;
+    try { file = await checkedFile(root, relative, `Planned file ${relative}`, recorded.get(relative) ?? null); } catch { continue; }
+    if (visual) {
+      visualSources.push({ id: codeSourceId(relative), name: path.posix.basename(relative), path: relative, originalSha256: file.sha256,
+        mimeType, absolutePath: file.absolute, bytes: file.bytes.length,
+        instruction: 'This is retained evidence the plan names for a clause. Use an actual native image/PDF tool to inspect these exact bytes. Record method, page/region and observations in visualSourcesReviewed, and attest in that clause\'s row evidence what it shows; a file path is not proof of inspection. If no suitable tool is available, ask the human for help inspecting it; never invent a reading.' });
+      continue;
+    }
+    let text;
+    try { text = boundedText(utf8(file.bytes, `Planned file ${relative}`), `Planned file ${relative}`); } catch { continue; }
+    sources.push({ id: codeSourceId(relative), path: relative, text });
+  }
+  return visualSources;
 }
 
 /** The quality, security and secret-scan results a code review acknowledges: what still counts, is held, or could not run. */
@@ -974,7 +1019,7 @@ export function checkSourceReviewReport(report, input) {
     'source-unknown', 'clause-list-invalid', 'clause-row-invalid', 'plan-row-mismatch',
     'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed',
     'clarifications-reviewed-invalid', 'clarifications-not-all-reviewed', 'visual-sources-not-reviewed',
-    'visual-inspection-invalid', 'visual-citation-invalid', 'finding-citation-missing', 'design-blocking-without-defect']);
+    'visual-inspection-invalid', 'visual-citation-invalid', 'finding-citation-missing', 'design-blocking-without-defect', 'evidence-outside-plan']);
   const bindingAndCitationFindings = evaluation?.findings.filter((entry) => invalid.has(entry.code) || entry.code === 'review-binding-stale') ?? [];
   const checked = { format, evaluation,
     retentionReady: format.status === 'ready' && evaluation.status !== 'stale' && !bindingAndCitationFindings.length,

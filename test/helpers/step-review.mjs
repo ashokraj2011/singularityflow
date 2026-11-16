@@ -52,11 +52,17 @@ export function codeReport(packet, { findings = [] } = {}) {
     const test = (claim.tests ?? []).map((relative) => byPath.get(relative)).find(Boolean)
       ?? packet.sources.find((source) => packet.code.passedTests.includes(source.path) && source.text.includes(row.clauseId));
     const tested = row.testAssessment !== 'not-applicable';
+    // A clause its plan proves with an evidence image: that image, inspected, shows it (the walk's own fixture).
+    const shown = (packet.citationGuide?.evidenceFiles ?? []).filter((entry) => entry.clauseId === row.clauseId)
+      .map((entry) => ({ sourceId: entry.sourceId, attestation: 'Whole image: the screen the plan row names.' }));
     return { clauseId: row.clauseId, implementation: product ? [citeIn(product, row.clauseId)] : [],
-      tests: tested && test ? [citeIn(test, row.clauseId)] : [], assessment: 'implemented', testAssessment: tested ? 'proves' : 'not-applicable' };
+      tests: tested && test ? [citeIn(test, row.clauseId)] : [], ...(shown.length ? { evidence: shown } : {}),
+      assessment: 'implemented', testAssessment: tested ? 'proves' : 'not-applicable' };
   });
   return {
     ...packet.reportTemplate, rows,
+    ...(packet.visualSources?.length ? { visualSourcesReviewed: packet.visualSources.map((source) => ({ sourceId: source.id, method: source.mimeType === 'application/pdf' ? 'pdf-tool' : 'image-tool',
+      locator: 'whole file', observations: 'The screen the plan row names.' })) } : {}),
     unplannedPaths: packet.reportTemplate.unplannedPaths.map((entry) => ({ ...entry, assessment: 'supporting', note: 'Supports the planned change.' })),
     qualityReviewed: packet.code.quality.map((entry) => entry.id),
     findings

@@ -47,6 +47,9 @@ const codeRow = z.strictObject({
   clauseId: id.describe('One clause this step delivers, exactly as reportTemplate names it.'),
   implementation: z.array(fileCitation).max(50).describe('(a) Where the clause is implemented: file:line in a planned path.'),
   tests: z.array(fileCitation).max(50).describe('(b) The clause\'s own test: file:line of the planned test that ran and passed.'),
+  evidence: z.array(z.strictObject({ sourceId: id.describe('An image or PDF from visualSources[].id, copied exactly.'),
+    attestation: text(1024).describe('The part of the file you inspected and what it shows.') })).max(50).optional()
+    .describe('(a) For a clause the plan proves with an evidence file (an image or PDF): that file, inspected, and what it shows.'),
   assessment: z.enum(['implemented', 'not-implemented']).describe('An independent judgment, never a default.'),
   testAssessment: z.enum(['proves', 'does-not-prove', 'not-applicable']).describe('Whether the cited test checks the behaviour the clause states.')
 });
@@ -122,7 +125,9 @@ export function sourceReviewReportTemplate(input) {
   }
   if (input.kind === 'code') {
     const planned = input.code?.planned ?? {};
+    const shown = new Set(codeEvidenceFiles(input).map((entry) => entry.clauseId));
     rows = (input.code?.deliveredClauses ?? []).map((clauseId) => ({ clauseId, implementation: [], tests: [],
+      ...(shown.has(clauseId) ? { evidence: [] } : {}),
       assessment: 'unreviewed', testAssessment: ['not-applicable', 'non-test'].includes(planned[clauseId]?.testDisposition) ? 'not-applicable' : 'unreviewed' }));
   }
   const plannedPaths = new Set(Object.values(input.code?.planned ?? {}).flatMap((claim) => [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]));
@@ -138,8 +143,18 @@ export function sourceReviewReportTemplate(input) {
   };
 }
 
+/** In a code review, each offered image or PDF and the delivered clause whose plan row names it. */
+function codeEvidenceFiles(input) {
+  if (input.kind !== 'code' || !input.visualSources?.length) return [];
+  const planned = input.code?.planned ?? {};
+  return (input.code?.deliveredClauses ?? []).flatMap((clauseId) => input.visualSources
+    .filter((source) => (planned[clauseId]?.expectedPaths ?? []).includes(source.path))
+    .map((source) => ({ clauseId, sourceId: source.id, path: source.path })));
+}
+
 /** Citation mechanics only: never infer coverage, rewrite quotes, or make reviewer judgments. */
 export function sourceReviewCitationGuide(input) {
+  const evidenceFiles = codeEvidenceFiles(input);
   let clauses = {};
   if (input.kind === 'specification') {
     try { clauses = { clauseIds: extractClauses(input.artifact.text, { sourcePath: input.artifact.path }).map(clause => clause.id) }; }
@@ -148,7 +163,9 @@ export function sourceReviewCitationGuide(input) {
   return {
     lineBasis: '1-based lines of sources[].text, not the JSON packet, original attachment, artifact or clarification record. In the agent view, read each source textFile with the native file tool; its line numbers are citation line numbers.',
     quoteRule: 'Copy an exact non-empty substring of that single line, at most 1024 characters. Do not paraphrase, normalize whitespace, include a line-number prefix, or combine lines.',
-    ...(input.visualSources?.length ? { visualRule: 'Inspect exact visualSources[].absolutePath with an actual native image/PDF tool. Acknowledge each in visualSourcesReviewed with method, locator and observations. A covered row cites sourceId and attestation naming the page/region and observed behavior; never invent line/quote for pixels.' } : {}),
+    ...(input.visualSources?.length ? { visualRule: input.kind === 'code'
+      ? 'Inspect exact visualSources[].absolutePath with an actual native image/PDF tool. Acknowledge each in visualSourcesReviewed with method, locator and observations, and attest it in its clause row\'s evidence (evidenceRule); never invent line/quote for pixels.'
+      : 'Inspect exact visualSources[].absolutePath with an actual native image/PDF tool. Acknowledge each in visualSourcesReviewed with method, locator and observations. A covered row cites sourceId and attestation naming the page/region and observed behavior; never invent line/quote for pixels.' } : {}),
     ...(input.kind === 'code' ? {
       checks: [
         '(a) Plan: each delivered clause is implemented where its plan row says (cite file:line in implementation); review every changed path no plan row names as supporting or out-of-scope.',
@@ -156,7 +173,9 @@ export function sourceReviewCitationGuide(input) {
         '(c) Quality and security: acknowledge every context.code.quality result ID in qualityReviewed; raise a blocking quality finding for one that must be fixed.',
         '(d) Readability and design: your judgement, proportionate. Advisory by default; blocking only for a real maintainability defect, named in defect.'
       ],
-      findingRule: 'Every finding names its check and cites a changed file: sourceId (its sources[].id, copied exactly; it is not derivable from the path), line and an exact quote; name the clauseId for plan and tests findings.'
+      findingRule: 'Every finding names its check and cites a changed file: sourceId (its sources[].id, copied exactly; it is not derivable from the path), line and an exact quote; name the clauseId for plan and tests findings.',
+      ...(evidenceFiles.length ? { evidenceFiles,
+        evidenceRule: 'Some clauses are proved by a file the plan keeps as evidence, such as a screenshot, not by code. Open each file in evidenceFiles with your image or PDF tool and list it in visualSourcesReviewed with what you looked at and what you saw. Then, in that clause\'s row, add it to evidence: { "sourceId": "<its id>", "attestation": "<the part you looked at and what it shows>" }. Cite the clause\'s test in tests as usual; implementation may stay empty. If the file does not show what the clause asks, set assessment to not-implemented and add a blocking plan finding with that sourceId and attestation (no line or quote).' } : {})
     } : {}),
     ...(input.kind === 'document' ? {
       mappingRule: 'Give each pinned source at least one cited row: consistent where the document agrees with it, inconsistent (with note) where it does not, question (with note) where it is unclear.'

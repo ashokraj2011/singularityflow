@@ -654,7 +654,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // Epic's own next step (sequence.mjs storyNextDetails and storyClosedRefusal +1,301, its throw sites in state.mjs,
     // story-lineage.mjs, phase-lifecycle.mjs and initiative-state.mjs, +2,105), which writes an open next version first;
     // and a step the kernel builds routed straight to its generator (commands/nextsteps.mjs, +300). No new eager file.
-    assert.ok(closure.bytes <= 9_688_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,694,550 (measured 9,694,548): SPEC-OSA stage 1 (+6,374): one "being written" test and its uses
+    // (phase-generation-need.mjs stepBeingWritten, submission-readiness.mjs, sequence.mjs, guide.mjs, nextsteps.mjs), submit
+    // refusing while a next version is open (state.mjs), the edit permission's own next instead of recover
+    // (phase-mutation-contract.mjs), the step's work command on its refusals and task routes (generation-boundary.mjs,
+    // source-review-lifecycle.mjs, code-delivery-policy.mjs opensCodeVersion, safe-command-guidance.mjs, command-skills.mjs)
+    // and no containment beside a refusal that writes the step (refusal-remediation.mjs) [OSA Stage 1]. No new eager file.
+    assert.ok(closure.bytes <= 9_694_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1013,7 +1019,10 @@ test('the common session projection does not import attach, state stores or publ
   // (git-query.mjs +520) and `phase rollover` as the step author's route, with its step in the Copilot route
   // (code-delivery-policy.mjs +457, copilot-guidance.mjs +466, command-skills.mjs +326, safe-command-guidance.mjs +260,
   // +1,509). No new eager file.
-  assert.ok(current.bytes <= 4_271_500, `session current loads ${current.bytes} source bytes`);
+  // 4,273,400 (measured 4,273,377): SPEC-OSA stage 1 (+1,915): the one "being written" test (phase-generation-need.mjs),
+  // the open-version helper (code-delivery-policy.mjs) and the step's work command on the task's own entry
+  // (workflow-task-store.mjs, phase-authoring-progress.mjs) [OSA Stage 1]. No new eager file.
+  assert.ok(current.bytes <= 4_273_400, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

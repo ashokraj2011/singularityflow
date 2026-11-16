@@ -10,7 +10,9 @@
  */
 import { escape } from './webview.ts';
 import type { InboundMessage } from './messages.ts';
-import { optionRow, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
+import { checkOf, laterOf, optionRow, plainWords, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
+
+export { checkOf, laterOf, plainWords };
 
 /** What the person has entered, by the item's title: IDs are renumbered when the list changes. A render never loses it. */
 export type DecideDraft = ReadonlyMap<string, { option: string; reason: string; cause: string; expires: string; clause: string; article: DecisionArticleAnswer[] }>;
@@ -19,18 +21,6 @@ const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
 const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const witnesses = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
 
-type PlainWords = NonNullable<DecisionItemPacket['plain']>;
-/** An item's plain words from the engine, or, from an engine before them, its title, first sentence of why and recommendation. */
-export function plainWords(item: DecisionItemPacket): PlainWords {
-  if (item.plain && (item.plain.question || item.plain.later || item.plain.settled)) return item.plain;
-  if (item.settled) return { settled: `${item.title.replace(/[.!?]+$/u, '')}. Undo if wrong.` };
-  const why = String(item.why ?? '').replace(/\s+/gu, ' ').trim();
-  return { question: item.title, why: why.split(/(?<=[.!?])\s+/u)[0] ?? why, recommended: item.recommended?.words ?? null };
-}
-/** The check SFlow runs itself before it recommends, offered first; null once it has a result. */
-export const checkOf = (item: DecisionItemPacket) => (item.check && item.check.status !== 'checked' ? item.check : null);
-/** Nobody can answer it yet: a "Later:" line, never a row. */
-export const laterOf = (item: DecisionItemPacket): string | null => plainWords(item).later ?? null;
 /** The checks this page's read waits on, in words ("run the tests on Node 22"). */
 export const checkNames = (packet: DecisionPacket): string[] => decideRows(packet).filter((item) => checkOf(item) && item.decidedBy?.allowed)
   .map((item) => checkOf(item)!.label.replace(/^Check first: /u, ''));

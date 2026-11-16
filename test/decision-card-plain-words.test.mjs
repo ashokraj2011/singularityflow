@@ -18,6 +18,8 @@ import { withPlainWords } from '../src/decision-plain.mjs';
 import { recordSettledDecision } from '../src/settled-decisions.mjs';
 import { CHECK_FIRST_SECONDS, CHECK_SECONDS, decisionsTable, directForm, directItem, firstForm, KEEP_SETTLED, LEAVE, RECORD, runCard } from '../plugin/extensions/decisions/card.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
+import { buildDecisionListView } from '../apps/vscode/src/views/decision-list-model.ts';
+import { decisionListHtml } from '../apps/vscode/src/views/decision-list-page.ts';
 
 const AT = '2026-11-16T09:20:00.000Z';
 const W = 'WORK-7';
@@ -91,7 +93,8 @@ test('before SFlow could check: "Check first" is recommended and offered first, 
 test('every host says the same plain words, and none of the incident\'s', () => {
   for (const packet of [BEFORE, AFTER]) {
     const node = packet.items.find((entry) => entry.kind === 'node-pin');
-    const hosts = [['Copilot CLI', decisionsTable(packet)], ['terminal', packetText(packet)], ['VS Code', text(decideHtml(packet))]];
+    const hosts = [['Copilot CLI', decisionsTable(packet)], ['terminal', packetText(packet)], ['VS Code', text(decideHtml(packet))],
+      ['VS Code Decisions page', text(decisionListHtml(buildDecisionListView(packet)))]];
     for (const [host, shown] of hosts) {
       for (const line of [node.plain.question, node.plain.why, node.plain.recommended, 'Later: Sign off AC-001 after Implementation publishes its screenshot.',
         `SFlow opened ${W} because its branch is the one checked out here. Undo if wrong.`]) assert.ok(shown.includes(line), `${host} lacks: ${line}\n${shown}`);
@@ -171,7 +174,7 @@ test('several items are named on the first form, in grammar', () => {
 });
 
 test('SFlow runs each check within its time, skips what it already knows, and a check that fails leaves "Check first"', async () => {
-  assert.deepEqual(PROBE_KINDS, ['node-pin'], 'the kinds whose answer SFlow checks itself');
+  assert.deepEqual(PROBE_KINDS, ['node-pin', 'test-run-risk'], 'the kinds whose answer SFlow checks itself');
   assert.deepEqual([probeSeconds(undefined), probeSeconds('5'), probeSeconds('100000'), probeSeconds('soon')], [DEFAULT_SECONDS, 5, LONGEST_SECONDS, DEFAULT_SECONDS]);
   assert.deepEqual(itemsToCheck(AFTER), [], 'a checked answer is never checked again');
   assert.deepEqual(itemsToCheck(BEFORE).map((item) => item.id), ['d1']);
@@ -186,4 +189,44 @@ test('SFlow runs each check within its time, skips what it already knows, and a 
   assert.deepEqual(await runDecisionProbes('/repo', BEFORE, { seconds: 0, now: () => clock, probes }), { ran: [] });
   // A check that throws is not checked: the item keeps "Check first".
   assert.deepEqual(await runDecisionProbes('/repo', BEFORE, { seconds: 45, now: () => clock, probes: { 'node-pin': async () => { throw new Error('no Node 22 here'); } } }), { ran: [] });
+});
+
+// A test-run risk asks the same of the commit the Story started from: does it fail without this change too? [owner, 2026-11-16]
+const riskOf = (base) => withPlainWords(story(), decisionPacket(story(), { phaseId: 'implementation', gaps: [], issues: [], pending: {}, state: {},
+  testRisks: [{ phase: 'implementation', commandId: 'unit', attemptId: 'TA-1', status: 'blocked', exitCode: 1, argvSha256: null, lapsed: null, causeClass: 'browser-missing', ...(base ? { base } : {}) }] },
+{ authorities: story().resolution.approvalAuthorities, actor: { name: 'Person', email: 'person@example.invalid' }, at: AT })).items.find((item) => item.kind === 'test-run-risk');
+
+test('a test-run risk recommends from SFlow\'s run without the change, or "Check first" until it has one', () => {
+  const unknown = riskOf({ status: 'unknown' });
+  assert.deepEqual([unknown.check.label, unknown.recommended.check], ['Check first: run unit without this change', true]);
+  assert.equal(unknown.plain.recommended, 'Recommended: Check first. Whether it fails without this change too is not known yet.');
+  assert.equal(riskOf({ status: 'unknown', cutShort: true, seconds: 60 }).plain.recommended, 'Recommended: Check first. The check did not finish within 60 seconds.');
+  // It fails there too: the change is not the cause, so accepting the risk until a date is what SFlow recommends.
+  const there = riskOf({ status: 'checked', verdict: 'fails-on-base' });
+  assert.deepEqual([there.check, there.recommended.option], [undefined, 'accept-test-risk']);
+  assert.equal(there.plain.recommended, 'Recommended: Accept that these tests cannot run here, until a date. It fails without this change too (checked), so the change is not the cause.');
+  // It passes there: the change is what stops it, so the step repairs it.
+  assert.equal(riskOf({ status: 'checked', verdict: 'passes-on-base' }).plain.recommended,
+    'Recommended: Don\'t accept it: it passes without this change (checked), so repair it in Implementation.');
+  assert.match(riskOf({ status: 'checked', verdict: 'partly-on-base' }).plain.recommended, /^Recommended: Repair what fails only with this change in Implementation; the rest fails without it too \(checked\)\.$/u);
+  // No base to compare with: what it recommended before.
+  assert.match(riskOf(null).plain.recommended, /^Recommended: Fix the environment and run unit again\./u);
+  assert.equal(riskOf(null).check, undefined);
+  for (const item of [unknown, there]) assert.doesNotMatch(JSON.stringify(item.plain), /sha256|[a-f0-9]{12}/u, 'no hash for a person');
+});
+
+test('the VS Code Decisions page says it the same way: question, why, Recommended, Later and Settled, with the check first', () => {
+  const html = decisionListHtml(buildDecisionListView(BEFORE));
+  const page = text(html);
+  assert.ok(page.includes('Run Implementation\'s tests on Node 22?'), page);
+  assert.ok(page.includes('Recommended: Check first. The check did not finish within 60 seconds.'), page);
+  assert.match(html, /data-check-item="d1">Check first: run the tests on Node 22 <span class="pill ok">Recommended<\/span><\/button>/u);
+  assert.equal(page.split('Later: Sign off AC-001 after Implementation publishes its screenshot.').length - 1, 1);
+  assert.doesNotMatch(html, /data-item="d2"/u, 'the sign-off nobody can give yet is no item of its own');
+  assert.ok(page.includes(`SFlow opened ${W} because its branch is the one checked out here. Undo if wrong.`), page);
+  assert.match(html, /<details class="dl-detail"><summary>What it rests on<\/summary>/u, 'its evidence behind a detail');
+  assert.equal(buildDecisionListView(BEFORE).headline, 'One question for you.');
+  assert.equal(buildDecisionListView(BEFORE).checking, true);
+  assert.equal(buildDecisionListView(AFTER).checking, false);
+  for (const word of JARGON) assert.doesNotMatch(page, word);
 });

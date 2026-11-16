@@ -515,6 +515,11 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   }
   let evidence = [];
   const tests = await testRisks(root, config, workflow, phase, at);
+  // A list a person answers reads what SFlow's run of each at-risk command on the base commit found (decision-probes.mjs).
+  if (answering && tests.risks.length) {
+    const base = await (await import('./verification/base-run.mjs')).baseCheckFacts(root, config, workflow, phase, tests.risks.map((risk) => risk.commandId)).catch(() => new Map());
+    tests.risks = tests.risks.map((risk) => (base.has(risk.commandId) ? { ...risk, base: base.get(risk.commandId) } : risk));
+  }
   const requests = (workflow.testCommandDecisions ?? []).length
     ? (await import('./story-test-commands.mjs')).pendingStoryTestCommands(workflow, phase.id) : [];
   const commandReviews = requests.some(request => request.repin)

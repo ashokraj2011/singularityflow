@@ -15,7 +15,9 @@
  * The list is then read again and the item recommends from the result ("Tests pass on Node 22 (checked)"). A check
  * that cannot finish in time leaves "Check first" recommended, offered as the item's first option.
  *
- * Which kinds have one: PROBE_KINDS. A kind joins by naming what runs its check, below; nothing else changes.
+ * Which kinds have one: PROBE_KINDS: a Node pin (`tests node`: do the tests pass on that Node?) and a test-run risk
+ * (`tests base`: does the command fail without this change too?). A kind joins by naming what runs its check, below.
+ * Its item carries `check` until its own reader finds an answer kept for it.
  */
 export const DEFAULT_SECONDS = 60;
 export const LONGEST_SECONDS = 900;
@@ -25,6 +27,11 @@ const PROBES = Object.freeze({
   'node-pin': async (root, packet, item, seconds) => {
     const { tryStoryNode } = await import('./commands/tests.mjs');
     await tryStoryNode(root, { 'work-id': packet.workId, phase: item.details.phase, node: String(item.details.version), within: String(seconds) });
+  },
+  // Does the command fail without this change too, on the commit the Story started from (`tests base`)?
+  'test-run-risk': async (root, packet, item, seconds) => {
+    const { tryStoryBase } = await import('./commands/tests.mjs');
+    await tryStoryBase(root, { 'work-id': packet.workId, phase: item.details.phase, command: item.details.commandId, within: String(seconds) });
   }
 });
 

@@ -157,7 +157,7 @@ function why(workflow, item) {
     case 'plan-accounting':
       return details.path ? `${details.path} changed, and no row of the plan names it.` : plainSentence(item.why);
     case 'test-run-risk':
-      return `Its latest run stopped because of this machine, so it says nothing about the change${waits ? `; ${waits}` : ''}.`;
+      return `Its latest run stopped on what looks like this machine, not the change${waits ? `; ${waits}` : ''}.`;
     case 'scope-completeness':
       return 'Nothing waits on it; it records that you looked for what is missing or unclear.';
     case 'approval':

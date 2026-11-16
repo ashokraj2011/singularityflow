@@ -275,7 +275,7 @@ test('every host shows the recommendation and what each choice does; the approva
   assert.match(await readFile(new URL('../apps/vscode/src/views/decide-card.ts', import.meta.url), 'utf8'), /'decide\.approval': \(\) => \{ void vscode\.commands\.executeCommand\('singularityFlow\.openApprovals'\); \}/u);
   // VS Code's Decisions page.
   const page = decisionListHtml(buildDecisionListView({ ...awaiting, packetSha256: `sha256:${'b'.repeat(64)}` }));
-  assert.match(page, /<p class="dl-rec">[\s\S]*Recommended first: fix the environment/u);
+  assert.match(page, /<p class="dl-rec">[\s\S]*Recommended: Fix the environment and run unit again\./u);
   assert.match(page, /data-approval-open="d\d+">Review and approve<\/button>/u);
   assert.match(DECISION_LIST_SCRIPT, /decisions\.approval/u);
   assert.match(await readFile(new URL('../apps/vscode/src/views/decision-list.ts', import.meta.url), 'utf8'), /'decisions\.approval': \(\) => \{ void vscode\.commands\.executeCommand\('singularityFlow\.openApprovals'\); \}/u);

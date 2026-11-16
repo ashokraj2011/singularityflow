@@ -205,8 +205,25 @@ export function itemRecommendation(workflow, item) {
         : details.tried === false ? lean(`leave it: tests fail on Node ${details.version} too (checked), so the Node is not the cause.`)
           : checkFirst(details.probe?.cutShort ? `The check did not finish within ${details.probe.seconds} second${details.probe.seconds === 1 ? '' : 's'}.`
             : `Whether the tests pass on Node ${details.version} is not known yet.`);
-    case 'test-run-risk':
+    case 'test-run-risk': {
+      // From SFlow's own run of the same command on the commit this Story started from (`tests base`) [owner, 2026-11-16].
+      const base = details.base;
+      const step = stepName(workflow, details.phase);
+      if (base?.status === 'checked' && base.verdict === 'fails-on-base') {
+        return rec(item, 'accept-test-risk', 'It fails without this change too (checked), so the change is not the cause.');
+      }
+      if (base?.status === 'checked' && base.verdict === 'passes-on-base') {
+        return lean(`don't accept it: it passes without this change (checked), so repair it in ${step}.`);
+      }
+      if (base?.status === 'checked' && base.verdict === 'partly-on-base') {
+        return lean(`repair what fails only with this change in ${step}; the rest fails without it too (checked).`);
+      }
+      if (base && base.status !== 'checked') {
+        return checkFirst(base.cutShort ? `The check did not finish within ${base.seconds} second${base.seconds === 1 ? '' : 's'}.`
+          : `Whether it fails without this change too is not known yet.`);
+      }
       return first(`fix the environment and run ${details.commandId ?? 'the tests'} again. Accept it only if this environment cannot run them before the date: the run stays failed either way.`);
+    }
     case 'test-narrowing':
       return first(`remove the narrowing and run ${details.commandId ?? 'the tests'} again. Accept it only if the narrowed run covers everything this step changed.`);
     case 'test-command': {

@@ -25,7 +25,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 17
+version: 18
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -61,10 +61,16 @@ question. Each thing SFlow settled for you is one line ending "Undo if wrong."
 
 Every item recommends. Where the right answer depends on a check SFlow can run itself, it runs that check
 before it asks: read-only, recording nothing as evidence, at most 60 seconds, and only once for the same
-code. Today one kind has such a check: **which Node the tests run on** (`tests node`). The card then says,
-for example, "Tests pass on Node 22 (checked)" and recommends pinning it. When the check cannot finish in
-time, the recommendation is **Check first**, offered as the first option; choosing it gives the check up to
-15 minutes and asks again with what it found. Your own terminal's `singularity-flow decisions` runs the
+code. Two kinds have such a check:
+
+- **Which Node the tests run on** (`tests node`): the card says, for example, "Tests pass on Node 22
+  (checked)" and recommends pinning it.
+- **Tests that could not run here** (`tests base`: does the same command fail without this change, on the
+  commit the Story started from?): when it fails there too, the change is not the cause and accepting the
+  risk until a date is recommended; when it passes there, the card recommends repairing it in the step.
+
+When a check cannot finish in time, the recommendation is **Check first**, offered as the first option;
+choosing it gives the check up to 15 minutes and asks again with what it found. Your own terminal's `singularity-flow decisions` runs the
 same check (`--no-probe` skips it); `--json` runs it only with `--probe` (`--probe-wait SECONDS` bounds it).
 
 ## Settled for you

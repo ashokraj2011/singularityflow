@@ -17,7 +17,7 @@ import { optionBoolean, optionString, optionStrings, SingularityFlowError } from
 const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node']);
 const OPTIONS = Object.freeze({
   plan: ['capability', 'work-id', 'phase', 'command', 'json'],
-  base: ['work-id', 'phase', 'command', 'json'],
+  base: ['work-id', 'phase', 'command', 'within', 'json'],
   node: ['work-id', 'phase', 'command', 'node', 'within', 'json'],
   run: ['capability', 'work-id', 'phase', 'command', 'environment', 'expect-command', 'json'],
   summary: ['capability', 'work-id', 'phase', 'run', 'latest', 'json']
@@ -627,11 +627,30 @@ async function planStory(root, options) {
   };
 }
 
+/** `--within SECONDS`: a check's own time in all, or null; each command's timeout is cut to what is left of it. */
+function withinOf(options, subcommand) {
+  const within = optionString(options, 'within', null);
+  const seconds = within === null ? null : Number(within);
+  if (within !== null && (!Number.isInteger(seconds) || seconds < 1 || seconds > 7200)) fail(`tests ${subcommand} --within takes whole seconds from 1 to 7200; '${String(within).slice(0, 20)}' is not.`);
+  return seconds;
+}
+
+/** `command` with its timeout cut to what is left before `deadline`; the command itself when there is none. */
+const boundedCommand = (command, deadline) => (deadline === null ? command
+  : { ...command, timeoutMs: Math.max(1000, Math.floor(Math.min(command.timeoutMs ?? Number.POSITIVE_INFINITY, deadline - Date.now()))) });
+/** Whether the time, not the command's own limit, ended the run. */
+const cutByTime = (check, bounded, command) => check.timedOut === true && bounded !== command && bounded.timeoutMs < (command.timeoutMs ?? Number.POSITIVE_INFINITY);
+
 /**
  * `tests base`: does this also fail without the Story's change? Each command once on the base commit,
  * compared with the step's latest run. See src/verification/base-run.mjs: it runs no gate and records no attempt.
+ *
+ * The decisions card asks it itself before it recommends on a test-run risk (decision-probes.mjs), `--within SECONDS`:
+ * a run the time cut short is said so and never kept as an answer [owner, 2026-11-16].
  */
-async function baseStory(root, options) {
+export async function tryStoryBase(root, options) {
+  const seconds = withinOf(options, 'base');
+  const deadline = seconds === null ? null : Date.now() + seconds * 1000;
   const [state, { localTestRunKernel: kernel }, { baseComparison, failedNames, runOnBase, storyBaseCommit }, { stepAttempts }, { workDirRelative }, { nodeVersion }, { parseTestResult }, { realpath }] = await Promise.all([
     import('../local-test-runs.mjs'), import('../state-stores.mjs'), import('../verification/base-run.mjs'), import('../verification/attempts.mjs'),
     import('../story-paths.mjs'), import('../test-toolchain.mjs'), import('../code-delivery-tests.mjs'), import('node:fs/promises')]);
@@ -649,9 +668,12 @@ async function baseStory(root, options) {
     const here = latest && latest.status !== 'passed' ? failedNames(latest.occurrences) : [];
     const cwd = path.join(root, command.workingDirectory ?? '.');
     const version = await nodeVersion('node', { cwd, environment: process.env }).catch(() => null);
-    const result = await runOnBase(root, command, { baseCommit, nodeVersion: version, gateRun: async (workspace) => {
-      const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [command], { candidateRoot: await realpath(workspace), candidateIsOtherCode: true });
+    const result = await runOnBase(root, command, { baseCommit, nodeVersion: version, within: seconds, gateRun: async (workspace) => {
+      if (deadline !== null && deadline - Date.now() < 1000) return { cutShort: true, why: `it did not start within ${seconds} seconds` };
+      const bounded = boundedCommand(command, deadline);
+      const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [bounded], { candidateRoot: await realpath(workspace), candidateIsOtherCode: true });
       try {
+        if (cutByTime(check, bounded, command)) return { cutShort: true, why: `it did not finish within ${seconds} seconds` };
         const parsed = await parseTestResult(root, command, { startedAt: check.startedAt }).catch(() => null);
         return { check, parsed, reportError: parsed ? null : 'SFlow could not read a report from this run.' };
       } finally { await kernel.restoreTransientQualityResult(check); }
@@ -673,9 +695,7 @@ async function baseStory(root, options) {
  * found on (nodeProbeState), so the same code is never checked twice.
  */
 export async function tryStoryNode(root, options) {
-  const within = optionString(options, 'within', null);
-  const seconds = within === null ? null : Number(within);
-  if (within !== null && (!Number.isInteger(seconds) || seconds < 1 || seconds > 7200)) fail(`tests node --within takes whole seconds from 1 to 7200; '${String(within).slice(0, 20)}' is not.`);
+  const seconds = withinOf(options, 'node');
   const deadline = seconds === null ? null : Date.now() + seconds * 1000;
   const version = String(optionString(options, 'node', '') ?? '').replace(/^v/u, '');
   const [{ installedNodeOfMajor, keepNodeTry, NODE_PIN_FILE, nodePinVersion }, { installedNodeVersions }] = await Promise.all([
@@ -702,8 +722,6 @@ export async function tryStoryNode(root, options) {
       results.push({ commandId: command.id, status: 'not-run', cutShort: true, why: `it did not start within ${seconds} seconds` });
       continue;
     }
-    // What is left of the time, never more than the command's own limit: the run then ends as a timed-out gate does.
-    const bounded = left === null ? command : { ...command, timeoutMs: Math.max(1000, Math.floor(Math.min(command.timeoutMs ?? Number.POSITIVE_INFINITY, left))) };
     const candidate = await materializeCandidate(root, { included, treeHash: async () => 'not-compared' });
     if (!candidate.available) {
       results.push({ commandId: command.id, status: 'not-run', why: candidate.reason });
@@ -711,13 +729,14 @@ export async function tryStoryNode(root, options) {
     }
     try {
       await writeFile(path.join(candidate.root, NODE_PIN_FILE), `${major}\n`);
+      // What is left of the time, never more than the command's own limit: the run then ends as a timed-out gate does.
+      const bounded = boundedCommand(command, deadline);
       const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [bounded], { candidateRoot: candidate.root, candidateIsOtherCode: true });
       try {
         const parsed = await parseTestResult(root, command, { startedAt: check.startedAt }).catch(() => null);
         // Exit 127 is the shell finding no runner in the copy: that says nothing about this Node. Nor does a run the
         // time cut short, unless its own limit was what ended it.
-        const cut = check.timedOut === true && bounded !== command && bounded.timeoutMs < (command.timeoutMs ?? Number.POSITIVE_INFINITY);
-        results.push(cut ? { commandId: command.id, status: 'not-run', cutShort: true, tests: null, why: `it did not finish within ${seconds} seconds` }
+        results.push(cutByTime(check, bounded, command) ? { commandId: command.id, status: 'not-run', cutShort: true, tests: null, why: `it did not finish within ${seconds} seconds` }
           : check.exitCode === 127 && !parsed?.tests ? { commandId: command.id, status: 'not-run', exitCode: 127, tests: null, why: 'its runner was not found in the throwaway copy of this checkout' }
           : { commandId: command.id, status: check.status, exitCode: check.exitCode ?? null, tests: parsed?.tests ?? null });
       } finally { await kernel.restoreTransientQualityResult(check); }
@@ -805,7 +824,7 @@ export async function run(_argv, { positionals, options = {} }) {
   }
   if (subcommand === 'base') {
     if (!story) fail('tests base compares a Story step with the commit it started from; name it with --work-id.');
-    const result = await baseStory(root, options);
+    const result = await tryStoryBase(root, options);
     if (json) console.log(JSON.stringify(result, null, 2));
     else {
       console.log(`${result.scope.workId} step ${result.scope.phase}, against its base commit ${result.baseCommit.slice(0, 12)}. This is a fact for a person: it is not evidence and refuses nothing.`);

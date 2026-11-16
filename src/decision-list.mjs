@@ -514,14 +514,23 @@ function evidenceItem(workflow, context, entry) {
   };
 }
 
-/** One item for a test command of a step whose latest run the environment stopped, by its classified cause. */
+/**
+ * One item for a test command of a step whose latest run the environment stopped, by its classified cause. Whether it
+ * fails without this change too is SFlow's own run on the base commit (`tests base`), run before the card asks
+ * (decision-probes.mjs) [owner, 2026-11-16]; until it has that answer the item carries `check`, offered first.
+ */
 function testRiskItem(workflow, context, risk) {
   const name = stepName(workflow, risk.phase);
   const stopped = risk.status === 'blocked' ? 'was blocked' : 'failed';
   const exit = Number.isInteger(risk.exitCode) ? ` (exit code ${risk.exitCode})` : '';
   const because = risk.causeClass ? `: ${testRunCauseWords(risk.causeClass)} (${risk.causeClass})` : '';
+  const base = risk.base ?? null;
   return {
     kind: 'test-run-risk',
+    ...(base && base.status !== 'checked' ? { check: { kind: 'base-tests', status: base.status, label: `Check first: run ${risk.commandId} without this change`,
+      does: 'SFlow runs them once on the commit this Story started from; nothing is recorded.',
+      command: `singularity-flow tests base --work-id ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId}`,
+      ...(base.cutShort ? { cutShort: true, seconds: base.seconds } : {}) } } : {}),
     title: `${name}'s tests could not run here (${risk.commandId})`,
     why: `The latest run of ${risk.commandId} ${stopped}${exit} from the environment${because}, so it says nothing about the change.`
       + `${risk.lapsed ? ` An earlier acceptance ${risk.lapsed === 'expired' ? 'expired' : 'was revoked'}.` : ''}`
@@ -536,7 +545,7 @@ function testRiskItem(workflow, context, risk) {
         expires: expiryNeed(context.at, { endOfDay: true }) }
     })],
     details: { phase: risk.phase, commandId: risk.commandId, attemptId: risk.attemptId ?? null, status: risk.status, exitCode: risk.exitCode ?? null,
-      causeClass: risk.causeClass ?? null,
+      causeClass: risk.causeClass ?? null, ...(base ? { base } : {}),
       commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId}${risk.causeClass ? ` --cause-class ${risk.causeClass}` : ''} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
   };
 }

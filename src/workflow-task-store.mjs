@@ -15,7 +15,7 @@ import { assertConfirmation } from './text-lines.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+import { phaseInspectionGeneration } from './phase-generation-need.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 
 const directory = root => path.join(gitCommonDir(root), 'singularity-flow', 'workflow-tasks');

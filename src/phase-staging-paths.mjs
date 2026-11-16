@@ -8,7 +8,7 @@
  * Each path is one exact file, never a directory.
  */
 import path from 'node:path';
-import { phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+import { phaseInspectionGeneration } from './phase-generation-need.mjs';
 import { intentAmendmentSource, sourceReviewKind } from './phase-roles.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 

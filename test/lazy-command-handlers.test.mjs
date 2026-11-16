@@ -1027,7 +1027,11 @@ test('the common session projection does not import attach, state stores or publ
   // the open-version helper (code-delivery-policy.mjs) and the step's work command on the task's own entry
   // (workflow-task-store.mjs, phase-authoring-progress.mjs) [OSA Stage 1]. No new eager file.
   // 4,273,500 (measured 4,273,495): OSA v1 stage 1 merged on top of the batch and the direct upgrade [2026-11-16].
-  assert.ok(current.bytes <= 4_273_500, `session current loads ${current.bytes} source bytes`);
+  // 4,277,250 (measured 4,277,215, +3,720): SPEC-OSA v1.1 Stage 1 moves the version predicates into the kernel
+  // (kernel/step-versions.mjs, 4,727 bytes) and deletes phase-inspection-generation.mjs, so the file count stays 221. The
+  // moved bodies cost what they did; the rise is the new §4.3 checks (one opening number, bounded counters) and the record
+  // adapter (phase-generation-need.mjs versionFactsOf). The reducer (kernel/step-state.mjs) stays out of this closure.
+  assert.ok(current.bytes <= 4_277_250, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

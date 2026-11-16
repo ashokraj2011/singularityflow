@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { stepBeingWritten } from '../src/phase-generation-need.mjs';
-import { requiresProspectivePhaseInspection } from '../src/phase-inspection-generation.mjs';
+import { requiresProspectivePhaseInspection } from '../src/phase-generation-need.mjs';
 import { deriveMutationContract } from '../src/phase-mutation-contract.mjs';
 import { phaseAuthoringProgress } from '../src/phase-authoring-progress.mjs';
 import { sourceReviewContinuation } from '../src/source-review-continuation.mjs';

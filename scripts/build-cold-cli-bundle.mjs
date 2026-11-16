@@ -19,7 +19,10 @@ const FAMILIES = Object.freeze([
   // cli-entry.mjs imports the pause check and the Story creation context lazily; claimed here, they
   // stay in the startup chunk instead of moving a --for-agent read into another family.
   ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs', 'build-stamp-reader.mjs',
-    'commands/skill-request.mjs', 'commands/instruction-request.mjs', 'copilot-mode.mjs', 'creation-context.mjs']],
+    'commands/skill-request.mjs', 'commands/instruction-request.mjs', 'copilot-mode.mjs', 'creation-context.mjs',
+    // The pure step decision owner (SPEC-OSA v1.1, docs/osa/kernel-location.md): pinned to the startup chunk the hook
+    // bundle, the entry and next steps already load, so no family imports another's chunk for it.
+    'kernel/step-state.mjs', 'kernel/step-versions.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs',
     // The Story report's change impact counts, imported only by `report` and its read [CIC:REQ-017].

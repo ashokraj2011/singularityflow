@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { invariant, posix, SingularityFlowError } from './util.mjs';
+import { consumedByPublishedVersion, versionNumbers } from './kernel/step-versions.mjs';
 
 /** Pure selection, shared with the persistence API without importing that API. */
 export function currentPhase(workflow) {
@@ -14,30 +15,15 @@ export function groundingRecordRelative(definition, workflow, phase, generation 
   return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
 }
 
-/**
- * Whether a consumed generation intent is simply the receipt of the step's current published
- * generation: the state a return for rework leaves. Any other consumed intent is reviewed through
- * recovery first.
- */
-export function consumedByPublishedGeneration(phase) {
-  const intent = phase?.generationIntent;
-  return intent?.status === 'consumed' && Number(phase.generation) > 0
-    && Number(intent.generation) === Number(phase.generation);
-}
+/** A consumed intent that is simply the published version's receipt (a return for rework leaves this): kernel P-10. */
+export const consumedByPublishedGeneration = (phase) => consumedByPublishedVersion(phase ? { published: phase.generation,
+  opening: phase.generationIntent ? { status: phase.generationIntent.status, version: phase.generationIntent.generation } : null } : null);
 
-/**
- * A restored checkpoint selects earlier evidence; it does not make later publication identities
- * reusable. Keep the allocation watermark separate from the generation currently being reviewed.
- */
+/** max(generation, high-watermark) + 1, validated: the kernel's one version arithmetic (§4.3). Numbers are never reused. */
 export function nextPhaseGeneration(phase) {
-  const values = [phase?.generation, phase?.generationHighWatermark].map((value) => value === undefined ? 0 : value);
-  const counters = values.map((value) => typeof value === 'string' && /^(0|[1-9]\d*)$/u.test(value)
-    ? Number(value) : value);
-  if (counters.some((value) => !Number.isSafeInteger(value) || value < 0)
-      || Math.max(...counters) >= Number.MAX_SAFE_INTEGER) {
-    throw new SingularityFlowError('Phase generation counters must be nonnegative safe integers with room for a new generation.', {
-      code: 'GENERATION_COUNTER_INVALID'
-    });
-  }
-  return Math.max(...counters) + 1;
+  const numbers = versionNumbers({ published: phase?.generation, recordedHighWatermark: phase?.generationHighWatermark });
+  if (!numbers.ok) throw new SingularityFlowError('Phase generation counters must be nonnegative safe integers with room for a new generation.', {
+    code: 'GENERATION_COUNTER_INVALID'
+  });
+  return numbers.next;
 }

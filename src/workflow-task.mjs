@@ -2,7 +2,7 @@
 import { recordSha256 } from './records.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { hasPublishedPhaseGeneration, phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+import { hasPublishedPhaseGeneration, phaseInspectionGeneration } from './phase-generation-need.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { readRecord, currentSchemaVersion } from './schema-migrations.mjs';
 

@@ -1,0 +1,1483 @@
+{
+ "schemaVersion": 1,
+ "specification": "SPEC-OSA v1.1 Stage 1 golden fixtures (plan section 3 qualification): StepSnapshot/v1 facts and the StepDecision/v1 a reader of sections 4.3, 5 and 6 expects.",
+ "independence": "Every expected value was written by hand from SPEC-OSA v1.1 before the kernel ran on it. test/osa-stage1-kernel.test.mjs builds each snapshot with its own reader of these facts and imports nothing from src/ to do so.",
+ "defaults": "Story ST-1, phase order specification, design, implementation, verification, release; current step implementation unless currentPhase says otherwise; requested step = facts.phase; sources lifecycle and configuration verified; review required unless reviewRequired is false; review 'not-created' when absent; actor an agent author in an authoring turn.",
+ "phaseOrder": [
+  "specification",
+  "design",
+  "implementation",
+  "verification",
+  "release"
+ ],
+ "cases": [
+  {
+   "id": "G01",
+   "covers": "an open successor with publication history (code)",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    },
+    "review": {
+     "status": "correction-required",
+     "generation": 1
+    }
+   },
+   "expected": {
+    "state": "writing",
+    "version": {
+     "published": 1,
+     "writing": 2,
+     "highWatermark": 2,
+     "proposedNext": null
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": true,
+     "currentVersionPublished": false
+    },
+    "edit": {
+     "eligible": true,
+     "categories": [
+      "application",
+      "step-artifacts"
+     ]
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "author-version",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "inputs": {
+      "version": 2,
+      "from": 1
+     },
+     "then": [
+      "publish-version",
+      "start-review"
+     ]
+    }
+   },
+   "note": "Version 1 and its review stay as history; neither is offered as the current review or submission target (REQ-032)."
+  },
+  {
+   "id": "G02",
+   "covers": "an open successor with publication history (document)",
+   "facts": {
+    "phase": "design",
+    "kind": "document",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "writing",
+    "version": {
+     "published": 1,
+     "writing": 2,
+     "highWatermark": 2,
+     "proposedNext": null
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": true,
+     "currentVersionPublished": false
+    },
+    "edit": {
+     "eligible": true,
+     "categories": [
+      "step-artifacts"
+     ]
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "author-version",
+     "target": {
+      "phase": "design",
+      "version": 2
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "then": [
+      "publish-version",
+      "start-review"
+     ]
+    }
+   },
+   "currentPhase": "design"
+  },
+  {
+   "id": "G03",
+   "covers": "no prior publication (document)",
+   "facts": {
+    "phase": "design",
+    "kind": "document",
+    "status": "in_progress",
+    "generation": 0
+   },
+   "expected": {
+    "state": "not-started",
+    "version": {
+     "published": 0,
+     "writing": null,
+     "highWatermark": 0,
+     "proposedNext": 1
+    },
+    "publication": {
+     "hasPublishedVersion": false,
+     "hasOpenVersion": false,
+     "currentVersionPublished": false
+    },
+    "edit": {
+     "eligible": true,
+     "categories": [
+      "step-artifacts"
+     ]
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "open-version",
+     "target": {
+      "phase": "design",
+      "version": 1
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "inputs": {
+      "version": 1,
+      "consent": "not-required"
+     },
+     "then": [
+      "author-version",
+      "publish-version",
+      "start-review"
+     ]
+    }
+   },
+   "note": "Section 5 precedence 7: version 1 needs no successor consent; the work command's own turn opens it and writes.",
+   "currentPhase": "design"
+  },
+  {
+   "id": "G04",
+   "covers": "no prior publication (code): application edits wait for the opening",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 0
+   },
+   "expected": {
+    "state": "not-started",
+    "version": {
+     "published": 0,
+     "writing": null,
+     "highWatermark": 0,
+     "proposedNext": 1
+    },
+    "publication": {
+     "hasPublishedVersion": false,
+     "hasOpenVersion": false,
+     "currentVersionPublished": false
+    },
+    "edit": {
+     "eligible": true,
+     "categories": [
+      "step-artifacts"
+     ]
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "open-version",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "inputs": {
+      "version": 1,
+      "consent": "not-required"
+     }
+    }
+   }
+  },
+  {
+   "id": "G05",
+   "covers": "no prior publication, an abandoned reservation raised the watermark",
+   "facts": {
+    "phase": "design",
+    "kind": "document",
+    "status": "in_progress",
+    "generation": 0,
+    "generationHighWatermark": 2
+   },
+   "expected": {
+    "state": "not-started",
+    "version": {
+     "published": 0,
+     "writing": null,
+     "highWatermark": 2,
+     "proposedNext": 3
+    },
+    "publication": {
+     "hasPublishedVersion": false,
+     "hasOpenVersion": false,
+     "currentVersionPublished": false
+    },
+    "next": {
+     "kind": "person-consent",
+     "operation": "open-version",
+     "target": {
+      "phase": "design",
+      "version": 3
+     },
+     "principalKind": "human",
+     "role": "author",
+     "inputs": {
+      "version": 3,
+      "consent": "required"
+     }
+    }
+   },
+   "note": "Section 4.3: proposedNext = max(published, highWatermark) + 1; only the first reservation of version 1 omits consent (7.2).",
+   "currentPhase": "design"
+  },
+  {
+   "id": "G06",
+   "covers": "future-phase inspection names the current step's action",
+   "facts": {
+    "phase": "verification",
+    "kind": "document",
+    "status": "pending",
+    "generation": 0
+   },
+   "expected": {
+    "state": "not-started",
+    "version": {
+     "published": 0,
+     "writing": null,
+     "highWatermark": 0,
+     "proposedNext": 1
+    },
+    "publication": {
+     "hasPublishedVersion": false,
+     "hasOpenVersion": false,
+     "currentVersionPublished": false
+    },
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "author-version",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "agent",
+     "role": "author"
+    }
+   },
+   "current": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "note": "Section 4.2: a route to the current phase from an inspected future phase names the actual target."
+  },
+  {
+   "id": "G07",
+   "covers": "an approved earlier step's inspection names the current step's action",
+   "facts": {
+    "phase": "specification",
+    "kind": "document",
+    "status": "approved",
+    "generation": 1
+   },
+   "expected": {
+    "state": "approved",
+    "version": {
+     "published": 1,
+     "writing": null,
+     "highWatermark": 1,
+     "proposedNext": 2
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": false,
+     "currentVersionPublished": true
+    },
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "author-version",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "agent",
+     "role": "author"
+    }
+   },
+   "current": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   }
+  },
+  {
+   "id": "G08",
+   "covers": "the last phase with an open successor",
+   "facts": {
+    "phase": "release",
+    "kind": "document",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    },
+    "reviewRequired": false
+   },
+   "expected": {
+    "state": "writing",
+    "version": {
+     "published": 1,
+     "writing": 2,
+     "highWatermark": 2,
+     "proposedNext": null
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": true,
+     "currentVersionPublished": false
+    },
+    "edit": {
+     "eligible": true,
+     "categories": [
+      "step-artifacts"
+     ]
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "author-version",
+     "target": {
+      "phase": "release",
+      "version": 2
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "then": [
+      "publish-version",
+      "submit-version"
+     ]
+    }
+   },
+   "note": "C18: the Story's ending decisions do not come before writing the open version.",
+   "currentPhase": "release"
+  },
+  {
+   "id": "G09",
+   "covers": "submitted work",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "awaiting_approval",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    }
+   },
+   "expected": {
+    "state": "submitted",
+    "version": {
+     "published": 1,
+     "writing": null,
+     "highWatermark": 1,
+     "proposedNext": 2
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": false,
+     "currentVersionPublished": true
+    },
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "person-approval",
+     "operation": "approve-step",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "human",
+     "role": "approver"
+    }
+   }
+  },
+  {
+   "id": "G10",
+   "covers": "submitted work cannot be rolled over by an open successor",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "awaiting_approval",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "submitted",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "person-approval",
+     "operation": "approve-step",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "human",
+     "role": "approver"
+    }
+   },
+   "note": "Section 5 precedence 6 comes before 8."
+  },
+  {
+   "id": "G11",
+   "covers": "a hold that stops authoring names its owner and resolution",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    },
+    "holds": [
+     {
+      "code": "WRITER_OWNERSHIP_UNVERIFIED",
+      "owner": "person",
+      "blocks": [
+       "authoring"
+      ],
+      "resolution": "takeover-writer"
+     }
+    ]
+   },
+   "expected": {
+    "state": "held",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "person-decision",
+     "operation": "takeover-writer",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "human",
+     "role": "person",
+     "inputs": {
+      "hold": "WRITER_OWNERSHIP_UNVERIFIED"
+     }
+    }
+   }
+  },
+  {
+   "id": "G12",
+   "covers": "a hold on submission only stays a prerequisite of the primary action",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "review": {
+     "status": "ready",
+     "generation": 1
+    },
+    "holds": [
+     {
+      "code": "INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED",
+      "owner": "person",
+      "blocks": [
+       "submission"
+      ],
+      "resolution": "decide"
+     }
+    ]
+   },
+   "expected": {
+    "state": "review-ready",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "submit-version",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "prerequisites": [
+      {
+       "operation": "decide",
+       "principalKind": "human",
+       "code": "INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED"
+      }
+     ]
+    }
+   },
+   "note": "Section 5: a primary action does not erase the other obligations (REQ-005)."
+  },
+  {
+   "id": "G13",
+   "covers": "a revoked permission holds the step and asks for fresh authority",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "held",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "refresh",
+     "operation": "refresh-authority",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "human",
+     "role": "person",
+     "reasonCodes": [
+      "PERMISSION_REVOKED"
+     ]
+    }
+   },
+   "actor": {
+    "permissionsRevoked": true
+   }
+  },
+  {
+   "id": "G14",
+   "covers": "missing facts: the lifecycle record is unavailable",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "waiting",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "refresh",
+     "operation": "refresh-authority",
+     "target": {
+      "phase": "implementation",
+      "version": null
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "inputs": {
+      "source": "lifecycle"
+     },
+     "reasonCodes": [
+      "SOURCE_UNAVAILABLE"
+     ]
+    }
+   },
+   "sources": {
+    "lifecycle": "unavailable"
+   },
+   "note": "Section 4.1: unavailable never becomes an empty record or a permission grant (REQ-004)."
+  },
+  {
+   "id": "G15",
+   "covers": "missing facts: the configuration is missing",
+   "facts": {
+    "phase": "design",
+    "kind": "document",
+    "status": "in_progress",
+    "generation": 0
+   },
+   "expected": {
+    "state": "waiting",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "refresh",
+     "operation": "refresh-authority",
+     "target": {
+      "phase": "implementation",
+      "version": null
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "inputs": {
+      "source": "configuration"
+     },
+     "reasonCodes": [
+      "SOURCE_MISSING"
+     ]
+    }
+   },
+   "sources": {
+    "configuration": "missing"
+   },
+   "currentPhase": "implementation",
+   "requestedPhase": "design",
+   "note": "The waiting decision targets the Story's current step."
+  },
+  {
+   "id": "G16",
+   "covers": "missing facts: the lifecycle record is stale",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "waiting",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "refresh",
+     "operation": "refresh-authority",
+     "target": {
+      "phase": "implementation",
+      "version": null
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "reasonCodes": [
+      "SOURCE_STALE"
+     ]
+    }
+   },
+   "sources": {
+    "lifecycle": "stale"
+   }
+  },
+  {
+   "id": "G17",
+   "covers": "a confirmed corrupt source is damage",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "damaged",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "reconcile",
+     "operation": "recover-operation",
+     "target": {
+      "phase": "implementation",
+      "version": null
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "inputs": {
+      "source": "review"
+     },
+     "reasonCodes": [
+      "SOURCE_CORRUPT"
+     ]
+    }
+   },
+   "sources": {
+    "review": "corrupt"
+   }
+  },
+  {
+   "id": "G18",
+   "covers": "an unread review is refreshed, never taken as no review owed",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "review": "unavailable"
+   },
+   "expected": {
+    "state": "published",
+    "version": {
+     "published": 1,
+     "writing": null,
+     "highWatermark": 1,
+     "proposedNext": 2
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": false,
+     "currentVersionPublished": true
+    },
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "refresh",
+     "operation": "refresh-facts",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "inputs": {
+      "source": "review"
+     }
+    }
+   }
+  },
+  {
+   "id": "G19",
+   "covers": "an undecided amendment pauses the step",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    },
+    "pause": "IA-1"
+   },
+   "expected": {
+    "state": "paused",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "person-decision",
+     "operation": "decide",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "human",
+     "role": "person",
+     "inputs": {
+      "decision": "intent-amendment",
+      "id": "IA-1"
+     }
+    }
+   }
+  },
+  {
+   "id": "G20",
+   "covers": "a Story-level decision pauses the step",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "paused",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "person-decision",
+     "operation": "decide",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "human",
+     "role": "person",
+     "inputs": {
+      "decision": "story-decision"
+     }
+    }
+   },
+   "pendingDecision": "loop-1"
+  },
+  {
+   "id": "G21",
+   "covers": "a step returned for rework asks for its successor; its files stay writable until Stage 2's receipt",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "rework": 1
+   },
+   "expected": {
+    "state": "reopened",
+    "version": {
+     "published": 1,
+     "writing": null,
+     "highWatermark": 1,
+     "proposedNext": 2
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": false,
+     "currentVersionPublished": true
+    },
+    "edit": {
+     "eligible": true,
+     "categories": [
+      "step-artifacts"
+     ]
+    },
+    "next": {
+     "kind": "person-consent",
+     "operation": "open-version",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "human",
+     "role": "author",
+     "inputs": {
+      "version": 2,
+      "consent": "required",
+      "reason": "rework",
+      "opening": "return"
+     }
+    }
+   },
+   "note": "D3: a successor always needs the person's yes. LEGACY_SUCCESSOR_EDITS names the compatibility exception that Stage 2 removes."
+  },
+  {
+   "id": "G22",
+   "covers": "a rejected code step no person returned is previewed for consent",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "rejected": true
+   },
+   "expected": {
+    "state": "reopened",
+    "next": {
+     "kind": "person-consent",
+     "operation": "open-version",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "human",
+     "role": "author",
+     "inputs": {
+      "version": 2,
+      "consent": "required",
+      "reason": "rejected",
+      "opening": "successor-preview"
+     }
+    }
+   }
+  },
+  {
+   "id": "G23",
+   "covers": "a consumed opening that is not the published version's is damage",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 2,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "rework": 2
+   },
+   "expected": {
+    "state": "damaged",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "reconcile",
+     "operation": "recover-operation",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "reasonCodes": [
+      "STEP_DAMAGED",
+      "CONSUMED_OPENING_MISMATCH"
+     ]
+    }
+   },
+   "note": "REQ-003: recovery needs positive damage."
+  },
+  {
+   "id": "G24",
+   "covers": "a step SFlow builds itself runs its deterministic build",
+   "facts": {
+    "phase": "verification",
+    "kind": "kernel-document",
+    "status": "in_progress",
+    "generation": 0,
+    "reviewRequired": false
+   },
+   "expected": {
+    "state": "kernel-build",
+    "version": {
+     "published": 0,
+     "writing": null,
+     "highWatermark": 0,
+     "proposedNext": 1
+    },
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "build-version",
+     "target": {
+      "phase": "verification",
+      "version": 1
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "inputs": {
+      "producer": "deterministic",
+      "version": 1,
+      "consent": "not-required"
+     },
+     "then": [
+      "publish-version"
+     ]
+    }
+   },
+   "currentPhase": "verification"
+  },
+  {
+   "id": "G25",
+   "covers": "a published version awaiting its review",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "review": {
+     "status": "pending",
+     "generation": 1
+    }
+   },
+   "expected": {
+    "state": "in-review",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "review",
+     "operation": "start-review",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "agent",
+     "role": "reviewer"
+    }
+   }
+  },
+  {
+   "id": "G26",
+   "covers": "a reviewed version ready to submit",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "review": {
+     "status": "ready",
+     "generation": 1
+    }
+   },
+   "expected": {
+    "state": "review-ready",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "submit-version",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "agent",
+     "role": "author",
+     "prerequisites": []
+    }
+   }
+  },
+  {
+   "id": "G27",
+   "covers": "review corrections ask for the successor",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "review": {
+     "status": "correction-required",
+     "generation": 1
+    }
+   },
+   "expected": {
+    "state": "review-corrections",
+    "version": {
+     "published": 1,
+     "writing": null,
+     "highWatermark": 1,
+     "proposedNext": 2
+    },
+    "publication": {
+     "hasPublishedVersion": true,
+     "hasOpenVersion": false,
+     "currentVersionPublished": true
+    },
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "person-consent",
+     "operation": "open-version",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "human",
+     "role": "author",
+     "inputs": {
+      "version": 2,
+      "consent": "required",
+      "reason": "review-corrections"
+     }
+    }
+   }
+  },
+  {
+   "id": "G28",
+   "covers": "a review disposition waits for a person",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "review": {
+     "status": "disposition-required",
+     "generation": 1
+    }
+   },
+   "expected": {
+    "state": "paused",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "person-decision",
+     "operation": "decide",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "human",
+     "role": "person",
+     "inputs": {
+      "decision": "review-disposition"
+     }
+    }
+   }
+  },
+  {
+   "id": "G29",
+   "covers": "a review of another version is not this version's review",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 2,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 2
+    },
+    "review": {
+     "status": "correction-required",
+     "generation": 1
+    }
+   },
+   "expected": {
+    "state": "in-review",
+    "next": {
+     "kind": "review",
+     "operation": "start-review",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "agent",
+     "role": "reviewer"
+    }
+   }
+  },
+  {
+   "id": "G30",
+   "covers": "no review owed: submit",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "consumed",
+     "generation": 1
+    },
+    "reviewRequired": false
+   },
+   "expected": {
+    "state": "published",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "submit-version",
+     "target": {
+      "phase": "implementation",
+      "version": 1
+     },
+     "principalKind": "agent",
+     "role": "author"
+    }
+   }
+  },
+  {
+   "id": "G31",
+   "covers": "an opening beyond the next number is impossible",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 4
+    }
+   },
+   "expected": {
+    "state": "invalid",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "observe",
+     "operation": "inspect",
+     "target": {
+      "phase": "implementation",
+      "version": null
+     },
+     "principalKind": "human",
+     "role": "person",
+     "reasonCodes": [
+      "OPENING_AHEAD_OF_COUNTERS"
+     ]
+    }
+   }
+  },
+  {
+   "id": "G32",
+   "covers": "an opening at a used number applies to nothing",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationHighWatermark": 3,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "invalid",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "observe",
+     "operation": "inspect",
+     "target": {
+      "phase": "implementation",
+      "version": null
+     },
+     "principalKind": "human",
+     "role": "person",
+     "reasonCodes": [
+      "OPENING_NOT_APPLICABLE"
+     ]
+    }
+   },
+   "note": "Decision inventory S15: P-2 called it open and V-7 not; numbers are not reused (4.3)."
+  },
+  {
+   "id": "G33",
+   "covers": "bad counters are classified, never coerced",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": -1
+   },
+   "expected": {
+    "state": "invalid",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "observe",
+     "operation": "inspect",
+     "target": {
+      "phase": "implementation",
+      "version": null
+     },
+     "principalKind": "human",
+     "role": "person",
+     "reasonCodes": [
+      "GENERATION_COUNTER_INVALID"
+     ]
+    }
+   }
+  },
+  {
+   "id": "G34",
+   "covers": "a cancelled Story is inspected only",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "cancelled",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "none",
+     "operation": "none",
+     "principalKind": "human",
+     "role": "person"
+    }
+   },
+   "storyStatus": "cancelled"
+  },
+  {
+   "id": "G35",
+   "covers": "a complete Story has no current step",
+   "facts": {
+    "phase": "release",
+    "kind": "document",
+    "status": "approved",
+    "generation": 1
+   },
+   "expected": {
+    "state": "complete",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "none",
+     "operation": "none",
+     "principalKind": "human",
+     "role": "person"
+    }
+   },
+   "currentPhase": null,
+   "requestedPhase": "release"
+  },
+  {
+   "id": "G36",
+   "covers": "inputs from another step are not combined",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1
+   },
+   "expected": {
+    "state": "invalid",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "observe",
+     "operation": "inspect",
+     "reasonCodes": [
+      "SUBJECT_BINDING_MIXED"
+     ]
+    }
+   },
+   "requestedPhase": "design"
+  },
+  {
+   "id": "G37",
+   "covers": "an unadmitted record version is refused",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1
+   },
+   "expected": {
+    "state": "invalid",
+    "next": {
+     "kind": "observe",
+     "operation": "inspect",
+     "reasonCodes": [
+      "RECORD_VERSION_NOT_ADMITTED"
+     ]
+    }
+   },
+   "recordVersion": 99
+  },
+  {
+   "id": "G38",
+   "covers": "a review turn writes nothing of the step",
+   "facts": {
+    "phase": "implementation",
+    "kind": "code",
+    "status": "in_progress",
+    "generation": 1,
+    "generationIntent": {
+     "status": "open",
+     "generation": 2
+    }
+   },
+   "expected": {
+    "state": "writing",
+    "edit": {
+     "eligible": false
+    },
+    "next": {
+     "kind": "agent-work",
+     "operation": "author-version",
+     "target": {
+      "phase": "implementation",
+      "version": 2
+     },
+     "principalKind": "agent",
+     "role": "author"
+    }
+   },
+   "actor": {
+    "turnMode": "read-only-review",
+    "role": "reviewer"
+   }
+  }
+ ]
+}

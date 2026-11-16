@@ -117,7 +117,6 @@ export const ROLES = Object.freeze({
   'phase-generation-need.mjs': 'policy',
   'phase-generation.mjs': 'policy',
   'phase-governance-routing.mjs': 'policy',
-  'phase-inspection-generation.mjs': 'policy',
   'phase-mutation-contract.mjs': 'policy',
   'phase-prepublish.mjs': 'policy',
   'phase-prompt-composer.mjs': 'policy',

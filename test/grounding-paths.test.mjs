@@ -34,5 +34,5 @@ test('a read-only path lookup cannot pull composition, lifecycle review or input
   const command = await readFile(new URL('../src/commands/nextsteps.mjs', import.meta.url), 'utf8');
   assert.match(command, /import \{ groundingRecordRelative \} from '\.\.\/phase-generation\.mjs'/u);
   assert.doesNotMatch(command, /const \{ groundingRecordRelative \} = await import/u);
-  assert.match(command, /requiresProspectivePhaseInspection \} from '\.\.\/phase-inspection-generation\.mjs'/u);
+  assert.match(command, /requiresProspectivePhaseInspection \} from '\.\.\/phase-generation-need\.mjs'/u);
 });

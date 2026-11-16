@@ -1,47 +1,43 @@
 /**
- * Whether a phase needs a new generation before it can move on.
- *
- * Its own small module so the Copilot edit guard, which loads the phase mutation contract on every
- * tool call, does not load the sequence and narration graph (about 80 modules) for this one
- * predicate. sequence.mjs re-exports it unchanged.
+ * The Story record's adapter into the kernel's version predicates (kernel/step-versions.mjs) [OSA:REQ-002], with the old
+ * helpers as wrappers. Small, so the edit guard does not load the sequence graph; sequence.mjs re-exports it.
  */
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
+import { beingWritten, hasOpenVersion, needsVersion, publishedVersionRecorded } from './kernel/step-versions.mjs';
 
-/**
- * Whether the step's next version is open: confirmed and being written, not yet published. Its published version's
- * review asked for it and is already carried into it, so that review is not inspected or offered again.
- */
-export function successorGenerationOpen(phase) {
-  const intent = phase?.generationIntent;
-  return intent?.status === 'open' && Number.isSafeInteger(Number(intent.generation))
-    && Number(intent.generation) > Number(phase.generation ?? 0);
+/** A step's version facts from its record. Null for no step. */
+export function versionFactsOf(workflow, phase) {
+  if (!phase) return null;
+  const intent = phase.generationIntent, amendment = phase.skillAmendmentRevalidation;
+  return { status: phase.status, versionRequired: phase.generationPolicy?.requirement !== 'none', published: phase.generation,
+    recordedHighWatermark: phase.generationHighWatermark, opening: intent ? { status: intent.status, version: intent.generation } : null,
+    publicationRecorded: (phase.generationPublications ?? []).some(entry => Number(entry.generation) === Number(phase.generation) && entry.record?.path),
+    rework: phase.reworkRevalidation ? { version: phase.reworkRevalidation.generation } : null,
+    amendment: amendment?.state === 'affected' ? { baseline: amendment.generationAtAdoption } : null,
+    rejection: phase.rejectedAt ? { rewritten: (workflow?.history ?? []).some(event => event.phase === phase.id && event.event === 'phase_generated' && event.at > phase.rejectedAt) } : null,
+    authorConflict: sourceReviewAuthorConflict(workflow, phase),
+    changeRequestOpen: (workflow?.changeRequests ?? []).some(request => request.status === 'open' && request.targetPhase === phase.id),
+    intentAmendmentPending: Boolean(phase.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt) };
 }
 
-export function phaseNeedsGeneration(workflow, phase) {
-  if (sourceReviewAuthorConflict(workflow, phase)) return true;
-  // A reviewed skill-version amendment invalidates only its affected phases. Their earlier
-  // publication remains in the audit trail but is not fresh evidence under the new WFA pin.
-  const amendment = phase?.skillAmendmentRevalidation;
-  if (amendment?.state === 'affected') {
-    const baseline = amendment.generationAtAdoption;
-    if (!Number.isSafeInteger(baseline) || baseline < 0
-        || !Number.isSafeInteger(phase.generation) || phase.generation <= baseline) return true;
-  }
-  if (phase?.generationPolicy?.requirement === 'none') return false;
-  if (!phase || phase.generation < 1) return true;
-  if (phase.reworkRevalidation
-      && phase.generation <= phase.reworkRevalidation.generation) return true;
-  if (!phase.rejectedAt) return false;
-  return !(workflow.history ?? []).some((event) =>
-    event.phase === phase.id && event.event === 'phase_generated' && event.at > phase.rejectedAt);
-}
+const counters = (phase) => phase ? { published: phase.generation, recordedHighWatermark: phase.generationHighWatermark,
+  opening: phase.generationIntent ? { status: phase.generationIntent.status, version: phase.generationIntent.generation } : null } : null;
 
-/**
- * Whether the step is being written now: in progress, and it needs a version or its next version is open [OSA:REQ-002,
- * Stage 1]. The one answer the edit permission, the step's entry, its authoring task, the review continuation,
- * submission readiness, the sequence guidance and next steps give. Six tests disagreed about an open version 2: one
- * said "write it", another "review version 1" or "ready to submit", and the agent went round them [real Story, 2026-11-16].
- */
-export function stepBeingWritten(workflow, phase) {
-  return phase?.status === 'in_progress' && (phaseNeedsGeneration(workflow, phase) || successorGenerationOpen(phase));
-}
+/** Its next version is open, at its one applicable number (kernel `hasOpenVersion`). */
+export const successorGenerationOpen = (phase) => hasOpenVersion(counters(phase));
+
+export const phaseNeedsGeneration = (workflow, phase) => needsVersion(versionFactsOf(workflow, phase));
+
+/** Being written now (kernel `beingWritten`): the one answer the permission, entry, task and planners give [OSA:REQ-010]. */
+export const stepBeingWritten = (workflow, phase) => beingWritten(versionFactsOf(workflow, phase));
+
+/** Kernel `publishedVersionRecorded` (P-4). */
+export const hasPublishedPhaseGeneration = (phase) => publishedVersionRecorded(phase ? { ...counters(phase),
+  publicationRecorded: (phase.generationPublications ?? []).some(entry => Number(entry.generation) === Number(phase.generation) && entry.record?.path) } : null);
+
+/** The next version is inspected exactly when it is being written: "may write" and "may edit" agree. */
+export const requiresProspectivePhaseInspection = stepBeingWritten;
+
+export const phaseInspectionGeneration = (workflow, phase) => stepBeingWritten(workflow, phase)
+  ? nextPhaseGeneration(phase) : Number(phase.generation ?? 0);

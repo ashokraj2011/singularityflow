@@ -118,7 +118,7 @@ test('code-gate skills distinguish runtime repair, draft authoring and published
     content('sflow-code'), content('sflow-recover'), content('sflow-submit')
   ]);
   assert.match(code, /singularity-flow phase begin <phase> --json/);
-  assert.match(code, /Consumed intent requires `\/sf-recover`/);
+  assert.match(code, /Consumed intent: follow the entry's `act`/);
   assert.match(code, /Untracked `\.sflow\/results\/\*\*` need no cleaning/);
   assert.match(code, /proven runtime repair permits retry without source changes/i);
   assert.match(code, /Nonzero exit fails despite passing JUnit/);

@@ -457,7 +457,7 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   assert.match(content, /Require open intent\.[^\n]*Absent: `singularity-flow phase begin <phase> --json` with adoption\/confirmation/);
   assert.match(content, /stop on protected changes or lifecycle\/authority holds/i);
   assert.doesNotMatch(content, /unrelated\/unowned/);
-  assert.match(content, /Consumed intent requires `\/sf-recover` and reviewed rollover/);
+  assert.match(content, /Consumed intent: follow the entry's `act`/);
   assert.match(content, /unchanged publication: relay `next`, stop/);
   assert.match(content, /Follow `repairContinuation`\/`repairLoop\.protocol`; no unchanged retries or resets; same findings after a change: correct differently/i);
   assert.match(content, /Untracked `\.sflow\/results\/\*\*` need no cleaning; review tracked\/staged reports/);
@@ -590,7 +590,8 @@ test('Copilot phase authoring repairs structured draft findings before publicati
     assert.ok(content.includes(`singularity-flow ${command.replace('draft-check', 'prepublish')} --for-agent --json`),
       `${name} omits the read-only combined draft/prepublish gate`);
     assert.match(content, /includes draft-check/);
-    assert.match(content, /singularity-flow recover <WORK-ID> --phase (?:<phase>|<PHASE>|[a-z-]+) --for-agent --json|Follow `\/sf-recover`|Prepublish rechecks recovery|Unready: reuse findings\/resolution|requires `\/sf-recover`|act on its `commands\.next` and `repairLoop\.protocol`/,
+    // sflow-code names it at its publication refusal; a published code step follows its entry's act [OSA Stage 1, C6].
+    assert.match(content, /singularity-flow recover <WORK-ID> --phase (?:<phase>|<PHASE>|[a-z-]+) --for-agent --json|Follow `\/sf-recover`|Prepublish rechecks recovery|Unready: reuse findings\/resolution|requires `\/sf-recover`|act on its `commands\.next` and `repairLoop\.protocol`|`\/sf-recover`: proven runtime repair permits retry/,
       `${name} omits phase-scoped recovery`);
     assert.match(content, /(?:commands.publish`|publication command)[^\n]*when `?ready`?|Ready and `publishIfReady\.published` false: use returned `commands\.publish`/i,
       `${name} may publish an unready draft`);

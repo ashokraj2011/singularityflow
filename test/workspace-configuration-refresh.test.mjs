@@ -4154,7 +4154,7 @@ test('ordinary refresh conflict resolutions use each repository custom templates
   );
 });
 
-test('a review-only refresh proposes packaged configuration on a review branch and never pushes sflow/config', async (t) => {
+test('a review-only refresh makes a package proposal and never pushes sflow/config [SCF:REQ-005, REQ-010]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-refresh-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, registry } = await registeredRepositoryFixture(root, 'application');
@@ -4167,9 +4167,12 @@ test('a review-only refresh proposes packaged configuration on a review branch a
   });
   const [result] = applied.results;
   assert.equal(result.status, 'review-required');
-  assert.match(result.proposalBranch, /^sflow\/config-refresh\//u);
+  // A package proposal in the one list, approved with configuration approve like every other proposal.
+  assert.match(result.proposalBranch, /^sflow\/config-change\/package\/upgrade-[0-9a-f]{8}-[0-9a-f]{12}$/u);
+  assert.equal(result.packageProposal, true);
+  assert.equal(result.nextAction.command, `singularity-flow configuration approve ${result.proposalBranch}`);
   assert.equal(result.error, null, 'a review a person was always going to approve is not an error');
-  assert.equal(approved(), before, 'approved configuration changes only when a person merges the review');
+  assert.equal(approved(), before, 'approved configuration changes only when a person approves the proposal');
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', `refs/heads/${result.proposalBranch}`]).stdout.trim(),
     result.candidateCommit);
 });
@@ -4299,6 +4302,37 @@ test('an unreachable repository holds up no other repository\'s update [SCF:REQ-
   assert.match(applied.summary[1], /^beta: nothing changed there\. /u);
 });
 
+// SPEC-SCF stage 3 with D10: a package proposal is only what a person asks for, and it lands like every other proposal.
+// An approval never goes back to an older build's configuration unless it is a rollback, labelled as one (D8).
+test('a package proposal lands with configuration approve; an older build\'s is refused unless it is a rollback (D8)', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-proposal-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry, repository } = await registeredRepositoryFixture(root, 'application');
+  const older = { commit: 'a'.repeat(40), builtAt: '2026-11-13T08:00:00.000Z' };
+  const newer = { commit: 'b'.repeat(40), builtAt: '2026-11-15T08:00:00.000Z' };
+  const baselineBuild = () => YAML.parse(run('git', ['--git-dir', remote, 'show', `sflow/config:${PACKAGE_BASELINE_PATH}`]).stdout).build;
+  const { activateWorkflowConfigurationProposal } = await import('../src/configuration-proposal.mjs');
+  const approve = (result) => activateWorkflowConfigurationProposal(repository, result.proposalBranch,
+    { confirm: result.candidateCommit, acknowledgeUnprotected: true });
+  // The older build proposes; then the newer build publishes directly, as an upgrade does.
+  const proposed = (await refreshWorkspaceConfigurations({ registryFile: registry, reviewOnly: true, build: older })).results[0];
+  assert.equal(proposed.status, 'review-required', JSON.stringify(proposed));
+  assert.equal((await refreshWorkspaceConfigurations({ registryFile: registry, build: newer })).results[0].status, 'updated');
+  assert.deepEqual(baselineBuild(), newer);
+  await assert.rejects(approve(proposed), { code: 'CONFIGURATION_BUILD_TOO_OLD' }, 'approving it would go back to the older build');
+  assert.deepEqual(baselineBuild(), newer);
+  // Going back is a rollback proposal from the older build: labelled, saying what it removes, and approving it lowers
+  // the repository's minimum build.
+  const rollback = (await refreshWorkspaceConfigurations({ registryFile: registry, rollback: true, build: older })).results[0];
+  assert.equal(rollback.status, 'review-required', JSON.stringify(rollback));
+  assert.match(rollback.proposalBranch, /^sflow\/config-change\/package\/rollback-to-20261113-[0-9a-f]{8}-[0-9a-f]{12}$/u);
+  assert.deepEqual(rollback.rollback.toBuild, older);
+  assert.ok(Array.isArray(rollback.rollback.removes));
+  const landed = await approve(rollback);
+  assert.equal(landed.activated, true);
+  assert.deepEqual(baselineBuild(), older, 'the approved rollback records the older build: the minimum is lowered');
+});
+
 test('every machine proposing the same packaged configuration shares one review', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-shared-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -4316,13 +4350,13 @@ test('every machine proposing the same packaged configuration shares one review'
   assert.equal(first.status, 'review-required');
   assert.equal(second.status, 'review-required');
   assert.equal(second.proposalBranch, first.proposalBranch, 'the review is named by what it proposes');
-  assert.match(first.proposalBranch, /^sflow\/config-refresh\/[0-9a-f]{8}-[0-9a-f]{12}$/u,
+  assert.match(first.proposalBranch, /^sflow\/config-change\/package\/upgrade-[0-9a-f]{8}-[0-9a-f]{12}$/u,
     'the approved commit and the proposed tree name it, never the proposing machine\'s own commit');
   assert.equal(second.candidateCommit, first.candidateCommit, 'the second proposal joins the open review');
   assert.equal(second.reviewShared, true);
-  const reviews = run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh/'])
+  const reviews = run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-change/package/'])
     .stdout.split('\n').filter(Boolean);
-  assert.deepEqual(reviews, [`refs/heads/${first.proposalBranch}`], 'one review, not one per machine');
+  assert.deepEqual(reviews, [`refs/heads/${first.proposalBranch}`], 'one proposal, not one per machine');
 });
 
 test('a review-only refresh never creates a first configuration authority', async (t) => {
@@ -4365,8 +4399,9 @@ async function approvedConfigurationFixture(root) {
   const removeTemplate = (relative) => change(`Remove ${relative}`, (checkout) => rm(path.join(checkout, relative)));
   const ref = (name) => run('git', ['--git-dir', fixture.remote, 'rev-parse', '--verify', '--quiet', `refs/heads/${name}`],
     { allowFailure: true }).stdout.trim();
+  // A host-kept review (sflow/config-refresh/*) or a package proposal a person asked for (--review-only).
   const reviewBranches = () => run('git', ['--git-dir', fixture.remote, 'for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/config-refresh/']).stdout.split('\n').filter(Boolean);
+    'refs/heads/sflow/config-refresh/', 'refs/heads/sflow/config-change/package/']).stdout.split('\n').filter(Boolean);
   return { ...fixture, change, removeTemplate, ref, reviewBranches };
 }
 
@@ -4594,7 +4629,7 @@ test('the upgrade removes old history and review branches and keeps every other 
   for (const [ref, commit] of Object.entries(kept)) assert.equal(remoteRef(fixture.remote, ref), commit, `${ref} is kept`);
   assert.ok(fixture.ref('state'), 'the state branch stays');
   // The clone's copies go too: 4 tracking refs and the tag; never a file, a local branch, another remote's or a kept ref.
-  assert.deepEqual(result.supersededRefs.local.pruned, { trackingRefs: 4, tags: 1 });
+  assert.deepEqual(result.supersededRefs.local.pruned, { trackingRefs: 4, tags: 1, transportRefs: 0 });
   for (const ref of superseded) {
     const copy = ref.startsWith('refs/tags/') ? ref : ref.replace('refs/heads/', 'refs/remotes/origin/');
     assert.equal(localRef(copy), '', `${copy} is cleared from the clone`);

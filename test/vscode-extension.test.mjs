@@ -7964,7 +7964,7 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the Configuration Center exposes the dashboard directly');
 });
 
-test('configuration proposals stay visible in Workflow Studio and offer exact guarded activation', async () => {
+test('configuration proposals stay visible in Workflow Studio and offer exact guarded approval', async () => {
   const extension = await readFile(source('extension.ts'), 'utf8');
   const host = await readFile(source('views/workflow-studio.ts'), 'utf8');
   const { WORKFLOW_STUDIO_SCRIPT } = await import(source('views/workflow-studio-page.ts'));
@@ -7980,11 +7980,12 @@ test('configuration proposals stay visible in Workflow Studio and offer exact gu
   // Activation lives in one helper (bd45981e); the panel hands it the proposal it just showed.
   const save = await readFile(source('views/configuration-save.ts'), 'utf8');
   assert.match(extension, /activateReviewedWorkflowProposal<[^(]*>\(inspected,/);
-  assert.match(save, /\['workflow', 'activate', reviewed\.branch, '--confirm', reviewed\.proposalCommit\]/,
-    'activation binds the complete reviewed proposal commit');
-  assert.match(save, /if \(!await boundary\.acknowledge\(\)\) return null;\s*args\.push\('--acknowledge-unprotected'\);/,
-    'a direct unprotected merge requires a second explicit acknowledgement, asked before activation starts');
-  assert.match(extension, /const acknowledge = 'Acknowledge and merge';/);
+  // The signed person step, the same on every surface [SCF:REQ-010].
+  assert.match(save, /\['configuration', 'approve', reviewed\.branch, '--confirm', reviewed\.proposalCommit\]/,
+    'approval binds the complete reviewed proposal commit');
+  assert.match(save, /if \(!reviewed\.merged && !await boundary\.acknowledge\(reviewed\.selfApproval \?\? null\)\) return null;/,
+    'a direct unprotected update requires a second explicit acknowledgement, which names a self-approval, asked before approval starts');
+  assert.match(extension, /const acknowledge = 'Acknowledge and approve';/);
   assert.match(extension, /application branch(?:es)? (?:remains|stay) unchanged/i);
   assert.match(extension, /'singularityFlow\.openDesigner': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.openWorkflowStudio'\)/,
     'the retired Designer command opens Workflow Studio');

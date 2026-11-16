@@ -1386,15 +1386,18 @@ test('discarding asks the host first, and a kept draft comes back only in the sh
   assert.equal(logic.restorableDraft('not json'), null);
 });
 
-test('the host asks the questions the page cannot, and keeps a draft only against the configuration it was made on', async () => {
+test('the host asks the questions the page cannot, and keeps a draft as edits it moves onto a newer configuration', async () => {
   const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
   assert.match(host, /'studio\.confirm': \(message\) =>/);
   assert.match(host, /const accepted = await collectReviewConfirmation\(\{\s*title: 'Review Workflow Studio change', summary: text,\s*detail: detail \?\? 'Review the exact change before continuing\.'/,
     'the scrollable review retains the complete summary and detail rather than truncating a native modal');
   assert.match(host, /ok: accepted && this\.client\.repository === reviewedRepository/,
     'confirmation cannot apply after the selected repository changes');
-  assert.match(host, /if \(saved\.base !== this\.modelBase\(\)\) \{ await store\.set\(undefined\); return; \}/,
-    'a draft made on another configuration revision is dropped, not offered');
+  // Kept as edits against the configuration they were read from, so a newer one moves them, never drops them [SCF:REQ-013].
+  assert.match(host, /await store\.set\(\{ schema: 2, base, savedAt: new Date\(\)\.toISOString\(\), draft: text \}\);/);
+  assert.match(host, /this\.post\(\{ type: 'studio\.savedDraft', draft: saved\.draft, savedAt: saved\.savedAt \?\? null, moved \}\);/,
+    'a draft made on another configuration revision is still offered, to be moved onto this one');
+  assert.match(host, /if \(saved\.schema === 1 && moved\) \{/, 'only an earlier build\'s full copy cannot be moved, and the person is told');
   assert.match(host, /this\.post\(\{ type: 'studio\.published', summary \}\);\s*await this\.clearDraft\(\);/);
   const page = WORKFLOW_STUDIO_SCRIPT;
   assert.match(page, /button\('Discard all changes', function \(\) \{[\s\S]{0,400}confirmAction\(/, 'Discard all asks first');
@@ -1664,6 +1667,41 @@ test('external configuration sync refreshes a clean page, and moves a kept draft
   assert.match(host, /static async refreshAfterConfigurationSync[\s\S]*studio.externalConfigurationChanged[\s\S]*await current.proposals\(\)/u);
 });
 
+test('changes kept when Studio closed are edits, and move onto a newer configuration when it reopens, never dropped (SCF:REQ-013, ER-F8)', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const first = studioWithHost();
+  first.reply({ type: 'studio.model', model });
+  const editing = first.logic.state();
+  editing.draft.groups['architecture-reviewers'].members.push({ name: 'First', email: 'first@example.com', githubLogin: null });
+  const id = model.workflows[0].id;
+  editing.draft.workflows[id].description = 'Described by me';
+  // What the page keeps: the edits against the configuration they were read from, never a full copy.
+  const edits = first.logic.draftEdits(first.logic.initialDraft(model), editing.draft, [], []);
+  assert.ok(edits.length >= 2 && edits.every((edit) => Array.isArray(edit.path)));
+  assert.equal(edits.some((edit) => edit.path.join('/') === 'workflows'), false, 'only the changed values, not whole collections');
+  const kept = JSON.stringify({ format: 'sflow-studio-edits@1', edits });
+
+  // Meanwhile a teammate's approved change renamed the workflow and rewrote its description.
+  const newer = structuredClone(model);
+  newer.workflows[0].label = `${newer.workflows[0].label}, renamed by a teammate`;
+  newer.workflows[0].description = 'Described by a teammate';
+  newer.base = { ...(model.base ?? {}), commit: 'f'.repeat(40) };
+  const reopened = studioWithHost();
+  reopened.reply({ type: 'studio.model', model: newer });
+  reopened.reply({ type: 'studio.savedDraft', draft: kept, savedAt: new Date().toISOString(), moved: true });
+  const state = reopened.logic.state();
+  assert.ok(state.restorable, 'kept changes are offered on a newer configuration, not dropped');
+  assert.equal(state.restorable.moved, true);
+  assert.equal(state.restorable.draft.workflows[id].label, newer.workflows[0].label, 'the newer value is taken where the person changed nothing');
+  assert.deepEqual(state.restorable.draft.groups['architecture-reviewers'].members.at(-1), { name: 'First', email: 'first@example.com', githubLogin: null });
+  assert.equal(state.restorable.draft.workflows[id].description, 'Described by me', 'a value both changed keeps the person\'s');
+  assert.deepEqual(state.restorable.clashes, [`workflows › ${id} › description`], 'and is named for whoever approves');
+  const changes = reopened.logic.changeSetFrom(newer, state.restorable.draft).changes;
+  assert.equal(changes.some((change) => change.op === 'workflow.update' && change.id === id && change.workflow?.label === model.workflows[0].label), false,
+    'restoring never reverts the newer label');
+});
+
 test('stable proposal identity groups revisions even when multiple workflows or creation-time ties are present', () => {
   const { logic } = studioLogic();
   const a = { branch: 'sflow/config-change/workflow/save-config-aaaaaaaa-bbbbbbbbbbbb', proposalCommit: 'a'.repeat(40),
@@ -1755,7 +1793,7 @@ test('a proposal that changes only the repository\'s tests reads as Repository t
   const card = page.proposalCard(summary, false);
   assert.match(text(card), /Repository tests \(added: adds e2e-local, e2e-relay\)/u);
   assert.doesNotMatch(text(card), /Configuration-only change/u);
-  assert.ok(all(card).some((node) => node.tag === 'button' && /Review and activate/u.test(text(node))));
+  assert.ok(all(card).some((node) => node.tag === 'button' && /Review and approve/u.test(text(node))));
 });
 
 test('Workflow Studio lists the repository tests with their level and folders, and says which of them each step runs (RTC:REQ-009)', async () => {
@@ -2295,7 +2333,7 @@ test('Duplicate agent validates the copy and Cancel leaves the catalog and phase
   assert.deepEqual(state.draft, before);
 });
 
-test('imported and proposed workflows appear in Workflows and Epic workflows with Review and activate, and Changes keeps revision choices across re-renders', async () => {
+test('imported and proposed workflows appear in Workflows and Epic workflows with Review and approve, and Changes keeps revision choices across re-renders', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
   const { proposalSummaries } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
   const element = (tag) => ({ tag, attributes: {}, children: [], style: {}, textContent: '', setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; }, addEventListener(event, fn) { this.listeners = this.listeners ?? {}; this.listeners[event] = fn; } });
@@ -2345,11 +2383,11 @@ test('imported and proposed workflows appear in Workflows and Epic workflows wit
   const proposedCards = homeNodes.filter((node) => node.attributes?.['data-proposed-workflow-card']);
   assert.equal(proposedCards.length, 1, 'proposed story workflow is listed under Your workflows');
   assert.equal(proposedCards[0].attributes['data-proposed-workflow-card'], 'imported-flow');
-  assert.match(text(proposedCards[0]), /Imported Flow.*Pending review.*Review and activate.*Intake.*Architecture and design/su);
+  assert.match(text(proposedCards[0]), /Imported Flow.*Pending review.*Review and approve.*Intake.*Architecture and design/su);
   const uploadingCards = homeNodes.filter((node) => node.attributes?.['data-uploading-proposal-card']);
   assert.equal(uploadingCards.length, 1, 'uploading proposal is visible under Your workflows');
   const activeCard = homeNodes.find((node) => node.attributes?.['data-workflow-card'] === 'repo-feature');
-  assert.match(text(activeCard), /Pending review.*Review and activate/su, 'existing workflow with a pending proposal shows Pending review');
+  assert.match(text(activeCard), /Pending review.*Review and approve/su, 'existing workflow with a pending proposal shows Pending review');
 
   const proposedEpics = homeNodes.filter((node) => node.attributes?.['data-proposed-epic-card']);
   assert.equal(proposedEpics.length, 1, 'proposed epic workflow is listed under Epic workflows');

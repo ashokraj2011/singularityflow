@@ -275,7 +275,7 @@ export class ConfigurationCenterPanel {
 
   private savedNotice(localNotice: string, disposition: ConfigurationSaveDisposition | null): string {
     if (disposition?.kind === 'proposal') {
-      return `Configuration proposal ${reviewBranchName(disposition.branch)} is pending review. Approve it in Workflow Studio → Changes → Review and approve, or merge it into ${disposition.baseBranch}, then recheck the approved authority. The application checkout was not changed.`;
+      return `Proposal ${reviewBranchName(disposition.branch)} is waiting. Approve it in Workflow Studio → Changes → Review and approve, or merge it into ${disposition.baseBranch}.`;
     }
     if (disposition?.kind === 'unchanged') {
       return 'The approved configuration already contains this change; no proposal was required.';

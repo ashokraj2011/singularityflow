@@ -560,13 +560,12 @@ function missingConfigurationSteps(argv, error) {
   // The restore proposal (D7) is a later stage: these are the routes that restore it now, each reviewed by a person.
   if (error?.details?.reason === 'configuration-branch-missing') {
     const repository = /^[^\s'"`<>|;&$]+$/u.test(String(error.details.remote ?? '')) ? error.details.remote : '<REPOSITORY-URL>';
+    // One route [SCF:REQ-002, D7]: the restore shows the newest copy and every file, for a person to approve.
+    void repository;
     return [
-      step('restore-configuration-from-clone',
-        'From a clone that still has the last approved configuration (git log origin/sflow/config shows it), put it back exactly: '
-          + 'git push origin refs/remotes/origin/sflow/config:refs/heads/sflow/config. Then start the work again.', null, 'remediation'),
       step('preview-configuration-restore',
-        'Or preview restoring sflow/config from the copy on the state branch. Check every file it would restore before you confirm the plan: that copy is not proof of what was approved.',
-        `singularity-flow capability onboard ${repository} --dry-run`, 'remediation', '/sf-capability-map'),
+        'See the newest copy of sflow/config this machine holds and every file in it, then approve recreating it.',
+        'singularity-flow configuration restore', 'remediation'),
       step('diagnose-story-configuration', 'Check Git access to the repository.', 'singularity-flow workspace doctor --network --json')
     ];
   }

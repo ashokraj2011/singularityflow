@@ -8457,6 +8457,18 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
       + 'only about a field both it and sflow/config changed. Nothing was changed.', { code: 'CONFIGURATION_RECREATE_SYNC_REMOVED',
       details: { nextAction: { command: 'singularity-flow configuration approve', label: 'Approve one proposal, picking a value where both changed' } } });
   }
+  else if (subcommand === 'restore') {
+    // A missing or unloadable sflow/config, restored from the newest copy, shown in full and approved by a person
+    // [SCF:REQ-002, D7]. Without --confirm it only shows what it would do.
+    const { previewConfigurationRestore, applyConfigurationRestore, restoreLines } = await import('./configuration-restore.mjs');
+    const confirm = optionString(options, 'confirm');
+    if (confirm == null) result = await previewConfigurationRestore(root);
+    else {
+      const [{ configurationCommitIdentity }, { agentStarted }] = await Promise.all([import('./git.mjs'), import('./presence/person-records.mjs')]);
+      result = await applyConfigurationRestore(root, { confirm, identity: (repository) => configurationCommitIdentity(repository), agent: () => agentStarted() });
+    }
+    if (!optionBoolean(options, 'json')) return void console.log(restoreLines(result).join('\n'));
+  }
   else if (subcommand === 'cleanup-history') {
     // Removed [owner, 2026-11-16]: an upgrade deletes the old history refs itself. Refused by name, saying what replaced it.
     throw new SingularityFlowError('configuration cleanup-history was removed: an upgrade now deletes every old '
@@ -8468,9 +8480,23 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   ));
   else if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));
   else if (subcommand === 'validate') {
-    result = await withApprovedConfigurationRead(root, () => validateEditorConfiguration(root), INSPECTION_READ);
+    // Outside a Story checkout this validates sflow/config, the configuration new work uses, never this checkout's
+    // own singularity/ files, and names the commit it read [SCF:REQ-001, finding ER-F5].
+    const { authorityCheckRead } = await import('./approved-configuration-reader.mjs');
+    let checked = null;
+    result = await withApprovedConfigurationRead(root, async (authority) => {
+      checked = authority?.commit && authority.kind !== 'working-tree' ? authority : null;
+      try { return await validateEditorConfiguration(root); }
+      catch (error) {
+        if (checked && error instanceof SingularityFlowError) {
+          error.message = `On sflow/config (${checked.commit.slice(0, 12)}): ${error.message} Repair it with a proposal: singularity-flow configuration restore, or singularity-flow workflow fix.`;
+        }
+        throw error;
+      }
+    }, { ...INSPECTION_READ, ...authorityCheckRead(root) });
+    if (checked) result = { ...result, checked: { branch: 'sflow/config', commit: checked.commit } };
     // A failure is a refusal listing every problem with its line; success needs one plain sentence.
-    if (!optionBoolean(options, 'json')) return void console.log(`Configuration is valid: ${result.workTypes} work type(s), ${result.phases} phase(s), ${result.agents} agent(s).`);
+    if (!optionBoolean(options, 'json')) return void console.log(`${checked ? `sflow/config (${checked.commit.slice(0, 12)})` : 'Configuration'} is valid: ${result.workTypes} work type(s), ${result.phases} phase(s), ${result.agents} agent(s).`);
   }
   else if (subcommand === 'save') {
     const requestedPath = requirePositional(positionals, 2, 'configuration path');
@@ -9345,9 +9371,11 @@ async function workspaceCommand(positionals, options) {
       acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts'),
       resolutions: optionMap(optionStrings(options, 'resolve'), '--resolve'),
       confirmPlan: optionString(options, 'confirm-plan'),
-      // Propose on review branches and never push sflow/config itself, when a person asks for that. Otherwise the
-      // refresh publishes this build's configuration directly [owner, 2026-11-16].
-      reviewOnly: optionBoolean(options, 'review-only')
+      // A package proposal for configuration approve, never a push to sflow/config itself, when a person asks for
+      // that. Otherwise the refresh publishes this build's configuration directly [owner, 2026-11-16].
+      reviewOnly: optionBoolean(options, 'review-only'),
+      // An older build going back: a package proposal labelled as a rollback (D8).
+      rollback: optionBoolean(options, 'rollback')
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else if (!result.results.length) console.log('No registered workspace repositories require configuration refresh.');
@@ -9356,14 +9384,13 @@ async function workspaceCommand(positionals, options) {
       console.log(`${result.dryRun ? 'Configuration refresh preview' : 'Configuration refresh'}: ${result.status}`);
       for (const item of result.results) {
         const configuration = item.configurationChanged ? 'configuration updated' : 'configuration unchanged';
-        const state = item.stateChanged ? 'state projection updated' : 'state projection unchanged';
-        console.log(`  ${item.repository}: ${item.status} · ${configuration} · ${state}`);
-        if (item.stateStatus) console.log(`    State branch: ${item.stateStatus}`);
+        console.log(`  ${item.repository}: ${item.status} · ${configuration}`);
         for (const conflict of item.conflicts ?? []) {
           console.log(`    Conflict: ${conflict.path} · ${conflict.resolution}`);
         }
         for (const line of agentsHomeLines(item.agentsHome)) console.log(line);
-        if (item.proposalBranch) console.log(`    Review branch: ${item.proposalBranch}`);
+        if (item.proposalBranch) console.log(`    ${item.packageProposal ? 'Package proposal' : 'Review branch'}: ${item.proposalBranch}`);
+        if (item.packageProposal && item.nextAction?.command) console.log(`    Approve it: ${item.nextAction.command}`);
         if (item.compareUrl) console.log(`    Merge it here: ${item.compareUrl}`);
         if (item.error) console.log(`    ${item.error}`);
         if (item.route) console.log(`    Resolve: ${item.route}`);
@@ -9386,16 +9413,16 @@ async function workspaceCommand(positionals, options) {
           console.log('Do not repeat that confirmation: the plan changed. Remove --confirm-plan, add --dry-run, review the refreshed preview, then confirm it by the code it gives.');
         } else if (['proposed', 'partial'].includes(result.status) && result.results.some((item) => item.agentsHome?.status === 'proposed' && item.proposalBranch)) {
           // [AGH:REQ-016] only a host that refused the push leaves the move on a review [owner, 2026-11-16].
-          console.log('Merge each review branch above into sflow/config to land it and its agents move. Re-run this command afterwards to complete the state mirror.');
+          console.log('Merge each review branch above into sflow/config to land it and its agents move.');
         } else if (result.status === 'partial') {
           console.log('Each repository above that needs a person says why and what to do, and held up no other. After that, re-run the same command; current repositories become no-ops.');
         } else if (result.status === 'blocked') {
           console.log('Correct the reported blocker, then create a fresh --dry-run preview before applying.');
         } else if (result.status === 'proposed') {
-          // --review-only: sflow/config changes when a person merges each review branch.
-          console.log('Proposed, as --review-only asked: each review branch above holds this build\'s packaged configuration. sflow/config changes when a person merges it.');
+          // --review-only and --rollback: sflow/config changes when a person approves each package proposal.
+          console.log('Proposed, as asked: each package proposal above holds this build\'s packaged configuration. sflow/config changes when a person approves it with configuration approve.');
         } else {
-          console.log('Configuration and state projections verified.');
+          console.log('Configuration verified.');
         }
       }
     }

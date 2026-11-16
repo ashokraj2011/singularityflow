@@ -45,7 +45,7 @@ import { createAndPushTransportIntent, createTransportIntent, transportRetryActi
 import { openConfigurationStateService, readConfigurationTransactionJournals } from './configuration-state-service.mjs';
 import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot, readConfigurationSnapshot,
   hydrateConfigurationProposal, configurationStateAtRef, planConfigurationLanding, selfApproval,
-  configurationApproveCommand } from './configuration-state-git.mjs';
+  configurationApproveCommand, PACKAGE_BASELINE_PATH } from './configuration-state-git.mjs';
 import { isConfigurationStatePath, configurationDigest, configurationProposalKind, configurationProposerKey,
   ENGINE_PROPOSAL_KINDS } from './configuration-state-contract.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
@@ -279,7 +279,8 @@ function yamlAtRef(root, ref, relative, env) {
 }
 
 function workflowChanges(reader, base, proposal) {
-  const yaml = (commit, relative) => YAML.parse(reader.file(commit, relative)?.bytes.toString('utf8') ?? '{}') ?? {};
+  // A side that is not valid YAML (a sflow/config an outside edit broke) reads as empty, so its repair still shows.
+  const yaml = (commit, relative) => { try { return YAML.parse(reader.file(commit, relative)?.bytes.toString('utf8') ?? '{}') ?? {}; } catch { return {}; } };
   const baseDefinition = yaml(base, 'singularity/workflow.yml');
   const proposedDefinition = yaml(proposal, 'singularity/workflow.yml');
   const basePortfolio = yaml(base, 'singularity/portfolio.yml');
@@ -310,7 +311,7 @@ function workflowChanges(reader, base, proposal) {
  * a change to each workflow that runs them.
  */
 function repositoryTestsChange(reader, base, proposal) {
-  const tests = (commit) => (YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {}).tests;
+  const tests = (commit) => { try { return (YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {}).tests; } catch { return undefined; } };
   const [before, after] = [tests(base), tests(proposal)];
   if (stable(before ?? null) === stable(after ?? null)) return null;
   const ids = (list) => (Array.isArray(list) ? list.map((entry) => entry?.id).filter((id) => typeof id === 'string') : []);
@@ -332,8 +333,12 @@ function repositoryTestsChange(reader, base, proposal) {
  */
 function workflowReadinessFailure(reader, base, proposal) {
   const yaml = (commit) => YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {};
+  // A base that does not load (an outside edit broke it) grants nothing to compare against: the candidate is checked
+  // in full when it is approved [SCF:REQ-002].
+  let previous;
+  try { previous = yaml(base); validateDefinition(structuredClone(previous)); } catch { return null; }
   try {
-    assertWorkflowReadinessChanges(yaml(base), yaml(proposal));
+    assertWorkflowReadinessChanges(previous, yaml(proposal));
     return null;
   } catch (error) {
     return { code: error.code ?? 'WORKFLOW_PROPOSAL_INVALID', message: error.message, ...(error.details ? { details: error.details } : {}) };
@@ -352,6 +357,27 @@ function approvalPolicyAt(reader, commit) {
     security = normalizeApprovalSecurity(definition.approvalSecurity ?? {});
   } catch { security = normalizeApprovalSecurity({}); }
   return { profile: security.profile, allowSelfApproval: security.allowSelfApproval };
+}
+
+/**
+ * Why a package proposal may not be approved over `sflow/config` now, or null: it came from a build older than the
+ * one the current package baseline records [SCF:REQ-015, D1]. Going back is its own proposal, labelled as a
+ * rollback, which names the build it goes back to (D8).
+ */
+function packageOrderFailure(reader, branch, targetCommit, proposalCommit) {
+  if (configurationProposalKind(branch) !== 'package' || /\/rollback-to-/u.test(branch)) return null;
+  const build = (commit) => {
+    try { return YAML.parse(reader.file(commit, PACKAGE_BASELINE_PATH)?.bytes.toString('utf8') ?? '')?.build ?? null; }
+    catch { return null; }
+  };
+  const current = build(targetCommit);
+  const proposed = build(proposalCommit);
+  if (!current?.builtAt || !proposed?.builtAt || current.commit === proposed.commit
+      || !(Date.parse(current.builtAt) > Date.parse(proposed.builtAt))) return null;
+  return { code: 'CONFIGURATION_BUILD_TOO_OLD',
+    message: `This package proposal came from a build from ${String(proposed.builtAt).slice(0, 10)}, older than the one ${CONFIGURATION_BRANCH} holds `
+      + `(${String(current.builtAt).slice(0, 10)}); approving it would go back. Going back is its own proposal, labelled as a rollback: `
+      + 'singularity-flow workspace refresh-configuration --rollback, run from that older build.' };
 }
 
 /**
@@ -420,17 +446,19 @@ async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
   await reader.hydrate([reviewBase, proposalCommit].flatMap(commit => reader.inventory(commit,
     ['singularity/workflow.yml', 'singularity/portfolio.yml'])));
   const changed = changedConfigurationFiles(root, reviewBase, ref, env);
-  const invalidFiles = changed.names.filter((file) => !isConfigurationReadPath(file));
+  const invalidFiles = changed.names.filter((file) => !isConfigurationReadPath(file)
+    && !(file === PACKAGE_BASELINE_PATH && configurationProposalKind(branch) === 'package'));
   const diff = includeDiff && invalidFiles.length === 0
     ? run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
       cwd: root, env
     }).stdout
     : null;
-  const failure = merged ? null : workflowReadinessFailure(reader, reviewBase, proposalCommit);
+  const failure = merged ? null : workflowReadinessFailure(reader, reviewBase, proposalCommit)
+    ?? packageOrderFailure(reader, branch, targetCommit, proposalCommit);
   // What approving it lands on sflow/config now, after any re-apply, and each field both sides
   // changed differently, with both values [SCF:REQ-007, REQ-008].
   const landing = merged || invalidFiles.length ? null : await planConfigurationLanding(reader,
-    { proposalBase, proposalCommit, targetCommit }, { env, choices });
+    { proposalBase, proposalCommit, targetCommit, branch }, { env, choices });
   const invalid = [...invalidFiles, ...(landing?.invalid ?? []).filter((file) => !invalidFiles.includes(file))];
   const valid = changed.names.length > 0 && invalid.length === 0 && failure === null;
   const clashes = landing?.clashes ?? [];
@@ -826,9 +854,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       // configuration change needs a person other than its author.
       if (selfApproval(reviewed.proposer, approver) && reviewed.approvalPolicy?.allowSelfApproval === false) {
         throw new SingularityFlowError(
-          `You proposed ${proposalBranch}, and this repository needs another person to approve configuration changes `
-          + '(approvalSecurity.allowSelfApproval is false). Nothing was changed. Ask someone who may approve configuration to run: '
-          + `${approveCommand(proposalBranch, reviewed.proposalCommit)}`,
+          `You proposed ${proposalBranch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was changed.`,
           { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED', details: { proposer: reviewed.proposer ?? null,
             nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
         );
@@ -845,7 +871,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       if (readmitted.length) {
         throw new SingularityFlowError(
           `This approval would add you back to ${readmitted.map((group) => group.id).join(', ')}, which an approved change removed you from. `
-          + 'A person removed by an approved change is never added back by their own approval. Nothing was changed. Ask someone else who may approve configuration.',
+          + 'Someone else must approve it; nothing was changed.',
           { code: 'CONFIGURATION_SELF_READMISSION_REFUSED', details: { groups: readmitted,
             nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
         );
@@ -1244,7 +1270,8 @@ export async function proposeConfigurationChange(root, {
 }, { transport = {}, env = transport.env ?? process.env, session = null } = {}) {
   if (!ENGINE_PROPOSAL_KINDS.includes(kind)) {
     throw new SingularityFlowError(`A configuration proposal is one of ${ENGINE_PROPOSAL_KINDS.join(', ')}, not '${kind}'.`, {
-      code: 'CONFIGURATION_PROPOSAL_KIND_INVALID'
+      code: 'CONFIGURATION_PROPOSAL_KIND_INVALID',
+      details: { nextAction: { label: 'See the proposals of each kind', command: 'singularity-flow configuration proposals' } }
     });
   }
   if (typeof mutate !== 'function') {
@@ -1358,10 +1385,9 @@ export async function proposeConfigurationChange(root, {
     }
     // Only the exact approved base may establish managed roots and runtime exclusions. The
     // candidate workflow can request a root change for review, but cannot authorize its own files.
-    const approvedAssetPolicy = configurationAssetPolicy(
-      yamlAtRef(scratch, baseCommit, 'singularity/workflow.yml', authorityTransport.env),
-      yamlAtRef(scratch, baseCommit, 'singularity/portfolio.yml', authorityTransport.env)
-    );
+    // A base that is not valid YAML (an outside edit) still takes a repair proposal [SCF:REQ-002]: its policy is the default.
+    const tolerantYaml = (relative) => { try { return yamlAtRef(scratch, baseCommit, relative, authorityTransport.env); } catch { return {}; } };
+    const approvedAssetPolicy = configurationAssetPolicy(tolerantYaml('singularity/workflow.yml'), tolerantYaml('singularity/portfolio.yml'));
     const result = await mutate(scratch);
     run('git', ['add', '-A'], { cwd: scratch, env: authorityTransport.env });
     const files = run('git', ['diff', '--cached', '--name-only'], {

@@ -318,6 +318,67 @@ const descriptors = [
       return [...new Set(lines(result))];
     }
   }),
+  // A clone's private upload retention refs for configuration commits, removed once sflow/config holds them (CH-F9).
+  descriptor('configuration.local-transport-refs', {
+    argv: () => ['for-each-ref', '--format=%(refname)%00%(objectname)', 'refs/singularity/transport/configuration',
+      'refs/singularity/transport/configuration-proposals'],
+    allowFailure: true,
+    parser(result) {
+      if (!processResultSucceeded(result)) throw new SingularityFlowError('Local configuration upload refs are unreadable.', {
+        code: 'GIT_QUERY_FAILED', details: { queryId: 'configuration.local-transport-refs' } });
+      return lines(result).map((line) => line.split('\0'));
+    }
+  }),
+  // Restoring a missing or broken sflow/config [SCF:REQ-002, D7]: the copies this machine holds, the newest Story
+  // branches, sflow/config's own first-parent history, and the configuration paths of one commit.
+  descriptor('configuration.restore-copies', {
+    argv: () => ['for-each-ref', '--sort=-committerdate', '--format=%(refname)%00%(objectname)%00%(committerdate:iso-strict)',
+      'refs/remotes/*/sflow/config'],
+    allowFailure: true,
+    parser(result) {
+      if (!processResultSucceeded(result)) return [];
+      return lines(result).map((line) => line.split('\0')).map(([ref, commit, date]) => ({ ref, commit, date: date || null }));
+    }
+  }),
+  descriptor('configuration.recent-branches', {
+    argv: () => ['for-each-ref', '--sort=-committerdate', '--count=200', '--format=%(refname)%00%(objectname)%00%(committerdate:iso-strict)', 'refs/heads'],
+    allowFailure: true,
+    parser(result) {
+      if (!processResultSucceeded(result)) return [];
+      return lines(result).map((line) => line.split('\0')).map(([ref, commit, date]) => ({ ref, commit, date: date || null }));
+    }
+  }),
+  descriptor('configuration.first-parent-history', {
+    validate(params) {
+      const commit = String(params?.commit ?? '');
+      const limit = Number(params?.limit ?? 200);
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit) || !Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+        throw new SingularityFlowError('A first-parent history read needs an exact commit and a bounded count.', { code: 'GIT_QUERY_INPUT_INVALID' });
+      }
+      return Object.freeze({ commit, limit });
+    },
+    argv: (params) => ['rev-list', '--first-parent', `--max-count=${params.limit}`, params.commit],
+    dependency: 'repository-instance', parser: lines
+  }),
+  descriptor('configuration.tree-paths', {
+    validate(params) {
+      const commit = String(params?.commit ?? '');
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit)) throw new SingularityFlowError('A tree read needs an exact commit.', { code: 'GIT_QUERY_INPUT_INVALID' });
+      return Object.freeze({ commit });
+    },
+    argv: (params) => ['ls-tree', '-r', '-z', '--name-only', params.commit],
+    dependency: 'repository-instance', maxBuffer: 32 * 1024 * 1024, parser: nul
+  }),
+  descriptor('configuration.changed-paths', {
+    validate(params) {
+      const from = String(params?.from ?? ''), to = String(params?.to ?? '');
+      const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+      if (!oid.test(from) || !oid.test(to)) throw new SingularityFlowError('A changed-paths read needs two exact commits.', { code: 'GIT_QUERY_INPUT_INVALID' });
+      return Object.freeze({ from, to });
+    },
+    argv: (params) => ['diff', '--no-ext-diff', '--no-renames', '-z', '--name-only', params.from, params.to, '--'],
+    dependency: 'repository-instance', maxBuffer: 32 * 1024 * 1024, parser: nul
+  }),
   descriptor('repository.remote-url', {
     argv(params) {
       const remote = String(params?.remote ?? '');

@@ -862,9 +862,9 @@
     },
     "src/configuration-people.mjs": {
       "counts": {
-        "command-run": 9
+        "command-run": 12
       },
-      "digest": "d1a2525725b958337f21f286beb1924119c50856b4853a3627dd64d75cc1bb9f"
+      "digest": "0bc1d0b5a746ef548f35261bb026b64fd56bdc95fcdfe7403ea0d98a5f4a8888"
     },
     "src/configuration-object-reader.mjs": {
       "counts": {
@@ -1906,6 +1906,12 @@
         "command-run": 1
       },
       "digest": "b8cea35fc03c22ad8655b152285125ce006407387791d9b0230c428a01d843ce"
+    },
+    "src/configuration-restore.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "1646f3a1d2e4237de774d3e89555734ba80a31c38e7e881c7404189374b0a8e6"
     }
   }
 }

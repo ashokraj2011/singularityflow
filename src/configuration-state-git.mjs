@@ -17,6 +17,13 @@ import { CONFIGURATION_STATE_PATH, CONFIGURATION_OID, readConfigurationState, co
 import { run, SingularityFlowError } from './util.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+/**
+ * The package baseline lives with SFlow's own runtime records, never a person's edit, so only a package proposal
+ * may change it [SCF:REQ-005, REQ-015]: approving one records the build it came from.
+ */
+export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
+const proposalPath = (relative, policy, branch) => isConfigurationAssetPath(relative, policy)
+  || (relative === PACKAGE_BASELINE_PATH && configurationProposalKind(branch) === 'package');
 const text = file => file ? new TextDecoder('utf-8', { fatal: true }).decode(file.bytes) : null;
 const same = (a, b) => a?.sha256 === b?.sha256 && a?.mode === b?.mode;
 const fail = (message, code = 'CONFIGURATION_TRANSACTION_UNSAFE', details = {}) => {
@@ -35,8 +42,10 @@ export function assertConfigurationAssetPathIdentities(paths) {
   }
 }
 function policy(reader, commit) {
-  return configurationAssetPolicy(YAML.parse(text(reader.file(commit, 'singularity/workflow.yml')) ?? '{}'),
-    YAML.parse(text(reader.file(commit, 'singularity/portfolio.yml')) ?? '{}'));
+  // A commit whose files are not valid YAML (a sflow/config an outside edit broke) has the default policy, so a
+  // proposal can still repair it [SCF:REQ-002].
+  const parse = (relative) => { try { return YAML.parse(text(reader.file(commit, relative)) ?? '{}'); } catch { return {}; } };
+  return configurationAssetPolicy(parse('singularity/workflow.yml'), parse('singularity/portfolio.yml'));
 }
 async function install(root, relative, file, env, { stage = true } = {}) {
   let cursor = root;
@@ -112,7 +121,8 @@ export async function hydrateConfigurationProposal(reader, proposalRef, env) {
   const base = history.merged ? history.firstParent ?? history.mergeBase : history.mergeBase;
   await reader.hydrate([proposal, base].flatMap(commit => reader.inventory(commit, ['singularity/workflow.yml', 'singularity/portfolio.yml', CONFIGURATION_STATE_PATH])));
   const assetPolicy = mergeConfigurationAssetPolicies(...[base, proposal, current].map(commit => policy(reader, commit)));
-  const paths = readGitNameStatusDiff(reader.root, base, proposal, { env, maximumRecords: 2_000 }).names.filter(relative => isConfigurationAssetPath(relative, assetPolicy));
+  const branch = proposalRef.replace(/^refs\/(?:heads|remotes\/origin)\//u, '');
+  const paths = readGitNameStatusDiff(reader.root, base, proposal, { env, maximumRecords: 2_000 }).names.filter(relative => proposalPath(relative, assetPolicy, branch));
   await reader.hydrate(paths.flatMap(relative => [proposal, base, current].map(commit => reader.lookup(commit, relative))));
   return { proposalCommit: proposal, proposalBase: base, mergeBase: history.mergeBase, merged: history.merged,
     targetCommit: current, proposer: history.proposer };
@@ -171,7 +181,7 @@ export async function planConfigurationLanding(reader, reviewed, { env, choices 
   const assetPolicy = mergeConfigurationAssetPolicies(...commits.map(commit => policy(reader, commit)));
   const paths = readGitNameStatusDiff(reader.root, reviewed.proposalBase, reviewed.proposalCommit,
     { env, maximumRecords: 2_000 }).names;
-  const invalid = paths.filter(relative => isConfigurationStatePath(relative) || !isConfigurationAssetPath(relative, assetPolicy));
+  const invalid = paths.filter(relative => isConfigurationStatePath(relative) || !proposalPath(relative, assetPolicy, reviewed.branch));
   if (invalid.length) return { files: new Map(), changes: [], fields: [], clashes: [], decided: [], unused: [], invalid, assetPolicy };
   await reader.hydrate(paths.flatMap(relative => commits.map(commit => reader.lookup(commit, relative))));
   const files = new Map();
@@ -328,7 +338,7 @@ export async function prepareConfigurationStateTransaction(root, remote, reviewe
   const candidateTree = git(root, ['write-tree', '--missing-ok'], env).stdout.trim();
   const changed = readGitNameStatusDiff(root, reviewed.targetCommit, candidateTree, { env, maximumRecords: 2_001 }).names;
   if (changed.some(relative => !files.has(relative) && relative !== CONFIGURATION_STATE_PATH)
-      || changes.some(change => !isConfigurationAssetPath(change.path, approvedPolicy) && !isConfigurationAssetPath(change.path, assetPolicy))) {
+      || changes.some(change => !proposalPath(change.path, approvedPolicy, reviewed.branch) && !proposalPath(change.path, assetPolicy, reviewed.branch))) {
     fail('The validated configuration transaction changed an unapproved path.');
   }
   // A second parent retains reviewed history, but no textual Git merge is performed. Stable

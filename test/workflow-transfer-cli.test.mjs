@@ -217,11 +217,11 @@ test('captured transfer expectation fences authority and commit races at the pro
   git(item.root, 'remote', 'set-url', 'origin', item.remoteA);
   git(item.root, 'commit', '--allow-empty', '-qm', 'source commit race');
   git(item.root, 'push', '-q', item.remoteA, 'HEAD:refs/heads/sflow/config');
-  const changedRefs = git(item.base, '--git-dir', item.remoteA, 'show-ref');
-  await assert.rejects(() => proposeConfigurationChange(item.root, proposal),
-    { code: 'CONFIGURATION_PROPOSAL_AUTHORITY_CHANGED' });
-  assert.equal(mutations, 0);
-  assert.equal(git(item.base, '--git-dir', item.remoteA, 'show-ref'), changedRefs);
+  // sflow/config moved after the plan was read: the proposal is made on the commit its author read, and approval
+  // re-applies it onto the newer one [SCF:REQ-005]; it is not refused.
+  const raced = await proposeConfigurationChange(item.root, proposal);
+  assert.equal(raced.baseCommit, item.approved, 'the proposal\'s parent is the commit its author read');
+  assert.equal(mutations, 1);
   await assert.rejects(() => captured.mutate(item.root),
     { code: 'WORKFLOW_TRANSFER_DESTINATION_CHANGED' });
   const proofRoot = path.join(item.base, 'wrong-ambient-repository');

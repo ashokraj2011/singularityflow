@@ -58,7 +58,7 @@ test('test setup renders the repository by default, unverified suggestions and a
   // The repository is the default; a step is the other choice [RTC:REQ-005].
   assert.match(initial, /Where these tests apply<\/span><select data-test-target><option value="repository" selected>The repository: every step that runs tests, in every workflow<\/option><optgroup label="Only this step">/);
   assert.match(initial, /<form id="test-setup-form" data-target="repository">/);
-  assert.match(initial, /<button type="submit">Save for review<\/button><button type="submit" data-test-activate="true"[^>]*>Save and activate<\/button>/);
+  assert.match(initial, /<button type="submit">Save for review<\/button><button type="submit" data-test-activate="true"[^>]*>Save and approve<\/button>/);
   const html = testSetupHtml({ ...view, selected: view.targets[1].id,
     inspection: { repositoryPath: '/approved/repository', sourceRoots: ['.'], suggestions: [command], diagnostics: [], testsExecuted: false, baseline: 'not-observed' } });
   assert.match(html, /Add suggestion to draft/);

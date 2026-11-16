@@ -230,8 +230,9 @@ test('SF Guard on: anyone with repository access may approve a configuration cha
   const reviewed = { proposalCommit: proposal, targetCommit: base, changedFiles: [], workflows: [], valid: true, branch: 'sflow/config-change/p' };
   const printed = [];
   let activated = 0;
+  // The approval names the revision the person was shown [SCF:REQ-006].
   const approve = () => inRoot(root, () => approveProposal(root, 'sflow/config-change/p', {
-    yes: true, print: (line) => printed.push(line), list: async () => [], inspect: async () => reviewed,
+    confirm: proposal, print: (line) => printed.push(line), list: async () => [], inspect: async () => reviewed,
     activate: async () => { activated += 1; return { activated: true, status: 'activated' }; }
   }));
 
@@ -275,7 +276,7 @@ test('SF Guard on: a configuration approval takes one touch over the exact propo
   assert.equal(person.shown.length, 0);
 
   const outcome = await inRoot(root, () => approveProposal(root, 'sflow/config-change/p', {
-    yes: true, print: () => {}, list: async () => [], inspect: async () => ({ ...reviewed, branch: 'sflow/config-change/p' }),
+    confirm: proposal, print: () => {}, list: async () => [], inspect: async () => ({ ...reviewed, branch: 'sflow/config-change/p' }),
     activate: async () => ({ activated: true, status: 'activated' })
   }));
   assert.equal(outcome.error, undefined, outcome.error?.message);

@@ -135,7 +135,7 @@ test('after the proposal the page shows its branch, the backup and how to restor
   assert.match(html, /Deletion proposed as <code>sflow\/config-change\/workflow\/delete-workflow-mine-1<\/code>/u);
   assert.match(html, /data-wd-backup>\/home\/someone\/\.singularity-flow\/workflow-backups\/abc\/story-mine-2026\.sflow-workflows\.json</u);
   assert.match(html, /data-wd-restore>singularity-flow workflow import &quot;\/home\/someone\/[^<]*&quot; --dry-run</u);
-  assert.match(html, /data-wd-action="review">Review and activate/u);
+  assert.match(html, /data-wd-action="review">Review and approve/u);
   assert.match(html, /data-wd-action="cancel">Close/u);
   assert.doesNotMatch(html, /data-wd-action="confirm"/u, 'a done delete cannot be proposed twice');
   const local = workflowDeleteHtml(view({ done: deleteResultFrom({ changed: true, backup: { path: '/tmp/b.json' } }) }));

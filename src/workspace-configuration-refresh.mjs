@@ -92,7 +92,7 @@ function buildDate(build) {
  * newer build (SCF:REQ-015, REQ-016; UP-F1, UP-F3). The refusal is this repository's alone: refresh reports it and
  * goes on with the others.
  */
-function assertBuildMayPropose(baseline, build, environment) {
+function assertBuildMayPropose(baseline, build, environment, { rollback = false } = {}) {
   if (!build && environment?.[DEVELOPMENT_PROPOSALS_SWITCH] !== 'allow') {
     throw new SingularityFlowError(
       'This is a development checkout or a dirty tree, not a clean stamped build, and it never proposes packaged '
@@ -102,7 +102,8 @@ function assertBuildMayPropose(baseline, build, environment) {
       }
     );
   }
-  if (newerBuild(baseline?.build, build)) {
+  // A rollback proposes the older build's configuration for a person to approve, labelled as one (D8).
+  if (newerBuild(baseline?.build, build) && !rollback) {
     throw new SingularityFlowError(
       `This repository needs a build from ${buildDate(baseline.build)} or later: its approved configuration came from a `
         + `newer build than this one${build ? ` (from ${buildDate(build)})` : ''}, and an older build never proposes over it. `
@@ -1439,6 +1440,7 @@ export async function refreshPackagedConfiguration(root, {
   restorePackagedSeeds = false,
   migrateWorldModel = false,
   build = proposingBuild(),
+  rollback = false,
   environment = process.env
 } = {}) {
   resolutions = normalizeRefreshResolutions(resolutions);
@@ -1472,7 +1474,7 @@ export async function refreshPackagedConfiguration(root, {
     readBaseline(root)
   ]);
   let baseline = recordedBaseline;
-  assertBuildMayPropose(baseline, build, environment);
+  assertBuildMayPropose(baseline, build, environment, { rollback });
   // An absent workflow file contains no repository-authored nodes to preserve. Seeded-only
   // reinitialization may therefore recreate the packaged workflow container, while ordinary
   // refresh remains fail-closed and every non-regular target is still refused above. Starting the
@@ -2915,7 +2917,7 @@ function commitRefreshCandidate(root, refresh, env, subject, repository) {
  * proposes the same tree, and so shares one review. The tree records its build in the package
  * baseline, so another build's proposal is a review of its own; teammate updates keep a team on one.
  */
-function reviewProposal(root, candidateCommit, sourceCommit, env) {
+function reviewProposal(root, candidateCommit, sourceCommit, env, { prefix = 'sflow/config-refresh/' } = {}) {
   const tree = refHead(root, `${candidateCommit}^{tree}`, { env });
   const parent = refHead(root, `${candidateCommit}^1`, { env });
   if (!tree || !parent) {
@@ -2923,7 +2925,16 @@ function reviewProposal(root, candidateCommit, sourceCommit, env) {
       code: 'CONFIGURATION_REVIEW_UNREADABLE'
     });
   }
-  return { tree, parent, branch: `sflow/config-refresh/${sourceCommit.slice(0, 8)}-${tree.slice(0, 12)}` };
+  return { tree, parent, branch: `${prefix}${sourceCommit.slice(0, 8)}-${tree.slice(0, 12)}` };
+}
+
+/**
+ * Where a package proposal a person asked for lives [SCF:REQ-005]: in the one list, approved with `configuration
+ * approve` through the same engine as every other proposal. A rollback names the build it goes back to (D8).
+ */
+function packageProposalPrefix(candidate) {
+  const date = String(candidate.build?.builtAt ?? '').slice(0, 10).replaceAll('-', '');
+  return candidate.rollback ? `sflow/config-change/package/rollback-to-${date || 'build'}-` : 'sflow/config-change/package/upgrade-';
 }
 
 /** The commit of this exact review when it is already open: the same tree on the same parent. */
@@ -2942,10 +2953,10 @@ async function openReviewCommit(root, proposal, env) {
  * Push a candidate commit to its review branch, or join the same review another machine already opened: the
  * commit's review name and the commit that branch holds. Throws when neither happened.
  */
-async function openReviewBranch(candidate, candidateCommit) {
+async function openReviewBranch(candidate, candidateCommit, { prefix } = {}) {
   const { root, repository, sourceCommit } = candidate;
   const env = candidate.gitEnv ?? process.env;
-  const proposal = reviewProposal(root, candidateCommit, sourceCommit, env);
+  const proposal = reviewProposal(root, candidateCommit, sourceCommit, env, prefix ? { prefix } : {});
   const pushed = await runRemoteGitAsync([
     'push', `--force-with-lease=refs/heads/${proposal.branch}:`, 'origin', `HEAD:refs/heads/${proposal.branch}`
   ], { cwd: root, operation: 'remote-push', env });
@@ -2974,12 +2985,19 @@ async function proposeCandidate(candidate) {
     conflicts: refresh.conflicts, configurationChanged: false, error: null,
     ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}), ...extra
   });
-  // A difference that is only the build's name is nothing for a person to review [owner, 2026-11-13].
-  if (!refresh.changed || refresh.productStampOnly) return result('current');
-  const candidateCommit = commitRefreshCandidate(root, refresh, env, 'propose packaged configuration', repository);
+  // A difference that is only the build's name is nothing for a person to review [owner, 2026-11-13], except a rollback:
+  // going back to the older build is what lowers the repository's minimum build (D8).
+  if (!refresh.changed || (refresh.productStampOnly && !candidate.rollback)) return result('current');
+  const candidateCommit = commitRefreshCandidate(root, refresh, env,
+    candidate.rollback ? `roll back to build ${String(candidate.build?.builtAt ?? '').slice(0, 10) || 'unknown'}` : 'propose packaged configuration', repository);
   if (!candidateCommit) return result('current');
-  const review = await openReviewBranch(candidate, candidateCommit);
-  return result('review-required', { ...review, compareUrl: compareLink(repository.remote, CONFIGURATION_BRANCH, review.proposalBranch) });
+  // A package proposal in the one list, approved with `configuration approve` through the same engine [SCF:REQ-005,
+  // REQ-010]; a rollback names its build and lists what it removes (D8). Only a person's --review-only asks for one:
+  // an upgrade publishes directly [owner, 2026-11-16].
+  const review = await openReviewBranch(candidate, candidateCommit, { prefix: packageProposalPrefix(candidate) });
+  return result('review-required', { ...review, packageProposal: true,
+    ...(candidate.rollback ? { rollback: { toBuild: candidate.build ?? null, removes: refresh.removed ?? [] } } : {}),
+    nextAction: { label: candidate.rollback ? 'Approve the rollback' : 'Approve the package proposal', command: `singularity-flow configuration approve ${review.proposalBranch}` } });
 }
 
 /**
@@ -3078,6 +3096,7 @@ async function publishCandidate(candidate) {
   // And their copies in this machine's registered clones: tracking refs and fetched archive tags only, never a file.
   if (Array.isArray(supersededRefs.remaining)) {
     supersededRefs.local = pruneLocalSupersededConfigurationRefs(repository.localPaths ?? [repository.localPath], repository.remote, {
+      configurationCommit: approvedCommit,
       remaining: supersededRefs.remaining
     });
   }
@@ -3146,10 +3165,13 @@ export async function refreshWorkspaceConfigurations({
   inspectCandidate = null,
   cleanupTemporaryTree = removeTemporaryTree,
   reviewOnly = false,
+  // Going back to an older build: a package proposal labelled as a rollback, never a direct publish (D8).
+  rollback = false,
   // The build proposing (SPEC-SCF D1); tests stand in another build here.
   build = proposingBuild()
 } = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace configuration refresh requires the workspace registry path.');
+  if (rollback) reviewOnly = true;
   const normalizedResolutions = normalizeRefreshResolutions(resolutions);
   // Preview and apply are two halves of one reviewed operation, so they must observe the authority
   // through the same transport/authentication environment. In particular, preview must not succeed
@@ -3236,7 +3258,7 @@ export async function refreshWorkspaceConfigurations({
           // conflicts and removals change behind one plan ID.
           candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-            restorePackagedSeeds, migrateWorldModel, hardCutover, build
+            restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
           }, { env: gitEnv });
           if (inspectCandidate) await inspectCandidate(candidate);
         } catch (error) {
@@ -3252,7 +3274,7 @@ export async function refreshWorkspaceConfigurations({
       try {
         candidate = await prepareCandidate(observation.repository, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds, migrateWorldModel, hardCutover, build
+          restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
         }, { env: gitEnv });
         if (inspectCandidate) await inspectCandidate(candidate);
       } catch (error) {
@@ -3304,7 +3326,7 @@ export async function refreshWorkspaceConfigurations({
         try {
           const candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-            restorePackagedSeeds, migrateWorldModel, hardCutover, build
+            restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
           }, { env: gitEnv });
           return { observation, candidate, retained: false, bootstrap: true, error: null };
         } catch (error) {
@@ -3315,7 +3337,7 @@ export async function refreshWorkspaceConfigurations({
       }
       try {
         const candidate = await prepareObservedCandidate(observation, {
-          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build
+          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
         }, cachedPlan, { env: gitEnv });
         return { observation, candidate, retained: true, bootstrap: false, error: null };
       } catch (error) {
@@ -3380,7 +3402,7 @@ export async function refreshWorkspaceConfigurations({
       try {
         const candidate = await prepareBootstrapInspectionCandidate(observation, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds, migrateWorldModel, hardCutover, build
+          restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
         }, { env: gitEnv });
         return { observation, candidate, error: null };
       } catch (error) {
@@ -3553,7 +3575,7 @@ export async function refreshWorkspaceConfigurations({
   const prepared = await mapLimit(toPrepare, workers, async (observation) => {
     try {
       const candidate = await prepareObservedCandidate(observation, {
-        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build
+        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
       }, cachedPlan, { env: gitEnv });
       return { observation, candidate, error: null };
     } catch (error) {
@@ -3632,7 +3654,7 @@ export async function refreshWorkspaceConfigurations({
       // The agents-home migration is a package change like any other: refresh proposes it, and a
       // person approves it by merging that review (SCF:REQ-014, AGH:REQ-016).
       try {
-        const published = await publishCandidate(reviewOnly ? { ...candidate, reviewOnly } : candidate);
+        const published = await publishCandidate(reviewOnly ? { ...candidate, reviewOnly, rollback, build } : candidate);
         return candidate.refresh?.agentsHome ? { ...published, agentsHome: candidate.refresh.agentsHome } : published;
       }
       catch (error) {
@@ -3727,8 +3749,11 @@ export function refreshSummary(results) {
     if (result.status === 'review-required' && result.protectedBranch) {
       lines.push(`${result.repository}: the host refused the update to ${CONFIGURATION_BRANCH}. This build's configuration is on review branch `
         + `${result.proposalBranch}${result.compareUrl ? `; merge it here: ${result.compareUrl}` : '; merge it on the Git host'}.`);
+    } else if (result.status === 'review-required' && result.rollback) {
+      lines.push(`${result.repository}: proposed rolling back to the build from ${String(result.rollback.toBuild?.builtAt ?? '').slice(0, 10) || 'an older date'} as ${result.proposalBranch}`
+        + `${result.rollback.removes.length ? `; it removes ${result.rollback.removes.join(', ')}` : ''}. Approve it: singularity-flow configuration approve ${result.proposalBranch}`);
     } else if (result.status === 'review-required') {
-      lines.push(`${result.repository}: proposed on review branch ${result.proposalBranch}${result.compareUrl ? ` (${result.compareUrl})` : ''}, as --review-only asked.`);
+      lines.push(`${result.repository}: proposed as ${result.proposalBranch}, as --review-only asked. Approve it: singularity-flow configuration approve ${result.proposalBranch}`);
     } else if (result.status === 'needs-newer-build') {
       lines.push(`${result.repository}: ${result.error}`);
     } else if (result.status === 'blocked') {

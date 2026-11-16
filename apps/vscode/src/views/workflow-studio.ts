@@ -1099,7 +1099,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
         modal: true,
         ...(now ? { compactDetail: buildChangeSummary(check) } : {}),
         detail: now
-          ? [...buildChangeLines(check), '', 'One proposal is created, then you approve it into the approved configuration at its exact commit; server rules still apply. New Stories use it at once; Stories already running keep theirs.'].join('\n')
+          ? [...buildChangeLines(check), '', 'One proposal is made, then you approve it at its exact commit; server rules still apply. New Stories use it; running Stories keep theirs.'].join('\n')
           : proposal
             ? 'It becomes one review proposal on the approved configuration. Nothing changes for running or new Stories until it is reviewed and approved.'
             : 'The files are written to this repository. Review the diff and commit it through your usual review.'

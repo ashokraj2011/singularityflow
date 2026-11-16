@@ -94,7 +94,7 @@ export function testSetupHtml(view: TestSetupView): string {
       <p><button type="button" class="secondary" data-test-add>Add test command</button></p>
       <p class="muted">The command must produce the selected report and execute real tests. Required commands remain required; intake separately selects changed-and-affected or all-configured execution and how to handle observed existing failures.</p>
       <button type="submit">Save for review</button><button type="submit" data-test-activate="true" title="Saves the change as a proposal and approves it at once, the same approval as Workflow Studio → Changes → Review and approve">Save and approve</button>
-      <p class="muted">Save and approve is the same approval as Workflow Studio → Changes → Review and approve, for the proposal it just made. Where the server protects sflow/config, it is merged through the repository's review instead, and the proposal waits under Changes.</p>
+      <p class="muted">Save and approve approves the proposal it just made. Where sflow/config is protected, it waits under Changes for a merge on the Git host.</p>
     </form>` : `<p>${view.targets.length ? 'Choose where these tests apply before adding commands.' : 'No configured phases. Create a workflow before saving test commands.'}</p>`}
   </section>`;
 }

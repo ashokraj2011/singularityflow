@@ -6086,11 +6086,12 @@ test('capability inspection refuses with the restore routes when sflow/config is
       assert.equal(error.code, 'STORY_CONFIGURATION_AUTHORITY_MISSING', error.message);
       assert.equal(error.details.reason, 'configuration-branch-missing');
       assert.equal(error.details.stateCommit, stateCommit);
-      assert.match(error.message, /^sflow\/config is missing on '.*', so no new work can start there\. SFlow reads configuration only from sflow\/config, never from the copy on the 'state' branch/u);
+      assert.match(error.message, /^sflow\/config is missing on '.*', so no new work can start there\. Restore it: singularity-flow configuration restore/u);
       const { refusalRemediationPlan } = remediation;
       const steps = refusalRemediationPlan(error, ['capability', 'organisation', org.platform]).steps;
-      assert.deepEqual(steps.map((step) => step.id).slice(0, 2), ['restore-configuration-from-clone', 'preview-configuration-restore']);
-      assert.equal(steps[1].command, `singularity-flow capability onboard ${org.platform} --dry-run`);
+      // One route [SCF:REQ-002, D7].
+      assert.deepEqual(steps.map((step) => step.id).slice(0, 1), ['preview-configuration-restore']);
+      assert.equal(steps[0].command, 'singularity-flow configuration restore');
       return true;
     }, `refresh ${refresh}`);
   }

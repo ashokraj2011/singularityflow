@@ -8169,11 +8169,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(args)}`);
       try {
         const result = await client.run<{
-          changed: boolean; pushed: boolean; commit: string;
+          changed: boolean; pushed: boolean; commit: string; proposed?: boolean;
+          proposal?: { branch: string; commit: string; published?: boolean | null } | null;
+          previouslyRemoved?: string[]; fault?: unknown;
           groups: Array<{ id: string; scope: string }>;
           transportIntent?: string; transportStatus?: string;
           nextAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
         }>(args);
+        // A people or policy edit is a people proposal, approved like any other [SCF:REQ-012].
+        if (result.changed && result.proposed && result.proposal?.published && !result.fault) {
+          await refreshAfterKnownMutation();
+          const removed = result.previouslyRemoved?.length
+            ? ' An approved change removed you from a group it adds you to, so someone else must approve it.' : '';
+          const review = 'Review and approve';
+          void showCompactInformationMessage(`Proposed as ${personBranch(result.proposal.branch)}; it waits under Workflow Studio → Changes.${removed}`, review)
+            .then((choice) => (choice === review ? reviewAndActivateWorkflowProposal(result.proposal!.branch) : undefined));
+          return null;
+        }
         if (result.changed && !result.pushed) {
           const next = commandGuidanceText(result.nextAction);
           return `The configuration commit is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : `Retry it from Workflow Studio → Changes, or run: singularity-flow sync ${result.transportIntent ?? '<INTENT-ID>'}`}`;

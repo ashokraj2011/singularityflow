@@ -11,6 +11,11 @@
  * no longer holds. Never a local branch, `sflow/config`, `sflow/config-change/*`, the state branch, a Story or an
  * application branch, and never a tag outside `refs/tags/sflow/config-history/`. Never thrown: the remote is already
  * clean, and a clone that cannot be read or changed is reported.
+ *
+ * The same pass removes what is left after it [SCF stage 4, finding CH-F9]: the private refs that kept a configuration
+ * commit for a retryable upload (`refs/singularity/transport/configuration/*` and `.../configuration-proposals/*`) once
+ * that commit is in the history of the `sflow/config` commit just published, so it can never be needed again. One whose
+ * commit is not there, or cannot be checked here, stays.
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -18,6 +23,7 @@ import path from 'node:path';
 import { supersededRefKind } from './configuration-superseded-refs.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { executeGitQuery } from './git-query.mjs';
+import { sourceContains } from './source-inspection.mjs';
 import { sameGitRepository } from './git-repository-identity.mjs';
 import { run } from './util.mjs';
 
@@ -56,20 +62,34 @@ function staleCopies(root, remote, remaining, env) {
   return stale;
 }
 
+/** The upload retention refs one clone holds whose commit `configurationCommit` already contains. */
+function landedRetentions(root, configurationCommit, env) {
+  if (!OBJECT_ID.test(configurationCommit ?? '')) return [];
+  return executeGitQuery(root, 'configuration.local-transport-refs', {}, { env })
+    .filter(([, object]) => OBJECT_ID.test(object ?? ''))
+    .filter(([, object]) => {
+      const contained = sourceContains(root, object, configurationCommit, { env, offline: true });
+      return contained.status === 'present' && contained.value === true;
+    })
+    .map(([ref, object]) => ({ ref, object, kind: 'transportRefs' }));
+}
+
 /**
  * Remove the stale superseded copies from each registered clone of `remote`. `remaining` names the superseded refs the
- * remote still holds (refused or moved), which stay. Returns `{ pruned: { trackingRefs, tags }, clones, failed }`.
+ * remote still holds (refused or moved), which stay. With `configurationCommit`, the `sflow/config` commit just
+ * published, upload retention refs it contains go too. Returns `{ pruned: { trackingRefs, tags, transportRefs },
+ * clones, failed }`.
  */
-export function pruneLocalSupersededConfigurationRefs(checkouts, remote, { remaining = [], env = process.env } = {}) {
+export function pruneLocalSupersededConfigurationRefs(checkouts, remote, { remaining = [], configurationCommit = null, env = process.env } = {}) {
   const gitEnv = withoutGitProcessOverrides(env);
   const kept = new Set(remaining);
-  const pruned = { trackingRefs: 0, tags: 0 };
+  const pruned = { trackingRefs: 0, tags: 0, transportRefs: 0 };
   const failed = [];
   let clones = 0;
   for (const checkout of [...new Set((checkouts ?? []).filter(Boolean).map((entry) => path.resolve(entry)))]) {
     if (!existsSync(checkout)) continue;
     let stale;
-    try { stale = staleCopies(checkout, remote, kept, gitEnv); }
+    try { stale = [...staleCopies(checkout, remote, kept, gitEnv), ...landedRetentions(checkout, configurationCommit, gitEnv)]; }
     catch { failed.push({ checkout, reason: 'Its refs could not be read.' }); continue; }
     clones += 1;
     for (const entry of stale) {
@@ -79,5 +99,5 @@ export function pruneLocalSupersededConfigurationRefs(checkouts, remote, { remai
       else failed.push({ checkout, ref: entry.ref, reason: 'Git refused to delete it.' });
     }
   }
-  return { clones, pruned, total: pruned.trackingRefs + pruned.tags, failed };
+  return { clones, pruned, total: pruned.trackingRefs + pruned.tags + pruned.transportRefs, failed };
 }

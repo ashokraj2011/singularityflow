@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 30,
   "draft-for-version": 15,
-  "generic-route": 6357,
+  "generic-route": 6362,
   "jargon": 1393,
-  "length": 694
+  "length": 688
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -2193,7 +2193,6 @@
    "6f162dff5c82": "length",
    "723e052aea2b": "length",
    "7354128869db": "jargon:ledger",
-   "74b750b20e14": "length",
    "8acd80f4c1e1": "count-without-name",
    "b7736f649d1d": "jargon:canonical length",
    "bfbed4185540": "length",
@@ -2202,7 +2201,6 @@
    "dd56d080348b": "length"
   },
   "apps/vscode/src/views/configuration-center.ts": {
-   "1e2ba54495ac": "length",
    "99156f446088": "length"
   },
   "apps/vscode/src/views/copilot-extensions-model.ts": {
@@ -2689,9 +2687,6 @@
   "apps/vscode/src/views/workflow-studio-page.ts": {
    "550add6d2ae9": "length",
    "932f5c8ed5ee": "length"
-  },
-  "apps/vscode/src/views/workflow-studio.ts": {
-   "6db3c86804ce": "length"
   },
   "apps/vscode/src/views/workflow-transfer-page.ts": {
    "d3218b31a61d": "length"
@@ -3258,7 +3253,6 @@
    "6562b06edd60": "jargon:canonical",
    "6fc9ab3adea6": "jargon:retained",
    "7d31ef050a75": "jargon:binding",
-   "7e2e8470c006": "length",
    "8565170a9274": "jargon:retained",
    "a06674bea0ea": "jargon:projection",
    "a4d1b95f3fea": "jargon:provenance",
@@ -3281,7 +3275,6 @@
    "2b1ae2466f05": "jargon:retained length",
    "5e15a9f7eeb3": "jargon:staging",
    "707772c4ce97": "length",
-   "9bdb1bc5a3db": "length",
    "a3884d858571": "2× jargon:retained",
    "a7c62af95b14": "jargon:retained",
    "af0e04d78b4a": "length",
@@ -4106,7 +4099,6 @@
    "1e4a42ac5c98": "length",
    "220765ad0484": "jargon:digest jargon:generation",
    "29682b55fee3": "jargon:deterministic",
-   "2eac476f364b": "length",
    "31fdac040348": "length",
    "32ccb6e578ba": "jargon:retained length",
    "36c7240a2deb": "jargon:ledger",

@@ -20,7 +20,6 @@ import { gitDisabledHooksPath } from './platform-process.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { configurationProposerKey } from './configuration-state-contract.mjs';
-import { listsMember, removedApprovalMemberships } from './configuration-people-history.mjs';
 import { canonicalJson } from './records.mjs';
 import { GitRemoteSession, gitCommonDir } from './git-execution.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
@@ -423,6 +422,8 @@ export async function publishCurrentIdentityToConfiguration(root, {
     // A group a reviewed change removed this person from is one they are never added back to by their own
     // approval [SCF:REQ-012, finding ER-F3]. Story start leaves those groups alone; an explicit request still
     // proposes, for someone else to approve. The groups they would join are read from sflow/config's history.
+    // Read only when someone would join a group, so Story start's eager graph does not carry the history reader.
+    const { listsMember, removedApprovalMemberships } = await import('./configuration-people-history.mjs');
     const joining = selected.filter((entry) => mergeMember(entry.authority?.members, actor, entry.scope).changed
       && !listsMember(entry.authority?.members, member, entry.scope));
     const removal = joining.length
@@ -509,7 +510,8 @@ export async function publishCurrentIdentityToConfiguration(root, {
       env: process.env, legacyRun: (argv, opts) => run('git', argv, {...opts, cwd: scratch})
     });
     const proposalCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
-    const proposalTree = run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: scratch }).stdout.trim();
+    // The index is the commit just made, so writing it names the commit's tree without another read.
+    const proposalTree = run('git', ['write-tree'], { cwd: scratch }).stdout.trim();
     // Every people or policy edit is a people proposal [SCF:REQ-012]. At Story start, where the repository
     // allows self-approval and the person was never removed from these groups, the starter approves their
     // own enrollment in the same step [D5]: one approval commit records them as proposer and approver.

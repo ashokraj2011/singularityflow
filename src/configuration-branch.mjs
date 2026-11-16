@@ -1721,16 +1721,15 @@ async function stateCarriesConfigurationCopy(remote, stateCommit, { env = proces
 export function configurationBranchMissingError(remote, { stateCommit = null } = {}) {
   const where = sanitizeRemote(remote);
   return new SingularityFlowError(
-    `${CONFIGURATION_BRANCH} is missing on '${where}', so no new work can start there. SFlow reads configuration only `
-    + `from ${CONFIGURATION_BRANCH}, never from the copy on the '${STATE_CONFIGURATION_BRANCH}' branch${stateCommit ? ` (${stateCommit.slice(0, 12)})` : ''}, `
-    + `which anyone who can push there could have changed. Restore ${CONFIGURATION_BRANCH} first: from a clone that still has it, `
-    + `push back its last approved commit, or preview restoring it with capability onboard and check every file before you confirm. `
-    + 'Running Stories are unaffected; nothing was changed.',
+    `${CONFIGURATION_BRANCH} is missing on '${where}', so no new work can start there. Restore it: singularity-flow `
+    + 'configuration restore shows the newest copy and every file, for you to approve.',
     {
       code: 'STORY_CONFIGURATION_AUTHORITY_MISSING',
       details: {
         reason: 'configuration-branch-missing', branch: CONFIGURATION_BRANCH, remote: where, configurationCommit: null,
-        stateBranch: STATE_CONFIGURATION_BRANCH, stateCommit
+        stateBranch: STATE_CONFIGURATION_BRANCH, stateCommit,
+        // One route [SCF:REQ-002, D7].
+        nextAction: { label: `See what restoring ${CONFIGURATION_BRANCH} would do`, command: 'singularity-flow configuration restore' }
       }
     }
   );
@@ -2143,7 +2142,7 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   // Compile only after the complete retained closure is captured. A template, skill, instruction,
   // constitution or agent change therefore invalidates the receipt even if workflow.yml is equal.
   const definition = retainedDefinition ?? await compiledConfiguration(gitRoot, scratch, assets,
-    () => loadDefinition(scratch), { env });
+    () => loadDefinition(scratch), { env }).catch((error) => { throw unloadableAuthority(error, authority, sourceCommit); });
   const snapshot = Object.freeze({
     [STORY_CONFIGURATION_SNAPSHOT]: true,
     authority: Object.freeze({
@@ -3334,6 +3333,45 @@ async function storyBranchConfigurationClosure(root, snapshot, workTypes, agents
     approved: verifiedStoryDefinition(snapshot), assets: snapshot.assets, workTypes, agents, base: [...before.keys()],
     carried: before.size && baseCommit ? yamlAtRef(root, baseCommit, 'singularity/workflow.yml').value?.workTypes : null
   });
+}
+
+/**
+ * The remote that should hold this checkout's `sflow/config`, whether or not it does now: the workspace's
+ * capability authority, else the checkout's own remote, else the workspace lead. A missing `sflow/config` is
+ * restored there [SCF:REQ-002, D7]. Null when none is known.
+ */
+export async function configurationAuthorityCandidate(root, remoteName = 'origin') {
+  const workspace = await activeWorkspaceForRepository(root).catch(() => null);
+  if (workspace?.capabilityAuthority?.url) return workspace.capabilityAuthority.url;
+  const own = configuredStoryRemote(root, remoteName);
+  if (own.url) return own.url;
+  return workspace?.repositories?.[workspace.leadRepository]?.url ?? null;
+}
+
+/**
+ * A `sflow/config` that does not load names itself, its commit and the problem, with one route [SCF:REQ-002,
+ * finding ER-F5]: never a line to fix in the person's own checkout, which is not what failed. The refusal keeps
+ * its code; its words and next step say where the problem is and how a proposal repairs it.
+ */
+function unloadableAuthority(error, authority, commit) {
+  if (!(error instanceof SingularityFlowError) || authority?.branch !== CONFIGURATION_BRANCH) return error;
+  const where = authority.remote ? ` on '${sanitizeRemote(authority.remote)}'` : '';
+  error.message = `${CONFIGURATION_BRANCH} (${String(commit ?? authority.commit ?? '').slice(0, 12)})${where} does not load: ${error.message} `
+    + `New work cannot start from it until a proposal repairs it: singularity-flow configuration restore proposes going back to its newest commit `
+    + 'that loads, or singularity-flow workflow fix drafts the repair. Running Stories are unaffected.';
+  error.details = { ...(error.details && typeof error.details === 'object' ? error.details : {}),
+    configurationAuthority: { branch: CONFIGURATION_BRANCH, commit: commit ?? authority.commit ?? null },
+    nextAction: { label: `Repair ${CONFIGURATION_BRANCH} with a proposal`, command: 'singularity-flow configuration restore' } };
+  return error;
+}
+
+/** A Story pin's text (`singularity/configuration-source.json`) as `{ branch, commit, repository }`, or null. */
+export function readConfigurationSourceRecord(text) {
+  try {
+    const { record } = readRecord('configuration-source', Buffer.from(String(text ?? ''), 'utf8'));
+    return record?.branch && record?.commit && record?.repository
+      ? { branch: record.branch, commit: record.commit, repository: record.repository } : null;
+  } catch { return null; }
 }
 
 /** Find the organisation configuration for a repository inside or outside a managed workspace. */

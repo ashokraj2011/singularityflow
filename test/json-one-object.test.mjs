@@ -5,6 +5,8 @@
  * answered in JSON, but the confirmed branch went through `submit`, whose success path never passed
  * `--json` to its result. The same held for `submit --json` itself, `reject` and `agent`; `approve
  * --json` printed its review before its result, and `pr --json` printed "Preview only" after it.
+ * `cancel`, `reopen`, `artifact add|scan`, `story branch` and the initiative's Jira, materialize and
+ * contract writes printed only words, and a publication's tail printed its route on stdout.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -54,6 +56,81 @@ test('every command result is told whether the caller asked for JSON', async () 
   assert.deepEqual(missing, [], 'pass { json: optionBoolean(options, \'json\') } to emitCommandResult');
 });
 
+/**
+ * The words a command prints to stdout where no JSON decision covers them: not under an if, ?: or &&/|| that reads
+ * --json (or `quiet`, approve's name for it), and not after an `if (<json>) … return` beside it. A JSON.stringify
+ * print and a route written elsewhere (`write:`) are the result or not stdout. Callbacks count where they are written.
+ */
+function unguardedPrints(relative, text, functionName, branch = null) {
+  const source = ts.createSourceFile(relative, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const decides = (node) => /\bjson\b|'json'|\bquiet\b/u.test(node.getText(source));
+  const exits = (node) => /\breturn\b|\bthrow\b/u.test(node.getText(source));
+  // The function's body, or every branch of it with this condition (initiative sync has two).
+  const starts = [];
+  const find = (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === functionName) {
+      if (!branch) return void starts.push(node.body);
+      const inner = (child) => {
+        if (ts.isIfStatement(child) && child.expression.getText(source) === branch) starts.push(child.thenStatement);
+        ts.forEachChild(child, inner);
+      };
+      return void inner(node.body);
+    }
+    ts.forEachChild(node, find);
+  };
+  find(source);
+  if (!starts.length) return [`${relative}: no ${functionName}${branch ? ` branch ${branch}` : ''}`];
+  const found = [];
+  const walk = (node, guarded) => {
+    if (guarded) return;
+    if (ts.isIfStatement(node) && decides(node.expression)) return;
+    if (ts.isConditionalExpression(node) && decides(node.condition)) return;
+    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken].includes(node.operatorToken.kind)
+        && decides(node.left)) return;
+    if (ts.isBlock(node) || ts.isCaseClause(node) || ts.isDefaultClause(node)) {
+      let covered = false;
+      for (const statement of node.statements) {
+        walk(statement, covered);
+        if (ts.isIfStatement(statement) && decides(statement.expression) && exits(statement.thenStatement)) covered = true;
+      }
+      return;
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression.getText(source);
+      const options = node.arguments.at(-1)?.getText(source) ?? '';
+      if (/^(?:console\.log|process\.stdout\.write|print[A-Z]\w*)$/u.test(callee)
+          && !/JSON\.stringify/u.test(node.arguments[0]?.getText(source) ?? '') && !/\bwrite:/u.test(options)) {
+        found.push(`${relative}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1} ${functionName}${branch ? ` (${branch})` : ''}: ${node.getText(source).slice(0, 70)}`);
+      }
+    }
+    ts.forEachChild(node, (child) => walk(child, false));
+  };
+  for (const start of starts) walk(start, false);
+  return found;
+}
+
+test('every branch of a command that answers --json answers it with its result alone', async () => {
+  // One row per command: each printed its words on a branch its --json never reached (found 2026-11-16).
+  const handlers = [
+    ['src/commands/submit.mjs', 'runSubmitCommand'], ['src/commands/approve.mjs', 'approveCommand'],
+    ['src/cli.mjs', 'pullRequestCommand'], ['src/cli.mjs', 'rejectCommand'], ['src/cli.mjs', 'agentCommand'],
+    ['src/cli.mjs', 'reopenCommand'], ['src/cli.mjs', 'cancelCommand'], ['src/cli.mjs', 'artifactCommand'],
+    ['src/cli.mjs', 'epicCommand', "subcommand === 'pr'"],
+    ...['jira-adopt', 'jira-plan', 'jira-apply', 'materialize', 'sync', 'contracts']
+      .map((name) => ['src/cli.mjs', 'initiativeCommand', `subcommand === '${name}'`]),
+    ['src/commands/story.mjs', 'storyCommand', "subcommand === 'branch'"], ['src/commands/story.mjs', 'storyCommand', "action === 'acknowledge'"],
+    // A publication's tail warns on stderr, beside its warning: stdout is the command's own result.
+    ['src/commands/shared/post-publication-step.mjs', 'postPublicationStep']
+  ];
+  const texts = new Map();
+  const found = [];
+  for (const [relative, name, branch] of handlers) {
+    if (!texts.has(relative)) texts.set(relative, await readFile(path.join(root, relative), 'utf8'));
+    found.push(...unguardedPrints(relative, texts.get(relative), name, branch));
+  }
+  assert.deepEqual(found, [], 'print it only when --json was not asked for, or return the JSON result before it');
+});
+
 test('a submission ready to attempt reports its step, version and push, never a commit or digest', () => {
   const value = { operation: { id: 'submit' }, outcome: { messageId: 'submit.succeeded', slots: { phase: 'planning' } },
     data: { commit: 'a'.repeat(40), pushed: true, pushedTo: 'origin/W-1', generation: 2, reviewPacket: `sha256:${'b'.repeat(64)}` } };
@@ -80,7 +157,9 @@ test('a Story walked with --json answers each step with one object, its converge
   };
 
   await writeFile(path.join(item, 'artifacts/specification/spec.md'), specification(WORK, 1));
-  cli('artifact', 'scan', '--phase', 'specification');
+  const scanned = json('artifact', 'scan', '--phase', 'specification', '--json');
+  assert.equal(scanned.resultType, 'sflow-artifact-registration');
+  assert.ok(scanned.artifacts.some((entry) => entry.path.endsWith('artifacts/specification/spec.md')), JSON.stringify(scanned));
   cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
   const submitted = json('submit', 'specification', '--skip-checks', '--json');
   assert.equal(submitted.operation.id, 'submit');
@@ -123,4 +202,9 @@ test('a Story walked with --json answers each step with one object, its converge
   assert.equal(advanced.data.pushedTo, `origin/${WORK}`);
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.convergence.status, 'awaiting_approval', 'the confirmed advance submitted convergence');
+
+  const cancelled = json('cancel', WORK, '--confirm', WORK, '--reason', 'The walk ends here.', '--json');
+  assert.equal(cancelled.resultType, 'sflow-story-cancelled');
+  assert.equal(cancelled.phase, 'convergence');
+  assert.equal(cancelled.pushed, true);
 });

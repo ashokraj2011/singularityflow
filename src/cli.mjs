@@ -3479,6 +3479,7 @@ async function artifactCommand(positionals, options) {
       await saveStoryDraft(root, config, workflow);
       return registered;
     });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(artifactRegistration(workflow, phaseId, 'add', records), null, 2));
     records.forEach((record) => console.log(`${record.kind}\t${record.path}`));
     return;
   }
@@ -3488,11 +3489,18 @@ async function artifactCommand(positionals, options) {
       await saveStoryDraft(root, config, workflow);
       return scanned;
     });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(artifactRegistration(workflow, phaseId, 'scan', records), null, 2));
     if (!records.length) console.log('No changed artifacts found.');
     else records.forEach((record) => console.log(`${record.kind}\t${record.path}`));
     return;
   }
   throw new SingularityFlowError(`Unknown artifact subcommand: ${subcommand}`);
+}
+
+/** `artifact add|scan --json`: the documents registered, as one object. */
+function artifactRegistration(workflow, phaseId, action, records) {
+  return { schemaVersion: 1, resultType: 'sflow-artifact-registration', action, workId: workflow.workItem.id,
+    phase: phaseId ?? workflow.currentPhase, artifacts: records.map((record) => ({ kind: record.kind, path: record.path })) };
 }
 
 async function pullRequestCommand(positionals, options) {
@@ -4676,6 +4684,10 @@ async function reopenCommand(positionals, options) {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, accepted.config, accepted.workflow);
   });
+  if (optionBoolean(options, 'json')) {
+    return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-story-reopened', workId: workflow.workItem.id,
+      phase: result.phase.id, changeRequestId: result.changeRequest.id, commit: publication.sha ?? null, pushed: publication.pushed === true }, null, 2));
+  }
   console.log(`Reopened ${workflow.workItem.id} at ${result.phase.id} with ${result.changeRequest.id}.`);
   console.log(publication.pushed
     ? `Decision committed and pushed.`
@@ -4760,12 +4772,19 @@ async function cancelCommand(positionals, options) {
       session: cancelSession
     })
   );
+  const remainingChanges = changedFiles(root);
+  if (optionBoolean(options, 'json')) {
+    const release = `singularity-flow cancel ${workflow.workItem.id} --release`;
+    return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-story-cancelled', workId: workflow.workItem.id,
+      phase: result.phase.id, reason: result.cancellation.reason, branch: workflowPublicationBranch(root, workflow),
+      commit: publication.sha ?? null, pushed: publication.pushed === true, uncommittedPaths: remainingChanges,
+      next: remainingChanges.length ? [{ command: release, label: 'Preview safe release' }] : [] }, null, 2));
+  }
   console.log(`Cancelled ${workflow.workItem.id} during ${result.phase.id}: ${result.cancellation.reason}`);
   console.log(`All generated artifacts and approvals remain on ${workflowPublicationBranch(root, workflow)}.`);
   console.log(publication.pushed
     ? `Cancellation committed and pushed; the Story is now archived.`
     : `Cancellation committed locally; the Story is now archived.`);
-  const remainingChanges = changedFiles(root);
   if (remainingChanges.length) {
     console.log(`${remainingChanges.length} uncommitted path(s) remain on the archived branch.`);
     printCommandRoutes(`singularity-flow cancel ${workflow.workItem.id} --release`, { label: 'Preview safe release' });
@@ -7790,6 +7809,10 @@ async function initiativeCommand(positionals, options) {
       });
     }
     if (direct.status === 'recovered') {
+      if (optionBoolean(options, 'json')) {
+        return console.log(JSON.stringify({ initiativeId, recovered: 'rolled-back-before-commit', rescuePath: direct.rescuePath ?? null,
+          next: [{ command: `singularity-flow initiative next ${initiativeId}`, label: 'Before retrying' }] }, null, 2));
+      }
       console.log(`Rolled back the interrupted pre-commit Initiative publication for ${initiativeId}.`);
       if (direct.rescuePath) console.log(`Preserved the interrupted partial bytes at ${direct.rescuePath}.`);
       printCommandRoutes(`singularity-flow initiative next ${initiativeId}`, { label: 'Before retrying' });
@@ -8257,6 +8280,9 @@ async function initiativeCommand(positionals, options) {
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'adopt', epicKey } }, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
+    if (optionBoolean(options, 'json')) {
+      return console.log(JSON.stringify({ initiativeId, epicKey, epics: result.breakdown.epics.length, stories: result.breakdown.stories.length, publication }, null, 2));
+    }
     console.log(`Adopted ${epicKey} as ${result.breakdown.epics.length} Epic and ${result.breakdown.stories.length} stories.`);
     console.log(`Source snapshot recorded · Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
@@ -8291,6 +8317,7 @@ async function initiativeCommand(positionals, options) {
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ initiativeId, planSha256, results: result.results, publication }, null, 2));
     console.log(`Applied ${result.results.length} Jira operations. Committed${publication.pushed ? ' and pushed' : ''}.`);
     result.results.forEach((receipt) => console.log(`- ${receipt.operationId}: ${receipt.jiraKey}`));
     return;
@@ -8306,6 +8333,7 @@ async function initiativeCommand(positionals, options) {
     const result = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
     const fresh = await loadInitiativeAggregate(root, initiativeId);
     const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'materialize', status: result.attempt.status } }, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ initiativeId, attempt: result.attempt, failures: result.failures, publication }, null, 2));
     console.log(`Materialization ${result.attempt.status}: ${result.attempt.stories.length - result.failures.length}/${result.attempt.stories.length} ready. Committed${publication.pushed ? ' and pushed' : ''}.`);
     result.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
     return;
@@ -8336,6 +8364,7 @@ async function initiativeCommand(positionals, options) {
       });
       const fresh = await loadInitiativeAggregate(root, initiativeId);
       const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, payload: { contractId: result.contract.id, contractVersion: result.contract.version } }, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ initiativeId, contract: result.contract, publication }, null, 2));
       console.log(`Registered ${result.contract.id}@${result.contract.version}. Committed${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }

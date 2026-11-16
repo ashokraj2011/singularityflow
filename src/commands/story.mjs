@@ -764,6 +764,12 @@ async function storyReturnCommand(positionals, options, root) {
   }
 }
 
+/** `story branch create|attach|promote --json`: the branch and what was done, as one object, never the whole Story. */
+function storyBranchResult(action, { workflow, publication = null, record: _record, ...result }) {
+  return { schemaVersion: 1, resultType: 'sflow-story-branch', action, workId: workflow?.workItem?.id ?? null, ...result,
+    ...(publication ? { commit: publication.sha ?? null, pushed: publication.pushed === true } : {}) };
+}
+
 export async function storyCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
@@ -1125,17 +1131,20 @@ export async function storyCommand(positionals, options) {
         parentStoryId: optionString(options, 'parent'),
         branchName: requirePositional(positionals, 3, 'child branch name')
       });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(storyBranchResult('create', result), null, 2));
       console.log(`Created and registered child branch ${result.branch} for Story ${result.workflow.workItem.id}.`);
       return;
     }
     if (action === 'attach') {
       const result = await attachStoryBranch(root, config, { parentStoryId: optionString(options, 'parent') });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(storyBranchResult('attach', result), null, 2));
       console.log(`${result.created ? 'Registered' : 'Using'} ${result.canonical ? 'canonical' : 'child'} branch ${result.branch} for Story ${result.workflow.workItem.id}.`);
       return;
     }
     if (action === 'promote') {
       const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
       const result = await promoteStoryBranch(root, config, workflow, { mode: optionString(options, 'mode') });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(storyBranchResult('promote', { ...result, workflow }), null, 2));
       if (result.requiresPullRequest) console.log(`Open a pull request from ${result.branch} to ${result.canonicalBranch}. Epic progress advances only after merge.`);
       else console.log(`Promoted ${result.branch} to ${result.canonicalBranch}.`);
       return;

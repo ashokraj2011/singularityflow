@@ -100,26 +100,26 @@ export async function run({ positionals, options, invocationCwd = process.cwd() 
   const selection = settled ? { ...await (await import('../story-selection-settle.mjs')).recordStorySelection(checkout, settled),
     kind: 'story-selection', workId, answer: settled.answer, evidence: settled.evidence,
     words: `Settled for you: ${settled.answer} Nobody was asked; undo it on the decisions card (/sf-decide ${workId}).` } : null;
-  const projection = process.env.SINGULARITY_FLOW_SESSION_READS === 'legacy' ? null
-    : await (await import('../session-read-service.mjs')).readOpenedSession(checkout, { workId });
-  const status = projection ? { ok: true, value: projection.session } : await step(['session', 'status', '--json'], checkout);
-  if (!status.ok) stop(status, 'session status');
+  // The one session-opening read /sf-session and /sf-resume share (session-opening.mjs).
+  const { openedSessionReads, sessionBound } = await import('../session-opening.mjs');
+  const projection = await openedSessionReads(checkout, workId);
+  if (projection.steps && !projection.steps.status.ok) stop(projection.steps.status, 'session status');
+  const status = { ok: true, value: projection.session };
   const agent = opened.value.agent ?? null;
-  if (status.value?.ready !== true || status.value.workId !== workId || (status.value.activeAgent ?? null) !== agent) {
+  if (!sessionBound(status.value, workId, agent)) {
     throw new SingularityFlowError(
       `${workId} opened at ${checkout}, but its session does not match (ready: ${status.value?.ready}, Story: ${status.value?.workId}, agent: ${status.value?.activeAgent ?? 'none'}; expected ${agent ?? 'none'}). Nothing else was done.`,
       { code: 'SESSION_OPEN_BINDING_MISMATCH', details: { repositoryPath: checkout } });
   }
-  const context = projection ? { ok: true, value: projection.context }
-    : await step(['session', 'context', '--work-id', workId, '--slice', 'brief', '--max-output-bytes', '32768', '--json'], checkout);
-  if (!context.ok) stop(context, 'session context');
-  const next = projection ? { ok: true, value: projection.nextsteps } : await step(['nextsteps', workId, '--json'], checkout);
-  if (!next.ok) stop(next, 'nextsteps');
+  if (projection.steps && !projection.steps.context.ok) stop(projection.steps.context, 'session context');
+  const context = { ok: true, value: projection.context };
+  if (projection.steps && !projection.steps.next.ok) stop(projection.steps.next, 'nextsteps');
+  const next = { ok: true, value: projection.nextsteps };
   const result = {
     schemaVersion: 1, resultType: 'session-open', status: 'ready', workId, repositoryPath: checkout,
     localOnly: !attached, attachedFromRemote: attached, open: opened.value, session: status.value,
     context: context.value, nextsteps: next.value,
-    executionContext: projection?.executionContext ?? await (await import('../execution-context.mjs')).captureExecutionContext(checkout, { fresh: true }),
+    executionContext: projection.executionContext ?? await (await import('../execution-context.mjs')).captureExecutionContext(checkout, { fresh: true }),
     repositoryChecks: (await import('../repository-check-cache.mjs')).repositoryCheckStatus(checkout),
     ...(selection ? { settled: selection } : {})
   };

@@ -9,12 +9,12 @@ import { nextStepsSnapshot, nextStepsText } from '../nextsteps.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
 import { exists, optionBoolean, readJson } from '../util.mjs';
 import { phaseNeedsGeneration } from '../sequence.mjs';
-import { stepBeingWritten, requiresProspectivePhaseInspection } from '../phase-generation-need.mjs';
+import { stepBeingWritten } from '../phase-generation-need.mjs';
+import { stepDecisionOf } from '../step-decision.mjs';
 import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
-import { phaseKernelOwned } from '../code-delivery-policy.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import { phaseContinuation } from '../phase-continuation.mjs';
@@ -79,7 +79,9 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
 } = {}) {
   const prerequisites = [];
   const active = activePhase(workflow);
-  const authoring = Boolean(active) && requiresProspectivePhaseInspection(workflow, active);
+  // The session's agent is selected for a step the kernel says is being written by an agent [OSA:REQ-020, b7].
+  const decision = active ? stepDecisionOf(workflow, active) : null;
+  const authoring = decision?.edit.authoring === true;
   const session = await localSession(root);
   const activeSessionAgent = session?.workId === workflow.workItem.id
       && session?.phaseId === active?.id
@@ -97,7 +99,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   }
   // A step the kernel builds binds no agent (session.mjs clears it), so there is none to select: the hand-off to
   // /sf-resume changed nothing before its route to the step [journey B, 2026-11-16].
-  if (authoring && !activeSessionAgent && !deterministicConvergence && !phaseKernelOwned(active)) prerequisites.push({
+  if (authoring && !activeSessionAgent && !deterministicConvergence && decision.kind.executionOwner !== 'kernel') prerequisites.push({
     timing: 'now', skill: '/sf-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
     reason: 'Select the agent that will remain active for this terminal session before generation.'
   });
@@ -264,8 +266,10 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     if (readiness && !readiness.ready) mcpHold = { phase: active.id, errors: readiness.errors, actions: readiness.actions };
   }
   // The one list's count and first item, read the way readiness reads them [SPEC-OAP M3].
-  const listPublication = publicationPending ?? Boolean(await readPendingPublication(root, { kind: 'story', id: selected.id, migrate: false,
-    roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) } }).catch(() => null));
+  // The retained publication's sealed record, read once: the list, the task's stage and its resume all use it.
+  const retained = publicationPending ?? await readPendingPublication(root, { kind: 'story', id: selected.id, migrate: false,
+    roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) } }).catch(() => null);
+  const listPublication = Boolean(retained);
   let sheet = null;
   const pending = active && active.id === workflow.currentPhase ? await measureCommandSpan('nextsteps.pending-list', async () => {
     const [{ readPendingList }, { pendingSummary }] = await Promise.all([import('../decision-list-reads.mjs'), import('../decision-list.mjs')]);
@@ -297,7 +301,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       // Where the step's task stopped, kept across turns: the same wait every view names [§8, OSA:REQ-012].
       // The kernel applies it only to an open version, so a published step's old record names nothing.
       taskOutcome: active?.status === 'in_progress' && active.id === workflow.currentPhase
-        ? await (await import('../workflow-task-outcome.mjs')).readTaskOutcome(root, workflow, active) : null
+        ? await (await import('../workflow-task-outcome.mjs')).readTaskOutcome(root, workflow, active, { pending: retained || null }) : null
     }),
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root),
@@ -305,7 +309,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   };
   if (active) snapshot.taskResume = await (await import('../workflow-task-store.mjs')).readWorkflowTaskResume(root, workflow, active, {
     // Published only when no version is being written: an open next version's task is not complete [OSA:REQ-012, C5].
-    published: !stepBeingWritten(workflow, active), pendingPublication: listPublication,
+    published: !stepBeingWritten(workflow, active), pendingPublication: retained || false,
     nextAction: snapshot.actions.find(action => action.timing === 'now'),
     progress: { state: authoringProgress?.draft?.draftModified ? 'repair-draft' : 'load-context' }
   });

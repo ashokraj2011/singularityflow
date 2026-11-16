@@ -13,7 +13,6 @@ import { localStorySubjectIndex } from '../../local-story-subject-index.mjs';
 import { stateStorySubjectIndex } from '../../session-story-discovery.mjs';
 import { currentPhase } from '../../phase-generation.mjs';
 import { resolveWorkItem, validateId } from '../../state-stores.mjs';
-import { phasePreparationCommandLines } from '../../phase-preparation-guidance.mjs';
 import { loadDefinition, resolveWorkType, WORKFLOW_PATH } from '../../config.mjs';
 import { readRecord } from '../../schema-migrations.mjs';
 import { loadAcceptedStoryExecution } from '../../accepted-story-execution.mjs';
@@ -165,15 +164,23 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
   const waiting = await (await import('../../story-publication-read.mjs'))
     .storyPublicationPending(executionRoot, config, resolved.workId, { migrate: false }).catch(() => false);
   const synced = await syncedCheckout(executionRoot);
+  // The one session-opening read /sf-session shares (session-opening.mjs): the binding resume made, and the next steps the
+  // kernel decides for the Story as it is, never a fixed `prepare` of the active step [OSA §10, REQ-020]. Resume has
+  // already succeeded; a read that fails is reported, with the session open that reads it again.
+  const opening = await import('../../session-opening.mjs');
+  const opened = await opening.openedSessionReads(executionRoot, resolved.workId).catch(() => ({}));
+  const bound = opening.sessionBound(opened.session, resolved.workId, session.agent ?? null);
+  const nextsteps = opened.nextsteps ? (await import('../session-open.mjs')).agentSessionView({ nextsteps: opened.nextsteps }).nextsteps : null;
   if (!json) {
     summary(workflow);
     console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
     if (waiting) console.log(`A commit of ${resolved.workId} is waiting to be published, so other clones cannot see it yet: run singularity-flow sync ${resolved.workId}.`);
     if (synced) console.log(`Warning: this checkout's Git data is in ${synced.folder}, which ${synced.provider} syncs. Git data there can be lost or mixed between machines: clone the repository again outside it and resume the Story there.`);
-  }
-  const active = currentPhase(workflow);
-  if (active && !json) {
-    console.log(`\n${phasePreparationCommandLines(active, 'Run', workflow).join('\n')}`);
+    const actions = nextsteps?.actions ?? [];
+    if (actions.length) {
+      console.log('\nNext:');
+      actions.slice(0, 4).forEach((action, index) => console.log(`  ${index + 1}. ${action.reason ?? action.label ?? action.id}${action.commandGuidance?.command ? ` — ${action.commandGuidance.command}` : ''}`));
+    } else if (!bound) console.log(`\nIts session could not be read here: run singularity-flow session open ${resolved.workId}.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'resume', classification: 'mutation' },
@@ -189,7 +196,9 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
       materialization: managedWorktree ? 'reused-managed-story-worktree' : 'current-checkout',
       ...(waiting ? { publicationPending: true, nextAction: `singularity-flow sync ${resolved.workId}` } : {}),
       ...(synced ? { syncedFolder: synced } : {}),
-      ...(managedWorktree ? { sourceRepositoryPath: root } : {})
+      ...(managedWorktree ? { sourceRepositoryPath: root } : {}),
+      binding: { bound, workId: opened.session?.workId ?? null, activeAgent: opened.session?.activeAgent ?? null, phase: opened.session?.phase ?? null },
+      ...(nextsteps ? { nextsteps } : {})
     }
   }), { json, postState: workflow });
 }

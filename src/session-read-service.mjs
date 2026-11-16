@@ -118,7 +118,8 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
         await watch(path.join(rootPath, 'context', `${phase.id}-gen${Number(phase.generation ?? 0) + 1}.json`));
       }
       const session = { ...await readOperation(root, ['session', 'status'], () => agentSessionStatus(root, definition, workflow)),
-        ...(phase ? { taskResume: await (await import('./workflow-task-store.mjs')).readWorkflowTaskResume(root, workflow, phase) } : {}) };
+        // No retained publication here (checked above), so the task's stage is not read again.
+        ...(phase ? { taskResume: await (await import('./workflow-task-store.mjs')).readWorkflowTaskResume(root, workflow, phase, { pendingPublication: false }) } : {}) };
       if (session.ready !== true) return { session: { ...session, repositoryPath: root,
         resolvedFrom: 'working-directory', workspaceId: null }, context: null, nextsteps: null };
       // Live/unpinned remote-agent checks have additional mutable dependencies. Until those have

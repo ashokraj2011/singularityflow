@@ -23,19 +23,6 @@ export function localWorkNotCarried(id) {
 }
 
 /**
- * The session, brief and next steps read one command at a time, as `session open` does when the
- * shared read declines a Story: a published generation, a review or a recovery. Without this, every
- * Story taken over after its first publication came back not ready, with no session. A read that
- * fails leaves its part null, so the takeover is reported not ready rather than failed.
- */
-async function sessionReadsOneByOne(root, id) {
-  const status = await step(['session', 'status', '--json'], root);
-  const context = await step(['session', 'context', '--work-id', id, '--slice', 'brief', '--max-output-bytes', '32768', '--json'], root);
-  const next = await step(['nextsteps', id, '--json'], root);
-  return { session: status.ok ? status.value : null, context: context.ok ? context.value : null, nextsteps: next.ok ? next.value : null };
-}
-
-/**
  * The takeover in plain words, for a person at a terminal; --json keeps the full result. It always
  * ends with its next step: a takeover whose session was not ready ended on that sentence (D9).
  */
@@ -180,8 +167,8 @@ export async function run(_argv, { positionals, options }) {
         neededNow: phase != null && documentOfferedToPhase(document, phase),
         restore: `singularity-flow documents restore ${document.id} --file <LOCAL-FILE> --work-id ${id}` }));
     const restoreNow = unavailable.filter(document => document.neededNow);
-    const opened = await (await import('../session-read-service.mjs')).readOpenedSession(root, { workId: id })
-      ?? await sessionReadsOneByOne(root, id);
+    // The one session-opening read session open and resume share; a read that fails leaves the takeover not ready.
+    const opened = await (await import('../session-opening.mjs')).openedSessionReads(root, id);
     const result = { schemaVersion: 1, resultType: 'story-takeover', ready: restoreNow.length === 0 && opened?.session?.ready === true,
       workId: id, repositoryPath: root, phase: workflow.currentPhase, executionContext: primary,
       open: attached.value, session: opened?.session ?? null, context: opened?.context ?? null,

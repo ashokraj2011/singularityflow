@@ -19,6 +19,8 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
+import { successorGenerationOpen } from './phase-generation-need.mjs';
+import { phaseRequiresCodeDelivery as phaseNeedsCode } from './code-delivery-policy.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding, sourceReviewScenarioIds } from './source-grounded-review.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
@@ -54,6 +56,13 @@ export function sourceReviewDirectory(root, config, workflow, phaseId) {
 
 function checkPublishedGeneration(workflow, phaseId) {
   const phase = workflow.phases?.[phaseId];
+  if (phase && successorGenerationOpen(phase)) {
+    const version = phase.generationIntent.generation;
+    throw new SingularityFlowError(`Version ${version} of ${phaseId} is being written; review it after it is published.`, {
+      code: 'SOURCE_REVIEW_SUCCESSOR_OPEN',
+      details: { nextAction: `singularity-flow prepare ${phaseId}`, phase: phaseId, version }
+    });
+  }
   if (!phase || !['in_progress', 'awaiting_approval', 'approved'].includes(phase.status)
       || !Number.isSafeInteger(phase.generation) || phase.generation < 1) {
     throw new SingularityFlowError(`Phase '${phaseId}' must have a published generation before source review.`, {
@@ -72,10 +81,10 @@ async function checkedFile(root, relative, label, expectedSha256 = null, { maxBy
   }
   let bytes = await readFile(secured.absolute);
   const committed = committedSourceReviewFile(root, relative);
-  // A review reads what was published: the committed bytes. The checkout's copy may lawfully differ: line endings
-  // rewritten on checkout (core.autocrlf), or the step's next version already being written after a review asked
-  // for corrections [real Story, 2026-11-16]. A file the commit does not hold still stops below.
-  if (committed.status === 0 && Buffer.isBuffer(committed.stdout) && !committed.stdout.equals(bytes)) bytes = committed.stdout;
+  // A checkout that rewrote line endings (core.autocrlf) differs from Git only in CR bytes; the
+  // committed bytes are the ones the catalog pinned, so review those.
+  if (committed.status === 0 && Buffer.isBuffer(committed.stdout) && !committed.stdout.equals(bytes)
+      && sameIgnoringLineEndings(committed.stdout, bytes)) bytes = committed.stdout;
   if (bytes.length > maxBytes) throw new SingularityFlowError(`${label} exceeds the review source byte limit.`, {
     code: 'SOURCE_REVIEW_INPUT_TOO_LARGE'
   });
@@ -730,6 +739,17 @@ async function loadSourceReviewStatus(root, config, workflow, phaseId) {
       generation: Number(step.generation ?? 0), status: 'not-yet-published', reportPath: null, reportSha256: null, binding: null,
       pendingDispositions: [], findings: [{ code: 'source-review-unpublished', message: 'Publish this step before its independent source review.' }],
       continuation: sourceReviewContinuation(workflow, step) };
+  }
+  if (step && successorGenerationOpen(step)) {
+    // The next version is open: writing it comes first; the published version's review is already carried into it.
+    const version = step.generationIntent.generation;
+    const skill = phaseNeedsCode(step) ? '/sf-code' : '/sf-phase';
+    return { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, // schema-transient
+      phase: phaseId, generation: step.generation, status: 'successor-publication-required',
+      reportPath: null, reportSha256: null, binding: null, pendingDispositions: [],
+      findings: [{ code: 'source-review-successor-unpublished', message: `Version ${version} is being written; review it after it is published.` }],
+      continuation: { actions: [{ reason: `Write version ${version} of ${phaseId}, then publish it.`, skill,
+        command: `singularity-flow prepare ${phaseId}`, copilotCommand: skill, modelFreeCommand: null }] } };
   }
   const phase = checkPublishedGeneration(workflow, phaseId);
   if (workflow.currentPhase === phaseId && phase.status === 'in_progress'

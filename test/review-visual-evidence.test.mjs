@@ -1,10 +1,14 @@
 /**
- * A code step whose plan proves a criterion with a screenshot is reviewed [incident 2026-11-16]. On a real Story:
+ * A code step whose plan proves a criterion with a screenshot is reviewed, and its author's turn starts that review
+ * [incident 2026-11-16]. On a real Story, two dead ends:
  *   - The plan row was `fulfillment: evidence` with a PNG as its expected path. The code review offered only the
  *     changed code: no visual source, and a row template with nowhere to put the image. The reviewer could not cite
  *     it, so every version's review held the step (`clause-implementation-uncited`), and rewriting code could not help.
  *     Now the packet offers the image (its committed bytes, pinned to the digest the delivery recorded, also when an
  *     earlier version published it), the reviewer inspects and attests it in the row's `evidence`, and that counts.
+ *   - The `/sf-code` turn published, read the result before the CLI had refreshed the turn to the Story it changed,
+ *     started the reviewer the result named, and was refused PHASE_MUTATION_CONTRACT_REQUIRED. Now that start, and
+ *     only that start, by the turn that just published that version, passes; any other call is still refused.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -264,4 +268,60 @@ test('the code review offers the published screenshot, also the one an earlier v
   const ready = retainStepReview(json, 'implement', cliReport(second, { attest: true }));
   assert.equal(ready.status, 'ready', JSON.stringify(ready.findings));
   assert.match(sflow('submit', 'implement'), /implement/u, 'with the screenshot attested, the code step submits');
+});
+
+test('the code turn that just published starts its reviewer before the CLI refreshed the turn; nothing else passes', slowLane({ timeout: 480_000 }), async (t) => {
+  const story = await screenshotStory(t);
+  const { root, sflow, hook, turnRecord, base } = story;
+  const author = 'code-author';
+  hook('boundary-turn', { sessionId: author, prompt: '/sf-code implement' });
+  sflow('prepare', 'implement');
+  await writeVersion(root, 'return the approved value');
+  await mkdir(path.dirname(path.join(root, SHOT)), { recursive: true });
+  await writeFile(path.join(root, SHOT), PNG);
+  sflow('prepare', 'implement');
+  const bound = (await turnRecord(author)).value;
+  assert.equal(bound.contract.turnMode, 'authoring');
+  assert.equal(bound.contract.generation, 0);
+  // The publication as the agent saw it: its result was read before the CLI rebuilt the turn from the changed Story.
+  // A command run outside this machine's Copilot records stands for that moment: it publishes and refreshes nothing.
+  const published = spawnSync(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implement', '--authored', 'deterministic',
+    '--channel', 'kernel-generator', '--json'], { cwd: root, env: { ...story.env, SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'elsewhere', 'copilot-mode.json') },
+    encoding: 'utf8', timeout: childTimeout(240_000) });
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+  const handoff = JSON.parse(published.stdout).reviewSubagent;
+  assert.equal(handoff.prompt, '/sf-review-source implement');
+  assert.deepEqual((await turnRecord(author)).value.binding, bound.binding, 'the turn still names the Story before publication');
+
+  const decisionOf = (answer) => answer.permissionDecision ?? answer.hookSpecificOutput?.permissionDecision ?? 'allow';
+  const call = (toolName, toolArgs, id = 'toolu_call') => hook('boundary-guard', { sessionId: author, toolCallId: id, toolName, toolArgs });
+  const task = (args) => call('task', { name: 'review-implement', description: 'Review implement', mode: 'sync', ...args }, 'toolu_review');
+  // Anything else this turn does without a current contract is refused as before.
+  const refusedHere = (answer, label) => {
+    assert.equal(decisionOf(answer), 'deny', label);
+    assert.match(answer.permissionDecisionReason, /^PHASE_MUTATION_CONTRACT_REQUIRED/u, label);
+  };
+  refusedHere(call('edit', { path: path.join(root, 'src/value.mjs'), old_str: 'value = 2', new_str: 'value = 3' }), 'an edit');
+  refusedHere(call('task', { agent_type: 'general-purpose', prompt: 'Tidy the value module.' }), 'another sub-agent');
+  refusedHere(task({ agent_type: 'singularity-flow:sflow-source-reviewer', prompt: '/sf-review-source intake' }), 'the reviewer of another step');
+  refusedHere(task({ agent_type: 'some-reviewer', prompt: '/sf-review-source implement' }), 'an agent that is not the Story\'s reviewer');
+  refusedHere(call('bash', { command: 'npm install left-pad', cwd: root }), 'a shell command');
+
+  // The reviewer of exactly this published version, started by this turn: allowed, and noted as this turn's.
+  const start = task({ agent_type: `singularity-flow:${handoff.agent}`, prompt: handoff.prompt });
+  assert.equal(decisionOf(start), 'allow', JSON.stringify(start));
+  assert.deepEqual((await turnRecord(author)).value.reviewerStarted, { phaseId: 'implement', generation: 1 });
+  // The CLI's refresh then lands; the turn keeps the reviewer it started, so the review stays the step's to correct.
+  sflow('review-source', 'status', 'implement', '--json');
+  const refreshed = (await turnRecord(author)).value;
+  assert.equal(refreshed.contract.generation, 1);
+  assert.deepEqual(refreshed.reviewerStarted, { phaseId: 'implement', generation: 1 });
+  const reasoned = hook('boundary-guard', { sessionId: author, toolCallId: 'toolu_roll', toolName: 'bash',
+    toolArgs: { command: 'singularity-flow phase rollover implement --reason "My own correction" --json', cwd: root } });
+  assert.match(reasoned.permissionDecisionReason ?? '', /this turn started the step's independent reviewer/u);
+
+  // A turn whose record is no longer verifiable never starts one: the contract is gone, not stale.
+  const { file, value } = await turnRecord(author);
+  await writeFile(file, JSON.stringify({ ...value, findings: ['tampered'] }));
+  refusedHere(task({ agent_type: 'singularity-flow:sflow-source-reviewer', prompt: '/sf-review-source implement' }), 'a corrupt turn record');
 });

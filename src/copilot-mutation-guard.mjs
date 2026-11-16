@@ -293,8 +293,10 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(previous?.specStaging ? { specStaging: previous.specStaging } : {}),
     ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}),
     ...(samePhase && previous?.reviewOperation ? { reviewOperation: previous.reviewOperation } : {}),
-    // This turn started the step's reviewer: kept while the step and generation are the same (reviewRolloverCall).
-    ...(samePhase && previous?.reviewerStarted ? { reviewerStarted: previous.reviewerStarted } : {}),
+    // This turn started the step's reviewer: kept while the step and generation are the same (reviewRolloverCall), also
+    // when it started that reviewer of the version it had just published, before this refresh (publishedReviewerStart).
+    ...(previous?.reviewerStarted && (samePhase || (previous.reviewerStarted.phaseId === contract.phaseId
+      && previous.reviewerStarted.generation === contract.generation)) ? { reviewerStarted: previous.reviewerStarted } : {}),
     ...(taskOperation ? { taskOperation } : {}),
     ...(draftStaging.length ? { draftStaging } : {}),
     // Which turn rules this conversation already has: a refreshed contract does not take them back.
@@ -2054,6 +2056,53 @@ export async function nativeReadFailureRecovery(payload) {
     ? { readRequests: recovered.readRequests } : {}) };
 }
 
+/**
+ * The author's turn starting its step's reviewer right after it published, before the publication's own refresh of
+ * this turn landed [incident 2026-11-16]. A command prints and keeps its result before the CLI rebuilds the live turns
+ * from the Story it changed (cli-entry.mjs, contract-refresh). A code publication runs its tests and outlasts the host's
+ * wait, so the agent read the result (`result last`, the host's own read) while that rebuild ran, started the reviewer
+ * the result named, and the turn's binding still named the Story file before publication: refused, with no way on. A
+ * document's quick publication returned only after the rebuild, so planning's same start passed.
+ *
+ * Only that start passes: every call is a reviewer delegation (the Story's pinned reviewer, for this step), from this
+ * live, unexpired turn's own authoring record, and the Story now holds exactly the version this turn was writing,
+ * published after the turn began and waiting for its review. Nothing else is judged without a current contract.
+ */
+async function publishedReviewerStart(payload, record, delegations) {
+  if (record.corrupt || turnExpired(record)) return false;
+  const value = await boundedRecord(recordFile(payload)).catch(() => null);
+  const contract = value?.contract;
+  if (!contract || value.turnId !== record.turnId || value.sessionId !== record.sessionId || contract.turnMode !== 'authoring'
+      || !contract.workId || !contract.phaseId || !contract.repositoryRoot) return false;
+  let workflow;
+  try { ({ workflow } = await loadStory(contract.repositoryRoot)); } catch { return false; }
+  const phase = workflow?.phases?.[contract.phaseId];
+  const generation = Number(phase?.generation);
+  if (workflow?.workItem?.id !== contract.workId || workflow.currentPhase !== contract.phaseId || phase?.status !== 'in_progress'
+      || !Number.isSafeInteger(generation) || generation < 1) return false;
+  const [{ sourceReviewRequired }, { phaseNeedsGeneration, successorGenerationOpen }, { subagentName }] = await Promise.all([
+    import('./source-review-policy.mjs'), import('./phase-generation-need.mjs'), import('./review-subagent.mjs')]);
+  if (successorGenerationOpen(phase) || phaseNeedsGeneration(workflow, phase) || !sourceReviewRequired(workflow, phase.id)) return false;
+  // Exactly the version this turn was writing: its open generation, else the one after the version it was bound to.
+  const writing = Number.isSafeInteger(value.openGeneration) ? value.openGeneration : Number(contract.generation ?? 0) + 1;
+  if (generation !== writing) return false;
+  // Published in this turn: after its prompt.
+  if (!(workflow.history ?? []).some(event => event?.event === 'phase_generated' && event.phase === phase.id
+      && event.detail === `generation ${generation}` && Date.parse(event.at) >= record.recordedAt)) return false;
+  const reviewer = workflow.resolution?.sourceReview?.reviewerAgent;
+  const forThisStep = call => {
+    const named = [call.args?.agent_type, call.args?.agentType, call.args?.agent_name, call.args?.agentName]
+      .find(entry => typeof entry === 'string' && entry.trim());
+    const step = String(call.args?.prompt ?? '').match(/^\s*\/sf(?:low)?-review-source(?:\s+([^\s]+))?/u);
+    return (!named || subagentName({ agentType: named }) === reviewer) && (!step?.[1] || step[1] === phase.id);
+  };
+  if (!reviewer || !delegations.every(forThisStep)) return false;
+  // The reviewer this turn started, kept through the turn's refresh (reviewRolloverCall).
+  await updateTurnRecord(recordFile(payload), value, current => current.turnId !== record.turnId ? null
+    : { ...current, reviewerStarted: { phaseId: phase.id, generation } }).catch(() => {});
+  return true;
+}
+
 async function mutationToolDecision(payload, record) {
   const toolCalls = calls(payload);
   if (mutationTurnMode(record.skill) === 'read' && toolCalls.some(call => GATEWAY_RUN_TOOL.test(call.name))) {
@@ -2138,6 +2187,8 @@ async function mutationToolDecision(payload, record) {
           ? 'Run singularity-flow repair status <REPAIR-ID> --json in this turn: while the repair awaits a patch, its repair attempt action names the patch file to write'
           : 'Run singularity-flow initiative phase draft-check <PHASE> --json in this turn (or the step\'s prepare): it issues the step\'s outputs; write only those paths')
         + '. No file was written; never write another repository file' };
+    if (guarded.every(call => DELEGATION.has(call.name) && reviewerDelegation(call))
+        && await publishedReviewerStart(payload, record, guarded)) return {};
     return mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding; expired/corrupt permissions require a new explicit turn; do not discard work');
   }
   const contract = value.contract;

@@ -28,3 +28,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 8. Reproduce the returned `prompt`, workspace, repository, path, `repositoryState`, branch, and Story. A planned `missing` checkout is selectable but not a shell cwd. Use a ready `repositoryPath` for later shell commands.
 9. Do not launch nested Copilot. A new terminal session can start with `singularity-flow workspace copilot` in a ready checkout. For a planned checkout, use `/sf-start` or `singularity-flow workspace repair <WORKSPACE-PATH> --repository <REPOSITORY-ID>` first. The Copilot session name contains workspace and Story.
 10. The context label is a session banner, not a replacement for Copilot's native `>` marker.
+11. Moved workspace or gone Story checkout: run the refusal's `singularity-flow workspace repair <FOLDER>`; relay its plan for `/sf-confirm`.

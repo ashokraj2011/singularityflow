@@ -12,10 +12,8 @@ import {
 import {
   configurationReadRoot, isConfigurationReadPath
 } from '../../configuration-read-scope.mjs';
-import { stateConfigurationHistoryBranch } from '../../configuration-branch.mjs';
-import { configurationHistoryRefs, retainedConfigurationHistoryRef } from '../../configuration-history-refs.mjs';
 import { identity } from '../../git.mjs';
-import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from '../../git-execution.mjs';
+import { runRemoteGitAsync } from '../../git-execution.mjs';
 import { frozenRemoteTransport } from '../../git-remote-diagnostics.mjs';
 import { gitReadOutput, SingularityFlowError, run } from '../../util.mjs';
 import { withTrustedSgosConfigurationRead } from '../authority-trust.mjs';
@@ -134,9 +132,10 @@ function authorityGitRead(cwd, args, label, { absentStatus = null, encoding = 'u
  * An application repository can share history with configuration authority while still owning
  * extra commits of its own. Asking that application object store to prove ancestry would let a
  * B-only object participate in an A-authority decision. Remote authority objects are therefore
- * fetched through the exact advertised branch that supplied it into a disposable bare store.
- * State mirrors use a source-specific immutable history branch so deleting `sflow/config` cannot
- * strand older approved policy. Offline local authority heads use their own object store directly.
+ * fetched through the exact advertised branch that supplied it into a disposable bare store. A
+ * state mirror's source commit is fetched by its object ID: sflow/config only moves forward, so the
+ * host keeps it, and no history ref carries it any more [owner, 2026-11-16]. Offline local
+ * authority heads use their own object store directly.
  */
 async function historicalAuthorityWorkflow(root, authority, sourceCommit, revision) {
   let objectStore = root;
@@ -145,41 +144,7 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
     temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-sgos-platform-authority-'));
     run('git', ['init', '--quiet', '--bare'], { cwd: temporary });
     const transport = frozenRemoteTransport(authority.remote);
-    const retainedHistory = authority.kind === 'verified-state-mirror'
-      ? authority.manifest?.history ?? null : null;
-    const expectedHistoryBranch = stateConfigurationHistoryBranch(sourceCommit);
-    const namedBranch = authority.kind === 'approved-configuration-ref'
-      ? 'sflow/config'
-      : retainedHistory?.branch === expectedHistoryBranch
-          && retainedHistory?.commit === sourceCommit
-        ? retainedHistory.branch
-        : null;
-    // New state mirrors retain source history behind an immutable advertised branch. Existing v2
-    // mirrors predate that receipt; retain their legacy raw-object lookup only for compatibility,
-    // with a precise repair if the server refuses unadvertised wants or has collected the object.
-    let namedRef = namedBranch ? `refs/heads/${namedBranch}` : null;
-    if (namedBranch === expectedHistoryBranch) {
-      try {
-        const refs = configurationHistoryRefs(sourceCommit);
-        const observed = await new GitRemoteSession({ env: transport.env }).observeAsync(transport.remote, {
-          refs: [refs.branch, refs.archive], includeHead: false
-        });
-        requireRemoteObservation(observed, 'retained configuration history');
-        namedRef = retainedConfigurationHistoryRef(observed.refs, sourceCommit);
-        // Name what to restore, as the fetch refusal below does; without details the remedy was prose only.
-        if (!namedRef) fail('Pinned configuration history is missing; restore its retained branch or archive tag.',
-          'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
-            policyAuthorityRevision: revision,
-            approvedConfigurationCommit: sourceCommit,
-            configurationHistoryBranch: namedBranch,
-            configurationHistoryArchive: refs.archive,
-            legacyStateMirror: false
-          });
-      } catch (error) {
-        await rm(temporary, { recursive: true, force: true });
-        throw error;
-      }
-    }
+    const namedRef = authority.kind === 'approved-configuration-ref' ? 'refs/heads/sflow/config' : null;
     const fetched = await runRemoteGitAsync(namedRef ? [
       'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
       `+${namedRef}:refs/sgos-authority/source`
@@ -193,41 +158,17 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
     });
     if (fetched.status !== 0) {
       await rm(temporary, { recursive: true, force: true });
-      fail(namedBranch
-        ? 'Pinned policy authorityRevision cannot be verified through its advertised configuration history ref.'
-        : 'This legacy state mirror does not retain advertised configuration history, and its source object is unavailable. Refresh workspace configuration to publish an immutable history ref, then retry.',
+      fail(namedRef
+        ? 'Pinned policy authorityRevision cannot be verified through its advertised configuration ref.'
+        : 'This state mirror\'s source commit is not available from its repository by object. Restore sflow/config, then retry.',
         'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
           policyAuthorityRevision: revision,
           approvedConfigurationCommit: sourceCommit,
-          configurationHistoryBranch: namedBranch,
-          legacyStateMirror: authority.kind === 'verified-state-mirror' && namedBranch == null,
+          legacyStateMirror: authority.kind === 'verified-state-mirror',
           classification: fetched.failure?.classification ?? 'unknown'
         });
     }
     objectStore = temporary;
-  } else if (authority.kind === 'verified-state-mirror' && authority.manifest?.history != null) {
-    const expectedHistoryBranch = stateConfigurationHistoryBranch(sourceCommit);
-    if (authority.manifest.history.branch !== expectedHistoryBranch
-        || authority.manifest.history.commit !== sourceCommit) {
-      fail('Verified state authority contains an invalid configuration history receipt.',
-        'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
-          approvedConfigurationCommit: sourceCommit
-        });
-    }
-    const refs = configurationHistoryRefs(sourceCommit);
-    const local = new Map();
-    for (const ref of [refs.branch, refs.archive]) {
-      const value = authorityGitRead(root, ['rev-parse', '--verify', '--quiet', ref],
-        `Configuration history ref '${ref}'`, { absentStatus: 1 })?.trim();
-      if (value) local.set(ref, value);
-    }
-    if (!retainedConfigurationHistoryRef(local, sourceCommit)) {
-      fail('Verified local state authority is missing its retained configuration history ref.',
-        'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
-          approvedConfigurationCommit: sourceCommit,
-          configurationHistoryBranch: expectedHistoryBranch
-        });
-    }
   }
 
   try {

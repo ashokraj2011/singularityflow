@@ -60,7 +60,6 @@ import {
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 import { recordSha256 } from './records.mjs';
 import { compiledConfiguration, copyCompiledDefinition } from './configuration-definition-cache.mjs';
-import { configurationHistoryRefs, retainedConfigurationHistoryRef } from './configuration-history-refs.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { configurationObjectClosure } from './story-configuration-objects.mjs';
 import {
@@ -223,9 +222,9 @@ async function legacyMirrorAssetsMatch(root, manifest, { env = process.env } = {
  * Compatibility proof for deployed v2 mirrors written before subject.repositoryIdentity.
  *
  * A portfolio URL inside the mirror is self-asserted and cannot bind it to this repository. The
- * legacy adapter therefore also requires the same repository to retain the exact approved
- * configuration commit under the source-addressed history branch, with every mirrored blob and
- * Git mode matching that retained tree. Callers outside onboarding share this strict proof so an
+ * legacy adapter therefore also requires the same repository to hold the exact approved
+ * configuration commit its history receipt names, fetched by object ID, with every mirrored blob
+ * and Git mode matching that commit's tree. Callers outside onboarding share this strict proof so an
  * old copied mirror cannot become Story or capability authority through another read path.
  */
 export async function legacyStateMirrorMatchesRepository(root, remote, {
@@ -262,22 +261,35 @@ export async function legacyStateMirrorMatchesRepository(root, remote, {
   });
 }
 
+/**
+ * The legacy mirror's source commit, fetched from the same repository by its object ID: it proves the mirror's
+ * bytes are that repository's approved configuration. The source-addressed history branch that used to carry it is
+ * no longer kept [owner, 2026-11-16]; sflow/config only moves forward, so its commits stay reachable on the host.
+ */
 async function legacyMirrorRetainedHistoryMatches(remote, manifest, {
   env, runRemoteCommand, verifyAssets, checkout = true
 }) {
-  const historyBranch = stateConfigurationHistoryBranch(manifest.source.commit);
+  const sourceCommit = manifest.source.commit;
   const retained = await mkdtemp(path.join(os.tmpdir(), 'sflow-legacy-state-proof-'));
   try {
     const transport = frozenRemoteTransport(remote, { env });
-    const cloned = await runRemoteCommand([
-      '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags',
-      ...(checkout ? [] : ['--no-checkout']),
-      '--single-branch', '--depth', '1', '--branch', historyBranch,
-      transport.remote, retained
+    run('git', ['init', '--quiet', retained], { env: transport.env });
+    const fetched = await runRemoteCommand([
+      // Protocol v2 serves a commit by its object ID; Git 2.25 still defaults to v0, which does not.
+      '-c', 'core.autocrlf=false', '-c', 'protocol.version=2', 'fetch', '--quiet', '--no-tags', '--depth', '1', '--',
+      transport.remote, `+${sourceCommit}:refs/singularity/legacy-mirror-proof/source`
     ], {
-      cwd: path.dirname(retained), operation: 'remote-configuration', env: transport.env
+      cwd: retained, operation: 'remote-configuration', env: transport.env
     });
-    if (cloned.status !== 0) return false;
+    if (fetched.status !== 0) return false;
+    const placed = checkout
+      ? run('git', ['-c', 'core.autocrlf=false', 'checkout', '--quiet', '--detach', sourceCommit], {
+        cwd: retained, env: transport.env, allowFailure: true
+      })
+      : run('git', ['update-ref', '--no-deref', 'HEAD', sourceCommit], {
+        cwd: retained, env: transport.env, allowFailure: true
+      });
+    if (placed.status !== 0) return false;
     const retainedCommit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
       cwd: retained, env: transport.env, allowFailure: true
     }).stdout.trim();
@@ -415,125 +427,6 @@ export function stateConfigurationHistoryBranch(sourceCommit) {
     );
   }
   return `${STATE_CONFIGURATION_HISTORY_PREFIX}/${commit}`;
-}
-
-/**
- * Retain the complete approved configuration ancestry behind an immutable advertised ref.
- *
- * Hosted Git services commonly refuse fetches by an arbitrary object ID and may garbage-collect an
- * object after `sflow/config` is retired. One source-specific branch avoids both failure modes and
- * cannot race with another refresh: a branch whose name embeds SHA A may only ever point at SHA A.
- */
-export async function retainStateConfigurationHistory(root, remote, sourceCommit, {
-  env = process.env
-} = {}) {
-  // One environment owns the complete proof: source-object availability, checkout-local authority
-  // selection, remote observations, the leased push, and its postcondition read. In particular,
-  // never let caller/process GIT_DIR, GIT_WORK_TREE, command-scoped url.* rewrites, alternates, or
-  // trace sinks select a different repository for only one step of this sequence.
-  const gitEnv = enterpriseGitEnvironment(env);
-  const branch = stateConfigurationHistoryBranch(sourceCommit);
-  const ref = `refs/heads/${branch}`;
-  const archive = configurationHistoryRefs(sourceCommit).archive;
-  const available = run('git', ['rev-parse', '--verify', `${sourceCommit}^{commit}`], {
-    cwd: root, env: gitEnv, allowFailure: true
-  }).stdout.trim();
-  if (available !== sourceCommit) {
-    throw new SingularityFlowError(
-      'The exact approved configuration commit is unavailable for durable state history.',
-      {
-        code: 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE',
-        details: { sourceCommit, branch }
-      }
-    );
-  }
-  // A configured remote name is mutable repository state, not an authority identity. Freeze the
-  // one checkout-local push endpoint selected for this operation so observation and publication
-  // cannot be redirected independently by a later pushurl or ambient insteadOf rule.
-  const configured = configuredRemoteIdentity(root, remote, {
-    direction: 'push', env: gitEnv
-  });
-  if (configured.ambiguous) {
-    throw new SingularityFlowError(
-      'The state configuration history remote has more than one push authority.', {
-        code: 'STATE_CONFIGURATION_HISTORY_INVALID',
-        details: { sourceCommit, branch }
-      }
-    );
-  }
-  const endpoint = configured.configured && configured.url
-    ? configured.url
-    : assertCredentialFreeRemote(remote);
-  const session = new GitRemoteSession({
-    env: gitEnv,
-    runAsyncCommand(args, options) {
-      return runRemoteGitAsync(args, { ...options, cwd: root });
-    }
-  });
-  const observe = async ({ refresh = false } = {}) => {
-    const observed = await session.observeAsync(endpoint, {
-      refs: [ref, archive], includeHead: false, refresh
-    });
-    if (!observed.ok) {
-      if (observed.failure?.code === 'REMOTE_SYMBOLIC_REF_UNSUPPORTED') {
-        throw new SingularityFlowError(
-          'The remote configuration history authority is a symbolic ref.', {
-            code: 'STATE_CONFIGURATION_HISTORY_INVALID',
-            details: { sourceCommit, branch, symbolic: true }
-          }
-        );
-      }
-      throw new SingularityFlowError(
-        'The remote configuration history ref could not be inspected before state publication.',
-        {
-          code: 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE',
-          details: {
-            sourceCommit, branch,
-            classification: observed.failure?.classification ?? 'unknown'
-          }
-        }
-      );
-    }
-    return retainedConfigurationHistoryRef(observed.refs, sourceCommit) ? sourceCommit : null;
-  };
-
-  // Git can report an update to a symbolic remote ref as "Everything up-to-date" when its target
-  // already has the requested object. That successful exit is not proof that the immutable name is
-  // direct, so observation must bracket the push. The empty lease protects the absent case; the
-  // refreshed observation distinguishes a verified write/concurrent winner from a collision even
-  // when the push acknowledgement was lost or a symbolic ref raced with the lease.
-  const before = await observe();
-  if (before === sourceCommit) return Object.freeze({ branch, commit: sourceCommit });
-  if (before != null) {
-    throw new SingularityFlowError(
-      'An immutable configuration history ref points at a different commit.', {
-        code: 'STATE_CONFIGURATION_HISTORY_COLLISION',
-        details: { sourceCommit, branch, actualCommit: before }
-      }
-    );
-  }
-  const transport = frozenRemoteTransport(endpoint, { push: true, env: gitEnv });
-  const pushed = await runRemoteGitAsync([
-    'push', `--force-with-lease=${ref}:`, '--', transport.remote, `${sourceCommit}:${ref}`
-  ], { cwd: root, operation: 'remote-push', env: transport.env });
-  const after = await observe({ refresh: true });
-  if (after === sourceCommit) return Object.freeze({ branch, commit: sourceCommit });
-  throw new SingularityFlowError(
-    after == null
-      ? 'The approved configuration history ref could not be retained before state publication.'
-      : 'An immutable configuration history ref points at a different commit.',
-    {
-      code: after == null
-        ? 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE'
-        : 'STATE_CONFIGURATION_HISTORY_COLLISION',
-      details: {
-        sourceCommit, branch,
-        classification: pushed.failure?.classification
-          ?? (pushed.status === 0 ? 'postcondition-failed' : 'unknown'),
-        actualCommit: after
-      }
-    }
-  );
 }
 
 /** Canonicalize a host traversal path before applying portable Git-path policy. */

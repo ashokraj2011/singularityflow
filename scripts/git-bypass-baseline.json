@@ -90,12 +90,6 @@
       },
       "digest": "b355093fc77e25d230041555ca6a0618c0c40def0d3d721a5d054cd91438a632"
     },
-    "src/configuration-history-auto-clean.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "25e821d967bdcaed6d2ff2374ba7db25c7348894ed32ebbe8bd6f349257b6b03"
-    },
     "src/story-policy-anchor.mjs": {
       "counts": {
         "command-run": 2
@@ -856,9 +850,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 35
+        "command-run": 37
       },
-      "digest": "2e4a1a0733d549fc1d29576fb71d07f610be1b2c5e018b4a163884d64ca05caf"
+      "digest": "b8148b18465557d0b8d6e1af3de0f91cd082b2f571b60e3f719e9f0348e806da"
     },
     "src/creation-git-context.mjs": {
       "counts": {
@@ -1450,9 +1444,9 @@
     },
     "src/repository-onboarding.mjs": {
       "counts": {
-        "command-run": 28
+        "command-run": 30
       },
-      "digest": "34b5dd33a1120e34eeac03bc4782dd00ad313f2a12643eda1737b4cfdf68714b"
+      "digest": "0a10c6f60c87311de49f2215667eb97b600027fa9a282505e09efb19554177d1"
     },
     "src/return-locator.mjs": {
       "counts": {
@@ -1716,9 +1710,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 33
+        "command-run": 35
       },
-      "digest": "ec61b33a7d71c35df641cc4ee1733d7ebd06cdf96f69bf3aba0be74ab8cc0bb5"
+      "digest": "52a3b630831a45bbfafa5bed7464a1df06af791f3059b746cac47403ab306206"
     },
     "src/workspace-impact.mjs": {
       "counts": {

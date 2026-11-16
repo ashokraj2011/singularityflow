@@ -1,6 +1,6 @@
 /**
- * A new build proposes its packaged configuration as reviews from the terminal too, in the
- * background, once per build. Every refresh here is a recorded fake; nothing is pushed.
+ * A new build brings every registered repository's sflow/config to its packaged configuration from the terminal too,
+ * in the background, once per build [owner, 2026-11-16]. Every refresh here is a recorded fake; nothing is pushed.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -55,7 +55,7 @@ function refreshes(responses) {
   return { calls, refresh };
 }
 
-test('a lagging repository gets one review-only proposal bound to exactly the repositories previewed', async () => {
+test('a lagging repository is updated directly, bound to exactly the repositories previewed [owner, 2026-11-16]', async () => {
   const { calls, refresh } = refreshes([
     { results: [
       { status: 'would-update', repository: 'app', configurationChanged: true },
@@ -63,16 +63,35 @@ test('a lagging repository gets one review-only proposal bound to exactly the re
       { status: 'current', repository: 'lib' }
     ] },
     { planId: 'plan-1', results: [] },
-    { results: [{ status: 'review-required', repository: 'app', remote: 'origin', proposalBranch: 'sflow/config-refresh/r1-aaaa-bbbb' }] }
+    { results: [{ status: 'updated', repository: 'app', remote: 'origin', configurationChanged: true, configurationCommit: 'a'.repeat(40) }],
+      supersededRefs: { removed: { history: 6, archiveTags: 2, reviews: 3 }, total: 11, refused: [] },
+      summary: ['Updated sflow/config in app to this build; removed 9 old history and review branches and 2 history archive tags.'] }
   ]);
   const result = await openConfigurationReviews({ registryFile: '/registry.json', refresh });
-  assert.equal(result.outcome, 'reviews-opened');
-  assert.deepEqual(result.reviews, [{ repository: 'app', remote: 'origin', proposalBranch: 'sflow/config-refresh/r1-aaaa-bbbb' }]);
+  assert.equal(result.outcome, 'updated');
+  assert.deepEqual(result.reviews, []);
+  assert.deepEqual(result.updated, [{ repository: 'app', remote: 'origin', configurationCommit: 'a'.repeat(40) }]);
+  assert.deepEqual(result.removedRefs, { history: 6, archiveTags: 2, reviews: 3, total: 11 });
+  assert.deepEqual(result.summary, ['Updated sflow/config in app to this build; removed 9 old history and review branches and 2 history archive tags.']);
   assert.deepEqual(calls, [
     { registryFile: '/registry.json', dryRun: true },
     { registryFile: '/registry.json', repositories: ['app'], dryRun: true },
-    { registryFile: '/registry.json', repositories: ['app'], confirmPlan: 'plan-1', reviewOnly: true }
-  ], 'the apply is review-only and bound to the plan previewed for exactly the lagging repository');
+    { registryFile: '/registry.json', repositories: ['app'], confirmPlan: 'plan-1' }
+  ], 'the apply publishes, bound to the plan previewed for exactly the lagging repository');
+
+  // Only a host that refused the push leaves a review: its full name and link.
+  const refused = refreshes([
+    { results: [{ status: 'would-update', repository: 'app', configurationChanged: true }] },
+    { planId: 'plan-1', results: [] },
+    { results: [{ status: 'review-required', protectedBranch: true, repository: 'app', remote: 'origin',
+      proposalBranch: 'sflow/config-refresh/0123abcd-0123456789ab', compareUrl: 'https://git.example.test/compare',
+      error: 'The host refused the update to sflow/config.' }] }
+  ]);
+  const protectedPass = await openConfigurationReviews({ registryFile: '/registry.json', refresh: refused.refresh });
+  assert.equal(protectedPass.outcome, 'reviews-opened');
+  assert.deepEqual(protectedPass.reviews, [{ repository: 'app', remote: 'origin',
+    proposalBranch: 'sflow/config-refresh/0123abcd-0123456789ab', compareUrl: 'https://git.example.test/compare' }]);
+  assert.equal(protectedPass.unfinished, undefined, 'a host-refused review is reported, not retried as unchecked');
 
   const current = refreshes([{ results: [{ status: 'current', repository: 'app' }] }]);
   assert.equal((await openConfigurationReviews({ registryFile: '/registry.json', refresh: current.refresh })).outcome, 'current');
@@ -96,9 +115,9 @@ test('a stale plan is previewed once more and that fresh plan applied; a lag tha
   const result = await openConfigurationReviews({ registryFile: '/registry.json', refresh: retried.refresh });
   assert.equal(result.outcome, 'reviews-opened');
   assert.deepEqual(retried.calls.slice(2), [
-    { registryFile: '/registry.json', repositories: ['app', 'lib'], confirmPlan: 'plan-1', reviewOnly: true },
+    { registryFile: '/registry.json', repositories: ['app', 'lib'], confirmPlan: 'plan-1' },
     { registryFile: '/registry.json', repositories: ['app', 'lib'], dryRun: true },
-    { registryFile: '/registry.json', repositories: ['app', 'lib'], confirmPlan: 'plan-2', reviewOnly: true }
+    { registryFile: '/registry.json', repositories: ['app', 'lib'], confirmPlan: 'plan-2' }
   ]);
 
   // One became current meanwhile (another refresh published it): the rest is bound again before it is applied.
@@ -108,7 +127,7 @@ test('a stale plan is previewed once more and that fresh plan applied; a lag tha
   assert.equal((await openConfigurationReviews({ registryFile: '/registry.json', refresh: narrowed.refresh })).outcome, 'reviews-opened');
   assert.deepEqual(narrowed.calls.slice(4), [
     { registryFile: '/registry.json', repositories: ['app'], dryRun: true },
-    { registryFile: '/registry.json', repositories: ['app'], confirmPlan: 'plan-3', reviewOnly: true }
+    { registryFile: '/registry.json', repositories: ['app'], confirmPlan: 'plan-3' }
   ]);
 
   const published = refreshes([{ results: lags('app') }, { planId: 'plan-1', results: [] }, stale,
@@ -353,7 +372,20 @@ test('product reviews reports the shared pass, and fails only for a pass that fa
     await productReviews({ json: false, runningBuild: BUILD, pass: async () => ({ status: 'ran', reviews: [] }) });
     assert.equal(process.exitCode, 1, 'a pass whose outcome was lost failed');
     assert.equal(lines.some((line) => /Opened 0/u.test(line)), false, 'it never reports "opened 0"');
-    assert.ok(lines.some((line) => /could not be opened: the pass recorded no outcome/u.test(line)));
+    assert.ok(lines.some((line) => /could not be updated: the pass recorded no outcome/u.test(line)));
+    // [owner, 2026-11-16] What the pass did, in plain words: the repositories updated and the refs removed.
+    process.exitCode = undefined;
+    lines.length = 0;
+    const said = 'Updated sflow/config in billing, catalog, storefront to this build; removed 27 old history and review branches.';
+    const updated = await productReviews({ json: false, runningBuild: BUILD, pass: async () => ({
+      status: 'ran', outcome: 'updated', reviews: [],
+      updated: [{ repository: 'billing' }, { repository: 'catalog' }, { repository: 'storefront' }], summary: [said]
+    }) });
+    assert.equal(process.exitCode, undefined);
+    assert.deepEqual(updated.updated.map((entry) => entry.repository), ['billing', 'catalog', 'storefront']);
+    assert.ok(lines.includes(`- ${said}`), lines.join('\n'));
+    assert.ok(lines.some((line) => line.includes(said) && !line.startsWith('- ')), 'the command result says it as its headline');
+    assert.equal(lines.some((line) => /opened \S+ configuration review|reviews? opened/iu.test(line)), false, 'no "reviews opened" wording');
     process.exitCode = undefined;
     lines.length = 0;
     const unreachable = await productReviews({ json: false, runningBuild: BUILD, pass: async () => ({

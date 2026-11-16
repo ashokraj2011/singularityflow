@@ -174,26 +174,51 @@ test('an unavailable CLI leaves the check due for the next window', async (t) =>
   assert.equal(item.state.get(PRODUCT_CHECK_KEY), undefined);
 });
 
+const SAID = 'Updated sflow/config in billing, catalog, storefront to this build; removed 27 old history and review branches.';
 const opened = (overrides = {}) => ({
-  status: 'ran', outcome: 'reviews-opened',
-  reviews: [{ repository: 'app', proposalBranch: 'sflow/config-refresh/aaaaaaaa-bbbbbbbbbbbb' }], ...overrides
+  status: 'ran', outcome: 'updated', reviews: [],
+  updated: [{ repository: 'billing' }, { repository: 'catalog' }, { repository: 'storefront' }],
+  removedRefs: { history: 20, archiveTags: 0, reviews: 7, total: 27 }, summary: [SAID], ...overrides
 });
 
-test('a new build opens its configuration reviews through the shared pass, once, and applies nothing', async (t) => {
+// [owner, 2026-11-16] "It should be one click activity": the window's one pass updates sflow/config and says so.
+test('a new build updates sflow/config through the shared pass, once, and says plainly what it did', async (t) => {
   const directory = await extension(t);
   const item = host(directory, { reviews: opened() });
-  assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'reviews-opened');
+  assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'updated');
   assert.deepEqual(item.events.filter(([kind]) => kind === 'run').map(([, args]) => args), ['product reviews --json'],
     'the window runs the one pass the CLI shares with a terminal, never a refresh of its own');
-  assert.ok(item.events.some(([kind]) => kind === 'progress'));
-  assert.match(item.events.find(([kind]) => kind === 'inform')[1],
-    /app → sflow\/config-refresh\. Nothing changes until each review is merged/u, 'a review branch reads without its generated suffix');
+  assert.deepEqual(item.events.find(([kind]) => kind === 'progress'), ['progress', 'Singularity Flow: updating sflow/config to this build']);
+  assert.equal(item.events.find(([kind]) => kind === 'inform')[1], SAID);
+  assert.equal(item.events.some(([kind, line]) => ['inform', 'warn'].includes(kind) && /review/iu.test(line.replace(SAID, ''))), false,
+    'no "reviews opened" wording');
   assert.equal(item.state.get(CONFIGURATION_REVIEW_KEY), BUILD);
   assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'skipped-recent', 'once per build');
 
   const recorded = host(directory, { reviews: opened({ status: 'recorded' }) });
-  assert.equal(await openConfigurationReviews(recorded, { loadedBuild: BUILD }), 'reviews-opened',
-    'reviews a terminal already opened for this build are reported, not opened again');
+  assert.equal(await openConfigurationReviews(recorded, { loadedBuild: BUILD }), 'updated',
+    'an update a terminal already made for this build is reported, not made again');
+});
+
+test('a repository whose host refused the push is named with its full review branch and the link that merges it', async (t) => {
+  const directory = await extension(t);
+  const branch = 'sflow/config-refresh/aaaaaaaa-bbbbbbbbbbbb';
+  const link = `https://git.example.test/acme/storefront/compare/sflow/config...${branch}?expand=1`;
+  const item = host(directory, { reviews: opened({
+    updated: [{ repository: 'billing' }], removedRefs: null, summary: [],
+    reviews: [{ repository: 'storefront', proposalBranch: branch, compareUrl: link }]
+  }) });
+  assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'updated');
+  assert.equal(item.events.find(([kind]) => kind === 'inform')[1], 'Updated sflow/config in billing to this build.');
+  const warned = item.events.find(([kind]) => kind === 'warn')[1];
+  assert.ok(warned.includes(branch), 'the full branch name, suffix and all');
+  assert.ok(warned.includes(link), warned);
+  assert.match(warned, /^The Git host refused the update to sflow\/config in storefront \(branch protection\)/u);
+
+  const onlyRefused = host(directory, { reviews: opened({ outcome: 'reviews-opened', updated: [], removedRefs: null, summary: [],
+    reviews: [{ repository: 'storefront', proposalBranch: branch, compareUrl: null }] }) });
+  assert.equal(await openConfigurationReviews(onlyRefused, { loadedBuild: BUILD }), 'reviews-opened');
+  assert.match(onlyRefused.events.find(([kind]) => kind === 'warn')[1], /review branch sflow\/config-refresh\/aaaaaaaa-bbbbbbbbbbbb; merge it on the Git host\./u);
 });
 
 test('a pass a terminal is still running is left to it, and a failed pass is retried by a later window', async (t) => {
@@ -240,17 +265,17 @@ test('a build whose configuration is current opens nothing, and a development ho
     'skipped-development');
 });
 
-test('a pass that left repositories unchecked reports what it opened and stays due for a later window', async (t) => {
+test('a pass that left repositories unchecked reports what it updated and stays due for a later window', async (t) => {
   const directory = await extension(t);
   const unfinished = [{ repository: 'old-service', reason: 'offline' }];
   const incomplete = host(directory, { reviews: opened({ unfinished }) });
-  assert.equal(await openConfigurationReviews(incomplete, { loadedBuild: BUILD }), 'reviews-opened');
-  assert.ok(incomplete.events.some(([kind]) => kind === 'inform'), 'the window whose pass opened a review says so');
+  assert.equal(await openConfigurationReviews(incomplete, { loadedBuild: BUILD }), 'updated');
+  assert.ok(incomplete.events.some(([kind]) => kind === 'inform'), 'the window whose pass updated a repository says so');
   assert.ok(incomplete.events.some(([kind, line]) => kind === 'log' && /old-service \(offline\)/u.test(line)));
   assert.equal(incomplete.state.get(CONFIGURATION_REVIEW_KEY), undefined, 'the unchecked repositories keep this build due');
 
   const recorded = host(directory, { reviews: opened({ status: 'recorded', unfinished }) });
-  assert.equal(await openConfigurationReviews(recorded, { loadedBuild: BUILD }), 'reviews-opened');
+  assert.equal(await openConfigurationReviews(recorded, { loadedBuild: BUILD }), 'updated');
   assert.equal(recorded.events.some(([kind]) => kind === 'inform'), false, 'announced once, when its pass ran');
 
   const unreachable = host(directory, { reviews: { status: 'ran', outcome: 'unavailable', reviews: [], unfinished } });

@@ -65,7 +65,7 @@ export function normalizeLedgerConfig(value = {}) {
   };
 }
 
-/** `ledger.configurationHistory`: auto-clear of old `sflow/config-history/*` branches (on, 10 kept). */
+/** `ledger.configurationHistory`: valid and inert; no history branch is written any more [owner, 2026-11-16]. */
 export function normalizeConfigurationHistory(value) {
   const label = 'ledger.configurationHistory';
   if (!value || typeof value !== 'object' || Array.isArray(value)

@@ -508,13 +508,17 @@ install_copilot_telemetry() {
   printf '%s\n' 'Prompt and response content capture remains disabled.'
 }
 
-# A normal product install is also the explicit configuration-maintenance boundary. The installed
-# command discovers every registered workspace repository and, in an isolated clone, proposes this
-# build's packaged configuration on a review branch of its own: it never changes sflow/config, which
-# changes only when a person approves that proposal (SPEC-SCF SCF:REQ-014). A repository whose
-# approved configuration came from a newer build is told it needs that build, and holds up no other.
-# Active Story branches and dirty working trees are never read or changed. Clean reinstall delegates
-# before this function and keeps its strict no-workspace promise.
+# A normal product install is also the explicit configuration-maintenance boundary: installing is the
+# one click [owner, 2026-11-16]. The installed command discovers every registered workspace repository
+# and, in an isolated clone, publishes this build's packaged configuration straight to its sflow/config
+# as the person's own Git identity, then removes that repository's superseded sflow/config-history/*
+# branches, their archive tags and its sflow/config-refresh/* review branches. It never deletes
+# sflow/config, a sflow/config-change/* proposal, the state branch, a Story or an application branch.
+# A repository whose approved configuration came from a newer build is told it needs that build; one the
+# host refuses (branch protection) keeps the change on a review branch, printed in full with its link;
+# an unreachable one is reported. None holds up another. Active Story branches and dirty working trees
+# are never read or changed. Clean reinstall delegates before this function and keeps its strict
+# no-workspace promise.
 refresh_registered_workspace_configurations() {
   if [[ "$REFRESH_REGISTERED_WORKSPACE_CONFIGURATION" == "off" ]]; then
     printf '%s\n' 'Registered-workspace configuration refresh: skipped by request.'
@@ -1653,7 +1657,7 @@ if [[ "$RECOVERY_WORKSPACE_CONFIGURATION_REFRESH" == "on" ]]; then
   else
     WORKSPACE_REFRESH_STATUS="pending"
     printf '%s\n' 'WARNING: product activation is complete, but workspace configuration refresh did not finish.' >&2
-    printf '%s\n' 'Its output above names each repository that needs a person: a review branch to approve, a newer build, or a blocker to fix.' >&2
+    printf '%s\n' 'Its output above names each repository that needs a person: a review branch the host required (with its link), a newer build, or a blocker to fix.' >&2
     printf '%s\n' 'After that, run: singularity-flow workspace refresh-configuration' >&2
   fi
   step_end

@@ -17,7 +17,7 @@ import {
 import {
   CONFIGURATION_BRANCH, configurationAssetPaths, ensureConfigurationBranch,
   loadStoryConfigurationSnapshot, materializeConfigurationSnapshot,
-  resolveStoryConfigurationAuthority, retainStateConfigurationHistory,
+  resolveStoryConfigurationAuthority,
   STATE_CONFIGURATION_MANIFEST
 } from '../src/configuration-branch.mjs';
 import { configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
@@ -81,7 +81,9 @@ async function publishStateConfigurationMirror(base, remote) {
   });
   await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
   const sourceCommit = git(approved, 'rev-parse', 'HEAD');
-  const history = await retainStateConfigurationHistory(approved, 'origin', sourceCommit);
+  // The history ref an earlier build retained for its mirror; no build writes one any more [owner, 2026-11-16].
+  const history = { branch: `sflow/config-history/${sourceCommit}`, commit: sourceCommit };
+  git(approved, 'push', '-q', 'origin', `${sourceCommit}:refs/heads/${history.branch}`);
   const sourceEntries = new Map(git(
     approved,
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', 'HEAD', '--',
@@ -710,21 +712,6 @@ test('non-selected members, linked worktrees, and SGOS use the external workspac
         mirrored.sourceCommit,
         'the state mirror retains source ancestry behind an immutable advertised ref'
       );
-      git(base, '--git-dir', leadRemote, 'update-ref',
-        `refs/heads/${mirrored.history.branch}`, historicalAuthorityCommit);
-      await assert.rejects(
-        () => retainStateConfigurationHistory(
-          authorityPublisher, 'origin', mirrored.sourceCommit
-        ),
-        (error) => {
-          assert.equal(error?.code, 'STATE_CONFIGURATION_HISTORY_COLLISION', error?.stack);
-          assert.equal(error?.details?.actualCommit, historicalAuthorityCommit);
-          return true;
-        },
-        'an immutable source-specific history ref can never be retargeted'
-      );
-      git(base, '--git-dir', leadRemote, 'update-ref',
-        `refs/heads/${mirrored.history.branch}`, mirrored.sourceCommit);
       // Model a hosted service that refuses raw/unadvertised object wants. The configuration ref is
       // then removed, leaving only state plus the immutable history receipt as portable authority.
       git(base, '--git-dir', leadRemote, 'config', 'uploadpack.allowAnySHA1InWant', 'false');

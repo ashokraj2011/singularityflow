@@ -168,23 +168,6 @@ async function registeredRepositoryFixture(root, id) {
   return { ...fixture, registry };
 }
 
-/** A person approves each refresh proposal: its merge on the Git host. Refresh itself only proposes (SCF:REQ-014). */
-function approveReviews(remote, result) {
-  const proposals = (result?.results ?? []).filter((entry) => entry.status === 'review-required');
-  assert.ok(proposals.length, JSON.stringify(result));
-  for (const entry of proposals) run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/sflow/config', entry.candidateCommit]);
-  return proposals;
-}
-
-/** Approve a refresh's proposals, then refresh again: the approved configuration's state projection follows. */
-async function approveAndProject(remote, applied, options) {
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
-  approveReviews(remote, applied);
-  const projected = await refreshWorkspaceConfigurations(options);
-  assert.equal(projected.status, 'complete', JSON.stringify(projected, null, 2));
-  return projected;
-}
-
 test('hard cutover retires old Story records without migrating or changing their branches', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pilot-cutover-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -261,10 +244,8 @@ test('hard cutover retires old Story records without migrating or changing their
   assert.equal(preview.status, 'preview', JSON.stringify(preview));
   assert.notEqual(preview.planId, priorPlan);
   const applied = await reinitializeWorkspaces({ ...options, confirmPlan: preview.planId });
-  // The cutover is proposed (SCF:REQ-014) and retired once a person approves it.
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied));
-  assert.equal(applied.storyCutover.status, 'proposed');
-  approveReviews(remote, applied);
+  assert.equal(applied.status, 'complete', JSON.stringify(applied));
+  assert.equal(applied.storyCutover.status, 'retired');
   assert.equal(git(repository, ['rev-parse', 'OLD-1']), oldHead);
   assert.equal(git(repository, ['show', `OLD-1:${oldPath}`]), oldBytes);
   assert.equal(git(repository, ['rev-parse', 'refs/remotes/upstream/OLD-2']), opaqueHead);
@@ -1987,17 +1968,16 @@ test('concurrent identical configuration refreshes join the winning commit witho
     refreshWorkspaceConfigurations({ registryFile: registry }),
     refreshWorkspaceConfigurations({ registryFile: registry })
   ]);
-  // Both propose the same tree, so they share one review; neither changes sflow/config (SCF:REQ-014).
-  assert.ok(results.every((result) => result.status === 'proposed'), JSON.stringify(results, null, 2));
-  const branches = new Set(results.flatMap((result) => result.results).map((result) => result.proposalBranch));
-  assert.equal(branches.size, 1);
-  const proposal = YAML.parse(run('git', [
-    '--git-dir', remote, 'show', `${[...branches][0]}:singularity/workflow.yml`
+  assert.ok(results.every((result) => result.status === 'complete'), JSON.stringify(results, null, 2));
+  assert.ok(results.flatMap((result) => result.results)
+    .every((result) => result.status !== 'review-required'));
+  const approved = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
   ]).stdout);
-  assert.ok(proposal.workTypes['spec-driven-standard']);
+  assert.ok(approved.workTypes['spec-driven-standard']);
   assert.equal(run('git', [
     '--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh/'
-  ]).stdout.trim(), `refs/heads/${[...branches][0]}`);
+  ]).stdout.trim(), '');
 });
 
 test('configuration refresh reports published refs when disposable checkout cleanup is locked', async (t) => {
@@ -2017,11 +1997,12 @@ test('configuration refresh reports published refs when disposable checkout clea
     }
   });
 
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
-  assert.equal(applied.results[0].status, 'review-required');
-  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), before, 'refresh only proposes');
-  assert.equal(git(remote, ['rev-parse', `refs/heads/${applied.results[0].proposalBranch}`]), applied.results[0].candidateCommit,
-    'the proposal reached the remote');
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(applied.results[0].status, 'updated');
+  assert.notEqual(git(remote, ['rev-parse', 'refs/heads/sflow/config']), before);
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), applied.results[0].configurationCommit);
+  assert.equal(JSON.parse(git(remote, ['show', `state:${STATE_CONFIGURATION_MANIFEST}`])).source.commit,
+    applied.results[0].configurationCommit, 'state projection also reached the remote');
   assert.deepEqual(applied.cleanupPending, [{
     repository: 'published-cleanup', path: scratch, code: 'EBUSY'
   }]);
@@ -2197,8 +2178,8 @@ test('configuration refresh reconstructs a cached checkout without ignored injec
     registryFile: registry,
     confirmPlan: preview.planId
   });
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
-  for (const branch of ['sflow/config', 'state', applied.results[0].proposalBranch]) {
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  for (const branch of ['sflow/config', 'state']) {
     const observed = run('git', ['--git-dir', remote, 'show', `${branch}:${injected}`], {
       allowFailure: true
     });
@@ -2224,11 +2205,10 @@ test('configuration refresh discards a symbolic private cache ref before confirm
   const applied = await refreshWorkspaceConfigurations({
     registryFile: registry, confirmPlan: preview.planId
   });
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
-  assert.equal(run('git', [
-    '--git-dir', remote, 'rev-parse', `refs/heads/${applied.results[0].proposalBranch}`
-  ]).stdout.trim(), applied.results[0].candidateCommit, 'the hardened cache should still propose the reviewed refresh');
-  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim(), configBefore);
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.notEqual(run('git', [
+    '--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim(), configBefore, 'the hardened cache should still publish the reviewed refresh');
 });
 
 test('configuration refresh refuses symbolic remote authority instead of dereferencing it', async (t) => {
@@ -2314,7 +2294,7 @@ test('configuration refresh reclaims an old cache lock only after its owner is d
     confirmPlan: preview.planId
   }));
   const counters = timer.finish().counters;
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(counters['git.remote.command.clone'] ?? 0, 0,
     'a dead stale lease should be reclaimed so the retained preview remains reusable');
   assert.equal(await readFile(path.join(lock, '.owner.json'), 'utf8').catch(() => null), null,
@@ -2342,7 +2322,7 @@ test('configuration refresh never steals an old cache lock from a live owner', a
     confirmPlan: preview.planId
   }));
   const counters = timer.finish().counters;
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(counters['git.remote.command.clone'], 1,
     'a live lease must make the optional cache fall back to a fresh clone instead of being stolen');
   assert.deepEqual(JSON.parse(await readFile(path.join(lock, '.owner.json'), 'utf8')), owner,
@@ -2371,12 +2351,11 @@ test('confirmed cache apply preserves literal query and fragment characters in l
     registryFile: registry,
     confirmPlan: preview.planId
   });
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
-  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', `refs/heads/${applied.results[0].proposalBranch}`]).stdout.trim(),
-    applied.results[0].candidateCommit, 'the exact registered remote must receive the proposal');
-  assert.notEqual(run('git', ['--git-dir', decoy, 'rev-parse', '--verify', '--quiet', `refs/heads/${applied.results[0].proposalBranch}`],
-    { allowFailure: true }).status, 0, 'a diagnostic-redaction collision must never become transport authority');
-  assert.equal(run('git', ['--git-dir', decoy, 'rev-parse', 'sflow/config']).stdout.trim(), before);
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.notEqual(run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim(), before,
+    'the exact registered remote must receive the approved configuration');
+  assert.equal(run('git', ['--git-dir', decoy, 'rev-parse', 'sflow/config']).stdout.trim(), before,
+    'a diagnostic-redaction collision must never become transport authority');
 });
 
 test('direct refresh ignores ambient URL rewrites for observation and both publications', async (t) => {
@@ -2390,12 +2369,9 @@ test('direct refresh ignores ambient URL rewrites for observation and both publi
 
   const applied = await withGitUrlRewrite(remote, decoy, () =>
     refreshWorkspaceConfigurations({ registryFile: registry }));
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
-  assert.equal(git(remote, ['rev-parse', `refs/heads/${applied.results[0].proposalBranch}`]), applied.results[0].candidateCommit,
-    'the exact registered authority receives the proposal');
-  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), authorityBefore, 'refresh only proposes');
-  assert.notEqual(run('git', ['--git-dir', decoy, 'show-ref', '--verify', '--quiet', `refs/heads/${applied.results[0].proposalBranch}`],
-    { allowFailure: true }).status, 0, 'nor does the proposal reach it');
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.notEqual(git(remote, ['rev-parse', 'refs/heads/sflow/config']), authorityBefore,
+    'the exact registered authority receives the refreshed configuration');
   assert.equal(git(decoy, ['rev-parse', 'refs/heads/sflow/config']), decoyBefore,
     'an ambient insteadOf target receives no configuration update');
   assert.equal(run('git', [
@@ -2894,7 +2870,7 @@ test('refresh preview, cache-miss clone, and confirmed apply share one sanitized
     restore();
   }
   const counters = timer.finish().counters;
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(counters['git.remote.command.clone'] ?? 0, 0,
     'the hardened cached checkout should remain reusable under a hostile caller environment');
   assert.equal(await readFile(hookEvidence, 'utf8').catch(() => null), null,
@@ -2926,8 +2902,8 @@ test('configuration refresh discards hostile cached Git replacement and graft me
     registryFile: registry,
     confirmPlan: preview.planId
   });
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
-  for (const branch of ['sflow/config', 'state', applied.results[0].proposalBranch]) {
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  for (const branch of ['sflow/config', 'state']) {
     const observed = run('git', ['--git-dir', remote, 'show', `${branch}:${injected}`], {
       allowFailure: true
     });
@@ -2954,7 +2930,7 @@ test('configuration refresh rejects cached Git common-directory indirection', as
     confirmPlan: preview.planId
   }));
   const counters = timer.finish().counters;
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(counters['git.remote.command.clone'], 1,
     'a cached checkout that redirects its Git common directory must be discarded and cloned fresh');
 });
@@ -2979,7 +2955,7 @@ test('configuration refresh ignores a preplanted cache root without its ownershi
     confirmPlan: preview.planId
   }));
   const counters = timer.finish().counters;
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(counters['git.remote.command.clone'], 1,
     'an unowned optional cache root is ignored rather than trusted or made fatal');
   assert.equal(await readFile(sentinel, 'utf8'), 'not owned by Singularity Flow\n');
@@ -3007,7 +2983,7 @@ test('configuration refresh disables its optional cache beneath an unsafe shared
     confirmPlan: preview.planId
   }));
   const counters = timer.finish().counters;
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(counters['git.remote.command.clone'], 1,
     'cache refusal is a safe performance fallback and must not block configuration refresh');
 });
@@ -3035,7 +3011,7 @@ test('configuration refresh disables cache when a private parent has an unsafe w
     registryFile: registry,
     confirmPlan: preview.planId
   }));
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(timer.finish().counters['git.remote.command.clone'], 1);
 });
 
@@ -3064,7 +3040,7 @@ test('configuration refresh refuses a cache pathname carrying an inherited write
     registryFile: registry,
     confirmPlan: preview.planId
   }));
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(timer.finish().counters['git.remote.command.clone'], 1);
 });
 
@@ -3147,18 +3123,21 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
     registryFile: registry, confirmPlan: preview.planId
   }));
   const applyCounters = applyTimer.finish().counters;
+  assert.equal(result.status, 'complete');
   assert.equal(result.results.length, 1);
-  assert.equal(result.results[0].status, 'review-required');
+  assert.equal(result.results[0].configurationChanged, true);
+  assert.equal(result.results[0].stateChanged, true);
+  // No history ref is retained any more [owner, 2026-11-16]; the last lists the superseded refs once.
+  assert.equal(applyCounters['git.remote.command.ls-remote'], 3,
+    'apply re-observes the source authority, guards the state publication, then lists the superseded refs once');
+  assert.equal(result.results[0].supersededRefs.status, 'current');
+  assert.equal(run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-history/'])
+    .stdout.trim(), '', 'the refresh writes no history ref');
   assert.equal(applyCounters['git.remote.command.clone'] ?? 0, 0,
     'apply reuses the SHA-bound preview clone instead of cloning the authority again');
   assert.equal(applyCounters['git.remote.command.fetch'] ?? 0, 0,
     'apply inspects the preview-bound state object without a duplicate fetch');
   assert.equal(git(repository, ['rev-parse', 'HEAD']), headBefore);
-  assert.equal(git(repository, ['status', '--porcelain']), dirtyBefore);
-  // A person approves the proposal; the next refresh mirrors the approved configuration to state.
-  const projected = await approveAndProject(remote, result, { registryFile: registry });
-  assert.equal(projected.results[0].stateChanged, true);
-  assert.deepEqual(projected.results[0].historyCleanup, { status: 'current', archived: 0, remaining: 0 });
   assert.equal(git(repository, ['status', '--porcelain']), dirtyBefore);
 
   const approved = YAML.parse(run('git', [
@@ -3582,8 +3561,8 @@ test('seeded workspace reinitialization restores an absent workflow in an existi
     restorePackagedSeeds: true,
     confirmPlan: preview.planId
   });
-  assert.equal(applied.results[0].status, 'review-required');
-  await approveAndProject(remote, applied, { registryFile: registry, restorePackagedSeeds: true });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(applied.results[0].configurationChanged, true);
   const restored = run('git', [
     '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
   ]).stdout;
@@ -3703,7 +3682,7 @@ Review customer evidence without changing files.
   const applied = await refreshWorkspaceConfigurations({
     registryFile: registry, confirmPlan: preview.planId, restorePackagedSeeds: true
   });
-  await approveAndProject(remote, applied, { registryFile: registry, restorePackagedSeeds: true });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
 
   for (const branch of ['sflow/config', 'state']) {
     const observed = YAML.parse(run('git', [
@@ -3803,8 +3782,8 @@ test('workspace refresh mirrors and verifies configured asset roots outside conv
   const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   assert.equal(preview.status, 'preview');
   const applied = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId });
-  const projected = await approveAndProject(remote, applied, { registryFile: registry });
-  assert.equal(projected.results[0].stateChanged, true);
+  assert.equal(applied.status, 'complete');
+  assert.equal(applied.results[0].stateChanged, true);
   assert.equal(run('git', [
     '--git-dir', remote, 'show', 'state:governed/templates/common/custom.md'
   ]).stdout, 'custom template\n');
@@ -4255,58 +4234,69 @@ test('a review-only refresh proposes packaged configuration on a review branch a
 
 // The upgrade analysis's F5 (UP-F5, SCF:REQ-018): refresh committed inside a clone whose transport environment hides the
 // person's Git configuration, so every packaged-configuration commit carried the OS login and unknown@invalid.
-test('a refresh commit names the person who ran it, never the OS login or unknown@invalid [SCF:REQ-018, UP-F5]', async (t) => {
+test('a refresh commit on sflow/config names the person who ran it, never the OS login or unknown@invalid [SCF:REQ-018, UP-F5]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-identity-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, registry } = await registeredRepositoryFixture(root, 'application');
   const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   const [result] = (await refreshWorkspaceConfigurations({
-    registryFile: registry, confirmPlan: preview.planId, reviewOnly: true
+    registryFile: registry, confirmPlan: preview.planId
   })).results;
-  assert.equal(result.status, 'review-required');
-  const signature = run('git', ['--git-dir', remote, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', result.candidateCommit]).stdout.trim();
+  assert.equal(result.status, 'updated', JSON.stringify(result));
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim(), result.configurationCommit,
+    'the upgrade lands on sflow/config itself [owner, 2026-11-16]');
+  const signature = run('git', ['--git-dir', remote, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', result.configurationCommit]).stdout.trim();
   // The registered checkout's own Git identity (repositoryFixture), resolved before the isolated clone.
   assert.equal(signature, 'Configuration Test <configuration@example.test>|Configuration Test <configuration@example.test>');
   assert.doesNotMatch(signature, /unknown@invalid/u);
 });
 
-// The upgrade analysis's F4 (UP-F4, SCF:REQ-014): the installer's plain refresh pushed packaged configuration straight
-// to every registered repository's sflow/config. Every refresh route now proposes; a person approves.
-test('the installer\'s plain refresh proposes on a review branch and never changes sflow/config [SCF:REQ-014, UP-F4]', async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-proposes-'));
+// [owner, 2026-11-16] "upgrade should delete all the history branches and let them update sflow/config directly without
+// any review or merge reqest": the installer's plain refresh publishes straight to sflow/config, once, and says so.
+test('the installer\'s plain refresh publishes straight to sflow/config and says what it did [owner, 2026-11-16]', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-direct-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, registry } = await registeredRepositoryFixture(root, 'application');
   const approved = () => run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim();
   const before = approved();
   const build = { commit: 'c'.repeat(40), builtAt: '2026-11-15T08:00:00.000Z' };
   const applied = await refreshWorkspaceConfigurations({ registryFile: registry, build });
-  assert.equal(applied.status, 'proposed', JSON.stringify(applied.results));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied.results));
   const [result] = applied.results;
-  assert.equal(result.status, 'review-required');
-  assert.match(result.proposalBranch, /^sflow\/config-refresh\//u);
-  assert.equal(approved(), before, 'sflow/config changes only when a person approves the review');
-  const baseline = YAML.parse(run('git', ['--git-dir', remote, 'show', `${result.candidateCommit}:${PACKAGE_BASELINE_PATH}`]).stdout);
+  assert.equal(result.status, 'updated');
+  assert.equal(result.proposalBranch, undefined, 'no review branch');
+  assert.notEqual(approved(), before);
+  assert.equal(approved(), result.configurationCommit);
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', `${result.configurationCommit}^`]).stdout.trim(), before,
+    'one commit on top of the approved configuration it read');
+  const baseline = YAML.parse(run('git', ['--git-dir', remote, 'show', `sflow/config:${PACKAGE_BASELINE_PATH}`]).stdout);
   assert.equal(baseline.format, 'singularity-flow-configuration-baseline/v2');
-  assert.deepEqual(baseline.build, build, 'the proposal records the build that proposed it');
-  // Run again: the same open review, nothing new.
+  assert.deepEqual(baseline.build, build, 'the baseline records the build that published it');
+  assert.deepEqual(applied.summary, ['Updated sflow/config in application to this build.']);
+  assert.equal(run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh/',
+    'refs/heads/sflow/config-history/']).stdout.trim(), '', 'no review branch and no history branch');
+  // Run again: current, nothing new.
   const again = await refreshWorkspaceConfigurations({ registryFile: registry, build });
-  assert.equal(again.results[0].proposalBranch, result.proposalBranch);
-  assert.equal(approved(), before);
+  assert.equal(again.status, 'complete');
+  assert.equal(again.results[0].status, 'current');
+  assert.equal(again.results[0].configurationChanged, false);
+  assert.equal(approved(), result.configurationCommit);
+  assert.deepEqual(again.summary, ['sflow/config in application already holds this build\'s configuration.']);
 });
 
 // The upgrade analysis's F1 (UP-F1, SCF:REQ-015, REQ-016): an older build's refresh reverted everything a newer package
 // had added, with no review and no warning. Once a newer build's baseline is approved, an older build never proposes.
-test('an older build never proposes over a newer build\'s approved baseline, and a development build never proposes [SCF:REQ-015, UP-F1]', async (t) => {
+test('an older build never publishes over a newer build\'s baseline, and a development build never publishes [SCF:REQ-015, UP-F1]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-build-order-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote, registry } = await registeredRepositoryFixture(root, 'application');
   const approved = () => run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim();
   const newer = { commit: 'b'.repeat(40), builtAt: '2026-11-15T08:00:00.000Z' };
   const older = { commit: 'a'.repeat(40), builtAt: '2026-11-13T08:00:00.000Z' };
+  // The newer build publishes directly [owner, 2026-11-16]; the fence holds against every older one.
   const proposed = (await refreshWorkspaceConfigurations({ registryFile: registry, build: newer })).results[0];
-  assert.equal(proposed.status, 'review-required');
-  // A person approves the newer build's proposal: its merge on the Git host.
-  run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/sflow/config', proposed.candidateCommit]);
+  assert.equal(proposed.status, 'updated');
+  proposed.candidateCommit = proposed.configurationCommit;
   const reviews = () => run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh']).stdout.trim();
   const reviewsBefore = reviews();
 
@@ -4319,13 +4309,13 @@ test('an older build never proposes over a newer build\'s approved baseline, and
     if (!options.dryRun) assert.equal(refused.status, 'partial');
   }
   assert.equal(approved(), proposed.candidateCommit, 'the older build changed nothing');
-  assert.equal(reviews(), reviewsBefore, 'and proposed nothing');
+  assert.equal(reviews(), reviewsBefore, 'and opened no review');
   // The same build, and a newer one, still refresh.
   assert.equal((await refreshWorkspaceConfigurations({ registryFile: registry, build: newer })).status, 'complete');
   const newest = { commit: 'd'.repeat(40), builtAt: '2026-11-16T08:00:00.000Z' };
   assert.notEqual((await refreshWorkspaceConfigurations({ registryFile: registry, build: newest })).results[0].status, 'needs-newer-build');
 
-  // A development checkout never proposes outside an isolated run's throwaway repositories.
+  // A development checkout never publishes outside an isolated run's throwaway repositories.
   const previous = process.env.SINGULARITY_FLOW_DEVELOPMENT_PROPOSALS;
   delete process.env.SINGULARITY_FLOW_DEVELOPMENT_PROPOSALS;
   try {
@@ -4339,7 +4329,7 @@ test('an older build never proposes over a newer build\'s approved baseline, and
 });
 
 // The upgrade analysis's F8 (UP-F8, SCF:REQ-014): one unreachable registered repository blocked the whole refresh.
-test('an unreachable repository holds up no other repository\'s proposal [SCF:REQ-014, UP-F8]', async (t) => {
+test('an unreachable repository holds up no other repository\'s update [SCF:REQ-014, UP-F8]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-unreachable-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { remote } = await repositoryFixture(root, 'alpha');
@@ -4359,8 +4349,12 @@ test('an unreachable repository holds up no other repository\'s proposal [SCF:RE
   const applied = await refreshWorkspaceConfigurations({ registryFile: registry, build: { commit: 'e'.repeat(40), builtAt: '2026-11-15T08:00:00.000Z' } });
   assert.equal(applied.status, 'partial');
   const byRepository = Object.fromEntries(applied.results.map((result) => [result.repository, result]));
-  assert.equal(byRepository.alpha.status, 'review-required', JSON.stringify(applied.results));
+  assert.equal(byRepository.alpha.status, 'updated', JSON.stringify(applied.results));
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim(),
+    byRepository.alpha.configurationCommit);
   assert.equal(byRepository.beta.status, 'failed');
+  assert.equal(applied.summary[0], 'Updated sflow/config in alpha to this build.');
+  assert.match(applied.summary[1], /^beta: nothing changed there\. /u);
 });
 
 test('every machine proposing the same packaged configuration shares one review', async (t) => {
@@ -4413,10 +4407,6 @@ async function approvedConfigurationFixture(root) {
   await initializeStatePublisher(statePublisher);
   git(statePublisher, ['remote', 'add', 'origin', fixture.remote]);
   git(statePublisher, ['push', 'origin', 'HEAD:state']);
-  // A person approves this build's first proposal, its review branch goes with the merge, and state follows.
-  const first = await refreshWorkspaceConfigurations({ registryFile: fixture.registry });
-  const [merged] = approveReviews(fixture.remote, first);
-  run('git', ['--git-dir', fixture.remote, 'update-ref', '-d', `refs/heads/${merged.proposalBranch}`]);
   assert.equal((await refreshWorkspaceConfigurations({ registryFile: fixture.registry })).status, 'complete');
   const editor = path.join(root, 'configuration-editor');
   run('git', ['clone', '--quiet', '--branch', 'sflow/config', fixture.remote, editor]);
@@ -4479,7 +4469,7 @@ test('a review plan holds across a gap and a clock moved past the preview cache,
   assert.equal(fixture.ref('state'), state, 'a review-only apply publishes no state');
 });
 
-test('a real change after preview refuses a confirmed apply; the review pass previews again and opens a review', async (t) => {
+test('a real change after preview refuses a confirmed apply; the pass previews again and updates sflow/config', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-plan-moved-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const fixture = await approvedConfigurationFixture(root);
@@ -4509,15 +4499,18 @@ test('a real change after preview refuses a confirmed apply; the review pass pre
     return result;
   };
   const pass = await openConfigurationReviews({ registryFile: fixture.registry, refresh });
-  assert.equal(pass.outcome, 'reviews-opened', JSON.stringify(pass));
+  assert.equal(pass.outcome, 'updated', JSON.stringify(pass));
   assert.deepEqual(calls, ['preview', 'preview', 'apply', 'preview', 'apply'],
     'one fresh preview, whose plan is the one applied');
-  const [review] = pass.reviews;
-  assert.deepEqual(fixture.reviewBranches(), [review.proposalBranch]);
-  const proposed = run('git', ['--git-dir', fixture.remote, 'diff', '--name-only',
-    `refs/heads/sflow/config..refs/heads/${review.proposalBranch}`]).stdout.split('\n').filter(Boolean);
-  assert.deepEqual(proposed, ['bugfix', 'chore', 'feature'].map((name) => `singularity/templates/${name}/intake.md`),
-    'the review is from the fresh preview: it restores the template removed after the first plan too');
+  assert.deepEqual(pass.reviews, [], 'no review: the pass publishes directly [owner, 2026-11-16]');
+  assert.deepEqual(pass.updated.map((entry) => entry.repository), ['application']);
+  assert.deepEqual(pass.summary, ['Updated sflow/config in application to this build.']);
+  assert.deepEqual(fixture.reviewBranches(), []);
+  // One commit on top of the configuration the fresh preview read.
+  const restored = run('git', ['--git-dir', fixture.remote, 'diff', '--name-only',
+    'refs/heads/sflow/config^', 'refs/heads/sflow/config']).stdout.split('\n').filter(Boolean);
+  assert.deepEqual(restored, ['bugfix', 'chore', 'feature'].map((name) => `singularity/templates/${name}/intake.md`),
+    'the update is from the fresh preview: it restores the template removed after the first plan too');
 });
 
 test('a build whose packaged configuration is unchanged reports current, also while the installer publishes it', async (t) => {
@@ -4560,14 +4553,232 @@ test('a build whose packaged configuration is unchanged reports current, also wh
     const result = await refreshWorkspaceConfigurations(options);
     if (options.dryRun && options.repositories?.length && installOnce) {
       installOnce = false;
-      // The installer proposes, and a person approves before the pass applies (SCF:REQ-014).
-      const installed = await refreshWorkspaceConfigurations({ registryFile: fixture.registry });
-      const [merged] = approveReviews(fixture.remote, installed);
-      run('git', ['--git-dir', fixture.remote, 'update-ref', '-d', `refs/heads/${merged.proposalBranch}`]);
+      assert.equal((await refreshWorkspaceConfigurations({ registryFile: fixture.registry })).status, 'complete');
     }
     return result;
   };
   const raced = await openConfigurationReviews({ registryFile: fixture.registry, refresh: racing });
   assert.equal(raced.outcome, 'current', JSON.stringify(raced));
   assert.deepEqual(fixture.reviewBranches(), []);
+});
+
+/** Registered repositories in one workspace, each with its own remote and approved configuration. */
+async function workspaceOf(root, ids) {
+  const fixtures = {};
+  for (const id of ids) {
+    fixtures[id] = await repositoryFixture(root, id);
+    // repositoryFixture publishes through one fixed checkout; keep each repository's own.
+    await rename(path.join(root, 'configuration-publisher'), path.join(root, `${id}-publisher`));
+  }
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = {
+    version: 1, id: 'upgrade-workspace', name: 'upgrade workspace', path: workspaceRoot,
+    anchor: { provider: 'workspace', key: 'upgrade-workspace', title: 'upgrade workspace' },
+    leadRepository: ids[0],
+    repositories: Object.fromEntries(ids.map((id, index) => [id, {
+      id, url: fixtures[id].remote, defaultBranch: 'main', required: index === 0, path: `repos/${id}`,
+      ...(index === 0 ? { role: 'lead' } : {}), capabilities: []
+    }]))
+  };
+  const registry = path.join(root, 'workspaces.json');
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await rememberWorkspace(registry, manifest);
+  return { fixtures, registry };
+}
+
+const remoteRef = (remote, ref) => run('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', ref],
+  { allowFailure: true }).stdout.trim();
+
+async function installHook(remote, script) {
+  const hook = path.join(remote, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh\n${script}\n`);
+  await chmod(hook, 0o755);
+}
+
+// [owner, 2026-11-16] "upgrade should delete all the history branches": once sflow/config holds this build's
+// configuration, its history branches, their archive tags and its review branches go; nothing else does.
+test('the upgrade removes old history and review branches and keeps every other branch [owner, 2026-11-16]', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-history-removal-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await approvedConfigurationFixture(root);
+  const approvedBefore = fixture.ref('sflow/config');
+  const main = fixture.ref('main');
+  const set = (ref, commit) => run('git', ['--git-dir', fixture.remote, 'update-ref', ref, commit]);
+  // What earlier builds left: history branches, one archived as a tag, and review branches.
+  const superseded = [
+    `refs/heads/sflow/config-history/${approvedBefore}`, `refs/heads/sflow/config-history/${main}`,
+    `refs/tags/sflow/config-history/${main}`,
+    'refs/heads/sflow/config-refresh/0123abcd-0123456789ab', 'refs/heads/sflow/config-refresh/stale-review'
+  ];
+  for (const ref of superseded) set(ref, ref.endsWith(approvedBefore) ? approvedBefore : main);
+  // What must stay: a person's pending edit, a Story, application branches and tags, a look-alike name.
+  const kept = {
+    'refs/heads/sflow/config-change/workflow/save-review-12345678': approvedBefore,
+    'refs/heads/FEAT-1': main, 'refs/heads/release': main, 'refs/tags/v1.0.0': main,
+    'refs/heads/sflow/config-history-notes': main
+  };
+  for (const [ref, commit] of Object.entries(kept)) set(ref, commit);
+  const state = fixture.ref('state');
+  assert.ok(state);
+
+  // While sflow/config is not the commit it was told about, nothing is superseded and nothing goes.
+  const { removeSupersededConfigurationRefs } = await import('../src/configuration-superseded-refs.mjs');
+  const moved = await removeSupersededConfigurationRefs(fixture.remote, { configurationCommit: 'f'.repeat(40) });
+  assert.equal(moved.status, 'skipped');
+  for (const ref of superseded) assert.ok(remoteRef(fixture.remote, ref), ref);
+
+  await fixture.removeTemplate('singularity/templates/feature/intake.md');
+  const applied = await refreshWorkspaceConfigurations({ registryFile: fixture.registry });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied.results, null, 2));
+  const [result] = applied.results;
+  assert.equal(result.status, 'updated');
+  assert.equal(result.configurationChanged, true);
+  assert.equal(fixture.ref('sflow/config'), result.configurationCommit);
+  assert.deepEqual(result.supersededRefs.removed, { history: 2, archiveTags: 1, reviews: 2 });
+  assert.deepEqual(result.supersededRefs.refused, []);
+  for (const ref of superseded) assert.equal(remoteRef(fixture.remote, ref), '', `${ref} is removed`);
+  for (const [ref, commit] of Object.entries(kept)) assert.equal(remoteRef(fixture.remote, ref), commit, `${ref} is kept`);
+  assert.ok(fixture.ref('state'), 'the state branch stays');
+  assert.deepEqual(applied.summary, [
+    'Updated sflow/config in application to this build; removed 4 old history and review branches and 1 history archive tag.'
+  ]);
+
+  // Nothing is left to remove, and a current repository still says so plainly.
+  const again = await refreshWorkspaceConfigurations({ registryFile: fixture.registry });
+  assert.equal(again.results[0].supersededRefs.status, 'current');
+  assert.deepEqual(again.summary, ['sflow/config in application already holds this build\'s configuration.']);
+});
+
+// Only a host refusal of the push leaves a review: its full name and the link that merges it [owner, 2026-11-16].
+test('only a host that refuses the push keeps the change on a review branch, named in full, and it holds up no other', {
+  skip: process.platform === 'win32' ? 'the fixture host refuses through a POSIX pre-receive hook' : false
+}, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-protected-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { fixtures, registry } = await workspaceOf(root, ['alpha', 'beta']);
+  const beta = fixtures.beta.remote;
+  const betaBefore = remoteRef(beta, 'refs/heads/sflow/config');
+  const oldHistory = `refs/heads/sflow/config-history/${betaBefore}`;
+  run('git', ['--git-dir', beta, 'update-ref', oldHistory, betaBefore]);
+  await installHook(beta, [
+    'while read old new ref; do',
+    '  if [ "$ref" = refs/heads/sflow/config ]; then echo "protected branch: changes must go through a pull request" >&2; exit 1; fi',
+    'done'
+  ].join('\n'));
+
+  const applied = await refreshWorkspaceConfigurations({ registryFile: registry });
+  assert.equal(applied.status, 'partial', JSON.stringify(applied.results, null, 2));
+  const byRepository = Object.fromEntries(applied.results.map((entry) => [entry.repository, entry]));
+  assert.equal(byRepository.alpha.status, 'updated', 'the protected repository holds up no other');
+  assert.equal(remoteRef(fixtures.alpha.remote, 'refs/heads/sflow/config'), byRepository.alpha.configurationCommit);
+  const refused = byRepository.beta;
+  assert.equal(refused.status, 'review-required');
+  assert.equal(refused.protectedBranch, true);
+  assert.match(refused.proposalBranch, /^sflow\/config-refresh\/[0-9a-f]{8}-[0-9a-f]{12}$/u, 'the full name, suffix and all');
+  assert.equal(remoteRef(beta, `refs/heads/${refused.proposalBranch}`), refused.candidateCommit);
+  assert.equal(remoteRef(beta, 'refs/heads/sflow/config'), betaBefore, 'the host kept sflow/config as it was');
+  assert.equal(refused.compareUrl, null, 'a local remote has no compare page');
+  assert.ok(refused.error.includes(refused.proposalBranch), refused.error);
+  assert.equal(remoteRef(beta, oldHistory), betaBefore, 'nothing is superseded while sflow/config lacks this build');
+  assert.deepEqual(applied.summary, [
+    'Updated sflow/config in alpha to this build.',
+    `beta: the host refused the update to sflow/config. This build's configuration is on review branch ${refused.proposalBranch}; merge it on the Git host.`
+  ]);
+});
+
+test('the review link opens the host compare view of the full review branch', async () => {
+  const { compareLink } = await import('../src/configuration-superseded-refs.mjs');
+  const branch = 'sflow/config-refresh/0123abcd-0123456789ab';
+  const host = ['github', 'com'].join('.');
+  const expected = `https://${host}/acme/billing/compare/sflow/config...${branch}?expand=1`;
+  assert.equal(compareLink(`https://${host}/acme/billing.git`, 'sflow/config', branch), expected);
+  assert.equal(compareLink(`git@${host}:acme/billing.git`, 'sflow/config', branch), expected);
+  assert.equal(compareLink(`ssh://git@${host}/acme/billing`, 'sflow/config', branch), expected);
+  assert.equal(compareLink('https://github.acme.example/acme/billing.git', 'sflow/config', branch),
+    `https://github.acme.example/acme/billing/compare/sflow/config...${branch}?expand=1`, 'GitHub Enterprise too');
+  assert.equal(compareLink('https://gitlab.example.test/acme/billing.git', 'sflow/config', branch), null);
+  assert.equal(compareLink('/srv/git/billing.git', 'sflow/config', branch), null);
+});
+
+test('a ref the host refuses to delete is reported and holds up nothing [owner, 2026-11-16]', {
+  skip: process.platform === 'win32' ? 'the fixture host refuses through a POSIX pre-receive hook' : false
+}, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-delete-refused-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await approvedConfigurationFixture(root);
+  const approvedBefore = fixture.ref('sflow/config');
+  const main = fixture.ref('main');
+  const history = [`refs/heads/sflow/config-history/${approvedBefore}`, `refs/heads/sflow/config-history/${main}`];
+  for (const ref of history) run('git', ['--git-dir', fixture.remote, 'update-ref', ref, ref.endsWith(main) ? main : approvedBefore]);
+  run('git', ['--git-dir', fixture.remote, 'update-ref', `refs/tags/sflow/config-history/${main}`, main]);
+  run('git', ['--git-dir', fixture.remote, 'update-ref', 'refs/heads/sflow/config-refresh/stale-review', main]);
+  // A deletion rule on the history names, as a ruleset or hook refuses a whole push.
+  await installHook(fixture.remote, [
+    'zero=0000000000000000000000000000000000000000',
+    'while read old new ref; do',
+    '  case "$ref" in refs/heads/sflow/config-history/*) if [ "$new" = "$zero" ]; then echo "deletion is restricted" >&2; exit 1; fi;; esac',
+    'done'
+  ].join('\n'));
+
+  await fixture.removeTemplate('singularity/templates/feature/intake.md');
+  const applied = await refreshWorkspaceConfigurations({ registryFile: fixture.registry });
+  assert.equal(applied.status, 'complete', 'a refused deletion fails nothing');
+  const [result] = applied.results;
+  assert.equal(result.status, 'updated');
+  assert.equal(fixture.ref('sflow/config'), result.configurationCommit);
+  assert.equal(result.supersededRefs.status, 'partial');
+  assert.deepEqual(result.supersededRefs.removed, { history: 0, archiveTags: 1, reviews: 1 },
+    'the refusal holds up the other names');
+  assert.deepEqual(result.supersededRefs.refused.map((entry) => [entry.ref, entry.kind]).sort(),
+    history.map((ref) => [ref, 'history']).sort());
+  for (const ref of history) assert.ok(remoteRef(fixture.remote, ref), `${ref} stays where the host keeps it`);
+  assert.deepEqual(applied.summary, [
+    'Updated sflow/config in application to this build; removed 1 old history and review branch and 1 history archive tag.',
+    'application: the host refused to delete 2 old refs (a deletion rule); they are harmless where they are.'
+  ]);
+});
+
+// Today's conflict rule keeps the team's edit; where it no longer works with this build, that repository alone
+// changes nothing and names the one command that takes this build's file [owner, 2026-11-16].
+test('one repository whose kept team edit no longer works holds up no other, and names its one-command route', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-conflict-held-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { fixtures, registry } = await workspaceOf(root, ['alpha', 'beta']);
+  const publisher = path.join(root, 'beta-publisher');
+  const currentQa = await readFile(path.join(ROOT, 'templates/agents/qa.agent.md'), 'utf8');
+  await mkdir(path.join(publisher, '.github/agents'), { recursive: true });
+  await writeFile(path.join(publisher, '.github/agents/qa.agent.md'), currentQa.replaceAll(
+    'reproduction,verify,verification,testing,test-run,visual-verification,conformance,release',
+    'reproduction,verify,verification,test-run,visual-verification,conformance,release'));
+  git(publisher, ['add', '.github/agents/qa.agent.md']);
+  git(publisher, ['commit', '-m', 'Keep an older QA agent']);
+  git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
+  const betaBefore = remoteRef(fixtures.beta.remote, 'refs/heads/sflow/config');
+  const route = 'singularity-flow workspace refresh-configuration --repository beta --resolve .github/agents/qa.agent.md=bundled';
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview', 'the others still have a plan');
+  assert.match(preview.planId, /^cfgp-[a-f0-9]{24}$/u);
+  const previewed = Object.fromEntries(preview.results.map((entry) => [entry.repository, entry]));
+  assert.equal(previewed.alpha.status, 'would-update');
+  assert.equal(previewed.beta.status, 'blocked');
+  assert.equal(previewed.beta.route, route);
+
+  const applied = await refreshWorkspaceConfigurations({ registryFile: registry });
+  assert.equal(applied.status, 'partial');
+  const byRepository = Object.fromEntries(applied.results.map((entry) => [entry.repository, entry]));
+  assert.equal(byRepository.alpha.status, 'updated');
+  assert.equal(byRepository.beta.status, 'blocked');
+  assert.equal(byRepository.beta.route, route);
+  assert.equal(remoteRef(fixtures.beta.remote, 'refs/heads/sflow/config'), betaBefore, 'beta changed nothing');
+  assert.equal(applied.summary[0], 'Updated sflow/config in alpha to this build.');
+  assert.ok(applied.summary[1].startsWith('beta: nothing changed there. '), applied.summary[1]);
+  assert.ok(applied.summary[1].endsWith(`To take this build's version of each kept file, run: ${route}`), applied.summary[1]);
+
+  // The route it names is the one command that finishes beta.
+  const resolved = await refreshWorkspaceConfigurations({
+    registryFile: registry, repositories: ['beta'], resolutions: { '.github/agents/qa.agent.md': 'bundled' }
+  });
+  assert.equal(resolved.status, 'complete', JSON.stringify(resolved.results, null, 2));
+  assert.equal(resolved.results[0].status, 'updated');
 });

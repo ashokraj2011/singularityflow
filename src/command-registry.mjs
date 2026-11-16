@@ -354,7 +354,7 @@ export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MU
 const ENV_FILES_ACTIONS = Object.freeze(['list', 'path', 'suggest', 'override', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place', 'classify']);
 /**
  * `status` only reads; `align` replaces installed product surfaces with the installed build;
- * `reviews` opens this build's configuration reviews, pushing review branches only.
+ * `reviews` brings each lagging repository's sflow/config to this build [owner, 2026-11-16].
  */
 export const PRODUCT_SUBCOMMANDS = Object.freeze(['status', 'align', 'reviews']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([

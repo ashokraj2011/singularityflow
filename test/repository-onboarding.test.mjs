@@ -365,7 +365,7 @@ function advanceState(fixture, name) {
   run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: editor });
 }
 
-test('a reused legacy mirror verdict needs the same observed retained-history ref', async () => {
+test('a reused legacy mirror verdict needs no history ref: its proof fetches the source commit by object', async () => {
   const fixture = await repositoryFixture();
   try {
     await ensureConfigurationBranch(fixture.remote, { capability });
@@ -391,15 +391,18 @@ test('a reused legacy mirror verdict needs the same observed retained-history re
     assert.equal(counts.clones, afterFirst + 1, 'a moved state tip with the same content is surveyed once');
     assert.equal(moved.state.legacyBinding.method, 'retained-history-and-portfolio');
 
-    // The proof read the retained history branch, which the cache identity does not name.
+    // [owner, 2026-11-16] The upgrade deletes history branches. The proof names no ref, so a deleted one changes nothing.
     const historyRef = `refs/heads/${first.state.history.branch}`;
-    const other = run('git', ['rev-parse', 'refs/heads/main'], { cwd: fixture.remote }).stdout.trim();
-    run('git', ['update-ref', historyRef, other], { cwd: fixture.remote });
-    const beforeHistoryMove = counts.clones;
-    const unproven = await inspectRepositoryOnboarding(fixture.remote, options);
-    assert.ok(counts.clones > beforeHistoryMove + 1, 'a moved history ref proves the mirror again');
-    assert.equal(unproven.state.repositoryBound, false);
-    assert.equal(unproven.state.legacyBinding, undefined);
+    run('git', ['update-ref', '-d', historyRef], { cwd: fixture.remote });
+    const beforeHistoryRemoval = counts.clones;
+    const reused = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(counts.clones, beforeHistoryRemoval, 'the unchanged state commit\'s verdict is reused');
+    assert.equal(reused.state.repositoryBound, true);
+    assert.equal(reused.planId, moved.planId);
+    advanceState(fixture, 'advance-after-history-removal');
+    const proven = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(proven.state.repositoryBound, true, 'a fresh proof fetches the source commit by object');
+    assert.equal(proven.state.legacyBinding.method, 'retained-history-and-portfolio');
   } finally {
     await rm(fixture.base, { recursive: true, force: true });
   }
@@ -1191,7 +1194,8 @@ test('archive tags restore exact configuration and still bind legacy state mirro
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.state.repositoryBound, true);
     assert.equal(plan.status, 'ready-to-restore');
-    assert.equal(plan.observedRefs[`refs/tags/sflow/config-history/${mirror.sourceCommit}`], mirror.sourceCommit);
+    assert.equal(plan.observedRefs[`refs/tags/sflow/config-history/${mirror.sourceCommit}`], undefined,
+      'no history ref is part of the plan: the source commit is fetched by object [owner, 2026-11-16]');
     const result = await applyRepositoryOnboarding(fixture.remote, { confirmPlan: plan.planId });
     assert.equal(result.status, 'configuration-review-required');
     assert.equal(result.proposal.commit, mirror.sourceCommit);

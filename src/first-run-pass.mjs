@@ -2,8 +2,8 @@
  * What a new build does before its first mutation command on this machine, once.
  *
  * It brings every product surface to the installed build, repairs machine-local state through the
- * registered healers, and starts the background pass that opens a review for each registered
- * repository whose approved configuration lags this build. It never fails the command it precedes.
+ * registered healers, and starts the background pass that updates the sflow/config of each registered
+ * repository whose approved configuration lags this build [owner, 2026-11-16]. It never fails the command it precedes.
  * The pass is recorded per build, so it runs again only when another build runs. A pass that an
  * install pre-empted is not recorded, so the next mutation tries it again.
  */
@@ -51,7 +51,7 @@ export async function firstRunPass({
     ? Object.freeze({ status: 'foreground-refresh' })
     : await startReviews({ runningBuild, homeDirectory, environment });
   if (reviews.status === 'started') {
-    write('Singularity Flow: checking this build\'s packaged configuration against your registered repositories in the background. `singularity-flow product status` shows any review it opens.');
+    write('Singularity Flow: bringing this build\'s packaged configuration to your registered repositories in the background. `singularity-flow product status` shows what it updated.');
   }
   await recordBuildPass({
     homeDirectory, runningBuild,

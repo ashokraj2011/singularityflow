@@ -2109,11 +2109,19 @@ async function nextCommand(options) {
       printCommandRoutes(action.command, { skill: action.skill, indent: '  ' });
     }
   } else {
-    console.log('\nAfter authoring and validation, publish the generation:');
     const modelEnabled = operationContext()?.modelMode.enabled !== false, generationSkill = generationSkillForPhase(phase, workflow);
-    const configuredCommand = phasePublicationCommandForMode(phase, { modelEnabled });
-    if (configuredCommand) printCommandRoutes(configuredCommand, { skill: generationSkill, indent: '  ', label: modelEnabled ? 'Configured producer' : 'Without a model' });
-    else console.log(`  ${phase.label} has no producer that can publish it without a model.`);
+    // With a model, the step's own route from the action map: its work command writes it and publishes it once its checks
+    // pass, a kernel-built step's too [OSA:REQ-021, D1, D5]. Without one, the publication a person runs themselves.
+    const { route } = modelEnabled ? await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase) : { route: null };
+    if (route?.command) {
+      console.log('\nWrite it in the step\'s work command, which publishes it once its checks pass:');
+      printCommandRoutes(route.command, { skill: route.skill, indent: '  ', label: 'Work command' });
+    } else {
+      console.log('\nAfter authoring and validation, publish the generation:');
+      const configuredCommand = phasePublicationCommandForMode(phase, { modelEnabled });
+      if (configuredCommand) printCommandRoutes(configuredCommand, { skill: generationSkill, indent: '  ', label: modelEnabled ? 'Configured producer' : 'Without a model' });
+      else console.log(`  ${phase.label} has no producer that can publish it without a model.`);
+    }
     if (modelEnabled && phase.generationPolicy?.defaultProducer !== 'human'
         && phase.generationPolicy?.allowedProducers?.includes('human')) {
       const manualCommand = phasePublicationCommandForProducer(phase, 'human');

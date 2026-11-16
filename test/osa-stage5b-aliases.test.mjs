@@ -198,9 +198,9 @@ function refusingPorts(base) {
     invoked: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) };
 }
 
-/** What a guided run printed at the authoring boundary: the route after "publish the generation", and its label. */
+/** What a guided run printed at the authoring boundary: the step's work command, as the action map names it, and its label. */
 function boundaryRoute(stdout) {
-  const found = /After authoring and validation, publish the generation:\n {2}([^\n]+):\n {2}- Copilot: ([^\n]+)\n {2}- Shell: ([^\n]+)\n/u.exec(stdout);
+  const found = /Write it in the step's work command, which publishes it once its checks pass:\n {2}([^\n]+):\n {2}- Copilot: ([^\n]+)\n {2}- Shell: ([^\n]+)\n/u.exec(stdout);
   assert.ok(found, stdout.slice(-1500));
   return { label: found[1], copilot: found[2], shell: found[3] };
 }
@@ -237,15 +237,13 @@ test('/sf-run at the authoring boundary: its guided run stops there with the ste
       { status: 'in_progress', generation: 0, published: 0, opened: step === 'implement' ? 1 : null }, `${step}: prepared; nothing written, published or submitted`);
     return { kernel, route: boundaryRoute(ran.stdout) };
   };
-  // What it returns at the boundary is the step's publication for its own producer, named as /sf-publish <step>, while the
-  // kernel's route for the step is its work command (D1; D5 for a kernel-built step). Pinned as it is: the skill's "load
-  // the exact returned canonical skill once" reads the publication's skill, and making the run return the map's work
-  // command is recorded for the owner (docs/osa/stage5b.md section 5, decision 3), not changed here.
+  // What it returns at the boundary is the map's route for the step, its work command (D1; D5 for a kernel-built step), as
+  // the kernel names it, never the publication (/sf-publish <step>) [docs/osa/stage5b.md section 5, decision 3]; the skill
+  // then loads that work command once.
   const intake = run('intake');
-  assert.deepEqual(intake.route, { label: 'Configured producer', copilot: '/sf-publish intake',
-    shell: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' });
+  assert.deepEqual(intake.route, { label: 'Work command', copilot: '/sf-phase', shell: 'singularity-flow prepare intake' });
   assert.equal(intake.kernel.copilot, '/sf-phase');
-  // That route cannot publish a step nobody wrote: the publication's own checks refuse the prepared draft.
+  // The publication a model never wrote is still refused: its own checks refuse the prepared draft.
   const early = story.raw(['phase', 'publish', 'intake', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
   assert.notEqual(early.status, 0, early.stdout.slice(-1500));
   assert.equal(storyRecord(story).phases.intake.generation, 0, 'nothing published');
@@ -254,10 +252,9 @@ test('/sf-run at the authoring boundary: its guided run stops there with the ste
   reviewStep((args) => JSON.parse(story.cli(...args)), 'intake');
   story.cli('submit', 'intake');
   story.cli('approve', 'intake', '--yes');
-  // A kernel-built step (D5): the same, with its generator's own publication.
+  // A kernel-built step (D5): the same, its work command, which builds it with its generator.
   const code = run('implement');
-  assert.deepEqual(code.route, { label: 'Configured producer', copilot: '/sf-publish implement',
-    shell: 'singularity-flow phase publish implement --authored deterministic --channel kernel-generator' });
+  assert.deepEqual(code.route, { label: 'Work command', copilot: '/sf-code', shell: 'singularity-flow prepare implement' });
   assert.equal(code.kernel.copilot, '/sf-code');
   assert.equal(storyRecord(story).phases.implement.versionOpening.consent, null, 'version 1 owes no yes');
   assert.deepEqual(ports.invoked(), [], 'no AI port was called');

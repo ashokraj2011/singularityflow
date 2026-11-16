@@ -305,8 +305,9 @@ the decision; D2's Git 2.29 minimum is confirmed when stage 5 is built.
   `git worktree repair`, which needs Git 2.29 (to be confirmed), so the supported minimum rises from 2.25 to 2.29.
   Checked when stage 5 was built: Git 2.29 added `git worktree repair`, but mending a clone and its worktrees that moved
   together (a moved workspace) came in Git 2.31 (git/git cf76baea, not in v2.30.0), as did `prunable` in
-  `git worktree list --porcelain`. `workspace repair` checks the version and, on older Git, names the update in its
-  preview; the bootstrap minimum is still 2.25 until the owner chooses 2.29 or 2.31.
+  `git worktree list --porcelain`. So 2.29 was too low. Decided by the owner on 16 November 2026: `workspace repair`
+  needs Git 2.31 and, on older Git, refuses with `WORKSPACE_REPAIR_GIT_TOO_OLD` (as built); the setup minimum stays
+  as it is (2.25).
 - **D3. Where does a clone outside any workspace keep its Story checkouts?** Recommended: a folder beside it,
   `<clone>.stories/`. Starting is refused if that would fall inside SFlow's state folder.
 - **D4. Does `approvalSecurity.allowSelfApproval` govern configuration approvals too?** Recommended: yes, one policy
@@ -363,6 +364,13 @@ Decided the same day, after stage 1e:
   (`repository.worktrees`); and a workspace clone with a Story's branch checked out in it, with no checkout of its
   own, is one while it holds uncommitted work or commits no remote has, so the reset refuses with the same
   message. Clean and published, it goes with its workspace as before.
+
+Decided 16 November 2026, after stage 5 was built:
+
+- **D12. Does one repository key loosen the stored key too?** No. The stored key (`gitRepositoryComparisonKey`, which the
+  Story index and record identities carry) stays strict: only GitHub's ssh and https spellings are one repository there.
+  `sameRepository` (host plus repository path, whatever the protocol, `.git` suffix, letter case or trailing slash) is
+  used only where a remote read now is compared with one recorded earlier (SCF:REQ-019).
 
 ## Appendix A — The findings
 

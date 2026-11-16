@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { stepState } from './kernel/step-state.mjs';
-import { sourceReviewRequired } from './source-review-policy.mjs';
+import { pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
 import { lstatSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { phaseKernelOwned, phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -123,7 +123,10 @@ export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.
     kind: { executionOwner: executionOwner(step), code: phaseRequiresCodeDelivery(step),
       changeCapabilities: [...(onlyDeterministic(step) ? [] : ['step-artifacts']),
         ...(step.writeScope === 'source-and-artifact' && (!onlyDeterministic(step) || phaseRequiresCodeDelivery(step)) ? ['application'] : [])] },
-    pause: intentAmendmentPause(workflow, step.id) ? { id: intentAmendmentPause(workflow, step.id).id } : null, holds: [],
+    pause: intentAmendmentPause(workflow, step.id) ? { id: intentAmendmentPause(workflow, step.id).id } : null,
+    // An approved amendment waits for a person's acknowledgement before downstream submission, not before authoring.
+    holds: pendingIntentAmendmentAcknowledgement(workflow) ? [{ code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED', owner: 'person',
+      blocks: ['submission'], resolution: 'decide' }] : [],
     review: { required: sourceReviewRequired(workflow, step.id), status: review?.phaseId === step.id ? review.status : 'unavailable',
       version: review?.phaseId === step.id ? review.version ?? null : null }, damage: null } : null;
   const currentPhaseId = workflow?.currentPhase ?? null;

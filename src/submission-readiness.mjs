@@ -13,7 +13,7 @@ import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 import { approvalCheckLines, blockingCommitLines, owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
 import { blockingHolds, sheetRoute } from './step-sheet-route.mjs';
-import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
+import { ASKED_FOR_HOLD, decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -459,6 +459,15 @@ export function submissionReadinessSnapshot(workflow, {
             : 'PHASE_PUBLICATION_RECORD_MISSING'
         })
   });
+
+  // What the person typed waits for its account in a step nobody approves (taskOutcome): its submission, which completes
+  // it, waits for that, so the author's account leads, as the kernel names it [SCS:REQ-042].
+  const owing = taskOutcome?.askedFor && stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome });
+  if (owing?.next.prerequisites?.some((entry) => entry.code === ASKED_FOR_HOLD)) {
+    const [route] = decisionRoutes(owing, workflow, phase);
+    return result(workflow, phase, { ...draft, classification: 'instructions-unaccounted', lifecycleReady: false, command: route.command,
+      nextSkill: route.skill, reason: route.detail, reasonCode: ASKED_FOR_HOLD });
+  }
 
   if (sourceReviewRequired(workflow, phase.id) && sourceReviewEvidence?.status !== 'ready') {
     const continuation = sourceReviewContinuation(workflow, phase, sourceReviewEvidence);

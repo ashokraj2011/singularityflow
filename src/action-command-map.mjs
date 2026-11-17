@@ -29,7 +29,8 @@ export const ACTION_COMMANDS = Object.freeze({
   'open-version': entry('work', { preview: 'phase rollover <step> --json', begin: 'phase begin <step> --json', prepare: 'prepare <step>' }),
   'build-version': entry('work', { prepare: 'prepare <step>', preview: 'phase rollover <step> --json' }),
   'author-version': entry('work', { prepare: 'prepare <step>' }),
-  'repair-version': entry('work', { prepare: 'prepare <step>' }),
+  // `account`: what the person typed, accounted for by the step's author before the submission that completes it [SCS:REQ-042].
+  'repair-version': entry('work', { prepare: 'prepare <step>', account: 'departure account --work-id <W> --instruction <instruction> --clauses <CLAUSES>' }),
   // `prepublish` checks and publishes once ready; `check` checks a deterministic step's code; `draft` checks an authored draft.
   'publish-version': entry('work', { prepublish: 'phase prepublish <step> --for-agent --json --publish-if-ready', pending: 'sync',
     check: 'phase prepublish <step> --for-agent --json', draft: 'phase prepublish <step>' }),
@@ -55,10 +56,11 @@ export const ACTION_COMMANDS = Object.freeze({
  * One form of an operation's Shell command without its executable (`review-source context intake --for-agent --json`),
  * for `step` of Story `workId`; null for a form the map does not name. A form keeps any placeholder for the person.
  */
-export function actionCommand(operation, form, { step = null, workId = null } = {}) {
+export function actionCommand(operation, form, { step = null, workId = null, instruction = null } = {}) {
   const template = ACTION_COMMANDS[operation]?.forms[form];
   if (!template) return null;
-  const words = template.split(' ').map((word) => word === '<step>' ? step : word === '<W>' ? workId : word);
+  const words = template.split(' ').map((word) => word === '<step>' ? step : word === '<W>' ? workId
+    : word === '<instruction>' && instruction != null ? String(instruction) : word);
   return words.some((word) => word === null || word === undefined || word === '') ? null : words.join(' ');
 }
 

@@ -3,7 +3,7 @@ import { decisionsCardAction, intentAmendmentProposable } from './intent-amendme
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
 import { stepBeingWritten } from './phase-generation-need.mjs';
-import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
+import { ASKED_FOR_HOLD, decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
@@ -150,8 +150,11 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress, t
   // code, is the next step, as the kernel decides it for every view [§8, OSA:REQ-012, REQ-020].
   if (taskOutcome && workflow.currentPhase === phase.id && phase.status === 'in_progress') {
     const decision = stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome });
-    if (decision.state === 'waiting') return decisionRoutes(decision, workflow, phase).filter((entry) => entry?.command)
+    const routes = () => decisionRoutes(decision, workflow, phase).filter((entry) => entry?.command)
       .map((entry) => copilotAction({ skill: entry.skill, command: entry.command, reason: entry.detail }));
+    if (decision.state === 'waiting') return routes();
+    // What the person typed waits for its account, and the submission that completes the step waits for that: the account leads.
+    if (decision.next.prerequisites?.some((entry) => entry.code === ASKED_FOR_HOLD)) return routes();
   }
   // The version being written, version 1 or an open next one, has its task: its next stage leads [OSA:REQ-012, C5]. The
   // task's stage is the kernel's (phase-authoring-progress.mjs); any other step's action is its handoff's.

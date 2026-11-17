@@ -5061,7 +5061,15 @@ test('starting work before any approver is named says so first, and offers the f
 
 test('People & approvals adds the current Git identity to every configured group and publishes it', async (t) => {
   if (!requireBundle(t)) return;
-  const { root, registered } = await activated();
+  const { root, api, registered } = await activated();
+  // Review and approve opens the proposal as a read-only review document, as the artifacts test above stubs it.
+  api.Uri.from = (components) => {
+    const uri = new api.Uri(components.path, components.scheme);
+    uri.query = components.query ?? '';
+    uri.toString = () => `${uri.scheme}:${uri.fsPath}?${uri.query}`;
+    return uri;
+  };
+  api.workspace.onDidCloseTextDocument = () => ({ dispose() {} });
   run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
   await registered.commands.get('singularityFlow.configurePeople')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
@@ -5073,15 +5081,36 @@ test('People & approvals adds the current Git identity to every configured group
 
   const before = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
-  registered.warningAnswers.push('Add, commit & push');
+  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
+  const approvedCommit = () => run('git', [`--git-dir=${remote}`, 'rev-parse', 'sflow/config']).stdout.trim();
+  const approvedBefore = approvedCommit();
+  // Every people or policy edit is a people proposal, approved like any other [SCF:REQ-012]: the person adds
+  // themselves, then takes Review and approve, reads the proposal and approves exactly that revision.
+  registered.warningAnswers.push('Add, commit & push', 'Approve exact proposal', 'Acknowledge and approve');
+  registered.informationAnswer = 'Review and approve';
   await panel.post({
     type: 'add-current-identity', target: '*',
     allowSelfApproval: false, autoEnrollNewIdentities: false
   });
+  assert.ok(registered.infos.some((message) => /^Proposed as sflow\/config-change\/people\/approval-policy\b.*; it waits under Workflow Studio → Changes\./u.test(message)),
+    registered.infos.join('\n'));
+  // Review and approve runs after the message is answered; wait for its outcome on the page, not by polling Git.
+  await until(() => registered.errors.length
+    || registered.infos.some((message) => /^Workflow configuration approved on sflow\/config/u.test(message)),
+  { what: 'the people proposal approved through Review and approve' }).catch((error) => {
+    throw new Error(`${error.message}\n${JSON.stringify({ infos: registered.infos, warnings: registered.warnings,
+      warningActions: registered.warningActions, pages: registered.reviewConfirmations.map((page) => page.title),
+      output: registered.output.slice(-20) }, null, 2)}`);
+  });
+  assert.deepEqual(registered.errors, []);
+  assert.ok(registered.infos.some((message) => /^Workflow configuration approved on sflow\/config, recorded as a self-approval\./u.test(message)),
+    registered.infos.join('\n'));
+  assert.notEqual(approvedCommit(), approvedBefore, 'the approval landed on sflow/config');
+  assert.match(run('git', [`--git-dir=${remote}`, 'log', '-1', '--format=%B', 'sflow/config']).stdout, /Self-approved: yes/u,
+    'the approval commit records the self-approval');
 
   const pinnedWorkflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.equal(pinnedWorkflow.approvalSecurity.profile, 'team', 'the active lifecycle snapshot stays immutable');
-  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
   const workflow = YAML.parse(run('git', [
     `--git-dir=${remote}`, 'show', 'sflow/config:singularity/workflow.yml'
   ]).stdout);
@@ -5103,7 +5132,6 @@ test('People & approvals adds the current Git identity to every configured group
   assert.equal(after, before, 'the guided action never advances the active lifecycle branch');
   assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus,
     'the guided action never changes the active worktree or index');
-  assert.ok(registered.infos.some((message) => /People & approvals updated on sflow\/config/.test(message)));
   assert.deepEqual(registered.errors, []);
 });
 

@@ -58,19 +58,25 @@ async function setup(t, { templatesRoot = null } = {}) {
   git(seed, '-c', 'user.name=Seed', '-c', 'user.email=seed@example.invalid', 'commit', '-qm', 'seed');
   git(base, 'clone', '-q', '--bare', seed, remote);
   flow(base, ['bootstrap', remote, '--capability', 'drafts', '--into', checkout]);
-  return { base, remote, checkout, flow };
+  // An approval names the revision its approver was shown (SCF:REQ-006): approve shows the proposal and
+  // approves nothing, then --yes approves exactly the revision it showed.
+  const approve = (cwd) => {
+    assert.match(flow(cwd, ['configuration', 'approve'], 1).stderr, /approve exactly this revision: singularity-flow configuration approve sflow\/config-change\/\S+ --confirm [0-9a-f]{40}/);
+    return flow(cwd, ['configuration', 'approve', '--yes']);
+  };
+  return { base, remote, checkout, flow, approve };
 }
 
 const instructionFile = (remote) => git(remote, 'show', 'sflow/config:singularity/instruction-library/tone/INSTRUCTIONS.md');
 
 test('drafts approved from another clone are settled, never block a Studio batch, and an edit back to an earlier value is saved', slowLane({ timeout: 900_000 }), async (t) => {
-  const { base, remote, checkout: a, flow } = await setup(t);
+  const { base, remote, checkout: a, flow, approve } = await setup(t);
   const b = path.join(base, 'laptop-b');
   git(base, 'clone', '-q', remote, b);
   const create = ['instruction', 'create', 'tone', '--description', 'Tone.', '--instructions', 'Be kind.'];
   assert.match(flow(a, create).stdout, /Saved as a draft; no Story uses it until it is approved\. Drafts waiting: 1\./);
   flow(b, [...create, '--propose']);
-  flow(b, ['configuration', 'approve', '--yes']);
+  approve(b);
 
   // An unrelated Studio batch is not blocked: the draft approved elsewhere is left out, and said so.
   const changeSet = path.join(base, 'change.json');
@@ -94,14 +100,14 @@ test('drafts approved from another clone are settled, never block a Studio batch
   assert.match(editTo('First.'), /^Saved as a draft; no Story uses it until it is approved\. Drafts waiting: 3\./);
   assert.match(editTo('First.'), /^Already saved as a draft; nothing new was saved\. Drafts waiting: 3\./);
   flow(a, ['configuration', 'propose']);
-  flow(a, ['configuration', 'approve', '--yes']);
+  approve(a);
   assert.match(instructionFile(remote), /\n\nFirst\.$/, "the value saved last is the value approved");
 
   // C1: a draft the approved configuration no longer takes is named with its discard command.
   flow(a, ['instruction', 'edit', 'tone', '--instructions', 'Mine.']);
   git(b, 'pull', '-q', '--ff-only');
   flow(b, ['instruction', 'remove', 'tone', '--propose']);
-  flow(b, ['configuration', 'approve', '--yes']);
+  approve(b);
   const refused = flow(a, ['configuration', 'propose'], 1);
   assert.match(refused.stderr, /A saved draft no longer applies to the approved configuration, so nothing was proposed:\n {2}1\. Edit instruction tone: Instruction 'tone' does not exist\./);
   const discard = /Discard it: (singularity-flow configuration discard 1 --listing [0-9a-f]{12})/u.exec(refused.stderr)?.[1];
@@ -113,7 +119,7 @@ test('drafts approved from another clone are settled, never block a Studio batch
 });
 
 test('a proposal whose upload failed holds its drafts until it is approved; one merged or closed on the host is settled by approving', slowLane({ timeout: 900_000 }), async (t) => {
-  const { base, remote, checkout: a, flow } = await setup(t);
+  const { base, remote, checkout: a, flow, approve } = await setup(t);
   flow(a, ['instruction', 'create', 'tone', '--description', 'Tone.', '--instructions', 'Be kind.']);
   const marker = path.join(base, 'reject');
   await writeFile(marker, '1');
@@ -133,7 +139,7 @@ test('a proposal whose upload failed holds its drafts until it is approved; one 
   assert.match(synced.stdout, new RegExp(`Shell: singularity-flow configuration approve ${branch.replaceAll('/', '\\/')}`));
   assert.doesNotMatch(synced.stdout, /This work is finished/);
   assert.doesNotMatch(flow(a, ['configuration', 'drafts']).stdout, /upload has not finished/);
-  assert.match(flow(a, ['configuration', 'approve', '--yes']).stdout, /Approved\. New Stories use these changes/);
+  assert.match(approve(a).stdout, /Approved\. New Stories use these changes/);
   assert.match(flow(a, ['configuration', 'drafts']).stdout, /^No drafts\. Each agent, skill or instruction change you make is saved here until you propose it\.\n$/);
 
   // Merged by the Git host, which then deleted the branch: approving records it.

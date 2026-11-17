@@ -16,7 +16,8 @@ const OPTIONS = Object.freeze({
 
 function validate(subcommand, positionals, options) {
   for (const key of Object.keys(options)) {
-    if (!OPTIONS[subcommand].includes(key)) {
+    // --timings is the CLI's own diagnostic flag, which every command takes.
+    if (!OPTIONS[subcommand].includes(key) && key !== 'timings') {
       throw new SingularityFlowError(`configuration ${subcommand} does not take --${key}. It takes: ${OPTIONS[subcommand].map((name) => `--${name}`).join(', ')}.`,
         { code: 'CONFIGURATION_DRAFTS_OPTION_UNSUPPORTED' });
     }

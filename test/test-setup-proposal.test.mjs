@@ -134,19 +134,23 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
   assert.deepEqual(repositoryConfig.tests.map((entry) => [entry.id, entry.level]), [[e2e.id, 'e2e'], [unit.id, 'unit']]);
   assert.equal(Object.hasOwn(repositoryConfig.tests[0], 'targetVariables'), false, 'what the inspection read is shown, never written');
   assert.deepEqual(repositoryConfig.phases, approved.phases, 'no step changed');
-  // The person who chose them activates them; the result names the line and the VS Code place [RTC:REQ-006].
+  // The person who chose them activates them; the result names the line and the VS Code place [RTC:REQ-006]. The line is
+  // `configuration approve` for the exact revision, the one approval path on every surface [SCF:REQ-006, REQ-010].
   const repositoryCommit = run('git', ['--git-dir', remote, 'rev-parse', repositoryBranch]).stdout.trim();
   assert.equal(forRepository.data.activation.command,
-    `singularity-flow workflow activate ${repositoryBranch} --confirm ${repositoryCommit} --acknowledge-unprotected`);
-  assert.match(forRepository.next[0].label, /activates it themselves, never an agent: in their own terminal, singularity-flow workflow activate .* or in Workflow Studio → Changes → Review and activate\./u);
+    `singularity-flow configuration approve ${repositoryBranch} --confirm ${repositoryCommit}`);
+  assert.match(forRepository.next[0].label, /activates it themselves, never an agent: in their own terminal, singularity-flow configuration approve .* or in Workflow Studio → Changes → Review and approve\./u);
   // The review reads "Repository tests", not a change to each workflow, and gives the way forward [RTC:REQ-007].
   const reviewed = json('workflow', 'proposal', repositoryBranch);
   assert.deepEqual([reviewed.workflows, reviewed.repositoryTests], [[], { label: 'Repository tests', change: 'added', added: [e2e.id, unit.id], changed: [], removed: [] }]);
   const reviewText = run(process.execPath, [cli, '--no-model', 'workflow', 'proposal', repositoryBranch]).stdout;
   assert.match(reviewText, new RegExp(`added +Repository tests: adds ${e2e.id}, ${unit.id}\n`, 'u'));
-  assert.ok(reviewText.includes(`Activate it: ${forRepository.data.activation.command}\n`), reviewText);
+  assert.ok(reviewText.includes(`Approve it: ${forRepository.data.activation.command}\n`), reviewText);
   assert.match(run(process.execPath, [cli, '--no-model', 'workflow', 'proposals']).stdout, /Repository tests: adds .* \(added\)/u);
-  run(process.execPath, [cli, '--no-model', 'workflow', 'activate', repositoryBranch, '--confirm', repositoryCommit, '--acknowledge-unprotected']);
+  // The printed line approves it, as the person types it (`workflow activate --confirm`, above, is the same approval).
+  assert.notEqual(shell(forRepository.data.activation.command).activated, false);
+  assert.deepEqual(YAML.parse(run('git', ['--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml']).stdout).tests.map((entry) => entry.id),
+    [e2e.id, unit.id]);
   // A step that runs tests and has none of its own is offered them for a Story in progress [RTC:REQ-003].
   const verifying = { workItem: { workType: 'feature' }, resolution: { phases: [{ id: 'verification', qualityCommands: [] }] } };
   assert.deepEqual((await activatedTestCommandsFor(root, verifying, 'verification')).map((entry) => entry.id), [e2e.id, unit.id]);

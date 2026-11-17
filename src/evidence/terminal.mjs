@@ -115,20 +115,26 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
 }
 
 /**
- * The return of stale evidence to the step that produced it: the submitted current step's own return
- * when its policy allows it, else an upstream issue its approvers decide (a return among the
- * choices). Null when neither is open from here, such as on a closed Story.
+ * The return of what an earlier step `owner` produced to it: the submitted current step's own return when its policy
+ * allows it, else an upstream issue its approvers decide (a return among the choices), about `about`. Null when neither
+ * is open from here, such as on a closed Story. `openStory` judges the Story as it stands when the ending is read as if
+ * closed: its final step and that step's real status.
  */
-function staleEvidenceReturn(workflow, owner, clauseId) {
+function staleEvidenceReturn(workflow, owner, about, problem = `"Its evidence predates the scope revision; run ${owner} again"`, openStory = null) {
   const workId = workflow.workItem.id;
-  const current = workflow.phases?.[workflow.currentPhase];
-  if (workflow.status === 'in_progress' && current?.status === 'awaiting_approval' && (current.approvalPolicy?.rejectTo ?? []).includes(owner)) {
+  const current = workflow.phases?.[openStory ? openStory.phase : workflow.currentPhase];
+  const open = openStory ? { ...workflow, status: 'in_progress' } : workflow;
+  if (open.status === 'in_progress' && (openStory?.status ?? current?.status) === 'awaiting_approval' && (current.approvalPolicy?.rejectTo ?? []).includes(owner)) {
     return `singularity-flow reject ${current.id} --work-id ${workId} --to ${owner} --reason <REASON>`;
   }
   const step = decidableUpstreamStep(workflow, owner);
-  const route = step ? raiseUpstreamIssueRoute(workflow, step, workflow.currentPhase) : null;
-  return route ? route.command.replace('<clause-or-section>', clauseId)
-    .replace('<what-is-wrong>', `"Its evidence predates the scope revision; run ${owner} again"`) : null;
+  const route = step ? raiseUpstreamIssueRoute(open, step, current?.id) : null;
+  return route ? route.command.replace('<clause-or-section>', about).replace('<what-is-wrong>', problem) : null;
+}
+
+async function askedForRecords() {
+  const [{ PACKAGE_ROOT }, path, { pathToFileURL }] = await Promise.all([import('../package-root.mjs'), import('node:path'), import('node:url')]);
+  return import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href);
 }
 
 /**
@@ -238,8 +244,14 @@ export async function evaluateTerminalTransition(root, definition, workflow, { o
   // required after-step delivery of an earlier step has its receipt by then: the ending is the one
   // place that waits for it [PHR:REQ-003].
   const { stepActionTerminalBlockers } = await import('../step-action-receipts.mjs');
+  // What the person typed into a code step is accounted for before that step completes; the ending holds one that was
+  // not, and returns it to that step [SCS:REQ-042]. Read only for a Story that recorded any, from the CLI source, outside
+  // the VS Code bundles (asked-for-records.mjs).
+  const asked = (workflow.askedFor ?? []).length ? await (await askedForRecords()).askedForTerminalBlockers(workflow,
+    { except: openStory?.phase ?? null, route: (owner) => staleEvidenceReturn(workflow, owner, 'asked-for', `"An instruction the person typed in ${owner} is not accounted for"`, openStory)
+      ?? `singularity-flow decisions ${workflow.workItem.id}` }) : [];
   const upstream = [...upstreamIssueTerminalBlockers(workflow), ...forwardAmendmentTerminalBlockers(workflow),
-    ...await stepActionTerminalBlockers(root, definition, workflow)];
+    ...await stepActionTerminalBlockers(root, definition, workflow), ...asked];
   const blockers = [...new Set([...evidenceBlockers, ...gate.errors, ...upstream.map((entry) => entry.message)])];
   const decisions = await pendingDecisionLead(workflow, gate, upstream, openStory);
   const recovery = [...new Set([...(decisions ? [decisions.nextAction.command] : []), ...upstream.map((entry) => entry.command),

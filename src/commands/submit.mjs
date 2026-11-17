@@ -21,7 +21,6 @@ import { composeEvidenceReceipt, renderEvidenceReceipt } from '../evidence-recei
 import { activateWorkItemSession } from '../session.mjs';
 import { recordRequiredReceiptsAfterTransition } from './shared/record-required-receipts-after-transition.mjs';
 import { phaseReview } from './shared/phase-review.mjs';
-import { printPhaseReview } from './shared/print-phase-review.mjs';
 import { recordedCompletion, printCompletionVerdict } from '../completion-verdict.mjs';
 import { completionContinuation } from './shared/completion-continuation.mjs';
 import { stepActionHoldAfterTransition } from './shared/step-action-hold-after-transition.mjs';
@@ -173,7 +172,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     config,
     workflow,
     { type: LIFECYCLE_EVENT.APPROVAL_REQUESTED, phaseId: requested.id, generation: requested.generation },
-    `[${workflow.workItem.id}][phase:${requested.id}][submit] request approval`,
+    `[${workflow.workItem.id}][phase:${requested.id}][submit] ${requested.approvalPolicy?.mode === 'none' ? 'complete without approval' : 'request approval'}`,
     requested.artifacts.map((item) => item.path),
     {
       rollbackWorkflow: workflowBeforeSubmission,
@@ -251,8 +250,9 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       'the submitted phase review projection', workflow.workItem.id,
       () => phaseReview(root, config, workflow, phase)
     );
+    // Only a person's terminal prints it, so it loads only there, as `phase show` loads it.
     if (submittedReview.ok) {
-      printPhaseReview(submittedReview.value, { showArtifact: optionBoolean(options, 'show-artifact') });
+      (await import('./shared/print-phase-review.mjs')).printPhaseReview(submittedReview.value, { showArtifact: optionBoolean(options, 'show-artifact') });
     }
   }
   // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand

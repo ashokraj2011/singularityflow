@@ -225,6 +225,12 @@ so it offers the same answer in the same words ("Still holds (N rows)" under "On
   The model states this with one command a `/sf-code` turn may run
   (`departure account --instruction N (--clauses ID,… | --departure DEP-x)`). An unaccounted
   instruction is a decision item that holds approval. Publish and submit go ahead.
+
+  Owner, 2026-11-17 (daily run): the rule holds whatever the approval policy. A step nobody
+  approves completes at its submission, so its submission holds instead (also a submission a
+  policy waiver completes), and the Story's ending holds an earlier code step's unaccounted
+  instruction, returning it to that step. The same words typed again for the same step and
+  version are one instruction, not two.
 - `[SCS:REQ-043]` **Asked for** and its accounting are shown:
   - on the decisions card and the approval view, beside the departures;
   - to the conformance step as an input, so its comparison sees what was asked.

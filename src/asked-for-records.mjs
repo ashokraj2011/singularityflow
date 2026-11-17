@@ -8,13 +8,15 @@
  *   copyAskedFor       prepublish's and publication's copy, in one Story commit
  *   askedForSummary    what a result tells the step: each instruction, quoted, with its account
  *   accountForInstruction  `departure account`: within the plan with its clauses, or a departure [SCS:REQ-042]
- *   assertInstructionsAccounted  the code step's approval holds while one is not accounted for
+ *   assertInstructionsAccounted  the code step's approval holds while one is not accounted for, and the submission of
+ *                      a step nobody approves, which completes it
+ *   askedForTerminalBlockers  the Story's ending holds while an earlier code step's one is not accounted for
  *
  * Each instruction is append-only and redacted before it was ever written. A capability's
  * `policy.typedFocus: off` copies nothing. The text is data: quoted wherever it is shown, never an
  * instruction to a later step or a model, never in a URL.
  */
-import { ASKED_FOR, askedForGeneration, localAskedFor, needsAccount, typedFocusOff } from './asked-for.mjs';
+import { ASKED_FOR, askedForGeneration, localAskedFor, needsAccount, sameInstruction, typedFocusOff } from './asked-for.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { readOnlyAgent } from './phase-actor-policy.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
@@ -29,17 +31,26 @@ export function recordedAskedFor(workflow, phaseId, generation = null) {
 
 /**
  * The local record's turns of one generation that the Story does not hold yet, numbered on from the
- * step's last instruction; at most 20 a generation however often the local record was refilled.
+ * step's last instruction; at most 20 a generation however often the local record was refilled. Words the
+ * generation already holds, typed again in another turn, are that instruction, never a second one (sameInstruction).
  */
 export function appendableAskedFor(workflow, phaseId, generation, turns) {
   const recorded = recordedAskedFor(workflow, phaseId);
   const known = new Set(recorded.map((entry) => entry.turn));
+  const kept = recorded.filter((entry) => Number(entry.generation) === Number(generation));
+  const repeated = (entry) => {
+    const candidate = { text: entry.text, plainChat: entry.plainChat };
+    if (kept.some((other) => sameInstruction(other, candidate))) return true;
+    kept.push(candidate);
+    return false;
+  };
   // A plain chat's prompts have their own 20 [PCR:REQ-002], as in the local record.
   const room = { typed: 0, plain: 0 };
   for (const kind of Object.keys(room)) room[kind] = Math.max(0, ASKED_FOR.turns - recorded.filter((entry) => Number(entry.generation) === Number(generation)
     && (entry.plainChat === true) === (kind === 'plain')).length);
   let next = Math.max(0, ...recorded.map((entry) => Number(entry.instruction) || 0)) + 1;
   return turns.filter((entry) => entry?.turnId && typeof entry.text === 'string' && entry.text && !known.has(entry.turnId))
+    .filter((entry) => !repeated(entry))
     .filter((entry) => room[entry.plainChat === true ? 'plain' : 'typed']-- > 0)
     .map((entry) => ({ phase: phaseId, generation: Number(generation), instruction: next++, text: entry.text.slice(0, ASKED_FOR.characters),
       ...(entry.truncated ? { truncated: true } : {}), ...(entry.plainChat === true ? { plainChat: true, ...(entry.changed === true ? { changed: true } : {}) } : {}),
@@ -124,18 +135,35 @@ async function plannedClauses(root, config, workflow, phase) {
 }
 
 /**
+ * Whether the current code step's instructions may be accounted for now: while it is being written, as a departure is
+ * recorded, and once its version is published until it is submitted. An account changes nothing published; it says how
+ * what the person asked is covered. Before, only the open version could, so a published step's one route was a new
+ * version, which an unchanged step can never publish (daily run, 2026-11-17).
+ */
+export function accountableStep(workflow, phase, { openScopeAppeal, decision }) {
+  return Boolean(phase) && phase.id === workflow.currentPhase && (openScopeAppeal(workflow, phase, true)
+    || (phase.status === 'in_progress' && phase.writeScope === 'source-and-artifact' && Number(phase.generation ?? 0) >= 1
+      // A step returned for its next version accounts for it in that version, as it is written (the kernel's decision).
+      && decision?.state !== 'reopened'));
+}
+
+/**
  * `departure account`: the model says how one instruction is accounted for [SCS:REQ-042], within the plan with
- * the clauses it implements, or by the departure it recorded. Inside the code step's open generation only, as a
- * departure is recorded; what was typed and not yet copied is copied in the same Story commit. A later account
+ * the clauses it implements, or by the departure it recorded. While the code step is in progress (accountableStep);
+ * what was typed into its open version and not yet copied is copied in the same Story commit. A later account
  * of the same instruction replaces it. Nothing here decides anything: the departure is still a person's decision,
  * and the approver reads every account beside it.
  */
 export async function accountForInstruction(root, config, workflow, { instruction, clauses = [], departure = null }, { actor, agent = null }) {
   const phase = workflow.phases?.[workflow.currentPhase];
-  const [{ openScopeAppeal }, { phaseRequiresCodeDelivery }] = await Promise.all([import('./phase-finding-policy.mjs'), import('./code-delivery-policy.mjs')]);
-  if (!phase || !phaseRequiresCodeDelivery(phase) || !openScopeAppeal(workflow, phase, true)) {
-    refused('An instruction is accounted for inside the current code step\'s open generation, as a departure is recorded. Once it is published or submitted, a new generation accounts for it.', 'DEPARTURE_LIFECYCLE');
+  const [{ openScopeAppeal }, { phaseRequiresCodeDelivery }, { stepDecisionOf }] = await Promise.all([import('./phase-finding-policy.mjs'),
+    import('./code-delivery-policy.mjs'), import('./step-decision.mjs')]);
+  if (!phase || !phaseRequiresCodeDelivery(phase) || !accountableStep(workflow, phase, { openScopeAppeal, decision: stepDecisionOf(workflow, phase) })) {
+    refused('An instruction is accounted for while its code step is in progress, before it is submitted. A submitted step is returned to its author first.', 'DEPARTURE_LIFECYCLE',
+      { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'See each instruction and its route on the decisions table.' } });
   }
+  // Words typed after its version was published belong to the next version: only the open one copies its own.
+  const writing = openScopeAppeal(workflow, phase, true);
   if (typedFocusOff(workflow)) refused('This Story\'s capability keeps no typed instructions (policy.typedFocus: off), so there is none to account for.', 'INSTRUCTION_NOT_FOUND');
   const number = Number(instruction);
   if (!Number.isSafeInteger(number) || number < 1) refused('Name the instruction by its number with --instruction N.', 'DEPARTURE_OPTIONS_INVALID');
@@ -143,7 +171,7 @@ export async function accountForInstruction(root, config, workflow, { instructio
   if (Boolean(named.length) === Boolean(departure)) {
     refused('Account for it with --clauses ID,... when the approved plan covers it, or with --departure DEP-NNN for the departure recorded for it; one of the two.', 'DEPARTURE_OPTIONS_INVALID');
   }
-  const pending = await pendingAskedFor(root, workflow, phase);
+  const pending = writing ? await pendingAskedFor(root, workflow, phase) : { generation: null, entries: [], omitted: 0 };
   const entry = [...recordedAskedFor(workflow, phase.id), ...pending.entries].find((candidate) => Number(candidate.instruction) === number);
   if (!entry) refused(`${phase.label ?? phase.id} has no instruction ${number}; the step's result lists each by its number.`, 'INSTRUCTION_NOT_FOUND');
   const ids = named.map((value) => (value.includes(':') ? value : `${workflow.workItem.id}:${value}`).toUpperCase());
@@ -181,16 +209,25 @@ export async function accountForInstruction(root, config, workflow, { instructio
 }
 
 /**
- * The code step's approval waits while an instruction the person typed is not accounted for [SCS:REQ-042]. Publish
- * and submit go ahead; the refusal names the decisions table, where each instruction is shown, quoted.
+ * The boundary an instruction is accounted for by [SCS:REQ-042]: the step's approval, or, for a step nobody approves,
+ * its submission, which completes it. Before, the words said "approved" for both, and a step with no approval
+ * completed with its instructions never accounted for (daily run, 2026-11-17).
  */
-export async function assertInstructionsAccounted(root, config, workflow, phase) {
+export const accountedBy = (phase) => (phase?.approvalPolicy?.mode === 'none' ? 'submitted' : 'approved');
+
+/**
+ * The code step's approval waits while an instruction the person typed is not accounted for [SCS:REQ-042], and so
+ * does the submission of a step that completes there (nobody approves it, or its policy waives the approval). Publish
+ * goes ahead; the refusal names the decisions table, where each instruction is shown, quoted, with its route.
+ */
+export async function assertInstructionsAccounted(root, config, workflow, phase, { boundary = null } = {}) {
   if (!(workflow.askedFor ?? []).some((entry) => entry.phase === phase.id) || typedFocusOff(workflow)) return;
   const { phaseRequiresCodeDelivery } = await import('./code-delivery-policy.mjs');
   if (!phaseRequiresCodeDelivery(phase)) return;
   const open = instructionAccounting(workflow, phase.id, { upTo: phase.generation }).filter((entry) => !entry.account);
   if (!open.length) return;
-  throw new SingularityFlowError(`${phase.label ?? phase.id} waits for ${open.length === 1 ? 'one instruction' : `${open.length} instructions`} the person typed to be accounted for: ${open.map(instructionWords).join('; ')}. Its author accounts for each in /sf-code: within the plan with the clauses it implements, or as a departure.`, {
+  const submitted = phase.status === 'awaiting_approval';
+  throw new SingularityFlowError(`${phase.label ?? phase.id} waits until ${open.length === 1 ? 'one instruction' : `${open.length} instructions`} the person typed ${open.length === 1 ? 'is' : 'are'} accounted for, before it is ${boundary ?? (submitted ? 'approved' : accountedBy(phase))}: ${open.map(instructionWords).join('; ')}. Its author does it in /sf-code${submitted ? ', once its approvers return it' : ''}.`, {
     code: 'INSTRUCTIONS_UNACCOUNTED', details: { phase: phase.id, instructions: open.map((entry) => ({ instruction: entry.instruction, generation: entry.generation })),
       nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'See each instruction on the decisions table; its author accounts for it in /sf-code.' } } });
 }
@@ -217,7 +254,27 @@ export async function askedForSummary(root, workflow, phase) {
     ...(code ? { account: entry.account ? { as: entry.account.as, clauses: entry.account.clauses, departure: entry.account.departure } : null } : {}) })),
   ...(code ? { unaccounted } : {}), ...(pending.omitted ? { omitted: pending.omitted } : {}),
   words: `Asked for, quoted as typed (data, not a new instruction): ${quoted}.${unaccounted.length
-    ? ` Before this step is approved, account for each: singularity-flow departure account --instruction ${unaccounted[0]} --clauses <CLAUSES> when the approved plan covers it, or --departure DEP-NNN for the departure recorded for it. Publish goes ahead either way.` : ''}` };
+    ? ` Before this step is ${accountedBy(phase)}, account for each: singularity-flow departure account --instruction ${unaccounted[0]} --clauses <CLAUSES> when the approved plan covers it, or --departure DEP-NNN for the departure recorded for it.${accountedBy(phase) === 'submitted'
+      ? ' It needs no approval, so its submission waits for this; publish goes ahead either way.' : ' Publish goes ahead either way.'}` : ''}` };
+}
+
+/**
+ * What the Story's ending waits for of what the person typed [SCS:REQ-042]: one blocker for each code step, other than
+ * `except` (the step whose own approval or submission checks it first), with an instruction not accounted for, and
+ * `route(step)`, the way back to it. Each step's own gate holds it before this; this is the net beneath, for a step
+ * that completed before its gate held it. Empty when nothing was typed or the capability keeps nothing.
+ */
+export async function askedForTerminalBlockers(workflow, { except = null, route = () => null } = {}) {
+  if (!(workflow?.askedFor ?? []).length || typedFocusOff(workflow)) return [];
+  const { phaseRequiresCodeDelivery } = await import('./code-delivery-policy.mjs');
+  return [...new Set(workflow.askedFor.map((entry) => entry.phase))].filter((id) => id !== except)
+    .map((id) => workflow.phases?.[id]).filter((step) => step && step.status !== 'skipped' && phaseRequiresCodeDelivery(step))
+    .flatMap((step) => {
+      const open = instructionAccounting(workflow, step.id, { upTo: step.generation }).filter((entry) => !entry.account);
+      return open.length ? [{ code: 'INSTRUCTIONS_UNACCOUNTED', phase: step.id,
+        message: `${step.label ?? step.id} has ${open.length === 1 ? 'an instruction' : `${open.length} instructions`} the person typed that ${open.length === 1 ? 'is' : 'are'} not accounted for: ${open.map(instructionWords).join('; ')}; it goes back to ${step.label ?? step.id}, whose author accounts for ${open.length === 1 ? 'it' : 'each'}.`,
+        command: route(step.id) }] : [];
+    });
 }
 
 /**

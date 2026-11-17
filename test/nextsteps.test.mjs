@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { nextStepsSnapshot, nextStepsText, workflowNextSteps } from '../src/nextsteps.mjs';
+import { nextActionLabel, nextStepsSnapshot, nextStepsText, workflowNextSteps } from '../src/nextsteps.mjs';
 import { agentNextSteps, storyPrerequisites, snapshotContinuation } from '../src/commands/nextsteps.mjs';
 import { copilotAction } from '../src/copilot-guidance.mjs';
 
@@ -468,4 +468,59 @@ test('an approval followed by a step nobody approves prints each next step once,
   const printed = renderCommandResult(continued);
   assert.equal((printed.match(AMEND) ?? []).length, 1, printed);
   assert.match(printed, /After implement submission completes its no-approval phase, generate and publish Verify/u);
+});
+
+// Daily run, 2026-11-17: after `approve fix-design`, next steps offered "Publish the deterministically generated Implement"
+// on /sf-publish for a code step /sf-code writes, and labelled its submission "for approval" though nobody approves it.
+test('a code step\'s next steps name /sf-code as its writer and its real approval policy, with the kernel\'s model off', async () => {
+  const { attachContinuation } = await import('../src/narration/continuation.mjs');
+  const { commandResult, effects, succeeded } = await import('../src/narration/command-result.mjs');
+  const { renderCommandResult } = await import('../src/narration/render-terminal.mjs');
+  const { actionCommandLine } = await import('../src/action-command-map.mjs');
+  const phase = (id, label, status, generation, extra = {}) => ({ id, label, status, generation, requiredArtifact: { path: `artifacts/${id}/${id}.md` },
+    approvalPolicy: { agents: ['architect'], minimum: 1 }, ...extra });
+  const story = {
+    workItem: { id: 'QD-2', branch: 'QD-2', workType: 'quick-design', source: { type: 'manual' } }, status: 'in_progress', currentPhase: 'implement',
+    phaseOrder: ['intake', 'fix-design', 'implement', 'verify'], history: [],
+    phases: { intake: phase('intake', 'Intake', 'approved', 1), 'fix-design': phase('fix-design', 'Fix design', 'approved', 1),
+      implement: phase('implement', 'Implement', 'in_progress', 0, { approvalPolicy: { mode: 'none' }, writeScope: 'source-and-artifact',
+        generationPolicy: { requirement: 'required', defaultProducer: 'deterministic', allowedProducers: ['deterministic'], task: 'code' } }),
+      verify: phase('verify', 'Verify', 'not_started', 0, { generationPolicy: { requirement: 'required', defaultProducer: 'deterministic', allowedProducers: ['deterministic'], task: 'analyze' } }) } };
+  const steps = workflowNextSteps(story, { modelMode: { enabled: false } });
+  const publication = steps.find((entry) => entry.operationId === 'phase');
+  assert.deepEqual([publication.timing, publication.skill, publication.command], ['then', '/sf-code', actionCommandLine('publish-version', 'prepublish', { step: 'implement' })]);
+  assert.equal(publication.label, 'Check and publish the code for Implement');
+  assert.doesNotMatch(JSON.stringify(steps), /deterministically generated Implement|\/sf-publish implement/u);
+  const submit = nextStepsSnapshot({ workflow: story, modelMode: { enabled: false } }).actions.find((entry) => /^singularity-flow submit implement/u.test(entry.command));
+  assert.equal(submit.label, 'Submit the Implement; it completes without approval');
+  // The approval's own words, as printed after `approve fix-design`.
+  const printed = renderCommandResult(attachContinuation(commandResult({ operation: { id: 'approve', classification: 'mutation' }, subject: { kind: 'story', id: 'QD-2' },
+    outcome: succeeded('approve.succeeded', { phase: 'fix-design', next: 'implement', reached: true }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: {} }), { postState: story, modelMode: { enabled: false } }));
+  assert.doesNotMatch(printed, /deterministically generated Implement|Implement for approval/u, printed);
+  assert.match(printed, /check and publish the Implement; its tests run first/u, printed);
+  // A step a policy may waive, or people approve, is still submitted for approval.
+  assert.equal(nextActionLabel({ command: 'singularity-flow submit verify' }, story), 'Submit the Verify for approval');
+});
+
+// Daily run, 2026-11-17: `approve verify` said "nothing further to do", and next steps then listed "Now: confirm the final gate".
+test('a closed Story is done: nothing is "now", only optional later items, and it says so', () => {
+  const closed = workflow({ status: 'closed', currentPhase: null, phaseStatus: 'approved', generation: 1 });
+  closed.completion = { label: 'Complete', kind: 'complete', evaluatedAt: '2026-11-17T06:48:13.158Z' };
+  const snapshot = nextStepsSnapshot({ workflow: closed });
+  assert.deepEqual(snapshot.actions.filter((entry) => !['alternative', 'optional'].includes(entry.timing)), [], JSON.stringify(snapshot.actions));
+  assert.equal(snapshot.actions.some((entry) => /gate --terminal/u.test(entry.command)), false, 'its final gate passed as it closed');
+  assert.equal(snapshot.done, true);
+  assert.match(snapshot.reason, /^This Story is done: every step is decided and its final gate passed\. Nothing is needed now/u);
+  const text = nextStepsText(snapshot);
+  assert.match(text, /This Story is done/u);
+  assert.doesNotMatch(text, /\bNow —/u);
+  // The narrated continuation and the person's own views read the same: no NOW.
+  assert.equal(snapshotContinuation(closed, snapshot).nextAction, null);
+  // An ending recorded before its verdict was kept with it may recheck the gate, later, never now.
+  const legacy = workflow({ status: 'closed', currentPhase: null, phaseStatus: 'approved', generation: 1 });
+  const gate = workflowNextSteps(legacy).find((entry) => /gate --terminal/u.test(entry.command));
+  assert.equal(gate.timing, 'alternative');
+  // A Story still open keeps its final gate as the next thing to do.
+  assert.equal(workflowNextSteps({ ...legacy, status: 'in_progress' })[0].timing, 'now');
 });

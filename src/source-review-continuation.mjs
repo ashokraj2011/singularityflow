@@ -110,7 +110,8 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     } else if (operation === 'submit-version') {
       classification = 'submission-required';
       actions = [action('/sf-submit', `singularity-flow submit ${phase.id} --work-id ${workflow.workItem.id}${decisionSubmitArguments(workflow, phase.id)}`,
-        'Run configured checks and submit the reviewed publication; this review is not approval.', `Submit the ${phase.label ?? phase.id} for approval`)];
+        'Run configured checks and submit the reviewed publication; this review is not approval.', phase.approvalPolicy?.mode === 'none'
+          ? `Submit the ${phase.label ?? phase.id}; it completes without approval` : `Submit the ${phase.label ?? phase.id} for approval`)];
     } else if (['start-review', 'refresh-facts'].includes(operation)) {
       // A review owed and not ready, or not read here: the review's own read starts or continues it.
       classification = 'source-review-required';

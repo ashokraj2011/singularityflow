@@ -63,6 +63,7 @@ function waitsWords(workflow, item) {
   switch (item.holds) {
     case 'this-step': return `${step} can't be published until it is decided`;
     case 'submission': return 'the Story can\'t end until it is decided';
+    case 'step-completion': return `${step} can't be submitted until it is decided`;
     case 'approval': case 'approval-later': return `${step} can't be approved until it is decided`;
     case 'story-end': return 'the Story can\'t end until it is decided';
     case 'story': return 'nothing else begins until it is decided';

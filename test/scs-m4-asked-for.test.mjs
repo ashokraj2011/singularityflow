@@ -62,6 +62,33 @@ test('SCS REQ-040: 20 turns a generation, each turn once, and the generation is 
   assert.equal(await noteTypedTurn({ typed: { text: 'make it fast' }, skill: 'sf-code', turnId: 'off-1' }, { gitDir, workflow }), null);
 });
 
+// Daily run, 2026-11-17: a /sf-code turn ended before its change, the person typed the same words again, and the Story
+// recorded two identical instructions, both left to account for.
+test('SCS REQ-040: the same words typed again for the same step and version are the instruction already kept, never a second', async (t) => {
+  const gitDir = await mkdtemp(path.join(os.tmpdir(), 'sflow-asked-for-same-'));
+  t.after(() => rm(gitDir, { recursive: true, force: true }));
+  const subject = { workId: 'QF-1', phase: 'implement', generation: 2 };
+  const at = '2026-11-17T06:41:45.394Z';
+  await noteAskedFor(gitDir, { ...subject, text: 'Start each retry log line with "[retry]".', skill: 'sf-code', turnId: 'turn-1', at });
+  await noteAskedFor(gitDir, { ...subject, text: 'Start each retry log line  with "[retry]". ', skill: 'sf-code', turnId: 'turn-2', at });
+  await noteAskedFor(gitDir, { ...subject, text: 'Also log the attempt number.', skill: 'sf-code', turnId: 'turn-3', at });
+  // A plain chat's prompt is its own kind: it waits for an account only once its turn changed the work [PCR:REQ-012].
+  await noteAskedFor(gitDir, { ...subject, text: 'Start each retry log line with "[retry]".', skill: null, turnId: 'turn-4', at, plainChat: true });
+  assert.deepEqual((await localAskedFor(gitDir, subject)).turns.map((entry) => [entry.turnId, entry.plainChat === true]),
+    [['turn-1', false], ['turn-3', false], ['turn-4', true]]);
+  // Another version of the step keeps the same words again: a new version is asked anew.
+  await noteAskedFor(gitDir, { ...subject, generation: 3, text: 'Start each retry log line with "[retry]".', skill: 'sf-code', turnId: 'turn-5', at });
+  assert.equal((await localAskedFor(gitDir, { ...subject, generation: 3 })).turns.length, 1);
+  // A local record filled before this rule, or words copied into the Story already, are copied once too.
+  const { appendableAskedFor } = await import('../src/asked-for-records.mjs');
+  const workflow = { askedFor: [{ phase: 'implement', generation: 2, instruction: 1, text: 'Start each retry log line with "[retry]".', turn: 'turn-1' }] };
+  const turns = [{ turnId: 'turn-1', text: 'Start each retry log line with "[retry]".' }, { turnId: 'turn-2', text: 'Start each retry log line with "[retry]".' },
+    { turnId: 'turn-3', text: 'Also log the attempt number.' }, { turnId: 'turn-6', text: 'Also log the attempt  number.' }];
+  assert.deepEqual(appendableAskedFor(workflow, 'implement', 2, turns).map((entry) => [entry.instruction, entry.turn]), [[2, 'turn-3']]);
+  assert.deepEqual(appendableAskedFor(workflow, 'implement', 3, turns).map((entry) => [entry.instruction, entry.turn]), [[2, 'turn-2'], [3, 'turn-3']],
+    'the same words in another version are that version\'s own instruction');
+});
+
 async function fixture(t) {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-asked-for-hook-')));
   const root = path.join(directory, 'repository');
@@ -122,17 +149,20 @@ test('SCS REQ-040: the prompt hook keeps a person\'s /sf-code words in the Story
 // ---------------------------------------------------------------------------------------------------
 // [SCS:REQ-041] Prepublish copies the words into the Story as "Asked for", committed with it.
 
-async function codeStep(t) {
+async function codeStep(t, { approval = true } = {}) {
   const { repository, startQuickFix } = await import('./helpers/run-and-test-fixture.mjs');
   const repo = await repository(t, { implementCommands: false });
-  // A code step the agent authors, as /sf-code does, with a person's approval.
-  const configPath = path.join(repo.root, 'singularity/workflow.yml');
-  const config = YAML.parse(await readFile(configPath, 'utf8'));
-  config.phases.implement.approval = { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake'] };
-  config.phases.implement.generation = { requirement: 'required', task: 'code' };
-  await writeFile(configPath, YAML.stringify(config));
-  repo.must('git', ['add', 'singularity/workflow.yml']);
-  repo.must('git', ['commit', '-m', 'An agent-authored code step with a human review in this fixture']);
+  // A code step the agent authors, as /sf-code does, with a person's approval; without, the shipped quick fix's own:
+  // nobody approves it, so its submission completes it.
+  if (approval) {
+    const configPath = path.join(repo.root, 'singularity/workflow.yml');
+    const config = YAML.parse(await readFile(configPath, 'utf8'));
+    config.phases.implement.approval = { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake'] };
+    config.phases.implement.generation = { requirement: 'required', task: 'code' };
+    await writeFile(configPath, YAML.stringify(config));
+    repo.must('git', ['add', 'singularity/workflow.yml']);
+    repo.must('git', ['commit', '-m', 'An agent-authored code step with a human review in this fixture']);
+  }
   await startQuickFix(repo);
   repo.sflow('prepare', 'implement');
   await writeFile(path.join(repo.root, 'src/value.mjs'), '// @clause:QF-1:AC-001 return the approved value\nexport const value = 2;\n');
@@ -231,11 +261,11 @@ test('SCS REQ-042: an instruction left unaccounted holds the code step\'s approv
   const published = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
   assert.equal(published.status, 0, published.stdout + published.stderr);
   const listed = () => { const list = repo.sflowJson('decisions', 'QF-1'); return list.value.data ?? list.value; };
-  // Published, its open generation is gone: the author's next step previews the next version, which opens only on the
-  // person's yes [D3, OSA:REQ-030], never an account that is refused.
+  // Published and not submitted, its author still accounts for it in the step, with no new version: an unchanged step's
+  // next version could never be published (daily run, 2026-11-17).
   let packet = listed();
   let item = packet.items.find((entry) => entry.kind === 'asked-for');
-  assert.equal(item.options[0].action.command, 'singularity-flow phase rollover implement --reason "<what to change>" --json');
+  assert.equal(item.options[0].action.command, 'singularity-flow departure account --work-id QF-1 --instruction 2 --clauses <CLAUSES>');
   assert.equal(item.decidedBy.allowed, false);
   repo.sflow('submit', 'implement');
   // The list: one item for it, quoted, holding the approval.
@@ -319,6 +349,79 @@ test('SCS REQ-042: an instruction accounted for as a departure is decided with i
   const approved = repo.run(process.execPath, [cli, ...approveArgs]);
   assert.equal(approved.status, 0, approved.stdout + approved.stderr);
   assert.equal((await state()).phases.implement.status, 'approved');
+});
+
+// Daily run, 2026-11-17: Implement needs no approval, so it completed at its submission and the Story closed with what the
+// person typed never accounted for; the words said "before this step is approved", and its commit "request approval".
+test('SCS REQ-042: a step nobody approves waits at its submission, which completes it, for every instruction the person typed', async (t) => {
+  const { repo, state, typed } = await codeStep(t, { approval: false });
+  const { cli } = await import('./helpers/run-and-test-fixture.mjs');
+  const words = (command) => String(command).replace(/^singularity-flow\s+/u, '').split(/\s+/u);
+  await typed('make the value 2, not 3', 'turn-a');
+  await typed('make the value 2,  not 3', 'turn-b');
+  const checked = repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent');
+  assert.equal(checked.status, 0, JSON.stringify(checked.value).slice(0, 2000));
+  assert.deepEqual(checked.value.askedFor.instructions.map((entry) => [entry.instruction, entry.text]), [[1, 'make the value 2, not 3']],
+    'the words typed twice are one instruction');
+  assert.match(checked.value.askedFor.words, /Before this step is submitted, account for each: singularity-flow departure account --instruction 1 /u);
+  assert.match(checked.value.askedFor.words, /It needs no approval, so its submission waits for this; publish goes ahead either way\./u);
+  const published = repo.run(process.execPath, [cli, '--no-model', ...words(checked.value.commands.publish), '--json']);
+  assert.equal(published.status, 0, published.stdout.slice(-2000) + published.stderr.slice(-2000));
+  // Its submission completes it, so it waits there, before its tests run, with a route that works.
+  const refused = repo.run(process.execPath, [cli, '--no-model', 'submit', 'implement', '--json']);
+  assert.notEqual(refused.status, 0, refused.stdout.slice(-2000));
+  const result = JSON.parse(refused.stdout);
+  assert.equal(result.error?.code, 'INSTRUCTIONS_UNACCOUNTED', refused.stdout.slice(-2000));
+  assert.match(result.error.message, /^Implement waits until one instruction the person typed is accounted for, before it is submitted: \(1\) "make the value 2, not 3"\. Its author does it in \/sf-code\.$/u);
+  assert.equal(result.remediationPlan?.steps?.[0]?.command, 'singularity-flow decisions QF-1', JSON.stringify(result.remediationPlan));
+  let recorded = await state();
+  assert.equal(recorded.phases.implement.status, 'in_progress');
+  assert.equal(recorded.status, 'in_progress');
+  // The list says what it holds in the step's own terms, and names its author's account, in this step: no new version.
+  const listed = () => { const list = repo.sflowJson('decisions', 'QF-1'); return list.value.data ?? list.value; };
+  const item = listed().items.find((entry) => entry.kind === 'asked-for');
+  assert.ok(item, JSON.stringify(listed().items.map((entry) => entry.kind)));
+  assert.deepEqual([item.holds, item.holdsWords], ['step-completion', 'Holds this step\'s submission, which completes it: the step needs no approval.']);
+  assert.equal(item.why, 'Asked in Implement version 1. Until its author says whether the plan covers it, Implement\'s submission waits.');
+  assert.equal(item.options[0].action.command, 'singularity-flow departure account --work-id QF-1 --instruction 1 --clauses <CLAUSES>');
+  // Next steps call its submission what it is: it completes without approval.
+  const next = repo.sflowJson('nextsteps', 'QF-1');
+  assert.doesNotMatch(JSON.stringify(next.value.actions.map((entry) => entry.label)), /Implement for approval/u);
+  // That route ends where it says: its author accounts for it, and the submission completes the step.
+  const accounted = repo.sflowJson('departure', 'account', '--instruction', '1', '--clauses', 'QF-1:AC-001');
+  assert.equal(accounted.status, 0, JSON.stringify(accounted.value));
+  assert.equal(listed().items.filter((entry) => entry.kind === 'asked-for').length, 0);
+  const submitted = repo.run(process.execPath, [cli, '--no-model', 'submit', 'implement', '--json']);
+  assert.equal(submitted.status, 0, submitted.stdout.slice(-2000) + submitted.stderr.slice(-2000));
+  recorded = await state();
+  assert.deepEqual([recorded.phases.implement.status, recorded.phases.implement.approvalDisposition], ['approved', 'not_required']);
+  // Its commit says it completed, never "request approval".
+  const subjects = repo.must('git', ['log', '--format=%s']);
+  assert.match(subjects, /\[QF-1\]\[phase:implement\]\[submit\] complete without approval/u);
+  assert.doesNotMatch(subjects, /\[phase:implement\]\[submit\] request approval/u);
+});
+
+// The ending is the net beneath each step's own gate: a code step that completed with an instruction unaccounted holds
+// the Story's end, with the way back to it.
+test('SCS REQ-042: the Story\'s ending waits for an earlier code step\'s instruction, and names the way back to it', async () => {
+  const { askedForTerminalBlockers } = await import('../src/asked-for-records.mjs');
+  const workflow = { workItem: { id: 'QF-1' }, phaseOrder: ['intake', 'implement', 'verify'],
+    phases: { intake: { id: 'intake', status: 'approved', generation: 1 },
+      implement: { id: 'implement', label: 'Implement', status: 'approved', generation: 2, generationPolicy: { task: 'code' }, writeScope: 'source-and-artifact' },
+      verify: { id: 'verify', status: 'awaiting_approval', generation: 1 } },
+    askedFor: [{ phase: 'implement', generation: 2, instruction: 1, text: 'Start each retry log line with "[retry]".', turn: 't1' },
+      { phase: 'implement', generation: 2, instruction: 2, text: 'Log the attempt number.', turn: 't2' }],
+    instructionAccounts: [{ id: 'IAC-001', phase: 'implement', instruction: 2, as: 'within-plan', clauses: ['QF-1:AC-001'], departure: null }] };
+  const route = (owner) => `singularity-flow reject verify --work-id QF-1 --to ${owner} --reason <REASON>`;
+  const [blocker, ...rest] = await askedForTerminalBlockers(workflow, { route });
+  assert.deepEqual(rest, []);
+  assert.equal(blocker.code, 'INSTRUCTIONS_UNACCOUNTED');
+  assert.equal(blocker.command, 'singularity-flow reject verify --work-id QF-1 --to implement --reason <REASON>');
+  assert.match(blocker.message, /^Implement has an instruction the person typed that is not accounted for: \(1\) "Start each retry log line with "\[retry\]"\."; it goes back to Implement/u);
+  // The step whose own gate checks it first, a step skipped, and a capability that keeps nothing hold nothing here.
+  assert.deepEqual(await askedForTerminalBlockers(workflow, { except: 'implement', route }), []);
+  assert.deepEqual(await askedForTerminalBlockers({ ...workflow, phases: { ...workflow.phases, implement: { ...workflow.phases.implement, status: 'skipped' } } }, { route }), []);
+  assert.deepEqual(await askedForTerminalBlockers({ ...workflow, resolution: { capability: { policy: { typedFocus: 'off' } } } }, { route }), []);
 });
 
 // ---------------------------------------------------------------------------------------------------

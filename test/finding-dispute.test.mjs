@@ -192,7 +192,17 @@ test('a dispute covers only a code-delivery finding, and needs evidence and a re
 test('the same refusal three times says to stop and hand it on; prepublish counts only real repairs [recoverable-findings M3]', async (t) => {
   const { attempt, write, testSource } = await story(t);
   const publish = () => attempt('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
-  const outputs = [publish(), publish(), publish()].map((result) => result.stdout + result.stderr);
+  // A return counts only after a repair (the author's attempt changed): the same command retried unchanged is no repair
+  // [review 2026-11-17, kernel #7], so three unchanged retries are one return.
+  const unchanged = [publish(), publish(), publish()].map((result) => result.stdout + result.stderr);
+  assert.doesNotMatch(unchanged[2], /Stop: CODE_DELIVERY_EVIDENCE_REQUIRED/u, 'three unchanged retries never escalate');
+  const publishAfterRepair = async (note) => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await write(TEST_PATH, `// publish attempt: ${note}\n${testSource(2, true)}`);
+    const result = publish();
+    return result.stdout + result.stderr;
+  };
+  const outputs = [unchanged[0], await publishAfterRepair('first'), await publishAfterRepair('second')];
   assert.doesNotMatch(outputs[1], /Stop: CODE_DELIVERY_EVIDENCE_REQUIRED/u);
   assert.match(outputs[2], /1\. Stop: CODE_DELIVERY_EVIDENCE_REQUIRED has returned 3 times; repeating the repair cannot pass\./u);
   assert.match(outputs[2], /Dispute \(phase-approval-authority\): singularity-flow appeal risk-prepare --phase implementation --finding CODE_DELIVERY_EVIDENCE_REQUIRED/u);

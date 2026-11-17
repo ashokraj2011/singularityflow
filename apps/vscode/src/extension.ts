@@ -8209,7 +8209,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = await client.run<{
           changed: boolean; pushed: boolean; commit: string; proposed?: boolean;
           proposal?: { branch: string; commit: string; published?: boolean | null } | null;
-          previouslyRemoved?: string[]; fault?: unknown;
+          previouslyRemoved?: string[]; removalCheck?: string; fault?: unknown;
           groups: Array<{ id: string; scope: string }>;
           transportIntent?: string; transportStatus?: string;
           nextAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
@@ -8217,10 +8217,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A people or policy edit is a people proposal, approved like any other [SCF:REQ-012].
         if (result.changed && result.proposed && result.proposal?.published && !result.fault) {
           await refreshAfterKnownMutation();
+          // Approving their own readmission is refused (CONFIGURATION_SELF_READMISSION_REFUSED), and so is one whose removal
+          // history could not be read: Review and approve is offered only where the proposer may approve it (review 11-17).
           const removed = result.previouslyRemoved?.length
-            ? ' An approved change removed you from a group it adds you to, so someone else must approve it.' : '';
+            ? ' An approved change removed you from a group it adds you to, so someone else must approve it.'
+            : result.removalCheck === 'unknown'
+              ? ' SFlow could not read sflow/config\'s history to check that no approved change removed you, so someone else must approve it.' : '';
           const review = 'Review and approve';
-          void showCompactInformationMessage(`Proposed as ${personBranch(result.proposal.branch)}; it waits under Workflow Studio → Changes.${removed}`, review)
+          void showCompactInformationMessage(`Proposed as ${personBranch(result.proposal.branch)}; it waits under Workflow Studio → Changes.${removed}`, ...(removed ? [] : [review]))
             .then((choice) => (choice === review ? reviewAndActivateWorkflowProposal(result.proposal!.branch) : undefined));
           return { error: null, notice: `Proposed for approval: ${personBranch(result.proposal.branch)}. Nothing changes until it is approved under Workflow Studio → Changes.${removed}` };
         }
@@ -8603,7 +8607,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return null;
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);
+      // A proposal that would add workflow problems is fixed in the proposal, so the way on is to withdraw or reject it,
+      // offered here rather than another round of the same approval (review 11-17, finding 4).
+      if (cliRefusalCode(error) === 'WORKFLOW_PROPOSAL_PROBLEMS') {
+        const withdraw = 'Withdraw or reject';
+        void showCompactWarningMessage((error as Error).message, withdraw)
+          .then((choice) => (choice === withdraw ? rejectWorkflowProposal(branch) : undefined));
+        return (error as Error).message;
+      }
       showRefusal(error, { headline: 'Could not approve workflow configuration proposal' });
+      return (error as Error).message;
+    }
+  };
+  /**
+   * Withdraw one's own proposal, or reject another's with a reason, from Changes [SCF:REQ-009]: the same `configuration
+   * reject`, bound to the revision shown. A proposal approval refuses (WORKFLOW_PROPOSAL_PROBLEMS) is fixed in the
+   * proposal, so VS Code needs this way out too, not only the terminal's (review 11-17, finding 4).
+   */
+  const rejectWorkflowProposal = async (branch: string): Promise<string | null> => {
+    try {
+      const inspected = await client.run<{ branch: string; proposalCommit: string; merged?: boolean;
+        selfApproval?: ConfigurationSelfApproval | null }>(['workflow', 'proposal', branch, '--json']);
+      const shown = personBranch(inspected.branch);
+      if (inspected.merged) return `${shown} is already approved, so it cannot be withdrawn or rejected; to undo it, propose the change back.`;
+      const own = Boolean(inspected.selfApproval?.self);
+      const verb = own ? 'Withdraw' : 'Reject';
+      const reason = await vscode.window.showInputBox({ title: `${verb} ${shown}`, ignoreFocusOut: true,
+        prompt: own ? 'Why are you withdrawing it? (optional)' : 'Why? Its author reads this to fix it.',
+        validateInput: (value) => (!own && !value.trim() ? 'Say why, so its author can fix it.' : null) });
+      if (reason === undefined) return null;
+      const confirmed = await showCompactWarningMessage(`${verb} ${shown}? Nothing in sflow/config changes.`, { modal: true,
+        detail: own ? 'Drafts it held from this computer, if any, come back under Changes to fix.'
+          : 'Its author reads your reason, fixes it and proposes it again.' }, verb);
+      if (confirmed !== verb) return null;
+      await client.run(['configuration', 'reject', inspected.branch, '--confirm', inspected.proposalCommit,
+        ...(reason.trim() ? ['--reason', reason.trim()] : []), '--json']);
+      await refreshAfterKnownMutation();
+      void showCompactInformationMessage(`${own ? 'Withdrawn' : 'Rejected'}: ${shown}. Nothing in sflow/config changed.`);
+      return null;
+    } catch (error) {
+      output.appendLine(`  refused: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not withdraw or reject the proposal' });
       return (error as Error).message;
     }
   };
@@ -9748,6 +9792,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
         reviewProposal: (branch) => reviewAndActivateWorkflowProposal(branch),
+        rejectProposal: (branch) => rejectWorkflowProposal(branch),
         activateProposal: (branch) => activateWorkflowProposalNow(branch),
         exportWorkflows: (selectors) => exportWorkflowBundle(selectors),
         importWorkflows: (source) => importWorkflowBundle(source),

@@ -545,6 +545,18 @@ function baselineRestoration(root, reference, candidate, commit) {
   return { commit, definitions };
 }
 
+/**
+ * The restoration, or none when the baseline cannot be read: an unreadable baseline proves no restoration,
+ * so the change stands as changed and its route is a person's re-pin, never this read again (review 11-17).
+ */
+function readableRestoration(root, reference, candidate, commit) {
+  try { return { restoration: baselineRestoration(root, reference, candidate, commit), unavailable: null }; }
+  catch (error) {
+    if (error?.code !== 'TEST_COMMAND_BASELINE_UNAVAILABLE') throw error;
+    return { restoration: null, unavailable: error.details ?? { baselineCommit: commit } };
+  }
+}
+
 /** One change in words: "argv [npm, test] → [npm, test, --, --json]", "package.json scripts.test changed". */
 export function pinChangeWords(change) {
   if (change.field === 'definition') return `${change.path}${change.selector ? ` ${change.selector}` : ''} ${change.change}`;
@@ -631,13 +643,16 @@ export function repinRequestCommand(workflow, phaseId, commandId) {
   return `singularity-flow decision test-command ${workflow?.workItem?.id ?? '<WORK-ID>'} --phase ${phaseId} --repin ${commandId} --reason "<why the test command changed>"`;
 }
 
-function pinChangedError(workflow, phase, pinned, candidate, details = null) {
+function pinChangedError(workflow, phase, pinned, candidate, details = null, baselineUnavailable = null) {
   const changes = pinChanges(pinned, candidate).map(pinChangeWords);
   const beforeAfter = details?.diff?.length ? ` Before and after: ${details.diff.map(pinDiffWords).join('; ')}. ${details.dropped}` : '';
+  const unread = baselineUnavailable ? ` SFlow could not read this version's starting commit ${String(baselineUnavailable.baselineCommit ?? '').slice(0, 12)}, `
+    + 'so it cannot tell whether the change only puts it back as it was.' : '';
   const workId = workflow?.workItem?.id ?? null;
   const command = repinRequestCommand(workflow, phase.id, candidate.commandId);
   const restore = [...new Set(pinChanges(pinned, candidate).filter((change) => change.field === 'definition').map((change) => change.path))];
-  const restoreWords = restore.length ? `Or restore ${restore.join(', ')} as pinned.` : 'Or restore the module as pinned.';
+  // An unreadable baseline says why the change is not taken as a restoration (review 11-17, finding 1).
+  const restoreWords = (restore.length ? `Or restore ${restore.join(', ')} as pinned.` : 'Or restore the module as pinned.') + unread;
   return new SingularityFlowError(
     `Test command '${candidate.commandId}' changed since it was pinned for this Story${pinned.id ? ` (${pinned.id})` : ''}: `
       + `${changes.join('; ')}.${beforeAfter} A changed test command is decided by a person who approves ${phase.id}: request it with ${command}, `
@@ -645,12 +660,75 @@ function pinChangedError(workflow, phase, pinned, candidate, details = null) {
     { code: 'TEST_COMMAND_PIN_CHANGED', details: {
       workId, phase: phase.id,
       testCommandPin: { phase: phase.id, commandId: candidate.commandId, pin: pinned.id ?? null, changes, restorePaths: restore, command,
-        ...(details ? { diff: details.diff, dropped: details.dropped, ...(details.pathNarrowing ? { pathNarrowing: details.pathNarrowing } : {}) } : {}) },
+        ...(details ? { diff: details.diff, dropped: details.dropped, ...(details.pathNarrowing ? { pathNarrowing: details.pathNarrowing } : {}) } : {}),
+        ...(baselineUnavailable ? { baselineUnavailable } : {}) },
       // The refusal's own route, which every surface renders: anyone requests, a person who approves accepts.
       nextAction: { command, label: `Request the new pin, saying why the test command changed; a person who approves ${phase.id} accepts it `
         + `from the decision list (/sf-decide ${workId ?? '<WORK-ID>'}), and an agent never accepts it. ${restoreWords}` }
     } }
   );
+}
+
+/** Whether `story test-policy amend` can adopt under `policy`: one required person, from at most one required group. */
+export function singleHumanApproval(policy) {
+  return policy?.mode === 'required' && policy.minimum === 1 && Array.isArray(policy.authorities) && policy.authorities.length > 0
+    && (policy.requiredAuthorities?.length ?? 0) <= 1;
+}
+
+/** Who approves `phaseId` in a Story's pinned `resolution`: each group with the people it names. */
+function stepApproverWords(resolution, phaseId) {
+  const policy = resolution?.phases?.find((phase) => phase.id === phaseId)?.approval;
+  return [...new Set([...(policy?.requiredAuthorities ?? []), ...(policy?.authorities ?? [])])].map((id) => {
+    const group = resolution?.approvalAuthorities?.[id];
+    const people = (group?.members ?? []).map((member) => member?.name || member?.email || member?.githubLogin).filter(Boolean);
+    return `${group?.label ?? id}${people.length ? ` (${people.join(', ')})` : group?.allowAnyGitIdentity ? ' (anyone with a Git identity)' : ''}`;
+  }).join('; ') || 'nobody named yet';
+}
+
+const shellWord = (value) => (/^[A-Za-z0-9_./:=@+-]+$/u.test(String(value)) ? String(value) : `'${String(value).replaceAll("'", "'\\''")}'`);
+
+/**
+ * How a Story takes a test command a configuration change activated, where `story test-policy amend` cannot (review 11-17,
+ * finding 11): its own request for each command, spelled out in full, which a person who approves the step accepts.
+ */
+export function adoptionRoute(workId, phaseId, commands, resolution, reason = 'Adopt the activated test command') {
+  const [first, ...rest] = commands.map((command) => ({ label: `Request ${command.id} for this Story; an approver of ${phaseId} accepts it`,
+  command: ['singularity-flow decision test-command', workId ?? '<WORK-ID>', '--phase', phaseId, '--id', command.id,
+    '--argv', shellWord(JSON.stringify(command.argv ?? [])), '--working-directory', shellWord(command.workingDirectory ?? '.'),
+    ...(command.affectedRoots?.length ? command.affectedRoots : ['.']).flatMap((root) => ['--affected-root', shellWord(root)]),
+    '--adapter', shellWord(command.result?.adapter ?? '<ADAPTER>'), '--report', shellWord(command.result?.path ?? '<REPORT>'),
+    ...(command.ecosystem ? ['--ecosystem', command.ecosystem] : []),
+    ...Object.entries(command.env ?? {}).flatMap(([name, value]) => ['--env', shellWord(`${name}=${value}`)]),
+    '--reason', JSON.stringify(reason)].join(' ') }));
+  return first ? { nextAction: first, ...(rest.length ? { actions: rest } : {}) } : {};
+}
+
+/**
+ * A `story test-policy amend` refusal (one person cannot adopt it, or its author may not review it) with the way that works:
+ * the Story's own request for each command the candidate adds, naming who accepts it.
+ */
+export function selfReviewRefusal(workflow, candidate) {
+  const phaseId = workflow?.currentPhase;
+  // The route below stands where the candidate adds no command to request; adoptionRouted names each one it adds.
+  return adoptionRouted(new SingularityFlowError('The original authoring identity cannot review this amendment under the pinned no-self-approval policy.', {
+    code: 'TCA_AMENDMENT_SELF_APPROVAL', details: { nextAction: { label: `Another person who approves ${phaseId} reviews it`,
+      command: `singularity-flow story test-policy amend --work-id ${workflow?.workItem?.id ?? '<WORK-ID>'} --phase ${phaseId} --reason "<WHY>"` } } }),
+  workflow, candidate);
+}
+
+export function adoptionRouted(error, workflow, candidate) {
+  if (!['TCA_AMENDMENT_AUTHORITY_UNSUPPORTED', 'TCA_AMENDMENT_SELF_APPROVAL'].includes(error?.code)) return error;
+  const phaseId = workflow?.currentPhase;
+  const pinned = workflow?.resolution?.phases?.find((phase) => phase.id === phaseId)?.qualityCommands ?? [];
+  const commands = (candidate?.phases?.find((phase) => phase.id === phaseId)?.qualityCommands ?? [])
+    .filter((command) => command?.kind === 'test' && !pinned.some((old) => canonicalJson(old) === canonicalJson(command)));
+  const route = adoptionRoute(workflow?.workItem?.id ?? null, phaseId, commands, workflow?.resolution);
+  if (!route.nextAction) return error;
+  const approvers = stepApproverWords(workflow.resolution, phaseId);
+  const words = error.code === 'TCA_AMENDMENT_SELF_APPROVAL'
+    ? ` Another person who approves ${phaseId} runs it (${approvers}), or request the test command for this Story and they accept it.`
+    : ` Request the test command for this Story instead; a person who approves ${phaseId} accepts it (${approvers}).`;
+  return new SingularityFlowError(`${error.message}${words}`, { code: error.code, details: { ...(error.details ?? {}), ...route } });
 }
 
 /** The accepted request that a person agreed this pinned suite no longer runs [TCE:REQ-012]. */
@@ -761,9 +839,10 @@ async function comparedPin(root, workflow, phase, command, { attempts, reads, ba
     ({ scripts } = current);
   }
   // Restore changed entries without requiring newly added, unchanged test scripts at the base.
-  const restoration = !acceptedBy ? baselineRestoration(root, reference, candidate, restorationBase(workflow, phase, baseCommit)) : null;
+  const { restoration, unavailable: baselineUnavailable } = !acceptedBy
+    ? readableRestoration(root, reference, candidate, restorationBase(workflow, phase, baseCommit)) : { restoration: null, unavailable: null };
   const restoredToBase = Boolean(restoration);
-  return { candidate, reference, recordedReference, scripts, acceptedBy, restoration, restoredToBase,
+  return { candidate, reference, recordedReference, scripts, acceptedBy, restoration, restoredToBase, baselineUnavailable,
     changed: Boolean(reference && reference.sha256 !== candidate.sha256 && !acceptedBy && !restoredToBase) };
 }
 
@@ -812,10 +891,10 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
   const prepared = new Map();
   const reads = await gateReads(root, config, workflow);
   for (const command of commands) {
-    const { candidate, reference, recordedReference, scripts, acceptedBy, restoration, restoredToBase, changed } = await comparedPin(root, workflow, phase, command, { attempts, reads, baseCommit });
+    const { candidate, reference, recordedReference, scripts, acceptedBy, restoration, restoredToBase, baselineUnavailable, changed } = await comparedPin(root, workflow, phase, command, { attempts, reads, baseCommit });
     if (changed) {
       const details = await pinChangeDetails(root, workflow, phase, recordedReference, candidate, { command, scripts, attempts, baseCommit, read: reads.read }).catch(() => null);
-      throw pinChangedError(workflow, phase, reference, candidate, details);
+      throw pinChangedError(workflow, phase, reference, candidate, details, baselineUnavailable);
     }
     const recorded = storyPin(workflow, candidate);
     const baseline = (recorded?.sha256 === candidate.sha256 ? recorded.baseline : null) ?? firstPassingRun(attempts, candidate.sha256);
@@ -886,7 +965,7 @@ export async function repinRequest(root, config, workflow, phase, command) {
   const compared = version === DEFINITION_VERSION ? candidate
     : pinCandidate(phase, command, (await commandDefinition(root, command, { ...reads, version })).entries, { version });
   if (!reference || reference.sha256 === compared.sha256
-      || baselineRestoration(root, reference, compared, restorationBase(workflow, phase))) {
+      || readableRestoration(root, reference, compared, restorationBase(workflow, phase)).restoration) {
     throw new SingularityFlowError(reference
       ? `Test command ${command.id} is unchanged or its changed definition entries were restored to the generation baseline; there is nothing to re-pin.`
       : `Test command ${command.id} is not pinned for this Story yet; its first gate run pins it.`, {
@@ -931,9 +1010,13 @@ export async function pendingTestCommandReviews(root, config, workflow, phase, r
         const version = reference ? pinVersion(reference) : DEFINITION_VERSION;
         const compared = version === DEFINITION_VERSION ? candidate
           : pinCandidate(phase, command, (await commandDefinition(root, command, { version, read, list })).entries, { version });
+        const restorationRead = !acceptedRepin(workflow, candidate)
+          ? readableRestoration(root, reference, compared, restorationBase(workflow, phase)) : { restoration: null, unavailable: null };
+        // An unreadable baseline restores nothing, so the request stays pending; its diagnostic is still shown.
+        if (restorationRead.unavailable) unavailable.push({ phase: phase.id, reason: 'TEST_COMMAND_BASELINE_UNAVAILABLE', commandId: command.id,
+          message: `SFlow could not read this version's starting commit, so ${command.id}'s change is decided as a change.`, details: restorationRead.unavailable });
         observed.set(command.id, { candidate, reference, restored: Boolean(reference && reference.sha256 === compared.sha256),
-          restoration: !acceptedRepin(workflow, candidate)
-            ? baselineRestoration(root, reference, compared, restorationBase(workflow, phase)) : null });
+          restoration: restorationRead.restoration });
       }
       const { candidate, reference, restored, restoration } = observed.get(command.id);
       const acceptedBy = acceptedRepin(workflow, candidate);

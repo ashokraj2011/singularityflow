@@ -15,7 +15,7 @@ import YAML from 'yaml';
 
 import { initializeDefinition } from '../src/config.mjs';
 import { defineWorkflow, editWorkflow } from '../src/workflow-authoring.mjs';
-import { editedWithoutNewProblems, validateWorkflows, workflowProblems } from '../src/workflow-validation.mjs';
+import { addedProblems, createdWithoutProblems, editedWithoutNewProblems, validateWorkflows, workflowProblems } from '../src/workflow-validation.mjs';
 
 const PLAN = { mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } };
 // Requirements' template has no planned-claims table: a plan owned by it is the problem approval refuses.
@@ -88,4 +88,46 @@ test('a clean edit is written as before', async (t) => {
   assert.equal(result.workflowId, 'clean-plan');
   assert.equal(YAML.parse(await readFile(file, 'utf8')).workTypes['clean-plan'].label, 'Clean plan, renamed');
   assert.deepEqual(await problemsOf(root, 'clean-plan'), []);
+});
+
+test('a route that drops responsibilities stays the same problem when a step is appended after its last; only a newly missing one is added (review 11-17)', async (t) => {
+  const { root, file } = await configuration(t);
+  // Requirements alone: its one route ends the Story without the change itself or verification.
+  await defineWorkflow(root, 'short-route', { phases: ['requirements'] });
+  const before = await workflowProblems(root, ['short-route']);
+  assert.deepEqual([...before.values()].map((entry) => [entry.code, entry.missing]), [['OBLIGATION_ROUTE_DROPS_RESPONSIBILITY', ['implement', 'verify']]]);
+  // Appending a step moves the route's last step; it still misses the same, so nothing is added and the edit stands.
+  const result = await editedWithoutNewProblems(root, 'short-route',
+    () => editWorkflow(root, 'short-route', { phases: ['requirements', 'implementation-spec'] }), {});
+  assert.equal(result.workflowId, 'short-route');
+  assert.deepEqual(YAML.parse(await readFile(file, 'utf8')).workTypes['short-route'].phases, ['requirements', 'implementation-spec']);
+  const after = await workflowProblems(root, ['short-route']);
+  assert.deepEqual(addedProblems(before, after), [], 'approval compares the same way');
+  // A route that now misses something it did not miss before is an added problem.
+  const fewer = new Map([...before].map(([key, value]) => [key, { ...value, missing: ['implement'] }]));
+  assert.deepEqual(addedProblems(fewer, after).map((entry) => entry.code), ['OBLIGATION_ROUTE_DROPS_RESPONSIBILITY']);
+});
+
+test('a problem no option of workflow create can change leads to Copilot\'s build or Workflow Studio, the same command second (review 11-17)', async (t) => {
+  const { root, file } = await configuration(t);
+  // A step no agent drafts: its fix is an agent file, which no option of workflow create changes.
+  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  document.setIn(['phases', 'release-notes'], document.createNode({ label: 'Release notes', defaultTemplate: 'common/intake.md',
+    artifact: { path: 'artifacts/release-notes/release-notes.md', kind: 'release-notes', minimumBytes: 200 }, writeScope: 'artifact-only',
+    approval: { authorities: ['product-approvers'], minimum: 1, rejectTo: ['release-notes'] } }));
+  await writeFile(file, document.toString());
+  const phases = ['requirements', 'implementation-spec', 'implementation', 'release-notes'];
+  const options = { phases: phases.join(','), 'planned-claims': 'required', 'clause-phases': 'requirements', 'claim-owners': 'implementation=implementation-spec' };
+  await assert.rejects(() => createdWithoutProblems(root, 'with-notes', () => defineWorkflow(root, 'with-notes', { phases, plannedClaims: PLAN }), options),
+    (error) => {
+      assert.equal(error.code, 'WORKFLOW_CREATE_PROBLEMS');
+      assert.deepEqual(error.details.problems.map((entry) => entry.code), ['AGENT_PHASE_DEFAULT_MISSING']);
+      assert.equal(error.details.nextAction.command, 'singularity-flow workflow build start');
+      assert.equal(error.details.nextAction.skill, '/sf-build-workflow');
+      assert.match(error.details.nextAction.workflowStudio, /Workflow Studio/u);
+      assert.deepEqual(error.details.actions[0].argv.slice(0, 3), ['workflow', 'create', 'with-notes'], 'the same command stays, second');
+      assert.match(error.message, /Not every fix is an option of workflow create: agents, omits and step settings change with Copilot \(\/sf-build-workflow\) or in Workflow Studio/u);
+      assert.equal(error.details.nextAction.label, 'Build with-notes with Copilot or in Workflow Studio');
+      return true;
+    });
 });

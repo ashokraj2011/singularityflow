@@ -704,9 +704,14 @@ test('a capability approval run outside the repository is signed or refused, and
     { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED' });
   const printed = [];
   await assert.rejects(() => approveDelegatedProposal(alice, proposal.branch, 'capability', { print: (line) => printed.push(line),
-    inspect: (branch) => routes.inspectDelegatedProposal('capability', org.platform, branch),
+    inspect: (branch) => routes.inspectDelegatedProposal('capability', org.platform, branch), lead: org.platform,
     identity: () => ({ name: 'Alice Proposer', email: 'alice@example.test' }), activate: () => assert.fail('never reached') }),
-  { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED' }, 'configuration approve refuses before asking for the revision');
+  (error) => {
+    assert.equal(error.code, 'CONFIGURATION_SELF_APPROVAL_REFUSED', 'configuration approve refuses before asking for the revision');
+    // Its route reads the same repository this approval read (review 11-17, finding 9).
+    assert.equal(error.details.nextAction.command, `singularity-flow configuration approve ${proposal.branch} --lead ${org.platform}`);
+    return true;
+  });
   assert.ok(printed.includes(`Capability proposal ${proposal.branch} by Alice Proposer`), printed.join('\n'));
   assert.ok(printed.some((line) => /needs another person to approve/u.test(line)), printed.join('\n'));
   assert.equal(signed.length, 0);
@@ -747,7 +752,7 @@ test('a capability approval run outside the repository is signed or refused, and
   await assert.rejects(() => routes.activateDelegatedProposal(bob, 'capability', org.platform, legacy.branch, { confirm: placeholder, signStep: sign }),
     (error) => {
       assert.equal(error.code, 'CONFIGURATION_PROPOSER_UNKNOWN');
-      assert.equal(error.details.nextAction.command, `singularity-flow configuration reject ${legacy.branch}`);
+      assert.equal(error.details.nextAction.command, `singularity-flow configuration reject ${legacy.branch} --lead ${org.platform}`);
       return true;
     });
   assert.equal(signed.length, 1, 'refused before any signature');

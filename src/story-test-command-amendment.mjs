@@ -164,7 +164,10 @@ async function candidateFor(root, config, workflow, { approvedConfigurationSnaps
   const resolved = applyCapabilityPolicyToWorkResolution(
     await resolveApprovedStoryWorkTypeFor(approvedConfigurationSnapshot, workflow), workflow.resolution.capability);
   const authorities = approvedStoryApprovalAuthorities(approvedConfigurationSnapshot);
-  const policy = testCommandAmendmentPolicy(workflow, resolved, authorities);
+  // Its refusals name the Story's own request (review 11-17).
+  let policy;
+  try { policy = testCommandAmendmentPolicy(workflow, resolved, authorities); }
+  catch (error) { throw (await import('./test-command-pins.mjs')).adoptionRouted(error, workflow, resolved); }
   if (!same(phase.qualityCommands, policy.oldCommands)) fail('The runtime phase differs from its pinned command contract.', 'TCA_AMENDMENT_STALE');
   const liveActor = identity(root);
   if (!actorKey(liveActor)) fail('A named original and candidate reviewer is required.', 'TCA_AMENDMENT_AUTHORITY_REQUIRED');
@@ -198,7 +201,7 @@ async function candidateFor(root, config, workflow, { approvedConfigurationSnaps
   if (!actorKey(author)) fail('The original authoring identity cannot be authenticated for this amendment.', 'TCA_AMENDMENT_AUTHOR_UNAVAILABLE');
   if ((policy.original.approval.allowSelfApproval === false || policy.candidate.approval.allowSelfApproval === false)
     && identityKeys(author).some(key => identityKeys(actor).includes(key))) {
-    fail('The original authoring identity cannot review this amendment under the pinned no-self-approval policy.', 'TCA_AMENDMENT_SELF_APPROVAL');
+    throw (await import('./test-command-pins.mjs')).selfReviewRefusal(workflow, resolved);
   }
   const artifactPath = path.posix.join(workRelative(config, workflow), phase.requiredArtifact.path);
   const artifactBytes = await boundedFile(root, artifactPath, 'Authored phase draft');

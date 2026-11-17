@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { testCommandAmendmentPolicy } from '../src/story-test-command-amendment.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import { adoptionRouted } from '../src/test-command-pins.mjs';
 
 const command = file => ({ id: 'node-tests', kind: 'test',
   argv: ['node', '--test', '--test-reporter=tap', file], workingDirectory: '.', affectedRoots: ['.'],
@@ -79,3 +81,21 @@ for (const [label, mutate, code] of [
     assert.deepEqual(value.workflow, before);
   });
 }
+
+test('an amendment the step\'s approval cannot take names the Story request and who accepts it (review 11-17)', () => {
+  const value = fixture();
+  value.workflow.workItem = { id: 'W-1' };
+  value.workflow.resolution.phases[0].approval.minimum = 2; value.candidate.phases[0].approval.minimum = 2;
+  assert.throws(() => testCommandAmendmentPolicy(value.workflow, value.candidate, value.authorities), (refusal) => {
+    // The amendment's own caller routes it (candidateFor): the Story's request for each command the candidate adds.
+    const error = adoptionRouted(refusal, value.workflow, value.candidate);
+    assert.equal(error.code, 'TCA_AMENDMENT_AUTHORITY_UNSUPPORTED');
+    assert.equal(error.details.nextAction.command, 'singularity-flow decision test-command W-1 --phase implementation --id node-tests '
+      + '--argv \'["node","--test","--test-reporter=tap","test/generated.test.mjs"]\' --working-directory . --affected-root . '
+      + '--adapter node-tap --report .sflow/results/test.tap --reason "Adopt the activated test command"');
+    assert.equal(error.details.nextAction.label, 'Request node-tests for this Story; an approver of implementation accepts it');
+    assert.match(error.message, /Request the test command for this Story instead; a person who approves implementation accepts it \(Reviewers \(Reviewer\)\)\.$/u);
+    assert.ok(safeCommandGuidance({ command: error.details.nextAction.command }), 'a command every surface can run');
+    return true;
+  });
+});

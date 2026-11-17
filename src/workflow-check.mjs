@@ -454,6 +454,8 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
       add({ code: entry.code, area: 'flow', severity: entry.severity === 'error' ? 'problem' : 'warning',
         title, detail: detail.charAt(0).toUpperCase() + detail.slice(1), fix: obligationFix(entry),
         subject: { ...(entry.subject?.phase ? { step: entry.subject.phase } : {}), ...(entry.subject?.decision ? { decision: entry.subject.decision } : {}),
+          // Which way out of the decision, so a change compares the same route (workflowProblems).
+          ...(entry.subject?.route ? { route: entry.subject.route } : {}),
           // What the route skips, by name (scope, plan, implement, verify, review), for a fix to act on.
           ...(entry.subject?.missing?.length ? { missing: [...entry.subject.missing] } : {}) },
         // Story start refuses every route that drops a responsibility (assertWorkTypeStartable).

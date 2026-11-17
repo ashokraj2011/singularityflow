@@ -28,6 +28,7 @@ import {
 } from './git-enterprise-environment.mjs';
 import { configurationCommitIdentity, exactConfigurationProposalGitTree } from './git.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
+import { approverWords, namedApprovers, otherApprovers, selfApprovalRefusalWords } from './configuration-approvers.mjs';
 import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
 import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {
@@ -352,11 +353,15 @@ function workflowReadinessFailure(reader, base, proposal) {
  */
 function approvalPolicyAt(reader, commit) {
   let security;
+  let approvers = null;
   try {
-    const definition = YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}', { maxAliasCount: 100 }) ?? {};
+    const read = (file) => YAML.parse(reader.file(commit, file)?.bytes.toString('utf8') ?? '{}', { maxAliasCount: 100 }) ?? {};
+    const definition = read('singularity/workflow.yml');
     security = normalizeApprovalSecurity(definition.approvalSecurity ?? {});
+    // Who else may be asked when the proposer may not approve it (review 11-17, finding 2).
+    try { approvers = namedApprovers(definition, read('singularity/portfolio.yml')); } catch { approvers = namedApprovers(definition); }
   } catch { security = normalizeApprovalSecurity({}); }
-  return { profile: security.profile, allowSelfApproval: security.allowSelfApproval };
+  return { profile: security.profile, allowSelfApproval: security.allowSelfApproval, ...(approvers ? { approvers } : {}) };
 }
 
 /**
@@ -403,6 +408,24 @@ async function selfReadmissions(checkout, reviewed, files, reader, approver, env
   const removal = removedApprovalMemberships(checkout, reviewed.targetCommit, approver, groups, { env });
   // History that cannot be read decides nothing in the approver's favour.
   return removal.status === 'known' ? removal.removed : groups;
+}
+
+/**
+ * The people the approval groups would name, when approving `reviewed` yourself would turn self-approval off with nobody
+ * but you named: every later configuration change, the one turning it back on included, would then wait for a person who
+ * does not exist (review 11-17, finding 2). Null otherwise. Covers proposals made by any build or by hand.
+ */
+function selfApprovalLockout(reviewed, files, reader) {
+  const [workflowPath, portfolioPath] = ['singularity/workflow.yml', 'singularity/portfolio.yml'];
+  if (!files.has(workflowPath)) return null;
+  const parse = (file) => { try { return YAML.parse(Buffer.from(file?.bytes ?? '').toString('utf8'), { maxAliasCount: 100 }) ?? {}; } catch { return null; } };
+  const off = (definition) => { try { return normalizeApprovalSecurity(definition?.approvalSecurity ?? {}).allowSelfApproval === false; } catch { return false; } };
+  const before = parse(reader.file(reviewed.targetCommit, workflowPath));
+  const after = parse(files.get(workflowPath));
+  if (!before || !after || off(before) || !off(after)) return null;
+  const portfolio = parse(files.has(portfolioPath) ? files.get(portfolioPath) : reader.file(reviewed.targetCommit, portfolioPath)) ?? {};
+  const named = namedApprovers(after, portfolio);
+  return otherApprovers(named, reviewed.proposer ?? {}).length ? null : named;
 }
 
 function changedConfigurationFiles(root, base, proposal, env) {
@@ -833,7 +856,8 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       // configuration change needs a person other than its author.
       if (selfApproval(reviewed.proposer, approver) && reviewed.approvalPolicy?.allowSelfApproval === false) {
         throw new SingularityFlowError(
-          `You proposed ${proposalBranch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was changed.`,
+          `You proposed ${proposalBranch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was changed.`
+            + selfApprovalRefusalWords(reviewed.approvalPolicy?.approvers, approver),
           { code: 'CONFIGURATION_SELF_APPROVAL_REFUSED', details: { proposer: reviewed.proposer ?? null,
             nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
         );
@@ -855,24 +879,41 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
             nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
         );
       }
+      // Approving yourself a change that turns self-approval off, with nobody else named, would lock every later
+      // configuration change out (review 11-17, finding 2): someone else approves it, and is then the second person.
+      const lockedOut = selfApproval(reviewed.proposer, approver) ? selfApprovalLockout(reviewed, prepared.files, transport.reader) : null;
+      if (lockedOut) {
+        throw new SingularityFlowError(
+          `Approving ${proposalBranch} yourself would turn self-approval off with ${lockedOut.length ? `only you named (${approverWords(lockedOut)})` : 'nobody named'}, `
+          + 'so nobody could approve a later change. Nothing was changed.',
+          { code: 'CONFIGURATION_SELF_APPROVAL_NO_SECOND_PERSON', details: { members: lockedOut,
+            nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
+        );
+      }
       if (problemsBefore) {
         const after = await workflowProblems(scratch, changedWorkflows);
-        const added = [...after].filter(([key]) => !problemsBefore.has(key)).map(([, value]) => value);
+        const added = (await import('./workflow-validation.mjs')).addedProblems(problemsBefore, after);
         if (added.length) {
           const named = [...new Set(added.map((entry) => entry.workflow))];
           // The fix is made in the proposal, not in sflow/config: its proposer withdraws it, or anyone else rejects it with
           // the problems as the reason; the fixed change is proposed again. Only a proposal of drafts saved on this machine
           // gives drafts back (rejectProposal); one made in one step (`workflow create --propose`) had none.
           const own = selfApproval(reviewed.proposer, approver);
-          const drafts = own && (await (await import('./configuration-drafts.mjs')).readDrafts(root).catch(() => null))?.proposed?.branch === proposalBranch;
+          const recorded = own ? (await (await import('./configuration-drafts.mjs')).readDrafts(root).catch(() => null))?.proposed : null;
+          const mine = recorded?.branch === proposalBranch ? recorded : null;
+          // Only a proposal that held saved drafts gives them back; one made of Studio edits alone names the edits to make
+          // again (review 11-17, finding 7).
+          const drafts = Boolean(mine && Array.isArray(mine.held) && mine.held.length);
+          const redo = mine && !drafts && Array.isArray(mine.changes) && mine.changes.length ? mine.changes : null;
           const why = `workflow validate reports ${added.length === 1 ? 'a problem' : 'problems'} in ${named.join(', ')}`;
           throw new SingularityFlowError(
             `Approving ${proposalBranch} would give ${named.join(', ')} ${added.length === 1 ? 'a problem' : `${added.length} problems`} \`workflow validate\` reports: `
             + `${added.map((entry) => `${entry.workflow}: ${entry.title}`).join('; ')}. Nothing was changed. `
             + (drafts ? 'Withdraw it: your drafts come back to fix, then propose them again.'
-              : own ? 'Withdraw your proposal, then propose the change again without them.'
-                : 'Reject it with that reason: its proposer fixes it and proposes it again.'),
-            { code: 'WORKFLOW_PROPOSAL_PROBLEMS', details: { problems: added, nextAction: {
+              : redo ? `Withdraw it; it held no drafts, so redo in Workflow Studio: ${redo.join('; ')}.`
+                : own ? 'Withdraw your proposal, then propose the change again without them.'
+                  : 'Reject it with that reason: its proposer fixes it and proposes it again.'),
+            { code: 'WORKFLOW_PROPOSAL_PROBLEMS', details: { problems: added, ...(redo ? { redo } : {}), nextAction: {
               label: drafts ? 'Withdraw it, fix your drafts, then propose again' : own ? 'Withdraw your proposal, fix it, then propose again'
                 : 'Reject it, so its proposer fixes it',
               command: `singularity-flow configuration reject ${proposalBranch} --confirm ${reviewed.proposalCommit} --reason "${why}"` } } }

@@ -775,6 +775,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // submission the engine refuses: the kernel names it (`declined`, kernel/step-state.mjs +322), the renderer gives its
     // route beside the question (step-decision.mjs +508), and next steps offers it instead of a refused submission (guide.mjs
     // +393). Comments trimmed first; submission readiness, which grew more, is not in start's closure. No new eager file.
+    // 9,745,900 (measured 9,745,891 for start.mjs, +402 over 4d173adc1's 9,745,489): review 11-17 findings 2 and 11. Turning
+    // self-approval off is refused while nobody else is named (configuration-people.mjs +268, a call into the lazy
+    // configuration-approvers.mjs), and a test-command amendment's two refusals name the Story's own request
+    // (story-test-command-amendment.mjs +134, calls into test-command-pins.mjs, which stays lazy). The route builders were
+    // first put in test-command-amendment-contracts.mjs (+3,274 here and in session current) and moved out. No new eager file.
     assert.ok(closure.bytes <= 9_753_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }

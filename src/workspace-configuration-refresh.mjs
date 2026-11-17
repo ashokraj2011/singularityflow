@@ -1780,9 +1780,15 @@ export async function refreshPackagedConfiguration(root, {
   // difference that is only that name is nothing for a person to review [owner, 2026-11-13]: build
   // 91cea5a93's review pass previewed before the installer's refresh had published its name, and
   // found three repositories lagging behind a byte-identical packaged configuration.
-  const productStampOnly = previousLockText !== null && previousLockText !== lockText
+  const stampOnly = previousLockText !== null && previousLockText !== lockText
     && changedFiles.size === 0 && plainObject(baseline?.product) && baseline.format === BASELINE_FORMAT
     && YAML.stringify({ ...lock, product: baseline.product, build: baseline.build ?? null }) === previousLockText;
+  // Except where the name is what something waits on: a build that reads ancestry proof v2 replacing a minimum build that
+  // does not. A skill or test-command amendment is refused until the repository's minimum build reads v2, and its route is
+  // this refresh, so publishing nothing here sent it round again (review 11-17, finding 6). Every other difference that is
+  // only the build's name still publishes nothing [D13(5)].
+  const { minimumBuildReadsV2 } = stampOnly ? await import('./skp-amendment-audit.mjs') : {};
+  const productStampOnly = stampOnly && !(minimumBuildReadsV2(lock.build) && !minimumBuildReadsV2(baseline.build));
   if (previousLockText !== lockText) {
     changedFiles.add(PACKAGE_BASELINE_PATH);
     if (!dryRun) {

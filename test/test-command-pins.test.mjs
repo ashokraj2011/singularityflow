@@ -162,14 +162,29 @@ test('an unavailable generation baseline keeps the pending review and exposes it
   await initial.record(workflow, ['unit'], { at: 'initial' });
   await writeFile(path.join(root, 'vite.config.js'), 'export default { test: {} };\n');
   const candidate = pinCandidate(phase, command, (await commandDefinition(root, command)).entries);
+  // An unreadable baseline is not a restoration: the gate refuses as for any changed pin and names the re-pin request,
+  // and the request itself is recorded, so a person can accept it (review finding 1, 11-17).
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), error => {
+    assert.equal(error.code, 'TEST_COMMAND_PIN_CHANGED');
+    assert.match(error.details.nextAction.command, /decision test-command PIN-MISSING --phase custom-qa --repin unit/u);
+    assert.equal(error.details.testCommandPin.baselineUnavailable.diagnostics[0].code, 'REF_TREE_REF_MISSING');
+    assert.match(error.message, /could not read/u);
+    return true;
+  });
+  const asked = await repinRequest(root, {}, workflow, phase, command);
+  assert.equal(asked.sha256, candidate.sha256);
+  assert.deepEqual(asked.changes, ['vite.config.js changed']);
   const request = { id: 'TCD-001', phase: phase.id, command, repin: { commandId: command.id, sha256: candidate.sha256 } };
   workflow.testCommandDecisions = [request];
-  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), { code: 'TEST_COMMAND_BASELINE_UNAVAILABLE' });
   const review = await pendingTestCommandReviews(root, {}, workflow, phase, [request], { commands: [command] });
   assert.deepEqual(review.pending, [request]);
   assert.deepEqual(review.inactive, []);
   assert.equal(review.unavailable[0].reason, 'TEST_COMMAND_BASELINE_UNAVAILABLE');
   assert.equal(review.unavailable[0].details.diagnostics[0].code, 'REF_TREE_REF_MISSING');
+  // Once a person accepts it, the gate runs under the new pin without reading the baseline again.
+  workflow.testCommandDecisions.push({ accepts: 'TCD-001', phase: phase.id, actor: 'reviewer', authorityGroup: 'team' });
+  const accepted = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  assert.equal(accepted.prepared.get('unit').acceptedBy, 'TCD-001');
 });
 
 test('backend repairs restore semantic test configuration while retaining newly pinned support files', async t => {

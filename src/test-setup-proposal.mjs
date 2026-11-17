@@ -325,7 +325,18 @@ export async function runTestCommandProposal(options) {
   // The Story that asked adopts the activated command through its reviewed amendment, at the step it is on
   // unless the command was for one step.
   const workId = (await (await import('./session.mjs')).loadSession(root, { required: false }).catch(() => null))?.workId ?? null;
-  const adopt = workId ? `singularity-flow story test-policy amend --work-id ${workId}${step ? ` --phase ${step}` : ''} --reason "Adopt the activated test command${ids.length === 1 ? '' : 's'}" --json` : null;
+  // The amendment adopts only where one person approves the step; elsewhere it is refused, so the Story's own request,
+  // which a person who approves the step accepts, is the route offered (review 11-17, finding 11).
+  const request = workId && globalThis.__SFLOW_EXTENSION_HOST__ !== true
+    ? await Promise.all([import('./state-stores.mjs'), import('./story-workflow-read.mjs'), import('./test-command-pins.mjs')])
+      .then(async ([{ loadConfig }, { loadWorkflow }, adoption]) => {
+        const story = await loadWorkflow(root, await loadConfig(root), workId);
+        const phaseId = step ?? story.currentPhase;
+        if (adoption.singleHumanApproval(story.resolution?.phases?.find((phase) => phase.id === phaseId)?.approval)) return null;
+        const route = adoption.adoptionRoute(workId, phaseId, plan.commands, story.resolution, `Adopt the activated test command${ids.length === 1 ? '' : 's'}`);
+        return route.nextAction ? route : null;
+      }).catch(() => null) : null;
+  const adopt = workId && !request ? `singularity-flow story test-policy amend --work-id ${workId}${step ? ` --phase ${step}` : ''} --reason "Adopt the activated test command${ids.length === 1 ? '' : 's'}" --json` : null;
   const nextCommand = typeof proposal?.nextAction === 'string' ? proposal.nextAction : proposal?.nextAction?.command ?? null;
   if (!json) {
     console.log(`Proposed ${named} for ${plan.label} for review: ${proposal.branch ?? 'no change'}.`);
@@ -335,7 +346,8 @@ export async function runTestCommandProposal(options) {
       console.log(`  VS Code: ${activation.vscode}`);
     }
     console.log(adopt ? `Once it is activated, a person who approves ${step ?? 'the Story\'s step'} adopts it in Story ${workId}: ${adopt}`
-      : 'Stories already started keep their test policy; a Story adopts the activated command through singularity-flow story test-policy amend.');
+      : request ? `Story ${workId}'s step is not approved by exactly one person, so it requests the command instead. ${request.nextAction.label}: ${request.nextAction.command}`
+        : 'Stories already started keep their test policy; a Story adopts the activated command through singularity-flow story test-policy amend.');
   }
   emitCommandResult(commandResult({
     operation: { id: 'capability.test-setup.propose', classification: 'mutation' },
@@ -348,7 +360,9 @@ export async function runTestCommandProposal(options) {
             + `in their own terminal, ${activation.command}; or in ${activation.vscode}.`
           : 'A configuration approver reviews and activates the proposal; until then no Story runs this command.' })] : []),
       ...(adopt ? [action({ id: 'capability.test-setup.adopt', command: adopt, rank: 'SOON', kind: 'review',
-        label: `Once it is activated, a person who approves ${step ?? 'the Story\'s step'} previews and applies its adoption in Story ${workId}; the tests run fresh.` })] : [])
+        label: `Once it is activated, a person who approves ${step ?? 'the Story\'s step'} previews and applies its adoption in Story ${workId}; the tests run fresh.` })] : []),
+      ...(request ? [request.nextAction, ...(request.actions ?? [])].map((entry, index) => action({ id: `capability.test-setup.request${index ? `-${index + 1}` : ''}`,
+        command: entry.command, rank: 'SOON', kind: 'review', label: entry.label })) : [])
     ],
     data: { target: plan.target, step, workflow, commands: plan.commands, command: plan.commands[0], planSha256: plan.planSha256,
       branch: proposal?.branch ?? null, proposal, ...(activation ? { activation } : {}), testsExecuted: false }

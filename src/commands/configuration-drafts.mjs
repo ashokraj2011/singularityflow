@@ -118,7 +118,7 @@ export async function run({ subcommand, positionals, options, root, apply, print
     const { configurationCommitIdentity } = await import('../git.mjs');
     const common = { yes: options.yes === true, confirm: optionString(options, 'confirm', null),
       interactive: !json && Boolean(input.isTTY && output.isTTY), ask, print: json ? () => {} : (line) => console.log(line),
-      inspect: (branch) => routes.inspectDelegatedProposal(delegated, repository, branch),
+      inspect: (branch) => routes.inspectDelegatedProposal(delegated, repository, branch), lead: repository,
       identity: () => configurationCommitIdentity(root ?? process.cwd()) };
     const result = subcommand === 'approve'
       ? await drafts.approveDelegatedProposal(root, positionals[2], delegated, { ...common,

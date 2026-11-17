@@ -1089,6 +1089,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     chooseTemplate: function () { return chooseTemplate.apply(null, arguments); }, chooseArtifactSet: function () { return chooseArtifactSet.apply(null, arguments); },
     // Proposals waiting for review, workflow bundles, governed files.
     requestProposals: function () { return requestProposals.apply(null, arguments); }, changesCount: function () { return changesCount(); }, reviewProposal: function () { return reviewProposal.apply(null, arguments); },
+    rejectProposal: function () { return rejectProposal.apply(null, arguments); },
     uploadView: function () { return uploadView.apply(null, arguments); },
     importWorkflows: function () { return importWorkflows.apply(null, arguments); }, openFile: function () { return openFile.apply(null, arguments); },
     // Epic workflows.
@@ -6020,6 +6021,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     state.reviewing = branch; state.busy = 'review'; setStatus('Opening ' + branch + ' for review…'); render();
     post({ type: 'studio.reviewProposal', branch: branch, pending: changesNow().length });
   }
+  // Withdraw one's own proposal or reject another's with a reason: a proposal approval refuses is fixed in the proposal (review 11-17).
+  function rejectProposal(branch) {
+    state.rejecting = branch; state.busy = 'reject'; setStatus('Withdraw or reject ' + personBranch(branch) + '…'); render();
+    post({ type: 'studio.rejectProposal', branch: branch });
+  }
+  function rejectButton(proposal) {
+    return proposal.merged ? null : button(state.busy === 'reject' && state.rejecting === proposal.branch ? 'Withdrawing or rejecting…' : 'Withdraw or reject…',
+      function () { rejectProposal(proposal.branch); }, { class: 'secondary', disabled: Boolean(state.busy), 'aria-label': 'Withdraw or reject ' + personBranch(proposal.branch) });
+  }
   function proposalGroups(list) {
     var groups = [], keyed = new Map();
     (list || []).forEach(function (proposal) {
@@ -6059,9 +6069,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + personBranch(proposal.branch) },
       el('div', { class: 'studio-row spread' },
         el('div', null, el('code', { text: personBranch(proposal.branch) }), el('span', { class: 'muted', text: '  ' + madeAt(proposal) + (proposal.proposer ? ' by ' + proposal.proposer : '') })),
-        proposal.valid && !proposal.merged
-          ? button(state.busy === 'review' ? 'Reviewing…' : earlier ? 'Review earlier proposal' : 'Review and approve', function () { reviewProposal(proposal.branch); }, { class: earlier ? 'secondary' : 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and approve ' + personBranch(proposal.branch) })
-          : el('span', { class: 'pill', text: proposal.merged ? 'Merged' : 'Blocked' })),
+        el('div', { class: 'studio-row' },
+          proposal.valid && !proposal.merged
+            ? button(state.busy === 'review' ? 'Reviewing…' : earlier ? 'Review earlier proposal' : 'Review and approve', function () { reviewProposal(proposal.branch); }, { class: earlier ? 'secondary' : 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and approve ' + personBranch(proposal.branch) })
+            : el('span', { class: 'pill', text: proposal.merged ? 'Merged' : 'Blocked' }),
+          rejectButton(proposal))),
       el('span', { class: 'muted', text: (subjects.length ? subjects.join(', ') : 'Configuration-only change') + ' · ' + proposal.files + (proposal.files === 1 ? ' file' : ' files') }),
       proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
       proposal.invalidFiles.length ? el('div', { class: 'callout bad', text: 'Not configuration: ' + proposal.invalidFiles.join(', ') }) : null);
@@ -7083,6 +7095,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         state.reviewing = null;
       }
       if (state.busy === 'review') state.busy = null;
+      if (state.rejecting) {
+        var kept = listed.list.some(function (proposal) { return proposal.branch === state.rejecting; });
+        setStatus(personBranch(state.rejecting) + (kept ? ' is still waiting for review.' : ' was withdrawn or rejected.'));
+        state.rejecting = null;
+      }
+      if (state.busy === 'reject') state.busy = null;
       render();
     } else if (message.type === 'studio.externalConfigurationChanged') {
       state.plan = null; state.planKey = null;
@@ -7167,7 +7185,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     } else if (message.type === 'studio.failed') {
       // A load that failed after its model never reaches its proposals check; Changes may ask again.
       if (state.proposals && state.proposals.list === null) state.proposals.loading = false;
-      state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
+      state.busy = null; state.reviewing = null; state.rejecting = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {
       state.busy = null; render();
     } else if (message.type === 'studio.savedDraft') {

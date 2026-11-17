@@ -766,7 +766,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // commands and the environment's name (state.mjs +475); a restore settles its wait by any route (documents.mjs +193);
     // a held test run listed by anyone and set aside only in a person's own terminal (person-step-catalog.mjs +268,
     // command-registry.mjs +226). The marker and the wait readers stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_750_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,753,800 (measured 9,753,754 for start.mjs, 464 files): CVL pieces 1 and 3 with piece 1's review fixes, on main
+    // 4d173adc1, each measured above on its own base. No new eager file.
+    assert.ok(closure.bytes <= 9_753_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1176,7 +1178,9 @@ test('the common session projection does not import attach, state stores or publ
   // fields), each measured above on its own base. No new eager file.
   // 4,289,200 (measured 4,289,165, +494): the review of CVL piece 1, a held test run listed by anyone and set aside only
   // in a person's own terminal (person-step-catalog.mjs +268, command-registry.mjs +226). No new eager file.
-  assert.ok(current.bytes <= 4_289_800, `session current loads ${current.bytes} source bytes`);
+  // 4,290,300 (measured 4,290,280): CVL pieces 1 and 3 with piece 1's review fixes, each measured above on its own base.
+  // No new eager file.
+  assert.ok(current.bytes <= 4_290_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

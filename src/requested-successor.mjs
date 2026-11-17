@@ -93,6 +93,27 @@ export async function keptYes(root, workflow, phase) {
   return grant?.surface === 'decisions-card' ? { version: Number(record.proposal.version), surface: grant.surface, expiresAt: grant.expiresAt } : null;
 }
 
+/** The version question's third answer, in the words both cards and the question tool show (owner, 2026-11-18). */
+export const JUST_A_QUESTION = 'No, it was just a question';
+
+/**
+ * The person's "No, it was just a question" to a published step's version question, for the proposal `record` they were
+ * shown (owner, 2026-11-18): what they typed is kept, accounted for as a question answered with nothing to change
+ * (asked-for-records.mjs answerAsQuestion), no version opens and nothing else is asked. Only for a version proposed for
+ * words the person typed (`requested-change`); a review's corrections or a return is never "just a question". Returns
+ * the kernel's next for the step, which is what a No goes on with now that nothing waits (`declined`).
+ */
+export async function answerJustAQuestion(root, config, workflow, phase, { proposal, surface, actor, agent = null }) {
+  const { SingularityFlowError } = await import('./util.mjs');
+  if (proposal?.reason !== 'requested-change') throw new SingularityFlowError(`Version ${proposal?.version ?? 'N'} of ${phase.label ?? phase.id} was proposed for something other than words the person typed, so it cannot be answered as just a question; nothing was recorded.`, {
+    code: 'VERSION_QUESTION_NOT_TYPED', details: { nextAction: (await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase, { config })).route } });
+  const answered = await (await import('./asked-for-records.mjs')).answerAsQuestion(root, config, workflow, phase, { actor, agent, surface, version: proposal.version });
+  const { route } = await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase, { config });
+  const name = phase.label ?? phase.id;
+  const words = `It was just a question: version ${proposal.version} of ${name} was not started. What you typed is kept with the step, accounted for as a question with nothing to change; its approver sees that and can return the step if it was really a change.${route?.label ? ` ${route.label}` : ''}`;
+  return { answered, words, next: route?.command ? { command: route.command, copilotCommand: route.copilotCommand ?? null, skill: route.skill ?? route.copilotCommand?.split(' ')[0] ?? null } : null };
+}
+
 /** The value the person confirms: the published generation, its exact bytes and the words that ask for the change. */
 export function requestedSuccessorConfirmation(workflow, phase, resultDigest, requests) {
   return `sha256:${createHash('sha256').update(JSON.stringify({ kind: 'requested-successor', workId: workflow.workItem.id,
@@ -154,6 +175,26 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   const opening = await import('./commands/phase-opening.mjs');
   const kind = correction ? 'own-correction' : edited ? 'changed-after-publication' : review && requests.length === 1 ? 'review-corrections' : 'requested-change';
   const proposed = await opening.proposalNow(root, workflow, phase, { reason: kind, confirmation: expected });
+  // Words the person typed may have been only a question: its third answer keeps them as one, and opens nothing (owner, 2026-11-18).
+  // The yes's own confirmation, answered as a question: the same proposal, the same confirmation.
+  const questionArgv = kind === 'requested-change' && !typedFocusOff(workflow) ? [...confirmArgv.slice(0, 3), '--as-question', ...confirmArgv.slice(3), '--json'] : null;
+  if (optionBoolean(options, 'as-question')) {
+    if (!questionArgv) throw new SingularityFlowError(`Version ${proposed.proposal.version} of ${phase.label ?? phase.id} is proposed for something other than words the person typed, so it cannot be answered as just a question; nothing was recorded.`, {
+      code: 'VERSION_QUESTION_NOT_TYPED', details: { phase: phase.id, nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route } });
+    if (!supplied) throw new SingularityFlowError('--as-question needs --confirm with the confirmation the preview showed, so the answer is bound to the question the person saw; nothing was recorded.', {
+      code: 'GENERATION_ROLLOVER_STALE', details: { phase: phase.id, nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route } });
+    await opening.staleRollover(supplied, expected,
+      'The confirmation is not the current one: what was asked for or the published bytes changed since the preview. Preview again and ask the person again; nothing was recorded.', null);
+    const [{ actionActor }, { loadSession }] = await Promise.all([import('./git.mjs'), import('./session.mjs')]);
+    const session = await loadSession(root, { required: false }).catch(() => null);
+    const answer = await answerJustAQuestion(root, config, workflow, phase, { proposal: proposed.proposal, surface: 'question-tool', actor: actionActor(root),
+      agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null });
+    const result = { schemaVersion: 1, resultType: 'sflow-version-question-answered', workId: workflow.workItem.id, phase: phase.id, version: proposed.proposal.version,
+      answer: JUST_A_QUESTION, opened: null, instructions: answer.answered.instructions, words: answer.words, nextAction: answer.next, mutates: true };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    return console.log(answer.words);
+  }
+  const questionRoute = questionArgv ? safeCommandGuidance({ argv: questionArgv, skill }) : null;
   const preview = {
     schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: kind === 'review-corrections' ? 'requested-change' : kind,
     workId: workflow.workItem.id, phase: phase.id, fromGeneration: phase.generation, toGeneration: proposed.proposal.version, question: proposed.question,
@@ -166,6 +207,10 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     copilotCommand: route?.copilotCommand ?? null, platformCommands: route?.platformCommands ?? null,
     nextAction: route ? { command: route.command, copilotCommand: route.copilotCommand,
       reason: `Show the person what they asked to change and this confirmation; only on their explicit yes open generation ${next}.` } : null,
+    // The question's third answer, beside Yes and No: on the person's own "No, it was just a question", its command keeps what
+    // they typed as a question with nothing to change and opens nothing (owner, 2026-11-18).
+    ...(questionRoute ? { justAQuestion: { answer: JUST_A_QUESTION, command: questionRoute.command, argv: questionRoute.argv,
+      reason: `Offer it as the question's third answer. Only on the person's own "${JUST_A_QUESTION}" run it: what they typed is kept as a question, nothing changes and no version opens.` } } : {}),
     mutates: Boolean(supplied)
   };
   let typed = false;
@@ -181,7 +226,13 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     // A person confirms the step and generation they just read, never a digest [no hashes shown]: in their own
     // terminal this same process asks, and binds the digest it derived above; `--json` keeps it for an agent.
     if (process.stdin.isTTY === true && process.stdout.isTTY === true) {
-      if (!await opening.askAtTerminal(proposed.question)) return console.log('Nothing was changed.');
+      // Their own terminal offers the same third answer as the cards: "question" keeps it as one and opens nothing (owner, 2026-11-18).
+      const said = questionArgv ? await terminalAnswer(proposed.question) : await opening.askAtTerminal(proposed.question) ? 'yes' : '';
+      if (said === 'question') {
+        const { actionActor } = await import('./git.mjs');
+        return console.log((await answerJustAQuestion(root, config, workflow, phase, { proposal: proposed.proposal, surface: 'terminal', actor: actionActor(root) })).words);
+      }
+      if (said !== 'yes') return console.log('Nothing was changed.');
       supplied = expected;
       typed = true;
     } else {
@@ -210,6 +261,14 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
       reason: `Author generation ${intent.generation} for what was asked; its tests run again before it is published.` } };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else console.log(`Opened ${phase.id} version ${intent.generation} for the change asked for. Version ${phase.generation} stays as published.`);
+}
+
+/** The person's answer at their own terminal: `yes`, `question` (it was just a question), or anything else, which starts nothing. */
+async function terminalAnswer(question) {
+  const { createInterface } = await import('node:readline/promises');
+  const terminal = createInterface({ input: process.stdin, output: process.stdout });
+  try { return (await terminal.question(`${question} Type yes to start it, question if it was just a question, or press Enter to cancel: `)).trim().toLowerCase(); }
+  finally { terminal.close(); }
 }
 
 /** A document step's published draft as the person saw it: its generation, commit and authored text. */

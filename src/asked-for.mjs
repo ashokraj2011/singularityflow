@@ -158,12 +158,15 @@ export async function localAskedFor(gitDir, subject) {
 /**
  * What the person typed for the step's next version that still waits to be accounted for, in the order typed; none when the
  * Story's capability turned recording off. The edit guard reads it once per turn, so its permission asks the change's version
- * question as the entry does (requested-successor.mjs requestedChanges adds the step's eligibility).
+ * question as the entry does (requested-successor.mjs requestedChanges adds the step's eligibility). A turn the Story already
+ * keeps waits for nothing: the person said it was just a question (asked-for-records.mjs answerAsQuestion), so no version is
+ * asked for it again (owner, 2026-11-18).
  */
 export async function waitingWords(gitDir, workflow, phase) {
   if (typedFocusOff(workflow)) return [];
   const local = await localAskedFor(gitDir, { workId: workflow.workItem.id, phase: phase.id, generation: askedForGeneration(phase) });
-  return local.turns.filter((turn) => needsAccount(turn) && typeof turn.text === 'string' && turn.text.trim()).map((turn) => turn.text);
+  const kept = new Set((workflow.askedFor ?? []).filter((entry) => entry.phase === phase.id).map((entry) => entry.turn));
+  return local.turns.filter((turn) => needsAccount(turn) && !kept.has(turn.turnId) && typeof turn.text === 'string' && turn.text.trim()).map((turn) => turn.text);
 }
 
 /**

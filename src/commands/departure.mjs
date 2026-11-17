@@ -13,8 +13,9 @@ import { optionBoolean, optionString, optionStrings, SingularityFlowError } from
 export const DEPARTURE_ACTIONS = Object.freeze(['record', 'account', 'list', 'show']);
 const ALLOWED = Object.freeze({
   record: ['kind', 'path', 'clause', 'reason', 'target', 'file', 'row-op', 'fulfillment', 'test', 'from', 'to', 'finding', 'supersedes'],
-  // How the model accounts for an instruction the person typed [SCS:REQ-042].
-  account: ['instruction', 'clauses', 'departure'],
+  // How the model accounts for an instruction the person typed [SCS:REQ-042]; `as-question`: it was a question, answered,
+  // nothing to change (owner, 2026-11-18).
+  account: ['instruction', 'clauses', 'departure', 'as-question'],
   list: ['phase', 'open'],
   show: []
 });
@@ -32,7 +33,7 @@ const USAGE = [
   '         wording, clause: --target EARLIER-STEP --file DRAFT-COPY [--clause CLAUSE]',
   '         finding (a findings register item fixed on the way): --path FILE [--path FILE] --finding ID',
   '         [--finding ID] [--supersedes DEP-NNN]',
-  '       singularity-flow departure account --instruction N (--clauses ID,... | --departure DEP-NNN) [--work-id WORK-ID] [--json]',
+  '       singularity-flow departure account --instruction N (--clauses ID,... | --departure DEP-NNN | --as-question) [--work-id WORK-ID] [--json]',
   '       singularity-flow departure list [--phase PHASE] [--open] [--json]',
   '       singularity-flow departure show DEP-NNN [--json]',
   'Records what a code step\'s change departs from in the approved documents, without asking anyone. Publish goes',
@@ -84,7 +85,7 @@ async function record(options) {
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
-/** `departure account`: how the code step accounts for one instruction the person typed [SCS:REQ-042]. */
+/** `departure account`: how the code step accounts for one instruction the person typed [SCS:REQ-042], a question too. */
 async function account(options) {
   const { root, config, workflow } = await story(options);
   if (workflow.status !== 'in_progress') refused(`Story ${workflow.workItem.id} is ${workflow.status}; instructions are accounted for while it is in progress.`, 'DEPARTURE_LIFECYCLE');
@@ -93,8 +94,8 @@ async function account(options) {
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
   const recorded = await accountForInstruction(root, config, workflow, { instruction: optionString(options, 'instruction'),
-    clauses: optionStrings(options, 'clauses'), departure: optionString(options, 'departure') }, { actor: actionActor(root), agent });
-  if (!optionBoolean(options, 'json')) console.log(`Instruction ${recorded.instruction} is ${accountWords(recorded)}. Keep working: the approver reads it beside the departures.`);
+    clauses: optionStrings(options, 'clauses'), departure: optionString(options, 'departure'), question: optionBoolean(options, 'as-question') }, { actor: actionActor(root), agent });
+  if (!optionBoolean(options, 'json')) console.log(`Instruction ${recorded.instruction} is ${accountWords(recorded)}. Keep working: the approver reads it beside the departures${recorded.as === 'question' ? ' and can return the step if it was really a change' : ''}.`);
   emitCommandResult(commandResult({
     operation: { id: 'departure.account', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('departure.account.succeeded', { instruction: String(recorded.instruction), as: recorded.as }),

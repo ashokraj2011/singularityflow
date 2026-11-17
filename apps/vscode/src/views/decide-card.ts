@@ -15,7 +15,7 @@ import { collectReviewConfirmation } from './review-confirmation.ts';
 import { createTerminalIn } from '../terminal-start.ts';
 import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
-  versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
+  justAQuestionArgv, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
 import { approvalRows, checkNames, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
@@ -161,7 +161,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         if (busy) return;
         const asked = versionOpeningOf(packet);
         const answer = stringField(message, 'answer');
-        if (!asked || asked.digest === declined?.digest || stringField(message, 'digest') !== asked.digest || (answer !== 'yes' && answer !== 'no')) {
+        if (!asked || asked.digest === declined?.digest || stringField(message, 'digest') !== asked.digest
+          || (answer !== 'yes' && answer !== 'no' && !(answer === 'question' && asked.justAQuestion === true))) {
           await reread();
           return render('This question changed since the page showed it, so nothing was recorded. Read it again below.');
         }
@@ -186,8 +187,10 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
             : `${version} no longer waits for your yes, so nothing was recorded.`);
         }
         try {
-          const outcome = versionConsentOutcome(await client.run(versionConsentArgv(now), undefined, { priority: 'interactive' }));
-          recorded = [...recorded, 'version-opening'];
+          // "No, it was just a question" is kept by the engine's own command too, and opens nothing (owner, 2026-11-18).
+          const question = answer === 'question';
+          const outcome = versionConsentOutcome(await client.run(question ? justAQuestionArgv(now) : versionConsentArgv(now), undefined, { priority: 'interactive' }));
+          recorded = [...recorded, question ? 'version-question' : 'version-opening'];
           // Kept: a view that fails to refresh never turns it into a failure.
           await Promise.resolve(refresh?.()).catch(() => undefined);
           await reread();

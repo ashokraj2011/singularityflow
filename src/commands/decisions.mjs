@@ -45,7 +45,7 @@ import { assertConfirmation, copySlip } from '../text-lines.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card', 'probe', 'probe-wait']);
-const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch', 'version-consent', 'expect']);
+const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch', 'version-consent', 'just-a-question', 'expect']);
 const UNDO_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'settled', 'reason', 'fetch']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
@@ -679,9 +679,10 @@ async function versionOpeningOf(root, workflow) {
   // number, with nothing open; the opening operation checks the proposal again when it runs.
   const { decision } = await kernelRoute(root, workflow, phase);
   if (phase.status !== 'in_progress' || decision.version.writing !== null || Number(decision.version.proposedNext) !== Number(record.proposal.version)) return null;
-  // In a terminal, the step's own preview asks it (`terminal`): what the decisions text shows [D3].
+  // In a terminal, the step's own preview asks it (`terminal`): what the decisions text shows [D3]. A version proposed for words
+  // the person typed has a third answer, "No, it was just a question" (`justAQuestion`, owner 2026-11-18).
   return { workId: workflow.workItem.id, phase: phase.id, version: record.proposal.version, question: record.question, confirmation: record.confirmation, digest: record.digest,
-    terminal: (await askingRoute(phase.id))?.command ?? null };
+    ...(record.proposal.reason === 'requested-change' && workflow.resolution?.capability?.policy?.typedFocus !== 'off' ? { justAQuestion: true } : {}), terminal: (await askingRoute(phase.id))?.command ?? null };
 }
 
 /**
@@ -752,8 +753,46 @@ async function recordVersionConsent(root, options, workId) {
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
+/**
+ * `decisions record [WORK-ID] --just-a-question <confirmation> --expect <digest>`: the person's "No, it was just a question"
+ * on the decisions card to the exact version question it showed (owner, 2026-11-18). What they typed is kept, accounted for
+ * as a question with nothing to change; no version opens and nothing else is asked. Like every `decisions record`, a chat
+ * turn never runs it (person-step-catalog.mjs `decision-list-record`): the card's extension runs it outside the chat.
+ */
+async function recordJustAQuestion(root, options, workId) {
+  if (workId) await versionConsentCheckout(root, workId);
+  const { config, workflow } = await storyContext(root, workId, { record: true, fetch: false });
+  const confirmation = optionString(options, 'just-a-question');
+  const expect = optionString(options, 'expect');
+  if (!expect) refused('--just-a-question needs --expect with the proposal digest the card showed.', 'DECISIONS_OPTIONS_INVALID');
+  const [{ gitDirectories }, consent, { head, actionActor }, { kernelRoute }, { answerJustAQuestion }] = await Promise.all([import('../story-version-acceptance.mjs'),
+    import('../story-version-consent.mjs'), import('../git.mjs'), import('./phase-opening.mjs'), import('../requested-successor.mjs')]);
+  const directories = gitDirectories(root);
+  const record = directories ? await consent.readProposalRecord(directories.commonDir, confirmation) : null;
+  const phase = workflow.phases?.[workflow.currentPhase];
+  if (!record || record.proposal.workId !== workflow.workItem.id || record.proposal.phase !== phase?.id || record.digest !== expect) {
+    refused('This answer is for another question than the one waiting now; nothing was recorded. Read the decisions card again.', 'VERSION_CONSENT_WRONG_TARGET',
+      { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' } });
+  }
+  if (record.proposal.lifecycleRevision !== head(root)) {
+    refused(`The Story moved since version ${record.proposal.version} of ${phase.id} was proposed; nothing was recorded. Its work command asks again.`,
+      'VERSION_OPENING_STALE', { nextAction: (await kernelRoute(root, workflow, phase, { config })).route });
+  }
+  const answer = await answerJustAQuestion(root, config, workflow, phase, { proposal: record.proposal, surface: 'decisions-card', actor: actionActor(root) });
+  emitCommandResult(commandResult({
+    operation: { id: 'decisions.just-a-question', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('decisions.just-a-question.recorded', { phase: phase.id, version: String(record.proposal.version) }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    next: answer.next ? [action({ id: 'version-question.declined', label: answer.words, command: answer.next.command, skill: answer.next.skill, rank: 'NOW', kind: 'workflow' })] : [],
+    data: { answer: 'just-a-question', phase: phase.id, version: record.proposal.version, opened: null, instructions: answer.answered.instructions, words: answer.words,
+      ...(answer.next ? { next: answer.next } : {}) }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
 async function record(root, options, workId, io) {
   if (optionString(options, 'version-consent')) return recordVersionConsent(root, options, workId);
+  if (optionString(options, 'just-a-question')) return recordJustAQuestion(root, options, workId);
   const { config, workflow } = await storyContext(root, workId, { record: true, fetch: optionBoolean(options, 'fetch') });
   if (workflow.status !== 'in_progress') {
     refused(`Story ${workflow.workItem.id} is ${workflow.status}; decisions are recorded while it is in progress.`, 'DECISIONS_STORY_CLOSED');

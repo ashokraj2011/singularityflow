@@ -403,6 +403,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Your yes to start version ${slot(s.version)} of ${slot(s.phase)} is kept for 30 minutes; its work command opens it.`,
     preserves: false
   },
+  'decisions.just-a-question.recorded': {
+    headline: (s) => `Just a question: version ${slot(s.version)} of ${slot(s.phase)} was not started.`,
+    preserves: false
+  },
   'decisions.undo.succeeded': {
     // What was settled for a person is their question again [owner, 2026-11-13].
     headline: (s) => `Undid ${slot(s.settled)}; it is a question for a person again.`,

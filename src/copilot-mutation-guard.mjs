@@ -1484,6 +1484,8 @@ async function confirmCodeGrant(payload, record) {
     const value = await currentContract(payload, record, { reclassifyOutputs: false }).catch(() => null);
     const { options } = parseCli(argv);
     if (value?.contract?.turnMode !== 'confirm' || value.decisionEnded || typeof value.confirmDigest !== 'string' || options.confirm !== value.confirmDigest) continue;
+    // "Just a question" opens nothing, so no yes is kept for it (owner, 2026-11-18).
+    if ((await answerBinding()).asQuestion(options)) continue;
     const proposed = await successorProposal(payload, options.confirm);
     if (!proposed.record) continue;
     await (await import('./story-version-consent.mjs')).grantConsent(proposed.commonDir, { record: proposed.record, surface: 'confirm-code',
@@ -2006,14 +2008,18 @@ async function answerBoundDenial(payload, record) {
     const proposed = await successorProposal(payload, options.confirm);
     const preview = [safeCommandGuidance({ argv: ['phase', 'rollover', positionals[2] ?? '<step>', '--json'] })].filter(Boolean);
     if (!proposed.record) return { ...mutationDenial(null, `PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. This confirmation names no version previewed on this machine, so the person's yes cannot be bound to it. Run the preview (singularity-flow phase rollover ${positionals[2] ?? '<step>'} --json), ask the person its question, and run the confirmation it returns.`, [], { routes: preview, alone: true }), recoverable: true };
+    // "No, it was just a question" (`--as-question`) stands only on the person's own reply to this version question in this
+    // turn, never on a yes kept from the card, and keeps no yes: it opens nothing (owner, 2026-11-18).
+    const binding = await answerBinding();
+    const question = binding.asQuestion(options);
     // The person's yes on the decisions card to this exact proposal (`decisions record --version-consent`, recorded outside
     // this chat by the card) is their consent here as well: its grant stands, and no question is asked again [OSA Stage 4].
     const consent = await import('./story-version-consent.mjs');
-    if ((await consent.readGrant(proposed.commonDir, proposed.record.digest).catch(() => null))?.surface === 'decisions-card') continue;
-    const binding = await answerBinding();
+    if (!question && (await consent.readGrant(proposed.commonDir, proposed.record.digest).catch(() => null))?.surface === 'decisions-card') continue;
     const version = proposed.record.proposal.version;
     const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals, version }).catch(() => null);
     if (reason) return { ...mutationDenial(null, reason, [], { routes: [safeCommandGuidance({ argv })].filter(Boolean), alone: true }), recoverable: true };
+    if (question) continue;
     const reply = await binding.successorReply(file, record, version, positionals[2] ?? null).catch(() => null);
     await consent.grantConsent(proposed.commonDir, { record: proposed.record, surface: 'question-tool',
       question: reply?.asked, session: payload.sessionId ?? payload.session_id ?? null, turnId: record.turnId ?? null,

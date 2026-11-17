@@ -91,10 +91,16 @@ async function recordVersionConsent(opening) {
   return (await runFlow(['decisions', 'record', opening.workId, '--version-consent', opening.confirmation, '--expect', opening.digest, '--json'])).data;
 }
 
+/** The person's "No, it was just a question" to the version question this card showed, recorded outside the chat; opens nothing. */
+async function recordJustAQuestion(opening) {
+  return (await runFlow(['decisions', 'record', opening.workId, '--just-a-question', opening.confirmation, '--expect', opening.digest, '--json'])).data;
+}
+
 const decide = (workId, { askedInChat = false } = {}) => runCard({
   askedInChat,
   read: (options) => readList(workId, options),
   consent: recordVersionConsent,
+  question: recordJustAQuestion,
   ask: (form) => session.ui.elicitation(form),
   show: (text) => session.log(text),
   record: recordCard, witness: recordWitness, inspect

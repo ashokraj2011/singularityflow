@@ -51,6 +51,8 @@ export { READ_CHUNK_BYTES };
 export const READ_PLAN_CHUNKS = 10;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
+// The version question's third answer for words the person typed (requested-successor.mjs JUST_A_QUESTION, owner 2026-11-18).
+const JUST_A_QUESTION = 'No, it was just a question';
 // `wait`: reading a result again while its command still runs is never a loop.
 const UNCOUNTED_STATES = new Set(['author', 'read', 'paused', 'wait', 'await-human', 'end-turn']);
 const LARGE_TEXT_BYTES = 4_000;
@@ -507,8 +509,9 @@ export function agentAct(result) {
     result.successor.preview);
     if (result.status === 'successor-confirmation-required' && result.successor?.question) return withRoute({ state: 'confirm', do: null,
       read: ['successor', 'next'],
-      ask: { kind: 'choice', question: result.successor.question, choices: (result.successor.choices ?? ['Yes', 'No']).map((label) => ({ label })),
-        how: `Show the person successor.${asked ? 'requests' : 'findings'} in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and ${asked ? 'make the change' : 'fix the findings'} in this same turn. On No, or with no question tool, give the person next and end; never answer it yourself.` },
+      // Words the person typed may have been only a question: its third answer opens nothing (owner, 2026-11-18).
+      ask: { kind: 'choice', question: result.successor.question, choices: [...(result.successor.choices ?? ['Yes', 'No']), ...(asked ? [JUST_A_QUESTION] : [])].map((label) => ({ label })),
+        how: `Show the person successor.${asked ? 'requests' : 'findings'} in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and ${asked ? 'make the change' : 'fix the findings'} in this same turn.${asked ? ` On "${JUST_A_QUESTION}" run do.shell (the preview), then its justAQuestion.command, which keeps their words as a question and opens nothing; answer their question in this turn.` : ''} On No, or with no question tool, give the person next and end; never answer it yourself.` },
       said: oneLine(asked ? `The person asked for a change to ${result.phase ?? 'this step'}: ask them whether to start version ${result.successor.targetGeneration ?? 'N+1'} for it, and on their Yes make it now.`
         : `The review of ${result.phase ?? 'this step'} asked for corrections: ask the person whether to start version ${result.successor.targetGeneration ?? 'N+1'} to fix them, and on their Yes do it now.`) },
     result.successor.preview);
@@ -684,8 +687,10 @@ export function agentAct(result) {
       return { ...rest, state: 'next', do: { ...rest.do, copilot: null },
         said: oneLine(`${result.nextAction?.reason ?? ''} Then refresh the entry once and do the version's work in this same turn.`) };
     }
-    return { ...act, ask: { ...act.ask, question: result.question, choices: [{ label: 'Yes' }, { label: 'No' }],
-      how: 'Ask the person ask.question exactly, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run do.shell once; on No, or with no question tool, start nothing and give them do.copilot. Never answer it yourself.' } };
+    const question = result.justAQuestion?.command ? result.justAQuestion : null;
+    return { ...act, ask: { ...act.ask, question: result.question, choices: [{ label: 'Yes' }, { label: 'No' }, ...(question ? [{ label: question.answer }] : [])],
+      how: `Ask the person ask.question exactly, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run do.shell once; on No, or with no question tool, start nothing and give them do.copilot.${question
+        ? ` Only on their "${question.answer}" run justAQuestion.command once: it keeps their words as a question and opens nothing.` : ''} Never answer it yourself.` } };
   }
   return act;
 }

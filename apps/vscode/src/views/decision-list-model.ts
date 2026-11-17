@@ -127,7 +127,7 @@ export interface DecisionPacket {
  * A step's next version waiting for the person's yes, as `decisions --json` lists it: the proposal's own question with its
  * real numbers and reason, the confirmation its preview showed, and the proposal's digest the yes is bound to.
  */
-export interface VersionOpeningPacket { workId: string; phase: string; version: number; question: string; confirmation: string; digest: string }
+export interface VersionOpeningPacket { workId: string; phase: string; version: number; question: string; confirmation: string; digest: string; justAQuestion?: boolean }
 
 /** What a person chose for one item, with the values they see in its fields. */
 export interface DecisionArticleAnswer { article: string; decision: string; reason?: string }
@@ -455,6 +455,16 @@ export function versionOpeningOf(packet: DecisionPacket | null | undefined): Ver
 export function versionConsentArgv(opening: VersionOpeningPacket): string[] {
   if (!CONFIRMATION.test(opening.confirmation) || !DIGEST.test(opening.digest)) throw new Error('This proposal cannot be answered here; read the decisions card again.');
   return ['decisions', 'record', assertWorkId(opening.workId), '--version-consent', opening.confirmation, '--expect', opening.digest, '--json'];
+}
+
+/**
+ * The person's "No, it was just a question" on the card to the exact version question it showed (owner, 2026-11-18). The
+ * engine keeps what they typed as a question and opens nothing (`decisions record --just-a-question`, the command the
+ * Copilot CLI card runs), bound to that digest; this extension writes no record of its own.
+ */
+export function justAQuestionArgv(opening: VersionOpeningPacket): string[] {
+  if (opening.justAQuestion !== true || !CONFIRMATION.test(opening.confirmation) || !DIGEST.test(opening.digest)) throw new Error('This question cannot be answered here; read the decisions card again.');
+  return ['decisions', 'record', assertWorkId(opening.workId), '--just-a-question', opening.confirmation, '--expect', opening.digest, '--json'];
 }
 
 /**

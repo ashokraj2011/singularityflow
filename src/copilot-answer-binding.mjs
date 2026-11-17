@@ -197,15 +197,27 @@ function yesNoCommand([command, sub, third], options, version = null) {
   }
   // Starting a step's next version (`phase rollover --confirm`) in an authoring turn: only on the person's own yes to a question
   // that asks to start it, in this turn; a no, Not now, the host's own reply or no answer starts nothing [owner, 2026-11-16].
+  // With `--as-question` it records the third answer, only on the person's own "No, it was just a question" to that same
+  // question; it opens nothing (owner, 2026-11-18).
   if (command === 'phase' && sub === 'rollover' && typeof options.confirm === 'string') {
-    return { records: 'yes', proposal: true, successor: true, version, row: `rollover ${third}`, names: [], ids: NEVER, yes: ['start it'], no: ["don't start", 'do not start'],
-      typed: { yes: NEVER, no: NEVER }, terminal: `singularity-flow phase rollover ${third ?? '<step>'}` };
+    const question = asQuestion(options);
+    return { records: question ? 'question' : 'yes', proposal: true, successor: true, version, row: `${question ? 'question' : 'rollover'} ${third}`, names: [], ids: NEVER,
+      yes: ['start it'], no: ["don't start", 'do not start'], typed: { yes: NEVER, no: NEVER }, terminal: `singularity-flow phase rollover ${third ?? '<step>'}` };
   }
   if (command === 'decision' && sub === 'plan' && (options['add-location'] !== undefined || options['add-supporting'] !== undefined)) {
     const paths = [...text('add-location').map((entry) => entry.slice(entry.indexOf('=') + 1)), ...text('add-supporting').map((entry) => entry.split('=')[0])].sort();
     return { records: 'yes', only: true, row: `plan ${paths.join(' ')}`, names: paths, yes: [], no: [] };
   }
   return null;
+}
+
+/**
+ * Whether a command carries `--as-question`, read as the CLI reads it (util.mjs optionBoolean): any value but false, 0, no or
+ * off. A value the CLI cannot read is held as the question too, the stricter binding (owner, 2026-11-18).
+ */
+export function asQuestion(options) {
+  const value = [options?.['as-question']].flat().at(-1);
+  return value !== undefined && !['false', '0', 'no', 'off'].includes(String(value).toLowerCase());
 }
 
 /** A question that asks to start a version: that exact one when the preview's number is known. */
@@ -215,15 +227,20 @@ const successorQuestion = (version) => new RegExp(`\\b(?:start|open|begin)\\b[^?
 const named = (text) => comparable(text).replace(/[-_]+/gu, ' ');
 const sideWords = (words) => new RegExp(`^(?:${words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('|')})(?:$|\\s*[.,;:!]|\\s+[-\u2013\u2014])`, 'u');
 
+// The version question's third answer, "No, it was just a question" (owner, 2026-11-18): its own side, never a plain No.
+const JUST_A_QUESTION = /^(?:no\s*[,.;:!-]?\s*)?(?:it\s+(?:was|is)\s+|it's\s+)?(?:just|only)\s+a\s+question$/u;
+
 /**
- * What one reply says of a yes or no: `yes`, `no`, `not-now`, or null when it is no yes or no (a reason, say). A form's true or
- * false field is its yes or no: asked with one, Copilot CLI hands over "User responded: true", and the person was asked again.
+ * What one reply says of a yes or no: `yes`, `no`, `not-now`, `question` (the version question's "No, it was just a question"),
+ * or null when it is no yes or no (a reason, say). A form's true or false field is its yes or no: asked with one, Copilot CLI
+ * hands over "User responded: true", and the person was asked again.
  */
 export function sideOf(reply, yesNo) {
   const yes = sideWords(['yes', 'true', ...yesNo.yes]); const no = sideWords(['no', 'false', ...yesNo.no]); const later = sideWords(['not now']);
   for (const value of reply.texts ?? []) {
     const text = typeof value === 'boolean' ? String(value) : value;
     if (later.test(text)) return 'not-now';
+    if (typeof text === 'string' && JUST_A_QUESTION.test(text)) return 'question';
     if (yes.test(text)) return 'yes';
     if (no.test(text)) return 'no';
   }
@@ -305,6 +322,7 @@ function proposalProblem(found, ledger, yesNo, { localChat }) {
  * or their answers do not reach SFlow in this chat. Each names what to do next; none starts anything [owner, 2026-11-16].
  */
 function successorProblem(found, ledger, yesNo, { localChat }) {
+  if (yesNo.records === 'question') return questionProblem(found, ledger, yesNo, { localChat });
   const theirs = `They can start it themselves: the preview's /sf-confirm code, or in their own terminal ${yesNo.terminal}, which asks them.`;
   if (found.problem === 'none' && localChat && !ledger.delivered) {
     return `${REFUSAL} This chat's answers do not reach SFlow, so the person's yes to starting the next version cannot be read here; do not ask again in this chat. ${theirs}`;
@@ -313,7 +331,24 @@ function successorProblem(found, ledger, yesNo, { localChat }) {
     return `${REFUSAL} Starting the step's next version is the person's yes, never this turn's. Ask them the preview's question, which names version ${Number.isSafeInteger(yesNo.version) ? yesNo.version : 'N'} ("Start version ${Number.isSafeInteger(yesNo.version) ? yesNo.version : 'N'} of …?"; Yes, No), with your question tool (ask_user; in VS Code, vscode_askQuestions), and run it again only after their Yes. ${theirs}`;
   }
   if (found.problem === 'ambiguous') return `${REFUSAL} The person answered yes and no together; ask "Start version N?" on its own (Yes, No), and start it only after their Yes.`;
-  if (found.side === 'not-now' || found.side === 'no') return `${REFUSAL} The person did not say yes to starting the next version: start nothing, and tell them the published version stays as it is.`;
+  if (found.side !== 'yes') return `${REFUSAL} The person did not say yes to starting the next version: start nothing, and tell them the published version stays as it is.`;
+  return null;
+}
+
+/**
+ * Why the version question's third answer may not be recorded: the person did not answer "No, it was just a question" to
+ * that exact question in this turn. Each names what to do next; none opens or records anything (owner, 2026-11-18).
+ */
+function questionProblem(found, ledger, yesNo, { localChat }) {
+  const card = 'They can also answer it on the decisions card (sflowDecide or sflow_decide with the Story ID), which offers the same three answers.';
+  if (found.problem === 'none' && localChat && !ledger.delivered) {
+    return `${REFUSAL} This chat's answers do not reach SFlow, so the person's answer cannot be read here; do not ask again in this chat. ${card}`;
+  }
+  if (found.problem === 'none') {
+    return `${REFUSAL} That it was just a question is the person's own answer, never this turn's. Ask them the preview's question ("Start version ${Number.isSafeInteger(yesNo.version) ? yesNo.version : 'N'} of …?"; Yes, No, No, it was just a question) with your question tool (ask_user; in VS Code, vscode_askQuestions), and run this only after they answer "No, it was just a question". ${card}`;
+  }
+  if (found.problem === 'ambiguous') return `${REFUSAL} The person gave more than one answer together; ask the version question on its own, and record it only after their "No, it was just a question".`;
+  if (found.side !== 'question') return `${REFUSAL} The person did not answer that it was just a question: record nothing for it. Run the command of the answer they gave, or ask them again if you are not sure.`;
   return null;
 }
 

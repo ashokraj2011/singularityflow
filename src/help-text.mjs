@@ -940,7 +940,7 @@ Usage:
   singularity-flow phase prepublish [PHASE] [--json] [--for-agent] [--publish-if-ready]
   singularity-flow phase begin [PHASE] [--json]
     [--adopt-existing|--adopt-current-interval] [--confirm CHANGE-SET-DIGEST]
-  singularity-flow phase rollover [PHASE] [--reason TEXT] [--json|--confirm CURRENT-DIGEST]
+  singularity-flow phase rollover [PHASE] [--reason TEXT] [--json|[--as-question] --confirm CURRENT-DIGEST]
   singularity-flow phase publish [PHASE]
     [--authored human|governed-agent|deterministic|external-tool]
     [--from FILE] [--channel manual-in-place|manual-import|copilot-host|kernel-model|kernel-generator|external-tool]
@@ -995,7 +995,7 @@ Usage:
   singularity-flow upstream-issue decide-amendment FAM-ID --decision approve|reject --reason TEXT --confirm FAM-ID [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue revalidate PHASE --amendment FAM-ID|AMD-ID --outcome unchanged|return --reason TEXT [--work-id WORK-ID] [--json]
   singularity-flow departure record --kind path|supporting|plan-row|test|wording|clause|finding --reason TEXT [--path FILE]... [--clause CLAUSE]... [--row-op OP] [--target STEP --file DRAFT] [--finding ID]... [--supersedes DEP-ID] [--work-id WORK-ID] [--json]
-  singularity-flow departure account --instruction N (--clauses ID,... | --departure DEP-ID) [--work-id WORK-ID] [--json]
+  singularity-flow departure account --instruction N (--clauses ID,... | --departure DEP-ID | --as-question) [--work-id WORK-ID] [--json]
   singularity-flow departure list [--phase PHASE] [--open] [--work-id WORK-ID] [--json]
   singularity-flow departure show DEP-ID [--work-id WORK-ID] [--json]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE

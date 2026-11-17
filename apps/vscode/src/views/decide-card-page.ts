@@ -214,6 +214,9 @@ export function evidenceHtml(packet: DecisionPacket): string {
 /** The two answers to a waiting next version, in the Copilot CLI card's words (plugin/extensions/decisions/card.mjs). */
 export const START_VERSION = 'Yes, start it';
 export const NOT_NOW = 'Not now';
+// The third answer to a version proposed for words the person typed (owner, 2026-11-18).
+export const JUST_A_QUESTION = 'No, it was just a question';
+const QUESTION_NOTE = `"${JUST_A_QUESTION}" keeps what you typed as a question and starts nothing.`;
 
 /**
  * A step's next version waiting for the person's yes, asked first as its own question, as the Copilot CLI card asks it:
@@ -225,9 +228,10 @@ export function versionOpeningHtml(packet: DecisionPacket, { declined = null as 
   if (!opening || opening.digest === declined) return '';
   const digest = escape(opening.digest);
   return `<section class="dc-opening" aria-label="Start version ${opening.version} of ${escape(opening.phase)}"><h2>${escape(opening.question)}</h2>
-    <p class="muted">Your yes is kept for this exact proposal; the step's work command then opens it. Nothing starts on "${NOT_NOW}".</p>
+    <p class="muted">Your yes is kept for this exact proposal; the step's work command then opens it. Nothing starts on "${NOT_NOW}".${opening.justAQuestion === true ? ` ${QUESTION_NOTE}` : ''}</p>
     <div class="dc-answers"><button type="button" data-version="yes" data-digest="${digest}"${busy ? ' disabled' : ''}>${START_VERSION}</button>
-      <button type="button" class="secondary" data-version="no" data-digest="${digest}"${busy ? ' disabled' : ''}>${NOT_NOW}</button></div></section>`;
+      ${opening.justAQuestion === true ? `<button type="button" class="secondary" data-version="question" data-digest="${digest}"${busy ? ' disabled' : ''}>${JUST_A_QUESTION}</button>
+      ` : ''}<button type="button" class="secondary" data-version="no" data-digest="${digest}"${busy ? ' disabled' : ''}>${NOT_NOW}</button></div></section>`;
 }
 
 function approvalHtml(packet: DecisionPacket): string {

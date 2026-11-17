@@ -508,21 +508,33 @@ const checkNames = (packet) => cardRows(packet).filter((item) => checkOf(item) &
  * `inspect(packet, file)` puts a file in front of the person. The caller passes these in, so a test can run every
  * route and no route can be answered by anything but `ask`.
  */
-/** The start of a step's next version as the card asks it: the proposal's own question, yes or not now [D3, OSA Stage 4]. */
+/**
+ * The start of a step's next version as the card asks it: the proposal's own question, yes or not now [D3, OSA Stage 4]; for
+ * a version proposed for words the person typed, a third answer, "No, it was just a question" (owner, 2026-11-18).
+ */
 export const START_VERSION = 'Yes, start it';
-export function versionOpeningForm(opening) {
-  return { message: `${opening.question}\nYour yes is kept for this exact proposal; the step's work command then opens it. Nothing starts on "Not now".`,
-    requestedSchema: { type: 'object', required: ['start'], properties: { start: { type: 'string', title: 'Start it?', enum: [START_VERSION, NOT_NOW] } } } };
+export const JUST_A_QUESTION = 'No, it was just a question';
+const QUESTION_NOTE = `"${JUST_A_QUESTION}" keeps what you typed as a question and starts nothing.`;
+export function versionOpeningForm(opening, { question = true } = {}) {
+  const third = opening.justAQuestion === true && question;
+  return { message: `${opening.question}\nYour yes is kept for this exact proposal; the step's work command then opens it. Nothing starts on "Not now".${third ? ` ${QUESTION_NOTE}` : ''}`,
+  requestedSchema: { type: 'object', required: ['start'], properties: { start: { type: 'string', title: 'Start it?', enum: [START_VERSION, ...(third ? [JUST_A_QUESTION] : []), NOT_NOW] } } } };
 }
 
 /**
  * A step's next version waiting for the person's yes (the list's `versionOpening`): asked first, as its own question.
- * `consent(opening)` records the yes outside the chat (`decisions record --version-consent`). Null when none waits.
+ * `consent(opening)` records the yes outside the chat (`decisions record --version-consent`); `question(opening)` records
+ * "No, it was just a question" the same way (`decisions record --just-a-question`), and opens nothing. Null when none waits.
  */
-async function askVersionOpening(packet, { ask, show, consent }) {
+async function askVersionOpening(packet, { ask, show, consent, question = null }) {
   const opening = packet?.versionOpening;
   if (!opening || !consent) return null;
-  const answer = await ask(versionOpeningForm(opening));
+  const answer = await ask(versionOpeningForm(opening, { question: Boolean(question) }));
+  if (answer?.action === 'accept' && answer.content?.start === JUST_A_QUESTION && question && opening.justAQuestion === true) {
+    const result = await question(opening);
+    await show(result?.words ?? `Version ${opening.version} of ${opening.phase} was not started; what you typed is kept as a question.`);
+    return { started: false, answered: true, words: result?.words ?? null, next: result?.next ?? null };
+  }
   if (answer?.action !== 'accept' || answer.content?.start !== START_VERSION) return { started: false };
   const result = await consent(opening);
   await show(result?.words ?? `Your yes to start version ${opening.version} of ${opening.phase} is kept.`);
@@ -530,12 +542,18 @@ async function askVersionOpening(packet, { ask, show, consent }) {
   return { started: true, words: result?.words ?? null, next: result?.next ?? null };
 }
 
-export async function runCard({ ask, show, read, record, witness, inspect, consent = null, askedInChat = false }) {
+export async function runCard({ ask, show, read, record, witness, inspect, consent = null, question = null, askedInChat = false }) {
   let packet = await read();
-  const opening = await askVersionOpening(packet, { ask, show, consent });
+  const opening = await askVersionOpening(packet, { ask, show, consent, question });
   if (opening?.started && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-opening'], remaining: [],
     message: opening.words ?? `Your yes to start version ${packet.versionOpening.version} of ${packet.versionOpening.phase} is kept; its work command opens it.`,
     ...(opening.next ? { next: opening.next } : {}) };
+  // "No, it was just a question": recorded, nothing opened, and nothing more asked about it (owner, 2026-11-18). It changed the
+  // Story, so the list is read again for anything else that waits.
+  const answered = opening?.answered ? opening.words ?? `Version ${packet.versionOpening.version} of ${packet.versionOpening.phase} was not started; what you typed is kept as a question` : null;
+  if (answered) packet = await read();
+  if (answered && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-question'], remaining: [],
+    message: answered, ...(opening.next ? { next: opening.next } : {}) };
   // A chat that asked carries on when nothing waits: only a person who typed /decide sees a review nothing waits on.
   if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
   // What an answer depends on, SFlow checks before it asks, read-only and bounded [owner, 2026-11-16].
@@ -545,9 +563,12 @@ export async function runCard({ ask, show, read, record, witness, inspect, conse
     packet = await read({ probe: CHECK_SECONDS }).catch(() => packet);
   }
   await show(decisionsTable(packet));
-  const recorded = [];
+  const recorded = answered ? ['version-question'] : [];
   // What was decided, in its own words: this is what the agent reports back, and a record's ID does not say it.
-  const decided = [];
+  const decided = answered ? [answered.replace(/\.$/u, '')] : [];
+  // Nothing more recorded after that answer: it still stands, and is said.
+  const none = () => (answered ? { status: 'recorded', recorded, remaining: openRows(packet).map((item) => itemName(item)), message: `${decided[0]}. No other decision was recorded.` }
+    : { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' });
   // Drafts written, never recorded: where each is and what is next [SCS:REQ-020].
   const drafted = [];
   // A pin or plan amendment that changed the open code step after its summary was written [owner, 2026-11-13].
@@ -561,12 +582,12 @@ export async function runCard({ ask, show, read, record, witness, inspect, conse
     await show(decisionsTable(packet));
     asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
   }
-  if (asked.cancelled) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
+  if (asked.cancelled) return none();
   if (asked.refused) return { status: 'refused', recorded, remaining: [], message: refusedWords(asked.refused) };
   let { answers } = asked;
   while (answers.length) {
     const confirmed = await ask(confirmForm(packet, answers));
-    if (confirmed?.action !== 'accept' || confirmed.content?.confirm !== RECORD) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
+    if (confirmed?.action !== 'accept' || confirmed.content?.confirm !== RECORD) return none();
     try {
       const result = await record(packet, answersDocument(packet, answers));
       recorded.push(...(result.recorded ?? []).map((entry) => entry.record ?? entry.item));

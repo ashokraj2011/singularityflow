@@ -38,8 +38,11 @@ const HAND_TASK_COMPLETION = ['sflow-call', 'sflow-implement', 'sflow-specify', 
 
 test('the hook\'s skill lists are the alias table\'s, and say exactly what the hand-written lists said [OSA:REQ-027]', async () => {
   const named = (keep) => Object.entries(WRITING_ALIASES).filter(([, alias]) => keep(alias)).map(([name]) => name);
-  // The lists equal the table.
-  assert.deepEqual(ASKED_FOR_SKILLS, named((alias) => alias.kind === 'work-command').flatMap((name) => [`sf-${name}`, `sflow-${name}`]));
+  // The lists equal the table: the work command's two names, then every other step writer the authoring catalog names,
+  // whose typed change is kept the same way (review finding 1, 2026-11-17).
+  const writers = Object.keys(AUTHORING_SKILL_DECLARATION).filter((source) => !named((alias) => alias.kind === 'work-command').includes(source.replace(/^sflow-/u, '')));
+  assert.deepEqual(ASKED_FOR_SKILLS, [...named((alias) => alias.kind === 'work-command').map((name) => `sflow-${name}`), ...writers]
+    .flatMap((source) => [source.replace(/^sflow-/u, 'sf-'), source]));
   assert.deepEqual(TASK_COMPLETION_ALIASES, named((alias) => alias.completesTask).map((name) => `sflow-${name}`));
   // asked-for.mjs keeps no list of its own: what it records follows the table.
   assert.ok(!readFileSync(path.join(root, 'src/asked-for.mjs'), 'utf8').includes("'sflow-code'"));
@@ -49,8 +52,9 @@ test('the hook\'s skill lists are the alias table\'s, and say exactly what the h
       assert.deepEqual(kept, ASKED_FOR_SKILLS.includes(skill) ? { text: 'tighten the message' } : null, skill);
     }
   }
-  // And what they said by hand.
-  assert.deepEqual(ASKED_FOR_SKILLS, HAND_ASKED_FOR);
+  // And what they said by hand, with the configured writers added since (review finding 1, 2026-11-17).
+  assert.deepEqual(ASKED_FOR_SKILLS.slice(0, HAND_ASKED_FOR.length), HAND_ASKED_FOR);
+  assert.deepEqual(ASKED_FOR_SKILLS.slice(HAND_ASKED_FOR.length).filter((skill) => skill.startsWith('sflow-')), writers);
   assert.deepEqual(TASK_COMPLETION_ALIASES.filter((skill) => !AUTHORING_SKILL_DECLARATION[skill]).sort(), [...HAND_TASK_COMPLETION].sort());
   // The work command's two names are the table's.
   assert.deepEqual(named((alias) => alias.kind === 'work-command').map((name) => `/sf-${name}`), [...WORK_COMMANDS]);

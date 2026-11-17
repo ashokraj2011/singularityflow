@@ -14,8 +14,8 @@
   "count-without-name": 27,
   "draft-for-version": 6,
   "generic-route": 6356,
-  "jargon": 1347,
-  "length": 675
+  "jargon": 1345,
+  "length": 674
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -3393,11 +3393,9 @@
    "ad37581a7c9e": "length"
   },
   "src/epic-review.mjs": {
-   "09c885d39a12": "jargon:packet",
    "3af81981c3c3": "jargon:packet",
    "3d486400c826": "jargon:packet",
    "5c689c6600db": "jargon:packet",
-   "99e10fedaaac": "jargon:retained",
    "9c79b159890f": "jargon:packet",
    "c8503b565eab": "jargon:packet"
   },
@@ -4538,8 +4536,7 @@
    "55ec3efe6195": "length",
    "699525089d66": "jargon:generation length",
    "874c8522f3c6": "2× jargon:retained",
-   "d676e75db8b3": "jargon:retained",
-   "e1324da5724e": "length"
+   "d676e75db8b3": "jargon:retained"
   },
   "src/visual-coverage.mjs": {
    "07f84f8068a0": "length",

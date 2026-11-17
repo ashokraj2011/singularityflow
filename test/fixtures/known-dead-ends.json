@@ -11,7 +11,6 @@
         "AGENT_PHASE_DEFAULT_MISSING",
         "AGENT_PHASE_UNKNOWN",
         "AGENT_PHASE_UNMAPPED",
-        "APPROVAL_INTENT_AMENDMENT_PENDING",
         "APPROVAL_POLICY_UNATTAINABLE",
         "APR_CONFIRMATION_REQUIRED",
         "APR_NOTHING_TO_ADD",
@@ -87,13 +86,11 @@
         "PRODUCT_ALIGNMENT_VERIFICATION_FAILED",
         "PUBLICATION_SET_ASIDE_REFUSED",
         "REMOTE_UNKNOWN",
-        "REPAIR_BUDGET_EXHAUSTED",
         "REPOSITORY_ONBOARDING_MIGRATION_SOURCE_MISSING",
         "RETAINED_EVIDENCE_CHANGED",
         "REWORK_ROLL_FORWARD_SUPERSEDED",
         "SCHEMA_VERSION_ARCHIVED",
         "SCHEMA_VERSION_FUTURE",
-        "SEQUENCE_CONFIRMATION_REQUIRED",
         "SESSION_LOCAL_SYNC_DIRTY",
         "SESSION_LOCAL_SYNC_DIVERGED",
         "SESSION_REPOSITORY_UNAVAILABLE",
@@ -139,18 +136,11 @@
         "TEST_SETUP_COMMAND_INVALID",
         "TRANSPORT_INTENT_BUSY",
         "TRANSPORT_INTENT_INTEGRITY_INVALID",
-        "TRP_AUTHORITY_REQUIRED",
-        "TRP_FEATURE_ADMISSION_BLOCKED",
-        "TRP_PHASE_GATE_BLOCKED",
-        "TRP_PUBLICATION_PENDING",
-        "TRP_RISK_ADAPTER_UNAVAILABLE",
-        "TRP_RISK_REVIEW_STALE",
         "UNKNOWN_COMMAND",
         "UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE",
         "USER_AGENT_FOLDER_IS_WORKFLOW",
         "USER_AGENT_MAIN_INVALID",
         "WFA_RUNTIME_INCOMPATIBLE",
-        "WITNESS_EVIDENCE_UNPUBLISHED",
         "WITNESS_EXCEPTION_RENEWAL_INVALID",
         "WITNESS_EXCEPTION_STORY_CLOSED",
         "WITNESS_EXCEPTION_UNKNOWN",
@@ -168,6 +158,21 @@
         "WORKSPACE_SYNCED_FOLDER",
         "WORK_PRESERVATION_FAILED",
         "XPL2_SUBJECT_UNKNOWN"
+      ]
+    },
+    {
+      "route": "/sf-recover (this check's stand-in recovery command)",
+      "reason": "Their first route here is /sf-recover only because this check's stand-in refusal carries a recovery command, which leads the plan. The real refusals lead with their own routes, none of them /sf-recover: the soft gate's override (SEQUENCE_CONFIRMATION_REQUIRED); the test-policy risk reads, the readiness repair preview and sync for a pending risk publication (TRP_*); the approvers' return that resets the repair budget (REPAIR_BUDGET_EXHAUSTED); and the amendment, then its decisions card (APPROVAL_INTENT_AMENDMENT_PENDING).",
+      "codes": [
+        "APPROVAL_INTENT_AMENDMENT_PENDING",
+        "REPAIR_BUDGET_EXHAUSTED",
+        "SEQUENCE_CONFIRMATION_REQUIRED",
+        "TRP_AUTHORITY_REQUIRED",
+        "TRP_FEATURE_ADMISSION_BLOCKED",
+        "TRP_PHASE_GATE_BLOCKED",
+        "TRP_PUBLICATION_PENDING",
+        "TRP_RISK_ADAPTER_UNAVAILABLE",
+        "TRP_RISK_REVIEW_STALE"
       ]
     },
     {
@@ -193,7 +198,7 @@
     },
     {
       "route": "/sf-test-setup",
-      "reason": "The first route reads the test setup; the command that records one comes later in the plan.",
+      "reason": "The first route reads the test setup. The agent's own way through is the plan's second step, decision test-command … --use, which requests this Story's test command (a person who approves the step accepts it); it is not a person-only refusal, and that request could lead.",
       "codes": [
         "CODE_DELIVERY_TEST_COMMAND_REQUIRED"
       ]
@@ -223,12 +228,13 @@
       ]
     },
     {
+      "route": "/sf-recover (this check's stand-in recovery command)",
       "codes": [
         "SKP_AMENDMENT_ANCESTRY_LIMIT",
         "SKP_AMENDMENT_ANCESTRY_REWRITTEN",
         "SKP_AMENDMENT_ANCESTRY_UPGRADE_REQUIRED"
       ],
-      "reason": "sflow/config's history no longer proves where today's configuration came from (SPEC-SCF stage 4). The way through is a person's: an approver previews and then confirms adopting it without ancestry (story approvers refresh --adopt-without-ancestry), the team upgrades the repository's minimum build (workspace refresh-configuration, preview then confirm), or the history is restored on the Git host. Each first route is that preview."
+      "reason": "sflow/config's history no longer proves where today's configuration came from (SPEC-SCF stage 4). The way through is a person's: an approver previews and then confirms adopting it without ancestry (story approvers refresh --adopt-without-ancestry), the team upgrades the repository's minimum build (workspace refresh-configuration, preview then confirm), or the history is restored on the Git host. Each first route is that preview. In this check the stand-in refusal's recovery command leads, which is why the codes are listed."
     }
   ],
   "journeys": {

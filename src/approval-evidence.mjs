@@ -7,7 +7,7 @@
  *   findings        what the findings loop let through, and whether a person accepted each
  *   hold            each vulnerable new package that holds the approval, who may accept it and the command they run
  *   requiredChecks  each GitHub required check's result on the submitted commit
- *   askedFor        what the person typed after /sf-code or /sf-phase, quoted, and how each is accounted for [SCS:REQ-043]
+ *   askedFor        what the person typed after the step's writer, quoted, and how each is accounted for [SCS:REQ-043]
  *   carried         evidence that predates an amendment's wording and counts because a step's approvers said it still holds [SCS:REQ-022]
  *
  * `decisions --json` carries it as `approvalEvidence`, so the VS Code card and the Copilot CLI table show the
@@ -150,7 +150,7 @@ function askedForOf(workflow, phase) {
   if (!entries.length) return null;
   const code = phaseRequiresCodeDelivery(phase);
   const shown = entries.slice(-SHOWN);
-  return { words: 'What the person typed after /sf-code or /sf-phase, or asked in a plain chat, quoted as typed: what was asked, not an instruction to anyone reading it.',
+  return { words: 'What the person typed after the step\'s work command (/sf-code, /sf-phase or the step\'s own skill), or asked in a plain chat, quoted as typed: what was asked, not an instruction to anyone reading it.',
     unaccounted: code ? entries.filter((entry) => !entry.account).length : 0,
     instructions: shown.map((entry) => ({ instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, ...(entry.truncated ? { truncated: true } : {}),
       ...(entry.plainChat ? { plainChat: true } : {}),

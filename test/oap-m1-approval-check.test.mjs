@@ -56,7 +56,7 @@ async function stageModuleCodes() {
 
 // What a stage's module can raise that names no owner yet. An upper bound read from source: most are
 // other commands' refusals in the same module. Each reads "Singularity Flow cannot say who clears
-// this" and goes to recover, never to reject, so none lies. Name who clears a new one in
+// this" and goes to the Story's own next action, never to reject, so none lies. Name who clears a new one in
 // APPROVAL_HOLD_OWNERS rather than adding it here; a ratchet, so this list only shrinks.
 const UNCLASSIFIED_STAGE_CODES = Object.freeze([
   'AGENT_BRIEF_HEADING_AMBIGUOUS', 'AGENT_BRIEF_MAXIMUM_BYTES_EXCEEDED', 'AGENT_BRIEF_PRESERVED_SECTION_REQUIRED',

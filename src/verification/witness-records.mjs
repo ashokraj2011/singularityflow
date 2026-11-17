@@ -233,13 +233,17 @@ export function retainedEvidenceDetails(workflow, rows, route, lead) {
 function unpublishedWitnessRefusal(workflow, { clauseId, file, sha256, published }) {
   if (!published.length) {
     const recorded = unpublishedDelivery(workflow, clauseId, file);
+    // The step whose delivery records the file publishes it, by the route open from where the Story stands; nothing is
+    // damaged, so recovery would find nothing to repair and the witness was refused again (review finding 6, 2026-11-17).
+    const route = recorded ? republicationRoute(workflow, recorded.phase, clauseId) : null;
+    const lead = recorded ? `${recorded.phase}, whose delivery recorded ${file} ${recorded.state}, publishes it` : `The code step that owes ${file} saves it and publishes it with its delivery`;
     return new SingularityFlowError(`Nothing has published ${file} for ${clauseId}`
       + `${recorded ? ` (${recorded.phase}'s delivery recorded it ${recorded.state})` : ': no step\'s delivery records it'}, `
       + 'so there is no published image to witness yet. The code step that owes it saves it and publishes it with its delivery; witness it after that. Nothing was recorded.',
-    { code: 'WITNESS_EVIDENCE_UNPUBLISHED', details: { workId: workflow?.workItem?.id ?? null, paths: [file], retainedEvidence: [], routes: [], notes: [],
-      ...(workflow?.workItem?.id ? { nextAction: { argv: ['recover', workflow.workItem.id,
-        ...(workflow.currentPhase ? ['--phase', workflow.currentPhase] : []), '--for-agent', '--json'],
-      label: 'Inspect the current delivery and its publication requirements before attempting a witness again.' } } : {}) } });
+    { code: 'WITNESS_EVIDENCE_UNPUBLISHED', details: { workId: workflow?.workItem?.id ?? null, paths: [file], retainedEvidence: [],
+      routes: route?.command ? [{ kind: route.kind, command: route.command, label: `${lead}: ${route.sentence}` }] : [],
+      notes: route?.command ? [] : [`${lead}${route ? `: ${route.sentence}` : '; witness it after that.'}`],
+      ...(recorded ? { ownerPhase: recorded.phase } : {}) } });
   }
   const entry = published.find((item) => item.sha256 !== sha256) ?? published[0];
   const route = republicationRoute(workflow, entry.phase, clauseId);

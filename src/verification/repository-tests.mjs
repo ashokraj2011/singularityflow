@@ -154,7 +154,7 @@ export async function preflightRepositoryTests(root, config, workflow, phase, ke
   const fields = { purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase) };
   const checks = await kernel.qualityChecks(root, phase, config, workflow, added.commands, {
     commandProvenance: new Map(added.commands.map((command) => [command, testCommandProvenance(phase, command)])),
-    reuseUnchanged: kernel.mayReuseUnchangedRuns(workflow),
+    reuseUnchanged: kernel.mayReuseUnchangedRuns(workflow, phase),
     onMutation: (ran) => recordRunsBeforeRefusal(root, itemRelative, added.commands, ran, fields)
   });
   try {

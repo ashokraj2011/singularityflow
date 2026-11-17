@@ -542,6 +542,7 @@
                 "afterStep": { "$ref": "#/$defs/afterStep" },
                 "testEvidenceFrom": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
                 "repositoryTests": { "enum": ["run", "off"], "description": "run: a non-code step's submission also runs the repository's own test suite, found from its build files. Absent means off." },
+                "testRuns": { "enum": ["reuse", "fresh"], "description": "fresh: this step's publication and submission run its tests every time and reuse no earlier run, even on unchanged code. Absent means reuse." },
                 "testLevels": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["unit", "component", "integration", "e2e", "other"] }, "description": "Which of the repository's tests this step runs, by level. With testIds, a command runs when its level or its ID is listed. Absent (with testIds absent) means every one." },
                 "testIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Which of the repository's tests this step runs, by ID; each must be one tests holds." }
               }
@@ -587,6 +588,7 @@
             "items": { "$ref": "#/$defs/qualityCommand" }
           },
           "repositoryTests": { "enum": ["run", "off"], "description": "run: a non-code step's submission also runs the repository's own test suite, found from its build files. Absent means off." },
+          "testRuns": { "enum": ["reuse", "fresh"], "description": "fresh: this step's publication and submission run its tests every time and reuse no earlier run, even on unchanged code. Absent means reuse." },
           "testLevels": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["unit", "component", "integration", "e2e", "other"] }, "description": "Which of the repository's tests this step runs, by level. With testIds, a command runs when its level or its ID is listed. Absent (with testIds absent) means every one." },
           "testIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Which of the repository's tests this step runs, by ID; each must be one tests holds." },
           "approval": { "$ref": "#/$defs/approvalPolicy" }

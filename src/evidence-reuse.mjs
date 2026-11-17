@@ -13,7 +13,8 @@
  *   by that step's approved submission at its current generation; its bytes at the submission's
  *   evidence commit match the digest the submission bound; it is that step's own attempt, ran
  *   against the candidate the submission retained, passed with structured counts that meet the
- *   Story's pinned minimums, and skipped no test.
+ *   Story's pinned minimums, and skipped no test. A step whose pinned definition says its tests run
+ *   fresh (`testRuns: fresh`) reuses no run, so it is refused, with its fresh-run route.
  * - The decision binds the attempt ID, the digest of the attempt record, the attempt's source commit
  *   and the application source tree digest it ran on. That digest is the engine's own
  *   `sourceTreeHash`: every repository path except the Story's own work-item paths and the other
@@ -35,6 +36,8 @@
  * `evidenceReuseFor` (which observes it): the decisions that apply to a step now, the decisions
  * that lapsed, and the clause IDs the reused attempts cover. Nothing here relaxes any other check.
  */
+import { createHash } from 'node:crypto';
+
 import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError, unknownStepDetails } from './util.mjs';
@@ -236,6 +239,61 @@ export function recordEvidenceReuseRevocation(workflow, { reuseId, reason, actor
 }
 
 // ---------------------------------------------------------------------------------------------
+// The rest of a gate's reuse key [TCE:REQ-081, amended 2026-11-17]. The gates reuse a passing run on unchanged code
+// automatically (verification/attempts.mjs unchangedTestRun); these are the parts of "unchanged" beyond the code, the
+// command and the environment, kept here with the person's reuse so one owner says what a reused run must share.
+
+/**
+ * The digest of the Story's test policy as pinned: the minimum counts and affected-module rule, the changed-line
+ * coverage rule, the scope intake chose and the sealed Story test policy. The command is compared by its program,
+ * folder, report form and pin. A later scope change is left out: a whole run already ran the fewer tests a narrower
+ * scope asks for, and anyone may narrow (owner, 2026-11-06).
+ */
+export function storyTestPolicySha256(workflow) {
+  const resolution = workflow?.resolution ?? {};
+  return `sha256:${recordSha256({ tests: resolution.codeDelivery?.tests ?? null,
+    changedLineCoverage: resolution.codeDelivery?.changedLineCoverage ?? null,
+    scope: resolution.testExecutionMode ?? null, sealed: workflow?.testPolicy?.sha256 ?? null })}`;
+}
+
+/** Whether every lockfile `dependencies` names is the one committed at `commit`, byte for byte, so a code digest covers it. */
+async function committedLockfiles(root, commit, dependencies) {
+  if (!Array.isArray(dependencies?.lockfiles)) return false;
+  const { exactFileAtObject } = await import('./git.mjs');
+  return dependencies.lockfiles.every((lockfile) => {
+    try {
+      const bytes = lockfile?.sha256 ? exactFileAtObject(root, commit, lockfile.path, { regularOnly: true, maximumBytes: 64 * 1024 * 1024 }) : null;
+      return Boolean(bytes) && createHash('sha256').update(bytes).digest('hex') === lockfile.sha256;
+    } catch { return false; }
+  });
+}
+
+/**
+ * Null when the latest passing run on this code, `latest`, also shares the gate's installed dependencies (the
+ * lockfiles its runner resolves and the runtime versions) and the Story test policy; else `{ moved }`, what differs.
+ * A run recorded before these were kept stands only when they can be shown unchanged since: each lockfile is the one
+ * committed at `commit`, so the code digest it matched covers it, and the Story's workflow was never amended. Otherwise
+ * it is stale, and `stale` says so in plain words for the run that replaces it.
+ */
+export async function reusedRunKeyHolds(root, workflow, latest, { commit, dependencies, testPolicySha256 }) {
+  const unproven = [];
+  if (dependencies !== undefined) {
+    if (Object.hasOwn(latest, 'dependencies')) {
+      if (!dependencies?.sha256 || latest.dependencies?.sha256 !== dependencies.sha256) return { moved: `its installed dependencies changed since ${latest.attemptId}` };
+    } else if (!await committedLockfiles(root, commit, dependencies)) unproven.push('its dependencies');
+  }
+  if (testPolicySha256 !== undefined) {
+    if (latest.testPolicySha256) {
+      if (latest.testPolicySha256 !== testPolicySha256) return { moved: `the Story's test policy changed since ${latest.attemptId}` };
+    } else if (Number(workflow?.workflowSnapshot?.revision ?? 1) > 1) unproven.push('its test policy');
+  }
+  if (!unproven.length) return null;
+  const they = unproven.length > 1 || unproven[0] === 'its dependencies' ? 'they' : 'it';
+  const what = `${latest.attemptId}, the earlier run on this same code, did not record ${unproven.join(' or ')}, and ${they} could not be shown unchanged since`;
+  return { moved: what, stale: { attemptId: latest.attemptId, reason: 'earlier-run-unproven', words: `${what}, so it is stale and the tests ran again` } };
+}
+
+// ---------------------------------------------------------------------------------------------
 // Reading the repository. Heavy modules load on first use, so a step with no decision pays nothing.
 
 function ineligible(attemptId, phaseId, reason) {
@@ -281,6 +339,15 @@ export async function verifyReusableAttempt(root, config, workflow, { phaseId, a
   }
   const { producer, execution } = bound;
   if (producer.id === phaseId) throw ineligible(attemptId, phaseId, `it is ${phaseId}'s own run, which needs no reuse`);
+  // The step's workflow says its tests run fresh: no earlier run stands for it, a person's decision included [TCE:REQ-080].
+  if ((await import('./code-delivery-policy.mjs')).stepRunsTestsFresh(workflow, phaseId)) {
+    const routes = await reuseRoutes(workflow, consumer, producer);
+    throw new SingularityFlowError(`${attemptId} cannot be reused for ${phaseId}: its workflow says its tests run fresh, so no earlier run stands for it.`
+      + ` ${routes.fresh.label} Shell: ${routes.fresh.command}.`, {
+      code: 'EVIDENCE_REUSE_NOT_ELIGIBLE', details: { phase: phaseId, freshRunRequired: true,
+        nextAction: { command: routes.fresh.command, label: routes.fresh.label }, recoveryCommands: [routes.fresh] }
+    });
+  }
   if (order.indexOf(producer.id) > order.indexOf(phaseId)) throw ineligible(attemptId, phaseId, `${producer.id} comes after ${phaseId}`);
   if (producer.status !== 'approved' || producer.deliveryEvidence?.status !== 'ready') {
     throw ineligible(attemptId, phaseId, `${producer.id} is ${producer.status}; only an approved step's submitted runs can be reused`);

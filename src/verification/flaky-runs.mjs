@@ -17,8 +17,9 @@ export function flakyTestRuns(attempts) {
     if (attempt.reusedFrom || attempt.evidenceClass === 'local-integration' || !['passed', 'failed'].includes(attempt.status)
         || !attempt.candidate?.treeSha256 || !attempt.environmentSha256) continue;
     // Documentation is not the code it ran on [CQF:REQ-011].
+    // Its installed dependencies too, kept beside the environment [TCE:REQ-081].
     const key = JSON.stringify([attempt.argvSha256, attempt.workingDirectory, attempt.adapter, attempt.candidate.codeTreeSha256 ?? attempt.candidate.treeSha256,
-      attempt.candidate.testInputSha256 ?? null, attempt.environmentSha256]);
+      attempt.candidate.testInputSha256 ?? null, attempt.environmentSha256, attempt.dependencies?.sha256 ?? null]);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(attempt);
   }

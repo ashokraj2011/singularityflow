@@ -74,6 +74,8 @@ export function projectExecutionPacket(packet, phase, current, { checkLimit = CH
       startedAt: check.startedAt ?? null, completedAt: check.completedAt ?? null,
       ...(check.reusedFrom ? { reusedFrom: { attemptId: check.reusedFrom.attemptId, phase: check.reusedFrom.phase, generation: check.reusedFrom.generation ?? null,
         commit: check.reusedFrom.commit ?? null } } : {}),
+      // Why this ran rather than standing on an earlier run: its step requires it, or that run is stale [TCE:REQ-080, REQ-081].
+      ...(typeof check.freshRun?.words === 'string' ? { freshRun: check.freshRun.words } : {}),
       binding, commandSuccessReusable: processPassed && binding === 'matched',
       criterionVerdict: 'not-established-by-command-success' };
   });

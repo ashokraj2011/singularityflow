@@ -28,6 +28,7 @@ function projectRun(check, entry) {
     receiptPath: execution?.path ?? null, receiptSha256: execution?.sha256 ?? null,
     counts: execution?.counts ?? null, assurance: execution?.assurance ?? null,
     ...(execution?.reused ? { reused: execution.reused } : {}),
+    ...(check.freshRun ? { freshRun: check.freshRun } : {}),
     structuredTestsReusable: check.structuredTestsReusable === true,
     criterionVerdict: 'not-established-by-suite-counts',
     // A local-integration run keeps its own label here: never shown as a governed run [RUN M3].
@@ -72,7 +73,7 @@ function ownEvidenceLine(entry) {
       : `${run.counts.passed} passed, ${run.counts.failed} failed, ${run.counts.skipped} skipped`;
     // Not run again because the code did not change: the same run stands, and nothing is missing from this step.
     const reused = run.reused ? `; the run ${run.attemptId} that ${run.reused.recordedBy} recorded on this same source tree (${run.reused.treeSha256}), which stands for this step, so cite it as a fresh run` : '';
-    return `${run.commandId}: ${run.outcome}, ${counts}; source binding ${run.binding}${reused}${run.label ? `; ${run.label}` : ''}`;
+    return `${run.commandId}: ${run.outcome}, ${counts}; source binding ${run.binding}${reused}${run.freshRun ? `; ${run.freshRun}` : ''}${run.label ? `; ${run.label}` : ''}`;
   }).join('; ')}. Suite counts alone do not establish a clause verdict${entry.criteria ? '; each criterion\'s own tagged tests do, as listed next' : ''}.`;
 }
 

@@ -751,7 +751,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // check, the kept group answer and the input wait at preparation and publication), the runner keeps its stopped group's
     // answer (quality-command-runner.mjs +430) and the kernel carries the input a wait names (kernel/step-state.mjs +66,
     // step-decision.mjs +21). The marker itself loads from the CLI source only when a gate runs a test. No new eager file.
-    assert.ok(closure.bytes <= 9_745_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,746,550 (measured 9,746,521 for start.mjs, +2,728; submit.mjs 9,744,211): the fuller test-reuse key and the
+    // `testRuns: fresh` step setting [TCE:REQ-080/081, CVL-REQ-013/014]. The step setting's one reader
+    // (code-delivery-policy.mjs +351), its check at load (config.mjs +711), the gates reading it and handing a run's
+    // dependencies and test policy to the reuse check (state.mjs +884), and the attempt keeping them (attempts.mjs +782).
+    // The comparison itself, the policy digest and the lockfile reads stay lazy (evidence-reuse.mjs, test-toolchain.mjs).
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_746_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1152,7 +1158,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,288,700 (measured 4,288,671; 4,288,241 before it): CVL gap report piece 1, the runner keeps a stopped run's process
   // group answer and tells a gate's run record the process it started (quality-command-runner.mjs +430) [TCE:REQ-034].
   // No new eager file.
-  assert.ok(current.bytes <= 4_288_700, `session current loads ${current.bytes} source bytes`);
+  // 4,289,350 (measured 4,289,303 on 4,288,241, +1,062): the `testRuns: fresh` step setting [TCE:REQ-080, CVL-REQ-014]:
+  // its one reader (code-delivery-policy.mjs +351) and its check at load (config.mjs +711). The fuller reuse key stays
+  // out of this closure. No new eager file.
+  assert.ok(current.bytes <= 4_289_350, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

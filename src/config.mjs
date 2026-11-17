@@ -963,6 +963,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
       assertAuthoringSkillValue(override?.authoringSkill, `Work type '${workTypeId}' phase '${phaseId}' override`);
       assertRepositoryTestSelection(override, repositoryTests, `Work type '${workTypeId}' phase '${phaseId}' override`);
+      testRunsPolicy(override?.testRuns, `Work type '${workTypeId}' phase '${phaseId}' override`);
       normalizeStepActions(override?.afterStep, definition.integrations, `Work type '${workTypeId}' phase '${phaseId}' override`);
       if (definition.version === 3 && definition.phases[phaseId]?.kind === 'skill') {
         assertNoSkillPhaseOverride(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
@@ -1212,6 +1213,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     }
     for (const [index, command] of (phase.qualityCommands ?? []).entries()) normalizeExternalCommand(command, index);
     repositoryTestsPolicy(phase.repositoryTests, `Phase '${id}'`);
+    testRunsPolicy(phase.testRuns, `Phase '${id}'`);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
     normalizeClarificationPolicy(phase.clarification);
     // Validated here rather than only where it is consumed. A `specificationQuality` block reached
@@ -1958,6 +1960,13 @@ function withLaterStepTests(phases, chosen) {
   });
 }
 
+// [TCE:REQ-080]
+function testRunsPolicy(value, label) {
+  if (value == null || value === 'reuse' || value === 'fresh') return value ?? 'reuse';
+  throw new SingularityFlowError(`${label} testRuns must be reuse or fresh.`, { code: 'WORKFLOW_TEST_RUNS_INVALID',
+    details: { nextAction: { command: 'singularity-flow workflow validate', label: 'Set testRuns to reuse or fresh.' } } });
+}
+
 function repositoryTestsPolicy(value, label) {
   if (value == null) return 'off';
   if (value !== 'run' && value !== 'off') throw new SingularityFlowError(`${label} repositoryTests must be run or off.`);
@@ -2057,6 +2066,8 @@ export function resolveWorkType(definition, workTypeId) {
     // Off resolves to the shape a step always had, so workflows that ask for nothing hash as before.
     if (repositoryTestsPolicy(merged.repositoryTests, `Work type '${workTypeId}' phase '${id}'`) === 'run') resolvedPhase.repositoryTests = 'run';
     else delete resolvedPhase.repositoryTests;
+    if (testRunsPolicy(merged.testRuns, `Work type '${workTypeId}' phase '${id}'`) === 'fresh') resolvedPhase.testRuns = 'fresh';
+    else delete resolvedPhase.testRuns;
     // A step that runs tests gets the repository's tests it chose, unless it has test commands of its
     // own [RTC:REQ-002]. They enter the Story's pin like any configured command [RTC:REQ-003]; the
     // choice itself is configuration, not Story contract, so a step without one keeps its shape.

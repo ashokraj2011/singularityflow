@@ -115,7 +115,8 @@ function ranCommand(attempt, command) {
  * this code, when one exists [TCE:REQ-080]. Owner, 2026-11-06: "dont rerun if the code has not changed".
  *
  * A run stands when a gate would run the same command on the same application source and separately
- * hashed test inputs (test configuration among them), under the same pin, in the same environment.
+ * hashed test inputs (test configuration among them), under the same pin, in the same environment,
+ * dependencies and test policy (evidence-reuse.mjs reusedRunKeyHolds) [TCE:REQ-081].
  * Any recorded run qualifies, whichever step made it, a local `tests run` too [TCE:REQ-082]; for a
  * run of only the new tests, one of the whole command already ran them. The latest run on this code
  * speaks for it, so a failure never hides behind an earlier pass, and it must have passed with a
@@ -123,7 +124,8 @@ function ranCommand(attempt, command) {
  * cannot compare those values.
  */
 export async function unchangedTestRun(root, itemRelative, workflow, phaseId, command, {
-  commit, treeSha256, codeTreeSha256 = null, testInputSha256 = null, environmentSha256, pinSha256
+  commit, treeSha256, codeTreeSha256 = null, testInputSha256 = null, environmentSha256, pinSha256,
+  dependencies = undefined, testPolicySha256 = undefined
 }) {
   const workId = workflow.workItem.id;
   let latest = null;
@@ -140,6 +142,9 @@ export async function unchangedTestRun(root, itemRelative, workflow, phaseId, co
   if (latest.status !== 'passed' || latest.exitCode !== 0 || latest.reportError || !latest.tests) return { moved: `its last run on this code ${latest.status}` };
   if (latest.evidenceClass === 'local-integration') return { moved: "its last run was given an environment's values, which cannot be compared" };
   if (latest.environmentSha256 !== environmentSha256) return { moved: `the environment changed since ${latest.attemptId}` };
+  const moved = dependencies === undefined && testPolicySha256 === undefined ? null
+    : await (await import('../evidence-reuse.mjs')).reusedRunKeyHolds(root, workflow, latest, { commit, dependencies, testPolicySha256 });
+  if (moved) return moved;
   const pin = pinSha256 !== undefined ? pinSha256
     : (workflow.testCommandPins ?? []).filter((entry) => entry.commandId === latest.commandId).at(-1)?.sha256 ?? null;
   if (latest.pin?.sha256 && pin && latest.pin.sha256 !== pin) return { moved: `the command's pin changed since ${latest.attemptId}` };
@@ -190,7 +195,7 @@ async function recordReusedAttempt(root, itemRelative, { command, check, purpose
   // Its coverage report goes with it [CQF:REQ-030].
   const coverage = source.coverage?.report ? await (await coverageReports()).reusedCoverage(root, staging, source.coverage) : source.coverage;
   const previous = (await stepAttempts(root, itemRelative, workId, phaseId)).filter((entry) => entry.commandId === command.id).at(-1);
-  const { localRunId, uncommittedChanges, epoch: _epoch, pin: _pin, narrowing: _narrowing, coverage: _coverage, ...measured } = source;
+  const { localRunId, uncommittedChanges, epoch: _epoch, pin: _pin, narrowing: _narrowing, coverage: _coverage, freshRun: _fresh, ...measured } = source;
   const attempt = { ...measured, ...newAttemptIdentity(random), parentAttemptId: previous?.attemptId ?? null, purpose, phase: phaseId, generation,
     ...(epoch ? { epoch } : {}), commandId: command.id, affectedRoots: command.affectedRoots, ...(coverage ? { coverage } : {}),
     reusedFrom: source.reusedFrom ?? { attemptId: source.attemptId, phase: source.phase, generation: source.generation, purpose: source.purpose,
@@ -236,6 +241,10 @@ export async function recordTestAttempt(root, itemRelative, {
     generation, epoch, rawReports, reportError, profile, selection: classifyTestCommand(profile, command), localRunId,
     uncommittedChanges
   });
+  // Beside its environment, what reuse also compares, and why it ran when that must be said [TCE:REQ-081].
+  if (check?.reuseKey?.dependencies !== undefined) attempt.dependencies = check.reuseKey.dependencies;
+  if (check?.reuseKey?.testPolicySha256) attempt.testPolicySha256 = check.reuseKey.testPolicySha256;
+  if (check?.freshRun) attempt.freshRun = check.freshRun;
   if (attempt.status === 'failed' || attempt.status === 'blocked') {
     attempt.cause = (await import('../test-run-cause.mjs')).attemptRunCause({ check, parsed, attempt, delivery });
   }

@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 45
+version: 46
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -356,6 +356,8 @@ Tests run once per version of the code. A gate that needs a test run reuses a pa
 | Test configuration and other separately hashed test inputs | The test-input digest the run recorded |
 | The command | Program and arguments, working folder and report form, and the command's pin |
 | The environment | `CI`, the variables a gate removes, the command's declared variables, `NODE_OPTIONS` and the toolchain versions |
+| Installed dependencies | Each lockfile the runner resolves, from the command's folder up to the repository root, and the runtime versions |
+| The test policy | The Story's pinned minimum counts, coverage rules and scope, and its sealed test policy |
 
 The tests run again, with a line saying why, when any of these moved. They also run again when:
 
@@ -363,6 +365,8 @@ The tests run again, with a line saying why, when any of these moved. They also 
 - **The command has not run on this code.** A later step's whole-repository suite is a different command from one package's tests, so it runs once and is then reused.
 - **The run was given an environment's values.** SFlow cannot compare those values.
 - **The Story is on the test-recovery pilot,** which observes each run itself, or **a runner amendment needs its fresh run.**
+- **The step's workflow says `testRuns: fresh`.** Its publication and submission run its tests every time, and its runs say "tests run fresh (this step requires it)". A Story started before its workflow said so keeps reusing runs.
+- **The earlier run was recorded before its dependencies and test policy were kept,** and they cannot be shown unchanged since: a lockfile that is not the one committed now, or a Story whose workflow was amended. That run is stale, and the new run says so.
 
 Other runs are not reused:
 

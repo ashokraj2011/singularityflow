@@ -3291,7 +3291,11 @@ test('a passing quality command cannot mutate unregistered application source', 
       phaseId: 'implementation', runChecks: true, persist: false
     }),
     (error) => error.code === 'QUALITY_COMMAND_SOURCE_MUTATION'
-      && /changed application source or separately hashed test inputs/.test(error.message)
+      && /changed the source or test inputs; validation must only observe/.test(error.message)
+      // At submission the change would be the published step's next version: its question, never a publication [D3].
+      && error.details.nextAction?.command === 'singularity-flow phase rollover implementation --reason "<what to change>" --json'
+      && /Review the changed files, then keep them as the next version, which opens on the person's yes: singularity-flow phase rollover implementation/.test(error.message)
+      && !/publish/.test(error.message.replace(/phase rollover/u, ''))
   )));
   assert.equal(context.phase.status, 'in_progress');
   assert.equal(context.phase.submittedAt, null);

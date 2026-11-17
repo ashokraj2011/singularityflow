@@ -4973,7 +4973,8 @@ export const localTestRunKernel = Object.freeze({
 });
 
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
-  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null, candidateRoot = null, candidateIsOtherCode = false, onMutation = null
+  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null, candidateRoot = null, candidateIsOtherCode = false, onMutation = null,
+  published = false
 } = {}) {
   const checks = [];
   // Null unless the pinned capability policy allows local integration evidence [RUN M3].
@@ -5244,9 +5245,12 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       } : {})
     };
     if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
+      // At submission the changed files would be the published step's next version, which opens on the person's yes [D3].
+      const next = published ? versionQuestionRoute(workflow, phase) : null;
       const error = new SingularityFlowError(
-        `Quality command '${policy.id}' changed application source or separately hashed test inputs. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
-        { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: {
+        `Quality command '${policy.id}' changed the source or test inputs; validation must only observe. Review the changed files, then `
+        + (next ? `keep them as the next version, which opens on the person's yes: ${next.command}` : 'publish again and submit.'),
+        { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: { ...(next ? { nextAction: next } : {}),
           phase: phase.id, workId: workflow.workItem.id, commandId: policy.id,
           beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256,
           testInputBeforeSha256: testInputSha256, testInputAfterSha256: completedTestInputSha256
@@ -5953,7 +5957,7 @@ async function submitPhaseTransition(root, config, workflow, {
     commandProvenance: new Map(deliveryCommands.map((command) => [command,
       trpSelection && command?.kind === 'test' ? command.provenance
         : testCommandProvenance(phase, command)])),
-    reuseUnchanged: mayReuseUnchangedRuns(workflow) && !testCommandEpochRun,
+    reuseUnchanged: mayReuseUnchangedRuns(workflow) && !testCommandEpochRun, published: true,
     ...(pins ? { pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null } : {}),
     onMutation: (ran) => recordRunsBeforeRefusal(root, workDirRelative(config, workflow.workItem.id), codeDeliveryRequired ? requiredTestCommands : repositoryTests?.commands ?? [], ran, { pins,
       purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null,
@@ -6164,12 +6168,15 @@ async function submitPhaseTransition(root, config, workflow, {
       check.sourceTreeSha256 && ((check.sourceTreeSha256 !== validatedSourceTreeSha256 && !(check.codeTreeSha256 && check.codeTreeSha256 === validatedCodeTreeSha256))
         || (validatedTestInputSha256 && check.testInputSha256 !== validatedTestInputSha256)));
     if (changedAfterCheck) {
+      // The source changed after the published version: the change is its next version, which opens on the person's yes [D3].
+      const next = versionQuestionRoute(workflow, phase);
       throw new SingularityFlowError(
         `Quality command '${changedAfterCheck.id}' no longer describes the current source tree. `
-        + 'Publish a fresh generation and rerun submission.',
+        + `To keep the change, the next version opens on the person's yes: ${next.command}`,
         {
           code: 'QUALITY_COMMAND_SOURCE_MUTATION',
           details: {
+            nextAction: next, phase: phase.id, workId: workflow.workItem.id,
             commandId: changedAfterCheck.id,
             beforeSha256: changedAfterCheck.sourceTreeSha256,
             afterSha256: validatedSourceTreeSha256

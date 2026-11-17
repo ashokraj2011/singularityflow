@@ -1563,7 +1563,10 @@ const KNOWN = Object.freeze({
   },
   CODE_TEST_ZERO_DISCOVERED: (argv, error) => requiredTestFailureSteps(argv, error),
   CODE_TEST_TIMEOUT: (argv, error) => requiredTestFailureSteps(argv, error),
-  QUALITY_COMMAND_SOURCE_MUTATION: (argv, error) => requiredTestFailureSteps(argv, error),
+  // At submission the changed files would be the published step's next version: its question leads [D3, OSA:REQ-030].
+  QUALITY_COMMAND_SOURCE_MUTATION: (argv, error) => [error?.details?.nextAction?.command ? step('ask-next-version',
+    'Review the changed files. To keep them, preview the next version and ask the person; it opens only on their yes.',
+    error.details.nextAction.command, 'remediation', error.details.nextAction.skill ?? null) : null, ...requiredTestFailureSteps(argv, error)].filter(Boolean),
   CODE_TEST_RESULT_REQUIRED: (argv, error) => error?.details?.configurationDependency !== true
     ? requiredTestFailureSteps(argv, error) : [
     // A configuration defect, not damage: the Story's pinned test policy is read, never recovery [OSA:REQ-011].

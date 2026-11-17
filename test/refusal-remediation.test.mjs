@@ -583,6 +583,19 @@ test('source mutation diagnostic is projected and never presented as passing evi
   assert.doesNotMatch(JSON.stringify(envelope), /private-argv/u);
 });
 
+test('a source mutation at submission leads with the published step\'s version question, never a publication [D3, OSA:REQ-030]', () => {
+  const question = 'singularity-flow phase rollover implementation --reason "<what to change>" --json';
+  const error = Object.assign(new Error('Source changed'), {
+    code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: { phase: 'implementation', workId: 'W-1',
+      nextAction: { command: question, skill: '/sf-code' },
+      requiredTestExecution: { commandId: 'unit', provenance: 'configured', report: { status: 'observed' }, failure: { kind: 'source-mutation' } } }
+  });
+  const plan = refusalRemediationPlan(error, ['submit', 'implementation', '--work-id', 'W-1']);
+  assert.deepEqual([plan.steps[0].id, plan.steps[0].command, plan.steps[0].skill], ['ask-next-version', question, '/sf-code']);
+  assert.match(plan.steps[0].label, /opens only on their yes/u);
+  assert.doesNotMatch(JSON.stringify(plan.steps.map((entry) => entry.command)), /phase publish/u);
+});
+
 test('the refusal envelope preserves a safe full Copilot relay and drops unsafe diagnostics', () => {
   const relayed = refusalEnvelope(Object.assign(new Error('SGOS check failed.'), {
     details: { diagnosticAction: {

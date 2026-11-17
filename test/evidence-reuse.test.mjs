@@ -177,6 +177,27 @@ test('a source file changed after the attempt refuses reuse, naming the path, wi
   assert.equal((await decide(other)).id, 'ERU-001');
 });
 
+test('a step with its own test command gets its fresh run at submission, the map\'s submit route, never a publication', async (t) => {
+  const item = await fixture(t);
+  // Its submission runs that command again on the current source and records the run; nothing in the step changed, so no
+  // new version is opened for it (evidence-reuse-flow checks the run at a real submission).
+  item.workflow.phases.verification.qualityCommands = [{ id: 'verify-unit', kind: 'test', argv: ['node', '--test'], modelPolicy: 'never' }];
+  await commitChange(item, 'app.js', 'export const hex = n => `0x${n.toString(16)}`;\n');
+  const { submitRoute } = await import('../src/action-command-map.mjs');
+  const submit = submitRoute(item.workflow, item.workflow.phases.verification);
+  await assert.rejects(prepareEvidenceReuse(item.root, item.config, item.workflow, { phaseId: 'verification', attemptId: ATTEMPT }), (error) => {
+    assert.equal(error.code, 'EVIDENCE_REUSE_SOURCE_CHANGED');
+    const fresh = error.details.routes.fresh;
+    assert.deepEqual([fresh.command, fresh.skill], [submit.command, '/sf-submit']);
+    assert.match(fresh.command, /^singularity-flow (?:submit verification --work-id REUSE-1|status REUSE-1 --submission-readiness --json)/u);
+    assert.equal(fresh.label, 'Fresh recorded run: submit verification; its submission runs its tests again.');
+    assert.deepEqual(error.details.recoveryCommands.map((route) => route.command), [error.details.routes.repair.command, submit.command]);
+    assert.ok(error.message.includes(`${fresh.label} Shell: ${submit.command}.`), error.message);
+    assert.doesNotMatch(JSON.stringify([error.message, error.details.routes, error.details.recoveryCommands]), /phase publish/u);
+    return true;
+  });
+});
+
 test('a decision lapses when the source changes after it, and the step is never shown as having run the tests', async (t) => {
   const item = await fixture(t);
   await decide(item);

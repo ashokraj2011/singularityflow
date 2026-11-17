@@ -121,13 +121,38 @@ async function currentBinding(root, config, workflow, phase, plan) {
 const activePlan = async (root, config, workflow) => mergePlannedClaimRecords(
   (await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []);
 
+/**
+ * Where a scope appeal the step cannot take goes instead, from where the step stands [D4]: its next version on the
+ * person's yes once published, an approver's return once submitted, its first version while none is open, else the
+ * Story's own next action. Recovery found nothing damaged and sent it back here (review finding 7, 2026-11-17).
+ */
+async function appealLifecycleRefusal(workflow, phaseId, message, { onBranch = true } = {}) {
+  const { actionCommandLine, actionSkill, returnRoute, storyNextCommand, versionQuestionRoute } = await import('./action-command-map.mjs');
+  const phase = workflow.phases?.[phaseId] ?? null;
+  const workId = workflow.workItem.id;
+  const current = Boolean(phase) && workflow.currentPhase === phase.id && phaseRequiresCodeDelivery(phase);
+  // Its open version, whichever turn opened it: the appeal's own test of the step (phase-finding-policy.mjs).
+  const open = current && openScopeAppeal(workflow, phase, true);
+  const route = !onBranch && open ? null
+    : open
+      ? { command: `singularity-flow appeal prepare --phase ${phase.id} --add-location <CLAUSE>=<PATH> --reason <REASON>`, label: `Prepare the appeal again in ${phase.id}'s open version.` }
+    : current && phase.status === 'awaiting_approval'
+      ? { ...returnRoute(workflow, phase), label: `An approver returns ${phase.id} for changes; its next version accounts for the paths.` }
+    : current && phase.status === 'in_progress' && Number(phase.generation ?? 0) >= 1
+      ? { ...versionQuestionRoute(workflow, phase), label: `Start ${phase.id}'s next version for the change, on the person's yes; the paths are accounted for there. Version ${phase.generation} stays as published.` }
+    : current && phase.status === 'in_progress'
+      ? { skill: actionSkill('open-version', { phase, workflow }), command: actionCommandLine('open-version', 'begin', { step: phase.id }), label: `Begin ${phase.id}'s version first; an appeal accounts for its changes.` }
+      : { command: storyNextCommand(workId), label: 'See the Story\'s own next action; an appeal needs an open code version.' };
+  fail(message, 'PHASE_APPEAL_LIFECYCLE', { workId, phase: phaseId ?? null, phaseStatus: phase?.status ?? null,
+    ...(route ? { nextAction: route } : { actions: [{ label: `Run it on the Story's branch ${workflow.workItem.branch}, where ${phaseId}'s open version is.` }] }) });
+}
+
 /** Does not run tests, alter source, stage files or infer that Copilot authored a diff. */
 export async function preparePhaseAppeal(root, config, workflow, { phaseId = workflow.currentPhase, changes, reason } = {}) {
   const phase = workflow.phases?.[phaseId];
-  if (!openScopeAppeal(workflow, phase, phaseRequiresCodeDelivery(phase))
-      || branch(root) !== workflow.workItem.branch) {
-    fail('Scope appeals require the current open code-delivery generation. For published/submitted work, inspect recovery and create an authorized successor; do not rewrite history.', 'PHASE_APPEAL_LIFECYCLE',
-      { recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phaseId ?? workflow.currentPhase} --json` });
+  const onBranch = branch(root) === workflow.workItem.branch;
+  if (!openScopeAppeal(workflow, phase, phaseRequiresCodeDelivery(phase)) || !onBranch) {
+    await appealLifecycleRefusal(workflow, phaseId, 'A scope appeal accounts only for the open version of the current code step. A published or submitted version keeps its history: its next version, or a return, is the way on.', { onBranch });
   }
   // A bare prepare names what it needs, and what is there to name: the path list is what a person's choice was lost for.
   if (!changes?.length) {
@@ -322,7 +347,9 @@ export async function decidePhaseAppeal(root, config, workflow, { id, decision, 
   assertConfirmation(confirm, packet.packetSha256, { fail, code: 'PHASE_APPEAL_STALE', message: 'Review and confirm the exact retained packet hash.' });
   if ((workflow.phaseAppealDecisions ?? []).some(entry => entry.appealId === id)) fail('This immutable appeal already has a decision. Prepare a successor packet for changed work.', 'PHASE_APPEAL_ALREADY_DECIDED');
   const phase = workflow.phases[packet.binding.phaseId];
-  if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress' || generation(phase) !== packet.binding.generation) fail('Use authorized recovery before deciding an appeal outside the current open generation.', 'PHASE_APPEAL_LIFECYCLE');
+  if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress' || generation(phase) !== packet.binding.generation) {
+    await appealLifecycleRefusal(workflow, phase.id, 'This appeal was prepared for a version that is no longer open, so it is not decided here. Prepare it again in the open version of the step.');
+  }
   if (decision === 'account-scope') {
     const fresh = await preparePhaseAppeal(root, config, workflow, { phaseId: phase.id, changes: packet.changes, reason: packet.reason });
     // Appeal publication is a metadata-only commit: capturedHead is observational, not source freshness.

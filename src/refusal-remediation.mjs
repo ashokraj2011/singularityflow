@@ -18,7 +18,8 @@ import {
 } from './safe-command-guidance.mjs';
 import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 import { nearestNames, parseArgs } from './util.mjs';
-import { actionCommandLine, authorCommand, showCommand, storyNextCommand } from './action-command-map.mjs';
+import { actionCommandLine, authorCommand, returnRoute, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
+import { WORK_COMMANDS } from './command-skills.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -207,6 +208,9 @@ function phaseRemediationContext(argv, error) {
     automaticAdvance: false,
     historyRewrite: false,
     recoveryCommand,
+    // An approval turn's way on is the approver's return to the step, which its author repairs; recovery finds a submitted,
+    // healthy step with nothing to repair and approval is refused the same way again (review finding 4, 2026-11-17).
+    ...(approvalTurn ? { returnCommand: workId ? returnRoute({ workItem: { id: workId } }, { id: phaseId }).command : null } : {}),
     retryCommand: retry?.command ?? null,
     retrySkill: retry?.skill ?? null,
     turn: approvalTurn ? 'new-turn' : 'current-turn'
@@ -905,6 +909,21 @@ function retainedEvidenceSteps(error, retry) {
   ];
 }
 
+/**
+ * Evidence no step has published yet: the step whose delivery records it publishes it, by the route the refusal computed
+ * from where the Story stands, else in the code step that owes it (its work command). Recovery found nothing to repair
+ * here (review finding 6, 2026-11-17).
+ */
+function unpublishedEvidenceSteps(error) {
+  const details = error?.details ?? {};
+  const route = (Array.isArray(details.routes) ? details.routes : []).find((entry) => typeof entry?.command === 'string' && typeof entry?.label === 'string');
+  if (route) return [step(route.kind === 'upstream-issue' ? 'raise-upstream-issue' : 'publish-evidence', route.label.slice(0, 2000), route.command, 'remediation')];
+  const note = (Array.isArray(details.notes) ? details.notes : []).find((entry) => typeof entry === 'string');
+  const [work] = WORK_COMMANDS;
+  return [Object.freeze({ ...step('publish-evidence', (note ?? 'The code step that owes this image saves it and publishes it with its delivery; witness it after that.').slice(0, 2000),
+    null, 'remediation'), skill: work, copilotCommand: work })];
+}
+
 /** The Story `decision witness-exception` named: its positional, else --work-id; never another command's word. */
 function witnessExceptionWorkId(argv) {
   const positional = argv?.[0] === 'decision' && argv?.[1] === 'witness-exception' && !String(argv?.[2] ?? '').startsWith('-') ? argv[2] : null;
@@ -1036,7 +1055,23 @@ const KNOWN = Object.freeze({
     return [];
   },
   RETAINED_EVIDENCE_CHANGED: (argv, error) => retainedEvidenceSteps(error, 'run the same command again'),
-  WITNESS_EVIDENCE_UNPUBLISHED: (argv, error) => retainedEvidenceSteps(error, 'witness it again'),
+  // A scope appeal the step cannot take: the route the refusal computed from where the step stands (phase-appeals.mjs), else,
+  // for a refusal that names none, the code step's own version question. Never recovery (review finding 7, 2026-11-17).
+  PHASE_APPEAL_LIFECYCLE: (argv, error) => {
+    const named = explicitCommands({ details: { nextAction: error?.details?.nextAction } })[0];
+    if (named) return [step('appeal-way-on', named.label ?? 'The way on for this step, from where it stands.', named.command, 'remediation', named.skill)];
+    // A refusal that read the step and names no command (another branch): its own words lead.
+    if (Object.hasOwn(error?.details ?? {}, 'phaseStatus')) return [];
+    const phase = lowerKebab(error?.details?.phase) ?? commandPhase(argv);
+    // An appeal is a code step's, so its version question is the code step's work command's.
+    const question = phase ? versionQuestionRoute(null, { id: phase, generationPolicy: { task: 'code' } }) : null;
+    return question ? [step('ask-next-version', `Start ${phase}'s next version for the change, on the person's yes: an appeal accounts only for an open version.`,
+      question.command, 'remediation', question.skill)] : [];
+  },
+  WITNESS_EVIDENCE_UNPUBLISHED: (argv, error) => {
+    const changed = retainedEvidenceSteps(error, 'witness it again').filter(Boolean);
+    return changed.length ? changed : unpublishedEvidenceSteps(error);
+  },
   // A lapsed witness exception: the final check lists the step and the exact exception.
   WITNESS_EXCEPTION_RENEWAL_INVALID: (argv) => {
     const workId = witnessExceptionWorkId(argv);
@@ -2195,8 +2230,10 @@ function remediationPlanFor(error, argv = []) {
   if (['CODE_DELIVERY_EVIDENCE_REQUIRED', 'SPEC_PLANNED_CLAIM_MAP_REQUIRED'].includes(code)) known.push(...planCorrectionSteps(error?.details?.planCorrections));
   const sessionTransportBlocked = code === 'SESSION_STATE_REFRESH_UNAVAILABLE';
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
-  // A published code step's own change after publication: its in-step repair leads any producer read (N7).
-  const inStepFirst = authoringIncomplete || (code === 'CODE_CHANGED_AFTER_PUBLICATION' && known.length > 0);
+  // A published code step's own change after publication: its in-step repair leads any producer read (N7). So does the
+  // step's own way to publish what a witness or an appeal waits for (review findings 6 and 7, 2026-11-17).
+  const inStepFirst = authoringIncomplete || (['CODE_CHANGED_AFTER_PUBLICATION', 'WITNESS_EVIDENCE_UNPUBLISHED', 'PHASE_APPEAL_LIFECYCLE'].includes(code)
+    && known.length > 0);
   // A producer action that repeats a known step's exact command adds a second label, not a route.
   const nonDuplicateExplicit = explicit.filter((entry) => !entry?.command
     || !known.some((knownEntry) => knownEntry?.command === entry.command));

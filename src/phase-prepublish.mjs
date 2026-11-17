@@ -11,7 +11,7 @@ import { directCopilotSkill } from './copilot-guidance.mjs';
 import { commandGuidanceForCommands, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
-import { phaseDraftCheck } from './phase-draft-check.mjs';
+import { phaseDraftCheck, publishedStepRoute } from './phase-draft-check.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { consumedOpeningMismatch } from './kernel/step-versions.mjs';
@@ -664,12 +664,11 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
   // Changed files after a retained publication: the recovery plan's own route leads (the step's work command previews the
   // next version with them and asks the person), never a recovery read before it [OSA:REQ-014, b39].
   const retainedRoute = retained && recovery.requiresLifecycleRecovery ? recovery.actions.find((entry) => entry?.command) ?? null : null;
+  // A step that is not the one being written: its own way on, never recovery, which finds nothing damaged (review finding 5).
   const action = !lifecycleReady
-    ? {
-        command: draft.commands.recover,
-        skill: ACTION_SKILLS.recover,
-        detail: 'The phase is not current and in progress. Inspect lifecycle recovery before changing evidence.'
-      }
+    ? { ...publishedStepRoute(workflow, phase), detail: phase.status === 'awaiting_approval'
+      ? `${phase.id} is submitted: a change to its evidence comes after an approver returns it, in its next version.`
+      : `${phase.id} is not the step being written now; the Story's own next action says where it stands. Change no evidence here.` }
     // Own repair leads: the draft's own correction, else the first own route, else this producer's recheck.
     : sameTurnCorrection
       ? (draft.status !== 'ready' && draft.correction.class === 'agent-authoring' ? draftRoute : null)

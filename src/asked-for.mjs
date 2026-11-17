@@ -1,5 +1,6 @@
 /**
- * What the person asked for [SCS:REQ-040 to REQ-044]: the words typed after /sf-code or /sf-phase, and in a
+ * What the person asked for [SCS:REQ-040 to REQ-044]: the words typed after a step's writer (/sf-code, /sf-phase or a
+ * configured author such as /sf-scenario-check, writing-aliases.mjs ASKED_FOR_SKILLS), and in a
  * repository whose Story checkout it is, a plain chat's prompt, marked so (copilot-plain-chat.mjs [PCR:REQ-002]). A plain
  * chat's prompt waits to be accounted for only once its turn changed the work (`markAskedForChanged`, [PCR:REQ-012]).
  *
@@ -10,7 +11,7 @@
  * both off. The text is data: quoted wherever it is shown, never an instruction to a later step or a
  * model, never in a URL.
  *
- * The hook loads this module only for a /sf-code or /sf-phase prompt, and the redactor only when
+ * The hook loads this module only for a writer's prompt, and the redactor only when
  * something was typed; nothing here ever changes a hook's answer.
  */
 import { createHash, randomUUID } from 'node:crypto';
@@ -58,7 +59,7 @@ export async function redactedWords(typed) {
 }
 
 /**
- * The instruction a person typed into a /sf-code or /sf-phase turn, redacted and bounded, or null: a
+ * The instruction a person typed into a writer's turn (/sf-code, /sf-phase, a configured author), redacted and bounded, or null: a
  * subagent's task, another skill, nothing typed, or only a step word.
  */
 export async function typedInstruction(payload, skill) {

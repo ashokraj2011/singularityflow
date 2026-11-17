@@ -148,7 +148,16 @@ test('published and inactive documents never offer in-place authoring or publica
       assert.equal(result.correction.sameTurn, false);
       assert.equal(result.correction.requiresNewGeneration, true);
       assert.equal(result.correction.class, 'phase-recovery');
-      assert.match(result.commands.next, new RegExp(`recover DRAFT-1 --phase ${id}`));
+      // Its own way to change what it published: the next version, on the person's yes; recovery found nothing damaged and
+      // sent it back here (review finding 5, 2026-11-17).
+      assert.equal(result.commands.next, `singularity-flow phase rollover ${id} --reason "<what to change>" --json`);
+      assert.equal(result.correction.skill, '/sf-phase');
+      // Submitted, it is an approver's return.
+      item.phase.status = 'awaiting_approval';
+      const submitted = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+      assert.equal(submitted.commands.next, `singularity-flow reject ${id} --work-id DRAFT-1 --fetch --to ${id} --reason <reason>`);
+      assert.equal(submitted.correction.skill, '/sf-reject');
+      item.phase.status = 'in_progress';
       assert.equal(result.commands.publish, null);
       assert.deepEqual(await readFile(item.absolute), before);
       await writeFile(item.absolute, '# Plan\n\nImplement the approved change and its mapped tests.\n');

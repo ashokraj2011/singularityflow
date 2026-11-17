@@ -10,6 +10,7 @@
  * and rejecting it lets the phase be approved as submitted.
  */
 import { createHash } from 'node:crypto';
+import { storyNextCommand } from './action-command-map.mjs';
 import { skillForCommandLine } from './command-skills.mjs';
 import { commitIsAncestor, exactFileAtObject, governedCommitIdentity, head } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -833,9 +834,13 @@ function holdRoute(error, owner, workflow, phase) {
   if (owner === 'author-repairs') return { label: `An approver returns ${phase.id} for changes; its author revises it and submits it again.`,
     command: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --reason <REASON>` };
   const recover = `singularity-flow recover ${workId} --phase ${phase.id} --json`;
-  if (owner === 'machine') return { label: 'See what Singularity Flow finishes first.', command: recover };
+  // Recovery is for real damage [D4]: it found a submitted, healthy step with nothing to repair, and approval was refused the
+  // same way again. What Singularity Flow finishes, and a refusal nothing here knows, go to the Story's own next action as it
+  // stands, which names recovery only for damage the kernel finds; nothing offers a return nobody can attribute (review
+  // finding 4, 2026-11-17). This checkout's changes stay recovery's, which shows and sets them aside.
+  if (owner === 'machine') return { label: 'See what Singularity Flow finishes first.', command: storyNextCommand(workId) };
   if (owner === 'this-checkout') return { label: 'Clear the flags it names and review the resulting diff; recover shows the checkout as it then stands.', command: recover };
-  if (owner === 'unknown') return { label: 'See what recovery can say about this refusal.', command: recover };
+  if (owner === 'unknown') return { label: 'Nothing here says who clears this; see where the Story stands.', command: storyNextCommand(workId) };
   return null;
 }
 

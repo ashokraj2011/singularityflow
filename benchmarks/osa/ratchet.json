@@ -488,7 +488,7 @@
       "intentReads": 1,
       "predicateCalls": 1,
       "routeObjects": 1,
-      "lifecycleCommands": 2
+      "lifecycleCommands": 1
     },
     "phase-artifact-risk.mjs": {
       "intentReads": 1,
@@ -522,9 +522,9 @@
       "intentReads": 3,
       "predicateCalls": 4,
       "skillChooserCalls": 1,
-      "routeObjects": 2,
-      "lifecycleCommands": 3,
-      "skillLiterals": 2
+      "routeObjects": 1,
+      "lifecycleCommands": 2,
+      "skillLiterals": 1
     },
     "phase-entry-authoring.mjs": {
       "intentReads": 1,
@@ -1041,7 +1041,7 @@
         "routeFields": 1
       },
       "epic-review.mjs": {
-        "argvRoutes": 2
+        "argvRoutes": 1
       },
       "epic-subject.mjs": {
         "argvRoutes": 1
@@ -1084,9 +1084,6 @@
       "person-step-catalog.mjs": {
         "argvRoutes": 3
       },
-      "phase-appeals.mjs": {
-        "routeFields": 1
-      },
       "phase-authoring-entry.mjs": {
         "kernelPredicateCalls": 4,
         "mapRoutes": 5
@@ -1122,7 +1119,7 @@
       },
       "phase-prepublish.mjs": {
         "kernelPredicateCalls": 1,
-        "mapRoutes": 4
+        "mapRoutes": 3
       },
       "phase-quality-risk.mjs": {
         "argvRoutes": 1
@@ -1209,7 +1206,7 @@
         "computedCommands": 1
       },
       "verification/witness-records.mjs": {
-        "argvRoutes": 2
+        "argvRoutes": 1
       },
       "workflow-step-people.mjs": {
         "argvRoutes": 1

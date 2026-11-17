@@ -147,9 +147,13 @@ async function checkoutSubmission(root, initiativeId, storyReference, packetSha2
   const finalized = latestFinalizedSubmission(candidates);
   const latest = finalized ?? latestSubmission(candidates);
   const selected = packetSha256 ? latestSubmission(candidates, packetSha256) : finalized;
+  // The Story's developer finalizes it in its own checkout; recovery from this Epic checkout found nothing of the Story's
+  // to repair (review finding 8, 2026-11-17). The Epic's status shows when it is ready for review.
   if (!selected) throw new SingularityFlowError(
-    `Story '${workId}' has no finalized review packet on any published branch. The developer must run singularity-flow finalize.`
-  , { details: { nextAction: { executable: 'singularity-flow', argv: ['recover', workId, '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
+    `Story '${workId}' is not finalized for review on any published branch. Its developer finalizes it in its own checkout (singularity-flow finalize --parent ${workId}); then open the review again.`
+  , { details: { nextAction: { executable: 'singularity-flow', argv: ['finalize', '--parent', workId],
+    label: `${workId}'s developer finalizes it in the Story's own checkout.` },
+  recoveryCommands: [{ command: `singularity-flow epic status ${initiativeId}`, label: `See where ${initiativeId}'s Stories stand.` }] } });
   if (packetSha256 && finalized?.finalization.reviewPacketSha256 !== packetSha256) {
     throw new SingularityFlowError(
       `That review packet is not the one ${workId}'s latest finalization names. Nothing was decided. Open the latest: singularity-flow epic review ${workId} --epic ${initiativeId}`,

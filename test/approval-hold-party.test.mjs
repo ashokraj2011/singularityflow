@@ -65,12 +65,14 @@ test('the whole message is kept, <WORK-ID> is filled, and a list lead never ends
   assert.deepEqual(packet.items.filter((item) => item.kind === 'intent-amendment').map((item) => item.holdsApproval), [true, true]);
 });
 
-test('a refusal nothing here knows says so and goes to recover, never reject', () => {
+test('a refusal nothing here knows says so and goes to the Story\'s own next action, never reject', () => {
   const unknown = refusal('A_CODE_NOBODY_LISTED');
   assert.equal(approvalHoldOwner(unknown), 'unknown');
   const { hold, packet } = listFor(unknown);
   assert.equal(hold.who, 'Singularity Flow cannot say who clears this');
-  assert.equal(hold.action.command, 'singularity-flow recover W-1 --phase implementation --json');
+  // Not recovery, which is for real damage [owner decision 4, 2026-11-16]: it found a submitted, healthy step with nothing
+  // to repair and approval was refused the same way again (review finding 4, 2026-11-17).
+  assert.equal(hold.action.command, 'singularity-flow nextsteps W-1');
   assert.doesNotMatch(JSON.stringify(packet), /singularity-flow reject|The author revises it/u);
   // A refusal with no code at all is the same; one that names its own route keeps it.
   assert.equal(listFor(new SingularityFlowError('Uncoded.')).hold.owner, 'unknown');
@@ -165,7 +167,7 @@ test('a person\'s own step never claims it is yours because nothing names a grou
 
 test('a hold whose route /sf-decide never takes goes to that route\'s skill, not back to /sf-decide', () => {
   const unknown = listFor(refusal('A_CODE_NOBODY_LISTED'));
-  assert.equal(unknown.packet.next.copilotCommand, '/sf-recover W-1');
+  assert.equal(unknown.packet.next.copilotCommand, '/sf-nextsteps W-1');
   assert.equal(unknown.item.decidedBy.allowed, false, 'nothing says it is this person\'s');
   const changed = listFor(refusal('STORY_REVIEW_SOURCE_CHANGED'));
   assert.equal(changed.packet.next.copilotCommand, '/sf-reject W-1');

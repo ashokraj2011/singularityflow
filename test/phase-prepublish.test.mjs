@@ -394,7 +394,7 @@ test('release evidence correction stays with the release skill', async (t) => {
   assert.equal(result.commands.publish, null);
 });
 
-test('prepublish routes missing evidence through lifecycle recovery once the phase awaits approval', async (t) => {
+test('prepublish routes missing evidence to an approver\'s return once the phase awaits approval, never recovery', async (t) => {
   const item = await fixture(t);
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
   item.phase.status = 'awaiting_approval';
@@ -412,9 +412,10 @@ test('prepublish routes missing evidence through lifecycle recovery once the pha
   assert.ok(blocked.findings.some((finding) => finding.code === 'phase.lifecycle.not-publishable'));
   assert.equal(blocked.correction.class, 'phase-recovery');
   assert.equal(blocked.correction.sameTurn, false);
-  assert.equal(blocked.correction.skill, '/sf-recover');
-  assert.equal(blocked.commands.next, 'singularity-flow recover PRE-1 --phase planning --json');
-  assert.match(blocked.correction.guidance, /before changing evidence/u);
+  // Submitted and healthy: recovery found nothing to repair and sent it back here (review finding 5, 2026-11-17).
+  assert.equal(blocked.correction.skill, '/sf-reject');
+  assert.equal(blocked.commands.next, 'singularity-flow reject planning --work-id PRE-1 --fetch --to planning --reason <reason>');
+  assert.match(blocked.correction.guidance, /is submitted: a change to its evidence comes after an approver returns it/u);
   assert.equal(blocked.commands.publish, null);
 
   await writeFile(item.absolute, '# Plan\n\nTODO describe the plan.\n');
@@ -422,8 +423,8 @@ test('prepublish routes missing evidence through lifecycle recovery once the pha
     { session: item.session });
   assert.equal(unfinished.correction.class, 'phase-recovery');
   assert.equal(unfinished.correction.sameTurn, false);
-  assert.equal(unfinished.correction.skill, '/sf-recover');
-  assert.match(unfinished.correction.guidance, /before changing evidence/u);
+  assert.equal(unfinished.correction.skill, '/sf-reject');
+  assert.match(unfinished.correction.guidance, /is submitted: a change to its evidence comes after an approver returns it/u);
 });
 
 test('prepublish refuses a required collection whose only evidence Git ignores', async (t) => {

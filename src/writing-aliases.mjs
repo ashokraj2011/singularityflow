@@ -6,6 +6,7 @@
  * handler's eager closure carries it.
  */
 import { WORK_COMMANDS } from './command-skills.mjs';
+import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 
 // A bare word that says which step or form to run, never what to build (asked-for.mjs NOT_AN_INSTRUCTION).
 const FORM_WORD = /^(?:context|stage|check|status|show|preview|prepare|publish|continue|resume)$/iu;
@@ -40,10 +41,13 @@ export const WRITING_ALIASES = Object.freeze({
 const aliasNames = (keep) => Object.entries(WRITING_ALIASES).filter(([, alias]) => keep(alias)).map(([name]) => name);
 
 /**
- * The prompt hook's turns whose typed words are kept as what the person asked for [SCS:REQ-040]: the work command's two
- * names, as a turn names its skill (`sf-code`, `sflow-code`, …).
+ * The prompt hook's turns whose typed words are kept as what the person asked for [SCS:REQ-040], as a turn names its skill
+ * (`sf-code`, `sflow-code`, …): the work command's two names and every step writer the authoring catalog names. A change
+ * typed after a step's own writer (`/sf-scenario-check <step> <what to change>`, as its refusal says) is kept like one
+ * typed after /sf-code: one behaviour for every writer (D1; review finding 1, 2026-11-17).
  */
-export const ASKED_FOR_SKILLS = Object.freeze(aliasNames((alias) => alias.kind === 'work-command').flatMap((name) => [`sf-${name}`, `sflow-${name}`]));
+export const ASKED_FOR_SKILLS = Object.freeze([...new Set([...aliasNames((alias) => alias.kind === 'work-command').map((name) => `sflow-${name}`),
+  ...Object.keys(AUTHORING_SKILL_DECLARATION)])].flatMap((source) => [source.replace(/^sflow-/u, 'sf-'), source]));
 
 /** The aliases whose turn completes the step's task, by their packaged skill name (`sflow-call`, …). */
 export const TASK_COMPLETION_ALIASES = Object.freeze(aliasNames((alias) => alias.completesTask).map((name) => `sflow-${name}`));

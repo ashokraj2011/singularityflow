@@ -255,7 +255,7 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
     await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
     await rename(temporary, file);
   } finally { await removeRecord(temporary); }
-  // What a person typed after /sf-code or /sf-phase, redacted [SCS:REQ-040]: handed to the Story's own
+  // What a person typed after a step's writer (/sf-code, /sf-phase or a configured author), redacted [SCS:REQ-040]: handed to the Story's own
   // local record once the turn's Story is known, never kept in this turn record. The turns are the alias table's.
   const typed = ASKED_FOR_SKILLS.includes(skill)
     ? await import('./asked-for.mjs').then((module) => module.typedInstruction(payload, skill)).catch(() => null) : null;

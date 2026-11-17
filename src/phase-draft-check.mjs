@@ -34,7 +34,18 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { evaluateSpecificationGate, specificationGateDiagnostics } from './specification-gate.mjs';
-import { authorCommand } from './action-command-map.mjs';
+import { authorCommand, returnRoute, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
+
+/**
+ * A published step's own way to change what it published, from where it stands [D4]: its next version on the person's
+ * yes while it is the step being worked on, an approver's return once submitted, else the Story's own next action. Nothing
+ * is damaged, so recovery found nothing to repair and sent it back (review finding 5, 2026-11-17).
+ */
+export function publishedStepRoute(workflow, phase) {
+  if (phase.status === 'awaiting_approval') return returnRoute(workflow, phase);
+  if (workflow.currentPhase === phase.id && phase.status === 'in_progress') return versionQuestionRoute(workflow, phase);
+  return { skill: null, command: storyNextCommand(workflow.workItem.id) };
+}
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -363,8 +374,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     message: restriction?.message ?? hold.reason });
   const nextRoute = actorRoute ? { class: 'human-context', command: actorRoute.command,
     skill: actorRoute.skill, guidance: restriction?.message ?? hold.reason } : retained && findings.length ? {
-      class: 'phase-recovery', command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
-      skill: '/sf-recover', guidance: 'Preserve the published bytes. Restore the exact reviewed content or use an authorized return/successor generation; do not re-author this publication in place.'
+      class: 'phase-recovery', ...publishedStepRoute(workflow, phase),
+      guidance: 'Preserve the published bytes: a change to them is the step\'s next version, opened on the person\'s yes, or an approver\'s return once it is submitted. Never re-author this publication in place.'
     } : route ?? clarificationRoute;
   // Upstream-defect findings and gap advisories are never the author's to correct: an author told to
   // re-author them upgraded honest verdicts to publish. Owned findings beside them are still owned.

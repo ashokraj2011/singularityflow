@@ -57,6 +57,14 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
     entry = { ...ask, actions: [...ask.actions, ...(entry.actions ?? handoff).filter((action) => action.command !== offer.command)] };
   } else if (offer) entry = { ...entry, ...(changedPaths.length ? { reason: 'changed-after-publication', changedPaths } : requestedChange ? { reason: 'change-requested' } : {}),
     actions: entry.actions ? leads ? [offer, ...entry.actions] : [...entry.actions, offer] : handoff };
+  // The person already said yes to this version on the decisions card, kept on this clone for the proposal waiting on the
+  // Story as it stands: the entry goes straight to its preview and confirmation, which that yes lets through, and asks
+  // nothing again. Asked twice, the person answered the card and then the chat (review, 2026-11-17).
+  if (entry?.status === 'successor-confirmation-required') {
+    const kept = await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'requested-successor.mjs')).href))
+      .keptYes(root, workflow, phase).catch(() => null);
+    if (kept && kept.version === Number(entry.targetGeneration)) entry = { ...entry, successor: { ...entry.successor, consent: { kept: true, surface: kept.surface, expiresAt: kept.expiresAt } } };
+  }
   return {
     authoringSkill: route.authoringSkill,
     effectiveAuthoringSkill: route.effectiveAuthoringSkill,

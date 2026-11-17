@@ -176,6 +176,9 @@ test('a yes on the card is kept by the engine\'s command, bound to the exact pro
   assert.equal(answer.status, 'recorded');
   assert.deepEqual(answer.recorded, ['version-opening']);
   assert.match(answer.message, /^Your yes to start version 2 of Scope and plan is kept for 30 minutes\./u);
+  // The toast says what really happens next, and the step it names opens the version: the work command, never /sf-submit (review, 2026-11-17).
+  assert.match(answer.message, /Next, \/sf-phase intake starts it with this yes, without asking you again, and makes the change\.$/u);
+  assert.deepEqual(answer.next, { command: 'singularity-flow phase rollover intake --json', skill: '/sf-phase' });
   assert.equal(existsSync(grantFile(story, opening.digest)), true, 'the engine kept the grant');
   assert.equal(json(story.raw(['decisions', W, '--json'])).data.versionOpening, undefined, 'a yes given is not asked again');
   nothingSent();

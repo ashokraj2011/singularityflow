@@ -491,6 +491,12 @@ export function agentAct(result) {
     // So does a change the person typed after it was published (successor.requests, their words quoted): one yes, then the
     // change in this same turn. Told "submit" by its permission, the agent said they had asked for nothing (daily run 2026-11-17).
     const asked = result.successor?.requests?.length > 0;
+    // Their yes on the decisions card is already kept for this exact version: the preview, then its confirmation, which
+    // that yes lets through; never asked a second time (review, 2026-11-17).
+    if (result.status === 'successor-confirmation-required' && result.successor?.consent?.kept === true) return withRoute({ state: 'next', do: null, read: ['successor', 'next'],
+      said: oneLine(`The person already said yes to version ${result.successor.targetGeneration ?? 'N+1'} of ${result.phase ?? 'this step'} on the decisions card: `
+        + `run do.shell (the preview), then the confirmation it returns, without asking them again; refresh the entry once and ${asked ? 'make the change' : result.successor.findings?.length ? 'fix the findings' : 'write it'} in this same turn.`) },
+    result.successor.preview);
     if (result.status === 'successor-confirmation-required' && result.successor?.question) return withRoute({ state: 'confirm', do: null,
       read: ['successor', 'next'],
       ask: { kind: 'choice', question: result.successor.question, choices: (result.successor.choices ?? ['Yes', 'No']).map((label) => ({ label })),
@@ -663,6 +669,13 @@ export function agentAct(result) {
   // A successor's preview carries the one question the person answers, with its actual numbers [OSA §7.1]: asked as it
   // is, so the hook can bind their yes to exactly that version.
   if (result.resultType === 'sflow-generation-rollover' && result.mutates === false && typeof result.question === 'string' && act?.ask) {
+    // The person's yes on the decisions card is kept for this exact proposal: its confirmation runs now, never asked again.
+    // The confirmation is this turn's own command then, never the person's /sf-confirm.
+    if (result.consent?.kept === true) {
+      const { ask: ignored, ...rest } = act;
+      return { ...rest, state: 'next', do: { ...rest.do, copilot: null },
+        said: oneLine(`${result.nextAction?.reason ?? ''} Then refresh the entry once and do the version's work in this same turn.`) };
+    }
     return { ...act, ask: { ...act.ask, question: result.question, choices: [{ label: 'Yes' }, { label: 'No' }],
       how: 'Ask the person ask.question exactly, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run do.shell once; on No, or with no question tool, start nothing and give them do.copilot. Never answer it yourself.' } };
   }

@@ -609,7 +609,7 @@ export async function readPendingList(root, config, workflow, { phaseId = null, 
   const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
   // Every item in plain words, the same on every host [owner, 2026-11-16].
   const packet = withPlainWords(workflow, decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase, card }));
-  const storyNext = packet.items?.length ? null : await storyNextStep(workflow);
+  const storyNext = packet.items?.length ? null : await storyNextStep(root, workflow);
   return { ...packet, ...(storyNext ? { next: storyNext } : {}),
     sheet: await sheetOf(root, workflow, packet, { approvalCheck: facts.approvalCheck, authorities, actor, card }) };
 }
@@ -617,13 +617,25 @@ export async function readPendingList(root, config, workflow, { phaseId = null, 
 /**
  * An empty list ends on the Story's next step, the first one the guide (and so next steps) gives: a
  * /sf-decide turn that ended on "nothing to decide" left the person with no next action (owner, 2026-11-10).
+ * The guide is read with the step's task fact, as next steps reads it (readTaskOutcome): after the person's yes to a
+ * change's next version, read without it, it named the old version's submission (review, 2026-11-17). A yes kept for the
+ * step's waiting proposal is said so: its work command starts it and asks nothing again. Both readers load from the CLI
+ * source, out of the VS Code bundles that read this list.
  */
-async function storyNextStep(workflow) {
+async function storyNextStep(root, workflow) {
   try {
+    const phase = workflow.phases?.[workflow.currentPhase] ?? null;
+    const source = (name) => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', name)).href);
+    const taskOutcome = phase?.status === 'in_progress' ? await (await source('workflow-task-outcome.mjs')).readTaskOutcome(root, workflow, phase).catch(() => null) : null;
     const { workflowGuide } = await import('./guide.mjs');
-    const action = workflowGuide(workflow).nextActions.find((entry) => !entry.optional && entry.command);
-    return action ? { kind: 'story-next', title: action.reason ?? 'The Story\'s next step.', command: action.command,
-      copilotCommand: action.copilotCommand ?? null, skill: action.skill ?? null } : null;
+    const action = workflowGuide(workflow, { taskOutcome }).nextActions.find((entry) => !entry.optional && entry.command);
+    if (!action) return null;
+    const kept = phase && /^singularity-flow phase rollover\b/u.test(action.command)
+      ? await (await source('requested-successor.mjs')).keptYes(root, workflow, phase).catch(() => null) : null;
+    const chat = action.copilotCommand ?? action.skill ?? null;
+    const title = kept && chat ? `Your yes to start version ${kept.version} of ${phase.label ?? phase.id} is kept: ${chat} starts it now, without asking again.`
+      : action.reason ?? 'The Story\'s next step.';
+    return { kind: 'story-next', title, command: action.command, copilotCommand: action.copilotCommand ?? null, skill: action.skill ?? null };
   } catch { return null; }
 }
 

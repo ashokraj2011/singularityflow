@@ -526,14 +526,16 @@ async function askVersionOpening(packet, { ask, show, consent }) {
   if (answer?.action !== 'accept' || answer.content?.start !== START_VERSION) return { started: false };
   const result = await consent(opening);
   await show(result?.words ?? `Your yes to start version ${opening.version} of ${opening.phase} is kept.`);
-  return { started: true };
+  // What really happens next, in the engine's words, and its route: the step's work command, which asks nothing again.
+  return { started: true, words: result?.words ?? null, next: result?.next ?? null };
 }
 
 export async function runCard({ ask, show, read, record, witness, inspect, consent = null, askedInChat = false }) {
   let packet = await read();
   const opening = await askVersionOpening(packet, { ask, show, consent });
   if (opening?.started && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-opening'], remaining: [],
-    message: `Your yes to start version ${packet.versionOpening.version} of ${packet.versionOpening.phase} is kept; its work command opens it.` };
+    message: opening.words ?? `Your yes to start version ${packet.versionOpening.version} of ${packet.versionOpening.phase} is kept; its work command opens it.`,
+    ...(opening.next ? { next: opening.next } : {}) };
   // A chat that asked carries on when nothing waits: only a person who typed /decide sees a review nothing waits on.
   if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
   // What an answer depends on, SFlow checks before it asks, read-only and bounded [owner, 2026-11-16].

@@ -77,6 +77,22 @@ export async function successorAsked(root, workflow, phase, version) {
   return Boolean(record) && record.proposal.consent === 'required' && Number(record.proposal.version) === Number(version);
 }
 
+/**
+ * The person's yes on the decisions card, kept on this clone for the step's waiting proposal on the Story as it stands:
+ * `{ version, surface, expiresAt }`, or null. The step's work command then goes straight to its preview and confirmation,
+ * which that yes lets through (the edit guard admits a card's yes with no question in the turn), and asks nothing again
+ * [D3, OSA:REQ-030]. A yes answered to the question tool belongs to the turn that asked it.
+ */
+export async function keptYes(root, workflow, phase) {
+  const [{ gitDirectories }, consent, { head }] = await Promise.all([import('./story-version-acceptance.mjs'),
+    import('./story-version-consent.mjs'), import('./git.mjs')]);
+  const directories = gitDirectories(root);
+  const record = directories ? await consent.pendingProposalRecord(directories.commonDir, { workId: workflow.workItem.id, phase: phase.id, lifecycleRevision: head(root) }) : null;
+  if (record?.proposal?.consent !== 'required') return null;
+  const grant = await consent.readGrant(directories.commonDir, record.digest);
+  return grant?.surface === 'decisions-card' ? { version: Number(record.proposal.version), surface: grant.surface, expiresAt: grant.expiresAt } : null;
+}
+
 /** The value the person confirms: the published generation, its exact bytes and the words that ask for the change. */
 export function requestedSuccessorConfirmation(workflow, phase, resultDigest, requests) {
   return `sha256:${createHash('sha256').update(JSON.stringify({ kind: 'requested-successor', workId: workflow.workItem.id,
@@ -148,7 +164,10 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   if (!supplied) {
     // Kept here, sealed, so the hook that hears the person's answer binds it to this exact proposal.
     await opening.recordPreview(root, { ...proposed, confirmation: expected });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
+    // The person's yes on the decisions card is kept for this exact proposal: its confirmation opens it, asked nothing again.
+    const kept = await opening.keptConsent(root, proposed.digest);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(kept && preview.nextAction
+      ? { ...preview, consent: kept, nextAction: { ...preview.nextAction, reason: opening.keptReason(proposed.proposal.version) } } : preview, null, 2));
     console.log(`Start ${phase.id} version ${next} for a change (version ${phase.generation} stays as published):`);
     for (const request of requests) console.log(`  · "${request.replace(/\s+/gu, ' ')}"`);
     // A person confirms the step and generation they just read, never a digest [no hashes shown]: in their own

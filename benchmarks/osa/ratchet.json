@@ -273,9 +273,6 @@
       "lifecycleCommands": 1,
       "skillLiterals": 3
     },
-    "commands/upstream-issue.mjs": {
-      "versionArithmetic": 1
-    },
     "config.mjs": {
       "predicateCalls": 2
     },
@@ -758,7 +755,7 @@
       "intentReads": 3,
       "predicateCalls": 27,
       "skillChooserCalls": 5,
-      "versionArithmetic": 4,
+      "versionArithmetic": 3,
       "routeObjects": 6,
       "lifecycleCommands": 21
     },

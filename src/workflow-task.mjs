@@ -165,8 +165,9 @@ export function workflowTaskDeltaSafe(before, after) {
     for (const [id, record] of Object.entries(current)) {
       if (prior[id] && recordSha256(prior[id]) === recordSha256(record)) continue;
       const phase = after.phases?.[record.phaseId];
-      if (!phase || !workflowTaskApplies(phase, record.role)
-          || record.generation > Math.max(Number(phase.generation ?? 0) + 1, Number(phase.generationIntent?.generation ?? 0))) return false;
+      // At most the version being written: past a withdrawn one's number, the opening's own [OSA §4.3].
+      if (!phase || !workflowTaskApplies(phase, record.role) || record.generation > Math.max(Number(phase.generation ?? 0) + 1,
+        Number(phase.generationIntent?.generation ?? 0), Number(phase.versionOpening?.version ?? 0))) return false;
       validateWorkflowTask(record, workflowTaskIdentity(after, phase, record.role, record.generation));
       if (id !== record.id) return false;
       if (prior[id]) {

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import YAML from 'yaml';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
-import { verifiedAbandonedGenerations } from '../src/governance.mjs';
+import { verifiedAbandonedGenerations } from '../src/abandoned-generations.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -172,6 +172,51 @@ test('published abandoned rework restores an approvable review without reusing g
   flow(['gate', '--terminal']);
   const staleRollback = flow(['story', 'rework', 'roll-forward', '--work-id', 'REWORK-ORDINAL', '--json'], true);
   assert.notEqual(staleRollback.status, 0, 'completed rework cannot later be abandoned via a stale open request');
+  assert.match(git('log', '--format=%s'), /rework:roll-forward/);
+});
+
+test('a withdrawn return keeps the number its opening reserved: the next opening is version 3 [OSA §4.3]', async (t) => {
+  const { root, git, flow, state, publish, rollForward, consent } = await fixture(t, 'REWORK-RESERVED');
+  flow(['reject', final, '--to', verify, '--reason', 'Inspect an alternative verification report.']);
+  // Version 2 opens on the person's yes and is withdrawn before anything is published in it.
+  consent(verify, 2);
+  const opened = (await state()).phases[verify].versionOpening;
+  assert.deepEqual([opened.version, opened.highWatermark], [2, 2]);
+  const openedRecord = await readFile(path.join(root, opened.path), 'utf8');
+  rollForward();
+  let workflow = await state();
+  assert.deepEqual([workflow.phases[verify].generation, workflow.phases[final].status], [1, 'awaiting_approval']);
+  assert.equal(workflow.phases[verify].generationHighWatermark, 2, 'the withdrawal keeps version 2 reserved');
+  assert.equal(await readFile(path.join(root, opened.path), 'utf8'), openedRecord, "version 2's opening record stays in the Story");
+  const withdrawal = workflow.changeRequests[0].resolution;
+  assert.deepEqual([withdrawal.abandonedGenerations, withdrawal.withdrawnVersions], [[], [{ phase: verify, version: 2 }]]);
+  assert.match(workflow.history.at(-1).detail, new RegExp(`version 2 of ${verify} was started but never published, so its number is not used again`, 'u'));
+  flow(['reject', final, '--to', verify, '--reason', 'Inspect the alternative after all.']);
+  consent(verify, 3);
+  workflow = await state();
+  const reopened = workflow.phases[verify].versionOpening;
+  assert.deepEqual([reopened.version, reopened.highWatermark], [3, 3]);
+  assert.notEqual(reopened.operationId, opened.operationId);
+  assert.notEqual(reopened.path, opened.path);
+  assert.equal(await readFile(path.join(root, opened.path), 'utf8'), openedRecord, "the next opening never overwrites version 2's record");
+  publish(verify); flow(['submit', verify]);
+  consent(final, 2); publish(final); flow(['submit', final]); flow(['approve', final, '--yes']);
+  workflow = await state();
+  assert.deepEqual([workflow.phases[verify].generation, workflow.phases[verify].generationPublications.map((entry) => entry.generation)], [3, [1, 3]]);
+  assert.equal(workflow.status, 'closed');
+  // The final audit reads version 2 as withdrawn, proven by the governed rollback commit, never as a missing publication.
+  const withdrawn = new Set();
+  assert.deepEqual([...verifiedAbandonedGenerations(root, {}, workflow, { withdrawn })], [`${verify}:2`]);
+  assert.deepEqual([...withdrawn], [`${verify}:2`]);
+  for (const tamper of [
+    (value) => { value.changeRequests[0].resolution.withdrawnVersions[0].version = 3; },
+    (value) => { value.changeRequests[0].resolution.withdrawnVersions.push({ phase: final, version: 1 }); }
+  ]) {
+    const forged = structuredClone(workflow); tamper(forged);
+    assert.deepEqual([...verifiedAbandonedGenerations(root, {}, forged)], [], 'a mutable withdrawal cannot exempt a missing publication');
+  }
+  const audit = flow(['gate', '--terminal']);
+  assert.match(`${audit.stdout}\n${audit.stderr}`, new RegExp(`withdrawn version verified: ${verify} version 2 was never published`, 'u'));
   assert.match(git('log', '--format=%s'), /rework:roll-forward/);
 });
 

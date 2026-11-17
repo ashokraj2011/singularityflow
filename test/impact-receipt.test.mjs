@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { normalizeImpactDefinition } from '../src/impact-config.mjs';
@@ -29,7 +29,7 @@ function normalizedStudy() {
   }).studies[0];
 }
 
-async function fixture() {
+async function fixture({ experiment = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-impact-receipt-'));
   const relativePlan = 'singularity/work-items/STORY-9/measurement/plan.json';
   await mkdir(path.dirname(path.join(root, relativePlan)), { recursive: true });
@@ -44,7 +44,8 @@ async function fixture() {
       confirmedBy: { name: 'Reviewer', email: 'reviewer@example.com' }
     },
     matching: { capability: 'checkout', repositoryClass: 'delivery', workType: 'feature', timePeriod: '2026-Q3' },
-    enrollment: { mode: 'automatic', enrolledAt: startedAt, optedOutAt: null, reason: null }
+    enrollment: { mode: 'automatic', enrolledAt: startedAt, optedOutAt: null, reason: null },
+    ...(experiment ? { experiment } : {})
   };
   const plan = { ...planCore, integrity: { sha256: impactSha256(planCore) } };
   await writeJson(path.join(root, relativePlan), plan);
@@ -103,6 +104,24 @@ test('finalization emits a deterministic receipt bound to the pre-publication su
     { provider: 'provider', model: 'model-a', totalTokens: 140 }
   ]);
   assert.equal((await verifyImpactReceipt(root, workflow)).valid, true);
+});
+
+test('a prompt study does not expect a version a rework rollback withdrew before it was published [OSA §4.3]', async (t) => {
+  const experiment = { kind: 'prompt-set-randomized', studyRunId: 'delivery-study@1', variant: { id: 'agent' },
+    targetPhases: ['implementation'], prompts: { implementation: { sha256: 'e'.repeat(64), bytes: 12 } }, governedAgents: {} };
+  const versionsOf = async (withdrawnVersions) => {
+    const { root, workflow } = await fixture({ experiment });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    // Version 2 was opened and withdrawn by a rollback; version 3 is the one published after it.
+    workflow.phases.implementation.generation = 3;
+    workflow.changeRequests = [{ id: 'CR-001', status: 'abandoned', resolution: { status: 'abandoned', abandonedGenerations: [],
+      ...(withdrawnVersions ? { withdrawnVersions } : {}) } }];
+    const { receipt } = await createImpactReceipt(root, { workItemRoot: 'singularity/work-items' }, workflow, {
+      sourceCommit: 'a'.repeat(40), sourceTreeSha256: 'c'.repeat(64), packetSha256: 'd'.repeat(64), finalizedAt: approvedAt });
+    return [receipt.experiment.generations.map((entry) => entry.generation), receipt.experiment.adherence.expectedGenerations];
+  };
+  assert.deepEqual(await versionsOf([{ phase: 'implementation', version: 2 }]), [[1, 3], 2]);
+  assert.deepEqual(await versionsOf(null), [[1, 2, 3], 3], 'a number with no withdrawal is still expected');
 });
 
 test('reopening measured work preserves the receipt and appends a hash-bound invalidation', async () => {

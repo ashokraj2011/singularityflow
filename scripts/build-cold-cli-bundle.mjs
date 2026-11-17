@@ -101,6 +101,8 @@ const FAMILIES = Object.freeze([
     'workflow-task-store.mjs', 'workflow-task.mjs',
     'verification/witness-decisions.mjs', 'evidence/terminal.mjs', 'evidence/graph.mjs',
     'evidence/evaluate.mjs', 'verification/contracts.mjs',
+    // The final audit's proof of a rollback's abandoned and withdrawn versions, imported only by the gate (OSA §4.3).
+    'abandoned-generations.mjs',
     // What the ending judges of a code step's own criteria, read at that step's approval [PHR:REQ-002].
     'owner-step-evidence.mjs',
     // The plan's existing and removed rows against the Story's base, read at planning prepublish and publication [PHR:REQ-002].

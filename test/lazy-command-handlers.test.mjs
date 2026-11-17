@@ -731,7 +731,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,745,800 (measured 9,745,763 for submit.mjs, +612): a quality command that changes the source at submission names
     // the published step's version question (state.mjs's two QUALITY_COMMAND_SOURCE_MUTATION refusals, which said to publish
     // a fresh generation), and refusal-remediation.mjs leads with it [D3, OSA:REQ-030]. No new eager file.
-    assert.ok(closure.bytes <= 9_746_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,743,800 (measured 9,743,793, start.mjs now the largest; submit.mjs 9,741,327): the 11-17 follow-ups on one tree. The
+    // asked-for views load submit's printed phase review only in a person's terminal (-4,800 or so), which more than covers
+    // the other follow-ups' rises above. No new eager file.
+    assert.ok(closure.bytes <= 9_743_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

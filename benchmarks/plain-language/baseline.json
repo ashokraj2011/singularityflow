@@ -14,8 +14,8 @@
   "count-without-name": 27,
   "draft-for-version": 6,
   "generic-route": 6356,
-  "jargon": 1352,
-  "length": 677
+  "jargon": 1350,
+  "length": 675
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -3414,7 +3414,6 @@
    "fefe9b831413": "jargon:binding"
   },
   "src/evidence-reuse.mjs": {
-   "8a891359299d": "length",
    "9632126c391a": "length",
    "cc4460a4a675": "jargon:generation length"
   },
@@ -4329,7 +4328,6 @@
    "3f9a7bf64e11": "jargon:generation jargon:packet",
    "4adfad1cb089": "length",
    "4d3746a9b4c6": "jargon:deterministic jargon:digest length",
-   "50626740da5e": "jargon:generation",
    "50e221cbaae2": "jargon:staging",
    "52e56912ee95": "length",
    "57a6b11f79c4": "jargon:generation length",
@@ -4345,7 +4343,6 @@
    "77d1436ac7e3": "length",
    "78fb3b4fb2a9": "length",
    "7a4a3b1a6fb9": "jargon:retained",
-   "85709f393694": "jargon:generation length",
    "85f74d096306": "jargon:generation",
    "92d0432be855": "jargon:generation",
    "95ed924e72d3": "jargon:packet",

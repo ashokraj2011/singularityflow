@@ -42,6 +42,7 @@ import { publishOrganisationCapabilityMap, readOrganisation } from '../src/organ
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { writeLegacyStateCopy } from './helpers/legacy-state-copy.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1086,6 +1087,9 @@ test('workspace capability confirmation tolerates state-only projection advance 
           SINGULARITY_FLOW_TEST_IDENTITY: 'Workspace Tester'
         }
       });
+      // Publishing writes no configuration copy to the state branch now (SCF:REQ-003); one an earlier build wrote
+      // stays there, and it is what moves below.
+      await writeLegacyStateCopy(platformRemote);
     }
     const created = await createWorkspaceConfiguration({
       baseDirectory: path.join(root, 'workspaces'), id: name, name,
@@ -1103,12 +1107,14 @@ test('workspace capability confirmation tolerates state-only projection advance 
   const statePreview = await previewWorkspaceCapabilityChange(
     projected.created.workspace.path, 'api', { action: 'attach' }
   );
-  assert.equal(statePreview.authority.sourceBranch, 'state');
-  const previousSourceCommit = statePreview.authority.sourceCommit;
-  const advancedSourceCommit = await advanceRemoteBranch(
+  // The map is read from sflow/config, never the state copy (SCF:REQ-001, REQ-003); the state branch still moves with
+  // runtime records, and that movement alone keeps a confirmed plan.
+  assert.equal(statePreview.authority.sourceBranch, 'sflow/config');
+  const previousStateCommit = run('git', ['rev-parse', 'refs/heads/state'], { cwd: projected.platformRemote }).stdout.trim();
+  const advancedStateCommit = await advanceRemoteBranch(
     projected.root, projected.platformRemote, 'state', 'Unrelated runtime state evidence'
   );
-  assert.notEqual(advancedSourceCommit, previousSourceCommit);
+  assert.notEqual(advancedStateCommit, previousStateCommit);
   const attached = await changeWorkspaceCapability(
     projected.created.workspace.path, 'api', { action: 'attach' },
     { confirmation: statePreview.planId }

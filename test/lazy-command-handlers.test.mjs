@@ -744,7 +744,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // approve and return routes, filled from its forms), which takes the commands they wrote in place out of them
     // (guide.mjs -462, nextsteps.mjs -162, sequence.mjs -24); a healthy step's refusals name its owner's correction or `sync`
     // instead of recovery (state.mjs +279, story-test-risk.mjs +54, story-test-command-amendment.mjs -16). No new eager file.
-    assert.ok(closure.bytes <= 9_744_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,745,500 (measured 9,745,489 for start.mjs): the two small-fix tracks of 2026-11-17 together, each measured above on
+    // its own base (the approval's next command from the kernel route, and Stage 5's routes from the map). No new eager file.
+    assert.ok(closure.bytes <= 9_745_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

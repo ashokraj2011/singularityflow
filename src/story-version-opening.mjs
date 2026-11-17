@@ -256,16 +256,20 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
 /**
  * Settle an opening whose shared acceptance is not confirmed here, as the same operation [§7.2, OSA:REQ-033]: publish its
  * exact retained commit through the Story's sync when it is still waiting, then observe the Story branch. It never authors
- * again and never opens another version: an unreadable remote leaves it unknown.
+ * again and never opens another version: an unreadable remote leaves it unknown. By default it settles the operation the
+ * step's view reads (story-version-acceptance.mjs observeOpening): the writer takeover's, once the writer was taken over.
+ * Settling only the opening's own, a takeover whose push did not land was named "settle it" forever (review, 2026-11-17).
  */
-export async function reconcileOpening(root, config, workflow, phase, { operationId = phase?.versionOpening?.operationId ?? null } = {}) {
+export async function reconcileOpening(root, config, workflow, phase, { operationId = phase?.versionOpening?.writer?.operationId ?? phase?.versionOpening?.operationId ?? null } = {}) {
   const workId = workflow.workItem.id;
   const { commonDir } = await directories(root);
   if (!validOperationId(operationId)) throw refuse(`${phase.id} has no opening to settle.`, 'VERSION_OPENING_NOT_FOUND', { phase: phase.id });
   let checkpoint = readCheckpoint(commonDir, workId, operationId);
   if (checkpoint?.state === 'shared-confirmed') return { outcome: checkpoint.outcome, replayed: true, checkpoint: checkpoint.state };
   if (checkpoint?.state === 'refused') throw replayedRefusal(checkpoint);
-  const pointer = phase.versionOpening?.operationId === operationId ? phase.versionOpening : null;
+  // The step's opening record names its own operation and its writer's (a takeover moves the writer with its own).
+  const named = (opening) => opening?.operationId === operationId || opening?.writer?.operationId === operationId;
+  const pointer = named(phase.versionOpening) ? phase.versionOpening : null;
   if (!checkpoint && !pointer) throw refuse(`Operation ${operationId} opened nothing that this checkout knows of.`, 'VERSION_OPENING_NOT_FOUND', { operationId });
   // Stopped before its reservation: nothing was committed, so nothing is settled; the same confirmation runs it again.
   if (checkpoint?.state === 'prepared' && !pointer) throw refuse(`Version ${checkpoint.version} of ${phase.id} was not opened: its operation stopped before anything was committed. Run the same confirmation again.`,
@@ -282,7 +286,7 @@ export async function reconcileOpening(root, config, workflow, phase, { operatio
     const [{ sourceFileAt }, { workDirRelative }] = await Promise.all([import('./source-inspection.mjs'), import('./story-paths.mjs')]);
     const committed = sourceFileAt(root, 'HEAD', `${workDirRelative(config, workId)}/workflow.json`);
     let held = false;
-    try { held = committed.status === 'present' && JSON.parse(committed.value)?.phases?.[phase.id]?.versionOpening?.operationId === operationId; } catch { held = false; }
+    try { held = committed.status === 'present' && named(JSON.parse(committed.value)?.phases?.[phase.id]?.versionOpening); } catch { held = false; }
     if (!held) throw refuse(`The opening ${operationId} of ${phase.id} is in this working copy only, never committed: it opens nothing. Inspect what this checkout knows of it; its next version opens only through its own preview and the person's yes.`,
       'VERSION_OPENING_NOT_SHARED', { operationId, phase: phase.id, nextAction: { command: `singularity-flow phase opening ${phase.id} --json` } });
     commit = head(root);

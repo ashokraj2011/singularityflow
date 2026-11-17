@@ -217,8 +217,20 @@ test('real HTTPS public-folder listing, paging, cookies and binary downloads thr
   assert.match(repeated.stdout,/Folder link saved/);
   const ps=await exec('pwsh',['-NoLogo','-NoProfile','-File',path.join(root,'update-sflow.ps1'),origin+'/share?e=cap&another=value','--check-only'],args);
   assert.match(ps.stdout,/packages match/);
-  assert.equal(requests.filter(p=>p==='/binary/cli').length,3);
-  assert.equal(requests.filter(p=>p==='/binary/vsix').length,3);
+  // Windows can resolve several executable extensions for one name. Select the first command,
+  // rather than joining their paths into an executable that cannot exist.
+  const multiple = `function global:Get-Command {
+    [CmdletBinding()]param([string]$Name, [string]$CommandType)
+    @([pscustomobject]@{Path=$env:SFLOW_TEST_NODE;Source=$env:SFLOW_TEST_NODE},
+      [pscustomobject]@{Path='missing-node.exe';Source='missing-node.exe'})
+  }
+  & $env:SFLOW_TEST_UPDATER $env:SFLOW_TEST_FOLDER --check-only`;
+  const multipleResult=await exec(process.platform==='win32'?'powershell.exe':'pwsh',
+    ['-NoLogo','-NoProfile','-Command',multiple],{...args,env:{...env,SFLOW_TEST_NODE:process.execPath,
+      SFLOW_TEST_UPDATER:path.join(root,'update-sflow.ps1'),SFLOW_TEST_FOLDER:origin+'/share?e=cap&another=value'}});
+  assert.match(multipleResult.stdout,/packages match/);
+  assert.equal(requests.filter(p=>p==='/binary/cli').length,4);
+  assert.equal(requests.filter(p=>p==='/binary/vsix').length,4);
   assert.deepEqual(await readdir(state),['source.json']);
   await assert.rejects(launch([origin+'/login','--check-only']),
     error=>/public folder download details/.test(error.stderr));

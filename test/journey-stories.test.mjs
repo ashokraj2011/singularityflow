@@ -11,7 +11,9 @@
  *      "Start version 3?", and it goes on to its submission [OSA:AC-013];
  *   G  version 2 open on a step with no review: submit refuses with the route to write it, which is then followed
  *      [OSA:REQ-032, AC-013];
- *   I  a document step's review asks corrections, and the person is asked "Start version 2?" as for code [OSA:AC-013].
+ *   I  a document step's review asks corrections, and the person is asked "Start version 2?" as for code [OSA:AC-013];
+ *   K  a change typed after /sf-code once the code is published, without the step's name and with it: the entry, its edit
+ *      permission, the kernel and the guard all ask "Start version N?", and the routes write and publish the change.
  *
  * Every walk writes through the real edit guard and reads the person's views at each hand-off (route-follower.mjs).
  *
@@ -466,6 +468,71 @@ test('journey G: version 2 open on a step with no review: submit refuses with th
   // The validation offer is read and asked in the publication's own turn (Stage 3): no hand-off differs from the views.
   await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => {
     for (const walk of [first, second]) viewsAgree(walk);
+  });
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- K
+
+// Daily run 2026-11-17: Implement version 1 was published, and the person typed `/sf-code Start each retry log line with
+// "[retry]"…`. The entry's act asked to preview version 2 for it, but its edit permission said "No direct edits: this step is
+// not being written now" with `submit-version:implement@1`, and the agent told the person they had asked for nothing. The
+// same words typed after `/sf-code implement` went on. Both typings must give one answer everywhere: the version question.
+const CHANGES = Object.freeze(['Say in the clause comment which version wrote it.', 'Name the version in the clause comment again.']);
+
+test('journey K: a change typed after /sf-code, with and without the step\'s name, is asked as "Start version N?" by the entry, its permission, the kernel and the guard, then written', slowLane({ timeout: 1_500_000 }), async (t) => {
+  const W = 'JRN-K';
+  const story = await quickFixAtCode(t, W, { configure: (configuration) => {
+    configuration.workTypes['quick-fix'].sourceReview = { skip: ['implement'] };
+  } });
+  const agent = { author: versionedAuthor(W), review: reviewer() };
+  const validation = ({ act }) => (/^What would you like to validate\b/u.test(act?.ask?.question ?? '') ? { route: { shell: `singularity-flow nextsteps ${W} --json` } } : null);
+  const first = await followRoutes(story, { label: 'journey K, version 1', start: { copilot: '/sf-code' }, agent, person: cooperativePerson(validation),
+    done: ({ record }) => publishedGeneration(record, 'implement') >= 1, maxSteps: 16 });
+  t.diagnostic(formatTrail(first.trail));
+  assert.equal(first.reached, true, report(first));
+
+  const walks = [first];
+  for (const [index, typed] of [`/sf-code ${CHANGES[0]}`, `/sf-code implement ${CHANGES[1]}`].entries()) {
+    const version = index + 2;
+    // What every surface said when the version question was asked, read at that moment.
+    let seen = null;
+    const person = cooperativePerson((context) => {
+      if (!seen && context.act?.state === 'confirm' && context.act.ask?.question) {
+        const guard = copilotTurn(story, `journey-k-guard-${version}`).prompt('/sf-code');
+        seen = { act: context.act, entry: json(story.raw(['phase', 'enter', '--json']).stdout), guard: JSON.stringify(guard) };
+      }
+      return validation(context);
+    });
+    const walk = await followRoutes(story, { label: `journey K, ${typed.split(' ').slice(0, 2).join(' ')}…`, start: { copilot: typed }, agent, person,
+      done: ({ record }) => publishedGeneration(record, 'implement') >= version, maxSteps: 16 });
+    t.diagnostic(formatTrail(walk.trail));
+    walks.push(walk);
+    await check(t, `${typed.split(' ').slice(0, 2).join(' ')}…: the entry asks "Start version ${version} of Implement?" first, never "submit"`, {}, () => {
+      assert.ok(seen, `the version question was never asked\n${report(walk)}`);
+      assert.match(seen.act.ask.question, new RegExp(`^Start version ${version} of Implement\\?`, 'u'));
+      assert.equal(seen.act.do.shell, 'singularity-flow phase rollover implement --json');
+      assert.equal(seen.entry.status, 'successor-confirmation-required', JSON.stringify(seen.entry.authoring?.entry).slice(0, 1500));
+      assert.deepEqual(seen.entry.successor.requests, [CHANGES[index]]);
+    });
+    await check(t, `${typed.split(' ').slice(0, 2).join(' ')}…: the edit permission, the kernel and the guard say the same`, {}, () => {
+      const contract = seen.entry.mutationContract;
+      assert.equal(contract.policy.step.next, `open-version:implement@${version}`, JSON.stringify(contract.policy));
+      assert.ok(contract.policy.step.reasons.includes('CHANGE_REQUESTED'), JSON.stringify(contract.policy));
+      assert.equal(contract.next[0].command, 'singularity-flow phase rollover implement --json', JSON.stringify(contract.next));
+      assert.match(contract.summary, new RegExp(`person's yes to version ${version} of implement`, 'u'));
+      for (const said of [contract.summary, seen.guard]) assert.doesNotMatch(said, /not being written now|submit-version/u);
+      assert.match(seen.guard, new RegExp(`person's yes to version ${version} of implement`, 'u'));
+    });
+    await check(t, `${typed.split(' ').slice(0, 2).join(' ')}…: the person's one yes opens version ${version}, and the change is written and published by the routes`, {}, () => {
+      assert.equal(walk.reached, true, report(walk));
+      assert.deepEqual(walk.findings, [], report(walk));
+      assert.equal(storyRecord(story).phases.implement.generation, version);
+      assert.equal(walk.trail.filter((entry) => /the person answered/u.test(entry.did ?? '')).length >= 1, true, report(walk));
+    });
+  }
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', { knownBad: 'typed-change-views' }, () => {
+    for (const walk of walks) viewsAgree(walk);
   });
   settle(t);
 });

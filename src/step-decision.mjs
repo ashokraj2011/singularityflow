@@ -79,7 +79,7 @@ const ACKNOWLEDGEMENT = 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED';
  * `task`: the step's durable task outcome as the caller read it (workflow-task-outcome.mjs), or null.
  */
 export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.currentPhase], turnMode = 'authoring', sources = {},
-  review = null, revoked = false, basis = {}, opening = null, task = null, reviewOwed = false } = {}) {
+  review = null, revoked = false, basis = {}, opening = null, task = null, reviewOwed = false, changeRequested = false } = {}) {
   // What this checkout observed of an operation's opening (story-version-acceptance.mjs): its shared acceptance and writer.
   const observed = (step, version) => version.opening?.record === 'operation' && step.id === phase?.id && opening
     ? { ...version, opening: { ...version.opening, acceptance: opening.acceptance, writer: opening.writer } } : version;
@@ -95,7 +95,9 @@ export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.
     // A review the caller read for this step is owed by it, whatever its policy says now (a retained review stands).
     review: { required: sourceReviewRequired(workflow, step.id) || (reviewOwed && review?.phaseId === step.id), status: review?.phaseId === step.id ? review.status : 'unavailable',
       version: review?.phaseId === step.id ? review.version ?? null : null }, damage: null,
-    ...(task && step.id === phase?.id ? { task } : {}) } : null;
+    ...(task && step.id === phase?.id ? { task } : {}),
+    // Typed words wait for its next version (requested-successor.mjs).
+    ...(changeRequested === true && step.id === phase?.id ? { changeRequested: true } : {}) } : null;
   const currentPhaseId = workflow?.currentPhase ?? null;
   return { schemaVersion: 1, record: { family: 'story-workflow', version: Number(workflow?.schemaVersion ?? 1) },
     subject: { projectId: null, workId: workflow?.workItem?.id ?? null, requestedPhaseId: phase?.id ?? null, currentPhaseId },
@@ -162,7 +164,7 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
     case 'open-version':
       // A successor, for any reason, is previewed and opened only on the person's yes [D3, OSA:REQ-030]; version 1 opens directly.
       if (next.inputs.consent === 'required') return [render('open-version', 'preview',
-        `Preview starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}.`, author)];
+        `${next.inputs.reason === 'change-requested' ? 'The person asked for a change: p' : 'P'}review starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}.`, author)];
       return [code ? render('open-version', 'begin', 'Open the exact code generation before application edits.', author)
         : render('open-version', 'prepare', 'Continue the configured phase author; publish only after its checks pass.', author)];
     // A kernel-built step's next version opens on the person's yes like any successor [D3, D5]; then its generator builds it.

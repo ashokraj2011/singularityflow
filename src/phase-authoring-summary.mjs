@@ -8,7 +8,7 @@ import { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { successorGenerationOpen } from './phase-generation-need.mjs';
 import { reviewContinuation } from './review-continuation.mjs';
-import { phaseAuthoringEntry } from './phase-authoring-entry.mjs';
+import { phaseAuthoringEntry, successorAsk } from './phase-authoring-entry.mjs';
 
 /**
  * A pinned drafting route and its post-publication handoff. That handoff is not the next action
@@ -35,9 +35,10 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
     }) : null;
   // What the person typed after /sf-code for the next generation leads a published, unsubmitted code step.
   // Read from the CLI source, so the editor bundles that read an entry do not carry the asked-for record.
-  const requestedChange = requestedSuccessorEligible(workflow, phase)
-    && (await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'requested-successor.mjs')).href))
-      .requestedChanges(root, workflow, phase).catch(() => [])).length > 0;
+  const requests = requestedSuccessorEligible(workflow, phase)
+    ? await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'requested-successor.mjs')).href))
+      .requestedChanges(root, workflow, phase).catch(() => []) : [];
+  const requestedChange = requests.length > 0;
   // Files changed after the published code lead the same way: its next generation starts with them (N7).
   const changedPaths = requestedSuccessorEligible(workflow, phase) && phaseRequiresCodeDelivery(phase)
     ? (await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'changes-after-publication.mjs')).href))
@@ -50,7 +51,11 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
   let entry = includeEntry ? phaseAuthoringEntry(workflow, phase, { review: sourceReviewEvidence, reviewError }) : null;
   const leads = requestedChange || changedPaths.length > 0;
   const offer = entry?.status === 'retained-generation' ? requestedSuccessorAction(workflow, phase, { requested: requestedChange, changedPaths }) : null;
-  if (offer) entry = { ...entry, ...(changedPaths.length ? { reason: 'changed-after-publication', changedPaths } : requestedChange ? { reason: 'change-requested' } : {}),
+  // A typed change asks the next version's question now, as a review's corrections do; submitting it as it is follows.
+  if (offer && requestedChange && !changedPaths.length) {
+    const ask = successorAsk(workflow, phase, { reason: 'requested-change', requests, route: offer });
+    entry = { ...ask, actions: [...ask.actions, ...(entry.actions ?? handoff).filter((action) => action.command !== offer.command)] };
+  } else if (offer) entry = { ...entry, ...(changedPaths.length ? { reason: 'changed-after-publication', changedPaths } : requestedChange ? { reason: 'change-requested' } : {}),
     actions: entry.actions ? leads ? [offer, ...entry.actions] : [...entry.actions, offer] : handoff };
   return {
     authoringSkill: route.authoringSkill,

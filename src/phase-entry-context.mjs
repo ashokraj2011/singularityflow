@@ -1,6 +1,8 @@
 /** Shared binding only: importing it must not load authoring/recovery or publication writers. */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { phaseInspectionGeneration } from './phase-generation-need.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -18,7 +20,7 @@ import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { PHASE_JOURNEY_CONTRACT } from './phase-journey.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
 import { assertStoryNotArchived } from './governance-archive.mjs';
-import { deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
+import { changeRequestApplies, deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { repositoryCheckStatus } from './repository-check-cache.mjs';
 
@@ -72,11 +74,18 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   // The task stage the edit guard reads, so the entry's permission and the guard's grant stand on one basis [OSA:REQ-010].
   const task = turnMode === 'authoring' ? (await (await import('./workflow-task-outcome.mjs')).readGuardTaskOutcome(root, workflow, phase)
     .catch(() => ({ task: null }))).task : null;
+  const derive = (changeRequested) => deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence, opening, sources, task, changeRequested });
+  let contract = derive(false);
+  // What the person typed for the published step's next version (requested-successor.mjs): the decision behind this permission
+  // then asks its version question, as the entry's act does, never its submission [daily run 2026-11-17]. Read from the CLI
+  // source, as the authoring summary reads it, so the editor bundles that read an entry carry no asked-for record.
+  if (changeRequestApplies(contract) && (await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'requested-successor.mjs')).href))
+    .requestedChanges(root, workflow, phase).catch(() => [])).length) contract = derive(true);
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     repositoryChecks: repositoryCheckStatus(root),
     personalization: resolvePersonalization({ root }), ...binding,
     // The same decision and basis the edit guard derives its permission from: one grant and one next [OSA:REQ-010, C7].
-    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence, opening, sources, task })),
+    mutationContract: mutationContractPresentation(contract),
     // Advisory and labelled: what this entry read of the shared Story branch; the guard never reads it per tool call.
     ...(sharedAuthority ? { sharedAuthority: { status: sharedAuthority.status, ...(sharedAuthority.diagnostic ? { diagnostic: sharedAuthority.diagnostic } : {}) } } : {}),
     authoringContract: phaseAuthoringContract(definition, workflow, phase),

@@ -12,7 +12,7 @@
  },
  "totals": {
   "count-without-name": 27,
-  "draft-for-version": 13,
+  "draft-for-version": 6,
   "generic-route": 6357,
   "jargon": 1359,
   "length": 680
@@ -2716,29 +2716,8 @@
    "148ceefd7341": "length",
    "905948ef385a": "length"
   },
-  "plugin/skills/sflow-code/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-design/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-document-intake/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
   "plugin/skills/sflow-epic-story-draft/SKILL.md": {
    "2b43883d313e": "length"
-  },
-  "plugin/skills/sflow-phase/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-release/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-requirements/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-scenario-check/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
   },
   "src/acceptance-owner-check.mjs": {
    "14be2ea24511": "length",

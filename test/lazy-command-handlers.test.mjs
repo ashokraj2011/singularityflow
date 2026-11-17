@@ -708,7 +708,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // before the version question (+1,967): the kernel's hold leads the opening or publishing it blocks (kernel/step-state.mjs),
     // its route names the acknowledgement (step-decision.mjs) and sequence reads a held submission as that route. The 11-17
     // landing at 051d9096b already measured 9,741,193, 243 over the line above, before this change. No new eager file.
-    assert.ok(closure.bytes <= 9_743_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,744,700 (measured 9,744,672 for submit.mjs, +1,512): the daily run of 2026-11-17, a change the person types after a
+    // step is published asks its version question everywhere: the kernel's own branch for it (kernel/step-state.mjs +652), the
+    // record adapter's fact and the route's words (step-decision.mjs +276), and the entry asking it as a review's corrections are
+    // asked (phase-authoring-summary.mjs +468, phase-authoring-entry.mjs +116). Comments trimmed first. No new eager file.
+    assert.ok(closure.bytes <= 9_744_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

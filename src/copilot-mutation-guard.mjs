@@ -5,7 +5,7 @@ import { COMMAND_PRESENTATION_CONTRACT, decideCardStep, formatCommandRouteLines 
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationToolProtocol, mutationTurnMode } from './phase-mutation-contract.mjs';
+import { changeRequestApplies, deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationToolProtocol, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { asSflowCommand, copilotModeFile, mentionsHookCli, noteTurnRenewal, readCopilotMode, readTurnRenewal, TURN_WINDOW_MS, turnWindowStart,
   withTurnRenewal } from './copilot-mode.mjs';
 // The guard runs on every tool call: the staging-path helper loads only when a turn's record is built
@@ -238,6 +238,12 @@ async function identity(root) {
   return { gitDir: git, stamps };
 }
 
+/** Words the person typed wait for the published step's next version, and it may take one (guide.mjs, read only when they wait). */
+async function changeRequestedOf(gitDirectory, workflow, phase) {
+  return (await (await import('./asked-for.mjs')).waitingWords(gitDirectory, workflow, phase)).length > 0
+    && (await import('./guide.mjs')).requestedSuccessorEligible(workflow, phase);
+}
+
 async function createRecord(payload, record, root, accepted, previous = null) {
   const workflow = accepted.workflow;
   const definition = accepted.definition ?? accepted.config;
@@ -254,12 +260,16 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   // kernel, as it stops every view [§8, OSA:REQ-010, REQ-012, REQ-041]. Read once per turn record, never per tool call.
   const taskStage = mode === 'authoring' ? await (await import('./workflow-task-outcome.mjs')).readGuardTaskOutcome(root, workflow, phase)
     .catch(() => ({ task: null, files: [] })) : { task: null, files: [] };
-  const contract = deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence, opening, task: taskStage.task });
+  const gitIdentity = await identity(root);
+  const derive = (changeRequested) => deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence, opening, task: taskStage.task, changeRequested });
+  let contract = derive(false);
+  // A change the person typed for the published step's next version, from their local record, read once per turn record: the
+  // grant then asks its version question as the entry does, never "submit" [daily run 2026-11-17].
+  if (changeRequestApplies(contract) && await changeRequestedOf(gitIdentity.gitDir, workflow, phase).catch(() => false)) contract = derive(true);
   if (mode === 'read' && requestedMode !== 'read') {
     contract.summary = 'The phase changed during this turn. Preserve work, end this turn, and start the configured author in a new turn.';
   }
   const workflowFile = path.join(root, definition.workItemRoot, workflow.workItem.id, 'workflow.json');
-  const gitIdentity = await identity(root);
   // An open version's acceptance and writer, read from files: when either changes (a settled opening, a takeover), the
   // turn's grant is derived again, never kept from before [OSA:REQ-031, REQ-034].
   // So is the task record: a repair spent, or a wait recorded, after this turn began derives its grant again.
@@ -401,10 +411,11 @@ export async function captureMutationTurn(payload, record, {
     // prompt in between removes that record, so its rules are sent whole again.
     const earlier = await boundedRecord(file).catch(() => null);
     const accepted = await load(root);
+    // The words a person typed after /sf-code or /sf-phase go to this Story's own local record [SCS:REQ-040], before this
+    // turn's grant is derived, so it reads the change they ask for (daily run 2026-11-17: it said "submit" in that turn).
+    if (record.typed) await import('./asked-for.mjs').then(async (module) => module.noteTypedTurn(record, { gitDir: (await import('./git.mjs')).gitDir(root),
+      workflow: accepted.workflow, at: record.recordedAt })).catch(() => {});
     const value = await createRecord(payload, record, root, accepted);
-    // The words a person typed after /sf-code or /sf-phase go to this Story's own local record [SCS:REQ-040].
-    if (record.typed) await import('./asked-for.mjs').then((module) => module.noteTypedTurn(record, { gitDir: value.binding?.gitDir, workflow: accepted.workflow,
-      at: record.recordedAt })).catch(() => {});
     const context = turnBoundaryContext(value);
     const given = earlier?.sessionId === record.sessionId && earlier.modeChangedAt === record.modeChangedAt
       ? earlier.contextDigest ?? null : null;
@@ -1992,7 +2003,7 @@ async function answerBoundDenial(payload, record) {
     const { positionals, options } = parseCli(argv);
     const proposed = await successorProposal(payload, options.confirm);
     const preview = [safeCommandGuidance({ argv: ['phase', 'rollover', positionals[2] ?? '<step>', '--json'] })].filter(Boolean);
-    if (!proposed.record) return { ...mutationDenial(null, `PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. This confirmation names no version previewed on this machine, so the person's yes cannot be bound to it. Run the preview (singularity-flow phase rollover ${positionals[2] ?? '<step>'} --json), ask the person its question, and run the confirmation it returns.`, [], { routes: preview }), recoverable: true };
+    if (!proposed.record) return { ...mutationDenial(null, `PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. This confirmation names no version previewed on this machine, so the person's yes cannot be bound to it. Run the preview (singularity-flow phase rollover ${positionals[2] ?? '<step>'} --json), ask the person its question, and run the confirmation it returns.`, [], { routes: preview, alone: true }), recoverable: true };
     // The person's yes on the decisions card to this exact proposal (`decisions record --version-consent`, recorded outside
     // this chat by the card) is their consent here as well: its grant stands, and no question is asked again [OSA Stage 4].
     const consent = await import('./story-version-consent.mjs');
@@ -2000,7 +2011,7 @@ async function answerBoundDenial(payload, record) {
     const binding = await answerBinding();
     const version = proposed.record.proposal.version;
     const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals, version }).catch(() => null);
-    if (reason) return { ...mutationDenial(null, reason, [], { routes: [safeCommandGuidance({ argv })].filter(Boolean) }), recoverable: true };
+    if (reason) return { ...mutationDenial(null, reason, [], { routes: [safeCommandGuidance({ argv })].filter(Boolean), alone: true }), recoverable: true };
     const reply = await binding.successorReply(file, record, version, positionals[2] ?? null).catch(() => null);
     await consent.grantConsent(proposed.commonDir, { record: proposed.record, surface: 'question-tool',
       question: reply?.asked, session: payload.sessionId ?? payload.session_id ?? null, turnId: record.turnId ?? null,
@@ -2026,7 +2037,7 @@ async function answerBoundDenial(payload, record) {
       const routes = [safeCommandGuidance(step.id === 'intent-amendment-proposal'
         ? { argv: ['story', 'intent-amendment', 'preview', ...(workId ? ['--work-id', workId] : []), ...(typeof options.file === 'string' ? ['--file', options.file] : []), '--for-agent', '--json'] }
         : { argv: ['decisions', ...(workId ? [workId] : [])], skill: '/sf-decide' })].filter(Boolean);
-      return { ...mutationDenial(null, reason, [], { routes }), recoverable: true };
+      return { ...mutationDenial(null, reason, [], { routes, alone: true }), recoverable: true };
     }
   }
   return null;

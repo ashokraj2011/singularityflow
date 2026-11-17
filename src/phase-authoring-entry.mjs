@@ -15,12 +15,13 @@ const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AME
  * A published step's next version, for any reason, is the person's one yes, asked here with the host's question tool and
  * the proposal's own words and numbers [D3, §7.1, OSA:REQ-030]; the same turn goes straight on to its work once it opens.
  */
-function successorAsk(workflow, phase, { reason, findings = [], route }) {
+export function successorAsk(workflow, phase, { reason, findings = [], requests = [], route }) {
   const { proposal, question } = versionProposal(workflow, phase, { reason });
   // The step's own preview route (its continuation's, with its work command), asked with the proposal's question.
   const preview = { ...route, reason: `Ask the person "${question}"; on their yes this preview, then its confirmation, opens version ${proposal.version} of ${phase.id}.` };
+  // `requests`: the person's typed words, as data.
   return { status: 'successor-confirmation-required', reason: reason === 'review-corrections' ? 'retained-review-correction' : reason,
-    targetGeneration: proposal.version, successor: { question, choices: ['Yes', 'No'], preview, findings }, actions: [preview] };
+    targetGeneration: proposal.version, successor: { question, choices: ['Yes', 'No'], preview, findings, ...(requests.length ? { requests } : {}) }, actions: [preview] };
 }
 
 /** Read-only entry classification. Only explicit prepare can reserve a document successor. */

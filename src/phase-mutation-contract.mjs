@@ -105,6 +105,13 @@ export function mutationTurnMode(skill) {
   return 'read';
 }
 
+/**
+ * Where a change the person typed for the step's next version is read (requested-successor.mjs): an authoring turn whose
+ * decision would otherwise review or submit the published version. Read there, the decision asks its version question.
+ */
+export const changeRequestApplies = (contract) => contract?.turnMode === 'authoring'
+  && ['published', 'in-review', 'review-ready'].includes(contract.policy?.step?.state);
+
 function route(argv, detail, skill = null) {
   const guidance = safeCommandGuidance({ argv, ...(skill ? { skill } : {}) });
   return { detail, ...guidance, commandGuidance: guidance,
@@ -125,7 +132,7 @@ function caseInsensitiveCheckout(root) {
 }
 
 export function deriveMutationContract({ root = null, definition, workflow, phase = workflow?.phases?.[workflow.currentPhase],
-  turnMode = 'authoring', staging = [], evidence = [], opening = null, sources = {}, task = null }) {
+  turnMode = 'authoring', staging = [], evidence = [], opening = null, sources = {}, task = null, changeRequested = false }) {
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
@@ -138,7 +145,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   // never Git: story-version-acceptance.mjs) [OSA:REQ-041]; without it an operation's opening grants nothing.
   // `task`: the step's durable task stage as the caller read it (workflow-task-outcome.mjs readGuardTaskOutcome): a spent
   // repair budget, or a wait for a person, input or environment, grants this turn nothing, as every view says [§8, OSA:REQ-010].
-  const decision = phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode, opening, sources, task })) : null;
+  // `changeRequested`: the person's typed words wait for the published step's next version (requested-successor.mjs), so the
+  // decision, this permission and the entry's act all ask its version question, never its submission [daily run 2026-11-17].
+  const decision = phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode, opening, sources, task, changeRequested })) : null;
   const openGeneration = code && decision?.publication.hasOpenVersion === true;
   const editable = decision?.edit.authoring === true;
   const deterministic = onlyDeterministic(phase);
@@ -189,6 +198,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`singularity-flow story intent-amendment status\` and \`singularity-flow story intent-amendment draft\`, stay open.`
     : turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
     : turnMode !== 'authoring' ? `${turnMode}: no direct repository edits; only explicitly issued staging files and permitted kernel operations.`
+      : !editable && decision?.next.inputs.consent === 'required' ? `No edits before the person's yes to version ${decision.next.inputs.version} of ${phase.id}: run the returned preview, ask them its question, and only on their yes open it and do its work in this turn.`
       : !editable ? 'No direct edits: this step is not being written now. Take its returned next action.'
       : deterministic && !code ? 'No direct edits to this deterministic generation. Use the returned kernel action.'
         : deterministic && application ? 'May edit application paths within pinned policy; the summary is built by `singularity-flow prepare` from what changed, never edited by hand.'
@@ -288,7 +298,7 @@ export function mutationToolProtocol(contract) {
     completion: 'Honor the current taskCompletion checkpoint. Reading inputs, preparation and diagnostic test passes do not complete authoring or review. Finish only within the admitted scope; otherwise report the exact blocker and owner route. Human approval and single-step requests keep their original boundaries.',
     staging: 'Use a file-edit tool only at an exact kernel-issued staging path. No shell writers, mkdir or arbitrary temporary paths.',
     terminal: authoring
-      ? 'Run SFlow lifecycle commands standalone with cwd=repositoryPath; do not wrap or chain kernel mutations. Repository-local authoring shell commands are permitted under the pinned file policy and before/after change detection; this is not a standalone-SFlow-only terminal.'
+      ? 'Run every SFlow command standalone, reads included (never piped to head, redirected or chained), with cwd=repositoryPath. Repository-local authoring shell commands are permitted under the pinned file policy and before/after change detection; this is not a standalone-SFlow-only terminal.'
       : 'Run one standalone registered SFlow command with cwd=repositoryPath, or as is from a non-Git folder such as a chat folder (SFlow finds the bound checkout; `cd <it> && …` or `env -C <it> …` also sets it); no pipes, redirects, substitutions or other command chains.',
     localVerification: { allowed: verification, guidance: verification ? AUTHORING_VERIFICATION_PROTOCOL :
       'This retained, deterministic or non-authoring turn does not grant local test/app execution. Use its returned authoring or kernel route; do not reopen a phase or broaden write permissions.' },
@@ -296,13 +306,16 @@ export function mutationToolProtocol(contract) {
     mode: contract.turnMode };
 }
 
-export function mutationDenial(contract, reason, paths = [], { routes = null } = {}) {
+export function mutationDenial(contract, reason, paths = [], { routes = null, alone = false } = {}) {
   // Any SFlow command, a read too, rebuilds this turn's binding (cli-entry.mjs), so the way back is a read
   // in this turn; `phase enter` in a new /sf-phase turn sent approval and decision turns elsewhere (2026-10-28).
   const actions = routes ?? (contract?.next?.length ? contract.next : [route(['session', 'current', '--for-agent', '--json'],
     'Preserve existing work. Run this read in this turn: it binds the turn to the Story as it is now; a missing selection uses /sf-session.')]);
   const lines = actions.map(action => formatCommandRouteLines(action).join('\n'));
+  // `alone`: the reason is whole (an answer-bound refusal reads no contract), so no contract summary follows it. A reason that
+  // ends its own sentence gets no second period ("which asks them.. No current…", daily run 2026-11-17).
+  const said = `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}`.replace(/\.+$/u, '');
   return { permissionDecision: 'deny', permissionDecisionReason:
-    `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}. ${contract?.summary ?? 'No current verified mutation contract.'}${lines.length ? `\n\n${lines.join('\n\n')}` : ''}`.trimEnd(),
+    `${said}.${alone ? '' : ` ${contract?.summary ?? 'No current verified mutation contract.'}`}${lines.length ? `\n\n${lines.join('\n\n')}` : ''}`.trimEnd(),
     next: actions };
 }

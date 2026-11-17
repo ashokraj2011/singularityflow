@@ -32,10 +32,10 @@ export const answerBoundStep = (step) => ANSWER_BOUND_STEPS.includes(step?.id);
 
 const comparable = (text) => String(text ?? '').normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim().replace(/[.!?;,]+$/u, '');
 
-/** Every string a parsed answer holds, at most MAX_ANSWERS of them. */
+/** Every string a parsed answer holds, a form's true or false as its word, at most MAX_ANSWERS of them. */
 function stringLeaves(value, found = []) {
   if (found.length >= MAX_ANSWERS) return found;
-  if (typeof value === 'string') found.push(value);
+  if (typeof value === 'string' || typeof value === 'boolean') found.push(String(value));
   else if (value && typeof value === 'object') for (const entry of Object.values(value)) stringLeaves(entry, found);
   return found;
 }
@@ -123,6 +123,11 @@ export function repliesOfQuestion(payload) {
   }
   const said = comparable(raw.replace(/^user (?:responded|selected|answered):?\s*/iu, ''));
   const asked = [input?.question, input?.message].find((text) => typeof text === 'string') ?? '';
+  // Another JSON shape: each value the person gave, a form's true or false among them.
+  if (parsed && typeof parsed === 'object') {
+    const texts = stringLeaves(parsed).map(comparable).filter(Boolean);
+    return texts.length ? [{ asked: comparable(asked), texts }] : [];
+  }
   // A form's fields, each on its own, and the whole line.
   return said ? [{ asked: comparable(asked), texts: [said, ...said.split(/,\s*(?=[\w-]+=)/u).map((field) => field.replace(/^[\w-]+=/u, ''))] }] : [];
 }
@@ -206,10 +211,14 @@ const successorQuestion = (version) => new RegExp(`\\b(?:start|open|begin)\\b[^?
 const named = (text) => comparable(text).replace(/[-_]+/gu, ' ');
 const sideWords = (words) => new RegExp(`^(?:${words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('|')})(?:$|\\s*[.,;:!]|\\s+[-\u2013\u2014])`, 'u');
 
-/** What one reply says of a yes or no: `yes`, `no`, `not-now`, or null when it is no yes or no (a reason, say). */
-function sideOf(reply, yesNo) {
-  const yes = sideWords(['yes', ...yesNo.yes]); const no = sideWords(['no', ...yesNo.no]); const later = sideWords(['not now']);
-  for (const text of reply.texts ?? []) {
+/**
+ * What one reply says of a yes or no: `yes`, `no`, `not-now`, or null when it is no yes or no (a reason, say). A form's true or
+ * false field is its yes or no: asked with one, Copilot CLI hands over "User responded: true", and the person was asked again.
+ */
+export function sideOf(reply, yesNo) {
+  const yes = sideWords(['yes', 'true', ...yesNo.yes]); const no = sideWords(['no', 'false', ...yesNo.no]); const later = sideWords(['not now']);
+  for (const value of reply.texts ?? []) {
+    const text = typeof value === 'boolean' ? String(value) : value;
     if (later.test(text)) return 'not-now';
     if (yes.test(text)) return 'yes';
     if (no.test(text)) return 'no';

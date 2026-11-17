@@ -159,6 +159,44 @@ test('a change the person asks for after Code is published opens generation 2 in
   assert.equal(JSON.parse(git('show', `${publishedHead}:singularity/work-items/${WORK}/workflow.json`)).phases.implementation.generationIntent.status, 'consumed');
 });
 
+// Daily run 2026-11-17: `/sf-code <words>` after publication got an entry whose act said "preview version 2" while its edit
+// permission said "No direct edits: this step is not being written now" and the kernel's next was `submit-version`; the agent
+// told the person they had asked for nothing. Typed with the step's name it went on. One answer now, either way.
+test('a change typed after /sf-code, with or without the step\'s name, is one version question for the entry, its permission, the kernel and the guard', async (t) => {
+  for (const [name, typed] of [['without the step', ASKED], ['with the step', TYPED]]) {
+    const story = await publishedCodeStory(t);
+    const { root, cli } = story;
+    const hook = { cwd: await realpath(root), sessionId: `typed-${name.replaceAll(' ', '-')}`, prompt: `/sf-code ${typed}` };
+    let turn = null;
+    await recordRepositoryBoundaryTurn(hook, { captureMutation: async (payload, record) => {
+      turn = await captureMutationTurn(payload, record, { resolveRoot: async () => hook.cwd });
+      return turn;
+    } });
+    // The guard reads the words in the turn that typed them: its rules ask the version question.
+    assert.match(turn?.additionalContext ?? '', /No edits before the person's yes to version 2 of implementation/u, name);
+    assert.doesNotMatch(turn?.additionalContext ?? '', /not being written now/u, name);
+    const edit = await mutationToolGuard({ ...hook, toolName: 'edit', toolArgs: { path: path.join(hook.cwd, 'src/value.mjs'), old_str: 'value = 1', new_str: 'value = 2' } });
+    assert.equal(edit.permissionDecision, 'deny', name);
+    assert.match(edit.permissionDecisionReason, /person's yes to version 2 of implementation[\s\S]*singularity-flow phase rollover implementation --json/u, name);
+    // The entry's act: the engine's own question first, its preview the one thing to run on a yes.
+    const agent = json(cli('phase', 'enter', '--compose', '--for-agent', '--json'));
+    assert.equal(agent.act.state, 'confirm', name);
+    assert.equal(agent.act.ask.question, 'Start version 2 of Implementation? Published version 1 and its recorded tests will stay unchanged.', name);
+    assert.equal(agent.act.do.shell, 'singularity-flow phase rollover implementation --json', name);
+    // The full entry: its permission and the kernel's next say the same; submitting it as it stands is still offered, after.
+    const entry = json(cli('phase', 'enter', '--json'));
+    assert.equal(entry.status, 'successor-confirmation-required', name);
+    assert.deepEqual(entry.successor.requests, [ASKED], name);
+    assert.equal(entry.mutationContract.policy.step.next, 'open-version:implementation@2', name);
+    assert.deepEqual(entry.mutationContract.policy.step.reasons, ['CHANGE_REQUESTED', 'CONSENT_REQUIRED'], name);
+    assert.equal(entry.mutationContract.next[0].command, 'singularity-flow phase rollover implementation --json', name);
+    assert.match(entry.mutationContract.summary, /person's yes to version 2 of implementation/u, name);
+    const routes = entry.next.map((action) => action.commandGuidance?.command ?? action.command);
+    assert.equal(routes[0], 'singularity-flow phase rollover implementation --json', name);
+    assert.ok(routes.slice(1).some((command) => /^singularity-flow submit implementation\b/u.test(command ?? '')), `${name}: ${JSON.stringify(routes)}`);
+  }
+});
+
 test('after Code is published with its tests passing, the person is asked once whether to start the application', async (t) => {
   const application = { id: 'web', argv: ['node', 'server.mjs', '4599'], url: 'http://127.0.0.1:4599/', ready: { http: '/', timeoutMs: 5000 } };
   const story = await publishedCodeStory(t, { application });

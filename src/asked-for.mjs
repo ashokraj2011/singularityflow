@@ -146,6 +146,17 @@ export async function localAskedFor(gitDir, subject) {
 }
 
 /**
+ * What the person typed for the step's next version that still waits to be accounted for, in the order typed; none when the
+ * Story's capability turned recording off. The edit guard reads it once per turn, so its permission asks the change's version
+ * question as the entry does (requested-successor.mjs requestedChanges adds the step's eligibility).
+ */
+export async function waitingWords(gitDir, workflow, phase) {
+  if (typedFocusOff(workflow)) return [];
+  const local = await localAskedFor(gitDir, { workId: workflow.workItem.id, phase: phase.id, generation: askedForGeneration(phase) });
+  return local.turns.filter((turn) => needsAccount(turn) && typeof turn.text === 'string' && turn.text.trim()).map((turn) => turn.text);
+}
+
+/**
  * The prompt hook's part, once the turn's Story is known (copilot-mutation-guard.mjs): the typed words go
  * to the current step's generation of the Story this checkout holds, unless its capability turned it off.
  */

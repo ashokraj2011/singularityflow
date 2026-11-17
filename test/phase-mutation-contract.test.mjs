@@ -2777,6 +2777,9 @@ test('the launcher\'s verified Node and CLI entry, quoted for the shell, meet ev
   assert.match(piped.permissionDecisionReason, /Run `singularity-flow story show PMC-1 --json` on its own in this turn and read its output with your file tools; nothing needs recovering/u);
   assert.doesNotMatch(piped.permissionDecisionReason, /\/sf-recover/u);
   assert.deepEqual(piped.next, []);
+  // The entry itself, piped to cut its reply (daily run 2026-11-17, 3 of 5 turns): refused the same way, naming it alone.
+  const cutEntry = await shell(authoring, 'singularity-flow phase enter --compose --for-agent --json | head -c 6000');
+  assert.match(cutEntry.permissionDecisionReason, /Run `singularity-flow phase enter --compose --for-agent --json` on its own in this turn/u);
   // A person's own step through it is read as the CLI too, and refused for what it is.
   assert.equal((await shell(authoring, `echo start && ${posix} approve custom-step`)).next[0].command, 'singularity-flow approve custom-step');
   // Before a Story is bound: a setup skill's own family and a session attach, as with the bare CLI.

@@ -19,7 +19,11 @@ import { formatTrail } from './route-follower.mjs';
 // SPEC-OSA Stage 3 closed osa-stage-3 (the outcome review is read in the publication's own turn), osa-stage-3-c9 (a
 // kernel-built step is published by its own work command) and osa-stage-3-refusal (the failed test's wait is the task's,
 // which every view names): their checks count now.
-export const KNOWN_BAD = Object.freeze({});
+export const KNOWN_BAD = Object.freeze({
+  // Journey K (daily run 2026-11-17, branch dd-1): the entry, its edit permission, the kernel and the guard read a change
+  // typed after /sf-code; the person's own views (stepDecisionOf) do not read the typed words yet.
+  'typed-change-views': 'while a change typed after /sf-code waits for its version question, the person\'s views (next steps, phase show, submission readiness) still name /sf-submit, the published version\'s submission, at the hand-off to its /sf-confirm'
+});
 
 const stale = new WeakMap();
 

@@ -480,11 +480,15 @@ export function agentAct(result) {
       said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
     // A review asked the published code for corrections: one yes from the person starts the next version, and this same
     // turn fixes the findings. Asked with the host's question tool, never answered by the agent [owner, 2026-11-16].
+    // So does a change the person typed after it was published (successor.requests, their words quoted): one yes, then the
+    // change in this same turn. Told "submit" by its permission, the agent said they had asked for nothing (daily run 2026-11-17).
+    const asked = result.successor?.requests?.length > 0;
     if (result.status === 'successor-confirmation-required' && result.successor?.question) return withRoute({ state: 'confirm', do: null,
       read: ['successor', 'next'],
       ask: { kind: 'choice', question: result.successor.question, choices: (result.successor.choices ?? ['Yes', 'No']).map((label) => ({ label })),
-        how: 'Show the person successor.findings in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and fix the findings in this same turn. On No, or with no question tool, give the person next and end; never answer it yourself.' },
-      said: oneLine(`The review of ${result.phase ?? 'this step'} asked for corrections: ask the person whether to start version ${result.successor.targetGeneration ?? 'N+1'} to fix them, and on their Yes do it now.`) },
+        how: `Show the person successor.${asked ? 'requests' : 'findings'} in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and ${asked ? 'make the change' : 'fix the findings'} in this same turn. On No, or with no question tool, give the person next and end; never answer it yourself.` },
+      said: oneLine(asked ? `The person asked for a change to ${result.phase ?? 'this step'}: ask them whether to start version ${result.successor.targetGeneration ?? 'N+1'} for it, and on their Yes make it now.`
+        : `The review of ${result.phase ?? 'this step'} asked for corrections: ask the person whether to start version ${result.successor.targetGeneration ?? 'N+1'} to fix them, and on their Yes do it now.`) },
     result.successor.preview);
     // `author` only where the edit permission grants an edit; otherwise its next is the step's way on [OSA:REQ-010, C7].
     // The entry said "write now" and the permission "no edits" in one reply, and the agent went round both [2026-11-16].

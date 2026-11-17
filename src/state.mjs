@@ -4451,7 +4451,8 @@ function requiredTestExecutionDiagnostic(root, command, check) {
     workingDirectory: command.workingDirectory,
     exitCode: Number.isInteger(check?.exitCode) ? check.exitCode : null,
     status: check?.status ?? 'not-run',
-    ...(check?.errorCode ? { errorCode: check.errorCode } : {}),
+    ...(check?.errorCode ? { errorCode: check.errorCode, environment: check.environment?.name ?? null } : {}),
+    ...(check?.environmentFix ? { environmentFix: check.environmentFix } : {}),
     ...(check?.processGroup ? { processGroup: check.processGroup } : {}),
     resultPath: path.resolve(cwd, command.result.path),
     configuredResultPath: command.result.path,
@@ -5011,7 +5012,11 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       );
     }
   }
+  // A gate refuses before running anything while the last run of one of its test commands may still be going.
+  const runs = !localRun && !candidateRoot && commands.some((command) => command?.kind === 'test') ? await testRunMarker() : null;
+  const runTarget = (command) => ({ workId: workflow.workItem.id, phaseId: phase.id, commandId: command.id });
   try {
+  if (runs) await runs.assertNoHeldRuns(root, commands.filter((command) => command?.kind === 'test').map(runTarget), { itemRelative: workDirRelative(config, workflow.workItem.id) });
   for (const [index, value] of commands.entries()) {
     const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
     const command = policy.command ?? policy.argv.join(' ');
@@ -5031,12 +5036,16 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         sourceRoots: workflow?.resolution?.capability?.sourceScope?.sourceRoots ?? [], workingDirectory: policy.workingDirectory })
         .catch((error) => (String(error?.code).startsWith('ENV_FILE_') ? { refusal: error } : null));
       if (materialized?.status !== 'bound') {
-        checks.push(scannerUnavailableCheck(environmentBlockedCheck(policy, {
+        const blocked = environmentBlockedCheck(policy, {
           environment: safeEnvironmentMetadata(materialized?.environment, environmentGate.run.environmentId),
           errorCode: materialized?.refusal?.code ?? 'ENVIRONMENT_BINDING_UNAVAILABLE',
           reason: materialized?.refusal?.message ?? `Environment '${environmentGate.run.environmentId}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`,
           sourceCommit, sourceTreeSha256, startedAt
-        }), policy));
+        });
+        // Its own fix commands, for the refusal only: never kept on the check a Story records.
+        const fix = materialized?.refusal?.details;
+        Object.defineProperty(blocked, 'environmentFix', { value: fix?.recoveryCommands ?? (fix?.recoveryCommand ? [fix.recoveryCommand] : null) });
+        checks.push(scannerUnavailableCheck(blocked, policy));
         continue;
       }
     }
@@ -5183,15 +5192,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     const coverageBefore = policy.kind === 'test' && policy.argv && !environmentGate.run && !candidateIsOtherCode
       ? await (await coverageReports()).coverageReportsBefore(executionRoot, policy) : null;
     // A gate's test run starts once its command's last run is reconciled, and records that it started [CVL-REQ-016].
-    const run = policy.kind === 'test' && !localRun && !candidateRoot ? await (await testRunMarker()).beginTestRun(root,
-      { workId: workflow.workItem.id, phaseId: phase.id, commandId: policy.id }, { startedAt, itemRelative: workDirRelative(config, workflow.workItem.id) }) : null;
-    if (run?.held) {
-      if (restoreTransientResult) await restoreTransientResult();
-      activeTransientRestore = null;
-      if (isolatedResultRestore) { await isolatedResultRestore(); isolatedResultRestore = null; }
-      checks.push(environmentBlockedCheck(policy, { environment: null, errorCode: run.held.code, reason: run.held.reason, sourceCommit, sourceTreeSha256, startedAt }));
-      continue;
-    }
+    const run = runs && policy.kind === 'test' ? await runs.beginTestRun(root, runTarget(policy), { startedAt, itemRelative: workDirRelative(config, workflow.workItem.id) }) : null;
     let result;
     try {
       result = policy.argv

@@ -83,6 +83,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['publication-set-aside', ([command, sub], options) => (command === 'sync' || (command === 'initiative' && sub === 'sync'))
     && options['set-aside'] === true && options.confirm !== undefined],
   ['workflow-delete', ([command, sub], options) => command === 'workflow' && sub === 'delete' && options.confirm !== undefined],
+  // A held test run, set aside by a person who checked its process is not the run; listing it is anyone's.
+  ['test-run-set-aside', ([command, sub], options) => command === 'tests' && sub === 'held' && options['set-aside'] === true && options.confirm !== undefined],
   ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && options.confirm !== undefined],
   ['intent-amendment-decision', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'decide'],
   // Acknowledging an approved one is a person's too, recorded on the decisions card; no turn runs it [owner, 2026-11-13].

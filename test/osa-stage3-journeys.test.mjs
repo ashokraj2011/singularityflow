@@ -262,27 +262,75 @@ test('a missing local input is recorded where the step stops, as waiting-input w
   assert.equal('input' in await readTaskOutcome(f.root, f.workflow, f.implement), false);
 });
 
-test('an environment stop is recorded as waiting-environment with its own error, and a code fault is never one [§8, CVL-REQ-004]', async (t) => {
+test('an environment stop is recorded as waiting-environment with its own error and its own fix, and a code fault is never one [§8, CVL-REQ-004, review #2, #4, #5]', async (t) => {
   const f = await story(t);
-  // A required test blocked before it started because the environment's file is missing here (state.mjs's environment gate).
-  const blocked = new SingularityFlowError("Required test command 'unit' was blocked before publication.", { code: 'CODE_TEST_FAILED',
-    details: { requiredTestExecution: { commandId: 'unit', status: 'blocked', errorCode: 'ENV_FILE_MISSING' },
+  const prepublish = 'singularity-flow phase prepublish implement --for-agent --json --publish-if-ready';
+  // A required test blocked before it started because the environment is not set up here (state.mjs's environment gate).
+  const blockedBy = (errorCode) => new SingularityFlowError("Required test command 'unit' was blocked before publication.", { code: 'CODE_TEST_FAILED',
+    details: { requiredTestExecution: { commandId: 'unit', status: 'blocked', errorCode, environment: 'local' },
       testRunCause: { category: 'unknown', class: 'unrecognised' } } });
-  assert.equal(await recordRefusalOutcome(f.root, f.workflow, f.implement, blocked), 'waiting-environment');
-  const waiting = await readTaskOutcome(f.root, f.workflow, f.implement);
-  assert.deepEqual([waiting.outcome, waiting.code], ['waiting-environment', 'ENV_FILE_MISSING']);
-  allAre(views(f.workflow, waiting), `singularity-flow decisions ${W}`);
-  // A launcher missing here: the cause a person may accept on the decisions card.
+  // Each leads with its own fix, never a card with nothing to decide on it, then runs the step's checks again once fixed.
+  const fixes = {
+    ENV_FILE_MISSING: 'singularity-flow env files local',
+    ENV_FILE_IN_USE: 'singularity-flow env files local',
+    ENVIRONMENT_BINDING_UNAVAILABLE: 'singularity-flow env bind local --stdin',
+    ENVIRONMENT_ISOLATED_RUNNER_REQUIRED: 'singularity-flow capability show --json',
+    ENVIRONMENT_ARGV_REQUIRED: 'singularity-flow story test-policy amend --reason <why>'
+  };
+  for (const [errorCode, fix] of Object.entries(fixes)) {
+    assert.equal(await recordRefusalOutcome(f.root, f.workflow, f.implement, blockedBy(errorCode)), 'waiting-environment', errorCode);
+    const waiting = await readTaskOutcome(f.root, f.workflow, f.implement);
+    assert.deepEqual([waiting.outcome, waiting.code, waiting.input], ['waiting-environment', errorCode, 'local'], errorCode);
+    allAre(views(f.workflow, waiting), fix);
+    assert.deepEqual(decisionRoutes(stepDecisionOf(f.workflow, f.implement, { task: waiting }), f.workflow, f.implement).map((route) => route.command), [fix, prepublish], errorCode);
+    assert.deepEqual(workflowGuide(f.workflow, { taskOutcome: waiting }).nextActions.map((action) => action.command), [fix, prepublish], errorCode);
+  }
+  // The refusal itself leads with the environment's own fix commands, from its details.
+  const create = 'singularity-flow env files create local .env.local --from-template';
+  const missing = blockedBy('ENV_FILE_MISSING');
+  missing.details.requiredTestExecution.environmentFix = [create, 'singularity-flow env files link local .env.local --to <FILE>'];
+  assert.equal(refusalRemediationPlan(missing, ['phase', 'prepublish', 'implement']).steps[0].command, create);
+  // A launcher missing here: the cause a person may accept on the decisions card, or the step runs again once it is fixed.
   const launcher = new SingularityFlowError("Required test command 'unit' was blocked before publication.", { code: 'CODE_TEST_FAILED',
     details: { testRunRisk: { eligible: true, causeClass: 'launcher-unavailable', commandId: 'unit' } } });
   await recordRefusalOutcome(f.root, f.workflow, f.implement, launcher);
   const environment = await readTaskOutcome(f.root, f.workflow, f.implement);
   assert.deepEqual([environment.outcome, environment.code], ['waiting-environment', 'launcher-unavailable']);
+  allAre(views(f.workflow, environment), `singularity-flow decisions ${W}`);
+  assert.deepEqual(workflowGuide(f.workflow, { taskOutcome: environment }).nextActions.map((action) => action.command), [`singularity-flow decisions ${W}`, prepublish]);
   // Tests that ran and failed are the step's own repair, never the environment's wait.
   const failed = new SingularityFlowError("Required test command 'unit' failed before publication.", { code: 'CODE_TEST_FAILED',
     details: { testRunCause: { category: 'code', class: 'assertion-failure' } } });
   assert.equal(await recordRefusalOutcome(f.root, f.workflow, f.implement, failed), 'repair-required');
   allAre(views(f.workflow, await readTaskOutcome(f.root, f.workflow, f.implement)), 'singularity-flow prepare implement');
+  // Its repairs spent, a person decides through the appeal, which names the issues and who owns them: never an empty card.
+  const spent = taskOutcomeOf({ id: `WT-${'c'.repeat(64)}`, state: 'blocked', repairConsumed: 2, maximumContinuations: 2,
+    blockedCode: outcomeCode('repair-required', 'CODE_TEST_FAILED', f.workflow) }, f.workflow);
+  allAre(views(f.workflow, spent), `singularity-flow appeal preflight --phase implement --work-id ${W} --json`);
+});
+
+test('entering the step again keeps a wait it has not settled, so the same failing run is not repeated [review #3]', async (t) => {
+  const f = await story(t);
+  const enter = (options = {}) => resumeWorkflowTask(f.root, f.workflow, f.implement, { progress: { state: 'load-context' }, ...options });
+  const blocked = new SingularityFlowError("Required test command 'unit' was blocked before publication.", { code: 'CODE_TEST_FAILED',
+    details: { testRunRisk: { eligible: true, causeClass: 'service-unreachable', commandId: 'unit' } } });
+  await recordRefusalOutcome(f.root, f.workflow, f.implement, blocked);
+  await enter();
+  assert.equal((await readTaskOutcome(f.root, f.workflow, f.implement))?.outcome, 'waiting-environment', 'the entry did not erase it');
+  // A repair within its budget is the entry's own work, as before; a spent one stays the person's.
+  await observeWorkflowTask(f.root, f.workflow, f.implement, { state: 'blocked', blockedCode: outcomeCode('repair-required', 'CODE_TEST_FAILED', f.workflow) });
+  await enter();
+  assert.equal(await readTaskOutcome(f.root, f.workflow, f.implement), null);
+  await observeWorkflowTask(f.root, f.workflow, f.implement, { state: 'blocked', repairConsumed: 2, blockedCode: outcomeCode('repair-required', 'CODE_TEST_FAILED', f.workflow) });
+  await enter();
+  assert.equal((await readTaskOutcome(f.root, f.workflow, f.implement))?.repairs.used, 2);
+  assert.equal((await readTaskOutcome(f.root, f.workflow, f.implement))?.outcome, 'repair-required');
+  // An input wait the entry finds answered (every document here) is settled by it.
+  await observeWorkflowTask(f.root, f.workflow, f.implement, { state: 'blocked', blockedCode: outcomeCode('waiting-input', 'DOCUMENT_REUPLOAD_REQUIRED', f.workflow, 'DOC-002') });
+  await enter();
+  assert.equal((await readTaskOutcome(f.root, f.workflow, f.implement))?.outcome, 'waiting-input');
+  await enter({ inputsReady: true });
+  assert.equal(await readTaskOutcome(f.root, f.workflow, f.implement), null);
 });
 
 test('a failed test is repaired within its budget, stops at a person\'s decision when spent, and never takes the same route twice [§8, OSA:REQ-003, REQ-012, AC-012]', async (t) => {
@@ -295,10 +343,11 @@ test('a failed test is repaired within its budget, stops at a person\'s decision
   assert.deepEqual([first.next.operation, first.next.inputs], ['repair-version', { code: 'CODE_TEST_FAILED', attempt: 1, budget: 2 }]);
   assert.deepEqual(second.next.inputs, { code: 'CODE_TEST_FAILED', attempt: 2, budget: 2 });
   allAre(views(f.workflow, taskOutcomeOf(record(1), f.workflow)), 'singularity-flow prepare implement');
-  // Spent: a person decides on the decisions card, the evidence of each attempt kept; the repair is never offered again.
+  // Spent: a person decides through the appeal (the decisions card had nothing for it), the evidence of each attempt kept;
+  // the repair is never offered again [review 2026-11-17].
   const spent = stepDecisionOf(f.workflow, f.implement, { task: taskOutcomeOf(record(2), f.workflow) });
   assert.deepEqual([spent.next.kind, spent.next.operation, spent.next.inputs.outcome, spent.next.inputs.attempts], ['person-decision', 'decide', 'repair-exhausted', 2]);
-  allAre(views(f.workflow, taskOutcomeOf(record(2), f.workflow)), `singularity-flow decisions ${W}`);
+  allAre(views(f.workflow, taskOutcomeOf(record(2), f.workflow)), `singularity-flow appeal preflight --phase implement --work-id ${W} --json`);
   // Each attempt changed the basis (a new run): progress. The same repair on an unchanged basis would be a loop.
   assert.deepEqual(noProgress([{ decision: first, basisKey: 'run-1' }, { decision: second, basisKey: 'run-2' }, { decision: spent, basisKey: 'run-2' }]), { loop: false });
   assert.equal(noProgress([{ decision: second, basisKey: 'run-2' }, { decision: second, basisKey: 'run-2' }]).loop, true);

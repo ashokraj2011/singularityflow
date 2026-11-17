@@ -51,10 +51,10 @@ export function taskOutcomeOf(record, workflow) {
     repairs: { used: Number(record.repairConsumed ?? 0), budget: Number(record.maximumContinuations ?? 0) } };
 }
 
-// A run blocked before it started because the environment is not set up here: its file is missing or in use, or none is bound.
-const ENVIRONMENT_BLOCKS = new Set(['ENV_FILE_MISSING', 'ENV_FILE_IN_USE', 'ENVIRONMENT_BINDING_UNAVAILABLE']);
-// A run held back because the last run of its command may still be going (verification/test-run-marker.mjs): no new stop.
-const HELD_RUNS = new Set(['TEST_RUN_STILL_RUNNING', 'TEST_RUN_OUTCOME_UNKNOWN']);
+// A run blocked before it started because the environment is not set up here: its file is missing or in use, none is
+// bound, its policy gives no local run its values, or its command is not an exact argv. No code edit passes any of them.
+const ENVIRONMENT_BLOCKS = new Set(['ENV_FILE_MISSING', 'ENV_FILE_IN_USE', 'ENVIRONMENT_BINDING_UNAVAILABLE',
+  'ENVIRONMENT_ISOLATED_RUNNER_REQUIRED', 'ENVIRONMENT_ARGV_REQUIRED']);
 
 /**
  * Where a refused check stops the step, from the refusal's own facts: `{ outcome, code, input }`, or null when it names
@@ -65,12 +65,11 @@ export function refusalStop(refusal) {
   // An input the step needs is not on this laptop: the first document to restore, by its ID.
   if (refusal?.code === 'DOCUMENT_REUPLOAD_REQUIRED') return { outcome: 'waiting-input', code: refusal.code, input: details.documentReadiness?.missing?.[0]?.id ?? null };
   if (refusal?.code !== 'CODE_TEST_FAILED') return null;
-  const blocked = details.requiredTestExecution?.errorCode ?? null;
-  if (HELD_RUNS.has(blocked)) return null;
+  const execution = details.requiredTestExecution ?? {};
   // A Node to pin is one person's choice on the decisions card.
   if (details.nodePin?.version) return { outcome: 'waiting-person', code: refusal.code };
-  // The environment stopped the run: a person accepts the risk, or the environment is fixed.
-  if (ENVIRONMENT_BLOCKS.has(blocked)) return { outcome: 'waiting-environment', code: blocked };
+  // The environment stopped the run: a person accepts the risk, or the environment is fixed; kept with the environment's name.
+  if (ENVIRONMENT_BLOCKS.has(execution.errorCode)) return { outcome: 'waiting-environment', code: execution.errorCode, input: execution.environment ?? null };
   const cause = String(details.testRunRisk?.causeClass ?? '').replaceAll('+', '.');
   if (details.testRunRisk?.eligible) return { outcome: 'waiting-environment', code: /^[a-z.-]{1,80}$/u.test(cause) ? cause : refusal.code };
   // A code cause, or one nothing names (a timeout among them), is the step's own repair: no environment decision covers it.
@@ -112,12 +111,30 @@ export async function settleInputWait(root, workflow, readiness) {
   const phase = workflow.phases?.[workflow.currentPhase];
   if (!phase || readiness?.phase !== phase.id) return null;
   const store = await import('./workflow-task-store.mjs');
-  const waiting = taskOutcomeOf(await store.readWorkflowTask(root, workflow, phase).catch(() => null), workflow);
-  if (waiting?.outcome !== 'waiting-input') return null;
+  const kept = PATTERN.exec(String((await store.readWorkflowTask(root, workflow, phase).catch(() => null))?.blockedCode ?? ''));
+  if (kept?.[1] !== 'waiting-input' || kept[3] !== lifecycleMark(workflow)) return null;
   const next = readiness.missing?.[0]?.id ?? null;
-  await store.observeWorkflowTask(root, workflow, phase, next ? { state: 'blocked', blockedCode: outcomeCode('waiting-input', waiting.code, workflow, next) }
-    : { state: 'load-context', blockedCode: null });
+  await store.observeWorkflowTask(root, workflow, phase, { blockedCode: next ? outcomeCode('waiting-input', kept[2], workflow, next) : null });
   return next ? 'waiting-input' : null;
+}
+
+/** After a restore (documents.mjs): the current step's input wait, settled against its readiness now; never fails the restore. */
+export async function settleRestoredInput(root, config, workflow) {
+  if (!workflow.currentPhase) return null;
+  try {
+    return await settleInputWait(root, workflow, await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, config, workflow, workflow.currentPhase));
+  } catch { return null; }
+}
+
+/**
+ * Whether an entry keeps the stop its task record holds [§8]: a wait for an input, the environment or a person, or a spent
+ * repair, which entering the step again does not settle. A wait for an input the entry found present (`inputsReady`) is
+ * settled by it; a repair within its budget is the entry's own work; any lifecycle event since makes it stale.
+ */
+export function entryKeepsStop(record, workflow, { inputsReady = false } = {}) {
+  const kept = taskOutcomeOf(record, workflow);
+  if (!kept || kept.outcome === 'running' || (kept.outcome === 'waiting-input' && inputsReady)) return false;
+  return kept.outcome !== 'repair-required' || kept.repairs.used >= kept.repairs.budget;
 }
 
 /**

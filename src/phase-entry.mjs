@@ -32,7 +32,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const taskResume = await resumeWorkflowTask(entry.root, entry.workflow, entry.phase, {
     generation: taskCompletion?.generation ?? (published ? entry.phase.generation : base.inspectionGeneration),
     progress: taskCompletion,
-    published,
+    published, inputsReady: result.documentReadiness?.status === 'ready',
     blocked: taskCompletion?.state === 'blocked' ? { code: missing ?? 'PHASE_ENTRY_NOT_ADMITTED', nextAction: taskCompletion.nextAction } : null
   });
   return { ...result, taskResume, ...(taskCompletion && taskResume ? { taskCompletion: { ...taskCompletion,

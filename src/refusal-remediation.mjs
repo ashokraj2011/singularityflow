@@ -347,7 +347,11 @@ function requiredTestFailureSteps(argv, error) {
   const tryNode = (version) => step('try-node-version',
     `Find out whether the tests pass on Node ${version}: it runs them once on a throwaway copy of this checkout and records nothing as evidence.`,
     `singularity-flow tests node --work-id ${context.workId} --phase ${context.phaseId} --node ${version}`, 'diagnostic');
+  // A run the environment blocked before it started: its own fix commands, from its refusal, before any repair [review 2026-11-17].
+  const fixes = error?.details?.requiredTestExecution?.environmentFix;
   return [
+    ...(Array.isArray(fixes) ? fixes.slice(0, 3).map((command, index) => step(`fix-environment-${index + 1}`, index ? 'Or this.'
+      : 'The environment is not set up here, so no change in the step passes it: fix it with this, then run the same check again.', command, 'remediation')) : []),
     ...(pin && context?.workId ? [step('pin-node-version',
       `A person chooses ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`}: ${pin.words} Node ${pin.node} is installed here. Choosing it ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step, with their reason; an agent cannot record it. Show them this, then rerun the gate once it is recorded.`,
       `singularity-flow decisions ${context.workId}`, 'remediation', '/sf-decide'),
@@ -355,7 +359,7 @@ function requiredTestFailureSteps(argv, error) {
     // What clears a failed test is repairing it here and running the same gate, so that comes before any read.
     step('repair-required-test',
       failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
-      context?.phaseId ? `singularity-flow phase prepublish ${context.phaseId} --for-agent --json --publish-if-ready` : null, 'remediation', context?.phaseId ? '/sf-code' : null),
+      prepublishAgain(context?.phaseId), 'remediation', context?.phaseId ? '/sf-code' : null),
     testRunRiskStep(error),
     ...(!pin && other && context?.workId ? [tryNode(other.version)] : []),
     baseComparisonStep(argv, error, context),
@@ -365,6 +369,20 @@ function requiredTestFailureSteps(argv, error) {
       'singularity-flow logs --level error --tail 20',
       'diagnostic', '/sf-logs')
   ].filter(Boolean);
+}
+
+/** A gate run held back while the last run of its command may still be going: its own route, never a repair [review 2026-11-17]. */
+/** The step's checks again, which publish it if they pass: what a test repair, or the end of a wait, leads to. */
+const prepublishAgain = (phaseId) => (phaseId ? `singularity-flow phase prepublish ${phaseId} --for-agent --json --publish-if-ready` : null);
+
+function heldTestRunSteps(argv, error) {
+  const context = phaseRemediationContext(argv, error);
+  const listed = error?.details?.nextAction?.command
+    ?? (context?.workId && context.phaseId ? `singularity-flow tests held --work-id ${context.workId} --phase ${context.phaseId}` : null);
+  // A submission's own command is the one to run again; it is the person's or agent's own line, named in the words.
+  return [argv[0] !== 'submit' && step('run-again-once-ended', 'Once that process has ended, run the same command again: it starts nothing while the last run may still be going.',
+    prepublishAgain(context?.phaseId), 'remediation'),
+    step('list-held-run', 'See which process holds the last run. If it is not the run, a person sets it aside in their own terminal with what this lists.', listed, 'diagnostic')].filter(Boolean);
 }
 
 /**
@@ -1517,6 +1535,8 @@ const KNOWN = Object.freeze({
     ];
   },
   CODE_TEST_FAILED: (argv, error) => requiredTestFailureSteps(argv, error),
+  TEST_RUN_STILL_RUNNING: heldTestRunSteps,
+  TEST_RUN_OUTCOME_UNKNOWN: heldTestRunSteps,
   TRP_PHASE_GATE_BLOCKED: (_argv, error) => {
     const workId = safeWorkId(error?.details?.workId);
     const phase = safeWorkId(error?.details?.phase);
@@ -2093,6 +2113,8 @@ function remediationPlanFor(error, argv = []) {
   const selfGuidedBlocked = ['CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', 'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED',
     'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY', 'XPL2_SUBJECT_UNKNOWN'].includes(code);
   const unknownRecoveryPhase = code === 'RECOVERY_PHASE_UNKNOWN';
+  // A gate run held back while the last one may still be going: its own two routes, never a repair or a recovery.
+  const heldTestRun = ['TEST_RUN_STILL_RUNNING', 'TEST_RUN_OUTCOME_UNKNOWN'].includes(code);
   const historyRewritten = code === 'STORY_HISTORY_REWRITTEN' && explicitInstructions(error).length > 0;
   // Ancestry refusals carry their own route; never command help or doctor beside it.
   const ancestryRouted = ANCESTRY_ROUTED.has(code) && ancestrySteps(error).length > 0;
@@ -2194,7 +2216,7 @@ function remediationPlanFor(error, argv = []) {
     : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
     // A soft gate's alternative to the override is the Story's own next step: name it first.
     : softGateBlocked ? [...nonDuplicateExplicit, ...known]
-    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked || historyRewritten || ancestryRouted ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked || historyRewritten || ancestryRouted || heldTestRun ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? amendmentPending
       // The amendment and its card first, then the instruction that ends an approval turn, then the
       // same decision in a person's own terminal, which the cap keeps [owner, 2026-11-13].

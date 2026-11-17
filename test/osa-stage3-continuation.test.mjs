@@ -108,14 +108,12 @@ test('a failed required test stops at its own boundary: a Node to pin is a perso
     { outcome: 'waiting-environment', code: 'launcher-unavailable' });
   assert.deepEqual(refusalStop({ code: 'CODE_TEST_FAILED', details: { testRunRisk: { eligible: true, causeClass: 'docker-unavailable+service-unreachable' } } }),
     { outcome: 'waiting-environment', code: 'docker-unavailable.service-unreachable' });
-  for (const errorCode of ['ENV_FILE_MISSING', 'ENV_FILE_IN_USE', 'ENVIRONMENT_BINDING_UNAVAILABLE']) {
-    assert.deepEqual(refusalStop({ code: 'CODE_TEST_FAILED', details: { requiredTestExecution: { errorCode }, testRunCause: { category: 'unknown', class: 'unrecognised' } } }),
-      { outcome: 'waiting-environment', code: errorCode }, errorCode);
+  for (const errorCode of ['ENV_FILE_MISSING', 'ENV_FILE_IN_USE', 'ENVIRONMENT_BINDING_UNAVAILABLE', 'ENVIRONMENT_ISOLATED_RUNNER_REQUIRED', 'ENVIRONMENT_ARGV_REQUIRED']) {
+    assert.deepEqual(refusalStop({ code: 'CODE_TEST_FAILED', details: { requiredTestExecution: { errorCode, environment: 'local' }, testRunCause: { category: 'unknown', class: 'unrecognised' } } }),
+      { outcome: 'waiting-environment', code: errorCode, input: 'local' }, errorCode);
   }
-  // A run held back while the last one may still be going is no new stop: the next run reconciles it.
-  for (const errorCode of ['TEST_RUN_STILL_RUNNING', 'TEST_RUN_OUTCOME_UNKNOWN']) {
-    assert.equal(refusalStop({ code: 'CODE_TEST_FAILED', details: { requiredTestExecution: { errorCode } } }), null, errorCode);
-  }
+  // A run held back while the last one may still be going is its own refusal and no new stop: the next run reconciles it.
+  for (const code of ['TEST_RUN_STILL_RUNNING', 'TEST_RUN_OUTCOME_UNKNOWN']) assert.equal(refusalStop({ code, details: { waits: true } }), null, code);
   // An input not on this laptop waits for the person, with the first missing document's identity.
   assert.deepEqual(refusalStop({ code: 'DOCUMENT_REUPLOAD_REQUIRED', details: { documentReadiness: { missing: [{ id: 'DOC-002' }, { id: 'DOC-003' }] } } }),
     { outcome: 'waiting-input', code: 'DOCUMENT_REUPLOAD_REQUIRED', input: 'DOC-002' });

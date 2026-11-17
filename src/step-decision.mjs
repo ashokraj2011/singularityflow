@@ -29,8 +29,8 @@ export { ACTION_COMMAND_MAP_VERSION, ACTION_MODEL_FREE, ACTION_SKILLS, ACTION_CO
  * is built [OSA:REQ-021]. A form that keeps a placeholder for the person is shown as written; null for a form the map does
  * not name.
  */
-export function actionRoute(operation, form, { step, workId, detail, skill = null, instruction = null }) {
-  const words = actionCommand(operation, form, { step, workId, instruction });
+export function actionRoute(operation, form, { step, workId, detail, skill = null, instruction = null, input = null }) {
+  const words = actionCommand(operation, form, { step, workId, instruction, input });
   if (!words) return null;
   if (/(?:^| )<[A-Za-z-]+>(?: |$)/u.test(words)) return commandRoute(`singularity-flow ${words}`, detail, skill);
   return route(words.split(' '), detail, skill);
@@ -135,9 +135,27 @@ export function stepRoute(workflow, phase, options) {
 /** What a step's task waits for, in the person's words: its original code is kept, and nothing is retried meanwhile. */
 function taskOutcomeWords(inputs, phase) {
   const code = inputs.code ? ` (${inputs.code})` : '';
-  if (inputs.outcome === 'repair-exhausted') return `The repairs allowed for ${phase.id} are used${code}. A person decides on the decisions card what happens next; the evidence of each attempt is kept and nothing is retried.`;
   if (inputs.outcome === 'waiting-environment') return `${phase.id} waits for its environment${code}. A person decides on the decisions card how to go on; nothing is retried until then.`;
   return `${phase.id} waits for a person's decision${code} on the decisions card; nothing is retried until then.`;
+}
+
+// A wait the decisions card has nothing for leads with its own fix [§8]: an environment not set up here (`input`: its name).
+const ENVIRONMENT_FIXES = Object.freeze({
+  ENV_FILE_MISSING: ['env-files', (step, env) => `${step} waits for a file of environment ${env} that is not on this machine. This lists its files and the command that creates or links it.`],
+  ENV_FILE_IN_USE: ['env-files', (step, env) => `${step} waits for environment ${env}'s files, which an app running here uses: stop that app. This lists them.`],
+  ENVIRONMENT_BINDING_UNAVAILABLE: ['env-bind', (step, env) => `${step} waits for environment ${env}'s values here. The person binds them from their own secret helper, in their own terminal.`],
+  ENVIRONMENT_ISOLATED_RUNNER_REQUIRED: ['capability', (step, env) => `${step}'s tests need environment ${env}'s values in a run here, which the capability's localIntegrationEvidence policy does not allow; a capability proposal changes it.`],
+  ENVIRONMENT_ARGV_REQUIRED: ['test-command', (step) => `${step}'s test command is a shell line; one given an environment's values must be an exact argv. A person who approves ${step} previews the amendment.`]
+});
+
+/** A task's wait as routes: the environment's own fix or the card, then its checks again; a spent repair, the appeal. */
+function taskOutcomeRoutes(inputs, phase, render, author) {
+  if (inputs.outcome === 'repair-exhausted') return [render('decide', 'appeal', `The repairs allowed for ${phase.id} are used${inputs.code ? ` (${inputs.code})` : ''}. A person decides what happens next through the appeal, which names each issue and its owner; nothing is retried.`)];
+  const [form, words] = ENVIRONMENT_FIXES[inputs.code] ?? [];
+  const first = form ? render('decide', !inputs.input && form.startsWith('env-') ? 'env-list' : form, words(phase.id, inputs.input ?? ''), null, null, inputs.input)
+    : render('decide', 'card', taskOutcomeWords(inputs, phase));
+  return inputs.outcome === 'waiting-environment' ? [first, render('publish-version', 'prepublish',
+    `Once it is fixed, run ${phase.id}'s checks again: they publish it if they pass.`, author)] : [first];
 }
 
 /**
@@ -157,7 +175,7 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
   const author = actionSkill('author-version', { phase, workflow });
   const code = phaseRequiresCodeDelivery(phase);
   // Every command comes from the map's named form [OSA:REQ-021]; the cases below choose the form and say why.
-  const render = (operation, form, detail, skill = null, instruction = null) => actionRoute(operation, form, { step: phase.id, workId, detail, skill, instruction });
+  const render = (operation, form, detail, skill = null, instruction = null, input = null) => actionRoute(operation, form, { step: phase.id, workId, detail, skill, instruction, input });
   const owed = (next.prerequisites ?? []).find((entry) => entry.code === ACKNOWLEDGEMENT);
   const asked = (next.prerequisites ?? []).find((entry) => entry.code === ASKED_FOR_HOLD);
   switch (next.operation) {
@@ -179,11 +197,11 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
       `Preview building version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}. Its generator builds it once it opens.`, author)];
       return [render('build-version', 'prepare', 'Continue the configured phase author; publish only after its checks pass.', author)];
     case 'author-version': return [render('author-version', 'prepare', 'Continue the configured phase author; publish only after its checks pass.', author)];
-    case 'decide': return [next.inputs.decision === 'story-decision'
+    case 'decide': if (next.inputs.decision === 'task-outcome') return taskOutcomeRoutes(next.inputs, phase, render, author).filter(Boolean);
+      return [next.inputs.decision === 'story-decision'
       ? render('decide', 'story', 'Choose what happens next; a member of the deciding group decides.', ACTION_SKILLS.decide)
       : render('decide', 'card', next.inputs.hold === ACKNOWLEDGEMENT ? `A person reads what ${next.inputs.id ?? 'the amendment'} changed and acknowledges it on the decisions card. ${
           next.inputs.effect === 'opening' ? `Then they are asked to start ${phase.id}'s next version.` : `Then ${phase.id} goes on.`}`
-        : next.inputs.decision === 'task-outcome' ? taskOutcomeWords(next.inputs, phase)
         : `A person ${next.inputs.decision === 'review-disposition' ? 'decides what the review left to them' : `who approves the scope decides ${next.inputs.id ?? 'the amendment'}`} on the decisions card.`, ACTION_SKILLS.decide)];
     case 'approve-step': return [render('approve-step', 'approve', `Review submitted ${phase.id}, then approve it or return it for correction.`, ACTION_SKILLS.approve),
       render('approve-step', 'reject', 'Or return it for correction.', ACTION_SKILLS.reject)].filter(Boolean);

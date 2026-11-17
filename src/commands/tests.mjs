@@ -14,8 +14,9 @@ import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node']);
+const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node', 'held']);
 const OPTIONS = Object.freeze({
+  held: ['work-id', 'phase', 'command', 'set-aside', 'confirm', 'json'],
   plan: ['capability', 'work-id', 'phase', 'command', 'json'],
   base: ['work-id', 'phase', 'command', 'within', 'json'],
   node: ['work-id', 'phase', 'command', 'node', 'within', 'json'],
@@ -793,6 +794,22 @@ function runText(result) {
   return lines.join('\n');
 }
 
+/**
+ * `tests held`: a step's gate runs held back because the last run of their command may still be going, each named by the
+ * process that holds it; with --command, --set-aside and the --confirm it printed, a person sets one aside in their own
+ * terminal (verification/test-run-marker.mjs) [CVL-REQ-016].
+ */
+async function heldRuns(root, options) {
+  if (options['set-aside'] !== undefined && !optionString(options, 'command', null)) fail('tests held --set-aside names the test command with --command.');
+  const [{ loadAcceptedStoryExecution }, { workDirRelative }, marker] = await Promise.all([import('../accepted-story-execution.mjs'), import('../story-paths.mjs'),
+    import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'test-run-marker.mjs')).href)]);
+  const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
+  const phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
+  if (!workflow.phases?.[phaseId]) fail(`This Story has no step '${phaseId}'.`, 'TESTS_COMMAND_INVALID', unknownStepDetails(workflow, phaseId));
+  return marker.setAsideTestRun(root, { workId: workflow.workItem.id, phaseId, commandId: optionString(options, 'command', null) },
+    { confirm: optionBoolean(options, 'set-aside') ? optionString(options, 'confirm', null) : null, itemRelative: workDirRelative(config, workflow.workItem.id) });
+}
+
 export async function run(_argv, { positionals, options = {} }) {
   const subcommand = positionals[1] ?? 'summary';
   if (!SUBCOMMANDS.includes(subcommand)) {
@@ -860,6 +877,17 @@ export async function run(_argv, { positionals, options = {} }) {
       console.log(`${result.workId} step ${result.phase}, on Node ${result.node}. This is a fact for a person: it is not evidence and refuses nothing.`);
       for (const entry of result.results) console.log(`  ${entry.commandId}: ${entry.status}${entry.tests ? `, ${entry.tests.passed} of ${entry.tests.discovered} passed` : ''}${entry.why ? ` (${entry.why})` : ''}`);
       console.log(next[0].label);
+    }
+    return result;
+  }
+  if (subcommand === 'held') {
+    if (!story) fail('tests held reads a Story step\'s held test runs; name it with --work-id.');
+    const result = await heldRuns(root, options);
+    if (json) console.log(JSON.stringify(result, null, 2));
+    else {
+      const entries = result.runs ?? [result];
+      if (!entries.length) console.log(`No test run of ${result.phase} is held: its next run starts.`);
+      for (const entry of entries) console.log(entry.command ? `${entry.commandId}: ${entry.words}\n  ${entry.command}` : entry.words);
     }
     return result;
   }

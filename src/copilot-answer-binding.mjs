@@ -32,11 +32,15 @@ export const answerBoundStep = (step) => ANSWER_BOUND_STEPS.includes(step?.id);
 
 const comparable = (text) => String(text ?? '').normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim().replace(/[.!?;,]+$/u, '');
 
-/** Every string a parsed answer holds, a form's true or false as its word, at most MAX_ANSWERS of them. */
-function stringLeaves(value, found = []) {
+// A host's own flags beside an answer, never the person's words: VS Code's `skipped: false` read as "false" made a
+// person's "rework" a No (11-17 landing check).
+const ANSWER_FLAGS = new Set(['skipped', 'canceled', 'cancelled', 'canned', 'dismissed', 'timedOut', 'timedout']);
+/** Every string a parsed answer holds, a form's true or false as its word, at most MAX_ANSWERS of them; a skipped entry and a host's flags give none. */
+function stringLeaves(value, found = [], key = null) {
   if (found.length >= MAX_ANSWERS) return found;
-  if (typeof value === 'string' || typeof value === 'boolean') found.push(String(value));
-  else if (value && typeof value === 'object') for (const entry of Object.values(value)) stringLeaves(entry, found);
+  if (typeof value === 'string') found.push(value);
+  else if (typeof value === 'boolean') { if (!ANSWER_FLAGS.has(key)) found.push(String(value)); }
+  else if (value && typeof value === 'object' && value.skipped !== true) for (const [name, entry] of Object.entries(value)) stringLeaves(entry, found, name);
   return found;
 }
 

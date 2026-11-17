@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { noteQuestionAnswered, repliesOfQuestion, sideOf, startAnswerLedger, unboundAnswerReason } from '../src/copilot-answer-binding.mjs';
+import { answerOfQuestion, noteQuestionAnswered, repliesOfQuestion, sideOf, startAnswerLedger, unboundAnswerReason } from '../src/copilot-answer-binding.mjs';
 import { mutationDenial } from '../src/phase-mutation-contract.mjs';
 
 const QUESTION = 'Start version 2 of Implement? Published version 1 and its recorded tests will stay unchanged.';
@@ -64,4 +64,16 @@ test('a refusal that ends its own sentence gets no second period, and a whole on
   // A refusal with no contract at all still says so, once.
   assert.equal(mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding', [], { routes: [] }).permissionDecisionReason,
     'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding. No current verified mutation contract.');
+});
+
+test('a host\'s own flags beside an answer are never read as the person\'s yes or no', () => {
+  // VS Code (not 1.145) hands over { question: { answer, skipped: false } }: its skipped flag is no "false" from the person,
+  // so a "rework" answer stays a reason, never a No (11-17 landing check).
+  const words = 'rework: the "retry" path is wrong';
+  const read = answerOfQuestion({ tool_name: 'vscode_askQuestions', tool_response: JSON.stringify({ 'Which way?': { answer: words, skipped: false } }) });
+  assert.deepEqual(read, { canned: false, texts: [words] });
+  assert.equal(sideOf(read, rows), null);
+  // A skipped entry gives nothing; a field the person ticked still does.
+  assert.deepEqual(answerOfQuestion({ tool_response: JSON.stringify({ 'Start version 2?': { answer: 'yes', skipped: true } }) }), { canned: false, texts: [] });
+  assert.equal(sideOf(answerOfQuestion({ tool_response: JSON.stringify({ confirm: true }) }), rows), 'yes');
 });

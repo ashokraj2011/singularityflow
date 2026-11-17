@@ -129,7 +129,7 @@ test('design-intake names its missing design source before publication, and an u
   assert.deepEqual(published.designSourceSets.map((set) => set.records.map((entry) => entry.fileVersion)), [['v1']]);
 });
 
-test('a visual step is not published uncovered, and a capture recorded after publication routes to the publication that opens its generation', slowLane({ timeout: 300_000 }), async (t) => {
+test('a visual step is not published uncovered, and a capture recorded after publication routes to the version question that opens its next version', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, flow, phaseId, workflowFile } = await story(t, 'visual-only', 'qa', 'VISUAL-1');
   const record = async (profileId, width, height) => {
     const file = await png(root, `${profileId}.png`, width, height);
@@ -167,17 +167,18 @@ test('a visual step is not published uncovered, and a capture recorded after pub
   flow(['phase', 'publish', phaseId, '--authored', 'human']);
   for (const responsibility of ['scope', 'plan', 'implement']) flow(['decision', 'applicability', '--responsibility', responsibility, '--reason', OMITTED]);
 
-  // The tablet becomes required after publication; what is captured now belongs to generation 2.
+  // The tablet becomes required after publication; what is captured now belongs to version 2, which opens only on the
+  // person's yes: the route is its version question, never a publication that opens it [D3, OSA:REQ-030].
   flow(['decision', 'visual-profile', 'VISUAL-1', '--revoke', 'VPD-001', '--reason', 'The tablet layout ships in this release after all.']);
   const tablet = await record('tablet-834x1194', 834, 1194);
   const phone = await record('phone-390x844', 390, 844);
   assert.deepEqual([tablet.targetGeneration, phone.targetGeneration], [2, 2]);
-  const republish = 'singularity-flow phase publish visual-verification --authored human --channel manual-in-place';
+  const republish = 'singularity-flow phase rollover visual-verification --reason "<what to change>" --json';
   const submitted = flow(['submit', '--json'], { allowFailure: true });
   assert.equal(json(submitted).error.code, 'VISUAL_COVERAGE_FAILED', submitted.stdout);
   const steps = json(submitted).remediationPlan.steps;
   assert.equal(steps[0].command, republish, JSON.stringify(steps));
-  assert.match(steps[0].label, /recorded after generation 1 was published, so they are committed by, and count for, generation 2/u);
+  assert.match(steps[0].label, /recorded after version 1 was published, so they count for version 2\. Preview it and ask the person; it opens only on their yes\./u);
   assert.doesNotMatch(JSON.stringify(steps), /visual record/u, 'never back into capturing what is already captured');
   const next = json(flow(['nextsteps', '--json']));
   assert.equal(next.actions[0].timing, 'now');
@@ -185,8 +186,12 @@ test('a visual step is not published uncovered, and a capture recorded after pub
   assert.ok(!next.actions.some((entry) => entry.timing === 'now' && entry.command?.startsWith('singularity-flow submit')), 'submitting waits for the publication');
   assert.equal(json(flow(['phase', 'prepublish', phaseId, '--json'], { allowFailure: true })).commands.next, republish);
 
-  // Following the route opens generation 2, which the captures cover, and the step submits.
-  flow(republish.split(' ').slice(1));
+  // Following the route: the preview asks the person, their yes opens version 2, its publication commits the captures, and
+  // the step submits.
+  const preview = json(flow(['phase', 'rollover', phaseId, '--reason', 'The tablet layout ships in this release after all.', '--json']));
+  assert.match(preview.question, /^Start version 2 of /u);
+  flow(['phase', 'rollover', phaseId, '--confirm', preview.confirmation, '--json']);
+  flow(['phase', 'publish', phaseId, '--authored', 'human', '--channel', 'manual-in-place']);
   flow(['submit']);
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases[phaseId].generation, 2);

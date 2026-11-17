@@ -9,12 +9,42 @@ import YAML from 'yaml';
 
 import { resolveOperation } from '../src/command-registry.mjs';
 import { personAuthoredPublication, publicationArguments } from '../src/commands/phase-publish-if-ready.mjs';
-import { submitArguments, submitReport } from '../src/commands/submit-if-ready.mjs';
-import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
+import { notSubmitted, submitArguments, submitReport } from '../src/commands/submit-if-ready.mjs';
+import { agentAct, completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+
+// Review findings 2026-11-17 (kernel #8, #9): /sf-submit with a typed change waiting is the person's choice to submit this
+// version as it is. When its submission records decision values, or still waits for its review or its author's account, it
+// named the version question they had said no to, and the agent asked it again, round and round.
+test('/sf-submit after a No to the version question runs this version\'s own way on, never the question again', () => {
+  const question = 'singularity-flow phase rollover code --json';
+  const asked = { resultType: 'sflow-submission-readiness', classification: 'change-requested', lifecycleReady: true, confirmationRequired: false,
+    phaseId: 'code', workId: 'A-1', nextSkill: '/sf-code', nextCommand: question };
+  // A step that records decision values: its submission, with the values the person gives; never the question.
+  const values = { ...asked, submission: 'singularity-flow submit code --work-id A-1 --decision-input risk=<risk>', decisionInputs: [{ name: 'risk' }] };
+  assert.equal(submitArguments(values), null, 'a value only the person gives is never filled');
+  assert.deepEqual(notSubmitted(values), { submitted: false, reason: 'decision-inputs-required', command: values.submission, skill: '/sf-submit' });
+  // Its review, or its author's account, still owed: that, never the question.
+  for (const otherwise of [{ classification: 'source-review-required', command: 'singularity-flow review-source context code --json', skill: '/sf-review-source' },
+    { classification: 'instructions-unaccounted', command: 'singularity-flow departure account --work-id A-1 --instruction 1 --clauses <CLAUSES>', skill: '/sf-code' }]) {
+    const waiting = { ...asked, lifecycleReady: false, otherwise };
+    assert.equal(submitArguments(waiting), null);
+    assert.deepEqual(notSubmitted(waiting), { submitted: false, reason: otherwise.classification, command: otherwise.command, skill: otherwise.skill });
+    // The agent's act at /sf-submit names it, not the question.
+    const act = agentAct({ ...waiting, submitIfReady: notSubmitted(waiting) });
+    assert.equal(act.do?.shell, otherwise.command, JSON.stringify(act));
+    assert.notEqual(act.state, 'confirm');
+  }
+  const act = agentAct({ ...values, submitIfReady: notSubmitted(values) });
+  assert.match(act.do?.shell ?? '', /^singularity-flow submit code --work-id A-1 /u, JSON.stringify(act));
+  assert.match(act.said, /decisionInputs/u);
+  // Any other readiness is unchanged: its own route.
+  const review = { ...asked, classification: 'source-review-required', lifecycleReady: false, nextCommand: 'singularity-flow review-source context code --json' };
+  assert.deepEqual(notSubmitted(review), { submitted: false, reason: 'source-review-required', command: review.nextCommand });
+});
 
 test('only the exact publication command prepublish returns for the same phase is run as-is', () => {
   assert.deepEqual(publicationArguments('singularity-flow phase publish intake --authored governed-agent --channel copilot-host', 'intake'),

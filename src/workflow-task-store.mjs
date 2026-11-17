@@ -7,7 +7,7 @@ import { repositoryGitDirectory } from './git-directory.mjs';
 import { gitCommonDir } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { readPrivateSidecar, writeMutablePrivateSidecar, writeImmutablePrivateSidecar } from './private-sidecar.mjs';
-import { withSubjectLock } from './subject-lock.mjs';
+import { inspectSubjectLease, withSubjectLock } from './subject-lock.mjs';
 import { workflowTaskIdentity, workflowTaskInputSha256, validateWorkflowTask, updateWorkflowTask,
   mergeWorkflowTasks, workflowTaskResume, workflowTaskApplies, workflowTaskHasGeneration } from './workflow-task.mjs';
 import { recordSha256 } from './records.mjs';
@@ -297,6 +297,16 @@ export async function readWorkflowTaskResume(root, workflow, phase, options = {}
     // A next version opens only on the person's yes: its preview, as the other views name it [OSA:REQ-030].
     const progress = (await import('./phase-authoring-progress.mjs')).phaseAuthoringProgress(workflow, phase);
     if (progress?.generation > 1 && ['open-version', 'open-code-generation'].includes(progress.stage)) options = { ...options, nextAction: progress.next };
+  }
+  // A running execution under the Story's lease, which the kernel's TASK_RUNNING route (`session current`) shows: how far it
+  // got, from its live lease [review 2026-11-17, kernel #11b]. Read only for the current step; null on any doubt.
+  if (options.execution === undefined && phase.id === workflow.currentPhase) {
+    options = { ...options, execution: await (async () => {
+      try {
+        const { runningExecutionFact } = await import('./workflow-task-outcome.mjs');
+        return runningExecutionFact(await inspectSubjectLease(root, { kind: 'story', id: workflow.workItem.id }));
+      } catch { return null; }
+    })() };
   }
   return workflowTaskResume(workflow, phase, { ...options, record });
 }

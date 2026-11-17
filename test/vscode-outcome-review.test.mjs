@@ -94,7 +94,10 @@ test('review actions are bound to the exact Story and generation, including afte
     { workId: 'OUT-2', phase: 'release', generation: 1 }, { workId: 'OUT-2', phase: 'verification', generation: 2 }, null]) {
     assert.equal(sameOutcomeTarget(view.target, changed), false);
   }
-  assert.equal(view.repairCopilot, '/sf-recover');
+  // From a later step, a repair of the delivered code is an upstream issue against its step, never recovery, which finds
+  // nothing to repair there (review 2026-11-17, routes #2).
+  assert.equal(view.repairCopilot, '/sf-decide');
+  assert.match(view.repairCommand, /^singularity-flow upstream-issue raise --work-id OUT-2 --phase implementation /u);
   const ended = result();
   ended.data.outcome.step = null;
   ended.data.outcome.validation.binding = { workId: 'OUT-2', phase: null, generation: null };

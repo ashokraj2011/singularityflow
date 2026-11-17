@@ -25,10 +25,21 @@ export function submitArguments(readiness) {
     ? ['submit', phaseId, '--work-id', workId] : null;
 }
 
-function notSubmittedReason(readiness) {
-  if (readiness?.confirmationRequired) return 'confirmation-required';
-  if (readiness?.classification !== 'ready-to-attempt') return readiness?.classification ?? 'not-ready';
-  return 'route-not-recognized';
+/**
+ * What /sf-submit does when it submitted nothing: the readiness route, or, for a typed change the person declined, this
+ * version's own way on, never the version question again. That is its submission, which waits for the values the person gives
+ * (`decisionInputs`) when the step records any, or what the submission still waits for (`otherwise`: its review, its author's
+ * account of what was typed).
+ */
+export function notSubmitted(readiness) {
+  const asked = readiness?.classification === 'change-requested';
+  const command = asked ? readiness.submission ?? readiness.otherwise?.command ?? readiness.nextCommand ?? null : readiness?.nextCommand ?? null;
+  const reason = readiness?.confirmationRequired ? 'confirmation-required'
+    : readiness?.decisionInputs?.length && (asked ? readiness.submission : readiness?.classification === 'ready-to-attempt') ? 'decision-inputs-required'
+      : asked && !readiness.submission && readiness.otherwise ? readiness.otherwise.classification ?? 'change-requested'
+        : readiness?.classification !== 'ready-to-attempt' ? readiness?.classification ?? 'not-ready' : 'route-not-recognized';
+  return { submitted: false, reason, command,
+    ...(asked ? { skill: readiness.submission ? '/sf-submit' : readiness.otherwise?.skill ?? readiness.nextSkill ?? null } : {}) };
 }
 
 /**
@@ -69,9 +80,7 @@ export async function run({ positionals, options }) {
   const readiness = checked.value;
   const argv = submitArguments(readiness);
   if (!argv) {
-    return console.log(JSON.stringify({ ...readiness, submitIfReady: {
-      submitted: false, reason: notSubmittedReason(readiness), command: readiness?.nextCommand ?? null
-    } }, null, 2));
+    return console.log(JSON.stringify({ ...readiness, submitIfReady: notSubmitted(readiness) }, null, 2));
   }
   const submitted = await step([...argv, '--json'], cwd);
   if (!submitted.ok) stop(submitted, 'submit');

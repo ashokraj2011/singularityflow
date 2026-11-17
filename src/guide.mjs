@@ -150,9 +150,13 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress, t
     const routes = () => decisionRoutes(decision, workflow, phase).filter((entry) => entry?.command)
       .map((entry) => copilotAction({ skill: entry.skill, command: entry.command, reason: entry.detail }));
     if (decision.state === 'waiting') return routes();
-    // A typed change: its version question leads, as in the entry; submitting it as it is follows.
-    if (decision.next.inputs.reason === 'change-requested') return [...routes(),
-      ...phaseHandoff(workflow, phase, { sourceReviewEvidence }).filter((entry) => !/^singularity-flow phase rollover\b/u.test(entry.command ?? ''))];
+    // A typed change: its question leads, then submitting it as it is, or what the kernel's No goes on with (never a refused submission).
+    if (decision.next.inputs.reason === 'change-requested') {
+      const [question, ...declined] = routes(), no = decision.next.inputs.declined;
+      const submits = !no || (no.operation === 'submit-version' && !no.prerequisites.length);
+      return [question, ...(submits ? [] : declined), ...phaseHandoff(workflow, phase, { sourceReviewEvidence }).filter((entry) => !/^singularity-flow phase rollover\b/u.test(entry.command ?? '')
+        && (submits || (!declined.some((route) => route.skill === entry.skill) && !/^singularity-flow submit\b/u.test(entry.command ?? ''))))];
+    }
     // What the person typed waits for its account, and the submission that completes the step waits for that: the account leads.
     if (decision.next.prerequisites?.some((entry) => entry.code === ASKED_FOR_HOLD)) return routes();
   }

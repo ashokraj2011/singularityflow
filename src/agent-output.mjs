@@ -398,6 +398,14 @@ export function agentAct(result) {
   }
   if (result.resultType === 'sflow-submission-readiness' && result.classification === 'already-submitted') return withRoute({ state: 'next', do: null,
     said: oneLine(`Submitted already; its approval comes next. ${result.reason ?? ''}`) }, genericAction(result));
+  // /sf-submit with a typed change waiting: the person chose to submit this version as it is, so its submission (with the
+  // values they give) or what it still waits for is the route, never the version question they said no to [loop, 2026-11-17].
+  const declined = result.resultType === 'sflow-submission-readiness' && result.classification === 'change-requested'
+    && result.submitIfReady?.submitted === false && result.submitIfReady.command ? result.submitIfReady : null;
+  if (declined) return withRoute({ state: 'next', do: null, read: ['submitIfReady', ...(result.decisionInputs?.length ? ['decisionInputs'] : []), ...(result.otherwise ? ['otherwise'] : [])],
+    said: oneLine(`The person asked to submit this version as it is, so the version question is not asked again. ${result.decisionInputs?.length && result.submission
+      ? 'Ask the person for each decisionInputs value (never fill one), then run do.shell with them.' : 'Take do: the submission waits for it first.'}`) },
+  { command: declined.command, skill: declined.skill ?? null, reason: result.otherwise?.reason ?? 'Submit this version as it is.' });
   // A review turn's repairs spent: the draft stays staged and status records it incomplete [owner, 2026-11-13].
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.incomplete?.instruction) return {
     state: 'blocked', do: null, read: ['error.details.incomplete', 'error.details.findings'], said: oneLine(result.error.details.incomplete.instruction) };

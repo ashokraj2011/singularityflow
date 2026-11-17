@@ -87,7 +87,8 @@ export async function reportCliFailure(error, argv = []) {
   } else {
     // A phase refusal that keeps returning unchanged says to stop and hand it on [recoverable-findings M3].
     const envelope = relayed?.resultType === 'sflow-refusal-plan' && relayed.remediationPlan ? relayed
-      : (await import('./finding-escalation.mjs')).escalateRefusalEnvelope(refusalEnvelope(error, argv), error);
+      : (await import('./finding-escalation.mjs')).escalateRefusalEnvelope(refusalEnvelope(error, argv), error, process.cwd(), {
+        waits: ['waiting-person', 'waiting-environment'].includes((await import('./workflow-task-outcome.mjs')).refusalOutcome(error)) });
     if (json) await printJson(JSON.stringify(envelope, null, 2));
     else {
       console.error(`\nSingularity Flow error: ${redactDiagnosticText(error?.message ?? String(error), { multiline: true })}`);

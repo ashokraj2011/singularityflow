@@ -473,3 +473,20 @@ test('SCS REQ-043: a conformance step reads what was asked in the code steps bef
   assert.equal(askedForConformanceInput(workflow, workflow.phases.implementation), null, 'only the steps before it');
   assert.equal(askedForConformanceInput({ ...workflow, resolution: { capability: { policy: { typedFocus: 'off' } } } }, workflow.phases.conformance), null);
 });
+
+// Review finding 2026-11-17 (kernel #10, case 2): a code step whose low-risk policy may waive its approval completes at its
+// submission, which refuses INSTRUCTIONS_UNACCOUNTED, but the views counted only a step with no approval at all, so they
+// offered the submission. Its account is owed at submission too; a step people approve still waits at its approval.
+test('SCS REQ-042: a step its policy may waive is owed its account at submission, as a step nobody approves', async () => {
+  const { owedAtSubmission } = await import('../src/asked-for-records.mjs');
+  const of = (approvalPolicy) => ({ workItem: { id: 'W-1' }, currentPhase: 'implement',
+    askedFor: [{ phase: 'implement', generation: 1, instruction: 1, text: 'Name the version.' }],
+    phases: { implement: { id: 'implement', status: 'in_progress', generation: 1, generationPolicy: { task: 'code' }, approvalPolicy } } });
+  const owed = async (approvalPolicy) => owedAtSubmission(of(approvalPolicy), of(approvalPolicy).phases.implement);
+  assert.deepEqual(await owed({ mode: 'none' }), [1]);
+  assert.deepEqual(await owed({ mode: 'policy', policy: 'quick-fix-low-risk-v1' }), [1]);
+  assert.deepEqual(await owed({ mode: 'policy' }), [1], 'a policy that names none is the default waiver');
+  // A policy this build cannot evaluate waives nothing: its approval waits instead.
+  assert.deepEqual(await owed({ mode: 'policy', policy: 'someone-elses-policy' }), []);
+  assert.deepEqual(await owed({ mode: 'human' }), []);
+});

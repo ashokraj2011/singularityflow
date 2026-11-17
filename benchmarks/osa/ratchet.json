@@ -472,9 +472,6 @@
     "node-pin.mjs": {
       "intentReads": 1
     },
-    "outcome-review.mjs": {
-      "skillChooserCalls": 1
-    },
     "own-correction-rollover.mjs": {
       "skillChooserCalls": 1,
       "versionArithmetic": 1,
@@ -1079,7 +1076,7 @@
         "altSkillLiterals": 2
       },
       "outcome-review.mjs": {
-        "argvRoutes": 3
+        "argvRoutes": 1
       },
       "owner-step-evidence.mjs": {
         "routeFields": 1

@@ -746,7 +746,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // instead of recovery (state.mjs +279, story-test-risk.mjs +54, story-test-command-amendment.mjs -16). No new eager file.
     // 9,745,500 (measured 9,745,489 for start.mjs): the two small-fix tracks of 2026-11-17 together, each measured above on
     // its own base (the approval's next command from the kernel route, and Stage 5's routes from the map). No new eager file.
-    assert.ok(closure.bytes <= 9_745_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,746,750 (measured 9,746,712 for start.mjs, +1,223; submit.mjs 9,745,853): review 2026-11-17, kernel #8 and #10. The
+    // person's No to a typed change's version question goes on with the step's own action, never the question again or a
+    // submission the engine refuses: the kernel names it (`declined`, kernel/step-state.mjs +322), the renderer gives its
+    // route beside the question (step-decision.mjs +508), and next steps offers it instead of a refused submission (guide.mjs
+    // +393). Comments trimmed first; submission readiness, which grew more, is not in start's closure. No new eager file.
+    assert.ok(closure.bytes <= 9_746_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

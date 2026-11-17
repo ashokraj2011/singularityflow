@@ -760,6 +760,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,750,200 (measured 9,750,124 for start.mjs, 464 files): CVL pieces 1 and 3 (recorded stops, the run-started marker, the
     // fuller reuse key and the fresh-run setting) on main 4d173adc1 with the small fixes, each measured above on its own base.
     // No new eager file.
+    // 9,749,400 (measured 9,749,324 for start.mjs, +3,624): the review of CVL piece 1 (2026-11-17). Every recorded wait
+    // leads with a route that works: an environment's own fix and the step's checks again beside it, a spent repair's
+    // appeal (step-decision.mjs +1,999, action-command-map.mjs +432, kernel/step-state.mjs +31); the refusal's own fix
+    // commands and the environment's name (state.mjs +475); a restore settles its wait by any route (documents.mjs +193);
+    // a held test run listed by anyone and set aside only in a person's own terminal (person-step-catalog.mjs +268,
+    // command-registry.mjs +226). The marker and the wait readers stay lazy. No new eager file.
     assert.ok(closure.bytes <= 9_750_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -875,7 +881,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 870,900 (measured 870,863, +662 on the 870,201 above): the 11-17 landing puts the branches' registrations on one tree:
   // OSA's `phase opening --reconcile` and SCF's `configuration approve`/`reject` for every proposal kind
   // (command-registry.mjs +339, util.mjs +51, the rest in their small imports). Each was under 869,150 alone. No new eager file.
-  assert.ok(root.bytes <= 870_900, `root dispatch loads ${root.bytes} source bytes`);
+  // 871,100 (measured 871,089, +226): the review of CVL piece 1 (2026-11-17), `tests held` registered as a read and its
+  // `--set-aside` as the person's mutation (command-registry.mjs). No new eager file.
+  assert.ok(root.bytes <= 871_100, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1166,6 +1174,8 @@ test('the common session projection does not import attach, state stores or publ
   // out of this closure. No new eager file.
   // 4,289,800 (measured 4,289,786): CVL pieces 1 and 3 together (the runner keeps the process group's answer; the reuse key's
   // fields), each measured above on its own base. No new eager file.
+  // 4,289,200 (measured 4,289,165, +494): the review of CVL piece 1, a held test run listed by anyone and set aside only
+  // in a person's own terminal (person-step-catalog.mjs +268, command-registry.mjs +226). No new eager file.
   assert.ok(current.bytes <= 4_289_800, `session current loads ${current.bytes} source bytes`);
 });
 

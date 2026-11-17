@@ -111,6 +111,7 @@ Usage:
   singularity-flow tests summary [--capability ID | --work-id ID [--phase PHASE]] [--run RUN-ID | --latest] [--json]
   singularity-flow tests base --work-id ID [--phase PHASE] [--command ID]... [--within SECONDS] [--json]
   singularity-flow tests node --work-id ID --node MAJOR [--phase PHASE] [--command ID]... [--within SECONDS] [--json]
+  singularity-flow tests held --work-id ID [--phase PHASE] [--command ID --set-aside --confirm CODE] [--json]
   singularity-flow app-review plan|start|status|inspect|feedback|repair|recheck|accept|capture|defer|close [SESSION] [--work-id ID] [--json]
   singularity-flow app-review browser install
   singularity-flow outcome [WORK-ID] [--capability ID] [--json]

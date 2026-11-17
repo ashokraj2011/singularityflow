@@ -352,6 +352,14 @@ required test, through the one recorder (`src/workflow-task-outcome.mjs` `record
   cause that was not the environment's was kept as `waiting-environment`, which sent a failed assertion to the decisions card.
 - A gate run held back because the last run of its command may still be going records no new stop; the next run
   reconciles it (TCE:REQ-034).
+- *Review of 2026-11-17.* Every recorded wait leads with a route that works. An environment not set up here (also
+  `ENVIRONMENT_ISOLATED_RUNNER_REQUIRED` and `ENVIRONMENT_ARGV_REQUIRED`, which no code edit passes) keeps its
+  environment's name and leads with its own fix (`env files <ENV>`, `env bind <ENV> --stdin`, `capability show`, the
+  test-command amendment); the refusal itself leads with the fix commands its details carry. A test-run risk stays on the
+  decisions card. Every environment wait names the step's checks again (prepublish) beside it, which end the wait once it
+  is fixed. A spent repair goes to the appeal (`appeal preflight`), never to an empty card. Entering the step again keeps
+  a wait it does not settle (an input it finds present is settled), so the same failing run is not repeated; restoring a
+  document settles its wait by any route, `backup restore` among them.
 
 **Windows and leases.** The interaction window and an execution lease are separate.
 - An actual human reply may renew the interaction window.

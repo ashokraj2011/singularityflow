@@ -201,7 +201,7 @@ test('a reader opens a local document by a short name that is the original file 
   assert.deepEqual(await readFile(restored.absolutePath), png);
 });
 
-test('a document missing here is kept as the step\'s wait for that input where it really stops, never on a read [OSA §8, CVL-REQ-004]', async t => {
+test('a document missing here is kept as the step\'s wait for that input where it really stops, never on a read, until it is restored [OSA §8, CVL-REQ-004]', async t => {
   const f = await fixture(t);
   const phase = f.workflow.phases[f.phaseId];
   const kept = async () => (await readWorkflowTask(f.root, f.workflow, phase).catch(() => null))?.blockedCode ?? null;
@@ -215,6 +215,9 @@ test('a document missing here is kept as the step\'s wait for that input where i
   // published, so its task is complete and no view names the wait; an open version's views are osa-stage3-journeys'.)
   await assert.rejects(requirePhaseDocuments(f.root, f.definition, f.workflow, f.phaseId, { recordWait: true }), { code: 'DOCUMENT_REUPLOAD_REQUIRED' });
   assert.equal(await kept(), `waiting-input:DOCUMENT_REUPLOAD_REQUIRED:${lifecycleMark(f.workflow)}:${f.records[1].id}`);
+  // Restoring it answers the wait, by any route that restores it (here as `backup restore` does, not the CLI's) [review #11a].
+  await restoreLocalDocument(f.root, f.definition, f.workflow, { documentId: f.records[1].id, file: path.join(f.uploads, f.records[1].sourceName) });
+  assert.equal(await kept(), null);
 });
 
 test('Auto refuses missing, changed, detached and forged attachments before provider access', async t => {

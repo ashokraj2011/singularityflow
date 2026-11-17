@@ -144,7 +144,8 @@ export function escalateRefusalEnvelope(envelope, error, root = process.cwd()) {
   const plan = envelope?.remediationPlan;
   const context = plan?.context;
   const code = envelope?.error?.code ?? error?.code ?? null;
-  if (context?.scope !== 'phase' || !context.phaseId || !code) return envelope;
+  // A refusal that waits (a test run that may still be going) is no repair that keeps failing.
+  if (context?.scope !== 'phase' || !context.phaseId || !code || error?.details?.waits === true) return envelope;
   const count = observeFindingStreak(root, { workId: context.workId ?? root, phaseId: context.phaseId,
     generation: error?.details?.generation ?? null,
     fingerprint: findingFingerprint([{ code, details: error?.details, message: error?.message }]) });

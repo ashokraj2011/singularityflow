@@ -148,6 +148,13 @@ still fill an uncovered module, and that command is pinned on first use.
     (`TEST_RUN_STILL_RUNNING`, `TEST_RUN_OUTCOME_UNKNOWN`) that names no process ID. An owner that ended without a
     result, with nothing of it left, was interrupted: the next run says so and names it. Windows still treats a
     `taskkill /T` stop as gone.
+  - *Review of 2026-11-17:* a held run never holds forever. A process now holding the run's number that started after
+    the run's own (as lease liveness judges it), or another user's process, is not the run's; an owner on another
+    machine or container is not here and does not hold. A run that may still be going is its own refusal before the gate
+    runs anything (`TEST_RUN_STILL_RUNNING`, `TEST_RUN_OUTCOME_UNKNOWN`), names the process, leads with
+    `tests held --work-id <W> --phase <step>` and never counts as a repeated repair. A person who checked that process is
+    not the run sets it aside in their own terminal (`tests held … --command <ID> --set-aside --confirm <CODE>`, which no
+    agent turn runs); nothing is ended, and process IDs stay in this checkout's private storage and its terminal.
 
 ### M3 Pinning `[TCE:REQ-010]`
 

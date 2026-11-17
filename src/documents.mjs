@@ -658,6 +658,8 @@ export async function restoreLocalDocument(root, config, workflow, { documentId,
   const restored = await storeLocalDocument(root, localDocumentOwner(workflow.workItem.id, record), { bytes: captured.bytes, sha256: record.sha256,
     filename: record.storage.key.split('/').at(-1), replaceChanged: true });
   const viewed = await readLocalDocument(root, workflow.workItem.id, record);
+  // Its step's wait for this input is answered, by any route that restores it [CVL-REQ-004].
+  await (await import('./workflow-task-outcome.mjs')).settleRestoredInput(root, config, workflow);
   return { resultType: 'document-restored', status: 'restored', workId: workflow.workItem.id,
     documentId: record.id, name: record.name, sha256: record.sha256, absolutePath: viewed.absolutePath,
     ...(restored.preservedPath ? { preservedPath: restored.preservedPath } : {}),

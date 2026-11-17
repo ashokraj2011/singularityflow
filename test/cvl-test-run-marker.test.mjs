@@ -14,7 +14,11 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { runQualityCommand } from '../src/quality-command-runner.mjs';
+import * as markers from '../src/verification/test-run-marker.mjs';
 import { beginTestRun, readTestRunMarker, reconcileTestRun, runProcessAlive, testRunMarkerFile } from '../src/verification/test-run-marker.mjs';
+import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { escalateRefusalEnvelope } from '../src/finding-escalation.mjs';
+import { ownTerminalStep } from '../src/command-skills.mjs';
 import { gitDir } from '../src/git.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
@@ -74,13 +78,10 @@ test('a stopped run keeps its process group\'s answer: one not confirmed gone re
   await run.spawned(left.pid, true);
   await run.finish(unconfirmed);
   const kept = await readTestRunMarker(root, TARGET);
-  assert.deepEqual([kept.result.timedOut, kept.result.processGroup, kept.process], [true, 'not-confirmed', { pid: left.pid, group: true }]);
+  assert.deepEqual([kept.result.timedOut, kept.result.processGroup, kept.process.pid, kept.process.group], [true, 'not-confirmed', left.pid, true]);
   assert.equal((await reconcileTestRun(root, TARGET, { itemRelative: ITEM })).state, 'unknown', 'never read as quiet');
-  const warned = [];
-  const held = await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:05:00.000Z', itemRelative: ITEM, warn: (line) => warned.push(line) });
-  assert.equal(held.held.code, 'TEST_RUN_OUTCOME_UNKNOWN');
-  assert.doesNotMatch(held.held.reason, new RegExp(`\\b${left.pid}\\b`, 'u'), 'a process ID stays out of words a Story record may keep');
-  assert.match(warned[0], new RegExp(`group ${left.pid}`, 'u'), 'this terminal is told which processes');
+  await assert.rejects(beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:05:00.000Z', itemRelative: ITEM, warn: () => {} }),
+    (error) => error.code === 'TEST_RUN_OUTCOME_UNKNOWN' && error.message.includes(`group ${left.pid}`), 'its own refusal, naming the process');
   assert.equal((await readTestRunMarker(root, TARGET)).runId, kept.runId, 'nothing new was started');
   // Its processes gone, the next entry settles it and runs.
   left.end();
@@ -89,8 +90,7 @@ test('a stopped run keeps its process group\'s answer: one not confirmed gone re
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   assert.equal((await reconcileTestRun(root, TARGET, { itemRelative: ITEM })).state, 'ended');
-  const next = await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:10:00.000Z', itemRelative: ITEM, warn: () => {} });
-  assert.equal(next.held, undefined);
+  await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:10:00.000Z', itemRelative: ITEM, warn: () => {} });
   assert.deepEqual((await readTestRunMarker(root, TARGET)).after, { runId: kept.runId, state: 'ended' });
 });
 
@@ -99,8 +99,7 @@ test('a crash between start and result is reconciled from the original run\'s ev
   // The owner still runs it: nothing starts beside it.
   const live = await owner(t, root, `await beginTestRun(root, target, { startedAt: '2026-11-17T20:00:00.000Z' });
     process.stdout.write('ready\\n'); setInterval(() => {}, 1000);`);
-  const running = await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:01:00.000Z', itemRelative: ITEM, warn: () => {} });
-  assert.equal(running.held.code, 'TEST_RUN_STILL_RUNNING');
+  await assert.rejects(beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:01:00.000Z', itemRelative: ITEM, warn: () => {} }), { code: 'TEST_RUN_STILL_RUNNING' });
   live.child.kill('SIGKILL');
   await live.exited();
 
@@ -110,10 +109,10 @@ test('a crash between start and result is reconciled from the original run\'s ev
     await run.spawned(${left.pid}, true); process.stdout.write('ready\\n', () => process.kill(process.pid, 'SIGKILL'));`);
   await crashed.exited();
   const before = await readTestRunMarker(root, TARGET);
-  assert.deepEqual([before.result, before.process], [null, { pid: left.pid, group: true }], 'started, with no result');
+  assert.deepEqual([before.result, before.process.pid, before.process.group], [null, left.pid, true], 'started, with no result');
   assert.equal(JSON.stringify(before).includes(os.hostname()), true, 'the owner is named here, on this machine only');
   assert.match(testRunMarkerFile(root, TARGET), new RegExp(`^${gitDir(root).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`, 'u'), 'kept in private Git storage');
-  assert.equal((await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:03:00.000Z', itemRelative: ITEM, warn: () => {} })).held.code, 'TEST_RUN_OUTCOME_UNKNOWN');
+  await assert.rejects(beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:03:00.000Z', itemRelative: ITEM, warn: () => {} }), { code: 'TEST_RUN_OUTCOME_UNKNOWN' });
   // Its processes gone and no evidence kept: the run happened and was interrupted; the next one says so and names it.
   left.end();
   for (let waited = 0; runProcessAlive({ pid: left.pid, group: true }); waited += 20) {
@@ -122,7 +121,6 @@ test('a crash between start and result is reconciled from the original run\'s ev
   }
   const warned = [];
   const again = await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:04:00.000Z', itemRelative: ITEM, warn: (line) => warned.push(line) });
-  assert.equal(again.held, undefined);
   assert.match(warned[0], /ended without a result/u);
   assert.deepEqual((await readTestRunMarker(root, TARGET)).after, { runId: before.runId, state: 'interrupted' });
   await again.finish({ status: 0, signal: null, timedOut: false, aborted: false });
@@ -138,4 +136,73 @@ test('a crash between start and result is reconciled from the original run\'s ev
   const recorded = await reconcileTestRun(root, TARGET, { itemRelative: ITEM });
   assert.equal(recorded.state, 'recorded');
   assert.equal(JSON.parse(await readFile(testRunMarkerFile(root, TARGET), 'utf8')).reconciled.state, 'recorded', 'settled once, as it was found');
+});
+
+/** A record as a gate's run leaves it, written as it is on disk. */
+async function record(root, fields) {
+  const file = testRunMarkerFile(root, TARGET);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, `${JSON.stringify({ schemaVersion: 1, kind: 'test-run-marker', runId: 'TR-0123456789abcdef0123', target: TARGET,
+    startedAt: '2026-11-17T20:00:00.000Z', owner: { pid: 1, host: 'elsewhere', machineId: '00000000-0000-4000-8000-000000000000', processStartedAt: 0 },
+    process: null, result: null, ...fields })}\n`);
+}
+
+test('a run that cannot be this machine\'s, or a number another process took, never holds the next run [review #1]', { skip: process.platform === 'win32' }, async (t) => {
+  const root = await checkout(t);
+  // Its owner is on another machine or container: nothing here can see it, so it is not held here.
+  await record(root, {});
+  const elsewhere = await reconcileTestRun(root, TARGET, { itemRelative: ITEM });
+  assert.equal(elsewhere.state, 'elsewhere');
+  const next = await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:01:00.000Z', itemRelative: ITEM, warn: () => {} });
+  assert.equal((await readTestRunMarker(root, TARGET)).after.state, 'elsewhere');
+  await next.finish({ status: 0 });
+  // The run's own group was not confirmed gone, but the process now holding that number started after the run did:
+  // another program took the number, so the run's processes are gone.
+  const left = leftover(t);
+  await record(root, { owner: (await readTestRunMarker(root, TARGET)).owner, process: { pid: left.pid, group: true, startedAt: Date.now() - 600_000 },
+    result: { completedAt: '2026-11-17T20:02:00.000Z', status: null, timedOut: true, processGroup: 'not-confirmed' } });
+  assert.equal((await reconcileTestRun(root, TARGET, { itemRelative: ITEM })).state, 'ended');
+  // Another user's process with that number is not this run's either.
+  assert.equal(runProcessAlive({ pid: 1, group: false, startedAt: Date.now() }), false);
+});
+
+test('a held run is its own refusal that names the process, is never counted as a repair, and a person sets it aside in their own terminal [review #1, #6]', { skip: process.platform === 'win32' }, async (t) => {
+  const root = await checkout(t);
+  const left = leftover(t);
+  const run = await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:00:00.000Z', itemRelative: ITEM, warn: () => {} });
+  await run.spawned(left.pid, true);
+  await run.finish({ status: null, timedOut: true, processGroup: 'not-confirmed' });
+  const held = await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:05:00.000Z', itemRelative: ITEM, warn: () => {} }).then(() => null, (error) => error);
+  assert.equal(held?.code, 'TEST_RUN_OUTCOME_UNKNOWN');
+  assert.match(held.message, new RegExp(`group ${left.pid}\\b`, 'u'), 'the refusal names the process');
+  assert.doesNotMatch(held.message, /fix the cause|Do not repeat/u);
+  const listed = `singularity-flow tests held --work-id ${W} --phase implement`;
+  assert.equal(held.details.nextAction.command, listed);
+  // Its own routes: the same command once that process ended, and the list a person reads; never a repair of the step.
+  const plan = refusalRemediationPlan(held, ['phase', 'prepublish', 'implement']);
+  assert.deepEqual(plan.steps.map((step) => step.command), ['singularity-flow phase prepublish implement --for-agent --json --publish-if-ready', listed]);
+  assert.equal(plan.steps.some((step) => /Do not repeat|fix the cause|[Rr]epair/u.test(step.label ?? '')), false);
+  // Asked about three times, it is a wait, never "the same finding returned".
+  const streaks = await mkdtemp(path.join(os.tmpdir(), 'sflow-cvl-streaks-'));
+  t.after(() => rm(streaks, { recursive: true, force: true }));
+  const previous = process.env.SINGULARITY_FLOW_FINDING_STREAKS;
+  process.env.SINGULARITY_FLOW_FINDING_STREAKS = streaks;
+  t.after(() => { if (previous === undefined) delete process.env.SINGULARITY_FLOW_FINDING_STREAKS; else process.env.SINGULARITY_FLOW_FINDING_STREAKS = previous; });
+  for (let index = 0; index < 4; index += 1) {
+    const envelope = escalateRefusalEnvelope({ error: { code: held.code }, remediationPlan: refusalRemediationPlan(held, ['phase', 'prepublish', 'implement']) }, held, root);
+    assert.equal(envelope.remediationPlan.steps.some((step) => step.id === 'escalate-repeated-finding'), false, `ask ${index + 1}`);
+  }
+  // The person sets it aside, after reading which process it was, with the confirmation it printed.
+  const setAsideTestRun = (...args) => markers.setAsideTestRun(...args);
+  const preview = await setAsideTestRun(root, TARGET, {});
+  assert.equal(preview.status, 'confirmation-required');
+  assert.match(preview.words, new RegExp(`group ${left.pid}\\b`, 'u'));
+  assert.equal(preview.command, `singularity-flow tests held --work-id ${W} --phase implement --command unit --set-aside --confirm ${preview.confirmation}`);
+  assert.equal(ownTerminalStep(preview.command), 'test-run-set-aside', 'the person\'s own terminal step');
+  assert.equal(ownTerminalStep(listed), null, 'reading it is anyone\'s');
+  await assert.rejects(setAsideTestRun(root, TARGET, { confirm: 'not-it' }), { code: 'TEST_RUN_SET_ASIDE_STALE' });
+  assert.equal((await setAsideTestRun(root, TARGET, { confirm: preview.confirmation })).status, 'set-aside');
+  const next = await beginTestRun(root, TARGET, { startedAt: '2026-11-17T20:10:00.000Z', itemRelative: ITEM, warn: () => {} });
+  assert.deepEqual((await readTestRunMarker(root, TARGET)).after.state, 'set-aside');
+  await next.finish({ status: 0 });
 });

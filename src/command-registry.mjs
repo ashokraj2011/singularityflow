@@ -13,7 +13,7 @@ const MODEL_FREE_MIXED_COMMANDS = new Set(['git-policy', 'skill', 'init', 'prech
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
-const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node']);
+const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node', 'held']);
 // APM packages [APM A1-A6]: status reads; install, update, attach, marketplace init, publish and
 // policy init each make one reviewed change, and each --dry-run is a read.
 const APM_SUBCOMMANDS = Object.freeze(['status', 'install', 'update', 'attach', 'marketplace', 'publish', 'policy']);
@@ -1684,7 +1684,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'tests') {
     const action = positionals[1] ?? 'summary';
     if (!TESTS_SUBCOMMANDS.includes(action)) return unknownSubcommand('tests', action, TESTS_SUBCOMMANDS);
-    return never(`tests.${action}`, definition, ['plan', 'summary'].includes(action) ? 'read' : 'mutation');
+    if (action === 'held' && options['set-aside'] !== undefined) return never('tests.held.set-aside', definition, 'mutation');
+    return never(`tests.${action}`, definition, ['plan', 'summary', 'held'].includes(action) ? 'read' : 'mutation');
   }
   if (definition.name === 'apm') {
     const action = positionals[1] ?? 'status';
@@ -1996,7 +1997,8 @@ export function operationCatalog() {
     ...['save-local', 'reset-local'].map(name => never(`app.config.${name}`, commandDefinition('app'), 'mutation')),
     ...['discover', 'show', 'plan', 'validate'].map(name => never(`git-policy.${name}`, commandDefinition('git-policy'), 'read')),
     ...ARA_ACTIONS.map(name => never(`app-review.${name}`, commandDefinition('app-review'), ARA_READS.includes(name) ? 'read' : 'mutation')),
-    ...TESTS_SUBCOMMANDS.map(name => never(`tests.${name}`, commandDefinition('tests'), ['plan', 'summary'].includes(name) ? 'read' : 'mutation')),
+    ...TESTS_SUBCOMMANDS.map(name => never(`tests.${name}`, commandDefinition('tests'), ['plan', 'summary', 'held'].includes(name) ? 'read' : 'mutation')),
+    never('tests.held.set-aside', commandDefinition('tests'), 'mutation'),
     never('apm.status', commandDefinition('apm'), 'read'),
     ...Object.values(APM_OPERATIONS).flatMap((id) => [never(`${id}.preview`, commandDefinition('apm'), 'read'), never(id, commandDefinition('apm'), 'mutation')]),
     ...LOCK_SUBCOMMANDS.map(name => never(`lock.${name}`, commandDefinition('lock'), LOCK_READS.includes(name) ? 'read' : 'mutation')),

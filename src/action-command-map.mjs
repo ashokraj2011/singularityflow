@@ -43,7 +43,10 @@ export const ACTION_COMMANDS = Object.freeze({
   'refresh-facts': entry(ACTION_SKILLS.readiness, { readiness: 'status <W> --submission-readiness --json' }),
   'approve-step': entry(ACTION_SKILLS.approve, { approve: 'approve <step> --work-id <W> --fetch',
     reject: 'reject <step> --work-id <W> --fetch --to <phase> --reason <reason>' }),
-  decide: entry(ACTION_SKILLS.decide, { story: 'decision show <W>', card: 'decisions <W>' }),
+  // A task's wait for its environment names the environment's own fix (`<input>`: its name); a spent repair, the appeal.
+  decide: entry(ACTION_SKILLS.decide, { story: 'decision show <W>', card: 'decisions <W>', 'env-files': 'env files <input>', 'env-list': 'env files',
+    'env-bind': 'env bind <input> --stdin', capability: 'capability show --json', 'test-command': 'story test-policy amend --reason <why>',
+    appeal: 'appeal preflight --phase <step> --work-id <W> --json' }),
   'recover-operation': entry('work', { reconcile: 'phase opening <step> --reconcile --json', recover: 'recover <W> --phase <step> --json' }),
   'takeover-writer': entry(ACTION_SKILLS.takeover, { takeover: 'session takeover <W> --json' }),
   'refresh-authority': entry('by-command', { branch: 'refresh-branch', session: 'session current --for-agent --json' }),
@@ -56,11 +59,12 @@ export const ACTION_COMMANDS = Object.freeze({
  * One form of an operation's Shell command without its executable (`review-source context intake --for-agent --json`),
  * for `step` of Story `workId`, returned `to` a step; null for a form the map does not name. A form keeps any placeholder for the person.
  */
-export function actionCommand(operation, form, { step = null, workId = null, instruction = null, to = null } = {}) {
+export function actionCommand(operation, form, { step = null, workId = null, instruction = null, to = null, input = null } = {}) {
   const template = ACTION_COMMANDS[operation]?.forms[form];
   if (!template) return null;
   const words = template.split(' ').map((word) => word === '<step>' ? step : word === '<W>' ? workId
-    : word === '<instruction>' && instruction != null ? String(instruction) : word === '<phase>' && to ? to : word);
+    : word === '<instruction>' && instruction != null ? String(instruction) : word === '<phase>' && to ? to
+      : word === '<input>' ? input : word);
   return words.some((word) => word === null || word === undefined || word === '') ? null : words.join(' ');
 }
 

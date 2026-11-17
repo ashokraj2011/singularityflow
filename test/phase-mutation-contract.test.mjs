@@ -1000,6 +1000,7 @@ test('every step only a person takes in their own terminal is refused in every t
     'publication-set-aside': [`singularity-flow sync PMC-1 --set-aside --confirm ${'a'.repeat(40)}`,
       `singularity-flow initiative sync INIT-1 --set-aside --confirm ${'a'.repeat(40)}`],
     'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],
+    'test-run-set-aside': [`singularity-flow tests held --work-id PMC-1 --phase custom-step --command unit --set-aside --confirm ${'a'.repeat(24)}`],
     'target-origin-pin': [`singularity-flow story target-origin PMC-1 --url https://staging.example.test --reason "Approved staging target." --confirm ${digest}`],
     'intent-amendment-decision': ['singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001'],
     // Acknowledging an approved one is the person's too, on the decisions card [owner, 2026-11-13].

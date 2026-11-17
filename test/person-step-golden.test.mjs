@@ -83,6 +83,7 @@ const COMMANDS = Object.freeze({
   'set-aside': [`singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm ${digest} --json`],
   'publication-set-aside': [`singularity-flow sync PMC-1 --set-aside --confirm ${'a'.repeat(40)}`, `singularity-flow initiative sync INIT-1 --set-aside --confirm ${'a'.repeat(40)}`],
   'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],
+  'test-run-set-aside': [`singularity-flow tests held --work-id PMC-1 --phase custom-step --command unit --set-aside --confirm ${'a'.repeat(24)}`],
   'target-origin-pin': [`singularity-flow story target-origin PMC-1 --url https://staging.example.test --reason "Approved staging target." --confirm ${digest}`],
   'intent-amendment-decision': ['singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001'],
   'intent-amendment-acknowledgement': ['singularity-flow story intent-amendment acknowledge AMD-001 --work-id PMC-1'],

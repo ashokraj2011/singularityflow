@@ -197,12 +197,13 @@ function taskWait(task, target) {
     continuation: next.actionId });
   const make = (reason, next, edit = false) => ({ code: reason, next, edit, task: record(task.outcome, next) });
   if (task.outcome === 'running') return make('TASK_RUNNING', action('observe', 'inspect', { target, inputs: { task: 'execution' }, reasonCodes: ['TASK_RUNNING'] }), true);
+  const input = text(task.input) ? { input: text(task.input) } : {};
   if (task.outcome === 'waiting-input') return make('TASK_WAITING_INPUT', action('person-decision', 'provide-input', { target, principalKind: 'human', role: 'person',
-    inputs: { code, ...(text(task.input) ? { input: text(task.input) } : {}) }, reasonCodes: ['TASK_WAITING_INPUT'] }));
+    inputs: { code, ...input }, reasonCodes: ['TASK_WAITING_INPUT'] }));
   if (task.outcome === 'waiting-environment' || task.outcome === 'waiting-person') {
     const reason = task.outcome === 'waiting-person' ? 'TASK_WAITING_PERSON' : 'TASK_WAITING_ENVIRONMENT';
     return make(reason, action('person-decision', 'decide', { target, principalKind: 'human', role: 'person',
-      inputs: { decision: 'task-outcome', outcome: task.outcome, code }, reasonCodes: [reason] }));
+      inputs: { decision: 'task-outcome', outcome: task.outcome, code, ...input }, reasonCodes: [reason] }));
   }
   // repair-required: within its budget the same step's work repairs it; past it, a person decides.
   if (used < budget) return make('TASK_REPAIR_REQUIRED', action('agent-work', 'repair-version', { target,

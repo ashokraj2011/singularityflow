@@ -11,6 +11,7 @@ import { withSubjectLock } from './subject-lock.mjs';
 import { workflowTaskIdentity, workflowTaskInputSha256, validateWorkflowTask, updateWorkflowTask,
   mergeWorkflowTasks, workflowTaskResume, workflowTaskApplies, workflowTaskHasGeneration } from './workflow-task.mjs';
 import { recordSha256 } from './records.mjs';
+import { entryKeepsStop } from './workflow-task-outcome.mjs';
 import { assertConfirmation } from './text-lines.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -308,10 +309,14 @@ export async function resumeWorkflowTask(root, workflow, phase, options = {}) {
   if (!workflowTaskHasGeneration(workflow, phase, options.role, options.generation)) return null;
   const previous = await readWorkflowTask(root, workflow, phase, options);
   const resume = workflowTaskResume(workflow, phase, { ...options, record: previous });
+  // A stop the entry does not settle stays, or the same failing run would start again; another blocker of this entry does
+  // not settle it either, while a missing input it found now is the fresher wait [§8].
+  const kept = entryKeepsStop(previous, workflow, options) ? previous.blockedCode : null;
+  const fresh = options.blocked?.code ?? null;
   const record = await observeWorkflowTask(root, workflow, phase, {
     inputSha256: options.inputSha256 ?? workflowTaskInputSha256(workflow, phase),
     state: resume.state === 'inspect-interrupted-operation' ? previous.state : resume.state,
-    blockedCode: options.blocked?.code ?? null
+    blockedCode: fresh && (!kept || fresh.startsWith('waiting-input:')) ? fresh : kept
   }, options);
   return { ...resume, continuationBudget: { consumed: record.continuations, maximum: record.maximumContinuations } };
 }

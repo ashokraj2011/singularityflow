@@ -121,11 +121,12 @@ test('the edit guard reads the task stage: a repair within budget keeps the vers
   await repair(2);
   const stopped = await f.write(turn, 'src/App.java');
   assert.equal(stopped.permissionDecision, 'deny', 'a spent repair budget is not kept from before');
-  // A new turn of the work command: refused before any byte changes, naming the person's decision on the card [§8].
+  // A new turn of the work command: refused before any byte changes, naming the person's decision through the appeal [§8]
+  // (the decisions card had nothing for a spent repair: review of 2026-11-17).
   const fresh = await f.enter('/sf-code');
   const refused = await f.write(fresh, 'src/App.java');
   assert.equal(refused.permissionDecision, 'deny');
-  assert.match(refused.permissionDecisionReason, new RegExp(`singularity-flow decisions ${W}`, 'u'));
+  assert.match(refused.permissionDecisionReason, new RegExp(`singularity-flow appeal preflight --phase implement --work-id ${W} --json`, 'u'));
   assert.doesNotMatch(refused.permissionDecisionReason, /singularity-flow recover\b|\/sf-recover/u, 'a spent budget is no damage');
   assert.equal(await readFile(path.join(f.root, 'src', 'App.java'), 'utf8'), 'final class App {}\n');
 
@@ -135,10 +136,10 @@ test('the edit guard reads the task stage: a repair within budget keeps the vers
     opening: observeOpening(f.root, f.workflow, f.implement), task: spent });
   assert.deepEqual([contract.allow.application, contract.allow.artifacts], [false, []]);
   assert.equal(mutationPathDecision(contract, 'src/App.java', f.root).allowed, false);
-  assert.equal(contract.next[0].command, `singularity-flow decisions ${W}`);
+  assert.equal(contract.next[0].command, `singularity-flow appeal preflight --phase implement --work-id ${W} --json`);
   const kernel = stepState(stepSnapshotOf({ workflow: f.workflow, turnMode: 'authoring', opening: observeOpening(f.root, f.workflow, f.implement), task: spent }));
   assert.deepEqual([kernel.state, kernel.next.operation, kernel.next.inputs.outcome, kernel.edit.eligible], ['waiting', 'decide', 'repair-exhausted', false]);
-  for (const command of Object.values(views(f.workflow, spent))) assert.equal(command, `singularity-flow decisions ${W}`, 'every view names the same card');
+  for (const command of Object.values(views(f.workflow, spent))) assert.equal(command, `singularity-flow appeal preflight --phase implement --work-id ${W} --json`, 'every view names the same route');
 });
 
 test('the permission follows the kernel for every task stage it is given; a running execution keeps the version\'s writes [§8, OSA:REQ-010, REQ-051]', () => {

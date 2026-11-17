@@ -917,6 +917,8 @@ Every public operation is classified before its implementation module is importe
 | telemetry.sessions | read | never | — | — |
 | telemetry.status | read | never | — | — |
 | tests.base | mutation | never | — | — |
+| tests.held | read | never | — | — |
+| tests.held.set-aside | mutation | never | — | — |
 | tests.node | mutation | never | — | — |
 | tests.plan | read | never | — | — |
 | tests.run | mutation | never | — | — |

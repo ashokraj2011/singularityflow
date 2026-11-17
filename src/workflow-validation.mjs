@@ -169,8 +169,18 @@ export async function validateWorkflows(root, { workflow = null, env = process.e
 }
 
 /**
- * Each problem `workflow validate` finds in `ids`, read in `checkout` [finding ER-F7]: keyed by workflow and
- * finding, so the problems a change adds are the ones its result has and the configuration before it had not.
+ * A problem as a change compares it: its workflow, code and the subject it names (and the file it is in), never its line.
+ * A finding's `id` carries its line, so an edit that only moved lines named an old problem as a new one.
+ */
+function problemKey(workflowId, finding) {
+  const subject = finding.subject && typeof finding.subject === 'object'
+    ? Object.fromEntries(Object.entries(finding.subject).sort(([a], [b]) => a.localeCompare(b))) : finding.subject ?? null;
+  return JSON.stringify([workflowId, finding.code ?? finding.title, subject, finding.location?.file ?? null]);
+}
+
+/**
+ * Each problem `workflow validate` finds in `ids`, read in `checkout` [finding ER-F7]: keyed by workflow, code and
+ * subject (problemKey), so the problems a change adds are the ones its result has and the configuration before it had not.
  */
 export async function workflowProblems(checkout, ids) {
   const problems = new Map();
@@ -180,11 +190,11 @@ export async function workflowProblems(checkout, ids) {
     catch (error) { if (error?.code === 'WORKFLOW_UNKNOWN') continue; throw error; }
     for (const workflow of result.workflows ?? []) {
       for (const finding of (workflow.findings ?? []).filter((entry) => entry.severity === 'problem')) {
-        problems.set(`${workflow.id}\0${finding.id ?? finding.code ?? finding.title}`, { workflow: workflow.id, title: finding.title, code: finding.code ?? null,
+        problems.set(problemKey(workflow.id, finding), { workflow: workflow.id, title: finding.title, code: finding.code ?? null,
           ...(finding.fix?.text ? { fix: finding.fix.text } : {}) });
       }
       if (workflow.obligations && workflow.obligations.startable === false && !(workflow.findings ?? []).some((entry) => entry.severity === 'problem')) {
-        problems.set(`${workflow.id}\0not-startable`, { workflow: workflow.id, title: workflow.reason ?? 'A Story cannot start it.', code: 'WORKFLOW_NOT_STARTABLE' });
+        problems.set(JSON.stringify([workflow.id, 'WORKFLOW_NOT_STARTABLE']), { workflow: workflow.id, title: workflow.reason ?? 'A Story cannot start it.', code: 'WORKFLOW_NOT_STARTABLE' });
       }
     }
   }
@@ -192,22 +202,47 @@ export async function workflowProblems(checkout, ids) {
 }
 
 /**
+ * Runs `change` in `checkout`, then the check approval runs (ER-F7): a problem `workflow validate` finds that `before` did
+ * not have makes a proposal nobody can approve. On one, workflow.yml is put back and the change refused, naming each new
+ * problem and its fix, and the same command to run again. `verb` is the command's own word: create or edit.
+ */
+async function withoutAddedProblems(checkout, id, change, { verb, options, before = new Map() }) {
+  const file = path.join(checkout, WORKFLOW_PATH), saved = await readFile(file).catch(() => null);
+  const restore = async () => { if (saved) await writeFile(file, saved); };
+  const result = await change();
+  let added;
+  try {
+    added = result?.governs === 'story'
+      ? [...(await workflowProblems(checkout, [id]))].filter(([key]) => !before.has(key)).map(([, problem]) => problem) : [];
+  } catch (error) { await restore(); throw error; }
+  if (!added.length) return result;
+  await restore();
+  // The same command, to run again once each problem is changed.
+  const argv = ['workflow', verb, id, ...Object.entries(options).flatMap(([name, value]) => value === true ? [`--${name}`]
+    : typeof value === 'string' ? [`--${name}`, value] : Array.isArray(value) ? value.flatMap((entry) => [`--${name}`, String(entry)]) : [])];
+  const listed = added.map((entry) => `- ${entry.title}${entry.fix ? `\n  Fix: ${entry.fix}` : ''}`).join('\n');
+  const again = `Change what each problem names, then ${verb} it again`;
+  throw new SingularityFlowError(verb === 'create'
+    ? `Workflow ${id} was not created: \`workflow validate\` would refuse it, so nobody could approve it. Nothing was proposed.\n${listed}\n${again}.`
+    : `Workflow ${id} was not changed: the edit adds ${added.length === 1 ? 'a problem' : `${added.length} problems`} \`workflow validate\` would refuse, so nobody `
+      + `could approve it. Nothing was written or proposed.\n${listed}\n${again}.`,
+  { code: verb === 'create' ? 'WORKFLOW_CREATE_PROBLEMS' : 'WORKFLOW_EDIT_PROBLEMS',
+    details: { workflow: id, problems: added, nextAction: { label: again, executable: 'singularity-flow', argv } } });
+}
+
+/**
  * `workflow create` makes only a workflow `workflow validate` passes: approval refuses one with a problem the
  * configuration before it did not have (ER-F7), so a proposal of it is one nobody can approve. Runs `create` in
  * `checkout`; on a problem the workflow is taken out again and refused, naming each problem and its fix.
  */
-export async function createdWithoutProblems(checkout, id, create, options = {}) {
-  const file = path.join(checkout, WORKFLOW_PATH), saved = await readFile(file).catch(() => null);
-  const result = await create();
-  const problems = result?.governs === 'story' ? [...(await workflowProblems(checkout, [id])).values()] : [];
-  if (!problems.length) return result;
-  if (saved) await writeFile(file, saved);
-  // The same command, to run again once each problem is changed.
-  const argv = ['workflow', 'create', id, ...Object.entries(options).flatMap(([name, value]) => value === true ? [`--${name}`]
-    : typeof value === 'string' ? [`--${name}`, value] : Array.isArray(value) ? value.flatMap((entry) => [`--${name}`, String(entry)]) : [])];
-  throw new SingularityFlowError(`Workflow ${id} was not created: \`workflow validate\` would refuse it, so nobody could approve it. Nothing was proposed.\n`
-    + `${problems.map((entry) => `- ${entry.title}${entry.fix ? `\n  Fix: ${entry.fix}` : ''}`).join('\n')}\nChange what each problem names, then create it again.`, { code: 'WORKFLOW_CREATE_PROBLEMS',
-    details: { workflow: id, problems, nextAction: { label: 'Change what each problem names, then create it again', executable: 'singularity-flow', argv } } });
+export const createdWithoutProblems = (checkout, id, create, options = {}) => withoutAddedProblems(checkout, id, create, { verb: 'create', options });
+
+/**
+ * `workflow edit` likewise never leaves a workflow with a problem approval would refuse. Only a problem the edit adds is
+ * refused: one the workflow already had is the same finding wherever its line moved (problemKey), so it never stops an edit.
+ */
+export async function editedWithoutNewProblems(checkout, id, edit, options = {}) {
+  return withoutAddedProblems(checkout, id, edit, { verb: 'edit', options, before: await workflowProblems(checkout, [id]) });
 }
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;

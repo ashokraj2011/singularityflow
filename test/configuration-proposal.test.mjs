@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
+import { defineWorkflow } from '../src/workflow-authoring.mjs';
 import {
   inspectApprovedSkillPackage, loadStoryConfigurationSnapshot
 } from '../src/configuration-branch.mjs';
@@ -35,7 +36,7 @@ test('workflow proposal remote operations stay on the bounded asynchronous Git b
     'local retention observation must use the GAL ref reader');
 });
 
-async function fixture({ remoteName = 'application.git' } = {}) {
+async function fixture({ remoteName = 'application.git', prepare = null } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposal-'));
   const seed = path.join(base, 'seed');
   const remote = path.join(base, remoteName);
@@ -46,6 +47,8 @@ async function fixture({ remoteName = 'application.git' } = {}) {
   run('git', ['config', 'user.name', 'Workflow Author'], { cwd: seed });
   run('git', ['config', 'user.email', 'workflow@example.test'], { cwd: seed });
   await initializeDefinition(seed);
+  // What the approved configuration holds besides the starter catalog.
+  if (prepare) await prepare(seed);
   await writeFile(path.join(seed, 'README.md'), '# Application\n');
   run('git', ['add', '-A'], { cwd: seed });
   run('git', ['commit', '-qm', 'application and configuration baseline'], { cwd: seed });
@@ -1089,6 +1092,51 @@ test('workflow create never proposes a workflow `workflow validate` refuses, so 
     const created = spawnSync(process.execPath, [cli, ...valid], { cwd: item.story, encoding: 'utf8', env });
     assert.equal(created.status, 0, created.stderr || created.stdout);
     assert.deepEqual(proposals(), [JSON.parse(created.stdout).branch]);
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('workflow edit never proposes an edit that adds a problem `workflow validate` refuses; problems it had never stop one (ER-F7)', async () => {
+  const plan = (owner) => ({ mode: 'required', clausePhases: ['requirements'], owners: { implementation: owner } });
+  const item = await fixture({ prepare: async (seed) => {
+    await defineWorkflow(seed, 'clean-plan', { phases: ['requirements', 'implementation-spec', 'implementation'], plannedClaims: plan('implementation-spec') });
+    await defineWorkflow(seed, 'worn-plan', { description: 'Its shared steps send work back to steps it does not run.',
+      phases: ['requirements', 'implementation-spec', 'implementation'], plannedClaims: plan('implementation-spec') });
+    // Already problematic: without the send-back targets its creation pinned, approval-time validation finds problems in it.
+    const file = path.join(seed, 'singularity', 'workflow.yml');
+    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    document.deleteIn(['workTypes', 'worn-plan', 'phaseOverrides']);
+    await writeFile(file, document.toString());
+  } });
+  try {
+    const env = { ...process.env, NODE_ENV: 'test', NO_COLOR: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'Workflow Author',
+      SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json') };
+    const proposals = () => run('git', ['--git-dir', item.remote, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/sflow/config-change/'])
+      .stdout.split('\n').filter(Boolean);
+    const flow = (argv) => spawnSync(process.execPath, [cli, ...argv], { cwd: item.story, encoding: 'utf8', env });
+    // Its plan owner becomes Requirements, whose template has no planned-claims table: approval would refuse it.
+    const argv = ['workflow', 'edit', 'clean-plan', '--planned-claims', 'required', '--clause-phases', 'requirements',
+      '--claim-owners', 'implementation=requirements', '--propose', '--json'];
+    const refused = flow(argv);
+    assert.notEqual(refused.status, 0, refused.stdout);
+    const { error, remediationPlan } = JSON.parse(refused.stdout);
+    assert.equal(error.code, 'WORKFLOW_EDIT_PROBLEMS', refused.stdout);
+    assert.match(error.message, /^Workflow clean-plan was not changed: the edit adds a problem `workflow validate` would refuse, so nobody could approve it\. Nothing was written or proposed\./u);
+    assert.match(error.message, /The template of Requirements has no planned-claims table the kernel reads\s+Fix: Give \S+\/requirements\.md the planned-claims table the kernel reads/u);
+    assert.deepEqual([remediationPlan.steps[0].label, remediationPlan.steps[0].argv], ['Change what each problem names, then edit it again', argv]);
+    assert.deepEqual(proposals(), [], 'nothing was proposed');
+    assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(), item.approved);
+    assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: item.story }).stdout, '');
+
+    // Removing worn-plan's description moves the lines of the problems it already had: they are not new, so it is proposed.
+    const moved = flow(['workflow', 'edit', 'worn-plan', '--description', '', '--propose', '--json']);
+    assert.equal(moved.status, 0, moved.stderr || moved.stdout);
+    // A clean edit is proposed as before.
+    const renamed = flow(['workflow', 'edit', 'clean-plan', '--label', 'Clean plan, renamed', '--propose', '--json']);
+    assert.equal(renamed.status, 0, renamed.stderr || renamed.stdout);
+    assert.deepEqual(proposals().sort(), [JSON.parse(moved.stdout).branch, JSON.parse(renamed.stdout).branch].sort());
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

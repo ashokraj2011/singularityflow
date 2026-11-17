@@ -5659,7 +5659,8 @@ async function workflowCommand(positionals, options) {
     const edited = await author({
       operation: 'edit-workflow', subject: id,
       message: `[configuration] edit workflow ${id}`,
-      mutate: (target) => editWorkflow(target, id, changes)
+      // Never an edit that adds a problem `workflow validate` refuses: its approval would refuse it too [ER-F7].
+      mutate: async (target) => (await import('./workflow-validation.mjs')).editedWithoutNewProblems(target, id, () => editWorkflow(target, id, changes), options)
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
     if (printProposal(edited)) return;

@@ -460,6 +460,16 @@ export function submissionReadinessSnapshot(workflow, {
         })
   });
 
+  // A typed change waits for the next version (taskOutcome): its question leads; /sf-submit still submits this one as it is.
+  const asked = taskOutcome?.changeRequested && stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome });
+  if (asked?.next.inputs.reason === 'change-requested') {
+    const [route] = decisionRoutes(asked, workflow, phase), inputs = decisionInputsNeeded(workflow, phase);
+    const submittable = !sourceReviewRequired(workflow, phase.id) || sourceReviewEvidence?.status === 'ready';
+    return result(workflow, phase, { ...draft, classification: 'change-requested', lifecycleReady: submittable, command: route.command, nextSkill: route.skill,
+      reason: route.detail, reasonCode: 'CHANGE_REQUESTED', ...(submittable ? { submission: submitCommand(workflow, phase) } : {}),
+      ...(inputs.length ? { decisionInputs: inputs } : {}) });
+  }
+
   if (sourceReviewRequired(workflow, phase.id) && sourceReviewEvidence?.status !== 'ready') {
     const continuation = sourceReviewContinuation(workflow, phase, sourceReviewEvidence);
     return result(workflow, phase, {

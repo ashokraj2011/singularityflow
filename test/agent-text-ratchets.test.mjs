@@ -318,3 +318,43 @@ test('a step whose document is still to write is named as its own work, not as a
   const { RESULT_MESSAGES: all } = await import('../src/gateway/messages.mjs');
   assert.equal(all['readiness.produce-the-artifact'].label, 'Produce the artifact');
 });
+
+test('nothing tells an agent to cut an SFlow command\'s output, and every turn rule says reads run alone too', async () => {
+  // Daily run 2026-11-17: in 3 of 5 turns the first call was `singularity-flow phase enter --compose --for-agent --json |
+  // head -c 6000`, refused PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED, one wasted call a turn. No skill said to pipe; the turn
+  // rule said only "do not wrap or chain kernel mutations", which read as leave to pipe a read, and the entry's first line
+  // said it "composes context", which read as a long reply. The reply is short and names files for the rest.
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { PHASE_ENTRY_PAUSE_GUARD } = await import('../src/copilot-mode.mjs');
+  const { mutationToolProtocol } = await import('../src/phase-mutation-contract.mjs');
+  const root = new URL('../plugin/skills/', import.meta.url);
+  // A command in backticks piped to a reader or redirected (` > file`, ` 2>&1`; a `<PLACEHOLDER>` is neither), or a head/tail cut.
+  const cut = /`singularity-flow [^`\n]*(?:\|\s*(?:head|tail|jq|grep|cut|less|more)\b|\s(?:\d?>>?|&>)\s*\S)[^`\n]*`|\b(?:head|tail) -[cn]\s*\d/u;
+  const found = [];
+  for (const name of await readdir(root)) {
+    let text;
+    try { text = await readFile(new URL(`${name}/SKILL.md`, root), 'utf8'); } catch { continue; }
+    if (cut.test(text)) found.push(`${name}: ${cut.exec(text)[0]}`);
+    // Every skill entered by `phase enter` says to run it as written, alone, and why: its reply is short.
+    if (text.includes(PHASE_ENTRY_PAUSE_GUARD)) assert.match(text, /Run it as written, alone: never piped to `head` or redirected; its reply is short/u, name);
+  }
+  assert.deepEqual(found, []);
+  assert.match(PHASE_ENTRY_PAUSE_GUARD, /never piped to `head` or redirected/u);
+  // The authoring turn's terminal rule: every SFlow command alone, reads included; repository commands stay the author's.
+  const terminal = mutationToolProtocol({ turnMode: 'authoring', allow: { application: true, artifacts: [] } }).terminal;
+  assert.match(terminal, /^Run every SFlow command standalone, reads included \(never piped to head, redirected or chained\)/u);
+  assert.doesNotMatch(terminal, /chain kernel mutations/u);
+});
+
+test('a skill asks a next version as the engine\'s own "Start version N of …?", never a draft question of its own', async () => {
+  // Daily run 2026-11-17: /sf-code's "offer 'start draft N+1 for this change'" became a true/false form titled "Start draft 2
+  // for this change?". A draft is the private working copy; the person starts a version, and the question is the engine's.
+  const { readdir, readFile } = await import('node:fs/promises');
+  const root = new URL('../plugin/skills/', import.meta.url);
+  for (const name of await readdir(root)) {
+    let text;
+    try { text = await readFile(new URL(`${name}/SKILL.md`, root), 'utf8'); } catch { continue; }
+    assert.doesNotMatch(text, /\bdraft (?:N(?:\+1)?|\d+)\b/u, name);
+    if (/A change asked for after publication/u.test(text)) assert.match(text, /ask its "Start version N\+1 of …\?"/u, name);
+  }
+});

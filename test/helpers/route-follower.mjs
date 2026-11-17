@@ -633,9 +633,10 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
       entry.within = within;
       entry.did = `${within} does the step's own work in its turn, by ${skill}'s steps`;
     } else if (guard) {
-      // The person types the skill: a new turn of the chat, as Copilot's hooks see it.
+      // The person types the skill: a new turn of the chat, as Copilot's hooks see it. What they typed first reaches the
+      // prompt hook whole, so words after the skill (`/sf-code <what to change>`) are kept as they are in a real chat.
       guard.turn = copilotTurn(story, guard.sessionId);
-      guard.turn.prompt(skill);
+      guard.turn.prompt(route.source === 'start' ? route.copilot.trim() : skill);
       guard.skill = skill;
       guard.hosts = {};
       if (!route.subagent && !['refresh entry', 'after answers'].includes(route.source)) entry.typed = true;

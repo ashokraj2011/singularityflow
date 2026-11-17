@@ -27,13 +27,8 @@ const subject = (workflow, phase, { askedForGeneration }) => ({ workId: workflow
 /** What the person asked to change for the next generation, in the order typed: each turn's redacted words. */
 export async function requestedChanges(root, workflow, phase) {
   if (!requestedSuccessorEligible(workflow, phase)) return [];
-  const record = await askedFor();
-  const { localAskedFor, needsAccount, typedFocusOff } = record;
-  if (typedFocusOff(workflow)) return [];
   const { gitDir } = await import('./git.mjs');
-  const local = await localAskedFor(gitDir(root), subject(workflow, phase, record));
-  return local.turns.filter((turn) => needsAccount(turn) && typeof turn.text === 'string' && turn.text.trim())
-    .map((turn) => turn.text);
+  return (await askedFor()).waitingWords(gitDir(root), workflow, phase);
 }
 
 /**

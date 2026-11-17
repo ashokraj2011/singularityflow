@@ -720,7 +720,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // visual-coverage.mjs lost its republish command. The refusal stays in that eager module: reached through
     // commands/phase-opening.mjs, it put that module and eight of its imports into the VS Code gateway bundle, at its 884
     // modules. No new eager file.
-    assert.ok(closure.bytes <= 9_745_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,744,700 (measured 9,744,672 for submit.mjs, +1,512): the daily run of 2026-11-17, a change the person types after a
+    // step is published asks its version question everywhere: the kernel's own branch for it (kernel/step-state.mjs +652), the
+    // record adapter's fact and the route's words (step-decision.mjs +276), and the entry asking it as a review's corrections are
+    // asked (phase-authoring-summary.mjs +468, phase-authoring-entry.mjs +116). Comments trimmed first. No new eager file.
+    // 9,746,100 (measured 9,746,084 for submit.mjs, +1,412): the person's views ask the same version question (owner): the
+    // kernel's decision for a view reads the typed change from the step's task fact (step-decision.mjs +148), next steps lead
+    // with it (guide.mjs +367) and so does submission readiness, with phase show through it, keeping /sf-submit's own
+    // submission of the version as it is (submission-readiness.mjs +897). The reader itself stays lazy (workflow-task-outcome.mjs).
+    assert.ok(closure.bytes <= 9_746_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

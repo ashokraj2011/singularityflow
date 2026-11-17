@@ -150,8 +150,12 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress, t
   // code, is the next step, as the kernel decides it for every view [§8, OSA:REQ-012, REQ-020].
   if (taskOutcome && workflow.currentPhase === phase.id && phase.status === 'in_progress') {
     const decision = stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome });
-    if (decision.state === 'waiting') return decisionRoutes(decision, workflow, phase).filter((entry) => entry?.command)
+    const routes = () => decisionRoutes(decision, workflow, phase).filter((entry) => entry?.command)
       .map((entry) => copilotAction({ skill: entry.skill, command: entry.command, reason: entry.detail }));
+    if (decision.state === 'waiting') return routes();
+    // A typed change: its version question leads, as in the entry; submitting it as it is follows.
+    if (decision.next.inputs.reason === 'change-requested') return [...routes(),
+      ...phaseHandoff(workflow, phase, { sourceReviewEvidence }).filter((entry) => !/^singularity-flow phase rollover\b/u.test(entry.command ?? ''))];
   }
   // The version being written, version 1 or an open next one, has its task: its next stage leads [OSA:REQ-012, C5]. The
   // task's stage is the kernel's (phase-authoring-progress.mjs); any other step's action is its handoff's.

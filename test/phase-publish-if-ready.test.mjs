@@ -46,6 +46,14 @@ test('only the exact publication command prepublish returns for the same phase i
     { nextSkill: '/sf-recover' }, { nextCommand: 'singularity-flow submit code --work-id A-1 --skip-checks' }, { nextCommand: 'singularity-flow submit other --work-id A-1' }]) {
     assert.equal(submitArguments({ ...ready, ...change }), null, JSON.stringify(change));
   }
+  // A change the person typed leads readiness with its version question; /sf-submit run anyway submits this version as it is
+  // through `submission`, never the question's own route (daily run 2026-11-17).
+  const asked = { ...ready, classification: 'change-requested', nextSkill: '/sf-code', nextCommand: 'singularity-flow phase rollover code --json',
+    submission: 'singularity-flow submit code --work-id A-1' };
+  assert.deepEqual(submitArguments(asked), ['submit', 'code', '--work-id', 'A-1']);
+  for (const change of [{ submission: undefined }, { lifecycleReady: false }, { submission: 'singularity-flow phase rollover code --json' }]) {
+    assert.equal(submitArguments({ ...asked, ...change }), null, JSON.stringify(change));
+  }
   // What submit did, not the end of what it printed: the commit comes first there, and its last lines give
   // next steps from before the holds were read, so a model said nothing was committed.
   const printed = ['', 'Submitted code phase for approval.', 'Committed: request approval (A-1)', 'Push: origin/a-1', 'Review packet: kept with code generation 1',

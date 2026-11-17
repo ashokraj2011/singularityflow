@@ -59,7 +59,8 @@ test('the decisions card asks the step\'s next version with the proposal\'s own 
   assert.deepEqual({ surface: data.consent.surface, phase: data.consent.phase, version: data.consent.version, proposalDigest: data.consent.proposalDigest },
     { surface: 'decisions-card', phase: 'intake', version: 2, proposalDigest: opening.digest });
   // The step by the name the card shows, never its ID beside it.
-  assert.match(data.words, /^Your yes to start version 2 of Scope and plan is kept for 30 minutes\. Its work command opens it/u);
+  // And what really happens next: the step's work command starts it with this yes, asking nothing again (review, 2026-11-17).
+  assert.match(data.words, /^Your yes to start version 2 of Scope and plan is kept for 30 minutes\. Next, \/sf-phase intake starts it with this yes, without asking you again/u);
   assert.equal((json(story, ['decisions', W]).value.data ?? {}).versionOpening, undefined, 'a yes given is not asked again');
 
   // In the author's Copilot turn, the confirmation needs no question asked there: the card's yes is the person's.
@@ -136,6 +137,7 @@ test('a yes for one Story, run in a checkout that holds another, keeps nothing a
 
 test('the card asks a waiting next version first, as its own question; "Not now" records nothing', async () => {
   const opening = { workId: W, phase: 'intake', version: 2, question: 'Start version 2 of Intake? Published version 1 will stay unchanged.', confirmation: 'sha256:c', digest: 'sha256:d' };
+  const NEXT = { command: 'singularity-flow phase rollover intake --json', copilotCommand: '/sf-phase intake', skill: '/sf-phase' };
   const form = versionOpeningForm(opening);
   assert.match(form.message, /^Start version 2 of Intake\? Published version 1 will stay unchanged\.\nYour yes is kept for this exact proposal; the step's work command then opens it\. Nothing starts on "Not now"\.$/u);
   assert.deepEqual(form.requestedSchema.properties.start.enum, [START_VERSION, NOT_NOW]);
@@ -145,7 +147,7 @@ test('the card asks a waiting next version first, as its own question; "Not now"
       read: async () => ({ workId: W, headline: 'Nothing else waits.', items: [], versionOpening: opening }),
       ask: async (asked) => { seen.asked.push(asked); return reply; },
       show: async (text) => { seen.shown.push(text); },
-      consent: async (value) => { seen.consented.push(value); return { words: 'Your yes to start version 2 of intake is kept for 30 minutes.' }; },
+      consent: async (value) => { seen.consented.push(value); return { words: 'Your yes to start version 2 of intake is kept for 30 minutes.', next: NEXT }; },
       record: async () => assert.fail('nothing else is recorded'), witness: async () => null, inspect: async () => null
     });
     return { result, seen };
@@ -153,6 +155,9 @@ test('the card asks a waiting next version first, as its own question; "Not now"
   const yes = await run({ action: 'accept', content: { start: START_VERSION } });
   assert.deepEqual(yes.seen.consented, [opening]);
   assert.equal(yes.result.status, 'recorded');
+  // The agent hears the engine's own words on what happens next, never a fixed sentence of the card's.
+  assert.equal(yes.result.message, 'Your yes to start version 2 of intake is kept for 30 minutes.');
+  assert.deepEqual(yes.result.next, NEXT, 'and the step that opens it: its work command');
   assert.match(yes.seen.shown[0], /kept for 30 minutes/u);
   const notNow = await run({ action: 'accept', content: { start: NOT_NOW } });
   assert.deepEqual(notNow.seen.consented, []);

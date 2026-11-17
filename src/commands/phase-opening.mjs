@@ -36,14 +36,28 @@ async function directories(root) {
 /**
  * The step's legal next action as the kernel decides it and the host renders it (phase-mutation-contract.mjs), as this
  * checkout observes the opening [OSA:REQ-001, REQ-022]: refusals and results name it, never a route built here.
+ * The kernel is handed the step's task fact as every view reads it (workflow-task-outcome.mjs readTaskOutcome: a change the
+ * person typed, what the submission waits to see accounted for), and with `config` its retained review, as the views read
+ * it: without them a typed change's or a review's next version was named as the old version's submission, and
+ * /sf-submit submitted it while the person's yes waited (review of the opening flow, 2026-11-17).
  */
-export async function kernelRoute(root, workflow, phase) {
-  const [{ decisionRoutes, stepSnapshotOf }, { stepState }, { observeOpening }] = await Promise.all([
-    import('../phase-mutation-contract.mjs'), import('../kernel/step-state.mjs'), import('../story-version-acceptance.mjs')]);
-  const decision = stepState(stepSnapshotOf({ workflow, phase, opening: observeOpening(root, workflow, phase) }));
+export async function kernelRoute(root, workflow, phase, { config = null } = {}) {
+  const [{ decisionRoutes, stepSnapshotOf, reviewFactOf }, { stepState }, { observeOpening }, { readTaskOutcome }] = await Promise.all([
+    import('../step-decision.mjs'), import('../kernel/step-state.mjs'), import('../story-version-acceptance.mjs'), import('../workflow-task-outcome.mjs')]);
+  const task = await readTaskOutcome(root, workflow, phase).catch(() => null);
+  const review = config ? await retainedReview(root, config, workflow, phase) : null;
+  const decision = stepState(stepSnapshotOf({ workflow, phase, opening: observeOpening(root, workflow, phase), task: task?.outcome ? task : null,
+    changeRequested: task?.changeRequested === true, askedFor: task?.askedFor ?? null, ...(review ? { review: reviewFactOf(phase, review), reviewOwed: true } : {}) }));
   const [route] = decisionRoutes(decision, workflow, phase);
   return { decision, route: route ? { command: route.command ?? null, copilotCommand: route.copilotCommand ?? null, skill: route.skill ?? null,
     label: route.detail ?? null } : null };
+}
+
+/** The published step's retained review, read as next steps reads it; null when none is owed, or on any doubt. */
+async function retainedReview(root, config, workflow, phase) {
+  const { sourceReviewRequired } = await import('../source-review-policy.mjs');
+  if (phase.status !== 'in_progress' || !(Number(phase.generation) > 0) || !sourceReviewRequired(workflow, phase.id)) return null;
+  return (await import('../source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phase.id).catch(() => null);
 }
 
 /** The identity opening a version here, as this machine resolves it: never a value a model passed. */
@@ -102,6 +116,19 @@ export async function consentFor(root, workflow, { proposal, digest, question, t
   return { principal, receipt: null };
 }
 
+/**
+ * The person's yes on the decisions card kept on this clone for this exact proposal, as a preview says it, or null: the
+ * preview's confirmation then opens the version with it and the person is not asked again [D3, OSA Stage 4].
+ */
+export async function keptConsent(root, digest) {
+  const [{ readGrant }, { commonDir }] = await Promise.all([import('../story-version-consent.mjs'), directories(root)]);
+  const grant = await readGrant(commonDir, digest).catch(() => null);
+  return grant?.surface === 'decisions-card' ? { kept: true, surface: grant.surface, expiresAt: grant.expiresAt } : null;
+}
+
+/** What a preview's next action says once the person's yes is kept: its confirmation, asked nothing again. */
+export const keptReason = (version) => `The person's yes to version ${version} is kept from the decisions card: run this confirmation now, without asking them again.`;
+
 /** The person answers the proposal's question in their own terminal; true only on their typed yes. */
 export async function askAtTerminal(question) {
   if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return false;
@@ -121,7 +148,8 @@ export async function openSuccessor(root, config, workflow, phase, { proposal, d
   const owed = proposal.consent !== 'not-required';
   const found = owed ? await consentFor(root, workflow, { proposal, digest, question, typed }) : { principal: await principalHere(root), receipt: null };
   if (owed && !found.receipt) {
-    const { route } = await kernelRoute(root, workflow, phase);
+    // The step's own preview, through its work command, as the views name it: never the published version's submission.
+    const { route } = await kernelRoute(root, workflow, phase, { config });
     throw refuse(`Starting version ${proposal.version} of ${phase.id} is the person's yes, and none reached SFlow for it. Nothing was opened. `
       + `Ask them "${question}" with your question tool, then run this confirmation again; or they preview it in their own terminal, which asks them.`,
     'VERSION_CONSENT_REQUIRED', { phase: phase.id, version: proposal.version, question, ...(route ? { nextAction: route } : {}) });
@@ -281,7 +309,11 @@ export async function changedFilesSuccessor(root, config, workflow, phase, plan,
   let typed = false;
   if (!supplied) {
     await recordPreview(root, { ...proposed, confirmation: expected });
-    if (optionBoolean(options, 'json')) { console.log(JSON.stringify(preview, null, 2)); return null; }
+    const kept = await keptConsent(root, proposed.digest);
+    if (optionBoolean(options, 'json')) {
+      console.log(JSON.stringify(kept ? { ...preview, consent: kept, nextAction: { command: route.command, copilotCommand: route.copilotCommand, reason: keptReason(proposed.proposal.version) } } : preview, null, 2));
+      return null;
+    }
     if (!await askAtTerminal(proposed.question)) {
       console.log(proposed.question);
       console.log('To start it, confirm its code below, in Copilot or in your own terminal.');
@@ -333,7 +365,9 @@ export async function returnedSuccessorRollover(root, config, workflow, phase, o
   let typed = false;
   if (!supplied) {
     await recordPreview(root, { proposal, digest, question, confirmation });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
+    const kept = await keptConsent(root, digest);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(kept && preview.nextAction
+      ? { ...preview, consent: kept, nextAction: { ...preview.nextAction, reason: keptReason(proposal.version) } } : preview, null, 2));
     if (await askAtTerminal(question)) { supplied = confirmation; typed = true; }
     else {
       console.log(question);

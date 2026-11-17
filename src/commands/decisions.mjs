@@ -710,7 +710,7 @@ async function versionConsentCheckout(root, workId) {
  */
 async function recordVersionConsent(root, options, workId) {
   if (workId) await versionConsentCheckout(root, workId);
-  const { workflow } = await storyContext(root, workId, { record: true, fetch: false });
+  const { config, workflow } = await storyContext(root, workId, { record: true, fetch: false });
   const confirmation = optionString(options, 'version-consent');
   const expect = optionString(options, 'expect');
   if (!expect) refused('--version-consent needs --expect with the proposal digest the card showed.', 'DECISIONS_OPTIONS_INVALID');
@@ -725,20 +725,30 @@ async function recordVersionConsent(root, options, workId) {
   }
   if (record.proposal.lifecycleRevision !== head(root)) {
     refused(`The Story moved since version ${record.proposal.version} of ${phase.id} was proposed; nothing was recorded. Its work command proposes it again.`,
-      'VERSION_OPENING_STALE', { nextAction: (await kernelRoute(root, workflow, phase)).route });
+      'VERSION_OPENING_STALE', { nextAction: (await kernelRoute(root, workflow, phase, { config })).route });
   }
   const grant = await consent.grantConsent(directories.commonDir, { record, surface: 'decisions-card', question: record.question, answer: 'yes', host: 'decisions-card' });
   if (!grant) refused('This clone has no key to keep the yes with; nothing was recorded.', 'VERSION_CONSENT_UNVERIFIED');
-  const { route } = await kernelRoute(root, workflow, phase);
+  // What opens it: the kernel's next for the step, read with its task fact and review as every view reads them, which is
+  // the step's own preview through its work command; that preview's confirmation lets this kept yes through, asking
+  // nothing again. Read without them, it named /sf-submit, which submitted the old version (review, 2026-11-17).
+  const { decision, route } = await kernelRoute(root, workflow, phase, { config });
+  const opens = ['open-version', 'build-version'].includes(decision.next.operation) && decision.next.inputs.consent === 'required' && route?.command;
+  const chat = route?.copilotCommand ?? route?.skill ?? null;
+  const then = decision.next.operation === 'build-version' ? 'builds it'
+    : { 'change-requested': 'makes the change', 'review-corrections': 'fixes what the review found' }[decision.next.inputs.reason] ?? 'writes it';
   // The step by the name the card showed it under, never its ID beside that name.
-  const words = `Your yes to start version ${record.proposal.version} of ${phase.label ?? phase.id} is kept for 30 minutes. Its work command opens it with your confirmation, then writes it.`;
+  const kept = `Your yes to start version ${record.proposal.version} of ${phase.label ?? phase.id} is kept for 30 minutes.`;
+  const words = opens && chat ? `${kept} Next, ${chat} starts it with this yes, without asking you again, and ${then}.` : `${kept}${route?.label ? ` ${route.label}` : ''}`;
+  const next = route?.command ? { command: route.command, copilotCommand: route.copilotCommand ?? null, skill: route.skill ?? route.copilotCommand?.split(' ')[0] ?? null } : null;
   emitCommandResult(commandResult({
     operation: { id: 'decisions.version-consent', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('decisions.version-consent.recorded', { phase: phase.id, version: String(record.proposal.version) }),
     effects: effects({ stateChanged: false, filesChanged: false }),
-    next: route?.command ? [action({ id: 'version-opening.confirm', label: words, command: route.command, skill: route.skill ?? route.copilotCommand?.split(' ')[0] ?? null, rank: 'NOW', kind: 'workflow' })] : [],
-    data: { consent: { surface: 'decisions-card', phase: phase.id, version: record.proposal.version, proposalDigest: record.digest, expiresAt: grant.expiresAt }, words }
+    next: next ? [action({ id: 'version-opening.confirm', label: words, command: next.command, skill: next.skill, rank: 'NOW', kind: 'workflow' })] : [],
+    data: { consent: { surface: 'decisions-card', phase: phase.id, version: record.proposal.version, proposalDigest: record.digest, expiresAt: grant.expiresAt }, words,
+      ...(next ? { next } : {}) }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 

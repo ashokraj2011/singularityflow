@@ -781,6 +781,11 @@ export async function resumeAutoFlight(root, id, confirmation, options = {}) {
       state.nextAction = `At or after ${state.schedule.nextEligibleAt}, resume the interval flight with this checkpoint hash.`;
     }, { expectedCheckpoint: reconciled.checkpointSha256 });
   }
+  // Resumed on another checkout (a fresh-clone recovery): the person's resume here is the verified takeover of the step's
+  // open version, whose writer fence moves to this checkout with one leased commit [SPEC-OSA §7.3, OSA:REQ-034].
+  const writer = await (await import('./auto-version-authority.mjs')).takeOverFlightVersionWriter(
+    current.worktree, continuation.definition, continuation.workflow, current.story.phase
+  );
   return mutateAutoFlightState(root, id, (state) => {
     if (!['paused', 'waiting-human', 'manual-takeover'].includes(state.status)) {
       throw new SingularityFlowError(`Auto flight '${id}' changed before resume.`, {
@@ -788,6 +793,14 @@ export async function resumeAutoFlight(root, id, confirmation, options = {}) {
       });
     }
     if (continuation.humanDecisions) adoptHumanDecisions(state, continuation);
+    if (writer) {
+      state.lastSuccessfulStoryRevision = writer.commit;
+      state.story.revision = writer.commit;
+      state.operations = [...(state.operations ?? []), {
+        operation: 'take-over-version-writer', phase: state.story.phase, outcome: 'succeeded',
+        commit: writer.commit, fence: writer.fence
+      }];
+    }
     state.status = 'running'; state.stopReason = 'human-resumed'; state.stopRequested = null;
     if (state.execution?.pace?.mode === 'interval') {
       state.schedule = {

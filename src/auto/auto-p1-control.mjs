@@ -234,14 +234,19 @@ export async function planAutoRepair(root, flightId, refusalId, options = {}) {
       'AUTO_REPAIR_NOT_READY');
   }
   assertCurrentRefusalAuthority(state, refusal);
+  // A repair of a step Auto already published starts its next version: the plan names it, so confirming the plan is the
+  // person's informed yes to that version [D3, OSA:REQ-030].
+  const versionOpening = await repairVersionOf(state, options);
   const prior = (await records(root, 'auto-repair-plan', flightId))
     .find((entry) => entry.refusalSha256 === refusal.refusalSha256);
-  if (prior) return { flight: state, refusal, repairPlan: prior, reused: true };
+  if (prior) return { flight: state, refusal, repairPlan: prior, reused: true, versionOpening };
   const missing = refusal.missing.map((entry) => entry.evidence ?? entry.requirement ?? entry.message)
     .filter(Boolean);
+  const { repairVersionSentence } = versionOpening ? await import('./auto-version-authority.mjs') : {};
   const repairPlan = await persistAutoRepairPlan(root, {
     flightId, parentAttemptId: refusal.attemptId, refusalSha256: refusal.refusalSha256,
-    objective: missing.length ? `Resolve: ${missing.join('; ')}` : `Resolve ${refusal.code} at ${refusal.gate}.`,
+    objective: `${missing.length ? `Resolve: ${missing.join('; ')}` : `Resolve ${refusal.code} at ${refusal.gate}.`}${
+      versionOpening ? repairVersionSentence(versionOpening) : ''}`,
     readScope: [...new Set([...(state.scopePrediction ?? []), ...(refusal.repair.scope ?? [])])],
     writeScope: refusal.repair.scope ?? [],
     forbiddenChanges: ['protected governance paths', 'scope outside this exact Repair Plan', 'new external effects'],
@@ -253,7 +258,18 @@ export async function planAutoRepair(root, flightId, refusalId, options = {}) {
           - Number(state.counters?.modelInvocations ?? 0))
     }, attemptNumber: 1
   });
-  return { flight: state, refusal, repairPlan, reused: false };
+  return { flight: state, refusal, repairPlan, reused: false, versionOpening };
+}
+
+/**
+ * The step version a repair of this flight would start, read from its Story: only a step Auto published has none open
+ * (`published`); before publication the repair writes the version already open. Null when it starts none.
+ */
+async function repairVersionOf(state, options = {}, authority = null) {
+  if (state.position !== 'published') return null;
+  const story = authority ?? (options.loadStoryAuthority
+    ? await options.loadStoryAuthority(state) : await loadPinnedStoryAuthority(state));
+  return (await import('./auto-version-authority.mjs')).repairVersionOpening(story.workflow, story.phase);
 }
 
 function withinScope(pathname, roots) {
@@ -435,6 +451,20 @@ async function authorizeAutoRepairInternal(
   }
   const authority = options.loadStoryAuthority
     ? await options.loadStoryAuthority(state) : await loadPinnedStoryAuthority(state);
+  // A repair of a published step starts its next version: it opens only on the person's confirmation of a plan that names
+  // that version. The ratified policy, a default or the model never gives that yes [D3, OSA:REQ-030].
+  const versionOpening = await repairVersionOf(state, options, authority);
+  if (versionOpening) {
+    const { repairVersionSentence } = await import('./auto-version-authority.mjs');
+    if (authorizationMode !== 'human-confirmation') {
+      fail(`This repair starts version ${versionOpening.version} of ${versionOpening.step}, which needs the person's yes; the ratified Auto policy cannot give it.`,
+        'AUTO_REPAIR_NOT_ELIGIBLE', { phase: versionOpening.phase, version: versionOpening.version });
+    }
+    if (!plan.objective.endsWith(repairVersionSentence(versionOpening))) {
+      fail(`Repair Plan ${plan.repairPlanId} does not name version ${versionOpening.version} of ${versionOpening.step}, which this repair starts, so confirming it is not the person's yes to that version.`,
+        'AUTO_REPAIR_PLAN_STALE', { repairPlanId: plan.repairPlanId, phase: versionOpening.phase, version: versionOpening.version });
+    }
+  }
   const generationIntentSha256 = authority.phase?.generationIntent?.receiptSha256 ?? null;
   if (!generationIntentSha256) {
     fail('The bounded repair cannot bind an exact generation intent.',
@@ -443,6 +473,9 @@ async function authorizeAutoRepairInternal(
         nextAction: `Open a generation for phase '${state.story.phase}', then review the repair again.`
       });
   }
+  // Who confirmed it, as this machine resolves them (never a value a model passed): the opening is refused for anyone else.
+  const actor = versionOpening ? (await import('../git.mjs')).actionActor(state.worktree) : null;
+  const versionPrincipal = actor ? { name: actor.name ?? null, email: actor.email ?? null, login: actor.login ?? null } : null;
   const attemptNumber = Number(state.counters?.authoringAttempts?.[state.story.phase] ?? 0) + 1;
   const attempt = buildAutoAttempt({
     flightId, phase: state.story.phase, attemptNumber, attemptKind: 'repair',
@@ -461,6 +494,9 @@ async function authorizeAutoRepairInternal(
     budgetImpact: { modelInvocations: 0, repairAttempts: 0, maximumRepairAttempts: 1 },
     result: null
   });
+  // Continued on another checkout (a fresh-clone recovery): the person's repair here takes over the open version's writer.
+  const writer = options.loadStoryAuthority ? null : await (await import('./auto-version-authority.mjs'))
+    .takeOverFlightVersionWriter(state.worktree, authority.definition, authority.workflow, state.story.phase);
   await persistAutoAttempt(root, attempt);
   let resumed = await mutateAutoFlightState(root, flightId, (draft) => {
     draft.status = 'running';
@@ -473,8 +509,16 @@ async function authorizeAutoRepairInternal(
       repairPlanId: plan.repairPlanId, repairPlanSha256: plan.repairPlanSha256,
       objective: plan.objective, readScope: plan.readScope, writeScope: plan.writeScope,
       forbiddenChanges: plan.forbiddenChanges, requiredEvidence: plan.requiredEvidence,
-      authorizationSource: authorizationMode
+      authorizationSource: authorizationMode,
+      // The person's yes to the version this repair starts, bound to their confirmation of this exact plan.
+      ...(versionOpening ? { versionOpening: { ...versionOpening, principal: versionPrincipal,
+        authorization: { kind: 'auto-repair-plan', flightId, repairPlanId: plan.repairPlanId,
+          repairPlanSha256: plan.repairPlanSha256, authorizedAt: new Date().toISOString() } } } : {})
     };
+    if (writer) {
+      draft.lastSuccessfulStoryRevision = writer.commit;
+      draft.story.revision = writer.commit;
+    }
     draft.repairAttempts = [...(draft.repairAttempts ?? []), {
       attemptId: attempt.attemptId, parentAttemptId: plan.parentAttemptId,
       refusalSha256: plan.refusalSha256, repairPlanSha256: plan.repairPlanSha256,

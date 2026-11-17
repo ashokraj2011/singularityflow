@@ -326,21 +326,11 @@ export function childLifecycle(root, args, {
   });
 }
 
-function lifecycleJson(result, operation) {
-  try { return JSON.parse(String(result?.stdout ?? '').trim()); }
-  catch (error) {
-    throw new SingularityFlowError(
-      `Auto ${operation} did not return its exact JSON authority: ${error.message}`, {
-        code: 'AUTO_LIFECYCLE_STEP_FAILED', cause: error
-      }
-    );
-  }
-}
-
 /**
- * A confirmed repair may follow a publication/refusal that consumed the prior generation intent.
- * Reuse an exact still-open intent, otherwise use the ordinary guarded rollover preview and its
- * current application digest before any repair model receives write authority.
+ * A confirmed repair may follow a publication/refusal that consumed the prior generation intent. The step's next version
+ * opens only on the person's yes: their confirmation of the Repair Plan that names it, bound into the opening's consent
+ * receipt (auto-version-authority.mjs) [D3, OSA:REQ-030]. Otherwise the still-open version is reused, or `phase begin` opens
+ * a first one. Auto never confirms a rollover preview itself, and never adopts changed source.
  */
 async function ensureAutoRepairGeneration({
   root, worktree, flightId, state, definition, workflow, phase, runLifecycle
@@ -350,6 +340,12 @@ async function ensureAutoRepairGeneration({
   const expectedOpen = () => currentPhase.generationIntent?.status === 'open'
     && Number(currentPhase.generationIntent.generation) === nextPhaseGeneration(currentPhase)
     && SHA256.test(String(currentPhase.generationIntent.receiptSha256 ?? ''));
+  const { openAuthorizedRepairVersion } = await import('./auto-version-authority.mjs');
+  if (await openAuthorizedRepairVersion(worktree, state)) {
+    await assertActive(root, flightId, state.checkpointSha256);
+    currentWorkflow = await loadStoryAggregate(worktree, definition, state.story.workId);
+    currentPhase = currentWorkflow.phases[currentPhase.id];
+  }
   if (!phaseRequiresCodeDelivery(currentPhase)) {
     await runLifecycle(worktree, ['prepare', currentPhase.id]);
     await assertActive(root, flightId, state.checkpointSha256);
@@ -366,41 +362,8 @@ async function ensureAutoRepairGeneration({
     }
     currentWorkflow = await loadStoryAggregate(worktree, definition, state.story.workId);
     currentPhase = currentWorkflow.phases[currentPhase.id];
-    if (!expectedOpen() && Number(currentPhase.generation ?? 0) > 0) {
-      let previewResult;
-      try {
-        previewResult = await runLifecycle(
-          worktree, ['phase', 'rollover', currentPhase.id, '--json']
-        );
-      } catch {
-        // A clean begin failure that has no guarded rollover is the authoritative refusal. Do not
-        // reinterpret arbitrary lifecycle failures as permission to adopt changed source.
-        throw cleanBeginError ?? new SingularityFlowError(
-          `Auto repair begin did not create an open intent for '${currentPhase.id}'.`, {
-            code: 'AUTO_GENERATION_INTENT_UNBOUND'
-          }
-        );
-      }
-      await assertActive(root, flightId, state.checkpointSha256);
-      const preview = lifecycleJson(previewResult, 'repair generation rollover preview');
-      if (preview.phase !== currentPhase.id
-          || Number(preview.fromGeneration) !== Number(currentPhase.generation)
-          || Number(preview.toGeneration) !== nextPhaseGeneration(currentPhase)
-          || !SHA256.test(String(preview.confirmation ?? ''))
-          || preview.mutates !== false) {
-        throw new SingularityFlowError(
-          `Auto repair generation rollover preview for '${currentPhase.id}' is not exact.`, {
-            code: 'AUTO_LIFECYCLE_STEP_FAILED'
-          }
-        );
-      }
-      await runLifecycle(worktree, [
-        'phase', 'rollover', currentPhase.id,
-        '--confirm', preview.confirmation, '--json'
-      ]);
-    } else if (!expectedOpen()) {
-      // The normal begin boundary remains fail-closed for dirty initial work; Auto never invents an
-      // adoption confirmation or weakens repository dirty-start policy.
+    // The begin boundary stays fail-closed for dirty work; Auto never invents an adoption or a version confirmation.
+    if (!expectedOpen()) {
       throw cleanBeginError ?? new SingularityFlowError(
         `Auto repair begin did not create an open intent for '${currentPhase.id}'.`, {
           code: 'AUTO_GENERATION_INTENT_UNBOUND'

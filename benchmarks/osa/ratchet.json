@@ -127,7 +127,7 @@
     },
     "auto/auto-executor.mjs": {
       "intentReads": 1,
-      "predicateCalls": 3
+      "predicateCalls": 2
     },
     "changes-after-publication.mjs": {
       "intentReads": 1,
@@ -960,7 +960,7 @@
         "altSkillLiterals": 2
       },
       "auto/auto-executor.mjs": {
-        "argvRoutes": 10
+        "argvRoutes": 8
       },
       "cli-entry.mjs": {
         "argvRoutes": 4,

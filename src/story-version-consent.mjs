@@ -31,7 +31,9 @@ export const PROPOSAL_PURPOSE = 'version-opening-proposal';
 export const CONSENT_TTL_MS = 30 * 60 * 1000;
 /**
  * Where a yes can come from: the host's question tool, a typed /sf-confirm code, the person's own terminal, or the decisions
- * card, whose answer its extension records outside the chat (`decisions record --version-consent`) [OSA Stage 4].
+ * card, whose answer its extension records outside the chat (`decisions record --version-consent`) [OSA Stage 4]. A host's
+ * grant comes only from these. An Auto repair's version is the person's confirmation of its Repair Plan, which names that
+ * version (`auto-repair`, auto/auto-version-authority.mjs): the executor mints that receipt itself, never through a grant.
  */
 export const CONSENT_SURFACES = Object.freeze(['question-tool', 'confirm-code', 'terminal', 'decisions-card']);
 
@@ -122,8 +124,10 @@ export async function dropGrant(commonDir, digest) {
  * reached SFlow. Null without a key.
  */
 export function consentReceipt(commonDir, { proposal, digest, surface, question, answer = 'yes', principal, assurance, session = null,
-  turnId = null, host = null, confirmedAt = Date.now(), ttlMs = CONSENT_TTL_MS }) {
+  turnId = null, host = null, confirmedAt = Date.now(), ttlMs = CONSENT_TTL_MS, authorization = null }) {
   return sealHere(commonDir, CONSENT_PURPOSE, { schema: CONSENT_SCHEMA, receiptId: randomUUID(), proposalDigest: digest,
+    // What the person confirmed when the yes came with it (an Auto Repair Plan naming this version), or nothing.
+    ...(authorization ? { authorization } : {}),
     binding: { workId: proposal.workId, phase: proposal.phase, version: proposal.version, from: proposal.from?.published ?? 0,
       confirmation: proposal.confirmation ?? null },
     principal: { kind: 'human', identity: { name: principal?.name ?? null, email: principal?.email ?? null, login: principal?.login ?? null },

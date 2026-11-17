@@ -531,7 +531,9 @@ test('journey K: a change typed after /sf-code, with and without the step\'s nam
       assert.equal(walk.trail.filter((entry) => /the person answered/u.test(entry.did ?? '')).length >= 1, true, report(walk));
     });
   }
-  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', { knownBad: 'typed-change-views' }, () => {
+  // Next steps, phase show and submission readiness lead with the same version question: the kernel's decision they read
+  // is handed the typed change with the step's task fact (workflow-task-outcome.mjs readTaskOutcome).
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => {
     for (const walk of walks) viewsAgree(walk);
   });
   settle(t);

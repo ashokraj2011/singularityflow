@@ -194,6 +194,17 @@ test('a change typed after /sf-code, with or without the step\'s name, is one ve
     const routes = entry.next.map((action) => action.commandGuidance?.command ?? action.command);
     assert.equal(routes[0], 'singularity-flow phase rollover implementation --json', name);
     assert.ok(routes.slice(1).some((command) => /^singularity-flow submit implementation\b/u.test(command ?? '')), `${name}: ${JSON.stringify(routes)}`);
+    // The person's own views lead with the same question, never /sf-submit: next steps, submission readiness, phase show.
+    const steps = json(cli('nextsteps', '--json')).actions;
+    assert.equal(steps.find((action) => action.timing === 'now')?.command, 'singularity-flow phase rollover implementation --json', `${name}: ${JSON.stringify(steps)}`);
+    assert.ok(steps.some((action) => action.timing !== 'now' && /^singularity-flow submit implementation\b/u.test(action.command ?? '')), name);
+    const readiness = json(cli('status', WORK, '--submission-readiness', '--json'));
+    assert.deepEqual([readiness.classification, readiness.nextCommand, readiness.nextSkill?.split(' ')[0]],
+      ['change-requested', 'singularity-flow phase rollover implementation --json', '/sf-code'], name);
+    // Submitting this version as it is stays the person's choice: /sf-submit's own command runs it.
+    assert.match(readiness.submission ?? '', new RegExp(`^singularity-flow submit implementation --work-id ${WORK}\\b`, 'u'), name);
+    const shown = json(cli('phase', 'show', 'implementation', '--json'));
+    assert.equal(shown.continuation?.nextAction?.command, 'singularity-flow phase rollover implementation --json', `${name}: ${JSON.stringify(shown.continuation).slice(0, 800)}`);
   }
 });
 

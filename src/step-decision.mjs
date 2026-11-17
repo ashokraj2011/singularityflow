@@ -117,8 +117,10 @@ export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.
  * A surface never decides on its own what the step's next action is; it renders this [OSA:REQ-020].
  */
 export function stepDecisionOf(workflow, phase = workflow?.phases?.[workflow?.currentPhase], { review = null, opening = null, task = null } = {}) {
-  // A view reads; it grants no write, so an opening it did not observe is named as being written (kernel `advisory`).
-  return phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode: 'view', review: reviewFactOf(phase, review), reviewOwed: true, opening, task })) : null;
+  // A view reads; it grants no write, so an opening it did not observe is named as being written (kernel `advisory`). Its
+  // task fact also carries a typed change (readTaskOutcome).
+  return phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode: 'view', review: reviewFactOf(phase, review), reviewOwed: true, opening,
+    task: task?.outcome ? task : null, changeRequested: task?.changeRequested === true })) : null;
 }
 
 /** The step's own next action as a planner names it: the first route of its decision, or null on any doubt. */

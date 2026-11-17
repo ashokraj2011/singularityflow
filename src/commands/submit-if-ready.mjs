@@ -14,11 +14,14 @@ import { SingularityFlowError } from '../util.mjs';
 
 /** The returned submit command as arguments, only when it is exactly the readiness route. */
 export function submitArguments(readiness) {
-  if (readiness?.classification !== 'ready-to-attempt' || readiness.lifecycleReady !== true
-    || readiness.confirmationRequired !== false || readiness.nextSkill !== '/sf-submit') return null;
+  // A change the person typed leads readiness with its version question; /sf-submit, run anyway, submits this version as it
+  // is (`submission`), so saying no to the question never leaves the step unsubmittable [daily run 2026-11-17].
+  const asked = readiness?.classification === 'change-requested';
+  if (!(asked || readiness?.classification === 'ready-to-attempt') || readiness.lifecycleReady !== true
+    || readiness.confirmationRequired !== false || (!asked && readiness.nextSkill !== '/sf-submit')) return null;
   const { phaseId, workId } = readiness;
   if (typeof phaseId !== 'string' || typeof workId !== 'string') return null;
-  return readiness.nextCommand === `singularity-flow submit ${phaseId} --work-id ${workId}`
+  return (asked ? readiness.submission : readiness.nextCommand) === `singularity-flow submit ${phaseId} --work-id ${workId}`
     ? ['submit', phaseId, '--work-id', workId] : null;
 }
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CALL_CAUSES, RESULT_ROUTES, copilotSessionReport, createSessionAttribution, readCopilotSessionReport } from '../src/native-copilot-sessions.mjs';
+import { boundedAgentOutput } from '../src/agent-output.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -115,6 +116,40 @@ test('an overflow read counts the same in the checkout\'s .sflow/out and the old
   const report = copilotSessionReport([session.finish()]);
   assert.equal(report.byRoute['sflow-overflow-read'].results, 2);
   assert.deepEqual(report.resultTypes.overflowReads, { 'phase-entry': { results: 2, bytes: 6 } });
+});
+
+// The report reads what the agent saw: a bounded --for-agent view keeps act, resultType and status, and moves
+// publishIfReady to its file. A reviewed step's publication says "Published. Start the reviewer now…" (2026-11-17).
+test('a publication behind a bounded agent view counts as published, with or without a reviewer next', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-view-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const lines = (count) => Array.from({ length: count }, (_, index) => `line ${index} ${'x'.repeat(60)}`).join('\n');
+  const finished = async (skill, command, result) => {
+    const view = await boundedAgentOutput(JSON.stringify(result), { cwd: root });
+    const session = createSessionAttribution('66666666-0000-4000-8000-000000000006');
+    const usage = (initiator) => ({ type: 'session.usage_record', data: { usage: { model: 'm', initiator, inputTokens: 10, cost: 1 } } });
+    [{ type: 'skill.invoked', data: { name: `sflow-${skill}`, trigger: 'user-invoked' } }, { type: 'user.message', data: { content: `/sf-${skill}` } },
+      usage('user'), { type: 'tool.execution_start', data: { toolCallId: 'a', toolName: 'bash', arguments: { command } } },
+      { type: 'tool.execution_complete', data: { toolCallId: 'a', success: true, result: { content: `${view}<exited with exit code 0>` } } }, usage('agent')]
+      .forEach((event, index) => session.push(JSON.stringify({ ...event, id: `e${index}`, timestamp: '2026-11-17T10:00:00.000Z' })));
+    return { view: JSON.parse(view), row: copilotSessionReport([session.finish()]).tasks.bySkill[`sf-${skill}`] };
+  };
+  const prepublish = { schemaVersion: 1, resultType: 'sflow-phase-prepublish', status: 'ready', workId: 'W-1', phase: 'implementation', generation: 1,
+    scopeReview: { items: Array.from({ length: 30 }, (_, index) => ({ id: `REQ-${index}`, words: 'y'.repeat(80) })) } };
+  const published = { published: true, output: lines(40), review: { handoffScope: 'step', continuation: { actions: [] }, body: lines(30) } };
+  const command = 'singularity-flow phase prepublish implementation --publish-if-ready --for-agent --json';
+  for (const publishIfReady of [{ ...published, reviewSubagent: { agent: 'sflow-reviewer', instruction: 'Start the reviewer.', prompt: lines(20) },
+    next: { instruction: 'Published. Start the reviewer.' } }, { ...published, next: { instruction: 'Published. Submit next.' } }]) {
+    const { view, row } = await finished('code', command, { ...prepublish, publishIfReady });
+    assert.equal(view.publishIfReady, undefined, 'the case: publishIfReady is in the view\'s file');
+    assert.equal(view.resultType, 'sflow-phase-prepublish');
+    assert.equal(row.finished, 1, view.act.said);
+  }
+  const plain = await finished('phase', 'singularity-flow phase publish implementation --for-agent --json', { schemaVersion: 1,
+    resultType: 'sflow-phase-publication', status: 'published', workId: 'W-1', phase: 'implementation', generation: 1, commit: 'a'.repeat(40),
+    reviewSubagent: { agent: 'sflow-reviewer', instruction: 'Start the reviewer.', prompt: lines(60) } });
+  assert.equal(plain.row.finished, 1, plain.view.act.said);
 });
 
 // AC-005 (CON-015): no work command, hook or skill reads the report, the analyzer or the host logs.

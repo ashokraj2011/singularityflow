@@ -1009,6 +1009,26 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
             'The policy-authorized repair checkpoint did not bind the exact reservation. Recover the preserved refusal before another model call.');
         }
       }
+      // An older build's authorization that is not the person's yes to the version this repair starts, and under which
+      // nothing ran: the flight goes back to the person on the same refusal, its reservation superseded unspent [D3].
+      const unnamed = await (await import('./auto-version-authority.mjs'))
+        .unnamedRepairAuthorization(root, worktree, state, reservation);
+      if (unnamed) {
+        try {
+          state = await mutateAutoExecutorState(root, flightId, (draft) => {
+            draft.operations = [...(draft.operations ?? []), { operation: 'supersede-repair-authorization', phase: phase.id,
+              outcome: 'succeeded', repairPlanId: draft.activeRepairPlanId, attemptId: reservation.attemptId }];
+            Object.assign(draft, { position: 'published', activeAttemptId: reservation.parentAttemptId, activeRepairPlanId: null,
+              activeRepair: null, repairAttempts: (draft.repairAttempts ?? []).filter((entry) => entry.attemptId !== reservation.attemptId) });
+          }, { expectedCheckpoint: state.checkpointSha256 });
+        } catch (error) {
+          const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
+          if (humanStop) return humanStop;
+          throw error;
+        }
+        await unnamed.close();
+        return stopActive('waiting-human', 'repair-review-required', unnamed.nextAction);
+      }
     }
     let repairBaseline = null;
     let attemptConsumed = false;

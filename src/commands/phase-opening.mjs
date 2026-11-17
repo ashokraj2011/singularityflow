@@ -104,7 +104,14 @@ export async function consentFor(root, workflow, { proposal, digest, question, t
   const [consent, { boundTurnStories }] = await Promise.all([import('../story-version-consent.mjs'), import('../story-routing.mjs')]);
   const { commonDir } = await directories(root);
   const principal = await principalHere(root);
-  const grant = await consent.readGrant(commonDir, digest);
+  let grant = await consent.readGrant(commonDir, digest);
+  // A yes another person gave never stands for this one: their own new answer is preferred, and that grant is dropped on
+  // the refusal it makes, so it is not met again for its 30 minutes (review of the opening flow, 2026-11-17).
+  const foreign = grant?.principal && principal && !consent.samePrincipal(grant.principal, principal) ? grant : null;
+  if (foreign) {
+    await consent.dropGrant(commonDir, digest);
+    grant = typed || !(await boundTurnStories(root)).includes(workflow.workItem.id) ? null : grant;
+  }
   if (grant) return { principal, receipt: consent.consentReceipt(commonDir, { proposal, digest, surface: grant.surface, question: grant.question,
     answer: grant.answer, principal: grant.principal ?? principal,
     assurance: grant.surface === 'confirm-code' ? 'host-confirm-code' : grant.surface === 'decisions-card' ? 'host-card' : 'host-answer',
@@ -209,7 +216,8 @@ export async function successorAwaitsConsent(workflow, phase) {
   const { facts, numbers } = await openingState(workflow, phase);
   if (!numbers.ok || workflow.currentPhase !== phase.id || phase.status !== 'in_progress') return false;
   if (numbers.writing !== null) return facts.opening?.record === 'legacy' && numbers.writing > 1;
-  return numbers.published >= 1 && needsVersion(facts);
+  // Nothing published, and an earlier reservation used version 1 (the kernel's `watermark` successor): its next is asked too.
+  return (numbers.published >= 1 || numbers.proposedNext > 1) && needsVersion(facts);
 }
 
 const consentRequired = (phase, proposal, route, extra = '') => refuse(`Version ${proposal.version} of ${phase.id} is a successor: it opens only on the person's yes${extra}. Nothing was opened. `
@@ -263,8 +271,9 @@ export async function openBeforePrepare(root, config, workflow, phase) {
   // A published document's next draft is a successor too: prepare never reserves it without the person's yes. A published
   // code step with nothing reopened is refused by prepare itself (GENERATION_INTENT_ALREADY_CONSUMED), as before.
   if (!code && decision.version.published >= 1 && decision.version.writing === null) {
-    // Its route is the requested change's own preview, as next steps offers it (guide.mjs).
-    const requested = (await import('../guide.mjs')).requestedSuccessorAction(workflow, phase, { requested: true });
+    // Its route is the requested change's own preview, as next steps offers it (guide.mjs), or an edited document's.
+    const edited = await (await import('../phase-publication-unchanged.mjs')).documentEditedSincePublication(root, config, workflow, phase);
+    const requested = (await import('../guide.mjs')).requestedSuccessorAction(workflow, phase, edited ? { changedPaths: [edited] } : { requested: true });
     throw consentRequired(phase, { version: decision.version.proposedNext }, requested ? { command: requested.command ?? null,
       copilotCommand: requested.copilotCommand ?? null, label: requested.label ?? requested.reason ?? null } : route);
   }
@@ -330,9 +339,12 @@ export async function changedFilesSuccessor(root, config, workflow, phase, plan,
   return { preview, outcome: opened.outcome, replayed: opened.replayed };
 }
 
-/** The step's preview as a person runs it in their own terminal, which asks them the proposal's question [D3, OSA:REQ-030]. */
-export async function askingRoute(phaseId, skill = null) {
-  return (await import('../safe-command-guidance.mjs')).safeCommandGuidance({ argv: ['phase', 'rollover', phaseId], skill });
+/**
+ * The step's preview as a person runs it in their own terminal, which asks them the proposal's question [D3, OSA:REQ-030];
+ * `json`: as an agent runs it, which then asks the person with its question tool.
+ */
+export async function askingRoute(phaseId, skill = null, { json = false } = {}) {
+  return (await import('../safe-command-guidance.mjs')).safeCommandGuidance({ argv: ['phase', 'rollover', phaseId, ...(json ? ['--json'] : [])], skill });
 }
 
 /**
@@ -344,7 +356,7 @@ export async function returnedSuccessorRollover(root, config, workflow, phase, o
     openingState(workflow, phase), import('../code-delivery-policy.mjs'), import('../safe-command-guidance.mjs'), import('./shared/print-command-routes.mjs'),
     kernelRoute(root, workflow, phase)]);
   const legacy = numbers.ok && numbers.writing !== null && facts.opening?.record === 'legacy';
-  const reason = legacy ? 'legacy-promotion' : await reasonOf(workflow, phase, 'requested-change');
+  const reason = legacy ? 'legacy-promotion' : await reasonOf(workflow, phase, numbers.published >= 1 ? 'requested-change' : 'watermark');
   // The value the person confirms is this proposal's own digest: the step, its numbers and the Story revision it is made on.
   const unbound = await proposalNow(root, workflow, phase, { reason });
   const confirmation = unbound.digest;
@@ -399,6 +411,12 @@ export async function replayConfirmed(root, config, workflow, phase, confirmatio
   const checkpoint = await o.openingCheckpoint(root, workflow.workItem.id, operationId);
   // Nothing of it was committed (stopped before its reservation): the confirmation runs the operation again.
   if (phase.versionOpening?.operationId !== operationId && (!checkpoint || checkpoint.state === 'prepared')) return null;
+  // Refused, and its commit set aside since (`sync --set-aside`): no longer this confirmation's opening, so it is not
+  // replayed; replaying its refusal named `sync --set-aside` again, forever (review of the opening flow, 2026-11-17).
+  if (checkpoint?.state === 'refused' && checkpoint.commit) {
+    const { commitIsAncestor, head } = await import('../git.mjs');
+    if (!commitIsAncestor(root, checkpoint.commit, head(root))) return null;
+  }
   const settled = await o.reconcileOpening(root, config, workflow, phase, { operationId });
   return printOpened(options, { schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'replayed', workId: workflow.workItem.id, phase: phase.id,
     fromGeneration: record.proposal.from?.published ?? null, toGeneration: record.proposal.version, question: record.question, confirmation,

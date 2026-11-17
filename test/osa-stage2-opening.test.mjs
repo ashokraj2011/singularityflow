@@ -176,8 +176,9 @@ test('consent that is declined, expired, for another proposal, another person\'s
       open: async () => null }), (error) => {
       assert.equal(error.code, code);
       // Asked again with the step's own preview, which this person answers themselves (real-app check, 2026-11-17: another
-      // person's yes led to the submission check instead).
-      assert.equal(error.details?.nextAction?.command, 'singularity-flow phase rollover implementation', code);
+      // person's yes led to the submission check instead); its --json form, so an agent can run it and ask them (review of
+      // the opening flow, 2026-11-17, finding 4: without it the route was a terminal-only preview).
+      assert.equal(error.details?.nextAction?.command, 'singularity-flow phase rollover implementation --json', code);
       return true;
     }, code);
   }

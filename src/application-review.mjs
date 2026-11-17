@@ -146,6 +146,15 @@ export async function prepareApplicationRepair(root, options) {
       araFail('ARA_SUCCESSOR_REQUIRED', 'This delivery is closed to source edits. Use the owner’s admitted successor generation before repair; the reviewed result stays immutable.',
         await applicationRepairContinuation(workflow, phase.id));
     }
+    // A published step not submitted yet takes the report as its next version's change, kept as the person's typed words. A
+    // Story that keeps no typed words cannot carry it: nothing is spent, and the person says the change in the step's preview.
+    if (phase.status === 'in_progress' && (await import('./asked-for.mjs')).typedFocusOff(workflow)) {
+      const { decision } = await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase, { config });
+      if (decision.version.writing === null && decision.version.published >= 1 && !['open-version', 'build-version'].includes(decision.next.operation)) {
+        araFail('ARA_REPAIR_VERSION_REQUIRED', `This Story keeps no typed changes, so this report cannot start version ${decision.version.proposedNext} of ${phase.id} by itself. Nothing was spent. The person says what to change in the step's own preview, which asks them to start it.`,
+          { nextAction: (await import('./action-command-map.mjs')).versionQuestionRoute(workflow, phase) });
+      }
+    }
     if (phase.status === 'awaiting_approval') {
       if (finding.provenance !== 'actual-local-user-action') araFail('ARA_REPAIR_DIRECTION_REQUIRED', 'The closed delivery needs its owner’s actual repair instruction.');
       reviewAuthority(config, workflow, phase.id, finding.reportedBy);
@@ -183,20 +192,32 @@ export async function prepareApplicationRepair(root, options) {
     ({ config, workflow } = await loadAcceptedStoryExecution(root, options.workId));
     phase = workflow.phases[phase.id];
   }
-  return { ...prepared, ...await repairVersion(root, config, workflow, phase) };
+  return { ...prepared, ...await repairVersion(root, config, workflow, phase, prepared.session.findings.find(item => item.id === options.input.findingId) ?? null) };
 }
+
+/** The person's report as the change a version makes, in their words. */
+const reportedChange = (finding) => `Application review: ${String(finding.observed).trim().replace(/[.\s]+$/u, '')}. Expected: ${String(finding.expected ?? '').trim().replace(/[.\s]+$/u, '') || 'the approved behavior'}.`;
 
 /**
  * The version the admitted repair writes, as the kernel decides it [OSA:REQ-001]. One being written is kept, and version 1
  * opens as `prepare` opens it. A next version opens only on the person's yes, through the one opening operation: Report
  * and fix names no version, so the step's own preview (`phase rollover <step>`) asks them, and nothing opens here
- * [D3, OSA:REQ-030].
+ * [D3, OSA:REQ-030]. On a published step not submitted yet, with nothing open, the person's report is the change that
+ * version makes, kept as their typed words for it (requested-successor.mjs), so the kernel asks its question; before,
+ * the repair was admitted with no version and no route, and the step's entry offered only its submission (review, 2026-11-17).
  */
-async function repairVersion(root, config, workflow, phase) {
+async function repairVersion(root, config, workflow, phase, finding = null) {
   const { kernelRoute, openBeforePrepare } = await import('./commands/phase-opening.mjs');
-  const { decision, route } = await kernelRoute(root, workflow, phase);
-  const { operation, inputs } = decision.next;
-  if (['open-version', 'build-version'].includes(operation) && inputs.consent === 'required') {
+  let { decision, route } = await kernelRoute(root, workflow, phase, { config });
+  const asks = () => ['open-version', 'build-version'].includes(decision.next.operation) && decision.next.inputs.consent === 'required';
+  if (!asks() && finding && decision.version.writing === null && decision.version.published >= 1) {
+    const requested = await import('./requested-successor.mjs');
+    if (requested.requestedSuccessorEligible(workflow, phase) && await requested.noteRequestedChange(root, workflow, phase, reportedChange(finding))) {
+      ({ decision, route } = await kernelRoute(root, workflow, phase, { config }));
+    }
+  }
+  const { inputs } = decision.next;
+  if (asks()) {
     return { versionOpening: { phase: phase.id, version: inputs.version, opened: false }, continuation: { nextAction: route } };
   }
   const writing = decision.version.writing !== null || Boolean(await openBeforePrepare(root, config, workflow, phase));

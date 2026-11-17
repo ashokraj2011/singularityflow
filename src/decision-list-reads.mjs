@@ -32,6 +32,7 @@ import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
 import { blockingDecisionFacts, evidenceDecisionFacts, phaseEndsStory } from './decision-list-facts.mjs';
 import { withPlainWords } from './decision-plain.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
 import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -327,7 +328,8 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
   const workId = workflow.workItem.id;
   const awaiting = phase.status === 'awaiting_approval' && phase.id === workflow.currentPhase;
   const intentAmendments = (workflow.intentAmendments ?? [])
-    .filter((entry) => entry.status === 'proposed' || (entry.status === 'approved' && entry.acknowledgementRequired === true && !entry.acknowledgedAt));
+    // The hold's own predicate: an approved one recorded before `acknowledgementRequired` existed is owed too (review, 2026-11-17).
+    .filter((entry) => entry.status === 'proposed' || pendingIntentAmendmentAcknowledgement({ intentAmendments: [entry] }));
   let forwardAmendments = [];
   // An intent amendment that updated the spec to the code lists its steps the same way [SCS:REQ-022].
   if ((workflow.forwardAmendments ?? []).length || (workflow.intentAmendments ?? []).some((entry) => entry.revalidate?.length)) {

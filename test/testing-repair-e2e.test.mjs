@@ -285,7 +285,7 @@ test('classic-delivery: a submitted review rejected back to Code accepts a test-
     cli('prepare', codePhase);
     return preview.toGeneration;
   };
-  reject();
+  assert.equal(reject(), story.originalCodeGeneration + 1);
   // Unchanged after the return: the refusal names the reviewer's withdrawal, which really restores
   // the submitted review, never an edit to make the generation look changed.
   const withdrawn = (await workflow()).changeRequests.at(-1);
@@ -307,8 +307,10 @@ test('classic-delivery: a submitted review rejected back to Code accepts a test-
   assert.deepEqual([restored.currentPhase, restored.phases[reviewPhase].status, restored.phases[codePhase].status],
     [reviewPhase, 'awaiting_approval', 'approved']);
   assert.equal(restored.changeRequests.at(-1).status, 'abandoned');
+  // The withdrawal keeps the number version 2's opening reserved: the next return opens version 3 [OSA §4.3].
+  assert.equal(restored.phases[codePhase].generationHighWatermark, story.originalCodeGeneration + 1);
 
-  reject();
+  assert.equal(reject(), story.originalCodeGeneration + 2);
   const request = (await workflow()).changeRequests.at(-1);
   // The reviewer asked only for a test: the approved source stays byte-for-byte as generation 1.
   await writeFile(testPath, `${story.priorTest}test('value is an integer', () => assert.ok(Number.isInteger(value)));\n`);
@@ -320,7 +322,7 @@ test('classic-delivery: a submitted review rejected back to Code accepts a test-
   cli('approve', codePhase, '--yes');
   const reapproved = await workflow();
   const evidence = reapproved.phases[codePhase].deliveryEvidence;
-  assert.equal(reapproved.phases[codePhase].generation, story.originalCodeGeneration + 1);
+  assert.equal(reapproved.phases[codePhase].generation, story.originalCodeGeneration + 2, 'withdrawn version 2 is never reused');
   assert.equal(evidence.validation.status, 'passed');
   assert.deepEqual(evidence.testingRepair, {
     changeRequestId: request.id, priorGeneration: story.originalCodeGeneration,

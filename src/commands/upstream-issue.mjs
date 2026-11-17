@@ -348,7 +348,8 @@ async function proposeAmendment(root, config, workflow, options) {
     eventFromResult: (result) => ({ payload: { decision: 'forward-amendment', stage: 'proposed', amendment: result.id, reviewPacketSha256: null } }) });
   const decide = `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workflow.workItem.id} --decision approve|reject --reason "<why>" --confirm ${proposal.id}`;
   if (!optionBoolean(options, 'json')) {
-    console.log(`Proposed ${proposal.id}: ${phaseId} generation ${proposal.fromGeneration + 1} from ${proposal.proposedPath}. ${phaseId}'s approvers decide it:`);
+    // No number: approval publishes the step's next one, which may be past a withdrawn version's [OSA §4.3].
+    console.log(`Proposed ${proposal.id}: a new version of ${phaseId} from ${proposal.proposedPath}. ${phaseId}'s approvers decide it:`);
     console.log(`  ${decide}`);
   }
   emit(options, workflow, 'propose-amendment', { slots: { amendment: proposal.id, phase: phaseId }, body: { proposal, decide }, changed: true });

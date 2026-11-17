@@ -663,6 +663,9 @@ async function promptExperimentReceipt(root, workflow, plan) {
   if (experiment?.kind !== 'prompt-set-randomized') return null;
   const generations = [];
   const workDirectory = posix(path.dirname(path.dirname(workflow.measurement.plan.path)));
+  // A version a rework rollback withdrew was never published: with no prompt of its own left, it is not one the study expects.
+  const withdrawn = new Set((workflow.changeRequests ?? []).filter((request) => request.status === 'abandoned')
+    .flatMap((request) => request.resolution?.withdrawnVersions ?? []).map((entry) => `${entry?.phase}:${entry?.version}`));
   for (const phaseId of experiment.targetPhases) {
     const phase = workflow.phases?.[phaseId];
     for (let generation = 1; generation <= Number(phase?.generation ?? 0); generation += 1) {
@@ -675,6 +678,7 @@ async function promptExperimentReceipt(root, workflow, plan) {
         label: `Prompt composition ${phaseId} generation ${generation}`,
         type: 'file'
       });
+      if (!target.exists && withdrawn.has(`${phaseId}:${generation}`)) continue;
       if (!target.exists) {
         generations.push({ phaseId, generation, status: 'unavailable', promptDefinitionSha256: null, composedPromptSha256: null });
         continue;

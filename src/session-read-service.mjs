@@ -115,7 +115,10 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
       }
       for (const artifact of phase?.artifacts ?? []) await observeRelative(artifact.path);
       if (phase?.id) {
-        await watch(path.join(rootPath, 'context', `${phase.id}-gen${Number(phase.generation ?? 0) + 1}.json`));
+        // The next version's composed prompt; an open version may be past a withdrawn one's number [OSA §4.3].
+        for (const next of new Set([Number(phase.generation ?? 0) + 1, Number(phase.versionOpening?.version ?? 0)])) {
+          if (next > Number(phase.generation ?? 0)) await watch(path.join(rootPath, 'context', `${phase.id}-gen${next}.json`));
+        }
       }
       const session = { ...await readOperation(root, ['session', 'status'], () => agentSessionStatus(root, definition, workflow)),
         // No retained publication here (checked above), so the task's stage is not read again.

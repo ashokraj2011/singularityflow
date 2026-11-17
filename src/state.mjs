@@ -9554,7 +9554,8 @@ export async function proposeForwardAmendment(root, config, workflow, {
   };
   workflow.forwardAmendments.push(proposal);
   workflow.history.push({ at, actor: proposal.proposedBy, agent, event: 'forward_amendment_proposed', phase: workflow.currentPhase ?? null,
-    detail: `${id} proposes ${phaseId} generation ${proposal.fromGeneration + 1}: ${text}` });
+    // No number: approval publishes the step's next one, which may be past a withdrawn version's [OSA §4.3].
+    detail: `${id} proposes a new version of ${phaseId}: ${text}` });
   return proposal;
 }
 
@@ -9973,9 +9974,11 @@ function reworkScopePath(config, workflow, candidate, { untracked = false } = {}
   const itemRoot = posix(workDirRelative(config, workflow.workItem.id));
   if (!(relative === itemRoot || relative.startsWith(`${itemRoot}/`))) return false;
   const child = relative.slice(itemRoot.length).replace(/^\//, '');
+  // A version's opening record is append-only: a withdrawn opening keeps its record, as it keeps its number [OSA §4.3].
   return child !== 'workflow.json'
     && child !== 'STATUS.md'
-    && !child.startsWith('approvals/');
+    && !child.startsWith('approvals/')
+    && !child.startsWith('context/version-openings/');
 }
 
 function openReworkCheckpoint(workflow, changeRequestId = null) {
@@ -10282,6 +10285,7 @@ export async function rollForwardRework(root, config, workflow, {
   if (checkpoint.state.completion == null) delete workflow.completion;
   else workflow.completion = structuredClone(checkpoint.state.completion);
   const abandonedGenerations = [];
+  const withdrawnVersions = [];
   for (const phaseId of checkpoint.state.affectedPhaseIds) {
     const restoredGeneration = Number(checkpoint.state.phases[phaseId]?.generation ?? 0);
     for (const generation of new Set([
@@ -10290,9 +10294,16 @@ export async function rollForwardRework(root, config, workflow, {
     ])) {
       if (generation > restoredGeneration) abandonedGenerations.push({ phase: phaseId, generation });
     }
+    // A version opened since the return and never published is withdrawn with it, but its opening reserved its number
+    // (`versionOpening.highWatermark`): the reservation stays, so the next opening is the one after it [OSA §4.3, §7.2].
+    const opening = workflow.phases[phaseId]?.versionOpening;
+    if (opening?.operationId && Number(opening.version) > Number(workflow.phases[phaseId].generation ?? 0)) {
+      withdrawnVersions.push({ phase: phaseId, version: Number(opening.version) });
+    }
     const highWatermark = Math.max(
       Number(workflow.phases[phaseId]?.generation ?? 0),
-      Number(workflow.phases[phaseId]?.generationHighWatermark ?? 0)
+      Number(workflow.phases[phaseId]?.generationHighWatermark ?? 0),
+      Number(opening?.highWatermark ?? 0)
     );
     workflow.phases[phaseId] = structuredClone(checkpoint.state.phases[phaseId]);
     if (highWatermark > Number(workflow.phases[phaseId].generation ?? 0)) {
@@ -10319,6 +10330,7 @@ export async function rollForwardRework(root, config, workflow, {
     restoredCommit: checkpoint.sourceCommit,
     restoredPhase: checkpoint.sourcePhase,
     abandonedGenerations,
+    ...(withdrawnVersions.length ? { withdrawnVersions } : {}),
     backup: { local: true, id: path.basename(backupPath) },
     ...(actionContext ? { actionContext } : {})
   };
@@ -10330,6 +10342,7 @@ export async function rollForwardRework(root, config, workflow, {
     event: 'rework_rolled_forward',
     phase: checkpoint.sourcePhase,
     detail: `${request.id} abandoned; restored ${preview.paths.length} path(s) and returned to ${checkpoint.sourcePhase}`
+      + withdrawnVersions.map(({ phase, version }) => `; version ${version} of ${phase} was started but never published, so its number is not used again`).join('')
   });
   const restoredReview = await refreshRestoredReview(root, config, workflow, rolledAt);
   if (restoredReview) request.resolution.reviewPacketSha256 = restoredReview.packet.packetSha256;

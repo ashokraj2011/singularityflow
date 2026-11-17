@@ -22,10 +22,17 @@ export function pendingListOf(snapshot: Pick<RepositorySnapshot, 'workflow' | 's
   return pending;
 }
 
-/** Whether the step sheet's one next step is on the decision list (src/step-sheet.mjs), from an untrusted CLI result. */
+/**
+ * Whether the step sheet's one next step is on the decision list because something holds the step now (src/step-sheet.mjs),
+ * from an untrusted CLI result. A sheet with no hold names what is owed later (`owedLater`, such as a scope item that holds
+ * the approval once the step is submitted): that never comes before the step's own action, so submitting still leads
+ * [demo rehearsal 2026-11-18: Copilot said /sf-submit, the chat box was filled with /sf-decide].
+ */
 export function sheetNextIsTheList(sheet: unknown): boolean {
-  const next = sheet && typeof sheet === 'object' ? (sheet as { next?: { effect?: unknown; where?: { vscode?: unknown } } | null }).next : null;
-  return next?.effect !== 'approves' && next?.where?.vscode === 'singularityFlow.decisions';
+  const view = sheet && typeof sheet === 'object' ? sheet as { next?: { effect?: unknown; where?: { vscode?: unknown } } | null; holds?: unknown } : null;
+  const next = view?.next ?? null;
+  return Array.isArray(view?.holds) && view.holds.length > 0
+    && next?.effect !== 'approves' && next?.where?.vscode === 'singularityFlow.decisions';
 }
 
 /** "3 open on the decision list; first: Decide intent amendment AMD-001." */

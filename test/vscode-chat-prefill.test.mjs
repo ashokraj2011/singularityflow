@@ -67,6 +67,26 @@ test('the next command comes from the journey and the engine crosswalk, never fr
   assert.equal(approval.head, '/sf-approve');
 });
 
+test('a decision owed after submission never comes before submitting: the chat box and the answer say the same', async () => {
+  // Demo rehearsal 2026-11-18: a published step with a scope item that holds the approval once submitted. Readiness said
+  // submit and Copilot said /sf-submit; the sheet's next (what is owed later, nothing holding) filled /sf-decide.
+  const owedOnly = { holds: [], waitingFor: null,
+    owedLater: [{ key: 'owed-decision:SRI-1', item: 'd1', title: 'Decide scope item SRI-1' }],
+    next: { id: 'choose', label: 'Decide scope item SRI-1', effect: 'reads', available: true,
+      command: 'singularity-flow decisions STORY-1', where: { copilot: '/sf-decide STORY-1', terminal: true, vscode: 'singularityFlow.decisions' } } };
+  const ready = submit();
+  ready.submissionReadiness.sheet = owedOnly;
+  assert.equal(nextChatPrefill(ready).command, '/sf-submit');
+  const { sheetNextIsTheList } = await import(pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', 'decisions.ts')).href);
+  assert.equal(sheetNextIsTheList(owedOnly), false, 'owed later is not a hold');
+  // Something that holds the step now still leads with the list.
+  const held = { ...owedOnly, holds: [{ key: 'hold:1', title: 'Acknowledge the amendment' }] };
+  assert.equal(sheetNextIsTheList(held), true);
+  const blocked = submit();
+  blocked.submissionReadiness.sheet = held;
+  assert.equal(nextChatPrefill(blocked).command, '/sf-decide STORY-1');
+});
+
 test('nothing is filled for a terminal-only step, someone else\'s step, or no Story', () => {
   assert.equal(nextChatPrefill(terminalOnly()), null, 'a step whose only route is the terminal');
   assert.equal(nextChatPrefill(awaiting({

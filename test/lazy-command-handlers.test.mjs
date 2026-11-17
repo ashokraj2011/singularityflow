@@ -757,7 +757,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // dependencies and test policy to the reuse check (state.mjs +884), and the attempt keeping them (attempts.mjs +782).
     // The comparison itself, the policy digest and the lockfile reads stay lazy (evidence-reuse.mjs, test-toolchain.mjs).
     // No new eager file.
-    assert.ok(closure.bytes <= 9_746_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,750,200 (measured 9,750,124 for start.mjs, 464 files): CVL pieces 1 and 3 (recorded stops, the run-started marker, the
+    // fuller reuse key and the fresh-run setting) on main 4d173adc1 with the small fixes, each measured above on its own base.
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_750_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1161,7 +1164,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,289,350 (measured 4,289,303 on 4,288,241, +1,062): the `testRuns: fresh` step setting [TCE:REQ-080, CVL-REQ-014]:
   // its one reader (code-delivery-policy.mjs +351) and its check at load (config.mjs +711). The fuller reuse key stays
   // out of this closure. No new eager file.
-  assert.ok(current.bytes <= 4_289_350, `session current loads ${current.bytes} source bytes`);
+  // 4,289,800 (measured 4,289,786): CVL pieces 1 and 3 together (the runner keeps the process group's answer; the reuse key's
+  // fields), each measured above on its own base. No new eager file.
+  assert.ok(current.bytes <= 4_289_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

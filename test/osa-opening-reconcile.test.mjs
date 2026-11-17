@@ -5,19 +5,26 @@
  *     version on it, naming `phase opening <step> --reconcile`. Reconciling settled only the original opening's operation, so
  *     it said "accepted" and the view named the same reconcile again, forever. Now the reconcile settles the operation the
  *     view reads: the takeover's, when the writer was taken over [OSA:REQ-033, REQ-034];
+ *   - finding 8b: an old confirmation replayed after VERSION_OPENING_CONFLICT and `sync --set-aside` replayed the conflict,
+ *     whose route was `sync --set-aside` again. A refused opening whose commit was set aside is no longer the confirmation's:
+ *     it runs as new, and its refusal names the step's next action as the kernel decides it.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import test from 'node:test';
 
 import { approvedSpecificationStory, implementationPlan, CLI } from './helpers/submitted-planning-story.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { gitDirectories, readCheckpoint } from '../src/story-version-acceptance.mjs';
 import { takeOverWriter } from '../src/story-version-opening.mjs';
 
 const json = (result) => JSON.parse(result.stdout);
+const DRIVER = fileURLToPath(new URL('./helpers/opening-fault-driver.mjs', import.meta.url));
 
 /** A Story whose code step `implementation` published version 1, its branch pushed (as test/osa-stage2-opening.test.mjs). */
 async function publishedCode(t, WORK) {
@@ -82,3 +89,37 @@ test('a takeover whose push did not land is settled by the reconcile its view na
   assert.deepEqual(await mutationToolGuard({ ...hook, toolName: 'edit', toolArgs: { path: path.join(other, 'src/value.mjs') } }), {}, 'the new writer writes');
 });
 
+test('an old confirmation replayed after its conflict was set aside is no longer that conflict: it names the step\'s next action, never sync --set-aside again', async (t) => {
+  const story = await publishedCode(t, 'OSA-SET');
+  const { directory, root, run } = story;
+  const other = path.join(directory, 'second');
+  run('git', ['clone', '-q', story.remote, other], { cwd: directory });
+  run('git', ['-C', other, 'checkout', '-q', story.branch], { cwd: directory });
+  run('git', ['-C', other, 'config', 'user.name', 'History Tester'], { cwd: directory });
+  run('git', ['-C', other, 'config', 'user.email', 'history@example.test'], { cwd: directory });
+  const cliAt = (cwd, ...args) => run(process.execPath, [CLI, '--no-model', ...args], { cwd, allowFailure: true });
+  const first = json(cliAt(root, 'phase', 'rollover', 'implementation', '--reason', 'Return the value with its unit', '--json'));
+  const second = json(cliAt(other, 'phase', 'rollover', 'implementation', '--reason', 'Return the value with its unit', '--json'));
+  // The second checkout commits its opening, and before its push the first opens version 2 and pushes (as osa-stage2-opening).
+  const raced = spawnSync(process.execPath, [DRIVER, other, 'implementation', second.confirmation, 'after-commit', 'race'], { cwd: other, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'History Tester', OSA2_RACE_CWD: root,
+      OSA2_RACE_ARGV: JSON.stringify([CLI, '--no-model', ...first.argv, '--json']) }, timeout: childTimeout(240_000) });
+  const lost = JSON.parse(raced.stdout.trim().split('\n').at(-1));
+  assert.equal(lost.code, 'VERSION_OPENING_CONFLICT', raced.stdout.slice(-1500) + raced.stderr.slice(-1500));
+  // Still there, the same confirmation replays its refusal, as before.
+  assert.equal(json(cliAt(other, ...second.argv, '--json')).error.code, 'VERSION_OPENING_CONFLICT');
+  // The person sets the unpublished opening aside, as the refusal says, and follows the shared branch.
+  const plan = cliAt(other, 'sync', 'OSA-SET', '--set-aside', '--json');
+  assert.equal(plan.status, 0, plan.stdout.slice(-1500) + plan.stderr.slice(-1500));
+  assert.match(json(plan).command ?? '', /--confirm\s/u, plan.stdout.slice(-1500));
+  const setAside = cliAt(other, ...json(plan).command.split(/\s+/u).slice(1), '--json');
+  assert.equal(setAside.status, 0, setAside.stdout.slice(-1500) + setAside.stderr.slice(-1500));
+  assert.equal(json(setAside).setAside, true, setAside.stdout.slice(-1500));
+  // The old confirmation again: not the conflict, and not `sync --set-aside` again; the step's next action as the kernel says.
+  const replay = json(cliAt(other, ...second.argv, '--json'));
+  assert.notEqual(replay.error?.code, 'VERSION_OPENING_CONFLICT', JSON.stringify(replay).slice(0, 2000));
+  assert.ok(replay.error, 'nothing opens: version 2 is the other checkout\'s');
+  const named = typeof replay.error.details?.nextAction === 'string' ? replay.error.details.nextAction : replay.error.details?.nextAction?.command;
+  assert.ok(named, `a route: ${JSON.stringify(replay).slice(0, 2000)}`);
+  assert.doesNotMatch(named, /sync OSA-SET --set-aside/u);
+});

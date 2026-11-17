@@ -113,8 +113,10 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   const [{ versionFactsOf }, { beingWritten }] = await Promise.all([import('./phase-generation-need.mjs'), import('./kernel/step-versions.mjs')]);
   const published = Number(phase.generation ?? 0) >= 1 && !beingWritten(versionFactsOf(workflow, phase));
   const reviewed = requestedSuccessorEligible(workflow, phase) || !published ? null : await reviewCorrectionRequest(root, config, workflow, phase);
+  // Nothing to roll over: the step's next action as the kernel decides it, never a refusal with no route (review, 2026-11-17).
   if (!requestedSuccessorEligible(workflow, phase) && !reviewed) throw new SingularityFlowError(
-    `Phase '${phase.id}' has no changed consumed generation to roll over.`, { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: null });
+    `Phase '${phase.id}' has no changed consumed generation to roll over.`, { code: 'GENERATION_ROLLOVER_UNAVAILABLE',
+      details: { phase: phase.id, nextAction: (await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase, { config })).route } });
   let supplied = optionString(options, 'confirm');
   // The author's own correction is a change the author names; it is asked like any other (owner, 2026-11-17).
   const given = correction ?? optionString(options, 'reason', null);

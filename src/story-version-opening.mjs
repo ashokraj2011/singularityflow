@@ -149,7 +149,7 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
   if (current.digest !== digest) {
     throw refuse(`${phase.id} changed since version ${proposal.version} was proposed (now version ${current.proposal.version}, or the Story moved). Nothing was opened; preview it again so the person sees what they are asked.`,
       'VERSION_OPENING_STALE', { phase: phase.id, proposedVersion: proposal.version, currentVersion: current.proposal.version,
-        nextAction: await legalNext(root, workflow, phase) });
+        nextAction: await legalNext(root, workflow, phase, config) });
   }
   // Only the first opening of version 1 omits the person's yes [§7.2]; every other needs its exact, sealed receipt, the
   // author's own correction too (owner, 2026-11-17, superseding the settled exception of 2026-11-13) [D3, OSA:REQ-030].
@@ -157,7 +157,7 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
   // A yes that opens nothing (another person's, expired, declined, for another proposal, or none) is asked again: the
   // step's own preview, which this person answers themselves; the step's other next action only when that cannot be named.
   if (problem) throw refuse(`${problem.words} Nothing was opened.`, problem.code, { phase: phase.id, version: proposal.version,
-    nextAction: await askAgain(phase) ?? await legalNext(root, workflow, phase) });
+    nextAction: await askAgain(phase) ?? await legalNext(root, workflow, phase, config) });
   const writerId = await writerIdOf(root);
   const fence = Number(phase.versionOpening?.writer?.fence ?? 0) + 1;
   const base = { operationId: id, payloadDigest, workId, phase: phase.id, version: proposal.version, proposalDigest: digest, history: [] };

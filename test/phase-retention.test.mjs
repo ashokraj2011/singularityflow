@@ -12,6 +12,7 @@ import { headTreeDigest } from '../src/git.mjs';
 import { reopenPhaseRange, resetPhaseRangeForRework } from '../src/lifecycle-transitions.mjs';
 import { retainableApprovals } from '../src/phase-retention.mjs';
 import { changedUpstream } from '../src/phase-upstream.mjs';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -159,11 +160,13 @@ async function retentionStory(t, { designInputs = ['intake'] } = {}) {
     return cli('approve', phase, '--yes');
   };
   const prose = (what) => `${what} The fixture describes this section in enough words to pass the minimum size of the artifact for its phase.`;
-  return { cli, item, state, complete, prose };
+  // A published step that rework reopened: its next version opens on the person's yes [D3, OSA:REQ-030].
+  const nextVersion = (phase) => confirmNextVersion(cli, phase);
+  return { cli, item, state, complete, prose, nextVersion };
 }
 
 test('after rework, a phase whose inputs did not change keeps its approval by rule E1, and one whose inputs changed runs again', slowLane(), async (t) => {
-  const { cli, item, state, complete, prose } = await retentionStory(t);
+  const { cli, item, state, complete, prose, nextVersion } = await retentionStory(t);
   await complete('intake', prose('Keep every approval that rework did not affect.'));
   await complete('requirements', prose('The requirements name what changes and what stays.'));
   for (const responsibility of ['implement', 'verify']) {
@@ -180,6 +183,7 @@ test('after rework, a phase whose inputs did not change keeps its approval by ru
   workflow = await state();
   assert.equal(workflow.phases.design.status, 'not_started');
   assert.equal(workflow.phases.design.reworkRevalidation.retainable, true);
+  nextVersion('requirements');
   const approved = await complete('requirements', prose('The requirements now also say what stays unchanged.'));
   workflow = await state();
   assert.equal(workflow.status, 'closed', approved.stdout);
@@ -201,6 +205,7 @@ test('after rework, a phase whose inputs did not change keeps its approval by ru
   // Rework the intake, which the design reads: the design runs again, and the history says why.
   cli('reopen', W, '--to', 'intake', '--reason', 'Narrow the intake to the approvals rework keeps.');
   // Prepared again, the intake keeps its approved text; change it, or rule E9 keeps its readers.
+  nextVersion('intake');
   cli('prepare', 'intake');
   const intake = path.join(item, 'artifacts/intake/intake.md');
   await writeFile(intake, (await readFile(intake, 'utf8')).replace('Keep every approval that rework did not affect.', 'Keep only the approvals rework did not affect, and say why.'));
@@ -209,6 +214,7 @@ test('after rework, a phase whose inputs did not change keeps its approval by ru
   assert.equal(workflow.currentPhase, 'requirements', 'the requirements read the intake too');
   assert.ok(workflow.history.some((entry) => /^phase_(?:self_)?approved$/.test(entry.event) && entry.phase === 'intake'
     && /requirements runs again because input:intake changed/.test(entry.detail)), workflow.history.map((entry) => entry.detail).join('\n'));
+  nextVersion('requirements');
   await complete('requirements', prose('The requirements follow the narrowed intake.'));
   workflow = await state();
   assert.equal(workflow.currentPhase, 'design');
@@ -222,7 +228,7 @@ test('after rework, a phase whose inputs did not change keeps its approval by ru
 // (2026-10-28). Rule E9 keeps those readers. The requirements, which define the clauses, are the
 // producer: approved again with the same clauses they record no new scope revision.
 test('a step approved again with the same authored text keeps its readers by rule E9', slowLane(), async (t) => {
-  const { cli, item, state, complete, prose } = await retentionStory(t, { designInputs: ['intake', 'requirements'] });
+  const { cli, item, state, complete, prose, nextVersion } = await retentionStory(t, { designInputs: ['intake', 'requirements'] });
   await complete('intake', prose('Keep every approval that rework did not affect.'));
   for (const responsibility of ['implement', 'verify']) {
     cli('decision', 'applicability', '--responsibility', responsibility, '--reason', 'This document-only fixture changes no repository code.');
@@ -235,6 +241,7 @@ test('a step approved again with the same authored text keeps its readers by rul
   const before = workflow.phases.requirements.artifacts[0].sha256;
 
   cli('reopen', W, '--to', 'requirements', '--reason', 'Check the requirements again; their wording stays as it is.');
+  nextVersion('requirements');
   await complete('requirements', requirements);
   workflow = await state();
   assert.equal(workflow.phases.requirements.generation, 2);
@@ -250,6 +257,7 @@ test('a step approved again with the same authored text keeps its readers by rul
 
   // A changed word in the requirements is not the same authored text: the design runs again.
   cli('reopen', W, '--to', 'requirements', '--reason', 'Reword the requirements this time.');
+  nextVersion('requirements');
   cli('prepare', 'requirements');
   const artifact = path.join(item, 'artifacts/requirements/requirements.md');
   await writeFile(artifact, (await readFile(artifact, 'utf8')).replace('what changes and what stays', 'what changes and what remains'));

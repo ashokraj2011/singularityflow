@@ -12,6 +12,7 @@ import { detachDocuments, scopeDocuments, validateDocumentUrl } from '../src/doc
 import { renderActiveStoryEvidence } from '../src/evidence-context.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -864,10 +865,12 @@ test('the gate accepts a superseded generation composed from a document detached
   assert.equal(reopened.phases.intake.reworkRevalidation?.generation, 1);
   assert.equal(phaseNeedsGeneration(reopened, reopened.phases.intake), true);
   assert.equal(reopened.phases.intake.approvals.at(-1).invalidationReason, 'supporting-evidence-detached');
+  // Intake's version 2 opens only on the person's yes, so what to do now is its preview, which asks them [D3, OSA:REQ-030].
   const now = detached.next.actions.filter((action) => action.timing === 'now').map((action) => action.command);
-  assert.ok(now.some((command) => /singularity-flow (?:prepare|phase publish) intake/.test(command)), now.join('\n'));
+  assert.ok(now.some((command) => /^singularity-flow phase rollover intake --json$/u.test(command)), now.join('\n'));
   assert.equal(now.some((command) => /singularity-flow submit/.test(command)), false,
     'next steps offer to submit the invalidated generation');
+  confirmNextVersion((...args) => flow(root, args), 'intake');
   flow(root, ['wm', 'compose', '--phase', 'intake']);
   await writeFile(intake, `${await readFile(intake, 'utf8')}\nRevised without the withdrawn notes.\n`);
   flow(root, ['phase', 'publish', 'intake']); flow(root, ['submit']); flow(root, ['approve', '--yes']);

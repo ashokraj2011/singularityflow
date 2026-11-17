@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { childTimeout } from './child-timeout.mjs';
+import { confirmNextVersion } from './next-version-consent.mjs';
 
 const cli = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.url));
 
@@ -98,7 +99,9 @@ export async function changeImpactStory(t, { changeImpact = 'on' } = {}) {
     assert.equal(result.status, 0, `report ${format.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return result.stdout;
   };
-  return { root, run, sflow, item, workflow, code, designed, amend, report };
+  // A published step an amendment reopened: its next version opens on the person's yes [D3, OSA:REQ-030].
+  const nextVersion = (phase) => confirmNextVersion(sflow, phase);
+  return { root, run, sflow, item, workflow, code, designed, amend, report, nextVersion };
 }
 
 /** The amendments the tests make: REQ-001 reworded (editorial), AC-001 revised (a refinement), REQ-002 added (material). */

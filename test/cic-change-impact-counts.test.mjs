@@ -214,6 +214,7 @@ test('a real Story with change impact on: an editorial change, a refinement part
     const preserved = second.preservedEvidence.length;
     f.sflow('story', 'intent-amendment', 'acknowledge', 'AMD-002');
     f.sflow('resume', 'CI-1');
+    f.nextVersion('fix-design');
     f.sflow('prepare', 'fix-design');
     // An agent's publication of the design, not composed again since: refused, and counted.
     const refused = f.run(['phase', 'publish', 'fix-design', '--json']);
@@ -305,10 +306,13 @@ test('the stage 7 real Story\'s shape, rebuilt: an editorial and then a refineme
     await f.amend('CI-3', 'criterion', reviseCriterion, 'Say the value is numeric.');
     f.sflow('story', 'intent-amendment', 'acknowledge', 'AMD-002');
     f.sflow('resume', 'CI-3');
+    f.nextVersion('fix-design');
     f.sflow('prepare', 'fix-design');
     // A person publishes the design again with no prompt composed: what they read is not recorded, so it stays unresolved.
     f.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
     f.sflow('submit', 'fix-design'); f.sflow('approve', 'fix-design', '--yes');
+    // The code step published version 1 before the refinement reset it: version 2 opens on the person's yes too.
+    f.nextVersion('implement');
     f.sflow('prepare', 'implement'); f.sflow('phase', 'begin', 'implement', '--json');
     await f.code('CI-3');
     f.sflow('phase', 'enter', 'implement', '--compose', '--json'); f.sflow('prepare', 'implement');

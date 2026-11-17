@@ -21,6 +21,7 @@ import { endsStory, upstreamEntrySummary } from './upstream-entry-summary.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
 import { CLARIFICATION_RESPONSE_FORMAT, clarificationStagingPath } from './phase-staging-paths.mjs';
 import { repositoryCheckStatus } from './repository-check-cache.mjs';
+import { authorCommand, showCommand } from './action-command-map.mjs';
 
 /**
  * The composed prompt file this entry's context came from, verified by its recorded hash.
@@ -227,13 +228,13 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   // Its own skill runs the generator; recovery's guided "create the artifact" is that same command.
   if (status === 'deterministic-generation') next = [{
     id: `generate:${phase.id}`, safe: true, automatic: false, confirmation: 'none', scope: 'deterministic-generation',
-    skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
+    skill: authoring.effectiveAuthoringSkill, command: authorCommand(phase.id),
     detail: `SFlow builds ${phase.id} itself: run this in this turn, then publish it with `
       + `singularity-flow phase prepublish ${phase.id} --for-agent --json --publish-if-ready. Never write or edit its artifact.`
   }, ...next.filter(action => action.id !== `prepare-artifact:${phase.id}`)];
   if (authoringAllowed && contextAdmission.pendingEvidence) next = [{
     id: `continue-draft:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
-    skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
+    skill: authoring.effectiveAuthoringSkill, command: authorCommand(phase.id),
     detail: contextAdmission.pendingEvidence.detail,
     scope: 'draft-only', evidenceAccepted: false, publicationReviewRequired: true
   }, ...next];
@@ -293,5 +294,5 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
     next: clarificationAction ? [checkpoint.nextAction, ...nextActions.filter(action =>
       action.id !== `resolve-clarification:${phase.id}`)] : checkpoint.rebindAction ? [checkpoint.rebindAction, ...nextActions] : nextActions,
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,
-      documents: `singularity-flow phase show ${phase.id} --json` } };
+      documents: showCommand(phase.id) } };
 }

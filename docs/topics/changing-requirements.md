@@ -41,7 +41,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 11
+version: 12
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -103,9 +103,9 @@ Story PAY-1, "Retry failed card payments", has four steps: Intake (the scope), D
    - VS Code (model-free): `@sflow /submit design`, then `@sflow /approve design --work-id PAY-1`
    - Legacy: a Story started before `spec.preAmendmentDrafts` still sets the code aside first. `/sf-recover` (Shell `sflow recover PAY-1 --phase design --json`) offers it and keeps a private copy; bring the code back before Implement starts again.
 6. **Implement, written again.** AMD-001 closed Implement's code generation and set its old prompt aside. Publishing the old draft is refused with `PHASE_DRAFT_PREDATES_AMENDMENT`, naming the way out in this step: `phase begin implement` while its generation is closed, then `phase enter implement --compose`. The code AMD-001 recorded is carried into the new generation as its starting point, and the new prompt names the old summary read only. Only that code is carried: a recorded file changed since, or new code, is refused at `phase begin` (`GENERATION_DIRTY_START`, naming the files). Put back what was recorded, or set it aside with `/sf-recover`, and begin again. The agent raises the limit to 5, adds the fraud stop and its tests, and publishes. Then submit and approve, and go on to Verify.
-   - Copilot: `/sf-code`, then `/sf-publish implement`, `/sf-submit` and `/sf-approve implement --work-id PAY-1`
-   - Shell: `sflow prepare` (now at Implement, it opens the code generation again) and `sflow phase enter implement --work-id PAY-1 --compose --for-agent --json`, then `sflow phase publish implement --authored deterministic --channel kernel-generator --no-model`, `sflow submit implement` and `sflow approve implement --work-id PAY-1 --fetch`
-   - VS Code (model-free): `@sflow /publish implement`, `@sflow /submit implement`, then `@sflow /approve implement --work-id PAY-1`
+   - Copilot: `/sf-code` (it writes the code, then checks and publishes it), then `/sf-submit` and `/sf-approve implement --work-id PAY-1`
+   - Shell: `sflow prepare` (now at Implement, it opens the code version again) and `sflow phase enter implement --work-id PAY-1 --compose --for-agent --json`, then `sflow phase prepublish implement --for-agent --json --publish-if-ready`, `sflow submit implement` and `sflow approve implement --work-id PAY-1 --fetch`
+   - VS Code (model-free): once its code is published, `@sflow /submit implement`, then `@sflow /approve implement --work-id PAY-1`
 
 ### Variation: Design keeps its approval
 

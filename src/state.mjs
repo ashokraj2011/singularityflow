@@ -130,7 +130,7 @@ import {
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps, decidesConformanceDifferences } from './conformance-verdicts.mjs';
 import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
-import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, raiseUpstreamIssueRoute, reopenAuthorityStep, settledUpstreamClauses, upstreamIssueStates, withClauseIntentOwner } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, raiseUpstreamIssueRoute, reopenAuthorityStep, settledUpstreamClauses, upstreamChangeRoutes, upstreamIssueStates, withClauseIntentOwner } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure, requiredTestFailureExamples } from './test-execution-diagnostics.mjs';
@@ -1554,12 +1554,14 @@ function implementationEntryRefusal(workflow, phaseId, { code, message, checkpoi
   });
 }
 
-function noSpecificationClausesError(workflow, phaseId) {
+export function noSpecificationClausesError(workflow, phaseId) {
   const clausePhases = plannedClaimsPolicy(workflow)?.clausePhases ?? [];
   const target = clausePhases.at(-1) ?? phaseId;
   const message = `No authoritative specification clauses exist before code phase '${phaseId}'. `
     + `Return to '${target}' and add stable fully qualified anchors such as [${workflow.workItem.id}:AC-001] before planning tests.`;
-  const recoveryCommand = `singularity-flow recover ${workflow.workItem.id} --phase ${target}`;
+  // Its owner's correction, never recovery of a healthy step [D4].
+  const route = upstreamChangeRoutes(workflow, target).routes[0];
+  const recoveryCommand = route?.command ?? `singularity-flow recover ${workflow.workItem.id} --phase ${target}`;
   return new SingularityFlowError(
     message,
     {
@@ -1569,7 +1571,7 @@ function noSpecificationClausesError(workflow, phaseId) {
         clausePhases,
         // The clauses are the defining step's output; a later step routes the gap there [PHR:REQ-001].
         ...(clausePhases.length ? { ownerPhase: target, upstreamPhase: target } : {}),
-        recoveryCommand,
+        ...(route ? { nextAction: route } : { recoveryCommand }),
         gate: implementationEntryRefusal(workflow, phaseId, {
           code: 'SPECIFICATION_CLAUSE_SOURCE_REQUIRED', message, checkpoint: target, recoveryCommand, missing: [['scope', 'story']]
         })
@@ -1906,9 +1908,6 @@ export async function assertPlannedSpecificationClaims(root, config, workflow, c
       console.warn(`Warning: ${message}`);
       return;
     }
-    const recoveryCommand = owner
-      ? `singularity-flow recover ${workflow.workItem.id} --phase ${owner.id}`
-      : `singularity-flow recover ${workflow.workItem.id} --phase ${codePhase.id}`;
     const refusalMessage = `${message} Return to '${ownerId}', complete its exact clause/path/test table, publish, and approve it before starting implementation.`;
     // The plan's approvers may plan the missing rows in place, or hear of it as an upstream issue [PHR:REQ-003, finding 15].
     const planned = Object.assign({}, ...ownedPlanned.map((entry) => entry.claims ?? {}));
@@ -1921,6 +1920,9 @@ export async function assertPlannedSpecificationClaims(root, config, workflow, c
           label: `An approver of ${owner.id} plans ${clause}, which the specification holds, in their own terminal.` })),
       ...(raised ? [{ command: raised.command.replace('<clause-or-section>', gaps.join(',')), skill: '/sf-decide',
         label: `Or record it for ${owner.id}'s approvers: they decide a plan correction, a return, an accepted risk or a dismissal.` }] : [])] : [];
+    // Its owner's correction, never recovery of a healthy step [D4].
+    const route = owner ? planCorrections[0] ?? upstreamChangeRoutes(workflow, owner.id).routes[0] : null;
+    const recoveryCommand = route?.command ?? `singularity-flow recover ${workflow.workItem.id} --phase ${owner?.id ?? codePhase.id}`;
     throw new SingularityFlowError(
       refusalMessage,
       {
@@ -1930,7 +1932,7 @@ export async function assertPlannedSpecificationClaims(root, config, workflow, c
           ownerPhase: owner?.id ?? null,
           clauses: gaps,
           ...(planCorrections.length ? { planningOwner: owner.id, planCorrections } : {}),
-          recoveryCommand,
+          ...(route ? { nextAction: route } : { recoveryCommand }),
           gate: implementationEntryRefusal(workflow, codePhase.id, {
             code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED', message: refusalMessage, checkpoint: owner?.id ?? null, recoveryCommand,
             missing: (ownedPlanned.length ? gaps : clauseIds).map((clause) => ['plan', clause])
@@ -2132,7 +2134,7 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
   const routes = coverage.unimplemented.length ? upstreamRoutes(coverage.unimplemented) : { text: '', details: {} };
   throw new SingularityFlowError(
     `Phase '${phase.id}' cannot be ${boundary} because specification coverage is incomplete:\n- ${findings.join('\n- ')}\n`
-    + `Run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. Correct delivery evidence in a reviewed new generation, or use singularity-flow decision plan to amend exact planned locations without regenerating application code. Screenshots belong to fulfillment evidence with a visual/inspection contract, not product source or executable tests. Never hand-edit an observed claim map.${routes.text}`,
+    + `Correct delivery evidence in a reviewed new version, or use singularity-flow decision plan to amend exact planned locations without regenerating application code. Screenshots belong to fulfillment evidence with a visual/inspection contract, not product source or executable tests. Never hand-edit an observed claim map.${routes.text}`,
     {
       code: 'SPEC_COVERAGE_INCOMPLETE',
       details: {
@@ -3827,8 +3829,8 @@ export async function publishGeneration(root, config, workflow, {
       { transition: 'publish', generation: publicationTransaction?.publicationEvent?.generation ?? null });
   if (contentFindings.length) {
     throw new SingularityFlowError(
-      `Phase ${phase.id} generation is not publishable:\n- ${contentFindings.map(artifactFindingMessage).join('\n- ')}\n`
-      + `Complete the listed review artifact(s), then run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. `
+      `This version of ${phase.id} is not publishable:\n- ${contentFindings.map(artifactFindingMessage).join('\n- ')}\n`
+      + `Complete the listed review artifact(s), then check it again with singularity-flow phase prepublish ${phase.id}. `
       + 'A Copilot host may re-author and retry publication once only after the artifact fingerprint changes.',
       {
         code: 'ARTIFACT_AUTHORING_INCOMPLETE',

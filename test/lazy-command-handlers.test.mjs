@@ -734,7 +734,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,743,800 (measured 9,743,793, start.mjs now the largest; submit.mjs 9,741,327): the 11-17 follow-ups on one tree. The
     // asked-for views load submit's printed phase review only in a person's terminal (-4,800 or so), which more than covers
     // the other follow-ups' rises above. No new eager file.
-    assert.ok(closure.bytes <= 9_743_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,744,850 (measured 9,744,820 for start.mjs, +1,027): OSA Stage 5's leftovers. The planners take their routes from the
+    // one action-to-command map (action-command-map.mjs +1,358: the author, show, Story-next, version-preview, handoff-submit,
+    // approve and return routes, filled from its forms), which takes the commands they wrote in place out of them
+    // (guide.mjs -462, nextsteps.mjs -162, sequence.mjs -24); a healthy step's refusals name its owner's correction or `sync`
+    // instead of recovery (state.mjs +279, story-test-risk.mjs +54, story-test-command-amendment.mjs -16). No new eager file.
+    assert.ok(closure.bytes <= 9_744_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

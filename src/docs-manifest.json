@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "eaec0707c86bd675f11c684bf9e181874fd8a436",
+  "sourceCommit": "6a900675b5004cc75bd670d3109ebfb82e8549b4",
   "topicCount": 93,
-  "contentSha256": "d77115c02aa92e8264b9c18054c02899fd5c252d534bfa5e7e7780f82d36f15e",
+  "contentSha256": "d971ca7abe8c3e4a1d2b3ad37d2f731a6520ebd89667650d99fbdceda7e1cb9c",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -104,8 +104,8 @@
     {
       "id": "changing-requirements",
       "title": "Changing requirements during a Story",
-      "version": 11,
-      "sha256": "02a8e18b70aeb4e1da765aba4d025fe684b662ea7b9f4ff6caa2adc8fec72940",
+      "version": 12,
+      "sha256": "1cafd4493bb8e756c7006b45113fd135f29b9b6c78936614d28393aa3305254e",
       "routingSha256": "64314b6dc7f635ef14f41c4b145a9d5963f640824e91d54eb0ca92815f6c0ff5",
       "file": "changing-requirements.md"
     },
@@ -264,8 +264,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 23,
-      "sha256": "72ce19b014ec652f2f8a297a1d1f829a1485096606d73c3c67c13885eacd9d73",
+      "version": 24,
+      "sha256": "3f98b20bd3abb25cca77569a1e402bed0df768361e46bb2554437e0dbf394460",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },
@@ -480,8 +480,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 30,
-      "sha256": "7e00545246694ca70df2246165681e303715210598e615502020932e460a488c",
+      "version": 31,
+      "sha256": "f9ccb67fc332aa870abc0ca9648dd94976aed7498b9763250f022156a31b1122",
       "routingSha256": "577f0f1190e3501547da6cb682abb89060388d4998e3b7a349fda9762b9e914d",
       "file": "recovery.md"
     },
@@ -712,8 +712,8 @@
     {
       "id": "workflow-decisions",
       "title": "Decisions, branches and loops in Story workflows",
-      "version": 18,
-      "sha256": "19cb8b62d3a5d033316d145f22a8d0f390b145a567c314cef22625689c1a3e12",
+      "version": 19,
+      "sha256": "5bbf5f11e481e9951a4e4f474205f14550662f315517af82ee1333498756bd14",
       "routingSha256": "07bf0e965ef3a5d13d8a1ca2a5f090175c96f7ed9af50c614743485c8a65aa9b",
       "file": "workflow-decisions.md"
     },

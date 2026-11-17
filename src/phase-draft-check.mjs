@@ -34,6 +34,7 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { evaluateSpecificationGate, specificationGateDiagnostics } from './specification-gate.mjs';
+import { authorCommand } from './action-command-map.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -215,7 +216,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     if (prospective && comparison.summary && !comparison.summary.current) conformanceAdvisories = [...conformanceAdvisories, Object.freeze({
       code: 'conformance.verdict-summary-stale', category: 'traceability', blocking: false, requiredBefore: null,
       path: comparison.advisories[0]?.path ?? artifact.path, line: null, value: null,
-      details: { refreshCommand: `singularity-flow prepare ${phase.id}`, present: comparison.summary.present },
+      details: { refreshCommand: authorCommand(phase.id), present: comparison.summary.present },
       message: `The engine-written Verdict summary does not match the clause table and its upstream issues. Run singularity-flow prepare ${phase.id} to refresh it; never edit it by hand.`
     })];
     if ((await import('./verification/witness-decisions.mjs')).phaseReadsWitnessDecisions(workflow, phase)) {

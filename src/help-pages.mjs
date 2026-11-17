@@ -84,7 +84,7 @@ const PAGES = Object.freeze({
     description: ['preflight is read-only and names repair/human/configuration/external owners.',
       'prepare previews a bounded exact-diff packet; submit retains those unchanged bytes as Git-backed evidence.',
       'decide requires live human terminal review under the pinned plan authority. account-scope records a narrow plan amendment.',
-      'request-changes preserves the bytes. Published work uses authorized recovery and a successor generation.',
+      'request-changes preserves the bytes. Published work changes only in its next version, which opens on the person\'s yes.',
       'attest re-presents a retained decision on a new checkout under its pinned authority; Git history remains unchanged.',
       'repair-plan previews the closed repair and remaining durable budget. repair-run confirms its exact hash and reserves before execution.',
       'repair-resume inspects the same reserved attempt after interruption or producer correction; unchanged/oscillating conditions cannot restart its budget.',
@@ -1171,16 +1171,16 @@ const PAGES = Object.freeze({
     seeAlso: ['phase', 'artifact', 'nextsteps']
   },
   phase: {
-    summary: 'Check, begin, inspect, safely roll over, or publish a phase generation.',
+    summary: 'Check, begin, inspect, safely roll over, or publish a version of a phase.',
     description: [
       '`phase enter` bundles pause, active checkout/agent binding, pinned phase policy, recovery,',
       'clarification and reference verification into one model-free entry packet. It is read-only.',
       '`--compose` explicitly records/reuses the phase prompt when entry is admitted; it never',
-      'begins a generation, runs tests, commits, submits or approves. Prompt text is returned once.',
+      'begins a version, runs tests, commits, submits or approves. Prompt text is returned once.',
       '`phase draft-check` validates the current artifact without mutation and returns structured',
       'correction findings before any publication attempt.',
-      '`phase begin` establishes a code-generation boundary before source mutation. `phase publish`',
-      'records a new generation: it registers the artifacts, captures authorship and model usage,',
+      '`phase begin` opens a code version before its source changes. `phase publish`',
+      'records a new version: it registers the artifacts, captures authorship and model usage,',
       'and commits the result as one transition.',
       'Begin is local and idempotent: it creates no lifecycle event, commit, push, or ledger entry.',
       'Publish verifies and binds the exact generation-start receipt into artifact-generated.',
@@ -1195,28 +1195,28 @@ const PAGES = Object.freeze({
       ['--for-agent', 'Compact entry/draft-check/prepublish JSON; retain blockers/actions and expose full inspection routes.'],
       ['draft-check PHASE', 'Read-only authored-content validation with stable correction findings and a fingerprint.'],
       ['--adopt-existing --confirm DIGEST', 'Explicitly adopt reviewed source that predates begin when Story policy permits it.'],
-      ['rollover PHASE [--reason TEXT] [--confirm DIGEST]', 'Preview, then open, a successor generation without discarding the published generation.'],
+      ['rollover PHASE [--reason TEXT] [--confirm DIGEST]', 'Preview, then open on the person\'s yes, the next version; the published version stays as it is.'],
       ['--authored human|governed-agent|external-tool', 'Who produced the artifact. Record it explicitly.'],
       ['--change-origin ORIGIN', 'Repeat to attest human, Copilot, formatter, compiler, migration, or generator contributions.'],
       ['--from FILE', 'Import the artifact from a file authored elsewhere.'],
-      ['--usage-json FILE', 'Attach model usage for an agent-authored generation.']
+      ['--usage-json FILE', 'Attach model usage for a version an agent wrote.']
     ],
     examples: [
       ['singularity-flow phase draft-check planning --json',
         'Checks the current planning artifact before publication without changing lifecycle state.'],
       ['singularity-flow phase begin implementation',
-        'Creates or returns the open generation intent before implementation source changes.'],
+        'Opens the code version of implementation before its source changes, or returns the one already open.'],
       ['singularity-flow phase rollover implementation',
-        'Previews the exact confirmation for changed bytes after a consumed generation.'],
+        'Previews the next version of implementation; it opens only when the person confirms.'],
       ['singularity-flow phase publish intake --authored human',
-        'Publishes generation N+1 of the intake artifact.']
+        'Publishes the next version of the intake artifact.']
     ],
     seeAlso: ['prepare', 'submit', 'artifact', 'wm']
   },
   submit: {
     summary: 'Submit the current phase for approval and publish its review packet.',
     description: [
-      'Builds a hash-bound review packet from the published generation and moves the phase to',
+      'Builds a hash-bound review packet from the published version and moves the phase to',
       'awaiting approval. Phases with no approval policy advance immediately.'
     ],
     examples: [['singularity-flow submit', 'Submits the current phase of the checked-out Story.']],
@@ -1790,7 +1790,7 @@ const PAGES = Object.freeze({
   confirm: {
     summary: 'Confirm a reviewed action by the short code its preview gave, instead of copying its digest.',
     description: [
-      'A preview that needs your yes (starting the next draft, a decision list, a plan) gives its route as a code such as',
+      'A preview that needs your yes (starting the next version, a decision list, a plan) gives its route as a code such as',
       '`/sf-confirm K7Q2-M8DX`. The code stands for the exact command that preview issued, kept on this machine for a week.',
       '`confirm CODE` runs that command as if you typed it: what it confirms is still checked, so a preview that changed',
       'since is refused and shown again with a new code. In Copilot, `/sf-confirm CODE` binds the chat turn to that command only.'
@@ -1847,7 +1847,7 @@ const PAGES = Object.freeze({
       'repair budgets apply), accept-risk (expires within 90 days) or dismiss.',
       'A Story completes only when every issue is decided; an expired accepted risk counts as open.',
       'propose-amendment saves corrected bytes of an earlier document step (its edited artifact, or a --file draft);',
-      'decide-amendment lets that step\'s approvers install them as its next approved generation without re-running it.',
+      'decide-amendment lets that step\'s approvers install them as its next approved version without re-running it.',
       'Approved later steps that read it keep their approval and are revalidated (unchanged, or return); none is reset.'
     ],
     options: [

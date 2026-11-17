@@ -309,7 +309,7 @@ test('a reviewed quick-fix Story, walked through the CLI: no person text, card o
   text('submit', 'implement');
   // The rollover a review asks for: its preview names the review by its generation and asks for no digest.
   const preview = text('phase', 'rollover', 'implement');
-  assert.match(preview.stdout, /"Correct what the review of generation 1 found: .*explain-the-value/u);
+  assert.match(preview.stdout, /"Correct what the review of version 1 found: .*explain-the-value/u);
   assert.match(preview.stdout, /Shell: singularity-flow phase rollover implement\n/u, 'a person confirms in their own terminal');
   if (TYPED_TERMINAL_AVAILABLE) {
     // In a person's own terminal the same command asks them the proposal's own question, in versions and with no digest

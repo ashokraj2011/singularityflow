@@ -181,7 +181,8 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
           ? `They are '${owner}''s to add: stable fully qualified anchors, before planning tests; ${phase.id} keeps its draft meanwhile.`
           : 'Add stable fully qualified anchors before planning tests.'}`,
         { details: { clausePhases: plannedPolicy.clausePhases ?? [], ownerPhase: owner ?? phase.id,
-          ...(owner && owner !== phase.id ? { upstreamPhase: owner, recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${owner}` } : {}) } });
+          // Its route is the owner's correction (the actions below), never recovery of a healthy step [D4].
+          ...(owner && owner !== phase.id ? { upstreamPhase: owner } : {}) } });
     } else if (clauseIds.length) {
       let plannedSource = null;
       try {

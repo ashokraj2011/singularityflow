@@ -14,23 +14,23 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 23
+version: 24
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
 ## Purpose and prerequisites
 
-Use this topic when a step was refused and you need to know what the finding means, what usually causes it, how to fix it, and who else can act when the author cannot. Run `sflow recover --phase <PHASE> --json` first: it lists the step's current findings with their routes, and preserves every draft, index entry and published byte.
+Use this topic when a step was refused and you need to know what the finding means, what usually causes it, how to fix it, and who else can act when the author cannot. The refusal itself names each finding and its route; `sflow phase prepublish <PHASE> --json` checks the draft again and lists every finding still open, with its route, and changes nothing. Recovery (`sflow recover`) is only for real damage: published bytes that changed, an interrupted operation or an unreadable record.
 
 ## Use it from each surface
 
-- **Shell:** `sflow explain findings --section <CODE>` for one entry; `sflow recover --phase <PHASE> --json` for the live findings and routes.
-- **Copilot:** `/sf-recover` lists the routes; `/sf-help` serves this topic. A skill follows the route it was given and never edits an earlier step to clear a finding.
+- **Shell:** `sflow explain findings --section <CODE>` for one entry; `sflow phase prepublish <PHASE> --json` for the draft's live findings and routes.
+- **Copilot:** the step's own work command (`/sf-code` or `/sf-phase`) checks the draft again and follows the routes; `/sf-help` serves this topic. A skill follows the route it was given and never edits an earlier step to clear a finding.
 - **VS Code:** the refusal card names the finding and its route; open **Lifecycle** to act on it.
 
 ## Guided workflow
 
-1. Read the finding's code and route from the refusal or from `sflow recover --phase <PHASE> --json`.
+1. Read the finding's code and route from the refusal or from `sflow phase prepublish <PHASE> --json`.
 2. Read its entry below: what it means, the usual causes, and the fix.
 3. Fix what the entry says the author owns, then recheck with `sflow phase prepublish <PHASE> --json`.
 4. When the author cannot fix it (the finding belongs to an earlier step, a person must decide, or the check misreads correct work), use the route its entry names for someone else instead of repeating the same repair.
@@ -239,7 +239,7 @@ Reading this topic changes nothing. A finding's route names who may act; a route
 ## Troubleshooting
 
 - If the same finding returns after a real repair, stop: repeating an unchanged repair cannot pass. Use the route its entry names for someone other than the author.
-- If a finding's code has no entry here, its class entry applies; `sflow recover --phase <PHASE> --json` shows the class.
+- If a finding's code has no entry here, its class entry applies; the refusal names the route to follow.
 - If an earlier step is wrong, never edit it from the current step; raise an upstream issue.
 - If a protected or integrity finding appears, preserve your work and restore the trusted bytes; no appeal can waive it.
 

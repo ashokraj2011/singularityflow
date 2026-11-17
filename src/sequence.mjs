@@ -10,7 +10,7 @@ import { action, because, commandResult, noEffects, refused, withCommandResult }
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { gitDir, rememberedActor } from './git.mjs';
-import { builtPublicationRoute } from './action-command-map.mjs';
+import { builtPublicationRoute, storyNextCommand } from './action-command-map.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer,
   phaseUsesDeterministicGeneration
@@ -114,7 +114,7 @@ function stepGuidance(workflow, phase) {
     ? `Submit published phase '${phase.id}' to run its checks, complete it, and advance.`
     : `Submit published phase '${phase.id}' for approval.`, actions };
   return { summary: routes[0]?.detail ?? `Continue from the active workflow state for phase '${phase.id}'.`,
-    actions: actions.length ? actions : [copilotAction({ skill: '/sflow-nextsteps', command: `singularity-flow nextsteps ${workflow.workItem.id}` })] };
+    actions: actions.length ? actions : [copilotAction({ skill: '/sflow-nextsteps', command: storyNextCommand(workflow.workItem.id) })] };
 }
 
 /**
@@ -183,7 +183,7 @@ function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason
     ...(withGuidance ? [
       `Required next action: ${guidance.summary}`,
       ...commandLines(guidance.actions, guidance.alternativeSecond),
-      ...actionCommandLines({ command: `singularity-flow nextsteps ${workflow.workItem.id}`, skill: `/sf-nextsteps` }, 'See all valid actions')
+      ...actionCommandLines({ command: storyNextCommand(workflow.workItem.id), skill: `/sf-nextsteps` }, 'See all valid actions')
     ] : [])
   ].filter(Boolean).join('\n');
 }
@@ -219,7 +219,7 @@ function gateRemediation(workflow, gate, options) {
     return [action({
       id: 'list-valid-actions',
       label: 'See every action this Story can take right now',
-      command: `singularity-flow nextsteps ${workflow.workItem.id}`,
+      command: storyNextCommand(workflow.workItem.id),
       rank: 'NOW',
       kind: 'remediation'
     })];

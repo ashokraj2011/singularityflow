@@ -700,7 +700,7 @@ Usage:
   singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
   singularity-flow spec dependencies [STEP] [--work-id ID] [--json]
-    what each published generation depended on (input, claim, path, test, witness, binding, citation)
+    what each published version depended on (input, claim, path, test, witness, binding, citation)
     and whether its record is complete; on a Story with spec.observedDependencies on (change impact, on by
     default; spec.changeImpact: off, or spec.observedDependencies: off alone, turns it off). Read-only
   singularity-flow spec drift [--work-id WORK-ID] [--ref REV] [--all] [--json]
@@ -1221,7 +1221,7 @@ Usage:
     (--adopt-without-ancestry: sflow/config was rewritten outside SFlow; an approver adopts it, recorded as adopted without ancestry)
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] [--json]
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] --apply --confirm PLAN-DIGEST [--json]
-    (current active code phase; preserves published generations; fresh epoch validation; live authorized terminal review; no tests waived)
+    (current active code phase; preserves published versions; fresh epoch validation; live authorized terminal review; no tests waived)
   singularity-flow story test-policy attest [WORK-ID] [--json]
   singularity-flow story test-policy attest [WORK-ID] --apply --confirm REVIEW-SHA256 [--json]
     (restore review origin in a new checkout; exact retained reviewer; no Story or Git records change)

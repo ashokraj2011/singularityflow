@@ -38,6 +38,7 @@ import { postPublicationStep } from './shared/post-publication-step.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
+import { versionPreviewCommand } from '../action-command-map.mjs';
 
 /**
  * The advisory lines a draft check or prepublish prints. Coverage, doc-comment and every other
@@ -137,7 +138,7 @@ async function phaseSubcommand(positionals, options) {
     // changed since publication, or once a review or an approval exists, it is previewed as a change the person asks for.
     if (options.correction !== undefined) {
       if (plan) throw new SingularityFlowError(`Files changed after ${phase.id} generation ${phase.generation} was published, so starting the next generation is the person's to confirm. Preview it: singularity-flow phase rollover ${phase.id} --json.`,
-        { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`, skill: successorSkillForPhase(phase, workflow) } } });
+        { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: versionPreviewCommand(phase.id), skill: successorSkillForPhase(phase, workflow) } } });
       return (await import('../own-correction-rollover.mjs')).ownCorrectionRollover(root, config, workflow, phase, options);
     }
     // Unchanged published bytes: a reopened step's or an asked-for next version, on the person's yes [OSA:REQ-030].
@@ -261,7 +262,7 @@ async function phaseSubcommand(positionals, options) {
     if (!(await generationResultMatches(root, config, workflow, requestedPhase))) {
       throw new SingularityFlowError(
         `Generation intent ${requestedPhase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phaseId} to preview the exact guarded next-generation command.`,
-        { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: { command: `singularity-flow phase rollover ${phaseId} --json`,
+        { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: { command: versionPreviewCommand(phaseId),
           skill: successorSkillForPhase(requestedPhase, workflow), label: `Start the next version of ${phaseId} with the changed files` } } }
       );
     }

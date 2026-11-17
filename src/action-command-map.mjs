@@ -39,7 +39,7 @@ export const ACTION_COMMANDS = Object.freeze({
     status: 'review-source status <step> --work-id <W> --for-agent --json' }),
   'review-version': entry(ACTION_SKILLS.review, { context: 'review-source context <step> --for-agent --json' }),
   // `exact`: the submission itself; the decision values a step records are added by submitRoute below.
-  'submit-version': entry(ACTION_SKILLS.readiness, { readiness: 'status <W> --submission-readiness --json', exact: 'submit <step> --work-id <W>' }),
+  'submit-version': entry(ACTION_SKILLS.readiness, { readiness: 'status <W> --submission-readiness --json', exact: 'submit <step> --work-id <W>', step: 'submit <step>' }),
   'refresh-facts': entry(ACTION_SKILLS.readiness, { readiness: 'status <W> --submission-readiness --json' }),
   'approve-step': entry(ACTION_SKILLS.approve, { approve: 'approve <step> --work-id <W> --fetch',
     reject: 'reject <step> --work-id <W> --fetch --to <phase> --reason <reason>' }),
@@ -49,18 +49,18 @@ export const ACTION_COMMANDS = Object.freeze({
   'refresh-authority': entry('by-command', { branch: 'refresh-branch', session: 'session current --for-agent --json' }),
   inspect: entry('by-command', { show: 'phase show <step> --json', session: 'session current --for-agent --json' }),
   'provide-input': entry('by-command', { readiness: 'documents readiness --phase <step> --work-id <W> --json' }),
-  none: entry('by-command', { nextsteps: 'nextsteps --json' })
+  none: entry('by-command', { nextsteps: 'nextsteps --json', story: 'nextsteps <W>' })
 });
 
 /**
  * One form of an operation's Shell command without its executable (`review-source context intake --for-agent --json`),
- * for `step` of Story `workId`; null for a form the map does not name. A form keeps any placeholder for the person.
+ * for `step` of Story `workId`, returned `to` a step; null for a form the map does not name. A form keeps any placeholder for the person.
  */
-export function actionCommand(operation, form, { step = null, workId = null, instruction = null } = {}) {
+export function actionCommand(operation, form, { step = null, workId = null, instruction = null, to = null } = {}) {
   const template = ACTION_COMMANDS[operation]?.forms[form];
   if (!template) return null;
   const words = template.split(' ').map((word) => word === '<step>' ? step : word === '<W>' ? workId
-    : word === '<instruction>' && instruction != null ? String(instruction) : word);
+    : word === '<instruction>' && instruction != null ? String(instruction) : word === '<phase>' && to ? to : word);
   return words.some((word) => word === null || word === undefined || word === '') ? null : words.join(' ');
 }
 
@@ -92,8 +92,22 @@ export function builtPublicationRoute(workflow, phase, producer, modelEnabled) {
 }
 
 /** A published step's own version question, the open-version preview: its next version opens only on the person's yes [D3]. */
+export const versionPreviewCommand = (step) => actionCommandLine('open-version', 'preview', { step });
 export const versionQuestionRoute = (workflow, phase) => ({ skill: actionSkill('open-version', { phase, workflow }),
-  command: actionCommandLine('open-version', 'preview', { step: phase.id }).replace(/ --json$/u, ' --reason "<what to change>" --json') });
+  command: versionPreviewCommand(phase.id).replace(/ --json$/u, ' --reason "<what to change>" --json') });
+
+// The planners' routes, each a form of the map filled in [OSA:REQ-021].
+export const authorCommand = (step) => actionCommandLine('author-version', 'prepare', { step });
+export const authorRoute = (workflow, phase) => ({ skill: actionSkill('author-version', { phase, workflow }), command: authorCommand(phase.id) });
+export const showCommand = (step) => actionCommandLine('inspect', 'show', { step });
+export const storyNextCommand = (workId) => actionCommandLine('none', 'story', { workId });
+const fixed = (skill, operation, form, workflow, phase, to) => ({ skill, command: actionCommandLine(operation, form, { step: phase.id, workId: workflow.workItem.id, to }) });
+export const approveRoute = (workflow, phase) => fixed(ACTION_SKILLS.approve, 'approve-step', 'approve', workflow, phase);
+export const returnRoute = (workflow, phase, to = phase.id) => fixed(ACTION_SKILLS.reject, 'approve-step', 'reject', workflow, phase, to);
+export const handoffSubmitRoute = (workflow, phase) => {
+  const route = fixed(ACTION_SKILLS.readiness, 'submit-version', 'step', workflow, phase);
+  return { ...route, command: route.command + decisionSubmitArguments(workflow, phase.id) };
+};
 
 /**
  * The command that takes a published step toward approval, for every producer of guidance: the map's `submit-version`

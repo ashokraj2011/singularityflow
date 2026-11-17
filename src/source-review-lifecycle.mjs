@@ -28,6 +28,7 @@ import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceRev
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
 import { committedSourceReviewFile, prefetchSourceReviewFiles, sharedSourceReviewInput,
   sharedSourceReviewProvenance, sourceReviewProvenanceObjects, withSourceReviewSnapshot } from './source-review-snapshot.mjs';
+import { authorCommand } from './action-command-map.mjs';
 
 const REVIEW_AGENT = 'sflow-source-reviewer';
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
@@ -72,7 +73,7 @@ function checkPublishedGeneration(workflow, phaseId) {
     // Writing it is its own work command's, never a skill named from the command text [OSA:REQ-021, C4].
     throw new SingularityFlowError(`Version ${version} of ${phaseId} is being written; review it after it is published.`, {
       code: 'SOURCE_REVIEW_SUCCESSOR_OPEN',
-      details: { nextAction: { command: `singularity-flow prepare ${phaseId}`, skill: generationSkillForPhase(phase, workflow),
+      details: { nextAction: { command: authorCommand(phaseId), skill: generationSkillForPhase(phase, workflow),
         label: `Write version ${version} of ${phaseId}, then publish it` }, phase: phaseId, version }
     });
   }

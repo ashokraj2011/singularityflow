@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 
 import { phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
 import { requestedSuccessorAction, requestedSuccessorEligible } from './guide.mjs';
+import { authorCommand } from './action-command-map.mjs';
 
 export { requestedSuccessorAction, requestedSuccessorEligible };
 
@@ -169,7 +170,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     open: code ? opening.codeOpening(root, config) : opening.documentOpening() });
   if (!code) {
     const result = { ...preview, mutates: true, nextAction: (await opening.kernelRoute(root, workflow, phase)).route, opened: { generation: next, status: 'open' }, opening: opened.outcome, replayed: opened.replayed,
-      next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: `${skill} ${phase.id}`,
+      next: { command: authorCommand(phase.id), copilotCommand: `${skill} ${phase.id}`,
         reason: `Author draft ${next} for what was asked in this step; it is checked${(await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id) ? ' and reviewed' : ''} again before it is published.` } };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else console.log(`Opened ${phase.id} version ${next} for the change asked for. Version ${phase.generation} stays as published.`);
@@ -178,7 +179,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   const intent = phase.generationIntent;
   // What follows is the kernel's next for the open version: writing it, in this same turn.
   const result = { ...preview, mutates: true, nextAction: (await opening.kernelRoute(root, workflow, phase)).route, generationIntent: intent, opening: opened.outcome, replayed: opened.replayed,
-    next: { command: `singularity-flow prepare ${phase.id}`, copilotCommand: `/sf-code ${phase.id}`,
+    next: { command: authorCommand(phase.id), copilotCommand: `/sf-code ${phase.id}`,
       reason: `Author generation ${intent.generation} for what was asked; its tests run again before it is published.` } };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else console.log(`Opened ${phase.id} version ${intent.generation} for the change asked for. Version ${phase.generation} stays as published.`);
@@ -219,6 +220,6 @@ export async function reviewCorrectionRequest(root, config, workflow, phase) {
     if (!blocking.length) return null;
   } else return null;
   const words = blocking.slice(0, 5).map((entry) => String(entry.message ?? entry.code).replace(/\s+/gu, ' ').slice(0, 300));
-  // Named by its generation, never its digest: these words are shown and kept as "Asked for" [no hashes shown].
-  return `Correct what the review of generation ${phase.generation} found: ${words.join(' | ') || 'its blocking findings'}`.slice(0, 2000);
+  // Named by its version, never its digest: these words are shown and kept as "Asked for" [no hashes shown; the person's word is "version"].
+  return `Correct what the review of version ${phase.generation} found: ${words.join(' | ') || 'its blocking findings'}`.slice(0, 2000);
 }

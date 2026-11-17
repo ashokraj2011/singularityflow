@@ -4,12 +4,12 @@ import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
 import { stepBeingWritten } from './phase-generation-need.mjs';
 import { ASKED_FOR_HOLD, decisionRoutes, stepDecisionOf } from './step-decision.mjs';
+import { approveRoute, handoffSubmitRoute, returnRoute, versionPreviewCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
-import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseAuthoringProgress } from './phase-authoring-progress.mjs';
@@ -49,18 +49,15 @@ function changeSkill(workflow, phase) {
 export function requestedSuccessorAction(workflow, phase, { requested = false, changedPaths = [] } = {}) {
   if (!requestedSuccessorEligible(workflow, phase)) return null;
   const next = Math.max(Number(phase.generation ?? 0), Number(phase.generationHighWatermark ?? 0)) + 1;
-  const kept = phaseRequiresCodeDelivery(phase)
-    ? `Generation ${phase.generation}, its evidence and its test results stay as published; nothing changes until the person confirms.`
-    : `Draft ${phase.generation} and its review stay as published; nothing changes until the person confirms.`;
-  // Files changed after publication (changes-after-publication.mjs): the next generation starts with them, or the person sets them aside (N7).
+  const kept = `Version ${phase.generation}${phaseRequiresCodeDelivery(phase) ? ', its evidence and its test results' : ' and its review'} stay as published; nothing changes until the person confirms.`;
+  // Files changed after publication (changes-after-publication.mjs): the next version starts with them, or the person sets them aside (N7).
   const skill = changeSkill(workflow, phase);
-  if (changedPaths.length) return copilotAction({ skill, command: `singularity-flow phase rollover ${phase.id} --json`,
-    reason: `${changedPaths.slice(0, 5).join(', ')}${changedPaths.length > 5 ? ` and ${changedPaths.length - 5} more` : ''} changed after generation ${phase.generation} was published: preview starting generation ${next} of ${phase.id} that includes the change, then ask the person to confirm it, or to set the change aside. ${kept}` });
-  const word = phaseRequiresCodeDelivery(phase) ? 'generation' : 'draft';
-  if (requested) return copilotAction({ skill, command: `singularity-flow phase rollover ${phase.id} --json`,
-    reason: `The person asked for a change: preview starting ${word} ${next} of ${phase.id} for it, then ask them to confirm. ${kept}` });
-  return { ...copilotAction({ skill, command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`,
-    reason: `Or, for a change before submitting: start ${word} ${next} of ${phase.id} with what to change (${skill} ${phase.id} <what to change>). ${kept}` }),
+  if (changedPaths.length) return copilotAction({ skill, command: versionPreviewCommand(phase.id),
+    reason: `${changedPaths.slice(0, 5).join(', ')}${changedPaths.length > 5 ? ` and ${changedPaths.length - 5} more` : ''} changed after version ${phase.generation} was published: preview starting version ${next} of ${phase.id} that includes the change, then ask the person to confirm it, or to set the change aside. ${kept}` });
+  if (requested) return copilotAction({ skill, command: versionPreviewCommand(phase.id),
+    reason: `The person asked for a change: preview starting version ${next} of ${phase.id} for it, then ask them to confirm. ${kept}` });
+  return { ...copilotAction({ skill, command: versionQuestionRoute(workflow, phase).command,
+    reason: `Or, for a change before submitting: start version ${next} of ${phase.id} with what to change (${skill} ${phase.id} <what to change>). ${kept}` }),
   optional: true };
 }
 
@@ -101,7 +98,7 @@ export function phaseHandoff(workflow, phase, {
     }
   }
   const submit = copilotAction({
-    skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
+    ...handoffSubmitRoute(workflow, phase),
     reason: noApproval
       ? `Run configured checks, complete ${phase.id} without approval, and advance to the next phase.`
       : `Run configured checks and submit ${phase.id} for approval.`
@@ -142,8 +139,8 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress, t
   if (phase.status === 'awaiting_approval') return [
     ...(amendment ? [copilotAction({ ...decisionsCardAction(workflow),
       reason: `A person who approves the scope decides ${amendment.id} on the decisions card; approving ${phase.id} waits for it.` })] : []),
-    copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` }),
-    ...(phaseCorrectionTargets(phase).length ? [copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to ${phase.id} --reason <reason>`,
+    copilotAction({ ...approveRoute(workflow, phase), reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` }),
+    ...(phaseCorrectionTargets(phase).length ? [copilotAction({ ...returnRoute(workflow, phase),
       reason: `Request an authorized correction within ${phase.id}; prior phase approvals remain unchanged.` })] : [])
   ];
   // Its task stopped at a boundary its author cannot cross alone (workflow-task-outcome.mjs): that wait, with its original

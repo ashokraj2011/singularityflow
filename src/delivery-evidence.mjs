@@ -1506,7 +1506,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       : 'no acceptance test is available for the implementation', { code: 'code.delivery.acceptance-test-missing' });
   }
 
-  const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);
+  const specRecords = await loadActiveSpecRecords(itemDirectory, workflow);
+  const criteria = specificationCriteria(specRecords, workflow, config);
   const scanned = await taggedAcceptanceIds(root, testPaths);
   // In a namespace other Stories share, a test tag names this Story's criterion only where this Story
   // added it: an earlier Story's tag with the same ID neither satisfies nor witnesses it [E2G-015].
@@ -1569,6 +1570,11 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       + '. A clause comment counts in planned source the generation changes, or in the previous generation\'s unchanged source when a reviewer\'s return asked only for tests',
     { code: 'code.delivery.source-clause-tag-undelivered', value: undeliveredTags.map((missing) => missing.clauseId) });
   }
+  // An API criterion's tests assert status, schema and body [CQF:REQ-036]; the check loads only for one.
+  const contracts = mergedVerificationContracts(specRecords.planned ?? []);
+  const apiAssertions = [...contracts.values()].some((entry) => entry.interface === 'api') ? await (await import(CORNER_CASE_MODULE))
+    .apiCriterionAssertionCheck(root, { contracts, witnesses: witnessDiscovery.witnesses, phaseId: phase.id }) : null;
+  if (apiAssertions) reportAll(apiAssertions.problems, apiAssertions.problemFindings);
   const enforceCornerCases = workflow.resolution?.codeDelivery?.cornerCaseObligations === 'enforce'
     || config.governance?.requireCornerCaseCoverage === true;
   const enforceAssertionAdequacy = enforceCornerCases
@@ -1632,7 +1638,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
           // plan's to correct: its approvers' correction and the upstream issue to them [PHR:REQ-003, finding 14].
           ...(!unknown && fulfillment.problemFindings.length ? await fulfillmentPlanCorrections(workflow, phase, fulfillment.problemFindings) : {}),
           ...(deliveryRoute?.command ? { nextAction: { command: deliveryRoute.command, skill: deliveryRoute.skill,
-            label: `If no change is needed, a reviewer of the returning step previews withdrawing ${deliveryRoute.changeRequestId}.` } } : {}),
+            label: `If no change is needed, a reviewer of the returning step previews withdrawing ${deliveryRoute.changeRequestId}.` } }
+            : apiAssertions?.nextAction ? { nextAction: apiAssertions.nextAction } : {}),
           ...(cornerCaseGate?.findings?.length ? { cornerCaseFindings: cornerCaseGate.findings,
             cornerCaseHarness: cornerCaseGate.harness } : {}),
           // The exact problems and candidate a dispute would bind to (appeal risk-prepare --finding),
@@ -1722,7 +1729,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       required: requiredAcIds, tagged: taggedAcIds, missing: [], ambiguous: [],
       inferred: tags.inferred, bindings: tags.bindings,
       witnesses: witnessDiscovery.witnesses, unattachedTags: witnessDiscovery.unattachedTags,
-      profiles: witnessDiscovery.profiles
+      profiles: witnessDiscovery.profiles,
+      ...(apiAssertions?.criteria.length ? { api: apiAssertions.criteria } : {})
     },
     sourceBindings,
     excludedChanges,

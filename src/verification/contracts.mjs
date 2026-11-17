@@ -23,7 +23,9 @@ const UNSUPPORTED_METHODS = Object.freeze(['measurement', 'analysis', 'browser-c
 const SLOT_ID = /^[a-z][a-z0-9-]{0,31}$/u;
 const AC_ID = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u;
 const REQUIRED_COLUMNS = Object.freeze(['criterion', 'slot', 'method', 'witness']);
-const OPTIONAL_COLUMNS = Object.freeze(['role', 'required assurance', 'combination', 'reason']);
+const OPTIONAL_COLUMNS = Object.freeze(['role', 'required assurance', 'combination', 'reason', 'interface']);
+// Interface `api`: only tests asserting status, schema and body prove it [CQF:REQ-036].
+const API_ONLY_TESTS = 'a screenshot or an inspection never proves an API, so each primary witness must be a test that asserts the response status, schema and body';
 /** What each method can reach; nothing here is authenticated before qualified execution (M4). */
 const METHOD_ASSURANCE = Object.freeze({
   test: Object.freeze(['module-observed', 'exact-local-observed']),
@@ -151,7 +153,7 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
     const names = header.map((cell) => cell.toLowerCase().replace(/\s+/gu, ' '));
     if (names.slice(0, 4).join('|') !== REQUIRED_COLUMNS.join('|')
         || names.slice(4).some((name) => !OPTIONAL_COLUMNS.includes(name)) || new Set(names).size !== names.length) {
-      collectDraftDiagnostic(diagnostics, invalid(`The verification contracts table at line ${index + 1} must start with Criterion | Slot | Method | Witness and may add Role, Required assurance, Combination and Reason, each once.`),
+      collectDraftDiagnostic(diagnostics, invalid(`The verification contracts table at line ${index + 1} must start with Criterion | Slot | Method | Witness and may add Role, Required assurance, Combination, Reason and Interface, each once.`),
         { line: index + 1, field: 'header' });
       inside = false; continue;
     }
@@ -214,6 +216,8 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
     });
     const combination = unwrap(row.value('combination')).toLowerCase() || null;
     check('combination', () => { if (combination && !['all', 'any'].includes(combination)) throw invalid(`${where} must combine with all or any.`); });
+    const api = unwrap(row.value('interface')).toLowerCase();
+    check('interface', () => { if (api && api !== 'api') throw invalid(`${where} may name only the api interface, or leave Interface empty.`); });
     const reason = String(row.value('reason') ?? '').trim() || null;
     check('reason', () => {
     if (reason && (reason.length < 10 || reason.length > 500 || /[\0-\x1f\x7f]/u.test(reason))) {
@@ -224,6 +228,7 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
       ? check('witness', () => witnessCell(method, row.value('witness'), `${where}'s witness`)) : null;
     if (!rowValid) continue;
     const contract = byClause.get(clauseId) ?? { clauseId, combinations: new Set(), reasons: [], slots: [] };
+    if (api) contract.api = true;
     if (contract.slots.some((entry) => entry.slot === slot)) {
       collectDraftDiagnostic(diagnostics, invalid(`${clauseId} names slot ${slot} more than once.`),
         { line: row.line, clauseId, field: 'slot' });
@@ -245,6 +250,9 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
     if (!contract.slots.some((entry) => entry.role === 'primary')) {
       throw invalid(`${contract.clauseId} has only supporting witnesses; a supporting witness never verifies a criterion, so name at least one primary witness.`);
     }
+    if (contract.api && contract.slots.some((entry) => entry.role === 'primary' && entry.method !== 'test')) {
+      throw invalid(`${contract.clauseId} is an API criterion: ${API_ONLY_TESTS}. Make its visual or inspection slot supporting, or remove it.`);
+    }
     const planned = plannedClaims[contract.clauseId] ?? null;
     for (const entry of contract.slots.filter((candidate) => candidate.method === 'test')) {
       if (['not-applicable', 'non-test'].includes(planned?.testDisposition)) {
@@ -257,6 +265,7 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
     return {
       clauseId: contract.clauseId, combination,
       ...(contract.reasons.length ? { reason: contract.reasons.join(' ') } : {}),
+      ...(contract.api ? { interface: 'api' } : {}),
       slots: contract.slots.sort((left, right) => left.slot.localeCompare(right.slot))
     };
     }, { clauseId: contract.clauseId, field: 'contract' });
@@ -299,6 +308,9 @@ export function normalizeVerificationContracts(value) {
     }
     const slots = Array.isArray(contract.slots) ? contract.slots : [];
     if (!slots.length || !slots.some((entry) => entry?.role === 'primary')) throw invalid(`The contract of ${clauseId} has no primary witness.`);
+    if (contract.interface != null && (contract.interface !== 'api' || slots.some((entry) => entry?.role === 'primary' && entry.method !== 'test'))) {
+      throw invalid(`The contract of ${clauseId} has an invalid interface: ${API_ONLY_TESTS}.`);
+    }
     const names = new Set();
     for (const entry of slots) {
       if (!SLOT_ID.test(entry?.slot ?? '') || names.has(entry.slot) || !VERIFICATION_METHODS.includes(entry.method)

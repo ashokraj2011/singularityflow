@@ -717,6 +717,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   else warnings.push(...visualCoverage.errors);
   warnings.push(...visualCoverage.warnings);
   if (visualCoverage.status === 'pass') passes.push(`visual coverage: ${visualCoverage.covered.length}/${visualCoverage.profiles.length} profiles`);
+  if (visualCoverage.applicability) passes.push(visualCoverage.applicability.words);
   const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   for (const comparison of comparisons) {
     // Evidence that will not parse is an integrity failure, not a threshold decision, so it fails

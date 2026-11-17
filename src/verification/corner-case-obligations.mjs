@@ -687,6 +687,81 @@ export async function evaluateDeliveryCornerCaseGate(root, {
   };
 }
 
+export const API_ASSERTION_SIGNALS = Object.freeze(['status', 'schema', 'body']);
+// The names an assertion uses for a response's status, a schema and its body: static, never proof it was checked.
+const API_SIGNAL_NAMES = Object.freeze({ status: /^(?:status|statusCode|status_code|StatusCode|getStatus|getStatusCode|toHaveStatus|toHaveHTTPStatus)$/u,
+  schema: /[sS]chema/u, body: /[bB]ody|^json$/u });
+// An assertion line: in JavaScript and TypeScript (where `then` chains promises) assert, expect or should; elsewhere
+// also Assert, verify and REST Assured's `then`. Supertest's `.expect(201)` names the status by its code.
+const ASSERTION_LINE = { js: /\b(?:assert\w*|expect\w*|should\w*)\b/u, other: /\b(?:assert\w*|Assert\w*|expect\w*|should\w*|verify\w*|then)\b/u };
+const API_SIGNAL_WORDS = Object.freeze({ status: 'its status', schema: 'its schema', body: 'its body' });
+const API_SIGNAL_ADD = Object.freeze({ status: 'an assertion on the status code', schema: 'a check of the body against its schema',
+  body: 'an assertion on what the body holds' });
+
+/**
+ * Which of a response's status, schema and body a test file's assertion lines name [CQF:REQ-036]: in JavaScript and
+ * TypeScript the lines of the tests tagged with `clauseId` (the whole file when none is), elsewhere the whole file
+ * with its strings and comments masked. In API_ASSERTION_SIGNALS order.
+ */
+export function apiAssertionSignals(source, { sourcePath = 'test.js', clauseId = null } = {}) {
+  const text = String(source ?? '');
+  const language = documentationLanguage(posix(sourcePath));
+  const js = !language || language === 'javascript' || language === 'typescript';
+  let lines = text.split(/\r?\n/u);
+  if (js) {
+    // Each test runs to the next one; a skipped test asserts nothing.
+    const starts = scanJavaScriptDeclarations(text, { sourcePath: posix(sourcePath), framework: /\bfrom\s+['"]node:test['"]/u.test(text) ? 'node:test' : 'jest' })
+      .declarations.map((decl) => ({ line: decl.line, tagged: decl.clauseIds?.includes(clauseId), skipped: decl.skipped === true })).sort((left, right) => left.line - right.line);
+    const own = starts.map((decl, index) => ({ ...decl, end: (starts[index + 1]?.line ?? lines.length + 1) - 1 })).filter((decl) => decl.tagged);
+    if (own.length) lines = own.filter((decl) => !decl.skipped).flatMap((decl) => lines.slice(decl.line - 1, decl.end));
+  } else lines = maskPolyglotNonCode(text, language).split(/\r?\n/u);
+  const words = lines.filter((line) => ASSERTION_LINE[js ? 'js' : 'other'].test(line))
+    .flatMap((line) => [...(line.match(/[A-Za-z_]\w*/gu) ?? []), ...(/\.expect\(\s*[1-5]\d\d\b/u.test(line) ? ['status'] : [])]);
+  return API_ASSERTION_SIGNALS.filter((signal) => words.some((word) => API_SIGNAL_NAMES[signal].test(word)));
+}
+
+/**
+ * The plan's API criteria (Interface `api`) and whether their tests assert the response's status, its schema and its
+ * body [CQF:REQ-036]: together, the criterion's tests need all three. Static names, like the rest of this check. A
+ * screenshot never stands in: the plan cannot make one an API criterion's primary witness (contracts.mjs). Each
+ * problem refuses the code step's publication with its other delivery findings, and `nextAction` keeps the repair in
+ * the code step.
+ */
+export async function apiCriterionAssertionCheck(root, { contracts = new Map(), witnesses = [], phaseId = null } = {}) {
+  const criteria = [...contracts.values()].filter((contract) => contract.interface === 'api').map((contract) => contract.clauseId).sort();
+  const sources = new Map();
+  const results = [];
+  for (const clauseId of criteria) {
+    const own = witnesses.filter((witness) => witness.clauseId === clauseId && !witness.skipped);
+    if (!own.length) continue;
+    const tests = [...new Set(own.map((witness) => witness.testSource))].sort();
+    const signals = new Set();
+    for (const relative of tests) {
+      if (!sources.has(relative)) {
+        let text = '';
+        try {
+          const bytes = await readReviewArtifactBytes(root, relative, 'API criterion test', { maximumBytes: CORNER_CASE_LIMITS.fileBytes });
+          if (bytes && !bytes.includes(0)) text = bytes.toString('utf8');
+        } catch { /* an unreadable test asserts nothing here; its own finding names it */ }
+        sources.set(relative, text);
+      }
+      for (const signal of apiAssertionSignals(sources.get(relative), { sourcePath: relative, clauseId })) signals.add(signal);
+    }
+    results.push({ clauseId, tests, asserts: API_ASSERTION_SIGNALS.filter((signal) => signals.has(signal)),
+      missing: API_ASSERTION_SIGNALS.filter((signal) => !signals.has(signal)) });
+  }
+  const refused = results.filter((entry) => entry.missing.length);
+  return {
+    criteria: results,
+    problems: refused.map(({ clauseId, tests, asserts, missing }) => `${clauseId} is an API criterion, so its tests must assert the response's status, `
+      + `its schema and its body: ${tests.join(', ')} ${asserts.length ? `assert${tests.length === 1 ? 's' : ''} only ${asserts.map((signal) => API_SIGNAL_WORDS[signal]).join(' and ')}`
+        : `assert${tests.length === 1 ? 's' : ''} none of them`}. Add ${missing.map((signal) => API_SIGNAL_ADD[signal]).join(', ').replace(/, (?=[^,]*$)/u, ' and ')}. A screenshot never proves an API`),
+    problemFindings: refused.map(({ clauseId }) => ({ code: 'code.delivery.api-assertions-missing', path: null, value: [clauseId] })),
+    ...(refused.length && phaseId ? { nextAction: { command: `singularity-flow phase prepublish ${phaseId} --for-agent --json --publish-if-ready`, skill: '/sf-code',
+      label: 'Add the missing status, schema or body assertions, then check again.' } } : {})
+  };
+}
+
 const CHECK_LIST_LIMIT = 50;
 const CHECK_MODES = Object.freeze({ off: 'off', enforce: 'enforce' });
 

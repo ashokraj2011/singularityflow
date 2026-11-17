@@ -4,6 +4,7 @@ import { recordSha256 } from './records.mjs';
 
 export { ARA_VERSION, ARA_NAMESPACE, ARA_SURFACES, ARA_ACTIONS, ARA_READS, araFail, exactFields, reviewRelativePath, normalizeApplicationReview } from './application-review-policy.mjs';
 import { ARA_VERSION, araFail } from './application-review-policy.mjs';
+export { reviewApplicability } from './application-review-policy.mjs';
 export const reviewDigest = value => `sha256:${recordSha256(value)}`;
 
 export function applicationReviewPolicy(workflow) {
@@ -19,15 +20,6 @@ export function reviewSubject(workflow, phaseId = workflow?.currentPhase) {
   const phase = workflow?.phases?.[phaseId];
   if (!workflow?.workItem?.id || !phase) araFail('ARA_SUBJECT_UNAVAILABLE', 'Select a Story and its existing code-bearing phase.');
   return { kind: 'story-phase', workId: workflow.workItem.id, phaseId, generation: phase.generation };
-}
-
-/** Observed UI always strengthens a declared non-UI profile. Unknown auto scope stays unresolved. */
-export function reviewApplicability(policy, paths) {
-  const ui = paths.some(file => /\.(?:jsx|tsx|vue|svelte|html|css|scss)$/iu.test(file) && !/\.(?:test|spec)\./iu.test(file));
-  const surface = ui ? 'web' : policy?.surface ?? 'auto';
-  const resolved = surface !== 'auto';
-  return { resolved, surface, reason: ui ? 'Observed user-facing source changes' : resolved ? 'Explicit adopted review profile' : 'Change surface requires an explicit review profile',
-    dimensions: { visual: surface === 'web' ? 'pending' : resolved ? 'not-applicable' : 'pending', functional: 'pending' } };
 }
 
 /** Versioned events are immutable, content addressed and chained under the owner's transaction. */

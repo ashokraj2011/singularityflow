@@ -211,6 +211,7 @@ async function visualAssuranceSnapshot(root, definition, workflow) {
   if (coverage) {
     errors.push(...coverage.errors); warnings.push(...coverage.warnings);
     if (coverage.status === 'pass') passes.push(`visual coverage: ${coverage.covered.length}/${coverage.profiles.length} profile(s)`);
+    if (coverage.applicability) passes.push(coverage.applicability.words);
   }
 
   let comparisons = [];

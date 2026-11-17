@@ -26,7 +26,7 @@ related:
   - workflow-decisions
   - rejection-and-rework
   - changing-requirements
-version: 37
+version: 38
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call. When a requirement or criterion itself changes after the scope is approved, see `sflow explain changing-requirements`.
 
@@ -83,7 +83,9 @@ Assurance has two facets on each verify obligation: identity (`declared` for a t
 
 ### Verification contracts
 
-A plan may say exactly how each acceptance criterion is verified, in its own `## Verification contracts` table beside the planned-evidence table. Each row is one witness slot: `| Criterion | Slot | Method | Witness |`, with optional `Role` (primary or supporting), `Required assurance`, `Combination` (all or any) and `Reason` columns. The method is `test` (an executable test file, which must be one of the criterion's planned tests), `inspection` (a reviewer inspects an exact file) or `visual` (visual evidence of a named screen). Publishing the plan refuses a contract that could never verify honestly: an unknown criterion, an unsupported method such as a measurement, a slot named twice, a criterion with only supporting witnesses, `any` without a reason, a test that is not planned, or a required assurance the method cannot reach (nothing reaches exact-authenticated here).
+A plan may say exactly how each acceptance criterion is verified, in its own `## Verification contracts` table beside the planned-evidence table. Each row is one witness slot: `| Criterion | Slot | Method | Witness |`, with optional `Role` (primary or supporting), `Required assurance`, `Combination` (all or any), `Reason` and `Interface` columns. The method is `test` (an executable test file, which must be one of the criterion's planned tests), `inspection` (a reviewer inspects an exact file) or `visual` (visual evidence of a named screen). Publishing the plan refuses a contract that could never verify honestly: an unknown criterion, an unsupported method such as a measurement, a slot named twice, a criterion with only supporting witnesses, `any` without a reason, a test that is not planned, or a required assurance the method cannot reach (nothing reaches exact-authenticated here).
+
+`Interface` `api` declares an API criterion: a screenshot or an inspection never proves an API, so its primary slots must be tests, and the code step's publication refuses it until its tagged tests assert the response's status, check it against a schema and assert its body; the route is the code step's own prepublish [CQF:REQ-036].
 
 Every primary slot must be met (`all`), or, when the plan gives a reason, one of them (`any`). A supporting slot is shown but never satisfies a criterion. A criterion with no row keeps one test slot over its planned tests. Only a criterion with a primary test slot needs an `@ac` tag: one verified by inspection or visual evidence, or whose tests the plan reviewed as not applicable, needs none.
 

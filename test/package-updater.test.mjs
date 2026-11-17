@@ -15,6 +15,7 @@ import { installPackages, runtimePathFromOutput } from '../runtime/updater/insta
 import { installPair } from '../runtime/install-pair.mjs';
 import { pair } from './helpers/package-updater-artifacts.mjs';
 import { localCertificate } from './helpers/package-updater-tls.mjs';
+import { standaloneUpdater } from './helpers/package-updater-package.mjs';
 
 const exec = promisify(execFile), root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex'), silent = () => {};
@@ -32,6 +33,7 @@ async function writePair(work, fixture) {
 test('one positional folder argument and remembered invocation require no extra settings', () => {
   assert.deepEqual(parseOptions(['https://files.sharepoint.com/:f:/s/build?e=a&b=c']), {source:'https://files.sharepoint.com/:f:/s/build?e=a&b=c'});
   assert.deepEqual(parseOptions([]), {});
+  assert.deepEqual(parseOptions(['--reinstall']), {reinstall:true});
   assert.deepEqual(parseOptions(['--folder','https://files.sharepoint.com/x','--check-only']), {source:'https://files.sharepoint.com/x',checkOnly:true});
   assert.equal(timeoutSeconds(),900); assert.equal(timeoutSeconds(300),300);
   for (const bad of [60,299,3601,'600ms']) assert.throws(()=>timeoutSeconds(bad));
@@ -136,7 +138,7 @@ test('changed download is rejected before any package execution', async t => {
 });
 
 test('real offline npm staging and direct installer handoff run in an isolated private runtime', async t => {
-  const directory=await area(t),fixture=pair(),paths=await writePair(directory,fixture);
+  const directory=await area(t),fixture=pair({exerciseReinstall:true}),paths=await writePair(directory,fixture);
   assert.match(process.version,/^v26\./);
   const runtime=path.join(directory,'engine','runtimes','node-'+process.version+'-'+process.platform+'-'+process.arch);
   const executable=path.join(runtime,...(process.platform==='win32'?['node.exe']:['bin','node']));
@@ -160,8 +162,9 @@ test('real offline npm staging and direct installer handoff run in an isolated p
   await symlink(npmSource,npmTarget,process.platform==='win32'?'junction':'dir');
   const result=path.join(directory,'result.json'),emptyConfig=path.join(directory,'npmrc');
   await writeFile(emptyConfig,'');
-  await exec(executable,[path.join(root,'runtime','install-pair.mjs'),'--tarball',paths.tarball,'--vsix',paths.vsix,
-    '--cli-sha256',sha(fixture.cli),'--vsix-sha256',sha(fixture.vsix)],{
+  const standalone=await standaloneUpdater(directory);
+  await exec(executable,[path.join(standalone,'runtime','install-pair.mjs'),'--tarball',paths.tarball,'--vsix',paths.vsix,
+    '--cli-sha256',sha(fixture.cli),'--vsix-sha256',sha(fixture.vsix),'--reinstall'],{
     env:{...process.env,SFLOW_PAIR_TEST_RESULT:result,NPM_CONFIG_USERCONFIG:emptyConfig,NPM_CONFIG_CACHE:path.join(directory,'cache')},
     timeout:30000
   });
@@ -169,6 +172,7 @@ test('real offline npm staging and direct installer handoff run in an isolated p
   assert.equal(installed.sha256,sha(fixture.cli));assert.equal(await realpath(installed.nodeExecutable),await realpath(executable));
   assert.ok(installed.tarball.startsWith(path.join(directory,'install-inputs')));
   assert.equal((await readFile(installed.tarball)).equals(fixture.cli),true);
+  assert.deepEqual(installed.calls,['--list-extensions','--uninstall-extension','--list-extensions','--install-extension','uninstall','install']);
 });
 
 test('real HTTPS public-folder listing, paging, cookies and binary downloads through both launchers', async t => {
@@ -204,18 +208,19 @@ test('real HTTPS public-folder listing, paging, cookies and binary downloads thr
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   origin='https://127.0.0.1:'+server.address().port;
   t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve);}));
+  const standalone=await standaloneUpdater(directory);
   const state=path.join(directory,'state'),env={...process.env,CURL_CA_BUNDLE:ca,SINGULARITY_FLOW_PACKAGE_UPDATER_HOME:state};
   const args={cwd:root,env,timeout:60000};
   const launch=async values=>process.platform==='win32'
-    ? exec('powershell.exe',['-NoLogo','-NoProfile','-File',path.join(root,'update-sflow.ps1'),...values],args)
-    : exec('/bin/bash',[path.join(root,'update-sflow.sh'),...values],args);
+    ? exec('powershell.exe',['-NoLogo','-NoProfile','-File',path.join(standalone,'update-sflow.ps1'),...values],args)
+    : exec('/bin/bash',[path.join(standalone,'update-sflow.sh'),...values],args);
   const first=await launch([origin+'/share?e=cap&another=value','--check-only']);
   assert.match(first.stdout,/packages match. Folder link saved/);
   assert.doesNotMatch(first.stdout,/Updating SFlow CLI/);
   assert.doesNotMatch(first.stdout,/scoped-public-token/);
   const repeated=await launch(['--check-only']);
   assert.match(repeated.stdout,/Folder link saved/);
-  const ps=await exec('pwsh',['-NoLogo','-NoProfile','-File',path.join(root,'update-sflow.ps1'),origin+'/share?e=cap&another=value','--check-only'],args);
+  const ps=await exec('pwsh',['-NoLogo','-NoProfile','-File',path.join(standalone,'update-sflow.ps1'),origin+'/share?e=cap&another=value','--check-only'],args);
   assert.match(ps.stdout,/packages match/);
   // Windows can resolve several executable extensions for one name. Select the first command,
   // rather than joining their paths into an executable that cannot exist.
@@ -227,7 +232,7 @@ test('real HTTPS public-folder listing, paging, cookies and binary downloads thr
   & $env:SFLOW_TEST_UPDATER $env:SFLOW_TEST_FOLDER --check-only`;
   const multipleResult=await exec(process.platform==='win32'?'powershell.exe':'pwsh',
     ['-NoLogo','-NoProfile','-Command',multiple],{...args,env:{...env,SFLOW_TEST_NODE:process.execPath,
-      SFLOW_TEST_UPDATER:path.join(root,'update-sflow.ps1'),SFLOW_TEST_FOLDER:origin+'/share?e=cap&another=value'}});
+      SFLOW_TEST_UPDATER:path.join(standalone,'update-sflow.ps1'),SFLOW_TEST_FOLDER:origin+'/share?e=cap&another=value'}});
   assert.match(multipleResult.stdout,/packages match/);
   assert.equal(requests.filter(p=>p==='/binary/cli').length,4);
   assert.equal(requests.filter(p=>p==='/binary/vsix').length,4);

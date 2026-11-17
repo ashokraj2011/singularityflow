@@ -29,10 +29,10 @@ export async function managedNode(environment = process.env, execute = processCo
   if (!info.isFile() || info.isSymbolicLink()) throw Error('Private runtime executable is not an ordinary file.');
   return executable;
 }
-export async function installPackages(pair, { environment = process.env, execute = processCommand, nodeResolver = managedNode } = {}) {
+export async function installPackages(pair, { environment = process.env, execute = processCommand, nodeResolver = managedNode, reinstall = false } = {}) {
   const executable = await nodeResolver(environment, execute);
   await execute(executable, [path.join(root, '..', 'install-pair.mjs'), '--tarball', pair.tarball,
-    '--vsix', pair.vsix, '--cli-sha256', pair.cliSha256, '--vsix-sha256', pair.vsixSha256], {
+    '--vsix', pair.vsix, '--cli-sha256', pair.cliSha256, '--vsix-sha256', pair.vsixSha256, ...(reinstall ? ['--reinstall'] : [])], {
     cwd: path.dirname(pair.tarball), env: environment, timeoutMs: 3600000
   });
 }

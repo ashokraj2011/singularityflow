@@ -25,14 +25,20 @@ function tar(files) {
   }
   return gzipSync(Buffer.concat([...chunks,Buffer.alloc(1024)]));
 }
-export function pair({ version='0.9.0', vsixVersion=version, differentBuild=false }={}) {
+export function pair({ version='0.9.0', vsixVersion=version, differentBuild=false, exerciseReinstall=false }={}) {
   const versionSource = Buffer.from("export const VERSION = '"+version+"';\n");
   const build = Buffer.from("export const BUILD_INFO = {commit:'"+'a'.repeat(40)+"',builtAt:'2026-11-18T00:00:00.000Z'};\n");
-  const api = Buffer.from("import{writeFile}from'node:fs/promises';export async function installManagedProduct(o){await writeFile(process.env.SFLOW_PAIR_TEST_RESULT,JSON.stringify({tarball:o.tarball,vsix:o.vsix,sha256:o.sha256,nodeExecutable:o.nodeExecutable}));return{status:'complete',stages:{cli:'verified',vscode:'verified',copilot:'verified',path:'verified'}}}\n");
+  const api = Buffer.from("import{writeFile}from'node:fs/promises';export async function installManagedProduct(o){"
+    + (exerciseReinstall ? "o.execute('code',['--install-extension',o.vsix],{});await o.executeNode(o.nodeExecutable,['cli.mjs','plugin','install'],{});" : '')
+    + "await writeFile(process.env.SFLOW_PAIR_TEST_RESULT,JSON.stringify({tarball:o.tarball,vsix:o.vsix,sha256:o.sha256,nodeExecutable:o.nodeExecutable,calls:globalThis.sflowFixtureCalls}));return{status:'complete',stages:{cli:'verified',vscode:'verified',copilot:'verified',path:'verified'}}}\n");
   const cli = tar(new Map([
     ['package/package.json',Buffer.from(JSON.stringify({name:'singularity-flow',version,type:'module'}))],
     ['package/src/version.mjs',versionSource],['package/src/build-info.mjs',build],
-    ['package/runtime/product-install.mjs',api]
+    ['package/runtime/product-install.mjs',api],
+    ...(exerciseReinstall ? [
+      ['package/src/util.mjs',Buffer.from("let installed=true;globalThis.sflowFixtureCalls=[];export function run(c,a){sflowFixtureCalls.push(a[0]);if(a[0]==='--uninstall-extension')installed=false;if(a[0]==='--install-extension')installed=true;return{status:0,stdout:a[0]==='--list-extensions'&&installed?'singularityflow.singularity-flow-vscode':''};}")],
+      ['package/runtime/install.mjs',Buffer.from("export async function installerProcess(c,a){globalThis.sflowFixtureCalls.push(a[2]);return{stdout:'',stderr:''}}")]
+    ] : [])
   ]));
   const vsix = zip(new Map([
     ['extension/package.json',Buffer.from(JSON.stringify({publisher:'singularityflow',name:'singularity-flow-vscode',version:vsixVersion}))],

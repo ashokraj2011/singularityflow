@@ -1931,6 +1931,12 @@
         "shell-process": 2
       },
       "digest": "4f67a7cd9d3e6c97445e40c7334675ee5b381f744c448b82ad4910a313bba300"
+    },
+    "distribution/package-updater/Update SFlow.cmd": {
+      "counts": {
+        "shell-process": 1
+      },
+      "digest": "992b824ad3c240b1a8cea0e79df58ff0d444517873f0c645ee7c3cd78e9f8240"
     }
   }
 }

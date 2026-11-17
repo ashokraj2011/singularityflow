@@ -1,5 +1,11 @@
 # GAL Git bypass regression gate
 
+The standalone updater's `Update SFlow.cmd` adds one reviewed fixed system PowerShell launch. Its
+execution-policy option is limited to that process and does not change machine or user policy.
+The folder prompt runs inside Node. The packager and reinstall hooks reuse the existing installer
+process owners; removals occur inside the product installer's existing lease and recovery record.
+No Git transport or new process owner is added.
+
 The SharePoint package updater adds two reviewed shell launcher sites in `update-sflow.sh`:
 preparing the existing private Node runtime when necessary, then executing `runtime/update.mjs`
 with the original argument array. Neither site runs Git. Download and installer subprocesses use

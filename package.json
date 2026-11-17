@@ -59,6 +59,7 @@
     "scripts/copilot-hook-benchmark.mjs",
     "scripts/skill-policy.mjs",
     "scripts/install-staged-artifacts.mjs",
+    "scripts/build-package-updater.mjs",
     "scripts/repair-unreceipted-installation.mjs",
     "scripts/replace-identities.mjs",
     "scripts/verification-receipt.mjs",

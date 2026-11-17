@@ -5,10 +5,11 @@ import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline/promises';
 import { inspectPair } from './updater/artifacts.mjs';
 import { downloadPair, folderUrl } from './updater/sharepoint.mjs';
 import { installPackages } from './updater/installer.mjs';
+import { isMainModule } from './updater/entry.mjs';
 export { runtimePathFromOutput } from './updater/installer.mjs';
 export { inspectPair } from './updater/artifacts.mjs';
 
@@ -28,6 +29,7 @@ export function parseOptions(argv) {
       if (options[field] !== undefined) fail('Give the folder link/timeout only once.');
       options[field] = argv[++i];
     } else if (arg === '--check-only') options.checkOnly = true;
+    else if (arg === '--reinstall') options.reinstall = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else if (!arg.startsWith('-') && options.source === undefined) options.source = arg;
     else fail('Unknown argument: ' + arg + '. Use --help.');
@@ -75,12 +77,13 @@ export async function saveConfig(directory, config) {
   } finally { await rm(temporary, { force: true }); }
 }
 export async function runUpdate(options, { environment = process.env, homeDirectory = os.homedir(),
-  downloader = downloadPair, installer = installPackages, log = console.log } = {}) {
+  downloader = downloadPair, installer = installPackages, log = console.log, askSource = null } = {}) {
   const directory = path.resolve(environment.SINGULARITY_FLOW_PACKAGE_UPDATER_HOME || environment.SFLOW_UPDATER_HOME
     || path.join(homeDirectory, '.singularity-flow', 'package-updater'));
   await privateDirectory(directory);
   const saved = await loadConfig(directory);
-  const source = folderUrl(options.source || saved.source || fail('First run: give the SharePoint folder link after the script name.'));
+  const source = folderUrl(options.source || saved.source || (askSource && await askSource())
+    || fail('First run: give the SharePoint folder link after the script name.'));
   const timeout = timeoutSeconds(options.timeout ?? saved.timeoutSeconds ?? 900);
   const work = await mkdtemp(path.join(directory, 'stage-')); await chmod(work, 0o700);
   let completed = false;
@@ -95,8 +98,8 @@ export async function runUpdate(options, { environment = process.env, homeDirect
       completed = true;
       return { status: 'checked', installed: false, version: inspected.version };
     }
-    log('Updating SFlow CLI, VS Code and Copilot…');
-    await installer(pair, { environment });
+    log(options.reinstall ? 'Reinstalling SFlow CLI, VS Code and Copilot…' : 'Updating SFlow CLI, VS Code and Copilot…');
+    await installer(pair, { environment, reinstall: Boolean(options.reinstall) });
     completed = true;
     log('Update complete. Restart VS Code/Copilot and open a new terminal to load the update.');
     return { status: 'complete', installed: true, version: inspected.version };
@@ -116,12 +119,20 @@ Later updates:
 
 The public folder needs the current .tgz and .vsix. The link is remembered.
 Optional: --check-only (download/check without installation)
+          --reinstall (remove/reinstall the SFlow extension and Copilot integration)
           --timeout-seconds 1800 (default 900; minimum 300)
 `;
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+export async function main({ reinstall = false } = {}) {
   try {
     const options = parseOptions(process.argv.slice(2));
     if (options.help) console.log(HELP);
-    else await runUpdate(options);
+    else await runUpdate({ ...options, reinstall: reinstall || options.reinstall }, {
+      askSource: process.stdin.isTTY ? async () => {
+        const prompt = createInterface({ input: process.stdin, output: process.stdout });
+        try { return (await prompt.question('Paste the public SharePoint folder link: ')).trim(); }
+        finally { prompt.close(); }
+      } : null
+    });
   } catch (error) { console.error('SFlow update failed: ' + error.message); process.exitCode = 1; }
 }
+if (await isMainModule(import.meta.url)) await main();

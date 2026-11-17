@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 49
+version: 50
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -46,6 +46,10 @@ Use this topic when the current goal matches **installation and upgrades**. Star
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
 ## Install a promoted distribution
+
+Users can also extract the standalone `SFlow-Updater.zip` and open **Update SFlow.command** (Mac)
+or **Update SFlow.cmd** (Windows). It prompts for and remembers the public folder link; no clone
+is required. Build the ZIP with `node scripts/build-package-updater.mjs`.
 
 For a direct update from an organisation's public SharePoint package folder, run
 `bash update-sflow.sh 'YOUR_SHAREPOINT_FOLDER_LINK'` on Mac or

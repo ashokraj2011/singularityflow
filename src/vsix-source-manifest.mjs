@@ -27,6 +27,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'runtime/update.mjs', 'runtime/install-pair.mjs',
   'runtime/updater/sharepoint.mjs', 'runtime/updater/installer.mjs',
   'runtime/updater/artifacts.mjs', 'runtime/updater/process.mjs',
+  'runtime/updater/reinstall.mjs', 'runtime/updater/entry.mjs',
   'src/gal-async-read.mjs',
   'src/step-actions.mjs',
   'src/step-action-delivery.mjs',

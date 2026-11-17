@@ -3,9 +3,11 @@
 import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { inspectPair } from './updater/artifacts.mjs';
 import { processCommand } from './updater/process.mjs';
+import { reinstallHooks } from './updater/reinstall.mjs';
+import { isMainModule } from './updater/entry.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 async function bytes(file) {
@@ -40,16 +42,30 @@ export async function installPair(options, { execute = processCommand, executabl
   // HTTPS folder, as with a direct package install; this is not a signed-release claim.
   const module = await import(pathToFileURL(api).href);
   if (typeof module.installManagedProduct !== 'function') throw Error('The CLI package has no compatible full-product installer.');
-  const result = await module.installManagedProduct({ tarball, sha256: options.cliSha256, vsix, nodeExecutable: executable });
+  let hooks;
+  if (options.reinstall) {
+    const [processOwner, nodeOwner] = await Promise.all([
+      import(pathToFileURL(path.join(packageRoot, 'src', 'util.mjs')).href),
+      import(pathToFileURL(path.join(packageRoot, 'runtime', 'install.mjs')).href)
+    ]);
+    if (typeof processOwner.run !== 'function' || typeof nodeOwner.installerProcess !== 'function') {
+      throw new Error('The downloaded CLI has no compatible reinstallation process owners. Existing installation was preserved.');
+    }
+    hooks = reinstallHooks({ runProcess: processOwner.run, runNode: nodeOwner.installerProcess });
+  }
+  const result = await module.installManagedProduct({ tarball, sha256: options.cliSha256, vsix,
+    nodeExecutable: executable, ...(hooks ? { execute: hooks.execute, executeNode: hooks.executeNode } : {}) });
   if (result?.status !== 'complete' || ['cli', 'vscode', 'copilot', 'path'].some(stage => result.stages?.[stage] !== 'verified')) {
     throw Error('The product installer did not confirm all requested surfaces. Its recovery records were preserved; no completion was claimed.');
   }
+  hooks?.verify();
   return result;
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (await isMainModule(import.meta.url)) {
   try {
     const options = {}, fields = { '--tarball': 'tarball', '--vsix': 'vsix', '--cli-sha256': 'cliSha256', '--vsix-sha256': 'vsixSha256' };
     for (let i = 2; i < process.argv.length; i++) {
+      if (process.argv[i] === '--reinstall') { options.reinstall = true; continue; }
       const field = fields[process.argv[i]];
       if (!field || !process.argv[i + 1] || process.argv[i + 1].startsWith('--')) throw Error('Invalid package-install helper arguments.');
       options[field] = process.argv[++i];

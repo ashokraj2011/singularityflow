@@ -32,6 +32,7 @@ import {
   readAutoFlightReport, readAutoFlightState, resumeAutoFlight
 } from '../src/auto/auto-flight-store.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { autoFlightRead } from '../src/gateway/planners/auto-flight.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
@@ -396,6 +397,22 @@ function lifecycleWithSubmitFailures(count) {
     });
     return { status: result.status, stdout: result.stdout, stderr: result.stderr, signal: null };
   };
+}
+
+/** The Repair Plan an older build made for a flight's refusal: the same plan, whose objective names no version it starts. */
+async function olderRepairPlan(root, flight) {
+  const refusal = (await listAutoP1Records(root, 'auto-refusal', flight.flightId))
+    .find((entry) => entry.refusalId === flight.activeRefusalId);
+  const missing = refusal.missing.map((entry) => entry.evidence ?? entry.requirement ?? entry.message).filter(Boolean);
+  return persistAutoRepairPlan(root, {
+    flightId: flight.flightId, parentAttemptId: refusal.attemptId, refusalSha256: refusal.refusalSha256,
+    objective: missing.length ? `Resolve: ${missing.join('; ')}` : `Resolve ${refusal.code} at ${refusal.gate}.`,
+    readScope: [...new Set([...(flight.scopePrediction ?? []), ...(refusal.repair.scope ?? [])])],
+    writeScope: refusal.repair.scope ?? [],
+    forbiddenChanges: ['protected governance paths', 'scope outside this exact Repair Plan', 'new external effects'],
+    requiredEvidence: missing.length ? missing : [`${refusal.gate} returns a passing deterministic verdict`],
+    budget: { maximumAttempts: 1, remainingModelInvocations: 1 }, attemptNumber: 1
+  });
 }
 
 test('post-authorization Auto state writes cannot bypass the stop-aware executor CAS', async () => {
@@ -1774,20 +1791,9 @@ test('a Repair Plan an older build made, which names no version, is planned agai
   const refused = await runFlightStep(root, started.flight, { childLifecycle: lifecycle });
   assert.equal(refused.status, 'waiting-human');
   const { flightId, activeRefusalId } = refused;
-  // The Repair Plan an older build made for this refusal: the same plan, whose objective does not name the version the
-  // repair of the published step starts.
-  const refusal = (await listAutoP1Records(root, 'auto-refusal', flightId))
-    .find((entry) => entry.refusalId === activeRefusalId);
-  const missing = refusal.missing.map((entry) => entry.evidence ?? entry.requirement ?? entry.message).filter(Boolean);
-  const older = await persistAutoRepairPlan(root, {
-    flightId, parentAttemptId: refusal.attemptId, refusalSha256: refusal.refusalSha256,
-    objective: missing.length ? `Resolve: ${missing.join('; ')}` : `Resolve ${refusal.code} at ${refusal.gate}.`,
-    readScope: [...new Set([...(refused.scopePrediction ?? []), ...(refusal.repair.scope ?? [])])],
-    writeScope: refusal.repair.scope ?? [],
-    forbiddenChanges: ['protected governance paths', 'scope outside this exact Repair Plan', 'new external effects'],
-    requiredEvidence: missing.length ? missing : [`${refusal.gate} returns a passing deterministic verdict`],
-    budget: { maximumAttempts: 1, remainingModelInvocations: 1 }, attemptNumber: 1
-  });
+  // The Repair Plan an older build made for this refusal: its objective does not name the version the repair of the
+  // published step starts.
+  const older = await olderRepairPlan(root, refused);
   assert.doesNotMatch(older.objective, /Confirming this plan/u);
   // Confirming it is not the person's yes to version 2; its refusal names the review that plans it again.
   const review = `singularity-flow auto repair ${flightId} --refusal ${activeRefusalId}`;
@@ -1831,6 +1837,70 @@ test('a Repair Plan an older build made, which names no version, is planned agai
   assert.equal(workflow.phases.implement.versionOpening.version, 2);
   assert.equal(workflow.phases.implement.versionOpening.consent.surface, 'auto-repair',
     'Version 2 opened through the one opening operation on the person\'s confirmation of the plan that names it.');
+});
+
+test('a repair an older build authorized before its plan named the version, and that never ran, is reviewed again and opens version 2 only on the person\'s yes', slowLane(), async () => {
+  const root = await executableRepository();
+  const plan = await createAutoPlan(root, 'Change the value and repair one refused submission an older build authorized.', {
+    ...proposal,
+    workType: 'quick-fix',
+    predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'submitted:implement'
+  }, {
+    workId: 'AUT-REPAIR-SUPERSEDED', workType: 'quick-fix', fromBranch: 'main',
+    until: 'submitted:implement'
+  });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const lifecycle = lifecycleWithSubmitFailures(1);
+  const refused = await runFlightStep(root, started.flight, { childLifecycle: lifecycle });
+  assert.equal(refused.status, 'waiting-human');
+  const { flightId, activeRefusalId } = refused;
+  const older = await olderRepairPlan(root, refused);
+  // The older build authorized that plan with no version check (its Story authority named no version to start), then
+  // stopped before its repair ran.
+  const olderAuthority = async (state) => {
+    const { workflow } = await loadAcceptedStoryExecution(state.worktree, state.story.workId);
+    return { workflow: null, phase: workflow.phases[workflow.currentPhase] };
+  };
+  const crashed = await authorizeAutoRepair(root, flightId, older.repairPlanId, older.repairPlanSha256,
+    { loadStoryAuthority: olderAuthority });
+  assert.equal(crashed.flight.position, 'repair-authorized');
+  assert.equal(crashed.flight.activeRepair.versionOpening, undefined);
+  // Under this build that authorization is not the person's yes to version 2. Nothing runs under it: the flight waits for
+  // the person on the same refusal, its reservation closed unspent, and its next action is the review.
+  const waiting = await runFlightStep(root, crashed.flight, { childLifecycle: lifecycle });
+  assert.equal(waiting.status, 'waiting-human', `${waiting.status}/${waiting.stopReason}: ${waiting.lastError?.message ?? waiting.nextAction}`);
+  assert.equal(waiting.stopReason, 'repair-review-required');
+  assert.equal(waiting.position, 'published');
+  assert.equal(waiting.activeRefusalId, activeRefusalId);
+  assert.equal(waiting.activeRepairPlanId, null);
+  assert.equal(waiting.counters.modelInvocations, 1, 'Nothing ran under the older authorization.');
+  assert.deepEqual(waiting.repairAttempts, []);
+  assert.ok(waiting.nextAction.includes(`singularity-flow auto repair ${flightId} --refusal ${activeRefusalId}`), waiting.nextAction);
+  const reservation = (await listAutoP1Records(root, 'auto-attempt', flightId))
+    .find((entry) => entry.attemptId === crashed.attempt.attemptId);
+  assert.equal(reservation.status, 'failed');
+  assert.equal(reservation.result.code, 'AUTO_REPAIR_AUTHORIZATION_SUPERSEDED');
+  const story = JSON.parse(await readFile(path.join(
+    waiting.worktree, 'singularity/work-items/AUT-REPAIR-SUPERSEDED/workflow.json'), 'utf8'));
+  assert.equal(story.phases.implement.versionOpening.version, 1, 'Version 2 did not open.');
+  // The review plans it again naming version 2; the person's confirmation of that plan is the one repair of this refusal.
+  const replanned = await planAutoRepair(root, flightId, activeRefusalId);
+  assert.equal(replanned.reused, false);
+  assert.equal(replanned.versionOpening.version, 2);
+  const authorized = await authorizeAutoRepair(
+    root, flightId, replanned.repairPlan.repairPlanId, replanned.repairPlan.repairPlanSha256
+  );
+  assert.equal(authorized.flight.repairAttempts.length, 1);
+  assert.equal(authorized.flight.activeRepair.versionOpening.version, 2);
+  const repaired = await runFlightStep(root, authorized.flight, { childLifecycle: lifecycle });
+  assert.equal(repaired.status, 'completed',
+    `${repaired.status}/${repaired.stopReason}: ${repaired.lastError?.message ?? repaired.nextAction}`);
+  assert.equal(repaired.counters.modelInvocations, 2);
+  const workflow = JSON.parse(await readFile(path.join(
+    repaired.worktree, 'singularity/work-items/AUT-REPAIR-SUPERSEDED/workflow.json'), 'utf8'));
+  assert.equal(workflow.phases.implement.generation, 2);
+  assert.equal(workflow.phases.implement.versionOpening.consent.surface, 'auto-repair');
 });
 
 test('a failed confirmed repair halts permanently and cannot consume a third model invocation', async () => {

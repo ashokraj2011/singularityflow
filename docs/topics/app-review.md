@@ -1,7 +1,7 @@
 ---
 id: app-review
 title: Application review and acceptance
-version: 6
+version: 7
 commands: [app-review]
 related: [outcome-review, run-and-test, repository-commit-policy]
 ---
@@ -58,6 +58,8 @@ Every published code phase first offers **Check the Outcome**, regardless of whe
 The read-only `app-review plan` and `app-review status` commands do not launch an application, capture images, record consent, or alter Story state. Opening the local review page also does not start the application. Choose **Start / refresh verified preview** to authorize its declared local build and controlled browser.
 
 Use **Report and fix** to authorize an in-scope repair, or **Report only** to retain an observation. Missing screenshots do not prevent feedback. The configured phase agent, skills, instructions, tests, scope and publication rules remain authoritative. A closed delivery needs its existing owner to admit a successor before source edits. Passing tests leads to recheck; it does not resolve a human finding.
+
+**Report and fix** records the repair and its budget, but it does not start the repaired version. That version opens only on your own yes: the step's preview (`singularity-flow phase rollover <step>`) asks **Start version N of …?**, and the version opens when you confirm it. The version already published stays unchanged.
 
 After the workflow advances, the review retains feedback and shows the existing owner route legal in the current phase. Approved code is corrected through an authorized return or reopening. Once a repaired target has its own submitted checks, SFlow records the actual outcome automatically; duplicate finding merges preserve the consumed repair budget.
 

@@ -68,6 +68,32 @@ export async function openAuthorizedRepairVersion(root, state) {
 }
 
 /**
+ * A repair authorized without the person's yes to the version it now starts, under which nothing ran: an older build's
+ * authorization, given before Repair Plans named that version, then stopped before its repair. Its reservation is still
+ * `planned`, so no model call and no version opening happened under it. The executor gives the flight back to the person
+ * on the same refusal, then `close()` marks the reservation superseded, never spent; `auto repair` plans the repair anew
+ * naming the version, and confirming that plan is their yes [D3, OSA:REQ-030]. Returns `{ nextAction, close }`, or null
+ * when the authorization gives that yes or its repair ran.
+ */
+export async function unnamedRepairAuthorization(root, worktree, state, reservation) {
+  const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+  const { workflow } = await loadAcceptedStoryExecution(worktree, state.story.workId);
+  const needed = await repairVersionOpening(workflow, workflow.phases?.[state.story.phase]);
+  const authorized = state.activeRepair?.versionOpening ?? null;
+  if (!needed || (state.activeRepair?.authorizationSource === 'human-confirmation' && authorized?.phase === needed.phase
+      && Number(authorized.version) === needed.version && Number(authorized.from) === needed.from)) return null;
+  const { readAutoP1Record, updateAutoAttempt } = await import('./auto-p1-records.mjs');
+  const attempt = reservation?.attemptId
+    ? await readAutoP1Record(root, 'auto-attempt', state.flightId, reservation.attemptId).catch(() => null) : null;
+  if (attempt?.status !== 'planned' || attempt.reason !== `repair-authorization:${state.activeRepairPlanId}`) return null;
+  return { nextAction: `Review the repair again: singularity-flow auto repair ${state.flightId} --refusal ${state.activeRefusalId} plans it again naming `
+    + `version ${needed.version} of ${needed.step}, and confirming that plan is your yes to it. Nothing ran under the earlier authorization.`,
+  close: () => updateAutoAttempt(root, state.flightId, attempt.attemptId, { status: 'failed', result: { status: 'failed',
+    code: 'AUTO_REPAIR_AUTHORIZATION_SUPERSEDED', message: `Nothing ran: this authorization was not the person's yes to version ${needed.version} of ${needed.step}.` } },
+  { expectedRecordSha256: attempt.recordSha256 }) };
+}
+
+/**
  * Move the open version of the flight's step to this checkout's writer when another checkout holds it [§7.3, OSA:REQ-034].
  * Returns the takeover (`{ commit, fence }`), or null when nothing is open or this checkout already writes it.
  */

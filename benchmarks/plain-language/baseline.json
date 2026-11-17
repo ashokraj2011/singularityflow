@@ -13,8 +13,8 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 13,
-  "generic-route": 6360,
-  "jargon": 1360,
+  "generic-route": 6357,
+  "jargon": 1359,
   "length": 680
  },
  "unroutedCodes": [
@@ -2872,7 +2872,6 @@
    "073269e76beb": "jargon:provenance",
    "333c1c6ec712": "jargon:admission jargon:transport",
    "4857d99f9d0d": "jargon:generation",
-   "5bffac81933c": "jargon:generation",
    "801c0cbeefe3": "jargon:generation",
    "d82b7e872fa1": "jargon:provenance"
   },

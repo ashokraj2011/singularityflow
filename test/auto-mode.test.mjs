@@ -2352,9 +2352,21 @@ for (const request of ['pause', 'halt']) {
                   await release.promise;
                 }
               };
-      const storyHead = run('git', ['rev-parse', 'HEAD'], started.story.worktree).stdout.trim();
+      const startHead = run('git', ['rev-parse', 'HEAD'], started.story.worktree).stdout.trim();
       const execution = runFlightStep(root, { ...started.flight, worktree: started.story.worktree }, runtime);
       await entered.promise;
+      // Since OSA Stage 2 the code step's version 1 opens through the one opening operation, shared at once in its own
+      // Story commit before any model call [D6, OSA:REQ-031]. That commit is the step's, not the stop's: the stop is
+      // measured from the Story as it stood when the stop was asked for. The prepare window stops inside prepare,
+      // before anything opened.
+      const storyHead = run('git', ['rev-parse', 'HEAD'], started.story.worktree).stdout.trim();
+      if (window === 'prepare') assert.equal(storyHead, startHead);
+      else {
+        assert.equal(run('git', ['rev-list', '--count', `${startHead}..${storyHead}`],
+          started.story.worktree).stdout.trim(), '1', 'only the version opening precedes the model');
+        assert.match(run('git', ['log', '-1', '--format=%s', storyHead], started.story.worktree).stdout,
+          /^Open implement version 1 of /u);
+      }
       await delay(5);
       const stopping = request === 'pause'
         ? pauseAutoFlight(root, started.flight.flightId)

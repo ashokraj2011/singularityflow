@@ -209,6 +209,8 @@ function repairCard(value) {
     `Flight: ${repairPlan.flightId}`,
     `Refusal: ${repairPlan.refusalSha256}`,
     `Objective: ${repairPlan.objective}`,
+    // A repair of a published step starts its next version: confirming the plan is the person's yes to it [D3, OSA:REQ-030].
+    ...(value.versionOpening ? [`New version: ${value.versionOpening.question} Confirming this plan is your yes to it.`] : []),
     `Write scope: ${repairPlan.writeScope.join(', ') || 'none'}`,
     `Required evidence: ${repairPlan.requiredEvidence.join('; ') || 'none'}`,
     `Budget: exactly ${repairPlan.attemptNumber} repair attempt`,

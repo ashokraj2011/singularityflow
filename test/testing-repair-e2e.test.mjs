@@ -126,6 +126,24 @@ async function approvedCodeStory(t, workType) {
   };
 }
 
+/**
+ * The returned Code step's next version is a successor: `phase begin` never opens it, and its preview asks the person
+ * [D3, OSA:REQ-030]. The preview adopts exactly the reviewer's changed test bytes, the change set the old dirty-start
+ * adoption digest named; the person's yes in their own terminal opens it with them.
+ */
+function openReturnedVersionWithTestBytes({ cli, tryCli, codePhase, published }) {
+  const begin = tryCli('phase', 'begin', codePhase);
+  assert.notEqual(begin.status, 0);
+  assert.match(`${begin.stdout}\n${begin.stderr}`, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+  const preview = JSON.parse(cli('phase', 'rollover', codePhase, '--json').stdout);
+  assert.match(preview.question, new RegExp(`^Start version ${published + 1} of `, 'u'));
+  assert.equal(preview.toGeneration, published + 1);
+  assert.match(preview.changeSetDigest ?? '', /^sha256:[a-f0-9]{64}$/u, 'the preview adopts the changed test bytes');
+  assert.equal(preview.mutates, false);
+  const opened = JSON.parse(cli('phase', 'rollover', codePhase, '--confirm', preview.confirmation, '--json').stdout);
+  assert.equal(opened.opening.version, published + 1);
+}
+
 for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dirty review returns changed test bytes to Code with fresh evidence`, slowLane(), async (t) => {
   const {
     root, codePhase, reviewPhase, authorship, summaryPath, testPath, cli, tryCli, workflow,
@@ -203,11 +221,7 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
   assert.equal(await readFile(path.join(root, 'src/value.mjs'), 'utf8'), originalSource);
   assert.equal(await readFile(testPath, 'utf8'), reviewedTest);
 
-  const beginRefusal = tryCli('phase', 'begin', codePhase);
-  assert.notEqual(beginRefusal.status, 0);
-  const adoptionDigest = `${beginRefusal.stdout}\n${beginRefusal.stderr}`.match(/sha256:[a-f0-9]{64}/u)?.[0];
-  assert.ok(adoptionDigest, `missing adoption digest\n${beginRefusal.stdout}\n${beginRefusal.stderr}`);
-  cli('phase', 'begin', codePhase, '--adopt-existing', '--confirm', adoptionDigest);
+  openReturnedVersionWithTestBytes({ cli, tryCli, codePhase, published: originalCodeGeneration });
   cli('prepare', codePhase);
   if (workType === 'classic-delivery') await writeFile(summaryPath, `${await readFile(summaryPath, 'utf8')}\n## Test repair\n\nCorrected the unit-test fixture without modifying approved product behavior.\n`);
   for (const sourcePhase of ['missing-review', codePhase]) {
@@ -230,7 +244,18 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
 
 /** Fill a review step's prepared report so it can be published, citing the Code receipt. */
 async function publishReview(story, phase) {
-  const { root, item, cli, workflow } = story;
+  const { root, item, cli, tryCli, workflow } = story;
+  // A review a return sent back already published a version: its next one opens only on the person's yes [D3,
+  // OSA:REQ-030]. Preparing it first is refused; the step's preview asks them, and their yes in their own terminal opens it.
+  const published = Number((await workflow()).phases[phase].generation ?? 0);
+  if (published >= 1) {
+    const refused = tryCli('prepare', phase);
+    assert.notEqual(refused.status, 0);
+    assert.match(`${refused.stdout}\n${refused.stderr}`, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+    const preview = JSON.parse(cli('phase', 'rollover', phase, '--json').stdout);
+    assert.match(preview.question, new RegExp(`^Start version ${published + 1} of `, 'u'));
+    cli('phase', 'rollover', phase, '--confirm', preview.confirmation, '--json');
+  }
   cli('prepare', phase);
   const current = await workflow();
   const artifact = path.join(item, current.phases[phase].requiredArtifact.path);
@@ -247,9 +272,18 @@ test('classic-delivery: a submitted review rejected back to Code accepts a test-
   const { root, workId, codePhase, reviewPhase, authorship, summaryPath, testPath, cli, tryCli, workflow, originalSource } = story;
   await publishReview(story, reviewPhase);
   cli('submit', reviewPhase);
+  // A person's return reopens Code, and its next version opens only on their yes [D3, OSA:REQ-030]: preparing it before
+  // is refused, and the step's preview asks them; their yes in their own terminal opens it.
   const reject = () => {
     cli('reject', reviewPhase, '--to', codePhase, '--reason', 'Add a test for a value that is not round');
+    const refused = tryCli('prepare', codePhase);
+    assert.notEqual(refused.status, 0);
+    assert.match(`${refused.stdout}\n${refused.stderr}`, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+    const preview = JSON.parse(cli('phase', 'rollover', codePhase, '--json').stdout);
+    assert.match(preview.question, /^Start version \d+ of /u);
+    cli('phase', 'rollover', codePhase, '--confirm', preview.confirmation, '--json');
     cli('prepare', codePhase);
+    return preview.toGeneration;
   };
   reject();
   // Unchanged after the return: the refusal names the reviewer's withdrawal, which really restores
@@ -309,9 +343,7 @@ test('classic-delivery: a review repair whose test edit is undone publishes the 
   cli('reject', reviewPhase, '--to', codePhase, '--repair', '--reason', 'Correct the unit-test fixture', '--confirm', digest);
   const request = (await workflow()).changeRequests.at(-1);
   assert.ok(request.testingRepair);
-  const beginRefusal = tryCli('phase', 'begin', codePhase);
-  const adoption = `${beginRefusal.stdout}\n${beginRefusal.stderr}`.match(/sha256:[a-f0-9]{64}/u)?.[0];
-  cli('phase', 'begin', codePhase, '--adopt-existing', '--confirm', adoption);
+  openReturnedVersionWithTestBytes({ cli, tryCli, codePhase, published: story.originalCodeGeneration });
   cli('prepare', codePhase);
   // The author finds the tester's edit was wrong and restores the approved test bytes: there is
   // nothing further to change, and nothing to invent.

@@ -45,7 +45,7 @@ export async function visualCommand(positionals, options) {
     const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
     const result = { coverage, comparisons };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Visual coverage: ${coverage.status} (${coverage.covered.length}/${coverage.profiles.length} profiles)`);
+    console.log(coverage.applicability?.words ?? `Visual coverage: ${coverage.status} (${coverage.covered.length}/${coverage.profiles.length} profiles)`);
     for (const entry of coverage.covered.filter((item) => item.method === 'native-capture')) {
       console.log(`Native capture: ${entry.profileId} ${entry.recordId} from ${entry.source?.kind} ${entry.source?.device}`);
     }

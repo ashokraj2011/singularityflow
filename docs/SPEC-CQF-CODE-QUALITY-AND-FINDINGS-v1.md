@@ -191,6 +191,37 @@ A token is never written in either file. A literal that looks like a credential 
 - `[CQF:REQ-032]` The assertion and edge-case check (`src/verification/corner-case-obligations.mjs`) runs at the gates in warn mode by default. `off` and `enforce` keep their meaning.
 - `[CQF:REQ-033]` The approval card and review packet show, for each criterion, how many tests prove it and whether each asserts.
 - `[CQF:REQ-034]` With no coverage report, "coverage not measured" is shown. It never refuses.
+- `[CQF:REQ-035]` A Story whose surface has no screens needs no screenshot and no person at its visual step (CVL 006,
+  AC-011). Built 2026-11-18.
+  - The surface is app review's own profile, `applicationReview.surface`, declared in the work type and pinned with the
+    Story. Declaring it does not adopt app review: `applicationReview: { mode: off, surface: library }` declares a library
+    and nothing else.
+  - A declared `backend`, `cli`, `library` or `artifact` surface makes visual coverage not applicable
+    (`src/application-review-policy.mjs` `declaredVisualCoverage`, read by `evaluateVisualCoverage`). Publication and
+    submission of an enforced visual step then refuse nothing, so nobody skips the step or rules out each screen size.
+    The step itself still runs: its author writes its document and its approvers approve it.
+  - It is never guessed from the diff. `web`, `auto` or no declaration keeps today's rule: capture each screen size, or
+    a person decides. A user-facing file (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.html`, `.css`, `.scss`) that a code step
+    delivered brings the step back, read from the code steps' recorded delivery paths with no Git read.
+  - The approver sees the reason, in plain words, wherever visual coverage is shown: `visual status`, the Flow Gate's
+    passes (`gate`), VS Code's Visual Assurance view and the readiness workbench's visual row.
+- `[CQF:REQ-036]` An API criterion is proved only by tests that assert the response's status, its schema and its body
+  (CVL AC-012). Built 2026-11-18.
+  - The plan declares one: its `## Verification contracts` row has the optional `Interface` column set to `api`.
+  - A screenshot or an inspection never proves an API. Publishing the plan refuses an API criterion whose primary slot
+    is visual or inspection (`SPEC_VERIFICATION_CONTRACT_INVALID`, whose route is the plan's prepublish); such a slot
+    may only be supporting, which never satisfies a criterion.
+  - The assertion check (`src/verification/corner-case-obligations.mjs` `apiCriterionAssertionCheck`) reads, at the
+    code step's publication, the assertion lines of the tests tagged with the criterion: in JavaScript and TypeScript
+    the tagged tests' own lines, elsewhere the whole test file with strings and comments masked. Together they must
+    name the status (`status`, `statusCode`, `getStatusCode`...), a schema (a name containing `schema`) and the body
+    (a name containing `body`, or `json`). Static names, like the rest of the check, never proof that a request ran.
+  - A missing one refuses publication with the step's other delivery findings (`CODE_DELIVERY_EVIDENCE_REQUIRED`,
+    finding `code.delivery.api-assertions-missing`), in every check mode, because the plan's reviewed contract asked
+    for it. Its route stays in the code step: `phase prepublish <step> --for-agent --json --publish-if-ready` with
+    `/sf-code`. A dispute can accept it like any delivery finding.
+  - Each criterion's proof line on the approval card says whether its tests assert the response's status, schema and
+    body.
 
 ## M4 Findings in the code step's loop `[CQF:REQ-040]`
 
@@ -313,7 +344,11 @@ A token is never written in either file. A literal that looks like a credential 
 
 - **M1:** a Story whose verification step runs fresh tests shows that run's counts at Release. A README edit after the code step reruns nothing. A fail-then-pass shows flaky. The VS Code page shows the message.
 - **M2:** a real `/sf-code` turn adds a file the plan does not name and publishes it with `DEP-001`. The person accepts it in one table and the code step approves, with no `/sf-appeal`, no `/sf-decide` turn and no terminal trip.
-- **M3:** a Vitest project with lcov shows changed-line coverage per clause. A test with no assertion warns.
+- **M3:** a Vitest project with lcov shows changed-line coverage per clause. A test with no assertion warns. A library
+  Story with an enforced visual step publishes and submits it with no screenshot, no skip and no screen size ruled out,
+  and `visual status` and `gate` say why; a web or undeclared surface still needs one. An API criterion whose tests
+  assert only the status is refused with its route back to the code step, and passes once they also check the schema
+  and assert the body (`test/declared-applicability-api-proof.test.mjs`).
 - **M4:** an ESLint sonarjs finding on a changed line comes back to `/sf-code` in the same turn and is fixed within 3 attempts. A missing scanner under `warn` blocks nothing. A real SonarQube server's quality gate is read at submit.
 - **M5:** adding a package with a known critical advisory holds the step until fixed or accepted by a person.
 - **M6:** a workbook with one security row and one TLM row imports into the register on the state branch. A new development Story picks the security row as a clause. `findings start` opens a `findings-remediation` Story for the TLM row that reaches a tested Candidate with its proof.

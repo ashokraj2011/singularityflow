@@ -787,7 +787,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // what a person typed, a question answered with nothing to change (owner, 2026-11-18): the account route's words
     // (step-decision.mjs +23), the card's result headline (narration/messages.mjs +173) and the `--as-question` boolean
     // (util.mjs +15). The account, the version question's third answer and their checks stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_755_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,758,000 (measured 9,757,990 for submit.mjs, +2,332 over 9,755,658; start.mjs 9,757,676): CVL piece 4 (2026-11-18).
+    // A plan's Interface api column and its rule that a screenshot never proves an API (verification/contracts.mjs +1,092),
+    // the gate loading the API assertion check only for such a criterion (delivery-evidence.mjs +722), a declared surface
+    // with no screens read by visual coverage (visual-coverage.mjs +433, a call into the lazy application-review-policy.mjs)
+    // and its reason in the Flow Gate's passes (governance.mjs +85). The checks themselves stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_758_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1202,7 +1207,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,290,300 (measured 4,290,280): CVL pieces 1 and 3 with piece 1's review fixes, each measured above on its own base.
   // No new eager file.
   // 4,290,400 (measured 4,290,341, +61): the person-step catalog's confirming runs share one check. No new eager file.
-  assert.ok(current.bytes <= 4_290_400, `session current loads ${current.bytes} source bytes`);
+  // 4,292,200 (measured 4,292,155, +1,814): CVL piece 4 (2026-11-18), the plan's Interface api column
+  // (verification/contracts.mjs +1,092) and the gate's lazy API assertion check (delivery-evidence.mjs +722). No new eager file.
+  assert.ok(current.bytes <= 4_292_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

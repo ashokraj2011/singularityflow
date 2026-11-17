@@ -13,6 +13,7 @@ export function criterionProof(deliveryEvidence) {
   for (const clauseId of acceptance.required ?? []) byClause.set(clauseId, []);
   for (const witness of acceptance.witnesses ?? []) byClause.set(witness.clauseId, [...(byClause.get(witness.clauseId) ?? []), witness]);
   return [...byClause.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([clauseId, witnesses]) => {
+    const api = acceptance.api?.find((entry) => entry.clauseId === clauseId) ?? null;
     const tests = witnesses.map((witness) => {
       const assertions = witness.assertions ?? null;
       return { test: [...(witness.identity?.suitePath ?? []), witness.identity?.name ?? witness.testSource].join(' › '), testSource: witness.testSource,
@@ -28,7 +29,9 @@ export function criterionProof(deliveryEvidence) {
         asserting ? (asserting === tests.length ? (tests.length === 1 ? 'it asserts' : 'each asserts') : `${asserting} assert${asserting === 1 ? 's' : ''}`) : null,
         silent.length ? `${silent.map((entry) => `'${entry.test}'`).join(', ')} assert${silent.length === 1 ? 's' : ''} ${silent.every((entry) => entry.adequacy === 'tautological') ? 'only a literal' : 'nothing'}` : null,
         unread ? `${unread === tests.length ? (tests.length === 1 ? 'its' : 'their') : `${unread}'s`} assertions were not read` : null,
-        tests.some((entry) => entry.skipped) ? `${tests.filter((entry) => entry.skipped).length} skipped` : null
+        tests.some((entry) => entry.skipped) ? `${tests.filter((entry) => entry.skipped).length} skipped` : null,
+        // An API criterion's tests and what they assert of the response [CQF:REQ-036].
+        api ? `the response's ${api.missing.length ? `${api.missing.join(' and ')} ${api.missing.length === 1 ? 'is' : 'are'} not asserted` : 'status, schema and body are asserted'}, as an API criterion needs` : null
       ].filter(Boolean).join('; ')}`;
     return { clauseId, tests: tests.length, asserting, silent: silent.length, unread, words, witnesses: tests };
   });

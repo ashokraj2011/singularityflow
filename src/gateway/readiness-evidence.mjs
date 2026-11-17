@@ -214,6 +214,10 @@ async function visualRow(root, config, workflow) {
   if (coverage.status === 'not-configured') {
     return row('visual', 'met', 'policy', 'visual:not-configured', { required: 'false' });
   }
+  // A declared surface with no screens: met by the workflow's own declaration, and the row says so [CQF:REQ-035].
+  if (coverage.applicability) {
+    return row('visual', 'met', 'policy', `visual:not-applicable:${coverage.applicability.surface}`, { required: 'false', mode: coverage.mode, reason: coverage.applicability.words });
+  }
   const requiredFailure = coverage.mode === 'enforce' && coverage.errors.length > 0;
   return row('visual', requiredFailure ? 'unmet' : 'met', 'evidence',
     coverage.covered.map((entry) => `${entry.profileId}:${entry.outputSha256}`).join('|') || null,

@@ -146,6 +146,10 @@ export async function evaluateVisualCoverage(root, workflow, { itemDirectory = n
       profiles: profiles.map((profile) => profile.id), covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
   }
   if (!phase) throw new SingularityFlowError('Verification profiles require a visual verification step (an artifact of kind visual-test-evidence).', { code: 'VISUAL_PHASE_MISSING' });
+  // A declared surface with no screens needs no capture and no person [CQF:REQ-035].
+  const declared = !['web', 'auto', undefined].includes(workflow.resolution?.applicationReview?.surface) && (await import('./application-review-policy.mjs'))
+    .declaredVisualCoverage(workflow, { phase: phase.id, profiles, mode: configured.coverage ?? 'warn', generation: target ?? expectedGeneration(phase) });
+  if (declared) return declared;
   const generation = target ?? expectedGeneration(phase), integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const directory = itemRoot(root, workflow, itemDirectory);
   const native = await nativeCaptures(directory, workflow);

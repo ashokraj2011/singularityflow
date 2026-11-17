@@ -1,7 +1,7 @@
 ---
 id: app-review
 title: Application review and acceptance
-version: 7
+version: 8
 commands: [app-review]
 related: [outcome-review, run-and-test, repository-commit-policy]
 ---
@@ -31,7 +31,9 @@ workTypes:
 
 Use `surface: web` for a browser application. A static preview also needs `preview.entry` referencing a declared capability application entry, and `preview.outputDirectory` naming its static build output, such as `dist`. The adapter copies verified source into a controlled workspace-local materialization, runs only that entry's already-declared before-launch steps, and serves the exact built output with hot reload disabled. An absent output or missing setup produces a configuration route; SFlow does not guess commands or install application dependencies.
 
-`auto` detects observed UI files and otherwise remains unresolved until an explicit profile identifies the surface. A backend profile never silently exempts newly observed UI changes. Adopted `quality` entries are additional inspection expectations, with their own source in the plan.
+`auto` detects observed UI files and otherwise remains unresolved until an explicit profile identifies the surface. A backend profile never silently exempts newly observed UI changes.
+
+The surface also counts without app review. `applicationReview: { mode: off, surface: library }` adopts nothing, but a declared `backend`, `cli`, `library` or `artifact` surface makes a visual step's screenshots not applicable for the work type's Stories, with the reason shown wherever visual coverage is shown (`sflow explain visual-verification`). `web`, `auto` or no surface keeps the visual step's own rule, and a delivered UI file brings it back [CQF:REQ-035]. Adopted `quality` entries are additional inspection expectations, with their own source in the plan.
 
 Existing Stories retain their pinned policy. Installation, saving a specification, opening the outcome view, and refreshing configuration do not adopt application review for existing work.
 

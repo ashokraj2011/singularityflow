@@ -1059,6 +1059,41 @@ neverCommit:
   }
 });
 
+test('workflow create never proposes a workflow `workflow validate` refuses, so nobody is left with one to approve (ER-F7)', async () => {
+  const item = await fixture();
+  try {
+    const env = { ...process.env, NODE_ENV: 'test', NO_COLOR: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'Workflow Author',
+      SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json') };
+    const proposals = () => run('git', ['--git-dir', item.remote, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/sflow/config-change/'])
+      .stdout.split('\n').filter(Boolean);
+    const argv = ['workflow', 'create', 'thin-plan', '--label', 'Thin plan', '--phases', 'requirements,implementation', '--governs', 'story',
+      '--planned-claims', 'required', '--clause-phases', 'requirements', '--claim-owners', 'implementation=requirements', '--propose', '--json'];
+    // The code step's plan owner is Requirements, whose template has no planned-claims table: approval would refuse it.
+    const refused = spawnSync(process.execPath, [cli, ...argv], { cwd: item.story, encoding: 'utf8', env });
+    assert.notEqual(refused.status, 0, refused.stdout);
+    const { error, remediationPlan } = JSON.parse(refused.stdout);
+    assert.equal(error.code, 'WORKFLOW_CREATE_PROBLEMS', refused.stdout);
+    assert.match(error.message, /^Workflow thin-plan was not created: `workflow validate` would refuse it, so nobody could approve it\. Nothing was proposed\./u);
+    // It names what to change, the problem with its fix, and the same command to run again once it is changed.
+    assert.match(error.message, /The template of Requirements has no planned-claims table the kernel reads\s+Fix: Give \S+\/requirements\.md the planned-claims table the kernel reads/u);
+    assert.match(error.message, /Change what each problem names, then create it again\.$/u);
+    assert.deepEqual([remediationPlan.steps[0].label, remediationPlan.steps[0].argv], ['Change what each problem names, then create it again', argv]);
+    assert.equal(error.details.nextAction, remediationPlan.steps[0].command);
+    assert.deepEqual(proposals(), [], 'nothing was proposed');
+    assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(), item.approved);
+    assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: item.story }).stdout, '');
+    // With a plan owner whose template holds the table, the same command proposes it.
+    const valid = argv.map((value) => value === 'requirements,implementation' ? 'requirements,implementation-spec,implementation'
+      : value === 'implementation=requirements' ? 'implementation=implementation-spec' : value);
+    const created = spawnSync(process.execPath, [cli, ...valid], { cwd: item.story, encoding: 'utf8', env });
+    assert.equal(created.status, 0, created.stderr || created.stdout);
+    assert.deepEqual(proposals(), [JSON.parse(created.stdout).branch]);
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
 test('workflow proposal publication distinguishes local authorities whose display URLs collide', async () => {
   const item = await fixture({ remoteName: 'application.git#blue' });
   try {
@@ -1066,12 +1101,13 @@ test('workflow proposal publication distinguishes local authorities whose displa
     run('git', ['init', '-q', '--bare', '--initial-branch=main', collision]);
     run('git', ['remote', 'add', 'aaa-display-collision', collision], { cwd: item.story });
 
+    // A workflow `workflow validate` passes: one whose plan owner has no planned-claims table is never proposed.
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'exact-authority',
       '--label', 'Exact authority', '--description', 'Publish only to the selected authority.',
-      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--phases', 'requirements,implementation-spec,implementation', '--governs', 'story',
       '--planned-claims', 'required', '--clause-phases', 'requirements',
-      '--claim-owners', 'implementation=requirements',
+      '--claim-owners', 'implementation=implementation-spec',
       '--propose', '--json'
     ], {
       cwd: item.story,

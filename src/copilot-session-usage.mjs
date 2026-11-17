@@ -20,9 +20,9 @@
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { lstat, open, readdir, readFile, stat } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { sameCopilotModel } from './copilot-activity.mjs';
+import { copilotHome } from './copilot-home.mjs';
 import { gitCommonDir } from './git-execution.mjs';
 import { worktreeInventory } from './story-worktree.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
@@ -51,8 +51,7 @@ const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/u;
 /** Where Copilot keeps its sessions: the override tests use, else `<COPILOT_HOME or ~/.copilot>/session-state`. */
 export function copilotSessionStateDirectory(env = process.env) {
   if (env.SINGULARITY_FLOW_COPILOT_SESSION_STATE) return path.resolve(env.SINGULARITY_FLOW_COPILOT_SESSION_STATE);
-  const home = String(env.COPILOT_HOME ?? '').trim() || path.join(os.homedir(), '.copilot');
-  return path.join(home, 'session-state');
+  return path.join(copilotHome({ env }), 'session-state');
 }
 
 const usageDirectory = (root) => path.join(gitCommonDir(root), 'singularity-flow', 'copilot-sessions');

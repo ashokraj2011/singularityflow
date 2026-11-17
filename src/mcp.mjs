@@ -1,8 +1,6 @@
-import os from 'node:os';
-import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { exists, SingularityFlowError } from './util.mjs';
-import { MCP_WORKSPACE_PATH } from './mcp-host.mjs';
+import { mcpHostFiles } from './mcp-readiness.mjs';
 export {
   MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH, PLAYWRIGHT_MCP_HOST_ARGUMENTS,
   figmaHostEntry, playwrightHostEntry, scaffoldFigmaMcp,
@@ -224,15 +222,10 @@ async function readServerNames(file) {
   return Object.keys(servers).map((name) => ({ name, error: null }));
 }
 
-export async function mcpHostInventory(root, { home = os.homedir() } = {}) {
-  const sources = [
-    { surface: 'vscode-workspace', path: path.join(root, MCP_WORKSPACE_PATH) },
-    { surface: 'copilot-workspace', path: path.join(root, '.mcp.json') },
-    { surface: 'copilot-user', path: path.join(home, '.copilot/mcp-config.json') }
-  ];
+export async function mcpHostInventory(root, { home } = {}) {
   const rows = [];
-  for (const source of sources) {
-    for (const result of await readServerNames(source.path)) rows.push({ ...source, ...result });
+  for (const { surface, file } of await mcpHostFiles(root, home)) {
+    for (const result of await readServerNames(file)) rows.push({ surface, path: file, ...result });
   }
   return rows;
 }

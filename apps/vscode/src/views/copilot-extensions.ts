@@ -1,8 +1,8 @@
 /** The Copilot extensions page: this window's extensions, its folders and the last chat's own numbers. */
 import { readFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import * as vscode from 'vscode';
+import { copilotHome } from '../../../../src/copilot-home.mjs';
 import {
   COPILOT_EXTENSIONS_SCRIPT, COPILOT_EXTENSIONS_STYLE, copilotExtensionsHtml, copilotExtensionsView, declaredFilePatterns, extensionFacts,
   languageFilePatterns, readLastCopilotChat, type CopilotExtensionsView, type ExtensionFacts, type WorkspaceFinding
@@ -48,7 +48,7 @@ async function readView(): Promise<CopilotExtensionsView> {
   })));
   const folders = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath);
   const [chat, findings] = await Promise.all([
-    readLastCopilotChat(process.env.COPILOT_HOME?.trim() || path.join(os.homedir(), '.copilot'), folders), workspaceFindings(facts)]);
+    readLastCopilotChat(copilotHome(), folders), workspaceFindings(facts)]);
   return copilotExtensionsView(facts, chat, findings);
 }
 

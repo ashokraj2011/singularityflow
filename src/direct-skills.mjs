@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { copilotHome } from './copilot-home.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const SOURCE_PREFIX = 'sflow-';
@@ -16,8 +17,7 @@ export function bundledSkillDirectory() {
 export function copilotSkillsDirectory({ env = process.env, homeDirectory = os.homedir() } = {}) {
   const explicit = String(env.SINGULARITY_FLOW_COPILOT_SKILLS_DIR ?? '').trim();
   if (explicit) return path.resolve(explicit);
-  const copilotHome = String(env.COPILOT_HOME ?? '').trim();
-  return path.resolve(copilotHome || path.join(homeDirectory, '.copilot'), 'skills');
+  return path.join(copilotHome({ env, homeDirectory }), 'skills');
 }
 
 export function directSkillName(sourceName) {

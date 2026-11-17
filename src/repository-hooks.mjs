@@ -14,8 +14,8 @@
  */
 import { existsSync } from 'node:fs';
 import { chmod, lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
+import { copilotHome as copilotHomeDirectory } from './copilot-home.mjs';
 import { copilotModeFile } from './copilot-mode.mjs';
 // The package root through the host-safe boundary: the VS Code build has no import.meta.
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -165,7 +165,7 @@ export async function pluginInstalled(env = process.env) {
   const marker = await readFile(pluginMarkerFile(env), 'utf8').catch(() => null);
   const root = marker?.split('\n')[0]?.trim();
   if (root && path.isAbsolute(root) && existsSync(path.join(root, 'hook-launcher.sh'))) return true;
-  const copilotHome = env.COPILOT_HOME || path.join(os.homedir(), '.copilot');
+  const copilotHome = copilotHomeDirectory({ env });
   for (const source of await readdir(path.join(copilotHome, 'installed-plugins')).catch(() => [])) {
     for (const plugin of await readdir(path.join(copilotHome, 'installed-plugins', source)).catch(() => [])) {
       const directory = path.join(copilotHome, 'installed-plugins', source, plugin);
@@ -211,7 +211,7 @@ export async function repositoryHookStatus(root, { setting: value = DEFAULT_SETT
   for (const relative of ['.github/copilot/settings.json', '.github/copilot/settings.local.json']) {
     if ((await jsonFile(path.join(root, ...relative.split('/'))))?.disableAllHooks === true) disabled.push(relative);
   }
-  const config = await jsonFile(path.join(env.COPILOT_HOME || path.join(os.homedir(), '.copilot'), 'config.json'));
+  const config = await jsonFile(path.join(copilotHomeDirectory({ env }), 'config.json'));
   const folders = Array.isArray(config?.trustedFolders) ? config.trustedFolders.filter((entry) => typeof entry === 'string') : null;
   const trusted = folders === null ? null : folders.some((folder) => within(folder, root));
   return { files, disabled, trusted, plugin: await pluginInstalled(env), setting: setting(value) };

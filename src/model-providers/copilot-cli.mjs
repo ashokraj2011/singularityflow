@@ -8,6 +8,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { PACKAGE_ROOT } from '../package-root.mjs';
+import { COPILOT_HOME_ENVIRONMENT } from '../copilot-home.mjs';
 import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
 import { COPILOT_MINIMUM_AI_CREDITS } from '../model-limits.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
@@ -18,11 +19,14 @@ import { tryWindowsTaskkill } from '../platform-process.mjs';
 
 const DEFAULT_OUTPUT_LIMIT = 8 * 1024 * 1024;
 const TERMINATION_GRACE_MS = 250;
+// Without COPILOT_HOME_ENVIRONMENT the Copilot started here used ~/.copilot for its sessions, logs, settings and
+// plugins while SFlow and the person's own Copilot used COPILOT_HOME [11-17 daily run].
 const SAFE_ENVIRONMENT = [
   'PATH', 'HOME', 'USERPROFILE', 'TMPDIR', 'TEMP', 'TMP', 'SHELL', 'COMSPEC',
   'LANG', 'LC_ALL', 'TERM', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME',
   'GH_HOST', 'GITHUB_HOST', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
-  'http_proxy', 'https_proxy', 'no_proxy', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR'
+  'http_proxy', 'https_proxy', 'no_proxy', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  ...COPILOT_HOME_ENVIRONMENT
 ];
 
 const SAFE_ENVIRONMENT_SET = new Set(SAFE_ENVIRONMENT);

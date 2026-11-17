@@ -13,6 +13,7 @@ import { cp, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from 'node
 import os from 'node:os';
 import path from 'node:path';
 
+import { copilotHome } from '../copilot-home.mjs';
 import { ISOLATED_RUN_SWITCHES, MACHINE_STATE_LOCATIONS } from '../machine-state-locations.mjs';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { runQualityCommand } from '../quality-command-runner.mjs';
@@ -34,7 +35,7 @@ export function walkEnvironment(base, env = process.env) {
   return {
     ...inherited,
     ...Object.fromEntries(Object.entries(MACHINE_STATE_LOCATIONS).map(([name, relative]) => [name, path.join(base, 'machine', relative)])),
-    HOME: home, USERPROFILE: home, COPILOT_HOME: path.join(home, '.copilot'),
+    HOME: home, USERPROFILE: home, COPILOT_HOME: copilotHome({ env: {}, homeDirectory: home }),
     TMPDIR: path.join(base, 'tmp'), TMP: path.join(base, 'tmp'), TEMP: path.join(base, 'tmp'),
     GIT_CONFIG_GLOBAL: path.join(home, '.gitconfig'), GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0',
     ...ISOLATED_RUN_SWITCHES, SINGULARITY_FLOW_NO_MODEL: '1',

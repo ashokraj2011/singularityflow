@@ -127,7 +127,8 @@ test('check, submit, status and result last hand the agent what comes after rete
 // Copilot's session-state keeps each tool result as the agent saw it: for SFlow, the --for-agent view. The usage report
 // counts a /sf-review-source run finished from that view (native-copilot-sessions.mjs), so a review kept behind a bounded
 // view (act's show line fills it, fb368d49b) went uncounted twice over: the view left out resultType and status, and the
-// report counted only a ready review, while this kept one waits on a person's decision (correction-required).
+// report counted only a ready review, while this kept one waits on a person's decision (correction-required). The owner's
+// decision of 2026-11-17, "count everything": every kept review is a finished run, whatever it found.
 test('a review kept behind a bounded agent view counts as a finished /sf-review-source run in the session report', async (t) => {
   const { root, phaseId } = await publishedSpecificationStory(t);
   const results = await mkdtemp(path.join(os.tmpdir(), 'sflow-kept-'));

@@ -118,22 +118,31 @@ test('an overflow read counts the same in the checkout\'s .sflow/out and the old
   assert.deepEqual(report.resultTypes.overflowReads, { 'phase-entry': { results: 2, bytes: 6 } });
 });
 
-// The report reads what the agent saw: a bounded --for-agent view keeps act, resultType and status, and moves
-// publishIfReady to its file. A reviewed step's publication says "Published. Start the reviewer now…" (2026-11-17).
-test('a publication behind a bounded agent view counts as published, with or without a reviewer next', async (t) => {
+const lines = (count) => Array.from({ length: count }, (_, index) => `line ${index} ${'x'.repeat(60)}`).join('\n');
+/** One /sf-<skill> run whose one shell call printed `content`, as Copilot records it, and the report's row for it. */
+function reportedRun(skill, command, content) {
+  const session = createSessionAttribution('66666666-0000-4000-8000-000000000006');
+  const usage = (initiator) => ({ type: 'session.usage_record', data: { usage: { model: 'm', initiator, inputTokens: 10, cost: 1 } } });
+  [{ type: 'skill.invoked', data: { name: `sflow-${skill}`, trigger: 'user-invoked' } }, { type: 'user.message', data: { content: `/sf-${skill}` } },
+    usage('user'), { type: 'tool.execution_start', data: { toolCallId: 'a', toolName: 'bash', arguments: { command } } },
+    { type: 'tool.execution_complete', data: { toolCallId: 'a', success: true, result: { content: `${content.trimEnd()}\n<exited with exit code 0>` } } }, usage('agent')]
+    .forEach((event, index) => session.push(JSON.stringify({ ...event, id: `e${index}`, timestamp: '2026-11-17T10:00:00.000Z' })));
+  return copilotSessionReport([session.finish()]).tasks.bySkill[`sf-${skill}`];
+}
+async function viewRoot(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-view-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
-  const lines = (count) => Array.from({ length: count }, (_, index) => `line ${index} ${'x'.repeat(60)}`).join('\n');
+  return root;
+}
+
+// The report reads what the agent saw: a bounded --for-agent view keeps act, resultType and status, and moves
+// publishIfReady to its file. A reviewed step's publication says "Published. Start the reviewer now…" (2026-11-17).
+test('a publication behind a bounded agent view counts as published, with or without a reviewer next', async (t) => {
+  const root = await viewRoot(t);
   const finished = async (skill, command, result) => {
     const view = await boundedAgentOutput(JSON.stringify(result), { cwd: root });
-    const session = createSessionAttribution('66666666-0000-4000-8000-000000000006');
-    const usage = (initiator) => ({ type: 'session.usage_record', data: { usage: { model: 'm', initiator, inputTokens: 10, cost: 1 } } });
-    [{ type: 'skill.invoked', data: { name: `sflow-${skill}`, trigger: 'user-invoked' } }, { type: 'user.message', data: { content: `/sf-${skill}` } },
-      usage('user'), { type: 'tool.execution_start', data: { toolCallId: 'a', toolName: 'bash', arguments: { command } } },
-      { type: 'tool.execution_complete', data: { toolCallId: 'a', success: true, result: { content: `${view}<exited with exit code 0>` } } }, usage('agent')]
-      .forEach((event, index) => session.push(JSON.stringify({ ...event, id: `e${index}`, timestamp: '2026-11-17T10:00:00.000Z' })));
-    return { view: JSON.parse(view), row: copilotSessionReport([session.finish()]).tasks.bySkill[`sf-${skill}`] };
+    return { view: JSON.parse(view), row: reportedRun(skill, command, view) };
   };
   const prepublish = { schemaVersion: 1, resultType: 'sflow-phase-prepublish', status: 'ready', workId: 'W-1', phase: 'implementation', generation: 1,
     scopeReview: { items: Array.from({ length: 30 }, (_, index) => ({ id: `REQ-${index}`, words: 'y'.repeat(80) })) } };
@@ -150,6 +159,34 @@ test('a publication behind a bounded agent view counts as published, with or wit
     resultType: 'sflow-phase-publication', status: 'published', workId: 'W-1', phase: 'implementation', generation: 1, commit: 'a'.repeat(40),
     reviewSubagent: { agent: 'sflow-reviewer', instruction: 'Start the reviewer.', prompt: lines(60) } });
   assert.equal(plain.row.finished, 1, plain.view.act.said);
+});
+
+// The owner's 2026-11-17 decision, "count everything": a read of a step already submitted counts as submitted, held for
+// approval or not, whether or not reasonCode and classification survive the view; act leads every view and says it first.
+test('a read of a step already submitted counts as submitted whatever the agent view leaves out', async (t) => {
+  const root = await viewRoot(t);
+  const command = 'singularity-flow status W-1 --submission-readiness --for-agent --json';
+  const readiness = { schemaVersion: 1, resultType: 'sflow-submission-readiness', workId: 'W-1', classification: 'already-submitted',
+    lifecycleReady: false, phaseId: 'implementation', phaseStatus: 'awaiting_approval', currentGeneration: 1, publishedGeneration: 1,
+    command: 'singularity-flow approve implementation --work-id W-1 --fetch', nextCommand: 'singularity-flow approve implementation --work-id W-1 --fetch',
+    nextSkill: '/sf-approve', reasonCode: 'PHASE_ALREADY_SUBMITTED',
+    approvalCheck: { ready: true, advisories: Array.from({ length: 40 }, (_, index) => ({ id: `A-${index}`, words: lines(1) })) } };
+  const held = { ...readiness, reasonCode: 'APPROVAL_HOLDS_REQUIRED', approvalCheck: { ready: false, holds: [{ owner: 'security', words: lines(40) }] },
+    approvalContinuation: { command: 'singularity-flow decisions W-1 --for-agent --json', copilotCommand: '/sf-decide W-1', reason: 'Clear the known approval holds.' } };
+  for (const [label, result] of [['not held', readiness], ['held for approval', held]]) {
+    const text = await boundedAgentOutput(JSON.stringify(result), { cwd: root });
+    const view = JSON.parse(text);
+    assert.equal(view.agentOutput?.view, 'bounded', `${label}: the case is a bounded view`);
+    assert.match(view.act.said, /^Submitted\b/u, label);
+    assert.equal(reportedRun('submit', command, text).finished, 1, `${label}: ${text}`);
+    // The same view with neither field: the read still counts.
+    const { reasonCode, classification, ...cut } = view;
+    assert.equal(reportedRun('submit', command, JSON.stringify(cut)).finished, 1, `${label}, without reasonCode (${reasonCode}) and classification (${classification})`);
+  }
+  // A view recorded before 2026-11-17 said "The phase is submitted, but …" for a held step.
+  const older = { act: { state: 'blocked', said: 'The phase is submitted, but its known approval holds must be cleared by their named owners.' },
+    resultType: 'sflow-submission-readiness' };
+  assert.equal(reportedRun('submit', command, JSON.stringify(older)).finished, 1);
 });
 
 // AC-005 (CON-015): no work command, hook or skill reads the report, the analyzer or the host logs.

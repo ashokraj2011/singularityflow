@@ -87,10 +87,14 @@ function successMarks(result, verb, exitCode) {
   const said = String(result.act?.said ?? '');
   if (result.publishIfReady?.published === true || (result.resultType === 'sflow-phase-prepublish' && /^(?:Code p|P)ublished\b/u.test(said))
     || (result.resultType === 'sflow-phase-publication' && result.status === 'published')) marks.add('published');
+  // Every finished run counts, whatever it found [owner, 2026-11-17: "count everything"]. A read of a step already
+  // submitted counts as submitted, held for approval or not, by act's first word, which every view keeps; reasonCode
+  // and classification count when they survive, and the older wording counts in sessions recorded before 2026-11-17.
   if (result.submitIfReady?.submitted === true || (result.resultType === 'sflow-submission-readiness'
-    && (/^Submitted\b/u.test(said) || result.reasonCode === 'PHASE_ALREADY_SUBMITTED'))) marks.add('submitted');
+    && (/^(?:Submitted|The phase is submitted)\b/u.test(said) || result.classification === 'already-submitted'
+      || ['PHASE_ALREADY_SUBMITTED', 'APPROVAL_HOLDS_REQUIRED'].includes(result.reasonCode)))) marks.add('submitted');
   if (result.resultType === 'sflow-approval-agent-result' && result.outcome?.status === 'succeeded') marks.add('approved');
-  // Retained whatever it found: a review asking for corrections is a finished review, never an unfinished run (2026-11-17).
+  // A kept review counts whatever it found: one asking for corrections is a finished review [owner, 2026-11-17].
   if (result.resultType === 'source-review-status' && ['ready', 'correction-required'].includes(result.status)) marks.add('review-retained');
   if (result.operation?.classification === 'mutation' && result.outcome?.status === 'succeeded') {
     marks.add('recorded');

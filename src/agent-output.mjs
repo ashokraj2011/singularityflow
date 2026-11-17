@@ -390,10 +390,14 @@ export function agentAct(result) {
   // A review packet's action context is its approval context again, word for word.
   if (result.approvalPacket && result.approvalContext && result.ready !== undefined && !result.resultType) return { state: 'read', do: null, said: null,
     read: ['approvalPacket', 'approvalContext', 'choiceSets'] };
+  // A step already submitted says so first, as a submission does: Copilot session usage counts the read by act, which
+  // every view keeps, whatever else it leaves out [owner, 2026-11-17: count everything].
   if (result.resultType === 'sflow-submission-readiness' && result.approvalContinuation) {
     return withRoute({ state: 'blocked', do: null, read: result.sheet ? ['sheet', 'owedDecisions'] : ['approvalCheck', 'owedDecisions', 'pending'],
-      said: 'The phase is submitted, but its known approval holds must be cleared by their named owners. Follow the returned route; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
+      said: 'Submitted, but its known approval holds must be cleared by their named owners. Follow the returned route; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
   }
+  if (result.resultType === 'sflow-submission-readiness' && result.classification === 'already-submitted') return withRoute({ state: 'next', do: null,
+    said: oneLine(`Submitted already; its approval comes next. ${result.reason ?? ''}`) }, genericAction(result));
   // A review turn's repairs spent: the draft stays staged and status records it incomplete [owner, 2026-11-13].
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.incomplete?.instruction) return {
     state: 'blocked', do: null, read: ['error.details.incomplete', 'error.details.findings'], said: oneLine(result.error.details.incomplete.instruction) };

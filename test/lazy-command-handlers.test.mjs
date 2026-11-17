@@ -777,7 +777,7 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // +393). Comments trimmed first; submission readiness, which grew more, is not in start's closure. No new eager file.
     // 9,745,900 (measured 9,745,891 for start.mjs, +402 over 4d173adc1's 9,745,489): review 11-17 findings 2 and 11. Turning
     // self-approval off is refused while nobody else is named (configuration-people.mjs +268, a call into the lazy
-    // configuration-approvers.mjs), and a test-command amendment's two refusals name the Story's own request
+    // config-approvers.mjs), and a test-command amendment's two refusals name the Story's own request
     // (story-test-command-amendment.mjs +134, calls into test-command-pins.mjs, which stays lazy). The route builders were
     // first put in test-command-amendment-contracts.mjs (+3,274 here and in session current) and moved out. No new eager file.
     // 9,755,700 (measured 9,755,658 for submit.mjs, +3,554 over d192ede2c's 9,752,104; start.mjs 9,755,429): the four

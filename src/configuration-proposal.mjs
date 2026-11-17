@@ -28,7 +28,7 @@ import {
 } from './git-enterprise-environment.mjs';
 import { configurationCommitIdentity, exactConfigurationProposalGitTree } from './git.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
-import { approverWords, namedApprovers, otherApprovers, selfApprovalRefusalWords } from './configuration-approvers.mjs';
+import { approverWords, namedApprovers, otherApprovers, selfApprovalRefusalWords } from './config-approvers.mjs';
 import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
 import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {

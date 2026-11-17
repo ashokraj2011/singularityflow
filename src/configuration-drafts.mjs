@@ -1158,7 +1158,7 @@ export async function approveProposal(root, requested, {
   // One policy for every approval [SCF:REQ-011, D4]: refused before anyone is asked to confirm or sign.
   if (reviewed.approvalPolicy?.allowSelfApproval === false && !reviewed.merged && approver?.email && reviewed.proposer?.email
       && approver.email.trim().toLowerCase() === reviewed.proposer.email.trim().toLowerCase()) {
-    const { selfApprovalRefusalWords } = await import('./configuration-approvers.mjs');
+    const { selfApprovalRefusalWords } = await import('./config-approvers.mjs');
     fail(`You proposed ${branch}, and this repository needs another person to approve configuration changes (approvalSecurity.allowSelfApproval is false). Nothing was approved; ask someone who may approve configuration to run: singularity-flow configuration approve ${branch}.`
       + selfApprovalRefusalWords(reviewed.approvalPolicy?.approvers, approver),
       'CONFIGURATION_SELF_APPROVAL_REFUSED', { nextAction: { label: 'Another person approves it', command: `singularity-flow configuration approve ${branch}` } });
@@ -1378,7 +1378,7 @@ export async function approveDelegatedProposal(root, branch, kind, {
   const self = approver ? proposedBy(reviewed, approver) : false;
   if (reviewed.approvalPolicy?.allowSelfApproval === false && !reviewed.merged && self !== false) {
     if (self === true) {
-      const { selfApprovalRefusalWords } = await import('./configuration-approvers.mjs');
+      const { selfApprovalRefusalWords } = await import('./config-approvers.mjs');
       fail(`You proposed ${branch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was approved.`
         + selfApprovalRefusalWords(reviewed.approvalPolicy?.approvers, approver),
         'CONFIGURATION_SELF_APPROVAL_REFUSED', { nextAction: { label: 'Another person approves it', command: `singularity-flow configuration approve ${branch}${on}` } });

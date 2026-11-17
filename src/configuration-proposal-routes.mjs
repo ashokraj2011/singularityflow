@@ -114,7 +114,7 @@ async function withProposalRecord(repository, branch, work, { env = process.env 
       const definition = YAML.parse(shown.status === 'present' ? shown.value : '{}', { maxAliasCount: 100 }) ?? {};
       security = normalizeApprovalSecurity(definition.approvalSecurity ?? {});
       // Who else may be asked when the proposer may not approve it (review 11-17, finding 2).
-      approvers = (await import('./configuration-approvers.mjs')).namedApprovers(definition);
+      approvers = (await import('./config-approvers.mjs')).namedApprovers(definition);
     } catch { security = normalizeApprovalSecurity({}); }
     let projected = null;
     const policyRoot = async () => {
@@ -158,7 +158,7 @@ async function assertMayApprove(context, approver, branch, command, repository) 
   const self = context.proposer ? context.proposer.email === String(approver?.email ?? '').trim().toLowerCase() : 'unknown';
   if (context.approvalPolicy.allowSelfApproval !== false || self === false) return self;
   if (self === true) {
-    const { selfApprovalRefusalWords } = await import('./configuration-approvers.mjs');
+    const { selfApprovalRefusalWords } = await import('./config-approvers.mjs');
     throw new SingularityFlowError(`You proposed ${branch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was approved.`
       + selfApprovalRefusalWords(context.approvalPolicy.approvers, approver), {
       code: 'CONFIGURATION_SELF_APPROVAL_REFUSED', details: { proposer: context.proposer, nextAction: { label: 'Another person approves it', command } }

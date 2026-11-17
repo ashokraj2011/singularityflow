@@ -461,7 +461,7 @@ export async function publishCurrentIdentityToConfiguration(root, {
     }
     // Never self-approval off with nobody else named (review 11-17).
     if (selfApprovalChanged && desiredSelfApproval === false) {
-      (await import('./configuration-approvers.mjs')).refuseLastApprover(workflow.toJS(), portfolio?.toJS(), [member, author]);
+      (await import('./config-approvers.mjs')).refuseLastApprover(workflow.toJS(), portfolio?.toJS(), [member, author]);
     }
     if (!changedGroups.length && !profileChanged && !selfApprovalChanged && !autoEnrollmentChanged) {
       return {

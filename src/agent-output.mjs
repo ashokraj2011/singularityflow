@@ -63,9 +63,13 @@ const DOCUMENT_BODY_BYTES = 600;
 const DOCUMENT_BODY_REASON = 'document body: the person reviews it outside the chat; open it only to quote a line';
 const FIELD_BYTES = 6_000;
 // Who and where the result is about: an agent that sees only the view still works in the right checkout on the right
-// Story and step. Every skill's boundary runs its commands from `repositoryPath`, so these leave a view last.
-const IDENTITY_FIELDS = new Set(['ready', 'repositoryPath', 'workId', 'phase', 'phaseStatus', 'generation', 'status']);
-const identityLast = (left, right) => Number(IDENTITY_FIELDS.has(left)) - Number(IDENTITY_FIELDS.has(right));
+// Story and step. Every skill's boundary runs its commands from `repositoryPath`, so these leave a view last. What the
+// result is and says leaves after them and comes back first: every reader of a view goes by it (Copilot session usage
+// counted no kept review when a bounded view left them out, 2026-11-17).
+const RESULT_IDENTITY = ['resultType', 'status'];
+const IDENTITY_FIELDS = new Set(['ready', 'repositoryPath', 'workId', 'phase', 'phaseStatus', 'generation']);
+const identityRank = (key) => (RESULT_IDENTITY.includes(key) ? 2 : Number(IDENTITY_FIELDS.has(key)));
+const identityLast = (left, right) => identityRank(left) - identityRank(right);
 /**
  * The field a reader of a result reads, by what the result is: help's page, the articles a person answers before
  * approval, the decision list's items, a review's findings. In a 4 KB view it leaves after everything but who and
@@ -386,10 +390,14 @@ export function agentAct(result) {
   // A review packet's action context is its approval context again, word for word.
   if (result.approvalPacket && result.approvalContext && result.ready !== undefined && !result.resultType) return { state: 'read', do: null, said: null,
     read: ['approvalPacket', 'approvalContext', 'choiceSets'] };
+  // A step already submitted says so first, as a submission does: Copilot session usage counts the read by act, which
+  // every view keeps, whatever else it leaves out [owner, 2026-11-17: count everything].
   if (result.resultType === 'sflow-submission-readiness' && result.approvalContinuation) {
     return withRoute({ state: 'blocked', do: null, read: result.sheet ? ['sheet', 'owedDecisions'] : ['approvalCheck', 'owedDecisions', 'pending'],
-      said: 'The phase is submitted, but its known approval holds must be cleared by their named owners. Follow the returned route; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
+      said: 'Submitted, but its known approval holds must be cleared by their named owners. Follow the returned route; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
   }
+  if (result.resultType === 'sflow-submission-readiness' && result.classification === 'already-submitted') return withRoute({ state: 'next', do: null,
+    said: oneLine(`Submitted already; its approval comes next. ${result.reason ?? ''}`) }, genericAction(result));
   // A review turn's repairs spent: the draft stays staged and status records it incomplete [owner, 2026-11-13].
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.incomplete?.instruction) return {
     state: 'blocked', do: null, read: ['error.details.incomplete', 'error.details.findings'], said: oneLine(result.error.details.incomplete.instruction) };
@@ -1359,8 +1367,8 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
       ...(bytes(indexText) > READ_CHUNK_BYTES ? { read: lineRanges(indexText) } : {}) };
   }
   // What stays was decided against the widest numbers the file could produce; with the real ones there may be room
-  // again for what a reader reads: put each back, most needed first, while the view still fits.
-  for (const key of [...reader].filter((field) => omitted.includes(field) && textFiles[field].length === 0)) {
+  // again for what a reader reads: put each back, most needed first (resultType and status), while the view still fits.
+  for (const key of [...RESULT_IDENTITY.filter((field) => size[field] <= SMALL_FIELD_BYTES), ...reader].filter((field) => omitted.includes(field) && textFiles[field].length === 0)) {
     const tried = new Set([...kept, key]);
     if (bytes(render(tried, agentOutput, placed, omitted, fields, index)) <= budget) kept.add(key);
   }

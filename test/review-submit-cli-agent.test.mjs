@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { publishedSpecificationStory, reviewReport } from './helpers/source-review-fixture.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { boundedAgentOutput, completeAgentResult } from '../src/agent-output.mjs';
+import { copilotSessionReport, createSessionAttribution } from '../src/native-copilot-sessions.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -90,9 +91,11 @@ test('check, submit, status and result last hand the agent what comes after rete
   const submit = cli(...checked.act.do.shell.replace(/^singularity-flow /u, '').split(' '));
   const submitted = JSON.parse(submit);
   // The retained review's status, with its report's digest. Its act (with the next step's show line, 2026-11-16) fills
-  // the view, so a bounded view keeps the other fields in its file (agentOutput), where the whole result is read.
+  // the view, so a bounded view keeps the other fields in its file (agentOutput), where the whole result is read; what
+  // the result is and says (resultType, status) stays in the view (the next test).
   const retained = completeAgentResult(submitted);
   assert.equal(retained.resultType, 'source-review-status', submit);
+  assert.equal(submitted.resultType, retained.resultType, submit);
   assert.ok(retained.reportSha256);
   assert.equal(submitted.act.state, 'next');
   // A retained review with a pending disposition goes to the person's decision, never back to retention.
@@ -119,6 +122,54 @@ test('check, submit, status and result last hand the agent what comes after rete
   assert.equal(other.status, 'none');
   assert.equal(other.act.do.shell, 'singularity-flow nextsteps --for-agent --json');
   assert.equal(other.reportSha256, undefined);
+});
+
+// Copilot's session-state keeps each tool result as the agent saw it: for SFlow, the --for-agent view. The usage report
+// counts a /sf-review-source run finished from that view (native-copilot-sessions.mjs), so a review kept behind a bounded
+// view (act's show line fills it, fb368d49b) went uncounted twice over: the view left out resultType and status, and the
+// report counted only a ready review, while this kept one waits on a person's decision (correction-required). The owner's
+// decision of 2026-11-17, "count everything": every kept review is a finished run, whatever it found.
+test('a review kept behind a bounded agent view counts as a finished /sf-review-source run in the session report', async (t) => {
+  const { root, phaseId } = await publishedSpecificationStory(t);
+  const results = await mkdtemp(path.join(os.tmpdir(), 'sflow-kept-'));
+  t.after(() => rm(results, { recursive: true, force: true }));
+  const cli = cliIn(root, results);
+  const packet = JSON.parse(cli('review-source', 'context', phaseId, '--json'));
+  await mkdir(path.dirname(packet.stagingPath), { recursive: true });
+  await writeFile(packet.stagingPath, JSON.stringify(reviewReport(packet)));
+  const check = cli('review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--for-agent', '--json');
+  const submitCommand = JSON.parse(check).act.do.shell;
+  const submit = cli(...submitCommand.replace(/^singularity-flow /u, '').split(' '));
+  const view = JSON.parse(submit);
+  const retained = completeAgentResult(view);
+  assert.equal(view.agentOutput?.view, 'bounded', 'the case: the rest of the retained review is in the view\'s file');
+  assert.ok(bytes(submit) <= 4096, `${bytes(submit)} bytes`);
+  assert.ok(retained.reportSha256, 'the review is retained');
+  // The run as Copilot records it: the person's /sf-review-source, then the check and the submit in its shell.
+  const session = createSessionAttribution('55555555-0000-4000-8000-000000000005');
+  const at = (index) => `2026-11-17T10:00:${String(index).padStart(2, '0')}.000Z`;
+  const usage = (initiator) => ({ type: 'session.usage_record', data: { usage: { model: 'fixture-model', initiator,
+    inputTokens: 1000, outputTokens: 10, cacheReadTokens: 0, cost: 1 } } });
+  const shell = (id, command, output) => [
+    { type: 'tool.execution_start', data: { toolCallId: id, toolName: 'bash', arguments: { command } } },
+    { type: 'tool.execution_complete', data: { toolCallId: id, success: true, result: { content: `${output.trimEnd()}\n<exited with exit code 0>` } } },
+    usage('agent')];
+  const events = [
+    { type: 'session.start', data: { copilotVersion: '1.0.107', startTime: at(0) } },
+    { type: 'skill.invoked', data: { name: 'sflow-review-source', content: 'SKILL', trigger: 'user-invoked' } },
+    { type: 'user.message', data: { content: `/sf-review-source ${phaseId}` } },
+    usage('user'),
+    ...shell('check', `singularity-flow review-source check ${phaseId} --report-file ${packet.stagingPath} --for-agent --json`, check),
+    ...shell('submit', submitCommand, submit)
+  ];
+  events.forEach((event, index) => session.push(JSON.stringify({ ...event, id: `e${index}`, timestamp: at(index) })));
+  const report = copilotSessionReport([session.finish()]);
+  assert.equal(report.resultTypes.sflowResults['source-review-status']?.results, 1, JSON.stringify(report.resultTypes));
+  assert.deepEqual([report.tasks.bySkill['sf-review-source'].tasks, report.tasks.bySkill['sf-review-source'].finished], [1, 1],
+    `the kept review (${retained.status}) is a finished /sf-review-source run`);
+  // Who the result is and what it says stay in the view, before any optional field.
+  assert.equal(view.resultType, 'source-review-status', submit);
+  assert.equal(view.status, retained.status, submit);
 });
 
 test('a long refusal is at most 4 KB, leads with its repair and ends on it', async (t) => {

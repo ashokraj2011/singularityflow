@@ -720,7 +720,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // visual-coverage.mjs lost its republish command. The refusal stays in that eager module: reached through
     // commands/phase-opening.mjs, it put that module and eight of its imports into the VS Code gateway bundle, at its 884
     // modules. No new eager file.
-    assert.ok(closure.bytes <= 9_745_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,745,800 (measured 9,745,763 for submit.mjs, +612): a quality command that changes the source at submission names
+    // the published step's version question (state.mjs's two QUALITY_COMMAND_SOURCE_MUTATION refusals, which said to publish
+    // a fresh generation), and refusal-remediation.mjs leads with it [D3, OSA:REQ-030]. No new eager file.
+    assert.ok(closure.bytes <= 9_745_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -162,34 +162,51 @@ test('Report and fix admits a submitted delivery successor through its existing 
     input: { findingId: finding.id, obligationRefs: ['QF-1:AC-001'] } };
   const prepared = await prepareApplicationRepair(repo.root, request);
   assert.equal(prepared.session.repairAttempts.length, 1);
+  // Report and fix names no version, so admitting the repair opens none. Version 2 opens only on the person's yes to its own
+  // question, through the one opening operation, like every other next version [D3, OSA:REQ-030]; the admission names
+  // that preview as what comes next.
+  assert.equal(prepared.generationIntent, undefined);
+  assert.deepEqual(prepared.versionOpening, { phase: 'implement', version: 2, opened: false });
+  assert.match(prepared.continuation.nextAction.command, /phase rollover implement\b/u);
   const replayedCommand = repo.sflowJson('app-review', 'repair', session.id, '--work-id', 'QF-1', '--action-id', request.actionId,
     '--revision', String(request.expectedRevision), '--input-json', JSON.stringify(request.input), '--for-agent');
   assert.equal(replayedCommand.status, 0, replayedCommand.stderr + replayedCommand.stdout);
   assert.equal(replayedCommand.value.commandGuidance.copilotCommand, '/sf-code');
+  assert.match(replayedCommand.value.commandGuidance.command, /phase rollover implement\b/u);
+  assert.equal(replayedCommand.value.repair.versionOpening.version, 2);
   const replay = await prepareApplicationRepair(repo.root, request);
   assert.equal(replay.replay, true);
-  assert.equal(replay.generationIntent.id, prepared.generationIntent.id, 'A lost response must not open another generation.');
+  assert.equal(replay.generationIntent, undefined, 'A lost response must not open a version.');
   const current = (await loadAcceptedStoryExecution(repo.root, 'QF-1')).workflow;
   assert.equal(current.phases.implement.status, 'in_progress');
-  assert.equal(current.phases.implement.generationIntent.status, 'open');
-  assert.equal(current.phases.implement.generationIntent.generation, 2);
+  assert.notEqual(current.phases.implement.generationIntent?.status, 'open', 'Nothing opens before the person\'s yes.');
+  assert.equal(current.phases.implement.versionOpening.version, 1);
   assert.equal(current.lineage.submissions.some(item => item.packetSha256 === packet), true, 'The inspected submission remains immutable history.');
   assert.equal(await readFile(path.join(repo.root, 'src/value.mjs'), 'utf8'), originalSource, 'Preparing a repair never edits application source.');
   assert.equal((await read()).findings[0].state, 'repairing', 'Neither generation admission nor test passes resolve the human finding.');
-  // Report and fix admits the repair, kept on this checkout; the successor itself opens only on the person's yes to its own
-  // question, like every other next version [D3, OSA:REQ-030]. Preparing it before that is refused, and their yes in their
-  // own terminal promotes the admitted opening at its own number, keeping its intent.
+  // Preparing it before the yes is refused; the step's preview asks the person, and their yes in their own terminal opens
+  // version 2 through the opening operation, bound to their consent.
   const unasked = repo.sflowJson('prepare', 'implement');
   assert.notEqual(unasked.status, 0);
   assert.equal(unasked.value.error.code, 'VERSION_CONSENT_REQUIRED');
+  assert.doesNotMatch(unasked.value.error.message, /older build/u, 'This build opened nothing on this checkout only.');
   const preview = repo.sflowJson('phase', 'rollover', 'implement');
   assert.equal(preview.status, 0, preview.stderr);
   assert.match(preview.value.question, /^Start version 2 of /u);
-  assert.equal(preview.value.reason, 'legacy-promotion');
+  assert.equal(preview.value.reason, 'rework', 'The reviewer returned it to itself for correction.');
   const opened = repo.sflowJson('phase', 'rollover', 'implement', '--confirm', preview.value.confirmation);
   assert.equal(opened.status, 0, opened.stderr);
-  assert.equal((await loadAcceptedStoryExecution(repo.root, 'QF-1')).workflow.phases.implement.generationIntent.id, prepared.generationIntent.id,
-    'The person\'s yes opens the admitted generation, never another.');
+  const reopened = (await loadAcceptedStoryExecution(repo.root, 'QF-1')).workflow.phases.implement;
+  assert.equal(reopened.generationIntent.status, 'open');
+  assert.equal(reopened.generationIntent.generation, 2);
+  assert.equal(reopened.versionOpening.version, 2);
+  assert.equal(reopened.versionOpening.operationId, opened.value.opening.operationId);
+  assert.equal(reopened.versionOpening.consent.surface, 'terminal', 'The version opened on the person\'s own yes.');
+  // Replayed after the yes, the admission writes that version, opens no other and spends no more of the repair budget.
+  const afterYes = await prepareApplicationRepair(repo.root, request);
+  assert.equal(afterYes.replay, true);
+  assert.equal(afterYes.generationIntent.id, reopened.generationIntent.id, 'A lost response must not open another version.');
+  assert.equal(afterYes.session.repairAttempts.length, 1);
   // The approved behavior is 2. The earlier test passed while asserting the wrong behavior;
   // the repair corrects both source and assertion under the admitted successor generation.
   await writeFile(path.join(repo.root, 'src/value.mjs'), originalSource.replace('value = 1', 'value = 2'));

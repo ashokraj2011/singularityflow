@@ -237,16 +237,20 @@ export async function planAutoRepair(root, flightId, refusalId, options = {}) {
   // A repair of a step Auto already published starts its next version: the plan names it, so confirming the plan is the
   // person's informed yes to that version [D3, OSA:REQ-030].
   const versionOpening = await repairVersionOf(state, options);
-  const prior = (await records(root, 'auto-repair-plan', flightId))
-    .find((entry) => entry.refusalSha256 === refusal.refusalSha256);
+  const versionLine = versionOpening ? (await import('./auto-version-authority.mjs')).repairVersionSentence(versionOpening) : '';
+  const plans = (await records(root, 'auto-repair-plan', flightId))
+    .filter((entry) => entry.refusalSha256 === refusal.refusalSha256);
+  // Reused only while confirming it is the person's yes to what the repair starts. A plan that does not name that version
+  // (an older build's) is planned again for the same refusal, naming it, under its own ID: never a dead end.
+  const prior = plans.find((entry) => entry.objective.endsWith(versionLine));
   if (prior) return { flight: state, refusal, repairPlan: prior, reused: true, versionOpening };
   const missing = refusal.missing.map((entry) => entry.evidence ?? entry.requirement ?? entry.message)
     .filter(Boolean);
-  const { repairVersionSentence } = versionOpening ? await import('./auto-version-authority.mjs') : {};
+  const objective = `${missing.length ? `Resolve: ${missing.join('; ')}` : `Resolve ${refusal.code} at ${refusal.gate}.`}${versionLine}`;
   const repairPlan = await persistAutoRepairPlan(root, {
-    flightId, parentAttemptId: refusal.attemptId, refusalSha256: refusal.refusalSha256,
-    objective: `${missing.length ? `Resolve: ${missing.join('; ')}` : `Resolve ${refusal.code} at ${refusal.gate}.`}${
-      versionOpening ? repairVersionSentence(versionOpening) : ''}`,
+    ...(plans.length ? { repairPlanId: `ARP-${recordSha256({ flightId, parentAttemptId: refusal.attemptId,
+      refusalSha256: refusal.refusalSha256, objective }).slice(0, 26).toUpperCase()}` } : {}),
+    flightId, parentAttemptId: refusal.attemptId, refusalSha256: refusal.refusalSha256, objective,
     readScope: [...new Set([...(state.scopePrediction ?? []), ...(refusal.repair.scope ?? [])])],
     writeScope: refusal.repair.scope ?? [],
     forbiddenChanges: ['protected governance paths', 'scope outside this exact Repair Plan', 'new external effects'],
@@ -285,13 +289,15 @@ async function authorizeAutoRepairInternal(
   root, flightId, repairPlanId, confirmation, options, authorizationMode
 ) {
   const plan = await readAutoP1Record(root, 'auto-repair-plan', flightId, repairPlanId);
+  const state = await readAutoFlightState(root, flightId);
+  // The person's way back is their own review of the repair: it shows the current plan, planned again when needed, and its hash.
+  const review = { command: `singularity-flow auto repair ${flightId} --refusal ${state.activeRefusalId ?? '<REFUSAL-ID>'}` };
   if (authorizationMode === 'human-confirmation'
       && exactHash(confirmation, 'Repair confirmation') !== plan.repairPlanSha256) {
     fail(`Repair confirmation must equal ${plan.repairPlanSha256}.`, 'AUTO_REPAIR_CONFIRMATION_REQUIRED', {
-      expected: plan.repairPlanSha256
+      expected: plan.repairPlanSha256, nextAction: review
     });
   }
-  const state = await readAutoFlightState(root, flightId);
   if (state.stopRequested && !state.stopRequested.quiescedAt) {
     fail('A repair cannot replace an active stop before Execution Unit quiescence is proven.',
       'AUTO_REPAIR_NOT_QUIESCENT', {
@@ -461,8 +467,8 @@ async function authorizeAutoRepairInternal(
         'AUTO_REPAIR_NOT_ELIGIBLE', { phase: versionOpening.phase, version: versionOpening.version });
     }
     if (!plan.objective.endsWith(repairVersionSentence(versionOpening))) {
-      fail(`Repair Plan ${plan.repairPlanId} does not name version ${versionOpening.version} of ${versionOpening.step}, which this repair starts, so confirming it is not the person's yes to that version.`,
-        'AUTO_REPAIR_PLAN_STALE', { repairPlanId: plan.repairPlanId, phase: versionOpening.phase, version: versionOpening.version });
+      fail(`Repair Plan ${plan.repairPlanId} does not name version ${versionOpening.version} of ${versionOpening.step}, which this repair starts, so confirming it is not the person's yes to that version. Review the repair again: it is planned again naming that version.`,
+        'AUTO_REPAIR_PLAN_STALE', { repairPlanId: plan.repairPlanId, phase: versionOpening.phase, version: versionOpening.version, nextAction: review });
     }
   }
   const generationIntentSha256 = authority.phase?.generationIntent?.receiptSha256 ?? null;

@@ -26,7 +26,7 @@ import { candidateGateTests } from '../src/local-test-runs.mjs';
 import { latestStepAttempts } from '../src/verification/attempts.mjs';
 import { listAutoContractRecords } from '../src/auto/auto-contract-records.mjs';
 import { authorizeAutoRepair, planAutoRepair } from '../src/auto/auto-p1-control.mjs';
-import { listAutoP1Records } from '../src/auto/auto-p1-records.mjs';
+import { listAutoP1Records, persistAutoRepairPlan } from '../src/auto/auto-p1-records.mjs';
 import {
   authorizeAutoAuthoringAttempt, discardAutoFlight, haltAutoFlight, mutateAutoFlightState, pauseAutoFlight,
   readAutoFlightReport, readAutoFlightState, resumeAutoFlight
@@ -1756,6 +1756,81 @@ test('one confirmed repair opens a new generation and succeeds without reusing c
   const attempts = Object.values(repaired.phaseContracts);
   assert.equal(attempts.some((contract) => contract.generation === 1), true);
   assert.equal(attempts.some((contract) => contract.generation === 2), true);
+});
+
+test('a Repair Plan an older build made, which names no version, is planned again and opens version 2 only on the person\'s yes to it', slowLane(), async () => {
+  const root = await executableRepository();
+  const plan = await createAutoPlan(root, 'Change the value and repair one refused submission from an older plan.', {
+    ...proposal,
+    workType: 'quick-fix',
+    predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'submitted:implement'
+  }, {
+    workId: 'AUT-REPAIR-REPLANNED', workType: 'quick-fix', fromBranch: 'main',
+    until: 'submitted:implement'
+  });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const lifecycle = lifecycleWithSubmitFailures(1);
+  const refused = await runFlightStep(root, started.flight, { childLifecycle: lifecycle });
+  assert.equal(refused.status, 'waiting-human');
+  const { flightId, activeRefusalId } = refused;
+  // The Repair Plan an older build made for this refusal: the same plan, whose objective does not name the version the
+  // repair of the published step starts.
+  const refusal = (await listAutoP1Records(root, 'auto-refusal', flightId))
+    .find((entry) => entry.refusalId === activeRefusalId);
+  const missing = refusal.missing.map((entry) => entry.evidence ?? entry.requirement ?? entry.message).filter(Boolean);
+  const older = await persistAutoRepairPlan(root, {
+    flightId, parentAttemptId: refusal.attemptId, refusalSha256: refusal.refusalSha256,
+    objective: missing.length ? `Resolve: ${missing.join('; ')}` : `Resolve ${refusal.code} at ${refusal.gate}.`,
+    readScope: [...new Set([...(refused.scopePrediction ?? []), ...(refusal.repair.scope ?? [])])],
+    writeScope: refusal.repair.scope ?? [],
+    forbiddenChanges: ['protected governance paths', 'scope outside this exact Repair Plan', 'new external effects'],
+    requiredEvidence: missing.length ? missing : [`${refusal.gate} returns a passing deterministic verdict`],
+    budget: { maximumAttempts: 1, remainingModelInvocations: 1 }, attemptNumber: 1
+  });
+  assert.doesNotMatch(older.objective, /Confirming this plan/u);
+  // Confirming it is not the person's yes to version 2; its refusal names the review that plans it again.
+  const review = `singularity-flow auto repair ${flightId} --refusal ${activeRefusalId}`;
+  await assert.rejects(
+    () => authorizeAutoRepair(root, flightId, older.repairPlanId, older.repairPlanSha256),
+    (error) => error.code === 'AUTO_REPAIR_PLAN_STALE' && error.details.version === 2
+      && error.details.nextAction.command === review
+  );
+  // That review plans it again for the same refusal, naming version 2, under its own ID. Auto authorizes nothing itself.
+  const replanned = await planAutoRepair(root, flightId, activeRefusalId);
+  assert.equal(replanned.reused, false);
+  assert.notEqual(replanned.repairPlan.repairPlanId, older.repairPlanId);
+  assert.equal(replanned.repairPlan.refusalSha256, older.refusalSha256);
+  assert.equal(replanned.versionOpening.version, 2);
+  assert.match(replanned.repairPlan.objective, /Confirming this plan is the yes to start version 2 of .+; published version 1 stays unchanged\.$/u);
+  const again = await planAutoRepair(root, flightId, activeRefusalId);
+  assert.equal(again.reused, true);
+  assert.equal(again.repairPlan.repairPlanId, replanned.repairPlan.repairPlanId, 'Reviewed again, it is the same plan.');
+  const waiting = await readAutoFlightState(root, flightId);
+  assert.equal(waiting.status, 'waiting-human');
+  assert.equal(waiting.repairAttempts?.length ?? 0, 0);
+  // The older plan's hash is not the yes to the plan that names the version; the person's confirmation of that plan is.
+  await assert.rejects(
+    () => authorizeAutoRepair(root, flightId, replanned.repairPlan.repairPlanId, older.repairPlanSha256),
+    (error) => error.code === 'AUTO_REPAIR_CONFIRMATION_REQUIRED' && error.details.nextAction.command === review
+  );
+  const authorized = await authorizeAutoRepair(
+    root, flightId, replanned.repairPlan.repairPlanId, replanned.repairPlan.repairPlanSha256
+  );
+  assert.equal(authorized.flight.activeRepair.authorizationSource, 'human-confirmation');
+  assert.equal(authorized.flight.activeRepair.versionOpening.version, 2);
+  assert.equal(authorized.flight.activeRepair.versionOpening.authorization.repairPlanId, replanned.repairPlan.repairPlanId);
+  const repaired = await runFlightStep(root, authorized.flight, { childLifecycle: lifecycle });
+  assert.equal(repaired.status, 'completed',
+    `${repaired.status}/${repaired.stopReason}: ${repaired.lastError?.message ?? repaired.nextAction}`);
+  assert.equal(repaired.counters.modelInvocations, 2);
+  const workflow = JSON.parse(await readFile(path.join(
+    repaired.worktree, 'singularity/work-items/AUT-REPAIR-REPLANNED/workflow.json'
+  ), 'utf8'));
+  assert.equal(workflow.phases.implement.generation, 2);
+  assert.equal(workflow.phases.implement.versionOpening.version, 2);
+  assert.equal(workflow.phases.implement.versionOpening.consent.surface, 'auto-repair',
+    'Version 2 opened through the one opening operation on the person\'s confirmation of the plan that names it.');
 });
 
 test('a failed confirmed repair halts permanently and cannot consume a third model invocation', async () => {

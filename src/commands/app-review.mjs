@@ -195,10 +195,12 @@ export function applicationReviewAgentView(value) {
     required: value.required, capabilities: value.capabilities, completion: session.completion, localEvidence: session.localEvidence,
     findings: session.findings?.slice(0, 10).map(item => ({ id: item.id, observed: item.observed.slice(0, 2000), expected: item.expected.slice(0, 2000), state: item.state })),
     omittedFindings: Math.max(0, (session.findings?.length ?? 0) - 10), documents: value.documents,
-    repair: value.generationIntent ? { generationIntent: { id: value.generationIntent.id, status: value.generationIntent.status, generation: value.generationIntent.generation },
+    // An admitted repair whose next version waits for the person's yes carries that version and its preview (continuation).
+    repair: value.generationIntent || value.versionOpening ? { generationIntent: value.generationIntent ? { id: value.generationIntent.id,
+      status: value.generationIntent.status, generation: value.generationIntent.generation } : null, versionOpening: value.versionOpening ?? null,
       attempt: session.repairAttempts?.at(-1)?.id } : null,
     results: (value.results ?? session.target?.results) ? { packet: (value.results ?? session.target.results).packet,
       ready: (value.results ?? session.target.results).ready, reason: (value.results ?? session.target.results).reason } : null,
-    error: session.error, continuation: session.continuation, commandGuidance: value.commandGuidance,
+    error: session.error, continuation: session.continuation ?? value.continuation, commandGuidance: value.commandGuidance,
     instruction: 'Open the exact local review session. The person reports, rechecks and confirms there; opening it, model text and passing tests never constitute acceptance.' };
 }

@@ -50,6 +50,9 @@ export function adjudicationTableStep([command, sub, item], options) {
   return command === 'story' && sub === 'adjudicate' && !item && options.answers === undefined && options.item === undefined && options.disposition === undefined;
 }
 
+// The step itself, not its preview.
+const confirming = (options) => options.confirm !== undefined;
+
 /**
  * Steps only a person takes, in their own terminal. copilot-mutation-guard.mjs refuses each in every
  * turn, so a skill route to one only showed it again and pointed back to that skill: /sf-decide for
@@ -81,11 +84,11 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['set-aside', ([command], options) => command === 'recover' && options['set-aside'] === true],
   // Without --confirm it is a preview anyone may run.
   ['publication-set-aside', ([command, sub], options) => (command === 'sync' || (command === 'initiative' && sub === 'sync'))
-    && options['set-aside'] === true && options.confirm !== undefined],
-  ['workflow-delete', ([command, sub], options) => command === 'workflow' && sub === 'delete' && options.confirm !== undefined],
+    && options['set-aside'] === true && confirming(options)],
+  ['workflow-delete', ([command, sub], options) => command === 'workflow' && sub === 'delete' && confirming(options)],
   // A held test run, set aside by a person who checked its process is not the run; listing it is anyone's.
-  ['test-run-set-aside', ([command, sub], options) => command === 'tests' && sub === 'held' && options['set-aside'] === true && options.confirm !== undefined],
-  ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && options.confirm !== undefined],
+  ['test-run-set-aside', ([command, sub], options) => command === 'tests' && sub === 'held' && options['set-aside'] === true && confirming(options)],
+  ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && confirming(options)],
   ['intent-amendment-decision', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'decide'],
   // Acknowledging an approved one is a person's too, recorded on the decisions card; no turn runs it [owner, 2026-11-13].
   ['intent-amendment-acknowledgement', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'acknowledge'],

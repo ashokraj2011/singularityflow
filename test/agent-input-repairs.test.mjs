@@ -147,7 +147,9 @@ const TYPE_CHECK = /\btypeof\s+[\w.?]+\s*!==\s*'[a-z]+'/gu;
 // What is left elsewhere: setup, workspace and person-only confirmations. It may shrink, never grow.
 // 111: main ea398577f measured 115 against 116, four of them type checks; without them main and the 11-17 landing both
 // measure 111 (the landing's rollover and workspace repair confirmations go through assertConfirmation).
-const REMAINING_CEILING = 111;
+// 109: CVL piece 1's held-run set-aside goes through assertConfirmation, and the person-step catalog's confirming runs
+// share one check (2026-11-18).
+const REMAINING_CEILING = 109;
 
 async function sourceFiles(directory) {
   const entries = await readdir(path.join(ROOT, directory), { withFileTypes: true });

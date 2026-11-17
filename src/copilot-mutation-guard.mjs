@@ -728,10 +728,10 @@ export function argvAllowed(argv, mode, value) {
   if (positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1])) return false;
   // What the code means is a person's word: confirming a rule's meaning or reviewing knowledge, in no turn.
   if (knowledgeConfirmation(positionals)) return false;
-  // Confirming a workflow delete is the person's own step, in any turn; the preview stays allowed.
-  if (positionals[0] === 'workflow' && positionals[1] === 'delete' && options.confirm !== undefined) return false;
-  // So is setting aside a held test run, by a person who checked the process it names; listing it stays allowed.
-  if (positionals[0] === 'tests' && positionals[1] === 'held' && options['set-aside'] !== undefined && options.confirm !== undefined) return false;
+  // Confirming a workflow delete is the person's own step, in any turn; so is setting aside a held test run, by a person
+  // who checked the process it names. The preview and the listing stay allowed.
+  if (options.confirm !== undefined && ((positionals[0] === 'workflow' && positionals[1] === 'delete')
+    || (positionals[0] === 'tests' && positionals[1] === 'held' && options['set-aside'] !== undefined))) return false;
   let classification;
   try { classification = resolveOperation({ requestedCommand: positionals[0], positionals, options }).classification; }
   catch { return false; }

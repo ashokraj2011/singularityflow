@@ -19,6 +19,7 @@ import path from 'node:path';
 
 import { gitDir } from '../git.mjs';
 import { leaseOwnerAssessment, leaseOwnerIdentity, processStartTimeMs } from '../lease-liveness.mjs';
+import { assertConfirmation } from '../text-lines.mjs';
 import { SingularityFlowError, writeAtomic } from '../util.mjs';
 import { stepAttempts } from './attempts.mjs';
 
@@ -186,8 +187,10 @@ export async function setAsideTestRun(root, target, { confirm = null, itemRelati
     process: { pid: earlier.marker.process?.pid ?? null, group: earlier.marker.process?.group === true, owner: earlier.marker.owner?.pid ?? null, host: earlier.marker.owner?.host ?? null },
     words: `Its last run, started at ${earlier.marker.startedAt}, is held by ${processWords(earlier.marker)}. Set it aside only once you checked that process is not that run, or ended it.`,
     confirmation, command: `singularity-flow tests held --work-id ${target.workId} --phase ${target.phaseId} --command ${shellWord(target.commandId)} --set-aside --confirm ${confirmation}` };
-  if (confirm !== confirmation) throw new SingularityFlowError('The held run changed after it was listed: list it again and confirm what it shows now.', {
-    code: 'TEST_RUN_SET_ASIDE_STALE', details: { nextAction: { command: heldRunsCommand(target) } } });
+  assertConfirmation(confirm, confirmation, { code: 'TEST_RUN_SET_ASIDE_STALE',
+    fail: (message, code, details) => { throw new SingularityFlowError(message, { code, details }); },
+    message: 'The held run changed after it was listed: list it again and confirm what it shows now.',
+    details: { nextAction: { command: heldRunsCommand(target) } } });
   earlier.marker.reconciled = { state: 'set-aside', at: new Date().toISOString(), by: 'person' };
   await save(root, earlier.marker);
   return { ...base, status: 'set-aside', words: `Set aside: the next run of test command '${target.commandId}' for ${target.phaseId} starts. Nothing was ended.` };

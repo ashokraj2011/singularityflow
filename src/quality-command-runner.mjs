@@ -129,7 +129,9 @@ export async function runQualityCommand(command, args = [], {
   // A factory of stream redactors (src/output-redaction.mjs) for a run that was given private
   // environment values: stdout, stderr and the captured stdout file are redacted before they are
   // bounded, hashed, written or returned.
-  redactor = null
+  redactor = null,
+  onSpawn = null, // told the started process (a gate's run record)
+  endGroup = null // tests: what ends a stopped group
 } = {}) {
   let refused = null;
   if (reportCapture) {
@@ -222,6 +224,7 @@ export async function runQualityCommand(command, args = [], {
       });
       // A real group ends with the CLI, on exit or interrupt; tracking never delays the launch.
       const pid = child.pid;
+      if (pid && onSpawn) onSpawn(pid, killTree && platform !== 'win32');
       if (pid && killTree && platform !== 'win32' && spawnCommand === spawn) {
         groupTracking = (groupsModule ??= import('./git-child-groups.mjs'))
           .then((groups) => (settled ? null : groups.trackProcessGroup(pid)), () => null);
@@ -279,8 +282,9 @@ export async function runQualityCommand(command, args = [], {
       // `close` proves only that the command's own pipes closed. A command this run stopped is
       // reported once nothing of its group is left: a descendant holding no pipe that trapped the
       // SIGTERM, or was forked as it went out, would otherwise go on running after the report [TCE:REQ-034].
-      if (stopped && killTree) await (groupsModule ??= import('./git-child-groups.mjs'))
-        .then((groups) => groups.endStoppedProcessGroup(child, { platform }), () => null);
+      // Its answer is kept: a group not confirmed gone is never read as quiet [CVL-REQ-018].
+      const gone = stopped && killTree ? await (groupsModule ??= import('./git-child-groups.mjs'))
+        .then((groups) => (endGroup ?? groups.endStoppedProcessGroup)(child, { platform })).catch(() => null) : null;
       settled = true;
       if (hardKillTimer) clearTimeout(hardKillTimer);
       clearTimeout(lingerTimer);
@@ -305,7 +309,8 @@ export async function runQualityCommand(command, args = [], {
           stdoutBytes: out.bytes,
           stderrBytes: err.bytes,
           stdoutTruncated: out.truncated,
-          stderrTruncated: err.truncated
+          stderrTruncated: err.truncated,
+          ...(stopped && killTree ? { processGroup: gone === true ? 'gone' : 'not-confirmed' } : {})
         };
         const native = spawnCommand === spawn && platformLookupCommand === spawnSync
           && platformLstatCommand === undefined && platformRealpathCommand === undefined

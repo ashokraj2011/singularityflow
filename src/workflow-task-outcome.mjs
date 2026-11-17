@@ -3,15 +3,16 @@
  * stops the step at a boundary its author cannot cross alone, the task record keeps where it stopped, so every surface and
  * every later turn, chat or laptop names the same continuation, and nothing repeats the same route meanwhile:
  *   - `waiting-person`: a person's decision (a Node to pin for a failed required test);
- *   - `waiting-environment`: the environment stopped the run (a person accepts the risk, or it is fixed);
- *   - `waiting-input`: an input that is not on this laptop;
+ *   - `waiting-environment`: the environment stopped the run (a person accepts the risk, or it is fixed), kept with its
+ *     own error: the cause class a test-run risk names, or the environment that blocked the run before it started;
+ *   - `waiting-input`: an input that is not on this laptop, kept with its identity (a local document's ID);
  *   - `repair-required`: the step's own repair, within its configured budget, then a person's decision;
  *   - `publication-pending`: the step's commit is made here and waits to reach the shared Story branch. It is read from the
  *     sealed pending-publication record (publication-pending.mjs), which keeps the exact commit, branch, remote and lease
  *     across an interruption; its continuation sends that commit and nothing is written again.
  *
  * The record is progress, never authority (workflow-task.mjs): the outcome is kept as its `blockedCode`,
- * `<outcome>:<original code>:<lifecycle mark>`, so an older reader sees an ordinary blocked task. The lifecycle mark is the
+ * `<outcome>:<original code>:<lifecycle mark>[:<input>]`, so an older reader sees an ordinary blocked task. The lifecycle mark is the
  * Story record's history as it was then: any lifecycle event since (the person's decision on the card, a publication)
  * makes the outcome stale, and the kernel decides from the Story again [§4.1, plan section 5 "After mutations"].
  */
@@ -21,7 +22,7 @@ import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
 
 const OUTCOMES = new Set(['running', 'waiting-input', 'waiting-environment', 'waiting-person', 'repair-required']);
-const PATTERN = /^(running|waiting-input|waiting-environment|waiting-person|repair-required):([A-Za-z0-9_.-]{1,80}):([a-f0-9]{12})$/u;
+const PATTERN = /^(running|waiting-input|waiting-environment|waiting-person|repair-required):([A-Za-z0-9_.-]{1,80}):([a-f0-9]{12})(?::([A-Za-z0-9_.-]{1,40}))?$/u;
 
 /** The Story record's lifecycle as a short mark: its history's length and last entry. */
 export function lifecycleMark(workflow) {
@@ -30,10 +31,12 @@ export function lifecycleMark(workflow) {
   return createHash('sha256').update(JSON.stringify([history.length, last?.at ?? null, last?.event ?? null, last?.phase ?? null])).digest('hex').slice(0, 12);
 }
 
-/** The code a task record keeps for an outcome, or null for an outcome or code it cannot keep. */
-export function outcomeCode(outcome, code, workflow) {
+/** The code a task record keeps for an outcome, and the input it waits for, or null for an outcome or code it cannot keep. */
+export function outcomeCode(outcome, code, workflow, input = null) {
   if (!OUTCOMES.has(outcome) || !/^[A-Za-z0-9_.-]{1,80}$/u.test(String(code ?? ''))) return null;
-  return `${outcome}:${code}:${lifecycleMark(workflow)}`;
+  const kept = `${outcome}:${code}:${lifecycleMark(workflow)}`;
+  // A task record keeps at most 128 characters of code (workflow-task.mjs): an input that does not fit is left out.
+  return input != null && /^[A-Za-z0-9_.-]{1,40}$/u.test(String(input)) && kept.length + String(input).length < 128 ? `${kept}:${input}` : kept;
 }
 
 /**
@@ -44,19 +47,39 @@ export function taskOutcomeOf(record, workflow) {
   if (!record || record.state !== 'blocked') return null;
   const match = PATTERN.exec(String(record.blockedCode ?? ''));
   if (!match || match[3] !== lifecycleMark(workflow)) return null;
-  return { id: record.id ?? null, outcome: match[1], code: match[2], stage: record.state,
+  return { id: record.id ?? null, outcome: match[1], code: match[2], ...(match[4] ? { input: match[4] } : {}), stage: record.state,
     repairs: { used: Number(record.repairConsumed ?? 0), budget: Number(record.maximumContinuations ?? 0) } };
 }
 
-/** Which outcome a refused check stops the step at, from the refusal's own facts; null when it names none. */
-export function refusalOutcome(refusal) {
+// A run blocked before it started because the environment is not set up here: its file is missing or in use, or none is bound.
+const ENVIRONMENT_BLOCKS = new Set(['ENV_FILE_MISSING', 'ENV_FILE_IN_USE', 'ENVIRONMENT_BINDING_UNAVAILABLE']);
+// A run held back because the last run of its command may still be going (verification/test-run-marker.mjs): no new stop.
+const HELD_RUNS = new Set(['TEST_RUN_STILL_RUNNING', 'TEST_RUN_OUTCOME_UNKNOWN']);
+
+/**
+ * Where a refused check stops the step, from the refusal's own facts: `{ outcome, code, input }`, or null when it names
+ * none [§8, CVL-REQ-004]. The code kept is the native one where there is one.
+ */
+export function refusalStop(refusal) {
+  const details = refusal?.details ?? {};
+  // An input the step needs is not on this laptop: the first document to restore, by its ID.
+  if (refusal?.code === 'DOCUMENT_REUPLOAD_REQUIRED') return { outcome: 'waiting-input', code: refusal.code, input: details.documentReadiness?.missing?.[0]?.id ?? null };
   if (refusal?.code !== 'CODE_TEST_FAILED') return null;
-  const details = refusal.details ?? {};
+  const blocked = details.requiredTestExecution?.errorCode ?? null;
+  if (HELD_RUNS.has(blocked)) return null;
   // A Node to pin is one person's choice on the decisions card.
-  if (details.nodePin?.version) return 'waiting-person';
+  if (details.nodePin?.version) return { outcome: 'waiting-person', code: refusal.code };
   // The environment stopped the run: a person accepts the risk, or the environment is fixed.
-  if (details.testRunRisk?.eligible || details.testRunCause) return 'waiting-environment';
-  return 'repair-required';
+  if (ENVIRONMENT_BLOCKS.has(blocked)) return { outcome: 'waiting-environment', code: blocked };
+  const cause = String(details.testRunRisk?.causeClass ?? '').replaceAll('+', '.');
+  if (details.testRunRisk?.eligible) return { outcome: 'waiting-environment', code: /^[a-z.-]{1,80}$/u.test(cause) ? cause : refusal.code };
+  // A code cause, or one nothing names (a timeout among them), is the step's own repair: no environment decision covers it.
+  return { outcome: 'repair-required', code: refusal.code };
+}
+
+/** Which outcome a refused check stops the step at; null when it names none. */
+export function refusalOutcome(refusal) {
+  return refusalStop(refusal)?.outcome ?? null;
 }
 
 /**
@@ -64,21 +87,37 @@ export function refusalOutcome(refusal) {
  * Returns the outcome kept, or null.
  */
 export async function recordRefusalOutcome(root, workflow, phase, refusal) {
-  const outcome = refusalOutcome(refusal);
-  if (!outcome) return null;
+  const stop = refusalStop(refusal);
+  if (!stop) return null;
   // The mark of the Story record as it stays on disk: a refused transaction may have changed the one in memory.
   let kept = workflow;
   try {
     const [{ readFile }, path, { readRecord }] = await Promise.all([import('node:fs/promises'), import('node:path'), import('./schema-migrations.mjs')]);
     kept = readRecord('story-workflow', await readFile(path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json'), 'utf8')).record;
   } catch { kept = workflow; }
-  const blockedCode = outcomeCode(outcome, refusal.code, kept);
+  const blockedCode = outcomeCode(stop.outcome, stop.code, kept, stop.input);
   if (!blockedCode) return null;
   try {
     const store = await import('./workflow-task-store.mjs');
     await store.observeWorkflowTask(root, workflow, phase, { state: 'blocked', blockedCode });
-    return outcome;
+    return stop.outcome;
   } catch { return null; }
+}
+
+/**
+ * After a local document is restored: the step's wait for an input is answered, or it waits for the next one still
+ * missing. Only a kept `waiting-input` changes; private files only. `readiness`: the step's document readiness now.
+ */
+export async function settleInputWait(root, workflow, readiness) {
+  const phase = workflow.phases?.[workflow.currentPhase];
+  if (!phase || readiness?.phase !== phase.id) return null;
+  const store = await import('./workflow-task-store.mjs');
+  const waiting = taskOutcomeOf(await store.readWorkflowTask(root, workflow, phase).catch(() => null), workflow);
+  if (waiting?.outcome !== 'waiting-input') return null;
+  const next = readiness.missing?.[0]?.id ?? null;
+  await store.observeWorkflowTask(root, workflow, phase, next ? { state: 'blocked', blockedCode: outcomeCode('waiting-input', waiting.code, workflow, next) }
+    : { state: 'load-context', blockedCode: null });
+  return next ? 'waiting-input' : null;
 }
 
 /**

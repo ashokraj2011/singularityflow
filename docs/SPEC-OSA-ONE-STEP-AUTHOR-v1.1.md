@@ -341,6 +341,18 @@ Local persistence alone does not grant cross-device successor authoring. A lost 
 - When the budget runs out, the result is a named repair or human decision, with the evidence preserved. It does not restart the same work command indefinitely.
 - Actual missing-file, permission and human-approval requirements keep their specific routes.
 
+**Recorded stops (2026-11-17, CVL gap report piece 1).** The task keeps every stop the kernel names, not only a failed
+required test, through the one recorder (`src/workflow-task-outcome.mjs` `recordRefusalOutcome`):
+- A machine-local document missing here records `waiting-input` with that document's ID, where the step really stops:
+  preparation, publication and the authoring entry, never a read. Restoring it names the next one missing, or ends the wait.
+- An environment stop records `waiting-environment` with its own error: the environment cause a test-run risk names
+  (a launcher, a dependency, a browser, a service that is not reachable), or what blocked the run before it started
+  (`ENV_FILE_MISSING`, `ENV_FILE_IN_USE`, `ENVIRONMENT_BINDING_UNAVAILABLE`).
+- A code cause, or one nothing names (a timeout among them), is the step's own `repair-required`. Before, any classified
+  cause that was not the environment's was kept as `waiting-environment`, which sent a failed assertion to the decisions card.
+- A gate run held back because the last run of its command may still be going records no new stop; the next run
+  reconciles it (TCE:REQ-034).
+
 **Windows and leases.** The interaction window and an execution lease are separate.
 - An actual human reply may renew the interaction window.
 - Actual execution heartbeats and progress may keep a running task alive under its execution contract.

@@ -2357,7 +2357,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
   // A published document's next draft opens only on the person's yes, never by preparing it [D3, OSA:REQ-030].
   if (!dryRun && documentSuccessorUnopened(workflow, phase)) throw await documentSuccessorRefusal(workflow, phase);
-  await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
+  await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id, { recordWait: !dryRun });
   // A required after-step action of an earlier step without a receipt holds only the Story's ending;
   // this step is told [PHR:REQ-003].
   if (!dryRun) await warnRequiredStepActions(root, config, workflow);
@@ -3758,7 +3758,7 @@ export async function publishGeneration(root, config, workflow, {
   if (workflow.resolution?.presence) await (await import('./story-test-command-amendment.mjs')).assertSignedTestCommandAmendments(workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
-  await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
+  await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id, { recordWait: true });
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'publish');
   await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
@@ -4451,6 +4451,8 @@ function requiredTestExecutionDiagnostic(root, command, check) {
     workingDirectory: command.workingDirectory,
     exitCode: Number.isInteger(check?.exitCode) ? check.exitCode : null,
     status: check?.status ?? 'not-run',
+    ...(check?.errorCode ? { errorCode: check.errorCode } : {}),
+    ...(check?.processGroup ? { processGroup: check.processGroup } : {}),
     resultPath: path.resolve(cwd, command.result.path),
     configuredResultPath: command.result.path,
     resultAdapter: command.result.adapter,
@@ -5180,21 +5182,34 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // given an environment's values, or on another tree than the Story's, is not measured.
     const coverageBefore = policy.kind === 'test' && policy.argv && !environmentGate.run && !candidateIsOtherCode
       ? await (await coverageReports()).coverageReportsBefore(executionRoot, policy) : null;
-    const result = policy.argv
-      ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
-        cwd: executionRoot,
-        env: commandEnvironment,
-        timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-        killTree: true,
-        reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
-        stdoutFile: stdoutReportCaptured(policy) ? structuredResultTarget : printedReport,
-        redactor: materialized?.redactsAnything ? materialized.streamRedactor : null
-      })
-      : await runQualityCommand(policy.command, [], {
-        cwd: executionRoot, env: commandEnvironment, shell: true,
-        timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-        killTree: true, stdoutFile: printedReport
-      });
+    // A gate's test run starts once its command's last run is reconciled, and records that it started [CVL-REQ-016].
+    const run = policy.kind === 'test' && !localRun && !candidateRoot ? await (await testRunMarker()).beginTestRun(root,
+      { workId: workflow.workItem.id, phaseId: phase.id, commandId: policy.id }, { startedAt, itemRelative: workDirRelative(config, workflow.workItem.id) }) : null;
+    if (run?.held) {
+      if (restoreTransientResult) await restoreTransientResult();
+      activeTransientRestore = null;
+      if (isolatedResultRestore) { await isolatedResultRestore(); isolatedResultRestore = null; }
+      checks.push(environmentBlockedCheck(policy, { environment: null, errorCode: run.held.code, reason: run.held.reason, sourceCommit, sourceTreeSha256, startedAt }));
+      continue;
+    }
+    let result;
+    try {
+      result = policy.argv
+        ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
+          cwd: executionRoot,
+          env: commandEnvironment,
+          timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+          killTree: true,
+          reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
+          stdoutFile: stdoutReportCaptured(policy) ? structuredResultTarget : printedReport,
+          redactor: materialized?.redactsAnything ? materialized.streamRedactor : null, onSpawn: run?.spawned
+        })
+        : await runQualityCommand(policy.command, [], {
+          cwd: executionRoot, env: commandEnvironment, shell: true,
+          timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+          killTree: true, stdoutFile: printedReport, onSpawn: run?.spawned
+        });
+    } finally { await run?.finish(result); }
     const coverage = coverageBefore ? await (await coverageReports()).capturedCoverage(executionRoot, coverageBefore, {
       startedAt, codeRoot: isolation?.root ?? root, workingDirectory: policy.workingDirectory ?? '.', affectedRoots: policy.affectedRoots,
       base: workflow.workIntervals?.history?.[0]?.sourceBaseCommit ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null }) : null;
@@ -5227,6 +5242,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
       ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
       ...(result.timedOut ? { timedOut: true } : {}),
+      ...(result.processGroup ? { processGroup: result.processGroup } : {}), // a stopped group's answer [CVL-REQ-018]
       exitCode: result.status, signal: result.signal ?? null, stdout: boundedQualityDiagnostic(result.stdout),
       stderr: boundedQualityDiagnostic(result.timedOut
         ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.`
@@ -5308,6 +5324,7 @@ function findingsKernel(config, workflow, phase, { generation = nextPhaseGenerat
 // Kept out of the long-lived VS Code bundles like the findings loop: loaded from the CLI source when a test runs [CQF:REQ-030, REQ-031].
 const coverageReports = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'coverage-reports.mjs')).href);
 const changedLineCoverageModule = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'changed-line-coverage.mjs')).href);
+const testRunMarker = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'test-run-marker.mjs')).href);
 
 /**
  * The check of a run that still stands: the run's own identity and times, and `reusedFrom` naming it,

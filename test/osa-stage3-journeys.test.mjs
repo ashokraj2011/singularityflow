@@ -26,7 +26,7 @@ import { recordRepositoryBoundaryTurn, repositoryPostToolGuard } from '../src/co
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { noProgress, stepState } from '../src/kernel/step-state.mjs';
 import { decisionRoutes, stepDecisionOf, stepSnapshotOf } from '../src/step-decision.mjs';
-import { outcomeCode, readTaskOutcome, taskOutcomeOf } from '../src/workflow-task-outcome.mjs';
+import { outcomeCode, readTaskOutcome, recordRefusalOutcome, settleInputWait, taskOutcomeOf } from '../src/workflow-task-outcome.mjs';
 import { inspectSubjectLease } from '../src/subject-lock.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
 import { workflowGuide } from '../src/guide.mjs';
@@ -236,6 +236,53 @@ test('a missing local attachment waits for the person; a missing file and a perm
   assert.match(denied.permissionDecisionReason, /^PHASE_MUTATION_PATH_DENIED/u);
   assert.equal(denied.next[0].command, 'singularity-flow prepare implement');
   assert.equal(existsSync(path.join(f.root, `singularity/work-items/${W}/artifacts/verify/report.md`)), false);
+});
+
+test('a missing local input is recorded where the step stops, as waiting-input with its identity, and every view leads with its route until it is restored [§8, CVL-REQ-004]', async (t) => {
+  const f = await story(t);
+  // As the document runtime refuses publication and preparation when a machine-local document is not on this laptop.
+  const missing = (...ids) => new SingularityFlowError('This phase needs documents that are not available on this laptop.', { code: 'DOCUMENT_REUPLOAD_REQUIRED',
+    details: { documentReadiness: { phase: 'implement', status: 'upload-required', missing: ids.map((id) => ({ id, name: `${id}.png` })) } } });
+  assert.equal(await recordRefusalOutcome(f.root, f.workflow, f.implement, missing('DOC-002', 'DOC-003')), 'waiting-input');
+  const waiting = await readTaskOutcome(f.root, f.workflow, f.implement);
+  assert.deepEqual([waiting.outcome, waiting.code, waiting.input], ['waiting-input', 'DOCUMENT_REUPLOAD_REQUIRED', 'DOC-002'], 'read back as a later turn reads it');
+  const readiness = `singularity-flow documents readiness --phase implement --work-id ${W} --json`;
+  allAre(views(f.workflow, waiting), readiness);
+  const decision = stepDecisionOf(f.workflow, f.implement, { task: waiting });
+  assert.deepEqual([decision.next.operation, decision.next.inputs], ['provide-input', { code: 'DOCUMENT_REUPLOAD_REQUIRED', input: 'DOC-002' }]);
+  assert.match(decisionRoutes(decision, f.workflow, f.implement)[0].detail, /not on this laptop \(DOC-002\)/u, 'the person is told which input');
+  // A restore answers the wait for that input: the next one still missing is named, then none, and the step goes on.
+  assert.equal(await settleInputWait(f.root, f.workflow, { phase: 'implement', missing: [{ id: 'DOC-003' }] }), 'waiting-input');
+  assert.equal((await readTaskOutcome(f.root, f.workflow, f.implement)).input, 'DOC-003');
+  assert.equal(await settleInputWait(f.root, f.workflow, { phase: 'implement', missing: [] }), null);
+  assert.equal(await readTaskOutcome(f.root, f.workflow, f.implement), null);
+  allAre(views(f.workflow, null), 'singularity-flow prepare implement');
+  // A wait recorded by an older build (no identity) is read as it was.
+  await observeWorkflowTask(f.root, f.workflow, f.implement, { state: 'blocked', blockedCode: outcomeCode('waiting-input', 'DOCUMENT_REUPLOAD_REQUIRED', f.workflow) });
+  assert.equal('input' in await readTaskOutcome(f.root, f.workflow, f.implement), false);
+});
+
+test('an environment stop is recorded as waiting-environment with its own error, and a code fault is never one [§8, CVL-REQ-004]', async (t) => {
+  const f = await story(t);
+  // A required test blocked before it started because the environment's file is missing here (state.mjs's environment gate).
+  const blocked = new SingularityFlowError("Required test command 'unit' was blocked before publication.", { code: 'CODE_TEST_FAILED',
+    details: { requiredTestExecution: { commandId: 'unit', status: 'blocked', errorCode: 'ENV_FILE_MISSING' },
+      testRunCause: { category: 'unknown', class: 'unrecognised' } } });
+  assert.equal(await recordRefusalOutcome(f.root, f.workflow, f.implement, blocked), 'waiting-environment');
+  const waiting = await readTaskOutcome(f.root, f.workflow, f.implement);
+  assert.deepEqual([waiting.outcome, waiting.code], ['waiting-environment', 'ENV_FILE_MISSING']);
+  allAre(views(f.workflow, waiting), `singularity-flow decisions ${W}`);
+  // A launcher missing here: the cause a person may accept on the decisions card.
+  const launcher = new SingularityFlowError("Required test command 'unit' was blocked before publication.", { code: 'CODE_TEST_FAILED',
+    details: { testRunRisk: { eligible: true, causeClass: 'launcher-unavailable', commandId: 'unit' } } });
+  await recordRefusalOutcome(f.root, f.workflow, f.implement, launcher);
+  const environment = await readTaskOutcome(f.root, f.workflow, f.implement);
+  assert.deepEqual([environment.outcome, environment.code], ['waiting-environment', 'launcher-unavailable']);
+  // Tests that ran and failed are the step's own repair, never the environment's wait.
+  const failed = new SingularityFlowError("Required test command 'unit' failed before publication.", { code: 'CODE_TEST_FAILED',
+    details: { testRunCause: { category: 'code', class: 'assertion-failure' } } });
+  assert.equal(await recordRefusalOutcome(f.root, f.workflow, f.implement, failed), 'repair-required');
+  allAre(views(f.workflow, await readTaskOutcome(f.root, f.workflow, f.implement)), 'singularity-flow prepare implement');
 });
 
 test('a failed test is repaired within its budget, stops at a person\'s decision when spent, and never takes the same route twice [§8, OSA:REQ-003, REQ-012, AC-012]', async (t) => {

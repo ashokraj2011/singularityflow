@@ -2235,6 +2235,9 @@ async function documentsCommand(positionals, options) {
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
     const result = await restoreLocalDocument(root, config, workflow, {
       documentId: requirePositional(positionals, 2, 'document ID or name'), file: optionString(options, 'file') });
+    // The step's wait for this input is answered, or names the next document still missing here [CVL-REQ-004].
+    if (workflow.currentPhase) await Promise.resolve().then(async () => (await import('./workflow-task-outcome.mjs')).settleInputWait(root, workflow,
+      await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, config, workflow, workflow.currentPhase))).catch(() => null);
     // Restore may run during independent review, publication or authoring. Let the canonical read
     // resolver choose the current continuation; never send a reviewer blindly back to authoring.
     const next = safeCommandGuidance({ argv: ['nextsteps', '--for-agent', '--json'] });

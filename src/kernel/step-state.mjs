@@ -184,7 +184,7 @@ function openingHold(opening) {
 
 /**
  * The open version's task outcome as the next action, or null when the task is simply being written [§8]. `task`:
- * `{ id, outcome, code, repairs: { used, budget } }` from the task record (workflow-task-outcome.mjs). A running execution
+ * `{ id, outcome, code, input?, repairs: { used, budget } }` from the task record (workflow-task-outcome.mjs). A running execution
  * is observed and keeps the version's edits; a wait names the person's or environment's step; a repair runs within its
  * configured budget, and an exhausted budget is a person's decision with the evidence kept, never the same work again.
  */
@@ -198,7 +198,7 @@ function taskWait(task, target) {
   const make = (reason, next, edit = false) => ({ code: reason, next, edit, task: record(task.outcome, next) });
   if (task.outcome === 'running') return make('TASK_RUNNING', action('observe', 'inspect', { target, inputs: { task: 'execution' }, reasonCodes: ['TASK_RUNNING'] }), true);
   if (task.outcome === 'waiting-input') return make('TASK_WAITING_INPUT', action('person-decision', 'provide-input', { target, principalKind: 'human', role: 'person',
-    inputs: { code }, reasonCodes: ['TASK_WAITING_INPUT'] }));
+    inputs: { code, ...(text(task.input) ? { input: text(task.input) } : {}) }, reasonCodes: ['TASK_WAITING_INPUT'] }));
   if (task.outcome === 'waiting-environment' || task.outcome === 'waiting-person') {
     const reason = task.outcome === 'waiting-person' ? 'TASK_WAITING_PERSON' : 'TASK_WAITING_ENVIRONMENT';
     return make(reason, action('person-decision', 'decide', { target, principalKind: 'human', role: 'person',

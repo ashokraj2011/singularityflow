@@ -780,7 +780,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // configuration-approvers.mjs), and a test-command amendment's two refusals name the Story's own request
     // (story-test-command-amendment.mjs +134, calls into test-command-pins.mjs, which stays lazy). The route builders were
     // first put in test-command-amendment-contracts.mjs (+3,274 here and in session current) and moved out. No new eager file.
-    assert.ok(closure.bytes <= 9_753_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,755,700 (measured 9,755,658 for submit.mjs, +3,554 over d192ede2c's 9,752,104; start.mjs 9,755,429): the four
+    // review-fix tracks of 2026-11-17 (rv-a..rv-d) merged on main d192ede2c, each measured above on its own base. Same 472
+    // files in submit's closure. No new eager file.
+    assert.ok(closure.bytes <= 9_755_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

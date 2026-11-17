@@ -415,8 +415,19 @@ Check existing behavior first; a demonstrated failure goes to Repair and indepen
 }
 
 /** Publish and submit a Check report for the current bytes, with the verdict the test run supports. */
-async function checkCurrentCode({ env, run, cli, workRoot }, verdict) {
+async function checkCurrentCode({ env, run, cli, workRoot, readState }, verdict) {
   env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify({ workType: ID, agent: AGENTS[1] });
+  // A recheck is the step's next version: its preview asks the person, and their yes in their own terminal opens it;
+  // preparing it without that yes is refused [D3, OSA:REQ-030].
+  const published = Number((await readState()).phases[PHASES[1]].generation ?? 0);
+  if (published >= 1) {
+    const refused = run(process.execPath, [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', 'prepare', PHASES[1]], { allowFailure: true });
+    assert.notEqual(refused.status, 0);
+    assert.match(`${refused.stdout}\n${refused.stderr}`, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+    const preview = JSON.parse(cli('phase', 'rollover', PHASES[1], '--json'));
+    assert.match(preview.question, new RegExp(`^Start version ${published + 1} of `, 'u'));
+    cli('phase', 'rollover', PHASES[1], '--confirm', preview.confirmation, '--json');
+  }
   cli('prepare', PHASES[1]);
   const tested = run(process.execPath, ['--test', 'test/screen.test.mjs'], { allowFailure: true });
   assert.equal(tested.status === 0, verdict === 'pass', tested.stdout);

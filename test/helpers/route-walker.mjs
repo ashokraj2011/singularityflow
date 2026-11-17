@@ -624,7 +624,11 @@ async function amendedStoryTemplate(t, { observed = false, draftOnly = false, re
   cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
   cli('resume', WORK);
   if (draftOnly) return { parent, root, item, cli };
-  cli('phase', 'begin', 'implement', '--json'); await code(); cli('prepare', 'implement');
+  // The amendment reopened implement: version 2 is a successor, so its preview asks the person and their yes in their own
+  // terminal opens it [D3, OSA:REQ-030].
+  const previewed = cli('phase', 'rollover', 'implement', '--json').stdout;
+  const { confirmation } = JSON.parse(previewed.slice(previewed.search(/^\s*\{/mu)));
+  cli('phase', 'rollover', 'implement', '--confirm', confirmation, '--json'); await code(); cli('prepare', 'implement');
   cli('phase', 'publish', 'implement', '--authored', 'deterministic');
   return { parent, root, item, cli };
 }

@@ -126,9 +126,11 @@ const SCENARIOS = Object.freeze([
     guard: { prompt: '/sf-publish', toolArgs: { command: PREPUBLISH.replace(/^singularity-flow /u, '') } }, reached: published },
   { id: 'decision-outside-its-turn', meets: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED', real: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: 3 hits, 0 advanced', setup: unplannedHelper,
     guard: { prompt: '/sf-code', toolArgs: { command: `singularity-flow decision plan ${WORK} --add-location ${WORK}:AC-001=src/helper.mjs --reason "The small helper implements the already approved return value."` } } },
-  { id: 'edit-in-a-read-turn', meets: 'PHASE_MUTATION_PATH_DENIED', real: 'PHASE_MUTATION_TURN_READ_ONLY in older builds: 14 hits, 0 advanced', guard: { prompt: '/sf-next', toolName: 'edit', toolArgs: { path: 'src/value.mjs' } } },
+  // A turn that may not edit is /sf-submit's kernel-only turn. It was /sf-next's until OSA Stage 4 made /sf-next do the step's
+  // own work in its turn (D2), where an edit is no fault and these walks would prove nothing.
+  { id: 'edit-in-a-read-turn', meets: 'PHASE_MUTATION_PATH_DENIED', real: 'PHASE_MUTATION_TURN_READ_ONLY in older builds: 14 hits, 0 advanced', guard: { prompt: '/sf-submit', toolName: 'edit', toolArgs: { path: 'src/value.mjs' } } },
   { id: 'delegating-in-a-read-turn', meets: 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED', real: 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: 2 hits, 0 advanced',
-    guard: { prompt: '/sf-next', toolName: 'task', toolArgs: { prompt: 'Work on the code step.' } } },
+    guard: { prompt: '/sf-submit', toolName: 'task', toolArgs: { prompt: 'Work on the code step.' } } },
   // Allowed now: looking at one named path is no search, and copilot-repository-boundary.test.mjs holds that real searches stay refused.
   { id: 'looking-for-node-is-not-a-repository-search', meets: null, real: 'a real Story: ls on a Node path, refused as a repository search',
     guard: { prompt: '/sf-code', toolArgs: { command: 'ls -l /opt/tool/node@22/bin/node' } } },
@@ -164,6 +166,9 @@ const SCENARIOS = Object.freeze([
   { id: 'later-code-carried-after-the-design', meets: 'PHASE_DRAFT_PREDATES_AMENDMENT', real: 'CIC stage 5: the code step reached after the design it waited behind',
     template: 'heldCode', phase: 'implement', outcome: 'reached',
     setup: (story) => {
+      // The amendment reopened the design: its version 2 opens on the person's yes, in their own terminal [D3, OSA:REQ-030].
+      const previewed = story.cli('phase', 'rollover', 'fix-design', '--json').stdout;
+      story.cli('phase', 'rollover', 'fix-design', '--confirm', JSON.parse(previewed.slice(previewed.search(/^\s*\{/mu))).confirmation, '--json');
       story.cli('prepare', 'fix-design');
       story.cli('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place'); story.cli('submit', 'fix-design'); story.cli('approve', 'fix-design', '--yes');
     }, start: `singularity-flow phase publish implement --work-id ${WORK} --authored deterministic --json`,

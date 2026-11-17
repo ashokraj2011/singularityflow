@@ -1,6 +1,7 @@
 // Registry owns the public forms; agreement with the lazy review service is regression checked.
 const ARA_ACTIONS = ['plan', 'start', 'status', 'inspect', 'feedback', 'repair', 'repair-result', 'recheck', 'accept', 'capture', 'defer', 'close', 'browser'];
 const ARA_READS = ['plan', 'status'];
+const UI_ACTIONS = ['open', 'serve', 'status', 'stop'];
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 
@@ -93,6 +94,7 @@ function readOnlySubcommandOperation(definition, positionals, options) {
 }
 
 const LAZY_MODULES = Object.freeze({
+  ui: './commands/ui.mjs',
   start: './commands/start.mjs',
   agents: './commands/agents.mjs',
   session: './commands/session-entry.mjs',
@@ -224,8 +226,8 @@ function operation(id, modelPolicy = 'never', overrides = {}) {
 
 function command([name, aliases = []]) {
   const classification = name === 'check' || READ_ONLY.has(name) ? 'read' : 'mutation';
-  const output = name === 'check' || name === 'agents' || name === 'pause' || STRUCTURED.has(name) ? 'human-or-json' : 'human';
-  const mixed = name === 'pause' || name === 'wm' || name === 'workspace' || name === 'pr' || MODEL_FREE_MIXED_COMMANDS.has(name);
+  const output = name === 'ui' || name === 'check' || name === 'agents' || name === 'pause' || STRUCTURED.has(name) ? 'human-or-json' : 'human';
+  const mixed = name === 'ui' || name === 'pause' || name === 'wm' || name === 'workspace' || name === 'pr' || MODEL_FREE_MIXED_COMMANDS.has(name);
   return Object.freeze({
     name,
     aliases: Object.freeze(aliases),
@@ -244,7 +246,7 @@ export const OPERATION_CLASSES = Object.freeze(['read', 'mutation', 'upkeep']);
 
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
-  ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['governance'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['product'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
+  ['about'], ['ui'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['governance'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['product'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
   ['adhoc'], ['land'], ['local'], ['pause'],
   ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
@@ -688,18 +690,11 @@ function resolveProductOperation(definition, positionals, options) {
   return never(`product.${subcommand}`, definition, subcommand === 'status' ? 'read' : 'mutation');
 }
 
-function resolveTelemetryOperation(definition, positionals) {
-  const subcommand = positionals[1] ?? 'status';
-  if (TELEMETRY_READ_SUBCOMMANDS.includes(subcommand)) return never(`telemetry.${subcommand}`, definition, 'read');
-  if (TELEMETRY_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`telemetry.${subcommand}`, definition, 'mutation');
-  return unknownSubcommand('telemetry', subcommand, TELEMETRY_SUBCOMMANDS);
-}
-
-function resolveHelpMetricsOperation(definition, positionals) {
-  const subcommand = positionals[1] ?? 'status';
-  if (HELP_METRICS_READ_SUBCOMMANDS.includes(subcommand)) return never(`help-metrics.${subcommand}`, definition, 'read');
-  if (HELP_METRICS_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`help-metrics.${subcommand}`, definition, 'mutation');
-  return unknownSubcommand('help-metrics', subcommand, HELP_METRICS_SUBCOMMANDS);
+/** Classification-only families share one closed resolver; their registered vocabulary is unchanged. */
+function readWriteOperation(definition, name, reads, writes, known, writeClass = 'mutation') {
+  if (reads.includes(name)) return never(`${definition.name}.${name}`, definition, 'read');
+  if (writes.includes(name)) return never(`${definition.name}.${name}`, definition, writeClass);
+  return unknownSubcommand(definition.name, name, known);
 }
 
 function resolveContextOperation(definition, positionals) {
@@ -1176,19 +1171,6 @@ function resolveJournalOperation(definition, positionals, options) {
   return unknownSubcommand('journal', subcommand, JOURNAL_SUBCOMMANDS);
 }
 
-function resolveIntegrationsOperation(definition, positionals) {
-  const subcommand = positionals[1] ?? 'status';
-  if (INTEGRATIONS_READ_SUBCOMMANDS.includes(subcommand)) return never(`integrations.${subcommand}`, definition, 'read');
-  if (INTEGRATIONS_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`integrations.${subcommand}`, definition, 'mutation');
-  return unknownSubcommand('integrations', subcommand, INTEGRATIONS_SUBCOMMANDS);
-}
-
-function resolvePushOperation(definition, positionals) {
-  const subcommand = positionals[1] ?? 'status';
-  if (PUSH_READ_SUBCOMMANDS.includes(subcommand)) return never(`push.${subcommand}`, definition, 'read');
-  if (PUSH_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`push.${subcommand}`, definition, 'mutation');
-  return unknownSubcommand('push', subcommand, PUSH_SUBCOMMANDS);
-}
 
 function resolveImpactOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
@@ -1658,6 +1640,10 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     return positionals[1] === 'record' ? never('decisions.record', definition, 'mutation') : never('decisions.show', definition, 'read');
   }
   if (definition.name === 'gateway') return gatewayOperation(definition, positionals[1] ?? 'tools');
+  if (definition.name === 'ui') {
+    const action = positionals[1] ?? 'open';
+    return readWriteOperation(definition, action, ['status'], ['open', 'serve', 'stop'], UI_ACTIONS, 'upkeep');
+  }
   // A user-defined agent folder: only a confirmed `call add` proposes anything.
   if (definition.name === 'call') {
     const action = positionals[1] ?? 'list';
@@ -1784,8 +1770,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'secrets') return resolveSecretsOperation(definition, positionals);
   if (definition.name === 'env') return resolveEnvironmentOperation(definition, positionals);
   if (definition.name === 'product') return resolveProductOperation(definition, positionals, options);
-  if (definition.name === 'telemetry') return resolveTelemetryOperation(definition, positionals);
-  if (definition.name === 'help-metrics') return resolveHelpMetricsOperation(definition, positionals);
+  if (definition.name === 'telemetry') return readWriteOperation(definition, positionals[1] ?? 'status', TELEMETRY_READ_SUBCOMMANDS, TELEMETRY_MUTATION_SUBCOMMANDS, TELEMETRY_SUBCOMMANDS);
+  if (definition.name === 'help-metrics') return readWriteOperation(definition, positionals[1] ?? 'status', HELP_METRICS_READ_SUBCOMMANDS, HELP_METRICS_MUTATION_SUBCOMMANDS, HELP_METRICS_SUBCOMMANDS);
   if (definition.name === 'doctor') return resolveDoctorOperation(definition, options);
   if (definition.name === 'inputs') return resolveInputsOperation(definition, positionals, options);
   if (definition.name === 'workflow') return resolveWorkflowCommandOperation(definition, positionals, options);
@@ -1809,8 +1795,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'recover') return resolveRecoverOperation(definition, options);
   if (definition.name === 'goal') return resolveGoalOperation(definition, positionals);
   if (definition.name === 'journal') return resolveJournalOperation(definition, positionals, options);
-  if (definition.name === 'push') return resolvePushOperation(definition, positionals);
-  if (definition.name === 'integrations') return resolveIntegrationsOperation(definition, positionals);
+  if (definition.name === 'push') return readWriteOperation(definition, positionals[1] ?? 'status', PUSH_READ_SUBCOMMANDS, PUSH_MUTATION_SUBCOMMANDS, PUSH_SUBCOMMANDS);
+  if (definition.name === 'integrations') return readWriteOperation(definition, positionals[1] ?? 'status', INTEGRATIONS_READ_SUBCOMMANDS, INTEGRATIONS_MUTATION_SUBCOMMANDS, INTEGRATIONS_SUBCOMMANDS);
   if (definition.name === 'impact') return resolveImpactOperation(definition, positionals);
   if (definition.name === 'context') return resolveContextOperation(definition, positionals);
   if (definition.name === 'tokens') return resolveTokensOperation(definition, positionals);
@@ -1989,6 +1975,7 @@ export function operationCatalog() {
     ...['add.preview', 'list', 'show'].map(name => never(`call.${name}`, commandDefinition('call'), 'read')),
     never('call.add', commandDefinition('call'), 'mutation'),
     ...GATEWAY_ACTIONS.map(name => gatewayOperation(commandDefinition('gateway'), name)),
+    ...UI_ACTIONS.map(name => never(`ui.${name}`, commandDefinition('ui'), name === 'status' ? 'read' : 'upkeep')),
     ...APP_SUBCOMMANDS.map(name => never(`app.${name}`, commandDefinition('app'), APP_READS.includes(name) ? 'read' : 'mutation')),
     ...['save-local', 'reset-local'].map(name => never(`app.config.${name}`, commandDefinition('app'), 'mutation')),
     ...['discover', 'show', 'plan', 'validate'].map(name => never(`git-policy.${name}`, commandDefinition('git-policy'), 'read')),

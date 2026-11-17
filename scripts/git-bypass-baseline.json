@@ -1907,6 +1907,13 @@
         "command-run": 1
       },
       "digest": "29978f7fb9357a01373aefdc43ff12bfb85f06eb1a612fd778197bb307d3ac42"
+    },
+    "src/local-ui/operations.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "48047ccccacc186c6ae89fb9e33c45e91a9450d5f72a8fe7bebb91c479b7987f"
     }
   }
 }

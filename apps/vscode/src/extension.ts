@@ -1308,7 +1308,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
-    'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openPerformanceReport', 'singularityFlow.openSpecificationTrace', 'singularityFlow.openSpecStudio',
+    'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openPerformanceReport', 'singularityFlow.openSpecificationTrace', 'singularityFlow.openSpecStudio', 'singularityFlow.openBrowserWorkspace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.countCopilotChatUsage', 'singularityFlow.stopCountingCopilotChatUsage',
@@ -9943,6 +9943,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return SpecificationTracePanel.show(context, client);
     },
     // The specification library's Studio: `{ specId, revision, clauses, step }`, 'SPEC-ID@N', or the library [SPEC-SPA v1.3 S3].
+    'singularityFlow.openBrowserWorkspace': async () => {
+      const runtime = require(path.join(__dirname, 'browser-workspace-runtime.cjs')) as typeof import('./browser-workspace.ts');
+      return runtime.openBrowserWorkspace(client, context, output);
+    },
     'singularityFlow.openSpecStudio': async (target?: unknown) => lazyPanels().SpecStudioPanel.show(client, target,
       { root: () => repository, memento: context.globalState, refresh: refreshAfterKnownMutation, output, signRequired: sfGuardSignRequired }),
     // SF Guard: on or off, keys and expiry, exceptions, branch protection, recording, and labels by Story (SPEC-PSS-v1 M5, SPEC-SFG-v1 G5).

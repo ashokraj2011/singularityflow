@@ -1329,6 +1329,11 @@
         "icon": "$(book)"
       },
       {
+        "command": "singularityFlow.openBrowserWorkspace",
+        "title": "Singularity Flow: Open SFlow in browser",
+        "icon": "$(globe)"
+      },
+      {
         "command": "singularityFlow.openArtifact",
         "title": "Singularity Flow: Open Artifact"
       },

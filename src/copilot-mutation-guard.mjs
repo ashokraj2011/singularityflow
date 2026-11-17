@@ -659,6 +659,7 @@ function confirmCodeArgv(positionals, options) {
  */
 function hostOnlyCommand(positionals) {
   return ['hook', 'exec'].includes(positionals[0])
+    || (positionals[0] === 'ui' && positionals[1] !== 'status')
     || (positionals[0] === 'gateway' && !['tools', 'events', 'session'].includes(positionals[1] ?? 'tools'));
 }
 

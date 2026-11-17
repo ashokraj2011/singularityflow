@@ -39,6 +39,7 @@ const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local
 // factory reset detect itself as an in-flight command, while wrapping local reset would recreate
 // the private state it has just removed.
 const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
+  'ui',
   ...LOCAL_STATE_RESET_COMMANDS,
   'fresh-install',
   // A governance rebuild holds the repository reset barrier itself and refuses while any subject
@@ -55,6 +56,7 @@ const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
 // repository-scoped and may safely use the repository explicitly selected by `workspace use` when
 // Copilot or another host starts the CLI outside a Git checkout.
 export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
+  'ui',
   'about', 'help', 'guide', 'show', 'quickstart', 'home', 'pause',
   'init', 'precheck', 'bootstrap', 'onboard', 'authority', 'cache',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall', 'product',
@@ -616,13 +618,17 @@ export async function main(argv) {
     // Every command accepts --for-agent. The compact entries read it (and check a pause) themselves;
     // for the others it shapes the output only, and a paused SFlow answers before any Git or lookup.
     const agentFlag = options['for-agent'] !== undefined;
+    const foregroundUi = positionals[0] === 'ui' && positionals[1] === 'serve';
+    if (foregroundUi && agentFlag) throw new SingularityFlowError('ui serve is native-only. Open the browser from a terminal or VS Code; /sf-ui only inspects status.', { code: 'UI_FOREGROUND_NATIVE_ONLY' });
     const ownsFlag = interpretsForAgent(positionals);
     if ((utilityEntry || agentFlag && (!ownsFlag || positionals[0] === 'app-review')) && !['pause', 'hook'].includes(positionals[0])) {
       const paused = await copilotPause();
       if (paused) return console.log(optionBoolean(options, 'json') ? JSON.stringify(paused, null, 2) : paused.message);
     }
     const commandArgv = utilityEntry ? withoutUtilityEntry(argv) : argv;
-    const invoke = () => withCliJsonOutput(optionBoolean(options, 'json'),
+    // A foreground server emits its readiness record before waiting for shutdown. Buffering this
+    // one long-lived command until return would hide that record for the lifetime of the server.
+    const invoke = () => withCliJsonOutput(optionBoolean(options, 'json') && !foregroundUi,
       () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry, contextRequest.root),
       { forAgent: agentViewRequested(options), kind: positionals[0], utilityEntry, argv: commandArgv });
     // Include the first-build gate, accounting and authoring in one bounded immutable capture.
@@ -664,7 +670,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   const effectiveArgv = stripGlobalModelOptions(argv);
   // Product reinstall and product alignment are intentionally not repository operations. Resolving
   // a root would invoke Git before the command even reached its strict no-repository boundary.
-  const localOnlyRequest = ['about', 'reinstall', 'product', 'pause'].includes(effectiveArgv[0])
+  const localOnlyRequest = ['about', 'ui', 'reinstall', 'product', 'pause'].includes(effectiveArgv[0])
     || (effectiveArgv[0] === 'skill'
       && parseArgs(effectiveArgv).positionals[1] === 'inspect');
   let root = null;

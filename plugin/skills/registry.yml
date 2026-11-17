@@ -91,6 +91,7 @@ classes:
 skills:
   sflow-pause: { class: mutation, executionBoundary: machine }
   sflow-about: { class: echo, executionBoundary: machine }
+  sflow-ui: { class: echo, executionBoundary: machine }
   sflow-adhoc: { class: interactive, executionBoundary: repository }
   sflow-advise: { class: conversational, executionBoundary: machine, gatewayTools: true }
   sflow-agent: { class: interactive }

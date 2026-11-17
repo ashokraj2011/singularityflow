@@ -88,6 +88,7 @@ const options = {
     'performance-runtime': '../../src/performance-trace-store.mjs',
     'performance-view-runtime': 'src/performance-view-runtime.ts',
     'runtime-prewarm': 'src/runtime-prewarm.ts',
+    'browser-workspace-runtime': 'src/browser-workspace.ts',
     'lazy-panels-runtime': 'src/lazy-panels-runtime.ts',
     'support-runtime': 'src/support-runtime.ts',
     'workflow-markup-runtime': 'src/workflow-markup-runtime.ts',

@@ -428,7 +428,11 @@ async function checkAction(root, positionals, options) {
 
 async function statusAction(root, positionals, options) {
   const specId = requireSpecId(specArgument(positionals, 'status'));
-  const draft = await requireDraft(root, specId, { headOnly: optionBoolean(options, 'quick') });
+  // A lost save reply is answered from the canonical, verified snapshots, not transport guesses.
+  const operationId = optionString(options, 'operation-id');
+  if (operationId) requireOperationId(operationId);
+  const draft = await requireDraft(root, specId, { headOnly: optionBoolean(options, 'quick') && !operationId });
+  const recordedSave = operationId ? draft.snapshots.find(snapshot => snapshot.operationId === operationId) : null;
   const gaps = foldGaps(draft.head.draft.gaps);
   const articles = foldChecklist(draft.head.draft.checklist).map(({ article, decision }) => ({ article, decision: decision?.decision ?? null, reason: decision?.reason ?? null }));
   const assisted = assistedReport(draft.head.draft);
@@ -452,6 +456,8 @@ async function statusAction(root, positionals, options) {
   const sharedDraft = await (await import('../spec-library/shared-basis.mjs')).sharedBasis(root, specId) ?? draft.head.draft.sharedDraftBase ?? null;
   return print(options, {
     action: 'status', specId, sequence: draft.head.sequence, title: draft.head.draft.title, kind: draft.head.draft.kind ?? null, origins: draft.head.draft.origins ?? [], sources: draft.head.draft.sources ?? [], basedOn: draft.head.draft.basedOn,
+    ...(operationId ? { saveReceipt: { operationId, state: recordedSave ? 'recorded' : 'not-retained',
+      sequence: recordedSave?.sequence ?? null, message: recordedSave ? 'The verified snapshot records this operation.' : 'No retained snapshot proves this operation. Absence does not prove it never ran.' } } : {}),
     qualityChecked: !optionBoolean(options, 'quick'), ...(clauseReadError ? { clauseReadError } : {}), sharedDraft,
     gaps: gaps.map(({ id, kind, status, question, evidence, clauses, options: choices, decision, deferral }) => ({ id, kind, status, question, evidence, clauses,
       options: choices, decision: decision && { option: decision.option, choice: decision.choice, reason: decision.reason, by: decision.by, at: decision.at },

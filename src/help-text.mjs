@@ -38,6 +38,10 @@ Usage:
   singularity-flow [--no-model] <command> [options]
     --no-model disables every kernel-owned model invocation. Equivalent: SINGULARITY_FLOW_NO_MODEL=1.
   singularity-flow about [--markdown | --json] [--extension-path DIRECTORY]
+  singularity-flow ui open [--no-open] [--idle-minutes 1..60] [--resume-request INVOCATION-ID] [--json]
+  singularity-flow ui status [--json]
+  singularity-flow ui stop [--drain] [--json]
+  singularity-flow ui serve [--idle-minutes 1..60] [--json]
   singularity-flow --version | --build
     (--version is a bare semver for scripts; --build adds the commit or validated source digest)
   singularity-flow --warm-runtime
@@ -736,7 +740,7 @@ Usage:
     answers withhold secret-shaped values; a person's own view adds --for-person, which an agent is refused
     shared drafts are unreviewed checkpoints; local files/images never go into Git;
     resume compares exact versions and retains local history; derive pins a reviewed parent's requirements
-  singularity-flow spec author check SPEC-ID [--json] | status SPEC-ID [--quick] [--json]
+  singularity-flow spec author check SPEC-ID [--json] | status SPEC-ID [--quick] [--operation-id ID] [--json]
   singularity-flow spec author publish SPEC-ID (--reviewed | --draft) [--expected-seq N] [--json]
   singularity-flow spec author show SPEC-ID[@N] [--any] [--json] | list [--local] [--json] | discard SPEC-ID [--json]
     saves accept --operation-id ID; reuse the same ID to reconcile an interrupted operation

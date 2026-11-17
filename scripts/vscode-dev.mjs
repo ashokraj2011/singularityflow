@@ -68,6 +68,7 @@ export const VSCODE_GENERATED_FILES = new Set([
   'dist/performance-runtime.cjs',
   'dist/performance-view-runtime.cjs',
   'dist/runtime-prewarm.cjs',
+  'dist/browser-workspace-runtime.cjs',
   'dist/lazy-panels-runtime.cjs',
   'dist/support-runtime.cjs',
   'dist/workflow-markup-runtime.cjs',

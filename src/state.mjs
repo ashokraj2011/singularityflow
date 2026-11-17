@@ -27,7 +27,8 @@ import {
 } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
-import { reservePreparedDocumentSuccessor } from './prepared-document-successor.mjs';
+import { documentSuccessorRefusal, documentSuccessorUnopened } from './prepared-document-successor.mjs';
+import { versionQuestionRoute } from './action-command-map.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -2354,6 +2355,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  // A published document's next draft opens only on the person's yes, never by preparing it [D3, OSA:REQ-030].
+  if (!dryRun && documentSuccessorUnopened(workflow, phase)) throw await documentSuccessorRefusal(workflow, phase);
   await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
   // A required after-step action of an earlier step without a receipt holds only the Story's ending;
   // this step is told [PHR:REQ-003].
@@ -2506,7 +2509,6 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
           itemDirectory, generation: nextPhaseGeneration(phase)
         });
       }
-      reservePreparedDocumentSuccessor(workflow, phase, nowIso());
       return {
         phase,
         path: posix(path.relative(root, target)),
@@ -2654,7 +2656,6 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       await updateArtifactMetadata(root, config, workflow, phase);
       await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory, generation: nextPhaseGeneration(phase) });
     }
-    reservePreparedDocumentSuccessor(workflow, phase, nowIso());
   }
   await (await import('./workflow-task-store.mjs')).observeWorkflowTask(root, workflow, phase, {
     state: 'author-draft', checkpoint: 'prepared', fingerprint: rendered.sha256
@@ -5723,9 +5724,11 @@ async function submitPhaseTransition(root, config, workflow, {
   if (codeDeliveryRequired) {
     const evidence = phase.deliveryEvidence;
     if (!evidence || Number(evidence.generation) !== Number(phase.generation)) {
+      // Its next version carries one, opened only on the person's yes: never a publication again [D3, OSA:REQ-030].
+      const route = versionQuestionRoute(workflow, phase);
       throw new SingularityFlowError(
-        `Phase ${phase.id} cannot be submitted because generation ${phase.generation} has no code-delivery receipt. Republish it with source and acceptance-mapped tests.`,
-        { code: 'CODE_DELIVERY_RECEIPT_MISSING' }
+        `Phase ${phase.id} cannot be submitted because version ${phase.generation} has no code-delivery receipt. Preview its next version and ask the person: ${route.command}`,
+        { code: 'CODE_DELIVERY_RECEIPT_MISSING', details: { nextAction: route } }
       );
     }
     // Files changed after the published draft are this step's to repair, before it is submitted (N7).
@@ -5859,15 +5862,12 @@ async function submitPhaseTransition(root, config, workflow, {
     generationCommit: exactGenerationCommit
   });
   if (registration.status === 'unsafe') {
-    const digest = (value) => value ? `sha256:${String(value).replace(/^sha256:/, '')}` : 'unavailable';
     if (registration.reason === 'authored-content-changed') {
+      // Kept as the next version only on the person's yes, never published in place [D3, OSA:REQ-014, REQ-030].
+      const route = versionQuestionRoute(workflow, phase);
       throw new SingularityFlowError(
-        `Phase ${phase.id} authored content changed after its published generation. `
-        + `Published authored hash: ${digest(registration.publishedAuthoredSha256)}. `
-        + `Current authored hash: ${digest(registration.currentAuthoredSha256)}. `
-        + `The change was not registered or submitted. Publish it as the next generation with `
-        + `singularity-flow phase publish ${phase.id}, then submit; or inspect the other routes with `
-        + `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}.`,
+        `Phase ${phase.id} changed after version ${phase.generation} was published; nothing was registered or submitted. `
+        + `To keep it as the next version, preview it and ask the person: ${route.command}`,
         {
           code: 'ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION',
           details: {
@@ -5876,7 +5876,7 @@ async function submitPhaseTransition(root, config, workflow, {
             generationCommit: registration.generationCommit,
             publishedAuthoredSha256: registration.publishedAuthoredSha256,
             currentAuthoredSha256: registration.currentAuthoredSha256,
-            nextAction: `singularity-flow phase publish ${phase.id}`,
+            nextAction: route,
             recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}`
           }
         }

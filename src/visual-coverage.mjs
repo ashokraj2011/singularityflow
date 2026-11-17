@@ -2,7 +2,7 @@ import { isVisualVerificationPhase, visualVerificationPhaseOf } from './phase-ro
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { countedRecords } from './presence/counted.mjs';
-import { phasePublicationCommand, phasePublicationCommandForProducer } from './manual-authorship.mjs';
+import { versionQuestionRoute } from './action-command-map.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { decodePngRgba8, readPngHeader } from './png-rgba8.mjs';
@@ -98,7 +98,7 @@ export function missingProfileRoutes(workflow, result, { publishedGeneration = n
   return result.uncovered.slice(0, 3).flatMap((profileId) => [
     { command: nativeCaptureCommand(result.phase, profileId),
       label: `Capture ${profileId} at its exact pixel size and record it (from a pinned MCP tool, use mcp record --kind visual-artifact instead)${publishedGeneration
-        ? `; generation ${publishedGeneration} is already published, so publish ${result.phase} again afterwards: the capture counts from the generation that publication opens` : ''}.` },
+        ? `; version ${publishedGeneration} is published, so it counts for the next version, which opens only on the person's yes` : ''}.` },
     ...(required > 1 ? [{ command: visualProfileDecisionCommand(workflow, result.phase, profileId),
       label: `Or a person who approves ${result.phase} records, with a reason, that ${profileId} does not apply to this Story; it is listed as not applicable, never as passed.` }] : [])
   ]);
@@ -216,22 +216,13 @@ export async function evaluateVisualCoverage(root, workflow, { itemDirectory = n
     ...(notApplicable.length ? { notApplicable } : {}) };
 }
 
-/** Publishing the same step again, by whoever produced its published generation when the step allows it. */
-function republishCommand(phase) {
-  const producer = [...(Array.isArray(phase.authorship) ? phase.authorship : [])].reverse()
-    .find((record) => Number(record?.generation) === Number(phase.generation))?.producer ?? null;
-  if (producer && producer !== 'legacy-unspecified') {
-    try { return phasePublicationCommandForProducer(phase, producer); } catch { /* the step's configured producer below */ }
-  }
-  return phasePublicationCommand(phase);
-}
-
 /**
  * The coverage result and why enforced coverage refuses the step (null when it does not), with
  * routes that lead out of the refusal and never back into it. A capture is bound to the generation
  * the next publication creates (it is committed by that publication), so one recorded after the step
  * was published counts from the following generation: when that generation would be covered, the
- * route is to publish it. `generation` evaluates a generation about to be published (prepublish and
+ * route is its version question (`phase rollover`'s preview), opened only on the person's yes, never a
+ * publication [D3, OSA:REQ-030]. `generation` evaluates a generation about to be published (prepublish and
  * publish); without it, the published generation is evaluated (submit).
  */
 export async function visualCoverageRefusal(root, workflow, options = {}) {
@@ -241,9 +232,10 @@ export async function visualCoverageRefusal(root, workflow, options = {}) {
   const published = options.generation == null && Number(phase?.generation ?? 0) >= 1;
   const next = published ? await evaluateVisualCoverage(root, workflow, { ...options, generation: nextPhaseGeneration(phase) }) : null;
   const waiting = next ? result.stale.filter((id) => next.covered.some((entry) => entry.recordId === id)) : [];
-  const republish = waiting.length ? { command: republishCommand(phase),
-    label: `${waiting.join(', ')} ${waiting.length === 1 ? 'was' : 'were'} recorded after generation ${result.generation} was published, so ${waiting.length === 1 ? 'it is' : 'they are'} committed by, and ${waiting.length === 1 ? 'counts' : 'count'} for, generation ${next.generation}. Publish ${phase.id} again to open that generation, then submit it.` } : null;
-  // What the next generation would still lack is captured or decided first; the publication follows.
+  // The captures count for the next version, which opens only on the person's yes: its preview, never a publication [D3].
+  const republish = waiting.length ? { ...versionQuestionRoute(workflow, phase),
+    label: `${waiting.join(', ')} ${waiting.length === 1 ? 'was' : 'were'} recorded after version ${result.generation} was published, so ${waiting.length === 1 ? 'it counts' : 'they count'} for version ${next.generation}. Preview it and ask the person; it opens only on their yes.` } : null;
+  // What the next version would still lack is captured or decided first; its version question follows.
   const missing = next && waiting.length ? next : result;
   const routes = [...(missing.uncovered?.length ? missingProfileRoutes(workflow, missing, { publishedGeneration: published ? result.generation : null }) : []),
     ...(republish ? [republish] : [])];

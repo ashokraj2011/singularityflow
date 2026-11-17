@@ -89,6 +89,10 @@ export function builtPublicationRoute(workflow, phase, producer, modelEnabled) {
   return command ? { skill: actionSkill('publish-version', { phase, workflow }), command: modelEnabled ? command : `${command} --no-model` } : null;
 }
 
+/** A published step's own version question, the open-version preview: its next version opens only on the person's yes [D3]. */
+export const versionQuestionRoute = (workflow, phase) => ({ skill: actionSkill('open-version', { phase, workflow }),
+  command: actionCommandLine('open-version', 'preview', { step: phase.id }).replace(/ --json$/u, ' --reason "<what to change>" --json') });
+
 /**
  * The command that takes a published step toward approval, for every producer of guidance: the map's `submit-version`
  * forms [OSA:REQ-021]. Routes used to offer a bare `submit <phase>` from wherever they were, so a step that owes an

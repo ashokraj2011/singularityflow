@@ -150,7 +150,7 @@ test('coverage refuses a native capture at another size with a coded error namin
   assert.ok(!coverage.covered.some((entry) => entry.profileId === PHONE.id));
 });
 
-test('a capture recorded after its step was published counts from the next generation, and the refusal routes to that publication, never back into capturing', async (t) => {
+test('a capture recorded after its step was published counts from the next version, and the refusal routes to that version\'s question, never back into capturing or a publication [D3, OSA:REQ-030]', async (t) => {
   const { root, itemDirectory, workflow, png, record } = await fixture(t);
   const step = workflow.phases['visual-verification'];
   const capture = (profile) => nativeCaptureCommand('visual-verification', profile.id);
@@ -169,26 +169,29 @@ test('a capture recorded after its step was published counts from the next gener
   step.authorship = [{ generation: 1, producer: 'human', channel: 'manual-in-place' }];
   const phone = await record({ profileId: PHONE.id, file: await png('phone.png', 390, 844) });
   assert.equal(phone.record.targetGeneration, 2, 'committed by, and counted for, the next publication');
-  const republish = 'singularity-flow phase publish visual-verification --authored human --channel manual-in-place';
+  // Version 2 opens only on the person's yes: the route is the step's own preview, never a publication that opens it.
+  const question = 'singularity-flow phase rollover visual-verification --reason "<what to change>" --json';
   const partial = (await visualCoverageRefusal(root, workflow, { itemDirectory })).refusal;
   assert.deepEqual(partial.details.uncovered, [PHONE.id, RETINA.id], 'generation 1 is still uncovered');
-  assert.deepEqual(partial.details.recoveryCommands.map((route) => route.command), [capture(RETINA), decide(RETINA), republish],
-    'what generation 2 still lacks comes first, then the publication that opens it');
-  assert.match(partial.details.recoveryCommands[0].label, /generation 1 is already published, so publish visual-verification again afterwards/u);
+  assert.deepEqual(partial.details.recoveryCommands.map((route) => route.command), [capture(RETINA), decide(RETINA), question],
+    'what version 2 still lacks comes first, then its version question');
+  assert.match(partial.details.recoveryCommands[0].label, /version 1 is published, so it counts for the next version, which opens only on the person's yes/u);
   assert.match(partial.message, /Generation 2 would still lack phone-390x844-3x: a capture counts only for the generation it was recorded for/u);
 
   const retina = await record({ profileId: RETINA.id, file: await png('retina.png', 1170, 2532) });
   const waiting = (await visualCoverageRefusal(root, workflow, { itemDirectory })).refusal;
   assert.equal(waiting.code, 'VISUAL_COVERAGE_FAILED');
-  assert.deepEqual(waiting.details.recoveryCommands.map((route) => route.command), [republish]);
-  assert.deepEqual(waiting.details.nextAction.command, republish);
+  assert.deepEqual(waiting.details.recoveryCommands.map((route) => route.command), [question]);
+  assert.deepEqual([waiting.details.nextAction.command, waiting.details.nextAction.skill], [question, '/sf-phase'], 'the step\'s own work command asks it');
   assert.deepEqual(waiting.details.nextGeneration, { generation: 2, waiting: [phone.record.id, retina.record.id].sort(), uncovered: [] });
-  assert.match(waiting.message, /recorded after generation 1 was published, so they are committed by, and count for, generation 2\. Publish visual-verification again/u);
+  assert.match(waiting.message, /recorded after version 1 was published, so they count for version 2\. Preview it and ask the person; it opens only on their yes\./u);
+  assert.doesNotMatch(JSON.stringify([waiting.message, waiting.details.recoveryCommands, partial.details.recoveryCommands]), /phase publish|publish visual-verification again/u,
+    'no route opens version 2 by publishing it');
   const hold = await visualCoverageHold(root, workflow, step, { itemDirectory });
   assert.equal(hold.published, true);
-  assert.equal(hold.command, republish, 'readiness and next steps name the same way out');
+  assert.equal(hold.command, question, 'readiness and next steps name the same way out');
 
-  // The publication opens generation 2, which the captures cover.
+  // The person's yes opens version 2, and its publication commits the captures, which cover it.
   step.generation = 2;
   const passed = await visualCoverageRefusal(root, workflow, { itemDirectory });
   assert.equal(passed.refusal, null);

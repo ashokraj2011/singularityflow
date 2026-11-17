@@ -963,7 +963,7 @@ test('qualified ADD clause tags survive prepublish, recovery and actual publicat
   });
 });
 
-test('successful document successor preparation makes draft checks prospective without changing the publication', async t => {
+test('a published document\'s next draft opens only through the opening operation; preparation alone refuses it, and once opened draft checks are prospective without changing the publication [D3, OSA:REQ-030]', async t => {
   const item = await fixture('document-successor');
   t.after(() => rm(item.root, { recursive: true, force: true }));
   await writeFile(item.target, [
@@ -986,6 +986,13 @@ test('successful document successor preparation makes draft checks prospective w
     const publication = JSON.stringify(item.phase.generationPublications);
     await preparePhaseInputs(item.root, item.config, item.workflow, 'intake', { dryRun: true });
     assert.equal(item.phase.reworkRevalidation, undefined, 'dry run cannot reopen authoring');
+    // Preparing it opened version 2 with nobody asked: it is refused with the step's own preview, and nothing is reserved.
+    await assert.rejects(() => preparePhaseInputs(item.root, item.config, item.workflow, 'intake'),
+      (error) => error.code === 'VERSION_CONSENT_REQUIRED' && /^singularity-flow phase rollover intake\b/u.test(error.details.nextAction?.command ?? ''));
+    assert.equal(item.phase.reworkRevalidation, undefined, 'preparation never reserves the next draft');
+    // The opening operation reserves it on the person's yes (phase-opening.mjs documentOpening); preparation then goes on.
+    const { reservePreparedDocumentSuccessor } = await import('../src/prepared-document-successor.mjs');
+    assert.equal(reservePreparedDocumentSuccessor(item.workflow, item.phase, new Date().toISOString()), true);
     await preparePhaseInputs(item.root, item.config, item.workflow, 'intake');
     const reservation = JSON.stringify(item.phase.reworkRevalidation);
     assert.equal(item.phase.reworkRevalidation.generation, 1);
@@ -1922,19 +1929,21 @@ test('artifact scan cannot bless authored changes made after the immutable gener
       context.root, context.config, context.workflow, { phaseId: 'intake', runChecks: false, persist: false }
     )),
     (error) => error.code === 'ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION'
-      && /Published authored hash: sha256:[a-f0-9]{64}/.test(error.message)
-      && /Current authored hash: sha256:[a-f0-9]{64}/.test(error.message)
-      && /singularity-flow recover PREFLIGHT-1 --phase intake/.test(error.message)
-      // The one command that works is named first (2026-10-28).
-      && error.details.nextAction === 'singularity-flow phase publish intake'
+      && /^(?:sha256:)?[a-f0-9]{64}$/.test(error.details.publishedAuthoredSha256)
+      && /^(?:sha256:)?[a-f0-9]{64}$/.test(error.details.currentAuthoredSha256) && error.details.currentAuthoredSha256 !== error.details.publishedAuthoredSha256
+      && error.details.recoveryCommand === 'singularity-flow recover PREFLIGHT-1 --phase intake'
+      // The one command that works is named first (2026-10-28): keeping the edit is the next version, which opens only on the
+      // person's yes through the step's own preview, never a publication in place [D3, OSA:REQ-014, REQ-030].
+      && error.details.nextAction.command === 'singularity-flow phase rollover intake --reason "<what to change>" --json'
+      && /^Phase intake changed after version 1 was published; nothing was registered or submitted\. To keep it as the next version, preview it and ask the person: singularity-flow phase rollover intake/.test(error.message)
+      && !/phase publish/.test(error.message)
   );
   assert.equal(context.phase.artifactRegistrationRepairs.length, 0);
   assert.equal(context.phase.status, 'in_progress');
-  // Publishing the edit makes it the next generation, whose content submission accepts.
-  await inContext(context.root, () => publishGoverned(context.root, context.config, context.workflow, 'intake'));
-  assert.equal(context.phase.generation, 2);
-  const republished = await inspectRequiredArtifactRegistration(context.root, context.config, context.workflow, context.phase);
-  assert.notEqual(republished.status, 'unsafe');
+  // Publishing the edit in place would open version 2 with nobody asked: it is refused, with the same preview, and nothing changes.
+  await assert.rejects(() => inContext(context.root, () => publishGoverned(context.root, context.config, context.workflow, 'intake')),
+    (error) => error.code === 'VERSION_CONSENT_REQUIRED' && /^singularity-flow phase rollover intake\b/u.test(error.details.nextAction?.command ?? ''));
+  assert.equal(context.phase.generation, 1);
 });
 
 test('a code phase refuses an artifact-only generation before mutating phase state', async () => {

@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 13,
-  "generic-route": 6357,
-  "jargon": 1358,
-  "length": 680
+  "generic-route": 6356,
+  "jargon": 1353,
+  "length": 678
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -351,7 +351,6 @@
   "CMP_WALKTHROUGH_SCHEMA_INVALID",
   "CODE_DELIVERY_EVIDENCE_TOO_LARGE",
   "CODE_DELIVERY_POLICY_RETIRED",
-  "CODE_DELIVERY_RECEIPT_MISSING",
   "CODE_DELIVERY_REUSE_INVALID",
   "CODE_DELIVERY_SCOPE_INVALID",
   "CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE",
@@ -4404,14 +4403,12 @@
    "ea45d8a2a353": "jargon:generation",
    "ea7b7385bb3c": "length",
    "eaf405d47b72": "jargon:binding",
-   "ecdd7a00febb": "jargon:generation jargon:published-generation length",
    "ed98ac20b1a2": "jargon:packet",
    "edabeb9502a1": "jargon:retained",
    "edf1966e7ad8": "jargon:admission",
    "f4e80e13e124": "length",
    "f7fe2e9eab4c": "jargon:generation",
    "f82a3902d086": "jargon:generation",
-   "f86ec786fc5a": "jargon:generation",
    "f88b89f02a94": "jargon:binding",
    "fca592d469e4": "jargon:retained"
   },
@@ -4571,8 +4568,7 @@
   },
   "src/visual-coverage.mjs": {
    "07f84f8068a0": "length",
-   "0c4bf2bf519c": "jargon:generation length",
-   "d540e9c9f7cb": "jargon:generation length",
+   "51a88ce9b801": "length",
    "e7cd1bfc25e5": "jargon:generation"
   },
   "src/visual-native-capture.mjs": {

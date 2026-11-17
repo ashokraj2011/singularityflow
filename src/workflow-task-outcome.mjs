@@ -109,13 +109,17 @@ export function runningExecutionFact(lease) {
  * The kernel's task fact for the current step: a retained publication first (it survives any interruption in its sealed
  * record), then a running execution's live lease, else the step's task record. Private files only, no Git; null on any doubt.
  * Every view reads it (next steps, submission readiness, phase show through readiness) and hands it to the kernel's decision
- * (step-decision.mjs stepDecisionOf), so beside it goes `changeRequested`: the person's typed words wait for the published
- * step's next version, and every view asks its version question as the entry and the edit guard do [daily run 2026-11-17].
+ * (step-decision.mjs stepDecisionOf), so beside it go `changeRequested`: the person's typed words wait for the published
+ * step's next version, and every view asks its version question as the entry and the edit guard do [daily run 2026-11-17];
+ * and `askedFor`: what the person typed that a step nobody approves still owes an account, which its submission waits for,
+ * so every view leads with its author's account [SCS:REQ-042].
  */
 export async function readTaskOutcome(root, workflow, phase, options = {}) {
   if (phase?.id !== workflow.currentPhase) return null;
   const task = await taskFactOf(root, workflow, phase, options);
-  return await changeWaits(root, workflow, phase) ? { ...(task ?? {}), changeRequested: true } : task;
+  const changed = await changeWaits(root, workflow, phase);
+  const owed = await askedForOwed(workflow, phase);
+  return changed || owed.length ? { ...(task ?? {}), ...(changed ? { changeRequested: true } : {}), ...(owed.length ? { askedFor: owed } : {}) } : task;
 }
 
 /** The typed words a published step's next version waits for, read as the entry reads them (from the CLI source). */
@@ -125,6 +129,14 @@ async function changeWaits(root, workflow, phase) {
     return (await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'requested-successor.mjs')).href))
       .requestedChanges(root, workflow, phase)).length > 0;
   } catch { return false; }
+}
+
+/** The instructions the submission of a step nobody approves waits to see accounted for, read from the CLI source; [] on any doubt. */
+async function askedForOwed(workflow, phase) {
+  if (!(workflow.askedFor ?? []).some((entry) => entry.phase === phase.id)) return [];
+  try {
+    return await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href)).owedAtSubmission(workflow, phase);
+  } catch { return []; }
 }
 
 async function taskFactOf(root, workflow, phase, { pending } = {}) {

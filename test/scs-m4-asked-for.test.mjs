@@ -373,7 +373,9 @@ test('SCS REQ-042: a step nobody approves waits at its submission, which complet
   const result = JSON.parse(refused.stdout);
   assert.equal(result.error?.code, 'INSTRUCTIONS_UNACCOUNTED', refused.stdout.slice(-2000));
   assert.match(result.error.message, /^Implement waits until one instruction the person typed is accounted for, before it is submitted: \(1\) "make the value 2, not 3"\. Its author does it in \/sf-code\.$/u);
-  assert.equal(result.remediationPlan?.steps?.[0]?.command, 'singularity-flow decisions QF-1', JSON.stringify(result.remediationPlan));
+  const account = 'singularity-flow departure account --work-id QF-1 --instruction 1 --clauses <CLAUSES>';
+  assert.deepEqual([result.remediationPlan?.steps?.[0]?.command, result.remediationPlan?.steps?.[0]?.copilotCommand], [account, '/sf-code'],
+    JSON.stringify(result.remediationPlan));
   let recorded = await state();
   assert.equal(recorded.phases.implement.status, 'in_progress');
   assert.equal(recorded.status, 'in_progress');
@@ -384,13 +386,22 @@ test('SCS REQ-042: a step nobody approves waits at its submission, which complet
   assert.deepEqual([item.holds, item.holdsWords], ['step-completion', 'Holds this step\'s submission, which completes it: the step needs no approval.']);
   assert.equal(item.why, 'Asked in Implement version 1. Until its author says whether the plan covers it, Implement\'s submission waits.');
   assert.equal(item.options[0].action.command, 'singularity-flow departure account --work-id QF-1 --instruction 1 --clauses <CLAUSES>');
-  // Next steps call its submission what it is: it completes without approval.
+  // No mixed signals: next steps, phase show and submission readiness lead with the author's account, never submit.
   const next = repo.sflowJson('nextsteps', 'QF-1');
+  const now = next.value.actions.find((entry) => entry.timing === 'now');
+  assert.deepEqual([now?.command, now?.skill], [account, '/sf-code'], JSON.stringify(next.value.actions).slice(0, 2000));
   assert.doesNotMatch(JSON.stringify(next.value.actions.map((entry) => entry.label)), /Implement for approval/u);
+  const shown = repo.sflowJson('phase', 'show', 'implement').value.continuation;
+  assert.deepEqual([shown?.nextCommand, shown?.nextSkill], [account, '/sf-code'], JSON.stringify(shown).slice(0, 2000));
+  const readiness = repo.sflowJson('status', 'QF-1', '--submission-readiness').value;
+  assert.deepEqual([readiness.classification, readiness.lifecycleReady, readiness.nextCommand, readiness.nextSkill],
+    ['instructions-unaccounted', false, account, '/sf-code'], JSON.stringify(readiness).slice(0, 2000));
   // That route ends where it says: its author accounts for it, and the submission completes the step.
   const accounted = repo.sflowJson('departure', 'account', '--instruction', '1', '--clauses', 'QF-1:AC-001');
   assert.equal(accounted.status, 0, JSON.stringify(accounted.value));
   assert.equal(listed().items.filter((entry) => entry.kind === 'asked-for').length, 0);
+  // Accounted for, every view leads with the submission again.
+  assert.equal(repo.sflowJson('status', 'QF-1', '--submission-readiness').value.classification, 'ready-to-attempt');
   const submitted = repo.run(process.execPath, [cli, '--no-model', 'submit', 'implement', '--json']);
   assert.equal(submitted.status, 0, submitted.stdout.slice(-2000) + submitted.stderr.slice(-2000));
   recorded = await state();

@@ -216,6 +216,17 @@ export async function accountForInstruction(root, config, workflow, { instructio
 export const accountedBy = (phase) => (phase?.approvalPolicy?.mode === 'none' ? 'submitted' : 'approved');
 
 /**
+ * The instructions the submission of a code step nobody approves waits to see accounted for [SCS:REQ-042], oldest first;
+ * none for a step someone approves (its approval waits instead), one not in progress, or when nothing is kept.
+ */
+export async function owedAtSubmission(workflow, phase) {
+  if (phase?.approvalPolicy?.mode !== 'none' || phase.status !== 'in_progress' || typedFocusOff(workflow)) return [];
+  const { phaseRequiresCodeDelivery } = await import('./code-delivery-policy.mjs');
+  if (!phaseRequiresCodeDelivery(phase)) return [];
+  return instructionAccounting(workflow, phase.id, { upTo: phase.generation }).filter((entry) => !entry.account).map((entry) => entry.instruction);
+}
+
+/**
  * The code step's approval waits while an instruction the person typed is not accounted for [SCS:REQ-042], and so
  * does the submission of a step that completes there (nobody approves it, or its policy waives the approval). Publish
  * goes ahead; the refusal names the decisions table, where each instruction is shown, quoted, with its route.
@@ -227,9 +238,14 @@ export async function assertInstructionsAccounted(root, config, workflow, phase,
   const open = instructionAccounting(workflow, phase.id, { upTo: phase.generation }).filter((entry) => !entry.account);
   if (!open.length) return;
   const submitted = phase.status === 'awaiting_approval';
+  // The route every view leads with, the kernel's (a submission it waits for leads with the author's account); else the list.
+  const { decisionRoutes, stepDecisionOf } = await import('./step-decision.mjs');
+  const decision = submitted ? null : stepDecisionOf(workflow, phase, { task: { askedFor: open.map((entry) => entry.instruction) } });
+  const [route] = decision ? decisionRoutes(decision, workflow, phase).filter((entry) => /^singularity-flow departure account /u.test(entry?.command ?? '')) : [];
   throw new SingularityFlowError(`${phase.label ?? phase.id} waits until ${open.length === 1 ? 'one instruction' : `${open.length} instructions`} the person typed ${open.length === 1 ? 'is' : 'are'} accounted for, before it is ${boundary ?? (submitted ? 'approved' : accountedBy(phase))}: ${open.map(instructionWords).join('; ')}. Its author does it in /sf-code${submitted ? ', once its approvers return it' : ''}.`, {
     code: 'INSTRUCTIONS_UNACCOUNTED', details: { phase: phase.id, instructions: open.map((entry) => ({ instruction: entry.instruction, generation: entry.generation })),
-      nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'See each instruction on the decisions table; its author accounts for it in /sf-code.' } } });
+      nextAction: route ? { command: route.command, skill: route.skill, label: route.detail }
+        : { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'See each instruction on the decisions table; its author accounts for it in /sf-code.' } } });
 }
 
 /**

@@ -14,9 +14,9 @@
  *   I  a document step's review asks corrections, and the person is asked "Start version 2?" as for code [OSA:AC-013];
  *   K  a change typed after /sf-code once the code is published, without the step's name and with it: the entry, its edit
  *      permission, the kernel and the guard all ask "Start version N?", and the routes write and publish the change.
- *   Q  a quick design (daily run, 2026-11-17): a change typed twice is one instruction, accounted for before the code step
- *      nobody approves completes; the code step is offered to /sf-code, never as a generated publish; once closed, the Story
- *      says it is done.
+ *   Q  a quick design (daily run, 2026-11-17): a change typed twice is one instruction; published without its account,
+ *      every view leads with that account, and the code step nobody approves completes once it is made; the code step is
+ *      offered to /sf-code, never as a generated publish; once closed, the Story says it is done.
  *
  * Every walk writes through the real edit guard and reads the person's views at each hand-off (route-follower.mjs).
  *
@@ -606,7 +606,8 @@ test('journey I: a document step\'s review asks corrections, the person is asked
 
 // The daily real-Story run of 2026-11-17, a quick design (scope and plan, design, then code nobody approves, and verify):
 //   1. the person typed the same change twice (the first turn ended before it), and the Story kept two identical
-//      instructions; Implement needs no approval, so the Story closed with neither accounted for;
+//      instructions; Implement needs no approval, so the Story closed with neither accounted for. Now its submission waits,
+//      and while it does next steps, phase show and submission readiness lead with the author's account, never submit;
 //   2. after `approve verify` said "nothing further to do", next steps still listed "Now: confirm the final gate";
 //   3. after `approve fix-design`, next steps offered "the deterministically generated Implement" on /sf-publish, for
 //      code /sf-code writes, and labelled its submission "for approval".
@@ -648,33 +649,57 @@ test('journey Q: a quick design is written, its change typed twice is accounted 
   // The person types the change in a /sf-code turn that ends before it, then types it again.
   const change = 'Start each value comment with "[value]".';
   for (const session of ['journey-qd-first', 'journey-qd-again']) copilotTurn(story, session).prompt(`/sf-code implement ${change}`);
-  // The agent writes the code and, as its entry says, accounts for what the person asked before it publishes.
-  const accounted = [];
-  const author = async ({ story: s, phase, generation }) => {
-    if (phase !== 'implement') return false;
-    await writeValueCode(s, { value: 2, clauses: [`${W}:AC-001`], note: '[value] returns the approved value to its callers' });
-    accounted.push(...accountForAskedFor(s, phase, `${W}:AC-001`).map((entry) => ({ ...entry, generation })));
-    return true;
-  };
+  // The agent writes the code and publishes it, as the daily run's did, without accounting for what the person asked.
+  const author = async ({ story: s, phase }) => phase === 'implement'
+    && (await writeValueCode(s, { value: 2, clauses: [`${W}:AC-001`], note: '[value] returns the approved value to its callers' }), true);
   const person = cooperativePerson(({ act }) => (/^What would you like to validate\b/u.test(act?.ask?.question ?? '')
     ? { route: { shell: `singularity-flow nextsteps ${W} --json` } } : null));
-  const walk = await followRoutes(story, { label: 'journey Q, code to the end', start: { copilot: '/sf-code implement' }, agent: { author, review: reviewer() }, person,
+  const written = await followRoutes(story, { label: 'journey Q, the code', start: { copilot: '/sf-code implement' }, agent: { author, review: reviewer() }, person,
+    done: ({ record }) => publishedGeneration(record, 'implement') >= 1, maxSteps: 16 });
+  t.diagnostic(formatTrail(written.trail));
+  assert.equal(written.reached, true, report(written));
+
+  // No mixed signals: while the instruction waits for its account, every view leads with the author's account, which the
+  // decisions list names too, and /sf-submit submits nothing.
+  const account = `singularity-flow departure account --work-id ${W} --instruction 1 --clauses <CLAUSES>`;
+  await check(t, 'the change typed twice is one instruction, and every view leads with its author\'s account, never submit', {}, () => {
+    assert.deepEqual((storyRecord(story).askedFor ?? []).map((entry) => [entry.phase, entry.instruction, entry.text]), [['implement', 1, change]]);
+    const next = json(story.raw(['nextsteps', W, '--json']).stdout);
+    const now = next.actions.find((entry) => entry.timing === 'now');
+    assert.deepEqual([now?.skill, now?.command], ['/sf-code', account], JSON.stringify(next.actions).slice(0, 3000));
+    assert.ok(!next.actions.some((entry) => /^singularity-flow submit implement/u.test(entry.command)), JSON.stringify(next.actions).slice(0, 3000));
+    const shown = json(story.raw(['phase', 'show', 'implement', '--json']).stdout)?.continuation;
+    assert.deepEqual([shown?.nextSkill, shown?.nextCommand], ['/sf-code', account], JSON.stringify(shown).slice(0, 2000));
+    const readiness = json(story.raw(['status', W, '--submission-readiness', '--json']).stdout);
+    assert.deepEqual([readiness?.classification, readiness?.nextSkill, readiness?.nextCommand], ['instructions-unaccounted', '/sf-code', account],
+      JSON.stringify(readiness).slice(0, 2000));
+    const listed = json(story.raw(['decisions', W, '--json']).stdout);
+    const item = (listed.data ?? listed).items.find((entry) => entry.kind === 'asked-for');
+    assert.equal(item?.options?.[0]?.action?.command, account, JSON.stringify(item).slice(0, 2000));
+    const submitted = json(story.raw(['status', W, '--submission-readiness', '--json', '--submit-if-ready']).stdout);
+    assert.equal(submitted?.submitIfReady?.submitted, false, JSON.stringify(submitted?.submitIfReady));
+    assert.equal(storyRecord(story).phases.implement.status, 'in_progress');
+  });
+  // The agent takes that route: it names the clause the plan covers it by, and the step goes on to its end by its routes.
+  const accounted = story.raw(account.replace(/^singularity-flow /u, '').replace('<CLAUSES>', `${W}:AC-001`).split(' ').concat('--json'));
+  assert.equal(accounted.status, 0, accounted.stdout.slice(-1500) + accounted.stderr.slice(-1500));
+  const walk = await followRoutes(story, { label: 'journey Q, to the end', start: { copilot: '/sf-submit' }, agent: { author, review: reviewer() }, person,
     detour: ({ finding, route }) => (['no-progress', 'dead-end', 'skill-skips-route'].includes(finding.kind) && route.shell ? { shell: route.shell } : null),
-    done: ({ record }) => record?.status === 'closed', maxSteps: 40 });
+    done: ({ record }) => record?.status === 'closed', maxSteps: 30 });
   t.diagnostic(formatTrail(walk.trail));
-  assert.equal(walk.reached, true, `the Story never reached its end, even with the detour\n${report(walk)}\naccounted: ${JSON.stringify(accounted)}`);
+  assert.equal(walk.reached, true, `the Story never reached its end, even with the detour\n${report(walk)}`);
   const record = storyRecord(story);
 
-  await check(t, 'the change typed twice is one instruction, accounted for before the step nobody approves completed', {}, () => {
-    assert.deepEqual(accounted.map((entry) => entry.status), [0], JSON.stringify(accounted));
-    assert.deepEqual((record.askedFor ?? []).map((entry) => [entry.phase, entry.instruction, entry.text]), [['implement', 1, change]]);
+  await check(t, 'accounted for once, before the step nobody approves completed, and its commit says it completed', {}, () => {
+    assert.deepEqual((record.askedFor ?? []).map((entry) => [entry.phase, entry.instruction]), [['implement', 1]]);
     assert.deepEqual((record.instructionAccounts ?? []).map((entry) => [entry.phase, entry.instruction, entry.as]), [['implement', 1, 'within-plan']]);
     assert.equal(record.phases.implement.approvalDisposition, 'not_required');
     const subjects = story.git('log', '--format=%s');
     assert.match(subjects, new RegExp(`\\[${W}\\]\\[phase:implement\\]\\[submit\\] complete without approval`, 'u'));
   });
   await check(t, 'every step went by its routes, with no detour, and the person\'s views named the agent\'s skill at each hand-off', {}, () => {
-    assert.deepEqual(walk.findings, [], report(walk));
+    assert.deepEqual([...written.findings, ...walk.findings], [], `${report(written)}\n${report(walk)}`);
+    viewsAgree(written);
     viewsAgree(walk);
   });
   await check(t, 'the closed Story says it is done: nothing is "now" in next steps, in what /sf-next reads or in the person\'s views', {}, async () => {

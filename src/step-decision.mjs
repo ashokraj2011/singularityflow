@@ -29,10 +29,10 @@ export { ACTION_COMMAND_MAP_VERSION, ACTION_MODEL_FREE, ACTION_SKILLS, ACTION_CO
  * is built [OSA:REQ-021]. A form that keeps a placeholder for the person is shown as written; null for a form the map does
  * not name.
  */
-export function actionRoute(operation, form, { step, workId, detail, skill = null }) {
-  const words = actionCommand(operation, form, { step, workId });
+export function actionRoute(operation, form, { step, workId, detail, skill = null, instruction = null }) {
+  const words = actionCommand(operation, form, { step, workId, instruction });
   if (!words) return null;
-  if (/(?:^| )<[a-z-]+>(?: |$)/u.test(words)) return commandRoute(`singularity-flow ${words}`, detail, skill);
+  if (/(?:^| )<[A-Za-z-]+>(?: |$)/u.test(words)) return commandRoute(`singularity-flow ${words}`, detail, skill);
   return route(words.split(' '), detail, skill);
 }
 
@@ -71,6 +71,8 @@ export function reviewFactOf(phase, review) {
 }
 
 const ACKNOWLEDGEMENT = 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED';
+/** What the person typed, not accounted for, in a step its submission completes: that submission waits [SCS:REQ-042]. */
+export const ASKED_FOR_HOLD = 'INSTRUCTIONS_UNACCOUNTED';
 
 /**
  * `StepSnapshot/v1` from the Story record the caller already loaded: the adapter side of the kernel [OSA:REQ-040, REQ-041].
@@ -79,7 +81,7 @@ const ACKNOWLEDGEMENT = 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED';
  * `task`: the step's durable task outcome as the caller read it (workflow-task-outcome.mjs), or null.
  */
 export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.currentPhase], turnMode = 'authoring', sources = {},
-  review = null, revoked = false, basis = {}, opening = null, task = null, reviewOwed = false, changeRequested = false } = {}) {
+  review = null, revoked = false, basis = {}, opening = null, task = null, reviewOwed = false, changeRequested = false, askedFor = null } = {}) {
   // What this checkout observed of an operation's opening (story-version-acceptance.mjs): its shared acceptance and writer.
   const observed = (step, version) => version.opening?.record === 'operation' && step.id === phase?.id && opening
     ? { ...version, opening: { ...version.opening, acceptance: opening.acceptance, writer: opening.writer } } : version;
@@ -90,8 +92,10 @@ export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.
         ...(step.writeScope === 'source-and-artifact' && (!onlyDeterministic(step) || phaseRequiresCodeDelivery(step)) ? ['application'] : [])] },
     pause: intentAmendmentPause(workflow, step.id) ? { id: intentAmendmentPause(workflow, step.id).id } : null,
     // An approved amendment is acknowledged before what the engine refuses until then (owner, 2026-11-17).
-    holds: acknowledgement ? [{ code: ACKNOWLEDGEMENT, owner: 'person', id: acknowledgement.id,
-      blocks: ['opening', 'publication', 'submission'], resolution: 'decide' }] : [],
+    holds: [...(acknowledgement ? [{ code: ACKNOWLEDGEMENT, owner: 'person', id: acknowledgement.id,
+      blocks: ['opening', 'publication', 'submission'], resolution: 'decide' }] : []),
+    // `askedFor`: the instructions its submission waits to see accounted for, by its author (readTaskOutcome).
+    ...(askedFor?.length && step.id === phase?.id ? [{ code: ASKED_FOR_HOLD, owner: 'agent', id: String(askedFor[0]), blocks: ['submission'], resolution: 'repair-version' }] : [])],
     // A review the caller read for this step is owed by it, whatever its policy says now (a retained review stands).
     review: { required: sourceReviewRequired(workflow, step.id) || (reviewOwed && review?.phaseId === step.id), status: review?.phaseId === step.id ? review.status : 'unavailable',
       version: review?.phaseId === step.id ? review.version ?? null : null }, damage: null,
@@ -118,9 +122,9 @@ export function stepSnapshotOf({ workflow, phase = workflow?.phases?.[workflow?.
  */
 export function stepDecisionOf(workflow, phase = workflow?.phases?.[workflow?.currentPhase], { review = null, opening = null, task = null } = {}) {
   // A view reads; it grants no write, so an opening it did not observe is named as being written (kernel `advisory`). Its
-  // task fact also carries a typed change (readTaskOutcome).
+  // task fact also carries a typed change and what the person typed that the submission waits for (readTaskOutcome).
   return phase ? stepState(stepSnapshotOf({ workflow, phase, turnMode: 'view', review: reviewFactOf(phase, review), reviewOwed: true, opening,
-    task: task?.outcome ? task : null, changeRequested: task?.changeRequested === true })) : null;
+    task: task?.outcome ? task : null, changeRequested: task?.changeRequested === true, askedFor: task?.askedFor ?? null })) : null;
 }
 
 /** The step's own next action as a planner names it: the first route of its decision, or null on any doubt. */
@@ -153,8 +157,9 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
   const author = actionSkill('author-version', { phase, workflow });
   const code = phaseRequiresCodeDelivery(phase);
   // Every command comes from the map's named form [OSA:REQ-021]; the cases below choose the form and say why.
-  const render = (operation, form, detail, skill = null) => actionRoute(operation, form, { step: phase.id, workId, detail, skill });
+  const render = (operation, form, detail, skill = null, instruction = null) => actionRoute(operation, form, { step: phase.id, workId, detail, skill, instruction });
   const owed = (next.prerequisites ?? []).find((entry) => entry.code === ACKNOWLEDGEMENT);
+  const asked = (next.prerequisites ?? []).find((entry) => entry.code === ASKED_FOR_HOLD);
   switch (next.operation) {
     // An opening whose shared acceptance is lost or uncertain is reconciled as the same operation; nothing new opens [REQ-033].
     case 'recover-operation': return [next.inputs.operation === 'version-opening'
@@ -185,6 +190,8 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
     // An acknowledgement the submission waits for is its route, as the engine refuses it until then.
     case 'submit-version': if (owed) return decisionRoutes({ ...decision, next: { ...next, operation: 'decide', prerequisites: [],
       inputs: { hold: owed.code, id: owed.id }, then: [] } }, workflow, requested);
+      // Its submission completes it, so its author first accounts for what the person typed, as the decisions list says.
+      if (asked) return [render('repair-version', 'account', `Account for instruction ${asked.id} the person typed in ${phase.id}: within the plan, by the clauses it implements, or as its departure. The submission that completes ${phase.id} waits for it.`, author, asked.id)];
       if (exactSubmit) {
       // The map's exact form with the decision values the step records, or its readiness read when a review comes first.
       const exact = submitRoute(workflow, phase);

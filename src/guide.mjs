@@ -3,7 +3,7 @@ import { decisionsCardAction, intentAmendmentProposable } from './intent-amendme
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
 import { stepBeingWritten } from './phase-generation-need.mjs';
-import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
+import { ASKED_FOR_HOLD, decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
@@ -156,6 +156,8 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress, t
     // A typed change: its version question leads, as in the entry; submitting it as it is follows.
     if (decision.next.inputs.reason === 'change-requested') return [...routes(),
       ...phaseHandoff(workflow, phase, { sourceReviewEvidence }).filter((entry) => !/^singularity-flow phase rollover\b/u.test(entry.command ?? ''))];
+    // What the person typed waits for its account, and the submission that completes the step waits for that: the account leads.
+    if (decision.next.prerequisites?.some((entry) => entry.code === ASKED_FOR_HOLD)) return routes();
   }
   // The version being written, version 1 or an open next one, has its task: its next stage leads [OSA:REQ-012, C5]. The
   // task's stage is the kernel's (phase-authoring-progress.mjs); any other step's action is its handoff's.

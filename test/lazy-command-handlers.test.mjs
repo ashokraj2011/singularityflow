@@ -1103,7 +1103,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,288,950 (measured 4,288,926): OSA v1.1 Stage 4 (+1,148 alone) merged into the 11-17 landing above. No new eager file.
   // 4,288,050 (measured 4,288,014, -912): SPEC-OSA v1.1 Stage 5 lowers it to what it measures: the unused predicate
   // wrappers it deleted (code-delivery-policy.mjs opensCodeVersion, phase-generation.mjs consumedByPublishedGeneration).
-  assert.ok(current.bytes <= 4_288_050, `session current loads ${current.bytes} source bytes`);
+  // 4,288,300 (measured 4,288,283, +269): the 11-17 landing's fixes. manual-authorship.mjs loads the artifact checks only
+  // where an artifact is checked, which takes 20 modules out of the Copilot edit guard on every tool call (68 -> 56); this
+  // projection reaches those checks another way, so it keeps them and gains only the loader. No new eager file.
+  assert.ok(current.bytes <= 4_288_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

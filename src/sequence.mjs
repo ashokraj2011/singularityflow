@@ -10,6 +10,7 @@ import { action, because, commandResult, noEffects, refused, withCommandResult }
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { gitDir, rememberedActor } from './git.mjs';
+import { builtPublicationRoute } from './action-command-map.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer,
   phaseUsesDeterministicGeneration
@@ -28,7 +29,8 @@ let activeConfirmationPort = null;
  * The publication route guidance names for the run's model mode: with a model, the configured
  * producer's command; without one, the producer that can publish without a model, in place (the
  * draft `prepare` wrote) and with --no-model, the same route prepublish offers once the draft is
- * ready; null when nothing can publish the phase without a model. Guidance that named the
+ * ready; null when nothing can publish the phase without a model. A step SFlow builds is published
+ * by its work command's route, never `phase publish` (/sf-publish) [C9]. Guidance that named the
  * configured route regardless had a person record their own writing as governed-agent/copilot-host.
  * It lives here, not beside the phase contract (manual-authorship.mjs), so the Copilot edit guard
  * that loads that contract on every tool call stays free of the operation context.
@@ -36,8 +38,9 @@ let activeConfirmationPort = null;
 export function phasePublicationCommandForMode(phase, {
   modelEnabled = operationContext()?.modelMode?.enabled !== false, executable = 'singularity-flow'
 } = {}) {
+  const producer = effectivePhasePublicationProducer(phase, { modelEnabled });
+  if (producer === 'deterministic') return builtPublicationRoute(null, phase, producer, modelEnabled).command;
   if (modelEnabled) return phasePublicationCommand(phase, executable);
-  const producer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
   return producer === 'governed-agent' ? null
     : phasePublicationCommandForProducer(phase, producer, { executable, noModel: true });
 }

@@ -62,20 +62,28 @@ test('every shipped and example workflow routes publication through its phase co
         checked += 1;
         const label = `${catalog}:${workTypeId}/${phase.id}`;
         const contract = phasePublicationContract(phase);
+        // A step SFlow builds is checked and published by its own work command, the action map's publish-version: never
+        // `phase publish`, which /sf-publish owns [OSA:REQ-026, C9]. Every other step's is its contract's command.
+        const built = contract.producer === 'deterministic';
+        const expected = built ? `singularity-flow phase prepublish ${phase.id} --for-agent --json --publish-if-ready` : contract.command;
 
         const sequence = sequenceGuidance(workflow).actions;
         if (phase.id === 'convergence' && contract.producer === 'deterministic') {
           assert.equal(sequence.length, 1, `${label} offered publication before convergence projection`);
-        } else assert.equal(sequence[1].command, contract.command, `${label} sequence drifted`);
+        } else assert.equal(sequence[1].command, expected, `${label} sequence drifted`);
         const nextActions = workflowNextSteps(workflow).filter((entry) =>
-          entry.command.startsWith('singularity-flow phase publish ')
+          entry.command.startsWith('singularity-flow phase publish ') || entry.command === expected
         );
         if (phase.id === 'convergence' && contract.producer === 'deterministic') {
           assert.equal(nextActions.length, 0, `${label} offered publication before convergence projection`);
           assert.equal(workflowNextSteps(workflow).some((entry) => /singularity-flow (?:submit|approve) convergence/.test(entry.command)), false,
             `${label} skipped the projection's required intermediate human branch`);
         } else assert.ok(nextActions.length > 0, `${label} omitted its publication action`);
-        for (const action of nextActions) assertValidPublicationAction(action, phase, label);
+        for (const action of nextActions) {
+          if (!built) assertValidPublicationAction(action, phase, label);
+          else assert.deepEqual([action.command, /\/sf-publish/u.test(action.copilotCommand ?? '')], [expected, false], `${label} handed a step SFlow builds to /sf-publish`);
+        }
+        if (built && phase.id !== 'convergence') assert.doesNotMatch(sequence[1].copilotCommand ?? '', /\/sf-publish/u, `${label} sequence named /sf-publish`);
 
         // A code step's first version opens with `phase begin`, as its entry and edit permission say [OSA:REQ-020].
         assert.equal(workflowGuide(workflow).nextActions[0].command, phase.generationPolicy.task === 'code' || phase.writeScope === 'source-and-artifact'

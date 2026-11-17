@@ -14,7 +14,7 @@
   "count-without-name": 27,
   "draft-for-version": 13,
   "generic-route": 6357,
-  "jargon": 1359,
+  "jargon": 1358,
   "length": 680
  },
  "unroutedCodes": [
@@ -3838,7 +3838,6 @@
   },
   "src/nextsteps.mjs": {
    "1e3668054f3d": "jargon:generation",
-   "32b571d4e33e": "jargon:deterministic",
    "3a0f1e376db2": "jargon:deterministic jargon:generation",
    "553a33ccef50": "jargon:deterministic",
    "6c58c60c377b": "jargon:binding jargon:successor",

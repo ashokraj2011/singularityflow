@@ -83,6 +83,12 @@ export function actionSkill(operation, { phase = null, workflow = null, variant 
   return found.copilot === 'by-command' ? null : found.copilot;
 }
 
+/** A step SFlow builds (producer `deterministic`) is checked and published by its own work command, never /sf-publish [C9]. */
+export function builtPublicationRoute(workflow, phase, producer, modelEnabled) {
+  const command = producer === 'deterministic' && actionCommandLine('publish-version', 'prepublish', { step: phase.id });
+  return command ? { skill: actionSkill('publish-version', { phase, workflow }), command: modelEnabled ? command : `${command} --no-model` } : null;
+}
+
 /**
  * The command that takes a published step toward approval, for every producer of guidance: the map's `submit-version`
  * forms [OSA:REQ-021]. Routes used to offer a bare `submit <phase>` from wherever they were, so a step that owes an

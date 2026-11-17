@@ -217,7 +217,7 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
       inputs: { hold: owed.code, id: owed.id }, then: [] } }, workflow, requested);
       // Its submission completes it, so its author first accounts for what the person typed, as the decisions list says.
       // Its skill is the crosswalk's (/sf-code), whatever the step's work command, which left no route [review 2026-11-17].
-      if (asked) return [render('repair-version', 'account', `Account for instruction ${asked.id} the person typed in ${phase.id}: within the plan, by the clauses it implements, or as its departure. The submission that completes ${phase.id} waits for it.`, null, asked.id)].filter(Boolean);
+      if (asked) return [render('repair-version', 'account', `Account for instruction ${asked.id} the person typed in ${phase.id}: within the plan by its clauses, as its departure, or as a question with nothing to change. The submission that completes ${phase.id} waits for it.`, null, asked.id)].filter(Boolean);
       if (exactSubmit) {
       // The map's exact form with the decision values the step records, or its readiness read when a review comes first.
       const exact = submitRoute(workflow, phase);

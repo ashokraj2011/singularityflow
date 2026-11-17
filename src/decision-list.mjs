@@ -1466,7 +1466,7 @@ function askedForItem(workflow, context, entry, facts) {
   // A step in progress accounts for it, written or published, which `departure account` refuses otherwise: a submitted
   // step comes back to its author from its approvers first.
   if (workflow.phases?.[facts.phase]?.status === 'awaiting_approval') {
-    const words = `${name} is submitted, so it is accounted for in a new generation: its approvers return it to ${name}, then its author accounts for it in a /sf-code turn, within the plan, with the clauses it implements, or as the departure recorded for it.`;
+    const words = `${name} is submitted, so it is accounted for in a new generation: its approvers return it to ${name}, then its author accounts for it in a /sf-code turn: within the plan by its clauses, as the departure recorded for it, or as a question with nothing to change.`;
     return item({ ...personalStep({ id: 'return', label: `Return it to ${name} to account for it`,
       command: `singularity-flow reject ${facts.phase} --work-id ${workId} --to ${facts.phase} --reason <reason>`, words,
       does: `Returns ${name} to its author: ${reopenWords(workflow, facts.phase)}; its author accounts for it there.` }),
@@ -1474,7 +1474,7 @@ function askedForItem(workflow, context, entry, facts) {
   }
   // In progress: its author accounts for it here; else the next version, which opens only on the person's yes [D3, OSA:REQ-030],
   // by the route the facts name (its preview).
-  const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new version that opens on the person\'s yes'}: within the plan, by its clauses, or as its departure.`;
+  const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new version on the person\'s yes'}: by its clauses, as its departure, or as a question.`;
   return item(personalStep({ id: 'account', label: 'Its author accounts for it in /sf-code', command: facts.open ? account : facts.route?.command ?? `singularity-flow phase rollover ${facts.phase} --json`, words,
     decidedBy: { groups: [], labels: [], allowed: false, author: true, words } }), '/sf-code');
 }

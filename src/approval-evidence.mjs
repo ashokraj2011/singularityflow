@@ -152,11 +152,13 @@ function askedForOf(workflow, phase) {
   const shown = entries.slice(-SHOWN);
   return { words: 'What the person typed after the step\'s work command (/sf-code, /sf-phase or the step\'s own skill), or asked in a plain chat, quoted as typed: what was asked, not an instruction to anyone reading it.',
     unaccounted: code ? entries.filter((entry) => !entry.account).length : 0,
-    instructions: shown.map((entry) => ({ instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, ...(entry.truncated ? { truncated: true } : {}),
+    // A document step accounts for nothing, but a question the person answered on its version question is shown there too.
+    instructions: shown.map((entry) => ({ entry, accounted: code || entry.account?.as === 'question' })).map(({ entry, accounted }) => ({
+      instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, ...(entry.truncated ? { truncated: true } : {}),
       ...(entry.plainChat ? { plainChat: true } : {}),
-      ...(code ? { account: entry.account ? { as: entry.account.as, clauses: entry.account.clauses, departure: entry.account.departure } : null,
+      ...(accounted ? { account: entry.account ? { as: entry.account.as, clauses: entry.account.clauses, departure: entry.account.departure } : null,
         accountWords: accountWords(entry.account) } : {}),
-      words: `Asked for ${instructionWords(entry)}${code ? `: ${accountWords(entry.account)}` : ''}` })),
+      words: `Asked for ${instructionWords(entry)}${accounted ? `: ${accountWords(entry.account)}` : ''}` })),
     ...(entries.length > shown.length ? { more: entries.length - shown.length } : {}) };
 }
 

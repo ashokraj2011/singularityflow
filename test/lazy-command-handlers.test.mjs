@@ -783,7 +783,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,755,700 (measured 9,755,658 for submit.mjs, +3,554 over d192ede2c's 9,752,104; start.mjs 9,755,429): the four
     // review-fix tracks of 2026-11-17 (rv-a..rv-d) merged on main d192ede2c, each measured above on its own base. Same 472
     // files in submit's closure. No new eager file.
-    assert.ok(closure.bytes <= 9_755_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,755,900 (measured 9,755,869 for submit.mjs, +211 on 99e006273's 9,755,658; start.mjs 9,755,640): the third account of
+    // what a person typed, a question answered with nothing to change (owner, 2026-11-18): the account route's words
+    // (step-decision.mjs +23), the card's result headline (narration/messages.mjs +173) and the `--as-question` boolean
+    // (util.mjs +15). The account, the version question's third answer and their checks stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_755_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -900,7 +904,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // (command-registry.mjs +339, util.mjs +51, the rest in their small imports). Each was under 869,150 alone. No new eager file.
   // 871,100 (measured 871,089, +226): the review of CVL piece 1 (2026-11-17), `tests held` registered as a read and its
   // `--set-aside` as the person's mutation (command-registry.mjs). No new eager file.
-  assert.ok(root.bytes <= 871_100, `root dispatch loads ${root.bytes} source bytes`);
+  // 871,150 (measured 871,104, +15): `--as-question` is a boolean option the parser knows (util.mjs BOOLEAN_OPTIONS), for the
+  // third account of what a person typed (owner, 2026-11-18). No new eager file.
+  assert.ok(root.bytes <= 871_150, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

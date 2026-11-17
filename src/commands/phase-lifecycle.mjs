@@ -116,7 +116,9 @@ async function phaseSubcommand(positionals, options) {
     const phase = workflow.phases[phaseId];
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
     // The same confirmation again (a lost reply): the opening it made, as it was, never another [OSA:REQ-033].
-    if (optionString(options, 'confirm') && await (await import('./phase-opening.mjs')).replayConfirmed(root, config, workflow, phase, optionString(options, 'confirm'), options)) return;
+    // "Just a question" opens nothing, so it never replays an opening (owner, 2026-11-18).
+    if (optionString(options, 'confirm') && !optionBoolean(options, 'as-question')
+      && await (await import('./phase-opening.mjs')).replayConfirmed(root, config, workflow, phase, optionString(options, 'confirm'), options)) return;
     // An approved amendment is acknowledged before the person is asked to start a version, or confirms one (owner, 2026-11-17).
     (await import('../source-review-policy.mjs')).assertIntentAmendmentAcknowledged(workflow);
     const plan = await generationRecovery(
@@ -140,6 +142,12 @@ async function phaseSubcommand(positionals, options) {
       if (plan) throw new SingularityFlowError(`Files changed after ${phase.id} generation ${phase.generation} was published, so starting the next generation is the person's to confirm. Preview it: singularity-flow phase rollover ${phase.id} --json.`,
         { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: versionPreviewCommand(phase.id), skill: successorSkillForPhase(phase, workflow) } } });
       return (await import('../own-correction-rollover.mjs')).ownCorrectionRollover(root, config, workflow, phase, options);
+    }
+    // "Just a question" answers only a version proposed for words the person typed, and never opens one: files changed after
+    // publication, or a returned step, are no question (owner, 2026-11-18).
+    if (optionBoolean(options, 'as-question') && (plan || await (await import('./phase-opening.mjs')).successorAwaitsConsent(workflow, phase))) {
+      throw new SingularityFlowError(`${phase.label ?? phase.id}'s next version is not proposed for words the person typed, so it cannot be answered as just a question; nothing was recorded.`,
+        { code: 'VERSION_QUESTION_NOT_TYPED', details: { phase: phase.id, nextAction: { command: versionPreviewCommand(phase.id) } } });
     }
     // Unchanged published bytes: a reopened step's or an asked-for next version, on the person's yes [OSA:REQ-030].
     if (!plan) {

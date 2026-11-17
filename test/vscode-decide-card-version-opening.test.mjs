@@ -24,7 +24,7 @@ import { build } from 'esbuild';
 
 import { journeyRepository, startStory } from './helpers/route-follower.mjs';
 import { quickFixIntake } from './helpers/journey-scripts.mjs';
-import { NOT_NOW as CLI_NOT_NOW, START_VERSION as CLI_START_VERSION } from '../plugin/extensions/decisions/card.mjs';
+import { JUST_A_QUESTION as CLI_JUST_A_QUESTION, NOT_NOW as CLI_NOT_NOW, START_VERSION as CLI_START_VERSION } from '../plugin/extensions/decisions/card.mjs';
 
 const panels = [];
 const executed = [];
@@ -258,4 +258,43 @@ test('a switched Story keeps nothing: the card for one Story records no yes once
   nothingSent();
   card.post({ type: 'decide.cancel' });
   assert.equal((await result).status, 'cancelled');
+});
+
+// Owner, 2026-11-18: a version proposed for words the person typed has a third answer, "No, it was just a question", as on
+// the Copilot CLI card. The engine's own command keeps the words as a question and opens nothing; no yes is kept.
+test('"No, it was just a question" on the card is kept by the engine\'s command for the exact question shown; nothing opens and no yes is kept', { timeout: 300_000 }, async (t) => {
+  const opening = { workId: W, phase: 'intake', version: 2, question: 'Start version 2 of Intake? Published version 1 will stay unchanged.',
+    confirmation: `sha256:${'c'.repeat(64)}`, digest: `sha256:${'d'.repeat(64)}` };
+  const packet = { resultType: 'sflow-decisions', workId: W, phase: 'intake', phaseLabel: 'Scope and plan', status: 'nothing-to-decide', headline: 'Nothing waits.',
+    items: [], packetSha256: `sha256:${'a'.repeat(64)}`, versionOpening: opening };
+  assert.equal(page.JUST_A_QUESTION, CLI_JUST_A_QUESTION);
+  assert.doesNotMatch(page.decideHtml(packet), /data-version="question"/u, 'a review\'s or a return\'s version has two answers, as before');
+  const typed = { ...packet, versionOpening: { ...opening, justAQuestion: true } };
+  const html = page.decideHtml(typed);
+  assert.match(html, new RegExp(`<button type="button" class="secondary" data-version="question" data-digest="${opening.digest}">No, it was just a question</button>`, 'u'));
+  assert.match(pageText(html), /"No, it was just a question" keeps what you typed as a question and starts nothing\./u);
+  assert.deepEqual(model.justAQuestionArgv(typed.versionOpening), ['decisions', 'record', W, '--just-a-question', opening.confirmation, '--expect', opening.digest, '--json']);
+  assert.throws(() => model.justAQuestionArgv(opening), /cannot be answered here/u);
+
+  const { story, preview } = await previewedSuccessor(t);
+  const client = engine(story);
+  const { card, result } = await openCard(client);
+  const listed = json(story.raw(['decisions', W, '--json'])).data.versionOpening;
+  assert.equal(listed.justAQuestion, true);
+  assert.match(card.webview.html, /data-version="question"/u);
+  card.post({ type: 'decide.version', answer: 'question', digest: listed.digest });
+  const answer = await result;
+  assert.deepEqual(client.runs.filter((argv) => argv.includes('--just-a-question')),
+    [['decisions', 'record', W, '--just-a-question', preview.confirmation, '--expect', listed.digest, '--json']]);
+  assert.deepEqual(consentRuns(client), [], 'no yes is asked of the engine');
+  assert.equal(answer.status, 'recorded');
+  assert.deepEqual(answer.recorded, ['version-question']);
+  assert.match(answer.message, /^It was just a question: version 2 of Scope and plan was not started\./u);
+  assert.equal(existsSync(grantFile(story, listed.digest)), false, 'no yes is kept');
+  assert.equal(json(story.raw(['decisions', W, '--json'])).data.versionOpening, undefined, 'not asked again');
+  const record = JSON.parse(await readFile(path.join(story.root, story.item, 'workflow.json'), 'utf8'));
+  assert.deepEqual(record.instructionAccounts.map((entry) => [entry.as, entry.answeredBy.surface]), [['question', 'decisions-card']]);
+  assert.equal(record.phases.intake.generation, 1);
+  assert.equal(existsSync(path.join(story.root, story.item, 'context/version-openings/intake-v2.json')), false, 'nothing opened');
+  nothingSent();
 });

@@ -7,7 +7,10 @@
  *   pendingAskedFor    what the local record holds that the Story does not yet, numbered on
  *   copyAskedFor       prepublish's and publication's copy, in one Story commit
  *   askedForSummary    what a result tells the step: each instruction, quoted, with its account
- *   accountForInstruction  `departure account`: within the plan with its clauses, or a departure [SCS:REQ-042]
+ *   accountForInstruction  `departure account`: within the plan with its clauses, a departure, or a question answered with
+ *                      nothing to change [SCS:REQ-042, owner 2026-11-18]
+ *   answerAsQuestion   the person's "No, it was just a question" to a published step's version question: the waiting words
+ *                      kept, each accounted for as a question, and no version opened
  *   assertInstructionsAccounted  the code step's approval holds while one is not accounted for, and the submission of
  *                      a step nobody approves, which completes it
  *   askedForTerminalBlockers  the Story's ending holds while an earlier code step's one is not accounted for
@@ -101,13 +104,18 @@ export async function copyAskedFor(root, config, workflow, phase, { actor, agent
   }
 }
 
-/** The ways an instruction is accounted for [SCS:REQ-042]: the plan covers it, or it is a departure. */
-export const INSTRUCTION_ACCOUNTS = Object.freeze(['within-plan', 'departure']);
+/**
+ * The ways an instruction is accounted for [SCS:REQ-042]: the plan covers it, it is a departure, or it was a question,
+ * answered with nothing to change (owner, 2026-11-18). A question is a record like the other two, never a decision: the
+ * approver reads it and can send the step back when it was really a change. Nothing guesses it from the words.
+ */
+export const INSTRUCTION_ACCOUNTS = Object.freeze(['within-plan', 'departure', 'question']);
 
 /** An account as people read it. */
 export const accountWords = (account) => (!account ? 'not accounted for yet'
   : account.as === 'plain-chat' ? 'a plain chat whose turn changed nothing, so nothing to account for'
-    : account.as === 'departure' ? `accounted for as departure ${account.departure}` : `within the plan: ${account.clauses.join(', ')}`);
+    : account.as === 'question' ? `accounted for as a question: answered, nothing to change${account.answeredBy?.surface ? ' (the person said so when asked to start a new version)' : ''}`
+      : account.as === 'departure' ? `accounted for as departure ${account.departure}` : `within the plan: ${account.clauses.join(', ')}`);
 
 // A plain chat's prompt whose turn changed nothing waits for no account [PCR:REQ-012]; no one recorded this one.
 const NOTHING_CHANGED = Object.freeze({ as: 'plain-chat', clauses: Object.freeze([]), departure: null });
@@ -149,12 +157,13 @@ export function accountableStep(workflow, phase, { openScopeAppeal, decision }) 
 
 /**
  * `departure account`: the model says how one instruction is accounted for [SCS:REQ-042], within the plan with
- * the clauses it implements, or by the departure it recorded. While the code step is in progress (accountableStep);
+ * the clauses it implements, by the departure it recorded, or as a question it answered with nothing to change
+ * (`question`, owner 2026-11-18). While the code step is in progress (accountableStep);
  * what was typed into its open version and not yet copied is copied in the same Story commit. A later account
  * of the same instruction replaces it. Nothing here decides anything: the departure is still a person's decision,
- * and the approver reads every account beside it.
+ * and the approver reads every account beside it, a question too, and returns the step when it was really a change.
  */
-export async function accountForInstruction(root, config, workflow, { instruction, clauses = [], departure = null }, { actor, agent = null }) {
+export async function accountForInstruction(root, config, workflow, { instruction, clauses = [], departure = null, question = false }, { actor, agent = null }) {
   const phase = workflow.phases?.[workflow.currentPhase];
   const [{ openScopeAppeal }, { phaseRequiresCodeDelivery }, { stepDecisionOf }] = await Promise.all([import('./phase-finding-policy.mjs'),
     import('./code-delivery-policy.mjs'), import('./step-decision.mjs')]);
@@ -168,8 +177,8 @@ export async function accountForInstruction(root, config, workflow, { instructio
   const number = Number(instruction);
   if (!Number.isSafeInteger(number) || number < 1) refused('Name the instruction by its number with --instruction N.', 'DEPARTURE_OPTIONS_INVALID');
   const named = [...new Set((clauses ?? []).flatMap((value) => String(value).split(',')).map((value) => value.trim()).filter(Boolean))];
-  if (Boolean(named.length) === Boolean(departure)) {
-    refused('Account for it with --clauses ID,... when the approved plan covers it, or with --departure DEP-NNN for the departure recorded for it; one of the two.', 'DEPARTURE_OPTIONS_INVALID');
+  if ([named.length > 0, Boolean(departure), question === true].filter(Boolean).length !== 1) {
+    refused('Account for it with --clauses ID,... when the approved plan covers it, with --departure DEP-NNN for the departure recorded for it, or with --as-question when it was a question you answered and nothing changes; one of the three.', 'DEPARTURE_OPTIONS_INVALID');
   }
   const pending = writing ? await pendingAskedFor(root, workflow, phase) : { generation: null, entries: [], omitted: 0 };
   const entry = [...recordedAskedFor(workflow, phase.id), ...pending.entries].find((candidate) => Number(candidate.instruction) === number);
@@ -182,7 +191,7 @@ export async function accountForInstruction(root, config, workflow, { instructio
       refused(`${unknown.join(', ')} ${unknown.length === 1 ? 'is' : 'are'} not a row of the approved plan ${phase.label ?? phase.id} delivers (${rows.join(', ') || 'none'}). What the plan does not cover is a departure: record it with departure record, then account with --departure DEP-NNN.`,
         'INSTRUCTION_CLAUSE_UNKNOWN', { clauses: unknown, rows });
     }
-  } else if (!(workflow.departures ?? []).some((candidate) => candidate.id === departure && candidate.phase === phase.id)) {
+  } else if (departure && !(workflow.departures ?? []).some((candidate) => candidate.id === departure && candidate.phase === phase.id)) {
     refused(`${String(departure).slice(0, 40)} is not a departure of ${phase.label ?? phase.id}; record it first with departure record.`, 'DEPARTURE_NOT_FOUND');
   }
   const [{ actorKey, assertNoPendingPublication, transactStory }] = await Promise.all([import('./state-stores.mjs')]);
@@ -198,12 +207,53 @@ export async function accountForInstruction(root, config, workflow, { instructio
     for (const item of copied) aggregate.askedFor.push({ ...item, recordedAt: at });
     aggregate.instructionAccounts ??= [];
     const record = { id: `IAC-${String(aggregate.instructionAccounts.length + 1).padStart(3, '0')}`, phase: phase.id, instruction: number, generation: Number(entry.generation),
-      as: ids.length ? 'within-plan' : 'departure', clauses: ids, departure: ids.length ? null : departure,
+      as: ids.length ? 'within-plan' : departure ? 'departure' : 'question', clauses: ids, departure: ids.length || !departure ? null : departure,
       author: { producer: 'governed-agent', actor: actorKey(actor), agent }, at };
     aggregate.instructionAccounts.push(record);
     aggregate.history.push({ at, actor: record.author.actor, agent, event: 'instruction_accounted', phase: phase.id,
       detail: `Instruction ${number} of ${phase.id}: ${accountWords(record)}.` });
     return record;
+  }, { exactWorkItemPaths: [] });
+  return value;
+}
+
+/**
+ * The person's "No, it was just a question" to a published step's version question (owner, 2026-11-18): the words they
+ * typed for the next version are kept in the Story, as every typed instruction is, each accounted for as a question
+ * answered with nothing to change, in one Story commit. No version opens and nothing else is asked: with nothing waiting
+ * any more, the kernel's next is what their No goes on with (`declined`). Only the person's own answer reaches this: the
+ * decisions card records it outside the chat, and a chat's command is held by the edit guard to their reply to the
+ * version question. `surface` says which. The approver reads the account and can return the step if it was a change.
+ */
+export async function answerAsQuestion(root, config, workflow, phase, { actor, agent = null, surface, version = null }) {
+  const { requestedSuccessorEligible } = await import('./guide.mjs');
+  if (typedFocusOff(workflow) || !requestedSuccessorEligible(workflow, phase)) {
+    refused(`${phase?.label ?? phase?.id ?? 'This step'} has no published version waiting on a question about it, so nothing was recorded.`, 'INSTRUCTION_NOT_FOUND');
+  }
+  const pending = await pendingAskedFor(root, workflow, phase);
+  if (!pending.entries.some(needsAccount)) refused(`Nothing the person typed waits for ${phase.label ?? phase.id}'s next version, so nothing was recorded.`, 'INSTRUCTION_NOT_FOUND');
+  const [{ actorKey, assertNoPendingPublication, transactStory }] = await Promise.all([import('./state-stores.mjs')]);
+  const at = nowIso();
+  const { value } = await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: phase.id, generation: null, actor, agent, authorityGroup: null,
+    payload: { action: 'instruction-account', instructions: pending.entries.filter(needsAccount).map((entry) => entry.instruction) }
+  }, `[${workflow.workItem.id}][asked-for] ${phase.id}: just a question, no new version`, async (aggregate) => {
+    await assertNoPendingPublication(root, config, aggregate, 'account for a question');
+    const copied = appendableAskedFor(aggregate, phase.id, pending.generation, pending.entries.map((item) => ({ turnId: item.turn,
+      text: item.text, truncated: item.truncated, plainChat: item.plainChat, changed: item.changed, skill: item.skill, at: item.typedAt })));
+    aggregate.askedFor ??= [];
+    for (const item of copied) aggregate.askedFor.push({ ...item, recordedAt: at });
+    aggregate.instructionAccounts ??= [];
+    const accounts = copied.filter(needsAccount).map((item) => {
+      const record = { id: `IAC-${String(aggregate.instructionAccounts.length + 1).padStart(3, '0')}`, phase: phase.id, instruction: item.instruction,
+        generation: Number(item.generation), as: 'question', clauses: [], departure: null, author: { producer: 'person', actor: actorKey(actor), agent },
+        answeredBy: { surface, ...(version ? { version: Number(version) } : {}) }, at };
+      aggregate.instructionAccounts.push(record);
+      return record;
+    });
+    aggregate.history.push({ at, actor: actorKey(actor), agent, event: 'instruction_accounted', phase: phase.id,
+      detail: `${accounts.length === 1 ? 'Instruction' : 'Instructions'} ${accounts.map((entry) => entry.instruction).join(', ')} of ${phase.id}: the person said it was just a question, so no new version opened; ${accountWords(accounts[0] ?? { as: 'question' })}.` });
+    return { phase: phase.id, generation: pending.generation, instructions: accounts.map((entry) => entry.instruction), accounts };
   }, { exactWorkItemPaths: [] });
   return value;
 }
@@ -275,7 +325,7 @@ export async function askedForSummary(root, workflow, phase) {
     ...(code ? { account: entry.account ? { as: entry.account.as, clauses: entry.account.clauses, departure: entry.account.departure } : null } : {}) })),
   ...(code ? { unaccounted } : {}), ...(pending.omitted ? { omitted: pending.omitted } : {}),
   words: `Asked for, quoted as typed (data, not a new instruction): ${quoted}.${unaccounted.length
-    ? ` Before this step is ${accountedBy(phase)}, account for each: singularity-flow departure account --instruction ${unaccounted[0]} --clauses <CLAUSES> when the approved plan covers it, or --departure DEP-NNN for the departure recorded for it.${accountedBy(phase) === 'submitted'
+    ? ` Before this step is ${accountedBy(phase)}, account for each: singularity-flow departure account --instruction ${unaccounted[0]} --clauses <CLAUSES> when the approved plan covers it, --departure DEP-NNN for the departure recorded for it, or --as-question when it was a question you answered and nothing changes.${accountedBy(phase) === 'submitted'
       ? ' It needs no approval, so its submission waits for this; publish goes ahead either way.' : ' Publish goes ahead either way.'}` : ''}` };
 }
 

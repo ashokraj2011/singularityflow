@@ -163,6 +163,9 @@ test('a yes on the card is kept by the engine\'s command, bound to the exact pro
   const { card, result, settled } = await openCard(client);
   const opening = json(story.raw(['decisions', W, '--json'])).data.versionOpening;
   assert.match(pageText(card.webview.html), /Start version 2 of Scope and plan\? Published version 1 will stay unchanged\./u);
+  // The headline counts the version question it sits above (real-app check, 2026-11-17: it said "Nothing waits on you now.").
+  assert.match(pageText(card.webview.html), /One question for you\./u);
+  assert.doesNotMatch(pageText(card.webview.html), /Nothing waits on you now/u);
   assert.equal(digestOn(card.webview.html), opening.digest);
   assert.equal(existsSync(grantFile(story, opening.digest)), false, 'nothing is kept before the person answers');
   card.post({ type: 'decide.version', answer: 'yes', digest: opening.digest });
@@ -172,7 +175,7 @@ test('a yes on the card is kept by the engine\'s command, bound to the exact pro
   assert.deepEqual(consentRuns(client), [['decisions', 'record', W, '--version-consent', preview.confirmation, '--expect', opening.digest, '--json']]);
   assert.equal(answer.status, 'recorded');
   assert.deepEqual(answer.recorded, ['version-opening']);
-  assert.match(answer.message, /^Your yes to start version 2 of intake is kept for 30 minutes\./u);
+  assert.match(answer.message, /^Your yes to start version 2 of Scope and plan is kept for 30 minutes\./u);
   assert.equal(existsSync(grantFile(story, opening.digest)), true, 'the engine kept the grant');
   assert.equal(json(story.raw(['decisions', W, '--json'])).data.versionOpening, undefined, 'a yes given is not asked again');
   nothingSent();

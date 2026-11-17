@@ -58,7 +58,8 @@ test('the decisions card asks the step\'s next version with the proposal\'s own 
   const data = recorded.data ?? recorded;
   assert.deepEqual({ surface: data.consent.surface, phase: data.consent.phase, version: data.consent.version, proposalDigest: data.consent.proposalDigest },
     { surface: 'decisions-card', phase: 'intake', version: 2, proposalDigest: opening.digest });
-  assert.match(data.words, /^Your yes to start version 2 of intake is kept for 30 minutes\./u);
+  // The step by the name the card shows, never its ID beside it.
+  assert.match(data.words, /^Your yes to start version 2 of Scope and plan is kept for 30 minutes\. Its work command opens it/u);
   assert.equal((json(story, ['decisions', W]).value.data ?? {}).versionOpening, undefined, 'a yes given is not asked again');
 
   // In the author's Copilot turn, the confirmation needs no question asked there: the card's yes is the person's.

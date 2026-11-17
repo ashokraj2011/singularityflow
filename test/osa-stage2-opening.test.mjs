@@ -173,7 +173,13 @@ test('consent that is declined, expired, for another proposal, another person\'s
     assert.equal(consentProblem(commonDir, receipt, { digest, proposal, principal: { name: 'History Tester' } })?.code, code, code);
     const fresh = await loaded();
     await assert.rejects(openVersion(root, fresh.definition ?? definition, fresh.workflow, fresh.phase, { proposal, digest, receipt, principal: { name: 'History Tester' },
-      open: async () => null }), (error) => { assert.equal(error.code, code); return true; }, code);
+      open: async () => null }), (error) => {
+      assert.equal(error.code, code);
+      // Asked again with the step's own preview, which this person answers themselves (real-app check, 2026-11-17: another
+      // person's yes led to the submission check instead).
+      assert.equal(error.details?.nextAction?.command, 'singularity-flow phase rollover implementation', code);
+      return true;
+    }, code);
   }
   assert.deepEqual(await record(item), before);
   assert.equal(openingCommits(story).length, 1, 'only version 1 was ever opened');

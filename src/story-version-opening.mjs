@@ -49,6 +49,11 @@ async function legalNext(root, workflow, phase) {
   try { return (await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase)).route; }
   catch { return null; }
 }
+/** The step's own preview, `phase rollover <step>`, which asks the person for their yes [D3, OSA:REQ-030]. */
+async function askAgain(phase) {
+  try { return (await (await import('./commands/phase-opening.mjs')).askingRoute(phase.id)) ?? null; }
+  catch { return null; }
+}
 const sha = (value) => `sha256:${recordSha256(value)}`;
 
 /** The opening operation's ID for a proposal: stable, so a repeated request is the same operation. */
@@ -149,8 +154,10 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
   // Only the first opening of version 1 omits the person's yes [§7.2]; every other needs its exact, sealed receipt, the
   // author's own correction too (owner, 2026-11-17, superseding the settled exception of 2026-11-13) [D3, OSA:REQ-030].
   const problem = proposal.consent !== 'not-required' || receipt ? consentProblem(commonDir, receipt, { digest, proposal, principal }) : null;
+  // A yes that opens nothing (another person's, expired, declined, for another proposal, or none) is asked again: the
+  // step's own preview, which this person answers themselves; the step's other next action only when that cannot be named.
   if (problem) throw refuse(`${problem.words} Nothing was opened.`, problem.code, { phase: phase.id, version: proposal.version,
-    nextAction: await legalNext(root, workflow, phase) });
+    nextAction: await askAgain(phase) ?? await legalNext(root, workflow, phase) });
   const writerId = await writerIdOf(root);
   const fence = Number(phase.versionOpening?.writer?.fence ?? 0) + 1;
   const base = { operationId: id, payloadDigest, workId, phase: phase.id, version: proposal.version, proposalDigest: digest, history: [] };

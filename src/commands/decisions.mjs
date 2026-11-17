@@ -728,7 +728,8 @@ async function recordVersionConsent(root, options, workId) {
   const grant = await consent.grantConsent(directories.commonDir, { record, surface: 'decisions-card', question: record.question, answer: 'yes', host: 'decisions-card' });
   if (!grant) refused('This clone has no key to keep the yes with; nothing was recorded.', 'VERSION_CONSENT_UNVERIFIED');
   const { route } = await kernelRoute(root, workflow, phase);
-  const words = `Your yes to start version ${record.proposal.version} of ${phase.id} is kept for 30 minutes. ${phase.id}'s work command opens it with its confirmation, then writes it.`;
+  // The step by the name the card showed it under, never its ID beside that name.
+  const words = `Your yes to start version ${record.proposal.version} of ${phase.label ?? phase.id} is kept for 30 minutes. Its work command opens it with your confirmation, then writes it.`;
   emitCommandResult(commandResult({
     operation: { id: 'decisions.version-consent', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -916,7 +917,10 @@ async function show(root, options, workId) {
   const route = await inApproval(packet);
   const evidence = optionBoolean(options, 'json') ? await approvalEvidenceOf(root, config, workflow, packet, at) : null;
   const opening = await versionOpeningOf(root, workflow).catch(() => null);
-  const shown = { ...packet, ...(route ? { inApproval: route } : {}), ...(evidence ? { approvalEvidence: evidence } : {}),
+  // The version question is asked here too, so the headline counts it: never "Nothing waits on you now." above it.
+  const plain = opening && packet.plain ? { ...packet.plain, headline: (await import('../decision-plain.mjs')).plainHeadline(
+    [...packet.items, ...(packet.offered ?? [])].filter((item) => !item.settled && item.plain?.question).length + 1) } : packet.plain;
+  const shown = { ...packet, ...(plain ? { plain } : {}), ...(route ? { inApproval: route } : {}), ...(evidence ? { approvalEvidence: evidence } : {}),
     ...(opening ? { versionOpening: opening } : {}) };
   if (!optionBoolean(options, 'json')) process.stdout.write(packetText(shown));
   return emitShow(shown, options, workflow);

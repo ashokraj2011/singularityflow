@@ -198,6 +198,8 @@ export async function beginVersion(root, config, workflow, phase, options) {
       `Version ${numbers.writing} of ${phase.id} is already open (operation ${settled.outcome.operationId}).`);
   }
   const legacy = numbers.ok && numbers.writing !== null && facts.opening?.record === 'legacy';
+  // An approved amendment is acknowledged before any version opens, so it is asked before the version question (owner, 2026-11-17).
+  (await import('../source-review-policy.mjs')).assertIntentAmendmentAcknowledged(workflow);
   const { proposal, digest, question } = await proposalNow(root, workflow, phase);
   // Asked to begin a next version: its preview asks the person, in the code step's own work command [OSA:REQ-030].
   if (proposal.consent === 'required') throw consentRequired(phase, proposal, (await import('../safe-command-guidance.mjs')).safeCommandGuidance({
@@ -216,6 +218,8 @@ export async function beginVersion(root, config, workflow, phase, options) {
  */
 export async function openBeforePrepare(root, config, workflow, phase) {
   if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress' || phase.generationPolicy?.requirement === 'none') return null;
+  // prepare refuses until an approved amendment is acknowledged: that refusal comes before the version question (owner, 2026-11-17).
+  (await import('../source-review-policy.mjs')).assertIntentAmendmentAcknowledged(workflow);
   // The kernel's decision for the step decides; nothing here re-derives it [OSA:REQ-001].
   const { decision, route } = await kernelRoute(root, workflow, phase);
   // A code-delivery step opens a code generation; a step that may also write application paths without delivering code (a

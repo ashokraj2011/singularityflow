@@ -106,7 +106,8 @@ function stepGuidance(workflow, phase) {
         : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`;
     return { summary, actions: [...actions, ...(publication && inputs.consent !== 'required' ? [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: publication })] : [])] };
   }
-  if (operation === 'submit-version') return { summary: phase.approvalPolicy?.mode === 'none'
+  // One waiting for a person's acknowledgement reads as its route, the card.
+  if (operation === 'submit-version' && !decision.next.prerequisites.length) return { summary: phase.approvalPolicy?.mode === 'none'
     ? `Submit published phase '${phase.id}' to run its checks, complete it, and advance.`
     : `Submit published phase '${phase.id}' for approval.`, actions };
   return { summary: routes[0]?.detail ?? `Continue from the active workflow state for phase '${phase.id}'.`,

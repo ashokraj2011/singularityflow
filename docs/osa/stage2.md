@@ -115,6 +115,14 @@ A refusal before the commit (a moved remote, a pending publication, a dirty star
 | 12 | The question named recorded tests only from a submission's executions; a code step's passing run at publication was left out. | A passed run at the published version's publication counts too, as the review reads it. |
 | 13 | With no `origin` configured and publication `required`, the unit of work refuses an opening with "remote changed after its exact push authority was observed": `configuredRemoteAuthority` returns an authority whose URL is null. | Not changed here (the unit of work's wording). Openings now publish, so fixtures that open a version through the CLI need a remote (`publication-preflight` uses a local bare one). Worth a plainer refusal (`PUBLICATION_REMOTE_AUTHORITY_MISSING`) in its own change. |
 
+### Owner's decision of 2026-11-17: the acknowledgement before the version question
+
+While an approved intent amendment waits for a person's acknowledgement, the person acknowledges it first, and only then is asked "Start version N of <step>?". Before, the kernel's hold blocked only submission, so the person was asked the version question, said yes, and was then held by `INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED`.
+- The kernel's acknowledgement hold blocks what the engine refuses: opening a version, publishing one and submitting. Its route is the person's decision on the Decide card (`/sf-decide`, `decisions <W>`), never the version preview. Edits of a version already open stay as they were.
+- `phase rollover <step>` and its `--confirm` refuse with `INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED` and the acknowledgement's route; so do `prepare` and `phase begin`, before their version question.
+- The decisions list and both cards ask only the amendment item; the next read after the acknowledgement asks the version question.
+- Test: `iac-decide-card` ("approved on the card").
+
 ## 7 Ratchet and budgets
 
 - AC-020 ratchet: no family rose except one named exception, `sequence.mjs` lifecycle commands 9 → 10 (renderer, owned by Stage 3's sequence cohort), for the consent preview of a published step being written. Five Stage 1 exceptions were deleted because their counts fell back; several families fell (`phase-lifecycle.mjs` predicates 7 → 3, `source-review-continuation.mjs` choosers 3 → 1 and skill literals 3 → 1, the entry's and the task's intent reads to 0).

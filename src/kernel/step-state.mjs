@@ -211,6 +211,10 @@ function taskWait(task, target) {
     inputs: { decision: 'task-outcome', outcome: 'repair-exhausted', code, attempts: used }, reasonCodes: ['TASK_REPAIR_EXHAUSTED'] }));
 }
 
+/** What a hold may block [§5 4]: opening a version, or an open version's work up to its publication (submission: a prerequisite). */
+const blockedEffect = (next) => ['open-version', 'build-version'].includes(next.operation) && next.inputs.consent !== 'given' ? 'opening'
+  : ['author-version', 'build-version', 'repair-version', 'publish-version'].includes(next.operation) ? 'publication' : null;
+
 /** The primary action of the Story's current step, for a decision about another step [§5 precedence 11]. */
 function currentStepNext(snapshot) {
   if (!snapshot.current) return null;
@@ -278,7 +282,16 @@ export function stepState(snapshot) {
         inputs: { hold: String(blocking.code ?? 'STEP_HELD') }, reasonCodes: ['STEP_HELD', String(blocking.code ?? 'STEP_HELD')] }),
     { ...base, edit: NO_EDIT(['STEP_HELD']) });
   const obligations = holds.filter((hold) => hold !== blocking).map((hold) => ({ code: String(hold?.code ?? 'STEP_HELD'), blocks: hold?.blocks ?? [],
-    owner: hold?.owner === 'agent' ? 'agent' : 'human', resolution: OPERATIONS.includes(hold?.resolution) ? hold.resolution : 'decide' }));
+    owner: hold?.owner === 'agent' ? 'agent' : 'human', resolution: OPERATIONS.includes(hold?.resolution) ? hold.resolution : 'decide',
+    ...(text(hold?.id) ? { id: hold.id } : {}) }));
+  // A hold leads the opening or publishing it blocks, then that action; edits stay as the state gives them (owner,
+  // 2026-11-17: an approved amendment is acknowledged before the person is asked to start a version).
+  const lead = (state, next, rest) => {
+    const effect = blockedEffect(next), hold = obligations.find((entry) => entry.blocks.includes(effect));
+    return hold ? decision(snapshot, 'held', action(hold.owner === 'agent' ? 'agent-work' : 'person-decision', hold.resolution, { target: target(numbers.writing),
+      principalKind: hold.owner === 'agent' ? 'agent' : 'human', role: hold.owner === 'agent' ? 'author' : 'person',
+      inputs: { hold: hold.code, id: hold.id, effect }, reasonCodes: ['STEP_HELD', hold.code], then: [next.operation] }), rest) : decision(snapshot, state, next, rest);
+  };
   // 5. A human decision that pauses authoring.
   if (story.pendingDecision || facts.pause) return decision(snapshot, 'paused',
     action('person-decision', 'decide', { target: target(numbers.writing), principalKind: 'human', role: 'person',
@@ -301,7 +314,7 @@ export function stepState(snapshot) {
   // A local opening no operation made (an older build's working-copy intent) opens a successor only once it is promoted
   // through the opening operation, with the person's yes; until then it grants nothing [§14, OSA:REQ-030, REQ-031].
   if (numbers.writing !== null && numbers.writing > 1 && facts.opening?.record === 'legacy') {
-    return decision(snapshot, 'reopened', action('person-consent', kernelBuilt ? 'build-version' : 'open-version', { target: target(numbers.writing),
+    return lead('reopened', action('person-consent', kernelBuilt ? 'build-version' : 'open-version', { target: target(numbers.writing),
       principalKind: 'human', inputs: { ...(kernelBuilt ? { producer: 'deterministic' } : {}), version: numbers.writing, consent: 'required',
         reason: 'legacy-promotion', from: numbers.published, opening: 'promotion' },
       reasonCodes: ['LEGACY_LOCAL_OPENING', ...(kernelBuilt ? ['KERNEL_BUILT'] : [])], then: kernelBuilt ? ['publish-version'] : after(true) }),
@@ -313,23 +326,23 @@ export function stepState(snapshot) {
   // any write and reconciles an uncertain one [OSA:REQ-031, REQ-041].
   const advisory = actor.turnMode === 'view' && facts.opening?.record === 'operation' && facts.opening.acceptance === undefined && facts.opening.writer === undefined;
   const held = numbers.writing !== null && !advisory ? openingHold(facts.opening) : null;
-  if (held === 'WRITER_FENCED') return decision(snapshot, 'held', action('person-decision', 'takeover-writer', { target: target(numbers.writing),
+  if (held === 'WRITER_FENCED') return lead('held', action('person-decision', 'takeover-writer', { target: target(numbers.writing),
     principalKind: 'human', role: 'person', inputs: { version: numbers.writing, fence: facts.opening.fence ?? null }, reasonCodes: ['STEP_HELD', 'WRITER_FENCED'] }),
   { ...base, edit: NO_EDIT(['WRITER_FENCED']), obligations });
   // A lost or uncertain shared acceptance is reconciled as the same operation, never replaced by another version [REQ-033].
-  if (held) return decision(snapshot, 'waiting', action('reconcile', 'recover-operation', { target: target(numbers.writing),
+  if (held) return lead('waiting', action('reconcile', 'recover-operation', { target: target(numbers.writing),
     inputs: { operation: 'version-opening', version: numbers.writing, operationId: text(facts.opening.operationId) ?? null }, reasonCodes: [held] }),
   { ...base, edit: NO_EDIT([held]), obligations });
   // 8. The open version's task, as its durable record keeps it: an execution is observed, a wait names its exact
   // continuation, and a repair runs only within its budget [§8, OSA:REQ-012, REQ-051].
   const waiting = numbers.writing !== null ? taskWait(facts.task, target(numbers.writing)) : null;
-  if (waiting) return decision(snapshot, 'waiting', waiting.next, { ...base, edit: waiting.edit ? editFor(snapshot, 'writing', numbers, target(numbers.writing)) : NO_EDIT([waiting.code]),
+  if (waiting) return lead('waiting', waiting.next, { ...base, edit: waiting.edit ? editFor(snapshot, 'writing', numbers, target(numbers.writing)) : NO_EDIT([waiting.code]),
     obligations, task: waiting.task });
   if (numbers.writing !== null) {
-    if (kernelBuilt) return decision(snapshot, 'kernel-build', action('agent-work', 'build-version', { target: target(numbers.writing),
+    if (kernelBuilt) return lead('kernel-build', action('agent-work', 'build-version', { target: target(numbers.writing),
       inputs: { producer: 'deterministic', version: numbers.writing, consent: 'given' }, reasonCodes: ['KERNEL_BUILT', 'VERSION_OPEN'], then: ['publish-version'] }),
     { ...base, edit: editFor(snapshot, 'kernel-build', numbers, target(numbers.writing)), obligations });
-    return decision(snapshot, 'writing', action('agent-work', 'author-version', { target: target(numbers.writing),
+    return lead('writing', action('agent-work', 'author-version', { target: target(numbers.writing),
       inputs: { version: numbers.writing, ...(numbers.published >= 1 ? { from: numbers.published } : {}) },
       reasonCodes: ['VERSION_OPEN', ...(advisory ? ['OPENING_UNOBSERVED'] : [])], then: after(false) }),
     { ...base, edit: editFor(snapshot, 'writing', numbers, target(numbers.writing)), obligations });
@@ -337,15 +350,15 @@ export function stepState(snapshot) {
   // A published step with no version open whose execution still runs (a submission's tests under the Story's lease) is
   // observed, never submitted, reviewed or opened again meanwhile; it writes nothing [§5 `waiting`, §8, OSA:REQ-051].
   const executing = numbers.published >= 1 && facts.task?.outcome === 'running' ? taskWait(facts.task, target(numbers.published)) : null;
-  if (executing) return decision(snapshot, 'waiting', executing.next, { ...base, edit: NO_EDIT([executing.code]), obligations, task: executing.task });
+  if (executing) return lead('waiting', executing.next, { ...base, edit: NO_EDIT([executing.code]), obligations, task: executing.task });
   if (numbers.published === 0 && needsVersion(facts)) {
     const initial = numbers.proposedNext === 1;
     const consent = initial ? 'not-required' : 'required';
     const reasonCodes = [initial ? 'INITIAL_VERSION' : 'WATERMARK_SUCCESSOR'];
-    if (kernelBuilt) return decision(snapshot, 'kernel-build', action(initial ? 'agent-work' : 'person-consent', 'build-version', { target: target(numbers.proposedNext),
+    if (kernelBuilt) return lead('kernel-build', action(initial ? 'agent-work' : 'person-consent', 'build-version', { target: target(numbers.proposedNext),
       principalKind: initial ? 'agent' : 'human', inputs: { producer: 'deterministic', version: numbers.proposedNext, consent },
       reasonCodes: [...reasonCodes, 'KERNEL_BUILT'], then: ['publish-version'] }), { ...base, edit: editFor(snapshot, 'kernel-build', numbers, target(numbers.proposedNext), { successor: !initial }), obligations });
-    return decision(snapshot, 'not-started', action(initial ? 'agent-work' : 'person-consent', 'open-version', { target: target(numbers.proposedNext),
+    return lead('not-started', action(initial ? 'agent-work' : 'person-consent', 'open-version', { target: target(numbers.proposedNext),
       principalKind: initial ? 'agent' : 'human', inputs: { version: numbers.proposedNext, consent, reason: initial ? 'initial' : 'watermark' }, reasonCodes, then: after(true) }),
     { ...base, edit: editFor(snapshot, 'not-started', numbers, target(numbers.proposedNext), { successor: !initial }), obligations });
   }
@@ -353,43 +366,43 @@ export function stepState(snapshot) {
   if (successor) {
     const reopenedBy = reopenedByReturn(facts) ? 'return' : 'successor-preview';
     const inputs = { version: numbers.proposedNext, consent: 'required', reason: successor.toLowerCase().replaceAll('_', '-'), from: numbers.published, opening: reopenedBy };
-    if (kernelBuilt) return decision(snapshot, 'kernel-build', action('person-consent', 'build-version', { target: target(numbers.proposedNext), principalKind: 'human',
+    if (kernelBuilt) return lead('kernel-build', action('person-consent', 'build-version', { target: target(numbers.proposedNext), principalKind: 'human',
       inputs: { producer: 'deterministic', ...inputs }, reasonCodes: [successor, 'KERNEL_BUILT'], then: ['publish-version'] }),
     { ...base, edit: editFor(snapshot, 'kernel-build', numbers, target(numbers.proposedNext), { successor: true }), obligations });
     // Nothing of the step is written before the person's yes and the accepted opening [D3, OSA:REQ-030].
-    return decision(snapshot, 'reopened', action('person-consent', 'open-version', { target: target(numbers.proposedNext), principalKind: 'human',
+    return lead('reopened', action('person-consent', 'open-version', { target: target(numbers.proposedNext), principalKind: 'human',
       inputs, reasonCodes: [successor, 'CONSENT_REQUIRED'], then: after(true) }),
     { ...base, edit: editFor(snapshot, 'reopened', numbers, target(numbers.proposedNext), { successor: true }), obligations });
   }
-  if (numbers.published === 0) return decision(snapshot, 'published',
+  if (numbers.published === 0) return lead('published',
     action('agent-work', 'submit-version', { target: target(0), reasonCodes: ['NO_REVIEW_OWED'] }), { ...base, edit: NO_EDIT(['NO_REVIEW_OWED']), obligations });
   // 9–10. A current publication with no open successor: its review, its corrections, or its submission.
   const submitPrerequisites = obligations.filter((entry) => entry.blocks.includes('submission'))
-    .map((entry) => ({ operation: entry.resolution, principalKind: entry.owner, code: entry.code }));
+    .map((entry) => ({ operation: entry.resolution, principalKind: entry.owner, code: entry.code, ...(entry.id ? { id: entry.id } : {}) }));
   const review = facts.review ?? { required: false };
   if (review.required) {
     const status = REVIEW_STATUSES.includes(review.status) ? review.status : 'unavailable';
     // A review of another version than the published one is not this version's review.
     const stale = Number.isSafeInteger(review.version) && review.version !== numbers.published;
-    if (status === 'unavailable') return decision(snapshot, 'published', action('refresh', 'refresh-facts', { target: target(numbers.published),
+    if (status === 'unavailable') return lead('published', action('refresh', 'refresh-facts', { target: target(numbers.published),
       inputs: { source: 'review' }, reasonCodes: ['REVIEW_UNAVAILABLE'] }), { ...base, edit: NO_EDIT(['REVIEW_UNAVAILABLE']), obligations });
     // A step that takes no versions cannot open a successor for its corrections: a person decides what the review left.
-    if (status === 'correction-required' && !stale && facts.versionRequired === false) return decision(snapshot, 'paused', action('person-decision', 'decide',
+    if (status === 'correction-required' && !stale && facts.versionRequired === false) return lead('paused', action('person-decision', 'decide',
       { target: target(numbers.published), principalKind: 'human', role: 'person', inputs: { decision: 'review-disposition' }, reasonCodes: ['REVIEW_CORRECTIONS_WITHOUT_VERSIONS'] }),
     { ...base, edit: NO_EDIT(['REVIEW_CORRECTIONS_WITHOUT_VERSIONS']), obligations });
-    if (status === 'correction-required' && !stale) return decision(snapshot, 'review-corrections', action('person-consent', 'open-version',
+    if (status === 'correction-required' && !stale) return lead('review-corrections', action('person-consent', 'open-version',
       { target: target(numbers.proposedNext), principalKind: 'human', inputs: { version: numbers.proposedNext, consent: 'required', reason: 'review-corrections',
         from: numbers.published, opening: 'successor-preview' }, reasonCodes: ['REVIEW_CORRECTIONS'], then: after(true) }),
     { ...base, edit: NO_EDIT(['REVIEW_CORRECTIONS']), obligations });
-    if (status === 'disposition-required' && !stale) return decision(snapshot, 'paused', action('person-decision', 'decide',
+    if (status === 'disposition-required' && !stale) return lead('paused', action('person-decision', 'decide',
       { target: target(numbers.published), principalKind: 'human', role: 'person', inputs: { decision: 'review-disposition' }, reasonCodes: ['REVIEW_DISPOSITION_PENDING'] }),
     { ...base, edit: NO_EDIT(['REVIEW_DISPOSITION_PENDING']), obligations });
-    if (status === 'ready' && !stale) return decision(snapshot, 'review-ready', action('agent-work', 'submit-version',
+    if (status === 'ready' && !stale) return lead('review-ready', action('agent-work', 'submit-version',
       { target: target(numbers.published), prerequisites: submitPrerequisites, reasonCodes: ['REVIEW_READY'] }), { ...base, edit: NO_EDIT(['REVIEW_READY']), obligations });
-    return decision(snapshot, 'in-review', action('review', 'start-review', { target: target(numbers.published), role: 'reviewer',
+    return lead('in-review', action('review', 'start-review', { target: target(numbers.published), role: 'reviewer',
       reasonCodes: ['REVIEW_PENDING'] }), { ...base, edit: NO_EDIT(['REVIEW_PENDING']), obligations });
   }
-  return decision(snapshot, 'published', action('agent-work', 'submit-version', { target: target(numbers.published),
+  return lead('published', action('agent-work', 'submit-version', { target: target(numbers.published),
     prerequisites: submitPrerequisites, reasonCodes: ['NO_REVIEW_OWED'] }), { ...base, edit: NO_EDIT(['NO_REVIEW_OWED']), obligations });
 }
 

@@ -667,6 +667,8 @@ function changedList(packet, confirm, phaseId) {
 async function versionOpeningOf(root, workflow) {
   const phase = workflow.phases?.[workflow.currentPhase];
   if (!phase || workflow.status !== 'in_progress') return null;
+  // An approved amendment is acknowledged first: its item asks, and the version question comes on the next read (owner, 2026-11-17).
+  if ((await import('../source-review-policy.mjs')).pendingIntentAmendmentAcknowledgement(workflow)) return null;
   const [{ gitDirectories }, consent, { head }, { askingRoute, kernelRoute }] = await Promise.all([import('../story-version-acceptance.mjs'),
     import('../story-version-consent.mjs'), import('../git.mjs'), import('./phase-opening.mjs')]);
   const directories = gitDirectories(root);

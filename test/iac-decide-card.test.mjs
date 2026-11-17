@@ -26,6 +26,7 @@ import { statementText } from '../src/presence/statement.mjs';
 import { decisionPacket, decisionRecordPlan, holdItemKind, parseDecisionAnswers } from '../src/decision-list.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { intentAmendmentOutcome } from '../src/commands/decisions.mjs';
+import { stepDecisionOf, stepRoute } from '../src/step-decision.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionsTable } from '../plugin/extensions/decisions/card.mjs';
 import { addClause, changeImpactStory, reviseCriterion, reword } from './helpers/change-impact-story.mjs';
@@ -238,27 +239,51 @@ test('approved on the card: the amendment is installed and attributed to the car
   assert.equal(amendment.decision?.channel ?? JSON.parse(await readFile(path.join(item, 'context/intent-amendments/AMD-001.json'), 'utf8')).decisions.at(-1).channel, 'decisions-card');
   assert.equal(git('log', '-1', '--format=%s'), `[${WORK}][intent-amendment:approve] AMD-001`);
 
-  // The reopened plan's version 2 opens only on the person's yes: prepare names its preview, and their yes opens it
-  // [D3, OSA:REQ-030]. The kernel asks that first: the acknowledgement holds the step's preparation, not the question.
+  // The person acknowledges first, and only then is asked to start version 2 of the reopened plan (owner, 2026-11-17).
+  // Until then the Story-wide hold leads everywhere: prepare, the version's preview and its confirmation are refused with
+  // the acknowledgement's route, the card and the list ask only the acknowledgement, and the kernel's route is the card.
   const prepare = () => story.run(process.execPath, [CLI, '--no-model', 'prepare', 'planning', '--json'], { allowFailure: true });
-  const unopened = prepare();
-  assert.notEqual(unopened.status, 0);
-  assert.equal(refusal(unopened).code, 'VERSION_CONSENT_REQUIRED', unopened.stdout + unopened.stderr);
-  confirmNextVersion(cli, 'planning');
-  // The Story-wide hold: the reopened step is not prepared until someone acknowledges what changed.
-  const held = prepare();
-  assert.notEqual(held.status, 0);
-  assert.match(held.stdout + held.stderr, /INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED/u);
+  const rollover = (...extra) => story.run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'planning', ...extra, '--json'], { allowFailure: true });
+  const cardRoute = [`singularity-flow decisions ${WORK}`, `/sf-decide ${WORK}`];
+  for (const [what, refused] of [['the preview', rollover()], ['the confirmation', rollover('--confirm', PROPOSAL)], ['prepare', prepare()]]) {
+    assert.notEqual(refused.status, 0, what);
+    assert.equal(refusal(refused).code, 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED', `${what}: ${refused.stdout}${refused.stderr}`);
+    // A third refusal in a row adds the machine's "returned 3 times" read before it (finding-escalation.mjs); the
+    // acknowledgement on the card stays the step that clears it.
+    const steps = JSON.parse(refused.stdout).remediationPlan.steps.filter((step) => step.id !== 'escalate-repeated-finding');
+    assert.deepEqual([steps[0].command, steps[0].copilotCommand], cardRoute, `${what}: its route is the acknowledgement`);
+    assert.ok(steps.every((step) => !/^singularity-flow (?:recover|phase rollover) /u.test(step.command ?? '')), `${what}: never recover, never the version question`);
+  }
+  const workflowNow = async () => JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  const routeNow = async () => { const workflow = await workflowNow(); return stepRoute(workflow, workflow.phases.planning); };
+  const before = stepDecisionOf(await workflowNow(), (await workflowNow()).phases.planning);
+  assert.deepEqual([before.state, before.next.operation, before.next.inputs.hold, before.next.then], ['held', 'decide', 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED', ['open-version']]);
+  const held = await routeNow();
+  assert.deepEqual([held.command, held.skill], [cardRoute[0], '/sf-decide']);
+  assert.equal(held.detail, 'A person reads what AMD-001 changed and acknowledges it on the decisions card. Then they are asked to start planning\'s next version.');
   packet = list();
+  assert.equal(packet.versionOpening, undefined, 'the card does not ask the version question before the acknowledgement');
   const acknowledge = packet.items.find((entry) => entry.kind === 'intent-amendment');
   assert.equal(acknowledge.title, 'Acknowledge intent amendment AMD-001');
   data(await cardRecord(story, WORK, { [acknowledge.id]: 'acknowledge' }, packet.packetSha256));
-  const after = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  const after = await workflowNow();
   assert.equal(typeof after.intentAmendments[0].acknowledgedAt, 'string');
   assert.equal(after.history.at(-1).detail, 'AMD-001 acknowledged on the decisions card before downstream revalidation');
   assert.equal(git('log', '-1', '--format=%s'), `[${WORK}][intent-amendment:acknowledge] AMD-001`);
   assert.equal(list().items.some((entry) => entry.kind === 'intent-amendment'), false, 'nothing left to acknowledge');
-  assert.doesNotMatch((({ stdout, stderr }) => stdout + stderr)(prepare()), /INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED/u, 'the hold is cleared');
+
+  // Acknowledged: now the version question. The kernel's route is the version's preview, prepare names it, the preview
+  // asks "Start version 2 of …", the card asks it on its next read, and the person's yes opens it as before [D3, OSA:REQ-030].
+  assert.equal((await routeNow()).command, 'singularity-flow phase rollover planning --json');
+  const unopened = prepare();
+  assert.notEqual(unopened.status, 0);
+  assert.equal(refusal(unopened).code, 'VERSION_CONSENT_REQUIRED', unopened.stdout + unopened.stderr);
+  const preview = JSON.parse(rollover().stdout);
+  assert.match(preview.question, /^Start version 2 of /u);
+  assert.equal(list().versionOpening?.question, preview.question, 'the card asks the version question once the amendment is acknowledged');
+  confirmNextVersion(cli, 'planning');
+  const prepared = prepare();
+  assert.doesNotMatch(prepared.stdout + prepared.stderr, /INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED|VERSION_CONSENT_REQUIRED/u, 'the hold is cleared and version 2 is open');
 });
 
 test('rejected on the card: the submission waiting for approval stays valid', slowLane({ timeout: 300_000 }), async (t) => {

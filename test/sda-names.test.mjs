@@ -144,8 +144,10 @@ export const SDA_NAMES = Object.freeze({
   "'retained-locally'": ['src/sda/lifecycle-authority-contract.mjs'],
   "'subject-branch'": ['src/sda/story-branch-authority.mjs'],
   // An existing code, now also thrown by the unit of work, with its one meaning: a retained transition.
-  // Its recovery plan names the subject's own sync (sweep E10).
-  "'PUBLICATION_PENDING'": ['src/publication-unit-of-work.mjs', 'src/refusal-remediation.mjs', 'src/state-planes.mjs'],
+  // Its recovery plan names the subject's own sync (sweep E10). The kernel's `publication-pending` task fact carries the
+  // same code for that same retained transition (OSA Stage 3, workflow-task-outcome.mjs) [OSA:REQ-012].
+  "'PUBLICATION_PENDING'": ['src/publication-unit-of-work.mjs', 'src/refusal-remediation.mjs', 'src/state-planes.mjs',
+    'src/workflow-task-outcome.mjs'],
   // M5: backups of the drafts and documents that exist only on one laptop
   'local-backup-manifest': ['src/local-backup.mjs', 'src/schema-migrations.mjs'],
   'sflow-backup-': ['src/commands/backup.mjs', 'src/help-pages.mjs', 'src/local-backup.mjs', 'src/narration/migration-status.mjs'],
@@ -165,7 +167,8 @@ export const SDA_NAMES = Object.freeze({
   // own step (E7), and how many drafts one backup carries (D10).
   syncOnPreviousLaptop: ['src/commands/session-takeover.mjs'],
   'workspace-repository-missing': ['src/commands/session-current.mjs'],
-  remapAction: ['src/cli.mjs', 'src/organisation.mjs', 'src/refusal-remediation.mjs'],
+  // The plain-language check (840e3fc2d) skips it as one of the route fields whose text is a command: the same field.
+  remapAction: ['scripts/plain-language-check.mjs', 'src/cli.mjs', 'src/organisation.mjs', 'src/refusal-remediation.mjs'],
   'configuration-approve': ['src/commands/push.mjs', 'src/copilot-mutation-guard.mjs', 'src/person-step-catalog.mjs'],
   maximumDrafts: ['src/local-backup.mjs'],
   savedConfigurationDrafts: ['src/factory-reset.mjs'],

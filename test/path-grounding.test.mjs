@@ -450,6 +450,12 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   // deliberately non-transferable in-memory draft capability.
   git(repository, 'add', itemRelative);
   git(repository, 'commit', '-m', 'accept repository-rooted path replay Story');
+  // `prepare` opens the code step's version 1, and an opening is committed and pushed to the Story's shared remote
+  // (SPEC-OSA Stage 2, OSA:REQ-031): a local bare one, inside this test's own folder.
+  const origin = path.join(cloneParent, 'shared-origin.git');
+  git(repository, 'init', '--bare', '-q', origin);
+  git(repository, 'remote', 'add', 'origin', origin);
+  git(repository, 'push', '-q', 'origin', 'HEAD');
 
   const prepared = sflow(repository, 'prepare', 'implementation', '--json');
   assert.equal(prepared.status, 0, prepared.stderr);

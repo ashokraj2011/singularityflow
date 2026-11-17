@@ -195,7 +195,12 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   // code stands for, so it reads the code's command where the call is checked [owner, 2026-11-12].
   // 68: intent-amendment-pause.mjs, on phase-roles.mjs only (already here): the guard pauses the step an undecided
   // intent amendment was proposed from, so its proposal stays bound to that step [owner, 2026-11-13].
-  assert.ok(closure.size <= 68, `the edit guard loads ${closure.size} static modules; ceiling is 68`);
+  // 56 (11-17 landing): OSA v1.1 put the kernel's step decision behind the guard's grant (kernel/step-state.mjs,
+  // kernel/step-versions.mjs, step-decision.mjs, action-command-map.mjs and writing-aliases.mjs, with
+  // workflow-decisions.mjs, evidence/applicability.mjs and presence/counted.mjs under the map: 76). manual-authorship.mjs
+  // now imports the artifact checks (publication-preflight.mjs and the Git graph under it, 20 modules) only where an
+  // artifact is checked, which the guard never does: 56.
+  assert.ok(closure.size <= 56, `the edit guard loads ${closure.size} static modules; ceiling is 56`);
 });
 
 test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {

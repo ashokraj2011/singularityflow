@@ -15,6 +15,16 @@ import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 const refuse = (message, code, details = {}) => new SingularityFlowError(message, { code, details });
 const opening = () => import('../story-version-opening.mjs');
 
+/**
+ * Refuse a rollover confirmation that is not the previewed one, through the one check every copied confirmation takes
+ * (text-lines.mjs assertConfirmation): a copying slip is told apart from a changed step, and the current value travels.
+ */
+export async function staleRollover(supplied, expected, message, preview) {
+  if (supplied === expected) return;
+  (await import('../text-lines.mjs')).assertConfirmation(supplied, expected, { code: 'GENERATION_ROLLOVER_STALE', message, details: preview,
+    fail: (words, code, details) => { throw refuse(words, code, details); } });
+}
+
 async function directories(root) {
   const { gitDirectories } = await import('../story-version-acceptance.mjs');
   const found = gitDirectories(root);
@@ -95,8 +105,8 @@ export async function consentFor(root, workflow, { proposal, digest, question, t
 /** The person answers the proposal's question in their own terminal; true only on their typed yes. */
 export async function askAtTerminal(question) {
   if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return false;
-  const readline = await import('node:readline/promises');
-  const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const { createInterface } = await import('node:readline/promises');
+  const terminal = createInterface({ input: process.stdin, output: process.stdout });
   try { return (await terminal.question(`${question} Type yes to start it, or press Enter to cancel: `)).trim().toLowerCase() === 'yes'; }
   finally { terminal.close(); }
 }
@@ -276,9 +286,8 @@ export async function changedFilesSuccessor(root, config, workflow, phase, plan,
       return null;
     }
     typed = true;
-  } else if (supplied !== expected) {
-    throw refuse('This confirmation is not the current one: the files changed since the preview. Preview again; nothing was opened.',
-      'GENERATION_ROLLOVER_STALE', preview);
+  } else {
+    await staleRollover(supplied, expected, 'This confirmation is not the current one: the files changed since the preview. Preview again; nothing was opened.', preview);
   }
   const opened = await openSuccessor(root, config, workflow, phase, { ...proposed, typed,
     open: codeOpening(root, config, { adoptExisting: Boolean(changeSetDigest), confirm: changeSetDigest }) });
@@ -328,8 +337,7 @@ export async function returnedSuccessorRollover(root, config, workflow, phase, o
       return console.log('Nothing was changed.');
     }
   }
-  if (supplied !== confirmation) throw refuse('The confirmation is not the current one: the step or the Story changed since the preview. Preview again (its JSON carries the current confirmation).',
-    'GENERATION_ROLLOVER_STALE', preview);
+  await staleRollover(supplied, confirmation, 'The confirmation is not the current one: the step or the Story changed since the preview. Preview again (its JSON carries the current confirmation).', preview);
   const result = await openSuccessor(root, config, workflow, phase, { proposal, digest, question, typed,
     open: legacy ? legacyOpening(root) : code ? codeOpening(root, config) : documentOpening() });
   // What follows is the kernel's next for the open version: writing it, in this same turn.

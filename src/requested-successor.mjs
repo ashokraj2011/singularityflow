@@ -167,9 +167,8 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
       return console.log('Nothing was changed.');
     }
   }
-  if (supplied !== expected) throw new SingularityFlowError(
-    `The rollover confirmation is not the current one: what was asked for or the published bytes changed since the preview. Preview again (its JSON carries the current confirmation).`,
-    { code: 'GENERATION_ROLLOVER_STALE', details: preview });
+  await opening.staleRollover(supplied, expected,
+    'The rollover confirmation is not the current one: what was asked for or the published bytes changed since the preview. Preview again (its JSON carries the current confirmation).', preview);
   // One opening operation on the person's yes: the reservation, the opening record and their receipt, shared [OSA:REQ-030, REQ-031].
   const opened = await opening.openSuccessor(root, config, workflow, phase, { ...proposed, typed,
     open: code ? opening.codeOpening(root, config) : opening.documentOpening() });

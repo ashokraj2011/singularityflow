@@ -34,5 +34,21 @@ test('a read-only path lookup cannot pull composition, lifecycle review or input
   const command = await readFile(new URL('../src/commands/nextsteps.mjs', import.meta.url), 'utf8');
   assert.match(command, /import \{ groundingRecordRelative \} from '\.\.\/phase-generation\.mjs'/u);
   assert.doesNotMatch(command, /const \{ groundingRecordRelative \} = await import/u);
-  assert.match(command, /requiresProspectivePhaseInspection \} from '\.\.\/phase-generation-need\.mjs'/u);
+  // Whether the step is being written is the kernel's decision, read through its narrow adapter (OSA Stage 3,
+  // [OSA:REQ-020]); it replaced requiresProspectivePhaseInspection here. Nothing that adapter imports statically is one
+  // of those writers either (manual-authorship.mjs, under it, loads the artifact checks lazily, only where one is checked).
+  assert.match(command, /import \{ stepDecisionOf \} from '\.\.\/step-decision\.mjs'/u);
+  assert.doesNotMatch(command, /requiresProspectivePhaseInspection/u);
+  const reached = new Set();
+  const walk = async (file) => {
+    if (reached.has(file)) return;
+    reached.add(file);
+    for (const [, target] of (await readFile(path.join(root, file), 'utf8')).matchAll(/(?:import|export)\s+(?:[^'";]+?\s+from\s+)?'(\.[^']+)'/gu)) {
+      await walk(path.posix.normalize(path.posix.join(path.posix.dirname(file), target)));
+    }
+  };
+  await walk('src/step-decision.mjs');
+  for (const owner of ['grounding.mjs', 'inputs.mjs', 'source-review-lifecycle.mjs', 'state.mjs']) {
+    assert.equal(reached.has(`src/${owner}`), false, `step-decision.mjs reaches ${owner}`);
+  }
 });

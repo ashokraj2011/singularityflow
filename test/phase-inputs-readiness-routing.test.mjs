@@ -182,7 +182,7 @@ test('producer-owned index and convergence refusals keep the consuming phase as 
   assert.ok(!committed.steps.some(entry => entry.command?.includes('inputs restore')), 'restore is not offered when it cannot work');
 });
 
-test('remediation reads a throw site\'s own repair command, and phase enter keeps phase recovery', () => {
+test('remediation reads a throw site\'s own repair command, and phase enter reads the step\'s own next action', () => {
   const repair = refusalRemediationPlan(Object.assign(new Error('Future phase validator refused.'), {
     code: 'FUTURE_PHASE_VALIDATOR', details: { workId: 'ROUTE-1', repairCommand: 'singularity-flow appeal list --phase planning --json' }
   }), ['phase', 'publish', 'planning']);
@@ -194,7 +194,10 @@ test('remediation reads a throw site\'s own repair command, and phase enter keep
   const enter = refusalRemediationPlan(Object.assign(new Error('Future entry check refused.'), {
     code: 'FUTURE_ENTRY_CHECK', details: { workId: 'ROUTE-1' }
   }), ['phase', 'enter', 'planning', '--compose', '--for-agent', '--json']);
-  assert.equal(enter.steps[0].command, 'singularity-flow recover ROUTE-1 --phase planning --json');
+  // An unknown refusal is not damage: the read of the Story's next action leads, and it names recovery only for a step
+  // the kernel finds damaged; no recovery detour is added beside it [D4, OSA:REQ-003, REQ-011, REQ-022].
+  assert.equal(enter.steps[0].command, 'singularity-flow nextsteps ROUTE-1 --json');
+  assert.ok(!enter.steps.some(entry => /^singularity-flow recover\b/u.test(entry.command ?? '')), JSON.stringify(enter.steps));
   assert.doesNotMatch(JSON.stringify(enter), /phase --help|doctor/);
 });
 

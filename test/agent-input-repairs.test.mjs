@@ -142,8 +142,12 @@ const COMPUTED = Object.freeze([
   ['src/phase-quality-risk.mjs', 'confirm !== digest(record)']
 ]);
 const RAW = /\b(?:options\.)?confirm(?:ation)?\b\s*!==|!==\s*(?:options\.)?confirm(?:ation)?\b/u;
+// A type check (`typeof confirmation !== 'string'`) compares no value with another, so it is not counted.
+const TYPE_CHECK = /\btypeof\s+[\w.?]+\s*!==\s*'[a-z]+'/gu;
 // What is left elsewhere: setup, workspace and person-only confirmations. It may shrink, never grow.
-const REMAINING_CEILING = 116;
+// 111: main ea398577f measured 115 against 116, four of them type checks; without them main and the 11-17 landing both
+// measure 111 (the landing's rollover and workspace repair confirmations go through assertConfirmation).
+const REMAINING_CEILING = 111;
 
 async function sourceFiles(directory) {
   const entries = await readdir(path.join(ROOT, directory), { withFileTypes: true });
@@ -158,7 +162,7 @@ test('every --confirm an agent feeds goes through assertConfirmation; the rest m
     if (file === path.join('src', 'text-lines.mjs')) continue;
     const lines = (await readFile(path.join(ROOT, file), 'utf8')).split('\n');
     for (const line of lines) {
-      if (!RAW.test(line) || COMPUTED.some(([at, text]) => at === file.split(path.sep).join('/') && line.includes(text))) continue;
+      if (!RAW.test(line.replace(TYPE_CHECK, '')) || COMPUTED.some(([at, text]) => at === file.split(path.sep).join('/') && line.includes(text))) continue;
       assert.ok(!AGENT_FED.includes(file.split(path.sep).join('/')), `${file} compares a copied confirmation without assertConfirmation: ${line.trim()}`);
       remaining += 1;
     }

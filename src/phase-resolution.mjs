@@ -292,10 +292,16 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       ['wm', 'compose', '--phase', phase.id, '--work-id', workId],
       'Refresh the current pending composition from trusted inputs; retain the prior context and review the existing draft. Authenticated-record tampering still requires restoration.', '/sf-worldmodel');
   } else if (code === 'phase.generation-intent.required' || code === 'generation_intent_required') {
-    // The kernel's route opens it: version 1 directly, a next version on the person's yes [D3, OSA:REQ-030].
+    // The kernel's route opens it: version 1 directly, a next version on the person's yes [D3, OSA:REQ-030]. Only a route
+    // that opens or writes this step is its preparation; a damaged step's recovery stays the damage route, and any other
+    // route (a read, a submission) is shown for inspection, never as a repair the author makes [OSA:REQ-003, REQ-011].
     const next = stepRoute(workflow, phase);
-    resolution = next?.argv ? route('prepare-current-generation', phase.id, next.argv,
-      `${next.detail} Honor the returned adoption preview and exact human confirmation; never fabricate an intent or overwrite published evidence.`, next.skill) : recovery;
+    const [verb, form, target] = next?.argv ?? [];
+    const opens = (verb === 'prepare' && form === phase.id) || (verb === 'phase' && ['begin', 'rollover'].includes(form) && target === phase.id);
+    resolution = opens ? route('prepare-current-generation', phase.id, next.argv,
+      `${next.detail} Honor the returned adoption preview and exact human confirmation; never fabricate an intent or overwrite published evidence.`, next.skill)
+      : verb === 'recover' ? damage
+      : next?.argv ? route('inspect', phase.id, next.argv, next.detail, next.skill) : recovery;
   } else if (code === 'generation_intent_already_consumed' || code === 'generation.intent.consumed-changed') {
     resolution = damage;
   } else if (policy.repairableByProducer) {

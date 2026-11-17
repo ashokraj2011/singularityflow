@@ -3,9 +3,9 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { SingularityFlowError, writeBytes } from './util.mjs';
-import {
-  artifactFindingMessage, authoredArtifactText, inspectArtifactContent, requiredArtifactRepoPath
-} from './publication-preflight.mjs';
+// The artifact checks (and the Git graph under them) load only where an artifact is checked: the Copilot edit guard reads
+// this module's publication contract on every tool call and never checks an artifact.
+const preflight = () => import('./publication-preflight.mjs');
 
 export const AUTHORSHIP_PRODUCERS = Object.freeze([
   'human', 'governed-agent', 'deterministic', 'external-tool', 'legacy-unspecified'
@@ -254,6 +254,7 @@ async function validateArtifactBytes(bytes, contract, label, {
     }
     return;
   }
+  const { artifactFindingMessage, inspectArtifactContent } = await preflight();
   const inspected = inspectArtifactContent(text, { path: label, contract, baseline });
   if (qualityContext && inspected.findings.length) {
     const { resolveArtifactQualityFindings } = await import('./phase-artifact-risk.mjs');
@@ -290,7 +291,7 @@ export async function importManualArtifact({
     if (sanitized.includes(MANAGED_METADATA_MARKER)) {
       throw new SingularityFlowError('Manual artifact contains forged or misplaced Singularity Flow metadata.', { code: 'MANUAL_ARTIFACT_INVALID' });
     }
-    authored = Buffer.from(authoredArtifactText(sanitized), 'utf8');
+    authored = Buffer.from((await preflight()).authoredArtifactText(sanitized), 'utf8');
   }
   const text = /^(?:text\/|application\/(?:json|yaml)$)/.test(mediaType) ? original.toString('utf8') : null;
   await validateArtifactBytes(authored, contract, path.basename(sourcePath), { text, baseline, retrySkill });
@@ -318,7 +319,7 @@ async function inspectPreparedArtifact(targetPath, contract, {
     if (sanitized.replace(MANAGED_INPUTS, '').includes(MANAGED_METADATA_MARKER)) {
       throw new SingularityFlowError('Prepared artifact contains forged or misplaced Singularity Flow metadata.', { code: 'MANUAL_ARTIFACT_INVALID' });
     }
-    authored = Buffer.from(authoredArtifactText(sanitized), 'utf8');
+    authored = Buffer.from((await preflight()).authoredArtifactText(sanitized), 'utf8');
   }
   if (deterministic) {
     // Exact kernel projections can quote TODO/template text and intentionally own their heading
@@ -328,7 +329,7 @@ async function inspectPreparedArtifact(targetPath, contract, {
   } else {
     // Only the pinned in-place document can consume a live, content-bound decision. Imports
     // are validated independently and cannot inherit exceptions for the old target's bytes.
-    const relative = qualityContext && requiredArtifactRepoPath(qualityContext.config,
+    const relative = qualityContext && (await preflight()).requiredArtifactRepoPath(qualityContext.config,
       qualityContext.workflow, qualityContext.phase);
     if (qualityContext && (!relative || path.resolve(qualityContext.root, relative) !== path.resolve(targetPath))) {
       throw new SingularityFlowError('Quality review target does not match the pinned phase artifact.', { code: 'MANUAL_ARTIFACT_INVALID' });

@@ -18,8 +18,8 @@ import { verifyWorkflowSnapshot } from '../workflow-snapshots.mjs';
 
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 const reference = ({ kind, id, recordSha256 }) => ({ kind, id, recordSha256 });
-const legalRecovery = (workId) => ({ id: 'inspect-publication', label: 'Inspect the pending Story publication',
-  command: 'recover', args: [workId, '--json'] });
+// A pending publication continues by `sync`, never recovery [D4].
+const legalRecovery = () => ({ id: 'sync-publication', label: 'Publish the pending Story publication', command: 'sync', args: [] });
 
 function selectedPhase(workflow, phaseId) {
   const selected = phaseId ?? workflow.currentPhase;
@@ -77,7 +77,7 @@ export async function planStoryTestSelection(root, config, workflow, { phaseId =
 export async function confirmStoryTestSelection(root, config, workflow, { phaseId = null, confirmation = null } = {}) {
   if (!/^sha256:[a-f0-9]{64}$/u.test(confirmation ?? '')) fail('First inspect the plan, then select its exact --confirm digest.', 'TRP_TEST_SELECTION_CONFIRMATION_REQUIRED');
   const pending = await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false });
-  if (pending) fail('Recover the exact pending Story publication before confirming another selection.',
+  if (pending) fail('Publish the pending Story publication first (singularity-flow sync), then confirm another selection.',
     'TRP_PUBLICATION_PENDING', { pending, legalActions: [legalRecovery(workflow.workItem.id)] });
   const initialHead = head(root);
   const resolved = await resolvePlan(root, config, workflow, { phaseId, confirmation });

@@ -1,7 +1,7 @@
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { sequenceGateMode } from './sequence.mjs';
 import { stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
-import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { approveRoute, authorRoute } from './action-command-map.mjs';
 import { directCopilotSkill, copilotSkillForCommand, approvalHoldContinuation } from './copilot-guidance.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
@@ -360,7 +360,7 @@ export function submissionReadinessSnapshot(workflow, {
   if (phase.status === 'awaiting_approval') return result(workflow, phase, {
     ...draft,
     classification: 'already-submitted',
-    command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`,
+    command: approveRoute(workflow, phase).command,
     reasonCode: 'PHASE_ALREADY_SUBMITTED'
   });
 
@@ -427,9 +427,9 @@ export function submissionReadinessSnapshot(workflow, {
           // The task's stage, else the kernel's own route for the step (a kernel-built code step opens with `phase begin`),
           // as the entry and every other view name it [OSA:REQ-020].
           command: authoringProgress?.next?.command
-            ?? kernelRoute(workflow, phase)?.command ?? `singularity-flow prepare ${phase.id}`,
+            ?? kernelRoute(workflow, phase)?.command ?? authorRoute(workflow, phase).command,
           nextSkill: authoringProgress?.next?.copilotCommand
-            ?? kernelRoute(workflow, phase)?.skill ?? directCopilotSkill(generationSkillForPhase(phase, workflow)),
+            ?? kernelRoute(workflow, phase)?.skill ?? authorRoute(workflow, phase).skill,
           authoringProgress,
           reason: authoringProgress?.instruction ?? null,
           reasonCode: 'PHASE_GENERATION_REQUIRED'

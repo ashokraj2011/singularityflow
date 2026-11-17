@@ -216,8 +216,7 @@
       "intentWrites": 1,
       "predicateCalls": 3,
       "skillChooserCalls": 3,
-      "routeObjects": 2,
-      "lifecycleCommands": 2
+      "routeObjects": 2
     },
     "commands/phase-publish-if-ready.mjs": {
       "lifecycleCommands": 1
@@ -407,8 +406,8 @@
       "predicateCalls": 5,
       "skillChooserCalls": 1,
       "versionArithmetic": 2,
-      "routeObjects": 8,
-      "lifecycleCommands": 8
+      "routeObjects": 2,
+      "lifecycleCommands": 2
     },
     "help-pages.mjs": {
       "lifecycleCommands": 9,
@@ -466,8 +465,8 @@
     },
     "nextsteps.mjs": {
       "predicateCalls": 3,
-      "skillChooserCalls": 10,
-      "lifecycleCommands": 17,
+      "skillChooserCalls": 8,
+      "lifecycleCommands": 4,
       "skillLiterals": 1
     },
     "node-pin.mjs": {
@@ -527,15 +526,15 @@
       "predicateCalls": 4,
       "skillChooserCalls": 1,
       "routeObjects": 2,
-      "lifecycleCommands": 4,
+      "lifecycleCommands": 3,
       "skillLiterals": 2
     },
     "phase-entry-authoring.mjs": {
       "intentReads": 1,
       "predicateCalls": 2,
       "versionArithmetic": 1,
-      "routeObjects": 4,
-      "lifecycleCommands": 8
+      "routeObjects": 2,
+      "lifecycleCommands": 5
     },
     "phase-entry-context.mjs": {
       "intentReads": 1,
@@ -592,7 +591,7 @@
       "predicateCalls": 2,
       "skillChooserCalls": 4,
       "routeObjects": 6,
-      "lifecycleCommands": 7,
+      "lifecycleCommands": 6,
       "skillLiterals": 5
     },
     "phase-prompt-composer.mjs": {
@@ -647,13 +646,10 @@
       "intentReads": 1,
       "predicateCalls": 1
     },
-    "pull-request.mjs": {
-      "lifecycleCommands": 1
-    },
     "recovery-plan.mjs": {
       "skillChooserCalls": 1,
-      "routeObjects": 6,
-      "lifecycleCommands": 12,
+      "routeObjects": 5,
+      "lifecycleCommands": 8,
       "skillLiterals": 2
     },
     "recovery-preparation-context.mjs": {
@@ -669,7 +665,7 @@
     },
     "refusal-remediation.mjs": {
       "routeObjects": 1,
-      "lifecycleCommands": 25,
+      "lifecycleCommands": 20,
       "skillLiterals": 18
     },
     "reinstall.mjs": {
@@ -682,8 +678,8 @@
       "intentWrites": 1,
       "predicateCalls": 1,
       "skillChooserCalls": 1,
-      "routeObjects": 3,
-      "lifecycleCommands": 3,
+      "routeObjects": 2,
+      "lifecycleCommands": 1,
       "skillLiterals": 1
     },
     "retained-skill-instructions.mjs": {
@@ -717,7 +713,7 @@
       "predicateCalls": 1,
       "skillChooserCalls": 1,
       "routeObjects": 3,
-      "lifecycleCommands": 4
+      "lifecycleCommands": 1
     },
     "session-read-service.mjs": {
       "versionArithmetic": 1
@@ -744,8 +740,7 @@
     "source-review-lifecycle.mjs": {
       "predicateCalls": 5,
       "skillChooserCalls": 1,
-      "routeObjects": 1,
-      "lifecycleCommands": 1
+      "routeObjects": 1
     },
     "source-review-staging.mjs": {
       "lifecycleCommands": 1
@@ -756,7 +751,7 @@
       "skillChooserCalls": 5,
       "versionArithmetic": 3,
       "routeObjects": 6,
-      "lifecycleCommands": 18
+      "lifecycleCommands": 17
     },
     "step-decision.mjs": {
       "predicateCalls": 1
@@ -772,9 +767,9 @@
     },
     "submission-readiness.mjs": {
       "predicateCalls": 4,
-      "skillChooserCalls": 4,
+      "skillChooserCalls": 3,
       "routeObjects": 8,
-      "lifecycleCommands": 3,
+      "lifecycleCommands": 1,
       "skillLiterals": 1
     },
     "summary-step-changes.mjs": {
@@ -1130,8 +1125,7 @@
       },
       "phase-prepublish.mjs": {
         "kernelPredicateCalls": 1,
-        "mapRoutes": 4,
-        "routeFields": 1
+        "mapRoutes": 4
       },
       "phase-quality-risk.mjs": {
         "argvRoutes": 1

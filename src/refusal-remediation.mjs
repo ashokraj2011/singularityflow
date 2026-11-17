@@ -18,7 +18,7 @@ import {
 } from './safe-command-guidance.mjs';
 import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 import { nearestNames, parseArgs } from './util.mjs';
-import { actionCommandLine } from './action-command-map.mjs';
+import { actionCommandLine, authorCommand, showCommand, storyNextCommand } from './action-command-map.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -266,7 +266,7 @@ function phaseContainmentSteps(context) {
       ),
       // The approver's own read of the submitted evidence, which is the approval turn's work.
       Object.freeze({ ...step('inspect-current-phase-evidence', `Review the bounded '${context.phaseId}' evidence before changing or retrying it.`,
-        `singularity-flow phase show ${context.phaseId} --json`, 'diagnostic'), turn: 'new-turn' })
+        showCommand(context.phaseId), 'diagnostic'), turn: 'new-turn' })
     ];
   }
   return [next];
@@ -654,7 +654,7 @@ function repairBudgetSteps(_argv, error) {
         : `No allowed return resets the ${lowerKebab(details.phase) ?? 'exhausted'} repair budget from here. Ask the approvers for direction: approve the submission as it stands, or have a workflow maintainer change the budget for new Stories.`,
       null, 'remediation'),
     current ? step('inspect-submitted-phase', `Review the submitted ${current} evidence before deciding.`,
-      `singularity-flow phase show ${current} --json`, 'diagnostic') : null
+      showCommand(current), 'diagnostic') : null
   ].filter(Boolean);
 }
 
@@ -824,7 +824,7 @@ function approvalChecklistSteps(argv, error) {
       `Answer each checklist article${articles.length ? ` (${articles.join(', ')})` : ''}: satisfied, exception or not-applicable, with a reason for the last two. `
         + `Then approve again with them (/sf-approve${phase ? ` ${phase}` : ''} asks for them; in a terminal, --article <id>=<decision>). Nothing about the work needs repairing.`,
       null, 'remediation'),
-    phase ? step('read-approval-checklist', 'Read the articles and their questions.', `singularity-flow phase show ${phase} --json`, 'diagnostic') : null
+    phase ? step('read-approval-checklist', 'Read the articles and their questions.', showCommand(phase), 'diagnostic') : null
   ].filter(Boolean);
 }
 
@@ -1317,7 +1317,7 @@ const KNOWN = Object.freeze({
       flight && step('read-auto-flight', 'Read the flight: its Plan, its Story binding and where it stopped. Auto never runs on a binding that does not match its ratified Plan.',
         `singularity-flow auto status ${flight}`, 'diagnostic'),
       flight && step('stop-auto-flight', 'Stop the flight; the Story keeps everything it published.', `singularity-flow auto stop ${flight}`, 'remediation'),
-      workId && step('continue-story-by-hand', 'Continue the Story by hand from its own next step.', `singularity-flow nextsteps ${workId}`, 'remediation')
+      workId && step('continue-story-by-hand', 'Continue the Story by hand from its own next step.', storyNextCommand(workId), 'remediation')
     ];
   },
   AUTO_RECOVERY_CHECKOUT_FAILED: (argv, error) => {
@@ -1750,7 +1750,7 @@ const KNOWN = Object.freeze({
     const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
       ? error.details.phase : null;
     const label = 'Skip clarification questions and recording; continue the phase from approved sources and repository evidence.';
-    const command = phase ? `singularity-flow prepare ${phase}` : null;
+    const command = phase ? authorCommand(phase) : null;
     // The refusal names the step's own drafting skill; the generic one for `prepare` is the fallback.
     const skill = /^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.remediation?.skill ?? '')
       ? error.details.remediation.skill : null;

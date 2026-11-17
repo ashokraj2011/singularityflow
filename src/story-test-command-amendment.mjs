@@ -137,7 +137,7 @@ async function boundedFile(root, relative, label) {
 async function candidateFor(root, config, workflow, { approvedConfigurationSnapshot, reason, phaseId = null } = {}) {
   const { generationResultMatches, sourceTreeHash, storyPublicationPending } = await import('./state.mjs');
   if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) {
-    fail('Recover the exact pending Story publication before amending its runner.', 'TCA_PUBLICATION_PENDING');
+    fail('Publish the pending Story publication first (singularity-flow sync), then amend its runner.', 'TCA_PUBLICATION_PENDING');
   }
   if (phaseId != null && phaseId !== workflow.currentPhase) fail('Only the current code-delivery phase may be amended.');
   const phase = workflow.phases?.[workflow.currentPhase];
@@ -339,7 +339,7 @@ async function applyLockedStoryTestCommandAmendment(root, config, workflow, opti
     return { schemaVersion: 1, resultType: 'test-command-amendment', status: pending ? 'publication-pending' : 'applied',
       applied: true, stateChanged: true, executed: false, sourceChanged: false, ...transaction.value,
       publication: transaction.publication, pending: pending ?? null,
-      legalActions: pending ? [{ id: 'recover-publication', command: 'recover', args: [workflow.workItem.id, '--json'] }]
+      legalActions: pending ? [{ id: 'sync-publication', command: 'sync', args: [] }]
         : [{ id: initial.revalidation ? 'revalidate-amended-phase' : 'prepare-amended-phase',
           command: initial.revalidation ? 'submit' : 'prepare', args: [initial.phaseId, '--work-id', initial.workId] }] };
   } finally { PROSPECTIVE.delete(workflow); }

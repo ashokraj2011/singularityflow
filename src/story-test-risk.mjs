@@ -19,7 +19,8 @@ const SUPPORTED = ['validation-unavailable', 'new-test-failure', 'known-test-fai
 const fail = (message, code = 'TRP_RISK_ARGUMENT_INVALID', details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 const reference = ({ kind, id, recordSha256 }) => ({ kind, id, recordSha256 });
 const actorPrincipal = (actor) => String(actor.email ?? actor.login ?? '').trim().toLowerCase();
-const recoverAction = (workId) => ({ id: 'inspect-publication', label: 'Recover the exact pending Story publication', command: 'recover', args: [workId, '--json'] });
+// A pending publication continues by `sync`, never recovery [D4].
+const recoverAction = () => ({ id: 'sync-publication', label: 'Publish the pending Story publication', command: 'sync', args: [] });
 
 /** Risk authority never falls back to an ordinary phase approver or Git author. */
 export function storyTestRiskAuthorityContext(workflow, agreement) {
@@ -178,7 +179,7 @@ export async function planStoryTestRisk(root, config, workflow, options = {}) {
 
 async function ensureNoPending(root, config, workflow) {
   const pending = await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false });
-  if (pending) fail('Recover the exact pending Story publication before another risk mutation.', 'TRP_PUBLICATION_PENDING',
+  if (pending) fail('Publish the pending Story publication first (singularity-flow sync), then record another risk.', 'TRP_PUBLICATION_PENDING',
     { pending, legalActions: [recoverAction(workflow.workItem.id)] });
 }
 

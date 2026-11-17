@@ -29,6 +29,12 @@ import { workflowNextSteps } from '../src/nextsteps.mjs';
 import { workflowGuide } from '../src/guide.mjs';
 import { submissionReadinessSnapshot } from '../src/submission-readiness.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { approveRoute, authorCommand, authorRoute, handoffSubmitRoute, returnRoute, showCommand, storyNextCommand, versionPreviewCommand,
+  versionQuestionRoute } from '../src/action-command-map.mjs';
+import { requestedSuccessorAction } from '../src/guide.mjs';
+import { noSpecificationClausesError } from '../src/state.mjs';
+import { findingEscalation, ESCALATION_THRESHOLD } from '../src/finding-escalation.mjs';
+import { upstreamChangeRoutes } from '../src/upstream-routes.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { LIFECYCLE_EVENT_TYPES } from '../src/lifecycle-event.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
@@ -194,6 +200,40 @@ test('every route the renderer gives is one of the action-to-command map\'s name
   assert.ok(rendered > 100);
 });
 
+test('the planners take their routes from the map: the same commands and skills they always showed [§10, OSA:REQ-021]', () => {
+  const step = (id, task, status, extra = {}) => ({ id, label: id, status, generation: 1, writeScope: task === 'code' ? 'source-and-artifact' : 'artifact-only',
+    generationPolicy: { requirement: 'required', task }, approvalPolicy: { authorities: ['engineering'], minimum: 1, rejectTo: [id] }, ...extra });
+  const workflow = { schemaVersion: 13, workItem: { id: W }, status: 'in_progress', currentPhase: 'implement', phaseOrder: ['intake', 'implement'], history: [],
+    phases: { intake: step('intake', 'document', 'approved'), implement: step('implement', 'code', 'awaiting_approval') }, resolution: {} };
+  const { intake, implement } = workflow.phases;
+  // Each helper is a form of the map filled in, written out as the planners wrote it in place before.
+  assert.equal(authorCommand('intake'), 'singularity-flow prepare intake');
+  assert.deepEqual(authorRoute(workflow, intake), { skill: '/sf-phase', command: 'singularity-flow prepare intake' });
+  assert.deepEqual(authorRoute(workflow, implement), { skill: '/sf-code', command: 'singularity-flow prepare implement' });
+  assert.equal(showCommand('implement'), 'singularity-flow phase show implement --json');
+  assert.equal(storyNextCommand(W), `singularity-flow nextsteps ${W}`);
+  assert.equal(versionPreviewCommand('implement'), 'singularity-flow phase rollover implement --json');
+  assert.equal(versionQuestionRoute(workflow, implement).command, 'singularity-flow phase rollover implement --reason "<what to change>" --json');
+  assert.deepEqual(handoffSubmitRoute(workflow, implement), { skill: '/sf-submit', command: 'singularity-flow submit implement' });
+  assert.deepEqual(approveRoute(workflow, implement), { skill: '/sf-approve', command: `singularity-flow approve implement --work-id ${W} --fetch` });
+  assert.deepEqual(returnRoute(workflow, implement), { skill: '/sf-reject', command: `singularity-flow reject implement --work-id ${W} --fetch --to implement --reason <reason>` });
+  assert.equal(returnRoute(workflow, implement, 'intake').command, `singularity-flow reject implement --work-id ${W} --fetch --to intake --reason <reason>`);
+  // A form keeps its placeholder where no step is given: the renderer's own return route is unchanged.
+  assert.equal(actionCommand('approve-step', 'reject', { step: 'implement', workId: W }), `reject implement --work-id ${W} --fetch --to <phase> --reason <reason>`);
+  // The guide's approval pair, through the map.
+  const routes = workflowGuide(workflow).nextActions.map((entry) => [entry.skill, entry.command]);
+  assert.deepEqual(routes.slice(0, 2), [['/sf-approve', `singularity-flow approve implement --work-id ${W} --fetch`],
+    ['/sf-reject', `singularity-flow reject implement --work-id ${W} --fetch --to implement --reason <reason>`]]);
+  // Its version question says "version", never "generation" or "draft N" [owner: the person's word is version].
+  workflow.phases.implement = { ...implement, status: 'in_progress', generationIntent: { id: 'GI-1', status: 'consumed', generation: 1 } };
+  for (const options of [{ requested: true }, {}, { changedPaths: ['README.md'] }]) {
+    const offered = requestedSuccessorAction(workflow, workflow.phases.implement, options);
+    assert.match(offered.reason, /\bversion 2 of implement\b/u, JSON.stringify(options));
+    assert.doesNotMatch(offered.reason, /\bgeneration\b|\bdraft \d/u, offered.reason);
+    assert.equal(offered.command, options.changedPaths || options.requested ? versionPreviewCommand('implement') : versionQuestionRoute(workflow, workflow.phases.implement).command);
+  }
+});
+
 // ------------------------------------------------------------------------------------------- refusals that named recovery
 
 test('refusals that named recovery for healthy work name their continuation, and keep their codes [D4, OSA:REQ-011, REQ-022, AC-006]', () => {
@@ -213,6 +253,33 @@ test('refusals that named recovery for healthy work name their continuation, and
   const coverage = plan('SPEC_COVERAGE_INCOMPLETE', { coverage: { unimplemented: ['US-1:REQ-001'] } });
   assert.equal(coverage.steps.find((entry) => entry.id === 'deliver-missing-clauses').command, 'singularity-flow phase prepublish implement --for-agent --json');
   assert.doesNotMatch(JSON.stringify(coverage.steps), /singularity-flow recover\b/u);
+});
+
+test('a healthy step is never sent to recovery by its producer: an earlier step owes clauses, a finding repeats, a publication is pending [D4, owner decision 4]', async () => {
+  // No clauses before the code step: the specification's own correction leads, the refusal, its gate and its plan alike.
+  const step = (id, status, generation = 1) => ({ id, label: id, status, generation, approvals: [], approvalPolicy: { authorities: ['engineering'], minimum: 1, rejectTo: [id] } });
+  const workflow = { workItem: { id: W }, status: 'in_progress', currentPhase: 'planning', phaseOrder: ['specification', 'planning', 'code'],
+    phases: { specification: step('specification', 'approved'), planning: step('planning', 'in_progress'), code: step('code', 'not_started', 0) },
+    resolution: { plannedClaims: { mode: 'required', clausePhases: ['specification'] } } };
+  const error = noSpecificationClausesError(workflow, 'code');
+  assert.equal(error.code, 'SPECIFICATION_CLAUSE_SOURCE_REQUIRED', 'the code is kept');
+  assert.equal(error.details.nextAction.command, upstreamChangeRoutes(workflow, 'specification').routes[0].command);
+  assert.match(error.details.nextAction.command, /^singularity-flow (?:upstream-issue raise|story intent-amendment propose) /u);
+  assert.equal(error.details.recoveryCommand, undefined);
+  assert.equal(error.details.gate.actions[0].command, error.details.nextAction.command);
+  const plan = refusalRemediationPlan(error, ['phase', 'publish', 'planning']);
+  assert.ok(plan.steps.some((entry) => entry.command === error.details.nextAction.command), JSON.stringify(plan.steps));
+  assert.doesNotMatch(JSON.stringify(plan.steps), /singularity-flow recover\b|\/sf-recover/u);
+  // A finding that keeps returning is read where the step stands; its instruction says to stop recovering.
+  const escalation = findingEscalation({ count: ESCALATION_THRESHOLD, code: 'artifact.placeholder.unresolved', workId: W, phaseId: 'implement' });
+  assert.equal(escalation.routes.find((route) => route.kind === 'inspect').command, 'singularity-flow phase show implement --json');
+  assert.doesNotMatch(JSON.stringify(escalation.routes), /singularity-flow recover\b/u);
+  // A pending Story publication is continued by `sync` wherever its legal action is named.
+  for (const file of ['story-test-risk.mjs', 'story-test-command-amendment.mjs', 'commands/story-test-selection.mjs', 'commands/story-test-repair.mjs']) {
+    const source = await readFile(new URL(`../src/${file}`, import.meta.url), 'utf8');
+    assert.match(source, /id: 'sync-publication'[^}]*command: 'sync', args: \[\]/u, file);
+    assert.doesNotMatch(source, /command: 'recover'|Recover the exact pending/u, file);
+  }
 });
 
 // ------------------------------------------------------------------------------------------- activation and reversal

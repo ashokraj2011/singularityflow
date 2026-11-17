@@ -739,7 +739,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // stepChatCommand (+313, the kernel route's command), state.mjs's approval, decision and rejection boundaries (+197),
     // nextsteps.mjs's pendingBoundary (+217) that narration/continuation.mjs now shares (-112), context-policy.mjs passing it
     // on (+53). Comments trimmed first. No new eager file.
-    assert.ok(closure.bytes <= 9_744_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,744,850 (measured 9,744,820 for start.mjs, +1,027): OSA Stage 5's leftovers. The planners take their routes from the
+    // one action-to-command map (action-command-map.mjs +1,358: the author, show, Story-next, version-preview, handoff-submit,
+    // approve and return routes, filled from its forms), which takes the commands they wrote in place out of them
+    // (guide.mjs -462, nextsteps.mjs -162, sequence.mjs -24); a healthy step's refusals name its owner's correction or `sync`
+    // instead of recovery (state.mjs +279, story-test-risk.mjs +54, story-test-command-amendment.mjs -16). No new eager file.
+    assert.ok(closure.bytes <= 9_744_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -490,7 +490,7 @@ Hand back to an independent recheck. No other screen text changed.
     sourceId: screen.id, line: 1, quote: '// @clause:DEMO-LOOP-2:AC-001' }] }));
   assert.equal(held.status, 'correction-required');
   const preview = json(['phase', 'rollover', PHASES[2], '--json']);
-  assert.ok(preview.requestedChange.requests.some((entry) => /^Correct what the review of generation 1 found: .*name-the-screen/u.test(entry)));
+  assert.ok(preview.requestedChange.requests.some((entry) => /^Correct what the review of version 1 found: .*name-the-screen/u.test(entry)));
   assert.equal(json(['phase', 'rollover', PHASES[2], '--confirm', preview.confirmation, '--json']).generationIntent.generation, 2);
   await writeFile(path.join(story.root, 'src/screen.mjs'),
     '// @clause:DEMO-LOOP-2:AC-001 the demo screen shows the approved title\nexport const title = "Approved screen";\n');

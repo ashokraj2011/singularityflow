@@ -30,6 +30,7 @@ import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
+import { authorCommand } from './action-command-map.mjs';
 
 // Runner findings only an approved test command resolves: no supported runner, two build systems,
 // or a native target (Android variant, Xcode scheme) that would otherwise be guessed.
@@ -82,7 +83,7 @@ function artifactActions(workflow, phase, findings, { modelEnabled = true } = {}
   if (first.code === 'artifact.required.missing') return [action({
     id: `prepare-artifact:${phase.id}`,
     detail: `Create the required ${phase.id} artifact at ${first.path}.`,
-    command: `singularity-flow prepare ${phase.id}`,
+    command: authorCommand(phase.id),
     skill: generationSkill(phase, workflow), evidence: { path: first.path, line: null }
   })];
   return [action({
@@ -408,7 +409,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         id: review ? `convergence-${review.kind}` : 'prepare-convergence',
         detail: review?.guidance
           ?? 'Recompute the canonical projection from the current bound inputs, then follow only its returned review or publication action.',
-        command: review?.command ?? `singularity-flow prepare ${phase.id}`,
+        command: review?.command ?? authorCommand(phase.id),
         skill: review?.skill ?? '/sf-converge'
       }));
     }
@@ -651,13 +652,13 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           // from /sf-code (owner, 2026-11-16).
           command: configurationDependency
             ? missingRepositoryRunner
-              ? `singularity-flow prepare ${phase.id}`
+              ? authorCommand(phase.id)
               : testConfiguration
                 ? TEST_SETUP_COMMAND
                 : invalidPinnedCommand && Number(phase.generation) === 0
                   ? 'singularity-flow explain test-recovery'
                   : null
-            : `singularity-flow prepare ${phase.id}`,
+            : authorCommand(phase.id),
           skill: configurationDependency
             ? missingRepositoryRunner ? generationSkill(phase, workflow) : testConfiguration ? '/sf-test-setup' : null
             : generationSkill(phase, workflow),

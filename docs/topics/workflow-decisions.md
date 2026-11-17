@@ -25,7 +25,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 18
+version: 19
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -89,10 +89,10 @@ What is settled, and only when its evidence holds:
   checked out where the session runs. Explicit selectors, a branch no Story records, or two Stories:
   the roster is shown and you choose.
 - **The author's own correction.** Before any independent review report or approval exists for its
-  published draft, the author opens the next generation to correct it (`phase rollover <STEP>
-  --correction TEXT`), naming what the draft contradicts. Once a review or an approval exists, or files
+  published version, the author opens the next version to correct it (`phase rollover <STEP>
+  --correction TEXT`), naming what the version contradicts. Once a review or an approval exists, or files
   changed after publication, the rollover is yours to confirm, as before. Undo leaves the opened
-  generation as it is; the author asks you before correcting that step again.
+  version as it is; the author asks you before correcting that step again.
 - **The Node the tests run on.** When the module's `package.json` engines range accepts exactly one
   installed Node major, SFlow writes `.nvmrc` with it before the tests run and lists it as a supporting
   change. Undo removes the file when it still holds that version, and the choice is back on the list.

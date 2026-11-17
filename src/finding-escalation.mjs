@@ -120,8 +120,10 @@ export function findingEscalation({ count, code, workId, phaseId }) {
       detail: 'Prepare a dispute with the evidence; one of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate.' }] : []),
     { kind: 'documentation', owner: 'reader', command: documentation.command,
       detail: 'What the finding means, its usual causes, and who else can act.' },
-    { kind: 'inspect', owner: phaseId, command: `singularity-flow recover${workId ? ` ${workId}` : ''} --phase ${phaseId} --json`,
-      detail: 'The preserved state and every route for this finding; nothing changes.' }
+    // The step's own read (the map's inspect form), never recovery: a repeated finding is not damage, and the instruction
+    // says to stop recovering [D4]. Written here: this module is on the agent's output path, which never loads the map.
+    { kind: 'inspect', owner: phaseId, command: `singularity-flow phase show ${phaseId} --json`,
+      detail: 'The step as it stands now; nothing changes.' }
   ];
   return Object.freeze({
     required: true, repeated: count, code, documentation,

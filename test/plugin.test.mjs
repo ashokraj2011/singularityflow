@@ -645,8 +645,9 @@ test('Copilot phase authoring repairs structured draft findings before publicati
   for (const [name, content] of [['workflow rules', workflowRules]]) {
     assert.match(content, /singularity-flow phase prepublish <phase> --for-agent --json --publish-if-ready` \(includes draft-check\)/,
       `${name} omits the shared combined authoring preflight`);
-    assert.match(content, /singularity-flow recover <WORK-ID> --phase <phase> --for-agent --json/,
-      `${name} omits current-phase recovery`);
+    // A draft with findings is healthy: its own prepublish result says what is open, never recovery [D4, owner decision 4].
+    assert.match(content, /On correction reuse findings\/resolution; stay in this phase/, `${name} omits the correction's own findings`);
+    assert.doesNotMatch(content, /singularity-flow recover <WORK-ID> --phase <phase>/, `${name} sends a healthy draft to recovery`);
     assert.match(content, /Use returned `commands.publish` when `ready`/i,
       `${name} may publish an unready draft`);
     assert.match(content, /`repairLoop\.protocol`/,

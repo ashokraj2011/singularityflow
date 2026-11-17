@@ -47,7 +47,7 @@ async function resolve(root, config, workflow, options) {
   // Also proves agreement delegation and transport durability; absent/expired/revoked decisions are intentionally allowed here.
   await qualifiedTrpIntakeDecisions(root, config, workflow, agreement, workflow.phases[phaseId]);
   const pending = await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false });
-  if (pending) fail('Recover the exact pending publication before reviewing baseline admission.', 'TRP_PUBLICATION_PENDING');
+  if (pending) fail('Publish the pending Story publication first (singularity-flow sync), then review baseline admission.', 'TRP_PUBLICATION_PENDING');
   const choices = { reason: options.reason ?? '', followUpOwner: options.followUpOwner ?? '', remediationRef: options.remediationRef ?? '', expiresAt: options.expiresAt ?? null };
   const blockers = [];
   for (const [key, minimum, maximum] of [['reason', 15, 2000], ['followUpOwner', 1, 2048], ['remediationRef', 1, 2048]]) {

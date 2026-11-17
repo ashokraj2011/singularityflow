@@ -35,9 +35,8 @@ async function loadContext(root, workId, dependencies) {
     workRoot: dependencies.workDir(root, config, workflow.workItem.id) };
 }
 
-function legalRecovery(workId) {
-  return { id: 'inspect-publication', owner: 'story-owner', label: 'Inspect the exact pending Story publication',
-    command: 'recover', args: [workId, '--json'] };
+function legalRecovery() {
+  return { id: 'sync-publication', owner: 'story-owner', label: 'Publish the pending Story publication', command: 'sync', args: [] };
 }
 
 async function inspect(context, repositoryId, dependencies) {

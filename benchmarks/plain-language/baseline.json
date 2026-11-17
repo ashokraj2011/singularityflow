@@ -14,7 +14,7 @@
   "count-without-name": 27,
   "draft-for-version": 6,
   "generic-route": 6356,
-  "jargon": 1350,
+  "jargon": 1347,
   "length": 675
  },
  "unroutedCodes": [
@@ -3553,7 +3553,7 @@
   },
   "src/guide.mjs": {
    "4a3399a1235c": "length",
-   "95904d54e97b": "jargon:generation length"
+   "914e07d74c1e": "length"
   },
   "src/harness-imports.mjs": {
    "56ab89dcfad9": "jargon:envelope",
@@ -4313,7 +4313,6 @@
    "0822541aaff1": "jargon:staging",
    "0bc044aa4766": "jargon:generation",
    "11b07d1c9837": "jargon:generation jargon:packet",
-   "144bb0737f4b": "jargon:generation length",
    "179327e5650e": "jargon:generation",
    "226fb411b147": "jargon:generation",
    "228e59796d94": "jargon:ledger",
@@ -4330,7 +4329,6 @@
    "4d3746a9b4c6": "jargon:deterministic jargon:digest length",
    "50e221cbaae2": "jargon:staging",
    "52e56912ee95": "length",
-   "57a6b11f79c4": "jargon:generation length",
    "5b28dbba488c": "length",
    "68684548f925": "jargon:generation length",
    "6aac88952d7f": "jargon:packet",
@@ -4347,6 +4345,7 @@
    "92d0432be855": "jargon:generation",
    "95ed924e72d3": "jargon:packet",
    "97e43927d966": "jargon:retained length",
+   "98ebd48517d9": "length",
    "992e17253f73": "jargon:generation length",
    "99e10fedaaac": "5× jargon:retained",
    "9b8311bb9fa4": "3× jargon:staging",
@@ -4356,6 +4355,7 @@
    "aec8663aaac9": "jargon:generation",
    "b16f8dbcaed5": "jargon:binding",
    "b47961bb8ae6": "jargon:retained",
+   "ba9d1db2571d": "length",
    "bb7145ef2c46": "jargon:generation",
    "c0deeb186911": "jargon:binding jargon:packet",
    "c3184158ede5": "length",

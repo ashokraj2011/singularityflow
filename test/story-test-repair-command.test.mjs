@@ -173,7 +173,8 @@ test('multi-repository and pending-publication prerequisites are explicit and ca
   assert.deepEqual(coordinated.requiredRepositories, ['service', 'ui']);
   const pending = await f.run({}, { storyPublicationPending: async () => ({ commit: REPAIR }) });
   assert.equal(pending.status, 'publication-pending');
-  assert.equal(pending.legalActions[0].command, 'recover');
+  // A pending publication continues by `sync`, never recovery: nothing is damaged [D4, owner decision 4].
+  assert.deepEqual([pending.legalActions[0].id, pending.legalActions[0].command, pending.legalActions[0].args], ['sync-publication', 'sync', []]);
   assert.equal(f.calls.some(call => call[0] === 'preview' || call[0] === 'execute' || call[0] === 'transaction'), false);
 });
 

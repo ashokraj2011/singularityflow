@@ -8,6 +8,7 @@ import { recap } from './narration/recap.mjs';
 import { receiptApprovalText } from './evidence-receipt.mjs';
 import { workItemWorkflowRelative } from './work-item-location.mjs';
 import { pullRequestTarget, readStorySeed } from './story-base-lineage.mjs';
+import { storyNextCommand } from './action-command-map.mjs';
 
 export { pullRequestTarget, readStorySeed };
 
@@ -208,7 +209,7 @@ function directPolicyRefusal(root, workflow, policy) {
       label: 'Finalize the Story for review; direct completion lands exactly the finalized commit.' }]),
     ...(onChild ? [{ command: `singularity-flow story branch promote --parent ${workId} --mode direct`,
       label: `Promote ${checkedOut} to ${canonical} directly, without a pull request.` }] : []),
-    { command: `singularity-flow nextsteps ${workId}`, label: 'See what the Story needs next.' }
+    { command: storyNextCommand(workId), label: 'See what the Story needs next.' }
   ];
   return new SingularityFlowError(
     `Repository policy for ${workId} is 'direct'; it does not use pull requests. `

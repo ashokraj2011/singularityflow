@@ -1170,7 +1170,9 @@ test('an untouched prepared template is refused before publication mutates phase
           assert.equal(error.code, 'ARTIFACT_AUTHORING_INCOMPLETE');
           assert.match(error.message, /contains unresolved placeholder 'TODO' at line \d+/);
           assert.match(error.message, /still matches its prepared template/);
-          assert.match(error.message, /recover PREFLIGHT-1 --phase intake --json/);
+          // A draft with findings is healthy: its author's recheck is the route, never recovery [D4, owner decision 4].
+          assert.match(error.message, /then check it again with singularity-flow phase prepublish intake\./);
+          assert.doesNotMatch(error.message, /singularity-flow recover\b/);
           // This run has no model: the retry is the human route, never governed-agent/copilot-host.
           assert.deepEqual(error.details.retry, {
             skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true,

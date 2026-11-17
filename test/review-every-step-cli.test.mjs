@@ -149,7 +149,7 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   assert.equal(preview.status, 0, JSON.stringify(preview.value));
   assert.equal(preview.value.toGeneration, 2);
   // The review is named by its generation, never its digest: these words are shown and kept [no hashes shown].
-  assert.ok(preview.value.requestedChange.requests.some((entry) => /^Correct what the review of generation 1 found: .*explain-the-value/u.test(entry)),
+  assert.ok(preview.value.requestedChange.requests.some((entry) => /^Correct what the review of version 1 found: .*explain-the-value/u.test(entry)),
     JSON.stringify(preview.value.requestedChange));
   assert.equal(preview.value.mutates, false);
   const opened = sflowJson('phase', 'rollover', 'implement', '--confirm', preview.value.confirmation);

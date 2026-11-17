@@ -81,6 +81,20 @@ function settle(root, message) {
   shell('git', ['push', '-q', 'origin', WORK], root, { allowFailure: true });
 }
 
+/**
+ * A step's next version opens only on the person's yes [D3, OSA:REQ-030]: preparing it without that yes is refused, its
+ * preview asks "Start version N of …", and their yes in their own terminal opens it.
+ */
+function startVersion(root, phase, version) {
+  const refused = sflow(root, ['prepare', phase], { allowFailure: true });
+  assert.notEqual(refused.status, 0, `${phase} version ${version} opened without the person's yes`);
+  assert.match(refused.output, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+  const previewed = sflow(root, ['phase', 'rollover', phase, '--json']).stdout;
+  const preview = JSON.parse(previewed.slice(previewed.search(/^\{/mu)));
+  assert.match(preview.question, new RegExp(`^Start version ${version} of `, 'u'));
+  sflow(root, ['phase', 'rollover', phase, '--confirm', preview.confirmation, '--json']);
+}
+
 /** Publish, commit, submit and approve one phase the way a person would. */
 async function completePhase(root, phase, { articles = [] } = {}) {
   sflow(root, ['artifact', 'scan', '--phase', phase]);
@@ -657,6 +671,7 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   await readFile(path.join(root, `singularity/work-items/${WORK}/context/convergence/iteration-1.json`), 'utf8');
 
   // ---- implementation, generation two ------------------------------------------------------------
+  startVersion(root, 'implementation', 2);
   sflow(root, ['prepare', 'implementation']);
   // A generation's change set starts at the previous generation, and the clause contract reads only
   // the sources a generation changes, so the rework restates REQ-001 in the retry handler beside
@@ -793,6 +808,7 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   // Re-publish existing evidence through ordinary generation and approval gates. Unaffected bytes
   // stay in place; their preservation label is evidence, not an automatic re-approval.
   sflow(root, ['spec', 'tasks']);
+  startVersion(root, 'implementation', 3);
   sflow(root, ['prepare', 'implementation']);
   // The amended operator-only requirement needs a fresh source/test witness in this generation;
   // merely republishing the prior summary would correctly leave the amended clause partial.

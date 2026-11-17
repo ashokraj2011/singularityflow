@@ -97,6 +97,9 @@ test('scope authors see short requests, documents and answered clarifications be
   assert.equal(retained.summary.unresolved, 0, 'approved source links stop the later-phase surprise');
   item.workflow.currentPhase = item.phase.id;
   item.phase.status = 'in_progress';
+  // The successor is being written only once its version is open (stepBeingWritten, OSA:REQ-002): a published version with
+  // nothing open is the retained publication, whose approved links stand.
+  item.phase.generationIntent = { status: 'open', generation: 2 };
   await unlink(item.absolute);
   const successor = await scopeAuthoringCheckpoint(item.root, item.definition, item.workflow, item.phase);
   assert.equal(successor.unresolvedCount, 4, 'a missing successor draft cannot borrow the retained old draft coverage');

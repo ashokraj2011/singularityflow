@@ -162,7 +162,9 @@ test('FIX:AC-605 complete public review-remediation path survives a second check
   ]);
   assert.equal(activated.status, 'activated');
   assert.equal(activated.audit.recorded, true);
-  assert.equal(activated.projection.published, true);
+  // The approved configuration is read from sflow/config itself and never copied to the state branch (SCF:REQ-003); each
+  // delivery repository's locator still follows (portability, below).
+  assert.equal(activated.projection, undefined);
   assert.equal(activated.portability.portable, true);
   assert.ok(activated.portability.outcomes.some((entry) => entry.repository === delivery.remote));
   assert.equal(git(authority.remote, [

@@ -414,6 +414,15 @@ test('rejected code successors submit fresh evidence, including old-writer histo
       const oldPointer = structuredClone(first.claimMaps.observed);
       const oldBytes = await readFile(path.join(f.root, oldPointer.path));
       f.cli('reject', 'implementation', '--to', 'implementation', '--reason', 'Revise the same implementation with fresh evidence.');
+      // The rejected step's version 2 opens only on the person's yes [D3, OSA:REQ-030]: prepare alone is refused, its preview
+      // asks them, and their yes in their own terminal opens it.
+      const unasked = run(process.execPath, [CLI, '--no-model', 'prepare', 'implementation'], f.root, true);
+      assert.notEqual(unasked.status, 0);
+      assert.match(`${unasked.stdout}\n${unasked.stderr}`, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+      const previewed = f.cli('phase', 'rollover', 'implementation', '--json').stdout;
+      const successor = JSON.parse(previewed.slice(previewed.search(/^\{/mu)));
+      assert.match(successor.question, /^Start version 2 of /u);
+      f.cli('phase', 'rollover', 'implementation', '--confirm', successor.confirmation, '--json');
       f.cli('prepare', 'implementation');
       await f.write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value\nexport const value = 1 + 1;\n`);
       await f.write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value after correction', () => assert.equal(value,2));\n`);

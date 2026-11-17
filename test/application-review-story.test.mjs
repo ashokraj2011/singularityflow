@@ -176,6 +176,20 @@ test('Report and fix admits a submitted delivery successor through its existing 
   assert.equal(current.lineage.submissions.some(item => item.packetSha256 === packet), true, 'The inspected submission remains immutable history.');
   assert.equal(await readFile(path.join(repo.root, 'src/value.mjs'), 'utf8'), originalSource, 'Preparing a repair never edits application source.');
   assert.equal((await read()).findings[0].state, 'repairing', 'Neither generation admission nor test passes resolve the human finding.');
+  // Report and fix admits the repair, kept on this checkout; the successor itself opens only on the person's yes to its own
+  // question, like every other next version [D3, OSA:REQ-030]. Preparing it before that is refused, and their yes in their
+  // own terminal promotes the admitted opening at its own number, keeping its intent.
+  const unasked = repo.sflowJson('prepare', 'implement');
+  assert.notEqual(unasked.status, 0);
+  assert.equal(unasked.value.error.code, 'VERSION_CONSENT_REQUIRED');
+  const preview = repo.sflowJson('phase', 'rollover', 'implement');
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.match(preview.value.question, /^Start version 2 of /u);
+  assert.equal(preview.value.reason, 'legacy-promotion');
+  const opened = repo.sflowJson('phase', 'rollover', 'implement', '--confirm', preview.value.confirmation);
+  assert.equal(opened.status, 0, opened.stderr);
+  assert.equal((await loadAcceptedStoryExecution(repo.root, 'QF-1')).workflow.phases.implement.generationIntent.id, prepared.generationIntent.id,
+    'The person\'s yes opens the admitted generation, never another.');
   // The approved behavior is 2. The earlier test passed while asserting the wrong behavior;
   // the repair corrects both source and assertion under the admitted successor generation.
   await writeFile(path.join(repo.root, 'src/value.mjs'), originalSource.replace('value = 1', 'value = 2'));

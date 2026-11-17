@@ -15,6 +15,20 @@ const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url
 const verify = 'poc-lite-verify';
 const final = 'poc-lite-finalize';
 
+/**
+ * A step's next version opens only on the person's yes, the author's own correction too [D3, OSA:REQ-030]: preparing it
+ * without that yes is refused, its preview asks "Start version N of …", and their yes in their own terminal opens it.
+ */
+function startVersion(flow, phase, version) {
+  const refused = flow(['prepare', phase], true);
+  assert.notEqual(refused.status, 0, `${phase} version ${version} opened without the person's yes`);
+  assert.match(`${refused.stdout}\n${refused.stderr}`, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+  const previewed = flow(['phase', 'rollover', phase, '--json']).stdout;
+  const preview = JSON.parse(previewed.slice(previewed.search(/^\{/mu)));
+  assert.match(preview.question, new RegExp(`^Start version ${version} of `, 'u'));
+  flow(['phase', 'rollover', phase, '--confirm', preview.confirmation, '--json']);
+}
+
 async function fixture(t, id, { code = false, minimum = 1 } = {}) {
   const producer = code ? 'poc-lite-act' : verify;
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-rework-regression-'));
@@ -84,16 +98,17 @@ async function fixture(t, id, { code = false, minimum = 1 } = {}) {
     const preview = JSON.parse(flow(['story', 'rework', 'roll-forward', '--work-id', id, '--json']).stdout);
     return JSON.parse(flow(['story', 'rework', 'roll-forward', '--work-id', id, '--confirm', preview.confirmation, '--json']).stdout);
   };
-  return { root, git, flow, state, publish, rollForward, producer, changeSource };
+  const consent = (phase, version) => startVersion(flow, phase, version);
+  return { root, git, flow, state, publish, rollForward, producer, changeSource, consent };
 }
 
 test('published abandoned rework restores an approvable review without reusing generation identities', slowLane(), async (t) => {
-  const { root, git, flow, state, publish, rollForward } = await fixture(t, 'REWORK-ORDINAL');
+  const { root, git, flow, state, publish, rollForward, consent } = await fixture(t, 'REWORK-ORDINAL');
   const before = await state();
   const originalPacket = before.lineage.submissions.at(-1);
   const originalBytes = await readFile(path.join(root, originalPacket.path), 'utf8');
   flow(['reject', final, '--to', verify, '--reason', 'Inspect an alternative verification report.']);
-  publish(verify);
+  consent(verify, 2); publish(verify);
   assert.equal((await state()).phases[verify].generation, 2);
   rollForward();
   let workflow = await state();
@@ -107,7 +122,8 @@ test('published abandoned rework restores an approvable review without reusing g
   assert.equal((await state()).status, 'closed', 'restored review can be approved despite the abandoned publication remaining in history');
 
   flow(['reopen', '--to', verify, '--reason', 'Recheck completion with new evidence.']);
-  publish(verify);
+  // Generation 2 stays reserved by its historical publication, so the yes is asked for version 3.
+  consent(verify, 3); publish(verify);
   workflow = await state();
   assert.equal(workflow.phases[verify].generation, 3, 'generation 2 remains reserved by its historical publication');
   flow(['submit', verify]);
@@ -117,7 +133,7 @@ test('published abandoned rework restores an approvable review without reusing g
   assert.equal(phaseNeedsGeneration(workflow, workflow.phases[final]), true, 'downstream evidence is stale even though its old generation is retained');
   const staleSubmit = flow(['submit', final], true);
   assert.notEqual(staleSubmit.status, 0);
-  publish(final); flow(['submit', final]); flow(['approve', final, '--yes']);
+  consent(final, 2); publish(final); flow(['submit', final]); flow(['approve', final, '--yes']);
   workflow = await state();
   assert.equal(workflow.phases[final].generation, 2);
   assert.equal(workflow.status, 'closed');
@@ -175,16 +191,16 @@ test('roll-forward preserves dirty checkpoint bytes without authenticating them 
 });
 
 test('Code rework after abandonment retains tested source and passes terminal audit at generation three', slowLane(), async (t) => {
-  const { root, flow, state, publish, rollForward, producer, changeSource } = await fixture(t, 'REWORK-CODE', { code: true });
+  const { root, flow, state, publish, rollForward, producer, changeSource, consent } = await fixture(t, 'REWORK-CODE', { code: true });
   flow(['reject', final, '--to', producer, '--reason', 'Consider an alternative tested implementation.']);
-  flow(['prepare', producer]);
+  consent(producer, 2); flow(['prepare', producer]);
   await changeSource(3); publish(producer);
   assert.equal((await state()).phases[producer].generation, 2);
   rollForward();
   assert.equal(await readFile(path.join(root, 'src/example.mjs'), 'utf8'), 'export const value = 2;\n');
   flow(['approve', final, '--yes']);
   flow(['reopen', '--to', producer, '--reason', 'Implement a new tested value.']);
-  flow(['prepare', producer]);
+  consent(producer, 3); flow(['prepare', producer]);
   await changeSource(4); publish(producer); flow(['submit', producer]);
   let workflow = await state();
   assert.equal(workflow.phases[producer].generation, 3);
@@ -192,20 +208,20 @@ test('Code rework after abandonment retains tested source and passes terminal au
   assert.ok(workflow.phases[producer].deliveryEvidence.testExecutions.length > 0);
   assert.ok(workflow.phases[producer].deliveryEvidence.testExecutions.every((entry) => entry.status === 'passed'));
   assert.equal(workflow.changeRequests.at(-1).status, 'resolved');
-  publish(final); flow(['submit', final]); flow(['approve', final, '--yes']);
+  consent(final, 2); publish(final); flow(['submit', final]); flow(['approve', final, '--yes']);
   workflow = await state();
   assert.equal(workflow.status, 'closed');
   flow(['gate', '--terminal']);
 });
 
 test('restored review invalidates partial approvals and requires the full fresh threshold', slowLane(), async (t) => {
-  const { flow, state, publish, rollForward } = await fixture(t, 'REWORK-THRESHOLD', { minimum: 2 });
+  const { flow, state, publish, rollForward, consent } = await fixture(t, 'REWORK-THRESHOLD', { minimum: 2 });
   flow(['approve', final, '--yes']);
   let workflow = await state();
   assert.equal(workflow.phases[final].status, 'awaiting_approval');
   assert.equal(workflow.phases[final].approvals.filter((entry) => entry.decision === 'approved' && !entry.invalidatedAt).length, 1);
   flow(['reject', final, '--to', verify, '--reason', 'Review an alternative before finishing the threshold.']);
-  publish(verify); rollForward();
+  consent(verify, 2); publish(verify); rollForward();
   workflow = await state();
   assert.equal(workflow.phases[final].approvals.filter((entry) => entry.decision === 'approved' && !entry.invalidatedAt).length, 0);
   assert.ok(workflow.phases[final].approvals.some((entry) => entry.decision === 'approved' && entry.invalidatedAt));
@@ -299,7 +315,7 @@ test('governed repairs and later Code publications are not stale evidence; out-o
 
   // Returning to the first review leaves the second code step's governed bytes in the tree.
   flow(['reject', final, '--to', verify, '--reason', 'Recheck the first review with the second step in place.']);
-  flow(['prepare', verify]);
+  startVersion(flow, verify, 2); flow(['prepare', verify]);
   assert.equal((await draft()).status, 'ready');
   await write('src/first.mjs', 'export const first = 2; // out of band\n');
   const outOfBand = await draft();

@@ -792,7 +792,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the gate loading the API assertion check only for such a criterion (delivery-evidence.mjs +722), a declared surface
     // with no screens read by visual coverage (visual-coverage.mjs +433, a call into the lazy application-review-policy.mjs)
     // and its reason in the Flow Gate's passes (governance.mjs +85). The checks themselves stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_758_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,758,250 (measured 9,758,201 for submit.mjs, +2,543 over 9,755,658; start.mjs 9,757,880): the question account and
+    // CVL piece 4 merged on the review fixes (after-demo, 2026-11-18), each measured above on its own base. Same 472 files.
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_758_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

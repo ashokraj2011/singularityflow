@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { initializeDefinition } from '../src/config.mjs';
 import {
-  approveProposal, authorChange, describeChange, discardDrafts, draftLines, draftsDirectory, legacyDraftsPath, proposeDrafts, readDrafts
+  approvedWords, approveProposal, authorChange, describeChange, discardDrafts, draftLines, draftsDirectory, legacyDraftsPath, proposeDrafts, readDrafts
 } from '../src/configuration-drafts.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
@@ -171,6 +171,25 @@ test('approving shows what changes, needs a yes, and activates exactly the revis
     && /configuration approve one\n.*configuration approve two/.test(error.message));
 });
 
+test('an approval names the kind it approved: a people proposal is never called workflow configuration [SCF:REQ-012]', async t => {
+  const root = await repository(t);
+  for (const [kind, words] of [['people', 'People'], ['workflow', 'Workflow'], ['package', 'Package']]) {
+    const reviewed = { branch: `sflow/config-change/${kind}/change-x`, proposalCommit: 'c'.repeat(40), valid: true, changedFiles: [], workflows: [] };
+    const printed = [];
+    const result = await approveProposal(root, reviewed.branch, { yes: true, print: (line) => printed.push(line),
+      list: async () => [reviewed], inspect: async () => reviewed, activate: async () => ({ status: 'activated', activated: true }),
+      confirm: reviewed.proposalCommit });
+    assert.equal(result.kind, kind);
+    assert.ok(printed.includes(`${words} configuration approved. New Stories use these changes; Stories already running keep the configuration they started with.`),
+      printed.join('\n'));
+    assert.equal(printed.some((line) => kind !== 'workflow' && /Workflow configuration approved/u.test(line)), false);
+  }
+  // Capability and repository setup proposals are approved by their own engines, with the same words.
+  assert.match(approvedWords('capability'), /^Capability configuration approved\. /u);
+  assert.match(approvedWords('setup'), /^Repository setup configuration approved\. /u);
+  assert.match(approvedWords(null), /^Configuration approved\. /u);
+});
+
 /** A checkout bootstrapped from a remote whose approved configuration is the seed's, as `prepare` left it. */
 async function approvedCheckout(t, prepare = async () => {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-drafts-e2e-'));
@@ -259,7 +278,7 @@ test('end to end: three dependent changes become one proposal, approved with one
   // The view shows what lands, not only file names (SCF:REQ-008).
   assert.match(refused.stdout, /New file singularity\/skill-library\/review\/SKILL\.md:\n(?: {4}.*\n)*? {4}\+ Write each comment <instruction>tone<\/instruction>/);
   assert.match(refused.stderr, /approve exactly this revision: singularity-flow configuration approve sflow\/config-change\/\S+ --confirm [0-9a-f]{40}/);
-  assert.match(flow(checkout, ['configuration', 'approve', '--yes']).stdout, /Approved\. New Stories use these changes/);
+  assert.match(flow(checkout, ['configuration', 'approve', '--yes']).stdout, /Workflow configuration approved\. New Stories use these changes/);
   assert.match(git(remote, 'show', 'sflow/config:singularity/skill-library/review/SKILL.md'), /<instruction>tone<\/instruction>/);
   assert.match(git(remote, 'show', 'sflow/config:singularity/skill-library/attachments.yml'), /review/);
   assert.match(flow(checkout, ['configuration', 'drafts']).stdout, /^No drafts\./);

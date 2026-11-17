@@ -108,7 +108,9 @@ test('people and approvals offers the resolved Git identity, group menu, solo mo
     'all configured groups is the select default');
   assert.match(html, /Allow self-approval for newly started work/);
   assert.match(html, /Automatically add a new Git identity to every approval group/);
-  assert.match(html, /Add, commit &amp; push/);
+  // Adding yourself is a people proposal [SCF:REQ-012]: the button says so, never a direct push.
+  assert.match(html, /<button type="submit">Propose<\/button>/);
+  assert.doesNotMatch(html, /commit &amp; push/);
   assert.doesNotMatch(html, /Save without publishing/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'add-current-identity'/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /allowSelfApproval: data\.get\('allowSelfApproval'\) === 'on'/);

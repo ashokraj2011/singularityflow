@@ -33,6 +33,7 @@ import { link, lstat, mkdir, open, readFile, readdir, rename, rm } from 'node:fs
 import path from 'node:path';
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from './publication-storage.mjs';
 import { compactCanonicalJson } from './records.mjs';
+import { configurationProposalKind } from './configuration-state-contract.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /** What `readDrafts` returns: every waiting draft in order, and the last proposal. */
@@ -1214,10 +1215,11 @@ export async function approveProposal(root, requested, {
   }
   // SF Guard (SPEC-PSS-v1 §10.9): the approver's one touch over the exact proposal, before anything moves.
   const approval = await (await import('./presence/configuration-seal.mjs')).signConfigurationApproval(root, { ...reviewed, branch });
+  const kind = configurationProposalKind(branch);
   const result = await activate(root, branch, { confirm: revision, acknowledgeUnprotected: true, ...(picks.size ? { choices: picks } : {}) });
   if (result?.activated !== false && result?.status !== 'review-required' && result?.status !== 'activation-pending') {
     await forgetProposal(root, branch);
-    print('Approved. New Stories use these changes; Stories already running keep the configuration they started with.');
+    print(approvedWords(kind));
     if (result?.approval?.selfApproved) print('Recorded as a self-approval: you proposed it and approved it.');
     if (approval?.unsigned) {
       print(`SF Guard: approved without a signature, because ${approval.unsigned}. Anyone with access to this repository can change the configuration, so this holds nothing back; guard status shows the commit as unsigned.`);
@@ -1232,8 +1234,13 @@ export async function approveProposal(root, requested, {
   } else {
     print(`The approval did not complete: ${result?.failure?.message ?? 'the update was not accepted'}. Nothing else changed; retry with singularity-flow configuration approve ${branch}.`);
   }
-  return { schemaVersion: 1, resultType: 'configuration-approval', ...result, branch };
+  return { schemaVersion: 1, resultType: 'configuration-approval', kind, ...result, branch };
 }
+
+/** What an approval says it approved: its proposal's kind, as `configuration proposals` lists it [SCF:REQ-010, REQ-012]. */
+const KIND_WORDS = Object.freeze({ workflow: 'Workflow', people: 'People', package: 'Package', capability: 'Capability', setup: 'Repository setup' });
+export const approvedWords = (kind) => `${KIND_WORDS[kind] ?? 'Configuration'} ${KIND_WORDS[kind] ? 'configuration ' : ''}approved. `
+  + 'New Stories use these changes; Stories already running keep the configuration they started with.';
 
 /**
  * Reject a proposal, with a reason, or withdraw one's own [SCF:REQ-009]: show it, bind the decision to
@@ -1387,7 +1394,7 @@ export async function approveDelegatedProposal(root, branch, kind, {
   }
   const result = await activate(branch, { confirm: decided, reviewed });
   if (result?.activated !== false && result?.status !== 'review-required') {
-    print('Approved. New Stories use these changes; Stories already running keep the configuration they started with.');
+    print(approvedWords(kind));
     // Signed, or refused before anything moved, while SF Guard is on: never unsigned here.
     if (result?.presence?.status === 'failed') print(`SF Guard: ${result.presence.message}.`);
   } else if (result?.externalAction) {

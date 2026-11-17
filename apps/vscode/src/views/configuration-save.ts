@@ -161,6 +161,16 @@ export async function activateReviewedWorkflowProposal<T>(
   return boundary.activate([...args, '--json']);
 }
 
+/**
+ * What an approval approved, by its proposal's kind, as `configuration approve` says it: a people proposal is not
+ * "workflow configuration" [SCF:REQ-012]. The result's `kind`, else the kind its branch names.
+ */
+export function approvedKindWords(kind: unknown, branch: string): string {
+  const named = typeof kind === 'string' ? kind : /^sflow\/config-change\/(workflow|people|package)\//u.exec(branch)?.[1];
+  const label = ({ workflow: 'Workflow', people: 'People', package: 'Package', capability: 'Capability', setup: 'Repository setup' } as Record<string, string>)[named ?? ''];
+  return label ? `${label} configuration approved` : 'Configuration approved';
+}
+
 /** The acknowledgement's words about who approves [SCF:REQ-011]: a self-approval is recorded and shown. */
 export function selfApprovalWords(selfApproval: ConfigurationSelfApproval | null): string {
   if (!selfApproval?.self) return 'Your approval is recorded in the approval commit.';

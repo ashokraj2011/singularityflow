@@ -708,7 +708,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // before the version question (+1,967): the kernel's hold leads the opening or publishing it blocks (kernel/step-state.mjs),
     // its route names the acknowledgement (step-decision.mjs) and sequence reads a held submission as that route. The 11-17
     // landing at 051d9096b already measured 9,741,193, 243 over the line above, before this change. No new eager file.
-    assert.ok(closure.bytes <= 9_743_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,744,100 (measured 9,744,073 for submit.mjs, +913): a step SFlow builds is published by its own work command's route
+    // in the planners' later steps and refusals, never /sf-publish [OSA:REQ-026, C9]: action-command-map.mjs's
+    // builtPublicationRoute (publish-version's prepublish form), sequence.mjs's phasePublicationCommandForMode naming it, and
+    // nextsteps.mjs's words. Moving sequence.mjs's soft-gate audit record to a lazy module got under this line, but added a
+    // module to the VS Code gateway bundle, which is at its 884; the growth is this fix's own. No new eager file.
+    assert.ok(closure.bytes <= 9_744_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

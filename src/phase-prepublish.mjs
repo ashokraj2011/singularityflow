@@ -8,14 +8,14 @@ import {
 } from './artifact-sets.mjs';
 import { generationSkillForPhase, legacyAuthoringSkill, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
-import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
+import { commandGuidanceForCommands, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { consumedOpeningMismatch } from './kernel/step-versions.mjs';
-import { ACTION_SKILLS, actionCommandLine } from './action-command-map.mjs';
+import { ACTION_SKILLS, actionCommandLine, builtPublicationRoute } from './action-command-map.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { exactFileAtObject, changes } from './git.mjs';
 import { workingTreeAction } from './collaboration.mjs';
@@ -494,6 +494,17 @@ async function endingObligations(root, config, workflow, phase) {
 }
 
 /**
+ * The check's routes. A step SFlow builds is published by its own work command, never /sf-publish [OSA:REQ-026, C9]; its
+ * `commands.publish` stays the exact publication `--publish-if-ready` runs.
+ */
+function builtPublishGuidance(workflow, phase, commands, producer, modelEnabled) {
+  const guidance = commandGuidanceForCommands(commands);
+  const built = commands.publish ? safeCommandGuidance(builtPublicationRoute(workflow, phase, producer, modelEnabled !== false) ?? {}) : null;
+  return built ? Object.freeze({ ...guidance, publish: Object.freeze({ command: built.command, modelFreeCommand: built.modelFreeCommand,
+    copilotCommand: built.copilotCommand, copilotStatus: 'available', copilotReason: null }) }) : guidance;
+}
+
+/**
  * Read-only, phase-scoped readiness projection for guided pre-publication repair.
  *
  * Draft-check owns authored Markdown and producer identity. Recovery adds known projection,
@@ -823,7 +834,7 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
       after: Object.freeze(ready ? [] : sameTurnCorrection ? followRoutes : draft.correction.after ?? [])
     }),
     commands,
-    commandGuidance: commandGuidanceForCommands(commands),
+    commandGuidance: builtPublishGuidance(workflow, phase, commands, draft.configuredProducer, options.modelEnabled),
     mutates: false,
     modelInvocations: 0
   });

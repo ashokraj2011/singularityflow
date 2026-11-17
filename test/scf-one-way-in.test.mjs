@@ -11,7 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import YAML from 'yaml';
 import { run } from '../src/util.mjs';
 import { initializeDefinition } from '../src/config.mjs';
@@ -187,14 +187,27 @@ test('a workflow that workflow validate calls invalid cannot be approved (ER-F7)
     });
     const before = tip(f);
     // The named fix route: the fix is made in the proposal, so its proposer withdraws it and anyone else rejects it
-    // with the problems as its reason, bound to the revision refused.
+    // with the problems as its reason, bound to the revision refused. This proposal was made in one step, with no
+    // drafts saved on this machine, so its proposer withdraws the proposal itself: no drafts come back.
     await assert.rejects(approve(f.alice, thin.branch, thin.commit), (error) => {
       assert.equal(error.code, 'WORKFLOW_PROPOSAL_PROBLEMS');
       assert.ok(error.details.problems.every((problem) => problem.workflow === 'thin-flow'));
       assert.equal(error.details.nextAction.command,
         `singularity-flow configuration reject ${thin.branch} --confirm ${thin.commit} --reason "workflow validate reports ${error.details.problems.length === 1 ? 'a problem' : 'problems'} in thin-flow"`);
-      assert.match(error.details.nextAction.label, /Withdraw it/u);
-      assert.match(error.message, /Withdraw it: your drafts come back to fix/u);
+      assert.equal(error.details.nextAction.label, 'Withdraw your proposal, fix it, then propose again');
+      assert.match(error.message, /Withdraw your proposal, then propose the change again without them\./u);
+      assert.doesNotMatch(`${error.message} ${error.details.nextAction.label}`, /drafts/u);
+      return true;
+    });
+    // A proposal of drafts saved on this machine gives them back when it is withdrawn (rejectProposal): that one says so.
+    const { draftsDirectory, PROPOSED_SCHEMA } = await import('../src/configuration-drafts.mjs');
+    await mkdir(draftsDirectory(f.alice), { recursive: true });
+    await writeFile(path.join(draftsDirectory(f.alice), 'proposed.json'),
+      `${JSON.stringify({ schema: PROPOSED_SCHEMA, revision: 1, proposed: { branch: thin.branch, draftIds: [] } }, null, 2)}\n`);
+    await assert.rejects(approve(f.alice, thin.branch, thin.commit), (error) => {
+      assert.equal(error.code, 'WORKFLOW_PROPOSAL_PROBLEMS');
+      assert.equal(error.details.nextAction.label, 'Withdraw it, fix your drafts, then propose again');
+      assert.match(error.message, /Withdraw it: your drafts come back to fix, then propose them again\./u);
       return true;
     });
     await assert.rejects(approve(f.bob, thin.branch, thin.commit), (error) => {

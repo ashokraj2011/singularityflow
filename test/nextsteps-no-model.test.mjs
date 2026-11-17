@@ -46,10 +46,17 @@ test('nextsteps gives deterministic phases their exact model-free publication co
   const state = workflow(['deterministic']);
   state.phases.design.generationPolicy.defaultProducer = 'deterministic';
   const actions = workflowNextSteps(state, { modelMode: { enabled: false } });
-  const publication = actions.find((item) => item.command.startsWith('singularity-flow phase publish'));
-  assert.equal(publication.command,
-    'singularity-flow phase publish design --authored deterministic --channel kernel-generator --no-model');
+  // SFlow builds it, so its own work command checks and publishes it, the action-to-command map's publish-version: never
+  // `phase publish`, which /sf-publish owns [OSA:REQ-026, C9]. The run's --no-model travels with it.
+  const publication = actions.find((item) => item.operationId === 'phase');
+  assert.deepEqual([publication.timing, publication.skill, publication.copilotCommand, publication.command], ['then', '/sf-phase', '/sf-phase',
+    'singularity-flow phase prepublish design --for-agent --json --publish-if-ready --no-model']);
+  assert.equal(actions.some((item) => item.command.startsWith('singularity-flow phase publish')), false);
+  assert.equal(actions.some((item) => /^\/sf-publish\b/u.test(item.copilotCommand ?? '')), false);
   assert.equal(actions.some((item) => item.command.includes('--authored human')), false);
+  // With a model the same step's publication is the same work command's, without the flag.
+  const withModel = workflowNextSteps(state, { modelMode: { enabled: true } }).find((item) => item.operationId === 'phase');
+  assert.deepEqual([withModel.copilotCommand, withModel.command], ['/sf-phase', 'singularity-flow phase prepublish design --for-agent --json --publish-if-ready']);
 });
 
 test('a deterministic convergence policy routes through projection preparation', () => {

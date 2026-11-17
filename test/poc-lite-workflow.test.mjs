@@ -187,6 +187,17 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   assert.doesNotMatch(submittedPlan.stdout, /review poc-lite-plan/,
     'the guided runner must not invent a review boundary after no-approval completion');
   assert.match(submittedPlan.stdout, /Guided run advanced to 'poc-lite-act'/);
+  // The later items name the same work command as the step's own route: SFlow builds ACT's summary, so its publication is
+  // checked and published by /sf-code (the action-to-command map's publish-version), never handed to /sf-publish [C9].
+  assert.doesNotMatch(submittedPlan.stdout, /\/sf-publish/u, 'no route hands a step SFlow builds to /sf-publish');
+  assert.doesNotMatch(submittedPlan.stdout, /phase publish poc-lite-act/u);
+  assert.match(submittedPlan.stdout,
+    /SOON\s+Check what SFlow built for poc-lite-act and publish it once its checks pass, without invoking a model\.\n\s*Copilot: \/sf-code\n\s*Shell: singularity-flow phase prepublish poc-lite-act --for-agent --json --publish-if-ready --no-model\n/u);
+  const later = JSON.parse(lifecycle('nextsteps', '--json').stdout).actions;
+  const publication = later.find((entry) => entry.operationId === 'phase');
+  assert.deepEqual([publication?.timing, publication?.copilotCommand, publication?.command],
+    ['then', '/sf-code', 'singularity-flow phase prepublish poc-lite-act --for-agent --json --publish-if-ready --no-model'], JSON.stringify(later));
+  assert.ok(later.every((entry) => !/^\/sf-publish\b/u.test(entry.copilotCommand ?? '')), JSON.stringify(later.map((entry) => entry.copilotCommand)));
 
   // The code interval must open before either endpoint changes. A passing baseline test cannot be
   // relabelled as evidence for new behavior: this generation changes both product and test bytes.

@@ -514,7 +514,7 @@ function currentIdentityCard(view: ConfigurationCenterView): string {
     <div class="check-grid"><label class="check"><input name="allowSelfApproval" type="checkbox"${view.approvalAllowSelfApproval ? ' checked' : ''}>Allow self-approval for newly started work</label>
     <label class="check"><input name="autoEnrollNewIdentities" type="checkbox"${view.approvalAutoEnrollNewIdentities ? ' checked' : ''}>Automatically add a new Git identity to every approval group when work starts</label></div>
     <small>Both controls are enabled by default for normal team configuration and can be disabled here. Current profile: <code>${escape(view.approvalSecurityProfile)}</code>. Active work keeps its pinned policy.</small>
-    <div class="card-foot"><button type="submit">Add, commit &amp; push</button></div>
+    <div class="card-foot"><button type="submit">Propose</button></div>
   </form>`;
 }
 

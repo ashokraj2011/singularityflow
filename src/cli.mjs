@@ -5638,7 +5638,8 @@ async function workflowCommand(positionals, options) {
       const created = await author({
         operation: 'create-workflow', subject: id,
         message: `[configuration] create workflow ${id}`,
-        mutate: (target) => defineWorkflow(target, id, input)
+        // Never a workflow `workflow validate` refuses: its approval would refuse it too [ER-F7].
+        mutate: async (target) => (await import('./workflow-validation.mjs')).createdWithoutProblems(target, id, () => defineWorkflow(target, id, input), options)
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
       if (printProposal(created)) return;

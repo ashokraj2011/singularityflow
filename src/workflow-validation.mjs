@@ -16,9 +16,11 @@
  */
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { loadDefinition } from './config.mjs';
+import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { SingularityFlowError } from './util.mjs';
 import { STUDIO_CHANGE_SET_SCHEMA } from './workflow-studio.mjs';
 import { checkWorkflowConfiguration } from './workflow-check.mjs';
 import { validateWorkflowCatalog } from './workflow-catalog.mjs';
@@ -164,6 +166,48 @@ export async function validateWorkflows(root, { workflow = null, env = process.e
       };
     })())
   };
+}
+
+/**
+ * Each problem `workflow validate` finds in `ids`, read in `checkout` [finding ER-F7]: keyed by workflow and
+ * finding, so the problems a change adds are the ones its result has and the configuration before it had not.
+ */
+export async function workflowProblems(checkout, ids) {
+  const problems = new Map();
+  for (const id of ids) {
+    let result;
+    try { result = await validateWorkflows(checkout, { workflow: id }); }
+    catch (error) { if (error?.code === 'WORKFLOW_UNKNOWN') continue; throw error; }
+    for (const workflow of result.workflows ?? []) {
+      for (const finding of (workflow.findings ?? []).filter((entry) => entry.severity === 'problem')) {
+        problems.set(`${workflow.id}\0${finding.id ?? finding.code ?? finding.title}`, { workflow: workflow.id, title: finding.title, code: finding.code ?? null,
+          ...(finding.fix?.text ? { fix: finding.fix.text } : {}) });
+      }
+      if (workflow.obligations && workflow.obligations.startable === false && !(workflow.findings ?? []).some((entry) => entry.severity === 'problem')) {
+        problems.set(`${workflow.id}\0not-startable`, { workflow: workflow.id, title: workflow.reason ?? 'A Story cannot start it.', code: 'WORKFLOW_NOT_STARTABLE' });
+      }
+    }
+  }
+  return problems;
+}
+
+/**
+ * `workflow create` makes only a workflow `workflow validate` passes: approval refuses one with a problem the
+ * configuration before it did not have (ER-F7), so a proposal of it is one nobody can approve. Runs `create` in
+ * `checkout`; on a problem the workflow is taken out again and refused, naming each problem and its fix.
+ */
+export async function createdWithoutProblems(checkout, id, create, options = {}) {
+  const file = path.join(checkout, WORKFLOW_PATH), saved = await readFile(file).catch(() => null);
+  const result = await create();
+  const problems = result?.governs === 'story' ? [...(await workflowProblems(checkout, [id])).values()] : [];
+  if (!problems.length) return result;
+  if (saved) await writeFile(file, saved);
+  // The same command, to run again once each problem is changed.
+  const argv = ['workflow', 'create', id, ...Object.entries(options).flatMap(([name, value]) => value === true ? [`--${name}`]
+    : typeof value === 'string' ? [`--${name}`, value] : Array.isArray(value) ? value.flatMap((entry) => [`--${name}`, String(entry)]) : [])];
+  throw new SingularityFlowError(`Workflow ${id} was not created: \`workflow validate\` would refuse it, so nobody could approve it. Nothing was proposed.\n`
+    + `${problems.map((entry) => `- ${entry.title}${entry.fix ? `\n  Fix: ${entry.fix}` : ''}`).join('\n')}\nChange what each problem names, then create it again.`, { code: 'WORKFLOW_CREATE_PROBLEMS',
+    details: { workflow: id, problems, nextAction: { label: 'Change what each problem names, then create it again', executable: 'singularity-flow', argv } } });
 }
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;

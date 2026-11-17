@@ -380,29 +380,8 @@ function packageOrderFailure(reader, branch, targetCommit, proposalCommit) {
       + 'singularity-flow workspace refresh-configuration --rollback, run from that older build.' };
 }
 
-/**
- * Each problem `workflow validate` finds in `ids`, read in `checkout` [finding ER-F7]: keyed by workflow and
- * finding, so the problems a landing adds are the ones its candidate has and the current sflow/config had not.
- */
-async function workflowProblems(checkout, ids) {
-  const problems = new Map();
-  if (!ids.length) return problems;
-  const { validateWorkflows } = await import('./workflow-validation.mjs');
-  for (const id of ids) {
-    let result;
-    try { result = await validateWorkflows(checkout, { workflow: id }); }
-    catch (error) { if (error?.code === 'WORKFLOW_UNKNOWN') continue; throw error; }
-    for (const workflow of result.workflows ?? []) {
-      for (const finding of (workflow.findings ?? []).filter((entry) => entry.severity === 'problem')) {
-        problems.set(`${workflow.id}\0${finding.id ?? finding.code ?? finding.title}`, { workflow: workflow.id, title: finding.title, code: finding.code ?? null });
-      }
-      if (workflow.obligations && workflow.obligations.startable === false && !(workflow.findings ?? []).some((entry) => entry.severity === 'problem')) {
-        problems.set(`${workflow.id}\0not-startable`, { workflow: workflow.id, title: workflow.reason ?? 'A Story cannot start it.', code: 'WORKFLOW_NOT_STARTABLE' });
-      }
-    }
-  }
-  return problems;
-}
+/** Each problem `workflow validate` finds in `ids`, read in `checkout` [finding ER-F7] (workflow-validation.mjs). */
+const workflowProblems = async (checkout, ids) => ids.length ? (await import('./workflow-validation.mjs')).workflowProblems(checkout, ids) : new Map();
 
 /**
  * Who a landing adds to an approval group although an approved change removed them, when the approver is that
@@ -881,16 +860,21 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         const added = [...after].filter(([key]) => !problemsBefore.has(key)).map(([, value]) => value);
         if (added.length) {
           const named = [...new Set(added.map((entry) => entry.workflow))];
-          // The fix is made in the proposal, not in sflow/config: its proposer withdraws it (their drafts come back to
-          // fix), or anyone else rejects it with the problems as the reason; the fixed change is proposed again.
+          // The fix is made in the proposal, not in sflow/config: its proposer withdraws it, or anyone else rejects it with
+          // the problems as the reason; the fixed change is proposed again. Only a proposal of drafts saved on this machine
+          // gives drafts back (rejectProposal); one made in one step (`workflow create --propose`) had none.
           const own = selfApproval(reviewed.proposer, approver);
+          const drafts = own && (await (await import('./configuration-drafts.mjs')).readDrafts(root).catch(() => null))?.proposed?.branch === proposalBranch;
           const why = `workflow validate reports ${added.length === 1 ? 'a problem' : 'problems'} in ${named.join(', ')}`;
           throw new SingularityFlowError(
             `Approving ${proposalBranch} would give ${named.join(', ')} ${added.length === 1 ? 'a problem' : `${added.length} problems`} \`workflow validate\` reports: `
             + `${added.map((entry) => `${entry.workflow}: ${entry.title}`).join('; ')}. Nothing was changed. `
-            + (own ? 'Withdraw it: your drafts come back to fix, then propose them again.' : 'Reject it with that reason: its proposer fixes it and proposes it again.'),
+            + (drafts ? 'Withdraw it: your drafts come back to fix, then propose them again.'
+              : own ? 'Withdraw your proposal, then propose the change again without them.'
+                : 'Reject it with that reason: its proposer fixes it and proposes it again.'),
             { code: 'WORKFLOW_PROPOSAL_PROBLEMS', details: { problems: added, nextAction: {
-              label: own ? 'Withdraw it, fix your drafts, then propose again' : 'Reject it, so its proposer fixes it',
+              label: drafts ? 'Withdraw it, fix your drafts, then propose again' : own ? 'Withdraw your proposal, fix it, then propose again'
+                : 'Reject it, so its proposer fixes it',
               command: `singularity-flow configuration reject ${proposalBranch} --confirm ${reviewed.proposalCommit} --reason "${why}"` } } }
           );
         }

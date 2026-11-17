@@ -8,7 +8,7 @@ import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, applicationReviewOffer, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import {
-  effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
+  effectivePhasePublicationProducer, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
 import { modelOffCause, operationContext } from './operation-context.mjs';
 import { decisionSubmitArguments, describeOutcome, reopenableSteps, upcomingDecision } from './workflow-decisions.mjs';
@@ -404,7 +404,7 @@ function plannedNextSteps(workflow, {
     else if (modelFreeProducer === 'deterministic') {
       if (!convergenceProjectionRequired) actions.push(action(
         'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
-        `Publish the deterministically generated ${phase.label} without invoking a model.`,
+        `Check what SFlow built for ${phase.id} and publish it once its checks pass, without invoking a model.`,
         { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
       ));
       // Deterministic convergence is already represented by its immediate prepare action. That
@@ -418,8 +418,9 @@ function plannedNextSteps(workflow, {
       { operationId: 'phase', modelPolicy: 'required', availability: 'blocked', route: 'none' }
     ));
   } else if (needsGeneration && !convergenceProjectionRequired) actions.push(action(
-    'then', generationSkillForPhase(phase, workflow), phasePublicationCommand(phase),
-    `Publish ${phase.label} with its configured producer and channel.`,
+    'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: true }),
+    effectiveProducer === 'deterministic' ? `Check what SFlow built for ${phase.id} and publish it once its checks pass.`
+      : `Publish ${phase.label} with its configured producer and channel.`,
     { operationId: 'phase', route: 'configured-producer' }
   ));
   const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);

@@ -4229,6 +4229,39 @@ test('the installer\'s plain refresh publishes straight to sflow/config and says
   assert.deepEqual(again.summary, ['sflow/config in application already holds this build\'s configuration.']);
 });
 
+// Review 11-17, finding 6: a skill or test-command amendment waits until the repository's minimum build reads ancestry
+// proof v2, and its route is this refresh. A difference that is only the build's name published nothing, so the minimum
+// never moved and the same refusal came back. Crossing that line publishes; every other name-only difference still does not.
+test('a build that reads ancestry proof v2 publishes over a name-only difference that would leave the minimum below it (review 11-17)', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-v2-minimum-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'application');
+  const approved = () => run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim();
+  const minimum = () => YAML.parse(run('git', ['--git-dir', remote, 'show', `sflow/config:${PACKAGE_BASELINE_PATH}`]).stdout).build;
+  const { minimumBuildReadsV2 } = await import('../src/skp-amendment-audit.mjs');
+  const before = { commit: 'a'.repeat(40), builtAt: '2026-11-15T08:00:00.000Z' };
+  assert.equal((await refreshWorkspaceConfigurations({ registryFile: registry, build: before })).results[0].status, 'updated');
+  assert.equal(minimumBuildReadsV2(minimum()), false);
+  // Below the line: a name-only difference is nothing to publish [D13(5)].
+  const still = await refreshWorkspaceConfigurations({ registryFile: registry, build: { commit: 'b'.repeat(40), builtAt: '2026-11-16T08:00:00.000Z' } });
+  assert.equal(still.results[0].status, 'current');
+  assert.deepEqual(minimum(), before);
+  // Across it: the minimum moves to a build that reads v2, so the amendment's retry finds it.
+  const reader = { commit: 'c'.repeat(40), builtAt: '2026-11-17T12:00:00.000Z' };
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, build: reader, dryRun: true });
+  assert.equal(preview.results[0].status, 'would-update');
+  assert.equal(preview.results[0].productStampOnly, undefined);
+  const crossed = await refreshWorkspaceConfigurations({ registryFile: registry, build: reader });
+  assert.equal(crossed.results[0].status, 'updated', JSON.stringify(crossed.results));
+  assert.deepEqual(minimum(), reader);
+  assert.equal(minimumBuildReadsV2(minimum()), true);
+  // Above it: name-only again, nothing published.
+  const published = approved();
+  const later = await refreshWorkspaceConfigurations({ registryFile: registry, build: { commit: 'd'.repeat(40), builtAt: '2026-11-18T08:00:00.000Z' } });
+  assert.equal(later.results[0].status, 'current');
+  assert.equal(approved(), published);
+});
+
 // The upgrade analysis's F1 (UP-F1, SCF:REQ-015, REQ-016): an older build's refresh reverted everything a newer package
 // had added, with no review and no warning. Once a newer build's baseline is approved, an older build never proposes.
 test('an older build never publishes over a newer build\'s baseline, and a development build never publishes [SCF:REQ-015, UP-F1]', async (t) => {

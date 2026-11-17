@@ -367,8 +367,10 @@ function stubVscode() {
         return terminal;
       },
       showErrorMessage: async (message) => { registered.errors.push(message); },
-    showInformationMessage: async (message) => {
+    showInformationMessage: async (message, ...items) => {
       registered.infos.push(message);
+      // The buttons offered with it, so a test can say one was not offered.
+      registered.infoItems.push(items.filter((item) => typeof item === 'string'));
       return registered.informationAnswer;
     },
       showWarningMessage: async (message) => { registered.warnings.push(message); },
@@ -430,6 +432,7 @@ function stubVscode() {
   // What a human "types" into the exact-confirmation box, and what they answer to the self-approval
   // modal. Set per test: the default is a person who confirms nothing.
   registered.typed = null;
+  registered.infoItems = [];
   registered.informationAnswer = undefined;
   registered.selfApprovalAnswer = undefined;
   // Exact confirmations and acknowledgements are review pages (c4ca42e4). The stub answers them the
@@ -5059,6 +5062,20 @@ test('starting work before any approver is named says so first, and offers the f
     ? intakePanel.webview.html : null)), /People &amp; approvals/);
 });
 
+/** One change to the approved sflow/config's workflow, made in a clone of its own (a folder this test owns) and pushed. */
+async function editApprovedWorkflow(t, root, edit, message) {
+  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
+  const editor = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-edit-'));
+  t.after(() => rm(editor, { recursive: true, force: true }));
+  run('git', ['clone', '-q', '-b', 'sflow/config', remote, path.join(editor, 'clone')]);
+  const file = path.join(editor, 'clone', 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(file, 'utf8'));
+  edit(workflow);
+  await writeFile(file, YAML.stringify(workflow));
+  run('git', ['-c', 'user.name=Reviewer', '-c', 'user.email=reviewer@example.com', 'commit', '-qam', message], { cwd: path.join(editor, 'clone') });
+  run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: path.join(editor, 'clone') });
+}
+
 test('People & approvals adds the current Git identity to every configured group and publishes it', async (t) => {
   if (!requireBundle(t)) return;
   const { root, api, registered } = await activated();
@@ -5071,6 +5088,12 @@ test('People & approvals adds the current Git identity to every configured group
   };
   api.workspace.onDidCloseTextDocument = () => ({ dispose() {} });
   run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
+  // Self-approval is turned off only where the groups name a second person, who approves later changes (review 11-17).
+  await editApprovedWorkflow(t, root, (workflow) => {
+    const first = Object.keys(workflow.approvalAuthorities)[0];
+    workflow.approvalAuthorities[first].members = [...(workflow.approvalAuthorities[first].members ?? []),
+      { name: 'Second Reviewer', email: 'second.reviewer@example.com' }];
+  }, 'A second reviewer');
   await registered.commands.get('singularityFlow.configurePeople')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
   assert.ok(panel, 'People & approvals opens in the Configuration Center');
@@ -5142,6 +5165,33 @@ test('People & approvals adds the current Git identity to every configured group
   assert.equal(after, before, 'the guided action never advances the active lifecycle branch');
   assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus,
     'the guided action never changes the active worktree or index');
+  assert.deepEqual(registered.errors, []);
+});
+
+test('People & approvals offers Review and approve only to a proposer who may approve it (review 11-17)', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
+  // An approved change once removed this person from a group: approving their own readmission is refused, so it is not offered.
+  let group = null;
+  await editApprovedWorkflow(t, root, (workflow) => {
+    group = Object.keys(workflow.approvalAuthorities)[0];
+    workflow.approvalAuthorities[group].members = [{ email: EMAIL }];
+  }, 'Add the owner');
+  await editApprovedWorkflow(t, root, (workflow) => { workflow.approvalAuthorities[group].members = [{ name: 'Reviewer', email: 'reviewer@example.com' }]; },
+    'Remove the owner');
+  await registered.commands.get('singularityFlow.configurePeople')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
+  registered.warningAnswers.push('Propose');
+  registered.informationAnswer = 'Review and approve';
+  await panel.post({ type: 'add-current-identity', target: `story:${group}`, allowSelfApproval: true, autoEnrollNewIdentities: true });
+  const { index } = await until(() => {
+    const found = registered.infos.findIndex((message) => /^Proposed as /u.test(message));
+    return found >= 0 ? { index: found } : null;
+  }, { what: 'the proposal notice' });
+  assert.match(registered.infos[index], /An approved change removed you from a group it adds you to, so someone else must approve it\./u);
+  assert.deepEqual(registered.infoItems[index], [], 'Review and approve is not offered');
+  assert.equal(registered.reviewConfirmations.length, 0, 'no approval was started');
   assert.deepEqual(registered.errors, []);
 });
 

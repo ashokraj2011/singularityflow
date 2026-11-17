@@ -168,11 +168,18 @@ export async function validateWorkflows(root, { workflow = null, env = process.e
   };
 }
 
+const ROUTE_DROPS = 'OBLIGATION_ROUTE_DROPS_RESPONSIBILITY';
+
 /**
  * A problem as a change compares it: its workflow, code and the subject it names (and the file it is in), never its line.
  * A finding's `id` carries its line, so an edit that only moved lines named an old problem as a new one.
  */
 function problemKey(workflowId, finding) {
+  // A route that drops responsibilities is one problem per route, whichever step it ends after and whatever it still
+  // misses: appending a step after its last one, or fixing part of it, is not a new problem (review 11-17, finding 3).
+  if (finding.code === ROUTE_DROPS) {
+    return JSON.stringify([workflowId, ROUTE_DROPS, finding.subject?.decision ?? null, finding.subject?.route ?? null, finding.location?.file ?? null]);
+  }
   const subject = finding.subject && typeof finding.subject === 'object'
     ? Object.fromEntries(Object.entries(finding.subject).sort(([a], [b]) => a.localeCompare(b))) : finding.subject ?? null;
   return JSON.stringify([workflowId, finding.code ?? finding.title, subject, finding.location?.file ?? null]);
@@ -190,8 +197,13 @@ export async function workflowProblems(checkout, ids) {
     catch (error) { if (error?.code === 'WORKFLOW_UNKNOWN') continue; throw error; }
     for (const workflow of result.workflows ?? []) {
       for (const finding of (workflow.findings ?? []).filter((entry) => entry.severity === 'problem')) {
-        problems.set(problemKey(workflow.id, finding), { workflow: workflow.id, title: finding.title, code: finding.code ?? null,
-          ...(finding.fix?.text ? { fix: finding.fix.text } : {}) });
+        const key = problemKey(workflow.id, finding);
+        // What a route misses, joined over its ends, so a change adds a problem only where something is newly missing.
+        const missing = finding.code === ROUTE_DROPS
+          ? [...new Set([...(problems.get(key)?.missing ?? []), ...(finding.subject?.missing ?? [])])] : null;
+        problems.set(key, { workflow: workflow.id, title: finding.title, code: finding.code ?? null,
+          ...(finding.fix?.text ? { fix: finding.fix.text } : {}), ...(missing ? { missing } : {}),
+          ...(finding.code === ROUTE_DROPS && finding.subject?.decision ? { decision: finding.subject.decision } : {}) });
       }
       if (workflow.obligations && workflow.obligations.startable === false && !(workflow.findings ?? []).some((entry) => entry.severity === 'problem')) {
         problems.set(JSON.stringify([workflow.id, 'WORKFLOW_NOT_STARTABLE']), { workflow: workflow.id, title: workflow.reason ?? 'A Story cannot start it.', code: 'WORKFLOW_NOT_STARTABLE' });
@@ -200,6 +212,27 @@ export async function workflowProblems(checkout, ids) {
   }
   return problems;
 }
+
+/**
+ * The problems `after` has that `before` had not (both from workflowProblems): a new problem, or a route that now misses
+ * a responsibility it did not miss before. Approval and `workflow edit` compare the same way [ER-F7].
+ */
+export function addedProblems(before, after) {
+  return [...after].filter(([key, problem]) => {
+    const was = before.get(key);
+    return !was || (problem.missing ?? []).some((name) => !(was.missing ?? []).includes(name));
+  }).map(([, problem]) => problem);
+}
+
+/**
+ * Problems `workflow create` and `workflow edit` can change with their own options (--phases, --planned-claims,
+ * --clause-phases, --claim-owners, --loop): the step list, its plan owners and its rework loops. A route ending after
+ * the last step gains steps with --phases; one out of a decision is the decision's. Anything else (an agent file, omits,
+ * a step's own settings or template) is changed where those live (review 11-17, finding 5).
+ */
+const OPTION_FIXES = new Set([ROUTE_DROPS, 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN', 'CHECK_PLANNED_CLAIMS', 'CHECK_PLAN_SHARED_BY_CODE_STEPS',
+  'CHECK_TEMPLATE_PLANNED_TABLE']);
+const optionFixes = (problem) => OPTION_FIXES.has(problem.code) && !(problem.code === ROUTE_DROPS && problem.decision);
 
 /**
  * Runs `change` in `checkout`, then the check approval runs (ER-F7): a problem `workflow validate` finds that `before` did
@@ -212,8 +245,7 @@ async function withoutAddedProblems(checkout, id, change, { verb, options, befor
   const result = await change();
   let added;
   try {
-    added = result?.governs === 'story'
-      ? [...(await workflowProblems(checkout, [id]))].filter(([key]) => !before.has(key)).map(([, problem]) => problem) : [];
+    added = result?.governs === 'story' ? addedProblems(before, await workflowProblems(checkout, [id])) : [];
   } catch (error) { await restore(); throw error; }
   if (!added.length) return result;
   await restore();
@@ -222,12 +254,22 @@ async function withoutAddedProblems(checkout, id, change, { verb, options, befor
     : typeof value === 'string' ? [`--${name}`, value] : Array.isArray(value) ? value.flatMap((entry) => [`--${name}`, String(entry)]) : [])];
   const listed = added.map((entry) => `- ${entry.title}${entry.fix ? `\n  Fix: ${entry.fix}` : ''}`).join('\n');
   const again = `Change what each problem names, then ${verb} it again`;
+  const same = { label: again, executable: 'singularity-flow', argv };
+  // When a fix is not one of this command's options, the same command alone is no way out: Copilot's build, or Workflow
+  // Studio, changes the agent, omits or step settings with the workflow, and the same command stays the second route.
+  const elsewhere = !added.every(optionFixes);
+  const build = { label: `${verb === 'create' ? 'Build' : 'Change'} ${id} with Copilot or in Workflow Studio`,
+  command: `singularity-flow workflow build start${verb === 'create' ? '' : ` --change ${id}`}`, skill: '/sf-build-workflow',
+  workflowStudio: 'In VS Code, open Workflow Studio (Singularity Flow: Workflow Studio) and make the change there.' };
+  const then = elsewhere
+    ? `Not every fix is an option of workflow ${verb}: agents, omits and step settings change with Copilot (/sf-build-workflow) or in Workflow Studio, or by hand, then ${verb} it again`
+    : again;
   throw new SingularityFlowError(verb === 'create'
-    ? `Workflow ${id} was not created: \`workflow validate\` would refuse it, so nobody could approve it. Nothing was proposed.\n${listed}\n${again}.`
+    ? `Workflow ${id} was not created: \`workflow validate\` would refuse it, so nobody could approve it. Nothing was proposed.\n${listed}\n${then}.`
     : `Workflow ${id} was not changed: the edit adds ${added.length === 1 ? 'a problem' : `${added.length} problems`} \`workflow validate\` would refuse, so nobody `
-      + `could approve it. Nothing was written or proposed.\n${listed}\n${again}.`,
+      + `could approve it. Nothing was written or proposed.\n${listed}\n${then}.`,
   { code: verb === 'create' ? 'WORKFLOW_CREATE_PROBLEMS' : 'WORKFLOW_EDIT_PROBLEMS',
-    details: { workflow: id, problems: added, nextAction: { label: again, executable: 'singularity-flow', argv } } });
+    details: { workflow: id, problems: added, nextAction: elsewhere ? build : same, actions: [elsewhere ? same : build] } });
 }
 
 /**

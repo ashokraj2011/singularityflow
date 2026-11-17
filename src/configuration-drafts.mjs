@@ -1158,7 +1158,9 @@ export async function approveProposal(root, requested, {
   // One policy for every approval [SCF:REQ-011, D4]: refused before anyone is asked to confirm or sign.
   if (reviewed.approvalPolicy?.allowSelfApproval === false && !reviewed.merged && approver?.email && reviewed.proposer?.email
       && approver.email.trim().toLowerCase() === reviewed.proposer.email.trim().toLowerCase()) {
-    fail(`You proposed ${branch}, and this repository needs another person to approve configuration changes (approvalSecurity.allowSelfApproval is false). Nothing was approved; ask someone who may approve configuration to run: singularity-flow configuration approve ${branch}`,
+    const { selfApprovalRefusalWords } = await import('./configuration-approvers.mjs');
+    fail(`You proposed ${branch}, and this repository needs another person to approve configuration changes (approvalSecurity.allowSelfApproval is false). Nothing was approved; ask someone who may approve configuration to run: singularity-flow configuration approve ${branch}.`
+      + selfApprovalRefusalWords(reviewed.approvalPolicy?.approvers, approver),
       'CONFIGURATION_SELF_APPROVAL_REFUSED', { nextAction: { label: 'Another person approves it', command: `singularity-flow configuration approve ${branch}` } });
   }
   if (reviewed.valid === false) {
@@ -1363,9 +1365,11 @@ async function decidedRevision(root, branch, revision, { yes, confirm, interacti
  * signs it and hands it to its own engine.
  */
 export async function approveDelegatedProposal(root, branch, kind, {
-  yes = false, confirm = null, interactive = false, ask = null, print = (line) => console.log(line), inspect, activate, identity = null
+  yes = false, confirm = null, interactive = false, ask = null, print = (line) => console.log(line), inspect, activate, identity = null, lead = null
 }) {
   const reviewed = { ...(await inspect(branch)), branch };
+  // Every command it names reads the repository this one read (review 11-17, finding 9).
+  const on = lead ? ` --lead ${lead}` : '';
   let approver = null;
   try { approver = typeof identity === 'function' ? identity() : null; } catch { approver = null; }
   for (const line of delegatedViewLines(kind, reviewed, { approver })) print(line);
@@ -1374,11 +1378,13 @@ export async function approveDelegatedProposal(root, branch, kind, {
   const self = approver ? proposedBy(reviewed, approver) : false;
   if (reviewed.approvalPolicy?.allowSelfApproval === false && !reviewed.merged && self !== false) {
     if (self === true) {
-      fail(`You proposed ${branch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was approved.`,
-        'CONFIGURATION_SELF_APPROVAL_REFUSED', { nextAction: { label: 'Another person approves it', command: `singularity-flow configuration approve ${branch}` } });
+      const { selfApprovalRefusalWords } = await import('./configuration-approvers.mjs');
+      fail(`You proposed ${branch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was approved.`
+        + selfApprovalRefusalWords(reviewed.approvalPolicy?.approvers, approver),
+        'CONFIGURATION_SELF_APPROVAL_REFUSED', { nextAction: { label: 'Another person approves it', command: `singularity-flow configuration approve ${branch}${on}` } });
     }
     fail(`Git does not record who proposed ${branch}, so it could be your own, and this repository needs another person to approve it. Nothing was approved. Reject it, then propose it again.`,
-      'CONFIGURATION_PROPOSER_UNKNOWN', { nextAction: { label: 'Reject it, then propose it again', command: `singularity-flow configuration reject ${branch}` } });
+      'CONFIGURATION_PROPOSER_UNKNOWN', { nextAction: { label: 'Reject it, then propose it again', command: `singularity-flow configuration reject ${branch}${on}` } });
   }
   if (reviewed.valid === false && !reviewed.merged) {
     fail(`Proposal ${branch} cannot be approved: ${reviewed.failure?.message ?? 'it changes files outside the configuration'}`,
@@ -1387,7 +1393,7 @@ export async function approveDelegatedProposal(root, branch, kind, {
   const revision = reviewed.proposalCommit;
   const decided = await decidedRevision(root, branch, revision, { yes, confirm, interactive, ask,
     question: 'Approve this proposal for new Stories? This updates sflow/config. [y/N] ',
-    command: `singularity-flow configuration approve ${branch} --confirm ${revision}` });
+    command: `singularity-flow configuration approve ${branch} --confirm ${revision}${on}` });
   if (!decided) {
     print('Nothing was approved.');
     return { schemaVersion: 1, resultType: 'configuration-approval', kind, status: 'declined', activated: false, branch };
@@ -1400,7 +1406,7 @@ export async function approveDelegatedProposal(root, branch, kind, {
   } else if (result?.externalAction) {
     print(`sflow/config only accepts reviewed merges here. Merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch} on the Git host.`);
   } else {
-    print(`The approval did not complete: ${result?.failure?.message ?? 'the update was not accepted'}. Nothing else changed; retry with singularity-flow configuration approve ${branch}.`);
+    print(`The approval did not complete: ${result?.failure?.message ?? 'the update was not accepted'}. Nothing else changed; retry with singularity-flow configuration approve ${branch}${on}.`);
   }
   return { schemaVersion: 1, resultType: 'configuration-approval', kind, ...result, branch };
 }
@@ -1411,9 +1417,10 @@ export async function approveDelegatedProposal(root, branch, kind, {
  */
 export async function rejectDelegatedProposal(root, branch, kind, {
   yes = false, confirm = null, reason = null, interactive = false, ask = null, print = (line) => console.log(line),
-  inspect, remove, agent = () => false, identity = null
+  inspect, remove, agent = () => false, identity = null, lead = null
 }) {
   const reviewed = { ...(await inspect(branch)), branch };
+  const on = lead ? ` --lead ${lead}` : '';
   if (reviewed.merged) {
     fail(`Proposal ${branch} is already approved, so it cannot be rejected. To undo it, propose the change back.`, 'CONFIGURATION_REJECT_ALREADY_APPROVED',
       { nextAction: 'singularity-flow configuration proposals' });
@@ -1424,7 +1431,7 @@ export async function rejectDelegatedProposal(root, branch, kind, {
   // Its proposer withdraws it [SCF:REQ-009].
   const withdrawn = Boolean(rejecter) && proposedBy(reviewed, rejecter) === true;
   const revision = reviewed.proposalCommit;
-  const command = `singularity-flow configuration reject ${branch} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}`;
+  const command = `singularity-flow configuration reject ${branch} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}${on}`;
   const decided = await decidedRevision(root, branch, revision, { yes, confirm, interactive, ask,
     question: withdrawn ? 'Withdraw your proposal? Nothing in sflow/config changes. [y/N] ' : 'Reject this proposal? Nothing in sflow/config changes. [y/N] ', command });
   if (!decided) {

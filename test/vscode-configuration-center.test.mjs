@@ -106,7 +106,9 @@ test('people and approvals offers the resolved Git identity, group menu, solo mo
   assert.match(html, /All Story approval groups \(1\)/);
   assert.ok(html.indexOf('value="*"') < html.indexOf('value="story:*"'),
     'all configured groups is the select default');
-  assert.match(html, /Allow self-approval for newly started work/);
+  // The checkbox says everything it governs: Story steps and configuration approvals (review 11-17, finding 2).
+  assert.match(html, /Let people approve their own work: their own steps in new Stories, and their own configuration changes/);
+  assert.match(html, /With self-approval off, someone else approves each later configuration change, so a second person must be named first\./);
   assert.match(html, /Automatically add a new Git identity to every approval group/);
   // Adding yourself is a people proposal [SCF:REQ-012]: the button says so, never a direct push.
   assert.match(html, /<button type="submit">Propose<\/button>/);

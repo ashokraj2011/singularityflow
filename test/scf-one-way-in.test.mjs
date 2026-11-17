@@ -66,6 +66,8 @@ const reviewersOf = (f) => approved(f).approvalAuthorities['engineering-reviewer
 const branches = (f, prefix) => run('git', ['--git-dir', f.remote, 'for-each-ref', '--format=%(refname:short)', `refs/heads/${prefix}`]).stdout
   .split('\n').filter(Boolean);
 
+const rejectBranch = (f, branch) => run('git', ['--git-dir', f.remote, 'update-ref', '-d', `refs/heads/${branch}`]);
+
 function propose(checkout, subject, edit) {
   return proposeConfigurationChange(checkout, { operation: 'edit-workflow', subject,
     async mutate(root) {
@@ -179,6 +181,49 @@ test('with self-approval off, a configuration change needs a second person, and 
   } finally { await f.done(); }
 });
 
+test('a repository whose groups name nobody else never turns self-approval off, and a refused self-approval names who else may (review 11-17)', async () => {
+  const f = await fixture({ reviewers: [] });
+  try {
+    const before = tip(f);
+    // Alone, turning it off would leave every later configuration change, the one turning it back on included, waiting forever.
+    await assert.rejects(publishCurrentIdentityToConfiguration(f.alice, { target: '*', allowSelfApproval: false }), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_SELF_APPROVAL_NO_SECOND_PERSON');
+      assert.match(error.message, /^Self-approval stays on: the approval groups name only you \(Alice Example <alice@example\.test>\)/u);
+      assert.match(error.message, /Nothing was proposed/u);
+      assert.equal(error.details.nextAction.command, 'singularity-flow configuration add-current-identity');
+      return true;
+    });
+    assert.equal(tip(f), before);
+    assert.equal(branches(f, 'sflow/config-change/people/').length, 0, 'nothing was proposed');
+    // The same change made another way (by hand, or by an older build) is refused at approval when its proposer approves it.
+    const byHand = await propose(f.alice, 'self-approval-off', (definition) => { definition.approvalSecurity = { ...definition.approvalSecurity, allowSelfApproval: false }; });
+    await assert.rejects(approve(f.alice, byHand.branch, byHand.commit), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_SELF_APPROVAL_NO_SECOND_PERSON');
+      assert.match(error.message, /yourself would turn self-approval off with nobody named, so nobody could approve a later change\. Nothing was changed\./u);
+      assert.equal(error.details.nextAction.label, 'Another person approves it');
+      return true;
+    });
+    assert.equal(tip(f), before);
+    await rejectBranch(f, byHand.branch);
+    // The route works: Bob adds himself, Alice approves that, then she may turn self-approval off.
+    const bob = await publishCurrentIdentityToConfiguration(f.bob, { target: 'story:engineering-reviewers' });
+    assert.equal(bob.proposed, true);
+    assert.equal((await approve(f.alice, bob.proposal.branch, bob.proposal.commit)).activated, true);
+    const off = await publishCurrentIdentityToConfiguration(f.alice, { target: '*', allowSelfApproval: false });
+    assert.equal(off.proposed, true);
+    assert.equal((await approve(f.alice, off.proposal.branch, off.proposal.commit)).activated, true);
+    assert.equal(approved(f).approvalSecurity.allowSelfApproval, false);
+    // Her own change now waits for someone else, and the refusal names who.
+    const change = await propose(f.alice, 'label', (definition) => { definition.workTypes.feature.label = 'Feature, reviewed twice'; });
+    await assert.rejects(approve(f.alice, change.branch, change.commit), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_SELF_APPROVAL_REFUSED');
+      assert.match(error.message, /The approval groups name Bob Example <bob@example\.test>; any of them can approve it\./u);
+      return true;
+    });
+    assert.equal((await approve(f.bob, change.branch, change.commit)).activated, true);
+  } finally { await f.done(); }
+});
+
 test('a workflow that workflow validate calls invalid cannot be approved (ER-F7)', async () => {
   const f = await fixture();
   try {
@@ -199,11 +244,23 @@ test('a workflow that workflow validate calls invalid cannot be approved (ER-F7)
       assert.doesNotMatch(`${error.message} ${error.details.nextAction.label}`, /drafts/u);
       return true;
     });
-    // A proposal of drafts saved on this machine gives them back when it is withdrawn (rejectProposal): that one says so.
+    // A proposal recorded on this machine that held no saved drafts gives none back: it names the Studio edits to make
+    // again instead (review 11-17, finding 7).
     const { draftsDirectory, PROPOSED_SCHEMA } = await import('../src/configuration-drafts.mjs');
     await mkdir(draftsDirectory(f.alice), { recursive: true });
-    await writeFile(path.join(draftsDirectory(f.alice), 'proposed.json'),
-      `${JSON.stringify({ schema: PROPOSED_SCHEMA, revision: 1, proposed: { branch: thin.branch, draftIds: [] } }, null, 2)}\n`);
+    const recordProposed = (proposed) => writeFile(path.join(draftsDirectory(f.alice), 'proposed.json'),
+      `${JSON.stringify({ schema: PROPOSED_SCHEMA, revision: 1, proposed: { branch: thin.branch, ...proposed } }, null, 2)}\n`);
+    await recordProposed({ draftIds: [], changes: ['Create workflow thin-flow'], held: [] });
+    await assert.rejects(approve(f.alice, thin.branch, thin.commit), (error) => {
+      assert.equal(error.code, 'WORKFLOW_PROPOSAL_PROBLEMS');
+      assert.equal(error.details.nextAction.label, 'Withdraw your proposal, fix it, then propose again');
+      assert.match(error.message, /Withdraw it; it held no drafts, so redo in Workflow Studio: Create workflow thin-flow\./u);
+      assert.doesNotMatch(error.message, /drafts come back/u);
+      assert.deepEqual(error.details.redo, ['Create workflow thin-flow']);
+      return true;
+    });
+    // A proposal of drafts saved on this machine gives them back when it is withdrawn (rejectProposal): that one says so.
+    await recordProposed({ draftIds: ['d-1'], changes: ['Create workflow thin-flow'], held: [{ draftId: 'd-1', description: 'Create workflow thin-flow' }] });
     await assert.rejects(approve(f.alice, thin.branch, thin.commit), (error) => {
       assert.equal(error.code, 'WORKFLOW_PROPOSAL_PROBLEMS');
       assert.equal(error.details.nextAction.label, 'Withdraw it, fix your drafts, then propose again');

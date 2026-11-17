@@ -108,9 +108,13 @@ async function withProposalRecord(repository, branch, work, { env = process.env 
     const [{ sourceFileAt }, { normalizeApprovalSecurity }] = await Promise.all([
       import('./source-inspection.mjs'), import('./approval-authority.mjs')]);
     let security;
+    let approvers = null;
     try {
       const shown = sourceFileAt(store, configurationCommit ?? proposalCommit, 'singularity/workflow.yml', { env: gitEnv, offline: true });
-      security = normalizeApprovalSecurity((YAML.parse(shown.status === 'present' ? shown.value : '{}', { maxAliasCount: 100 }) ?? {}).approvalSecurity ?? {});
+      const definition = YAML.parse(shown.status === 'present' ? shown.value : '{}', { maxAliasCount: 100 }) ?? {};
+      security = normalizeApprovalSecurity(definition.approvalSecurity ?? {});
+      // Who else may be asked when the proposer may not approve it (review 11-17, finding 2).
+      approvers = (await import('./configuration-approvers.mjs')).namedApprovers(definition);
     } catch { security = normalizeApprovalSecurity({}); }
     let projected = null;
     const policyRoot = async () => {
@@ -124,7 +128,7 @@ async function withProposalRecord(repository, branch, work, { env = process.env 
       return projected;
     };
     return await work({ configurationCommit, proposalCommit, proposer: knownProposer(proposer), recorded: Boolean(knownProposer(proposer)),
-      approvalPolicy: { profile: security.profile, allowSelfApproval: security.allowSelfApproval }, policyRoot });
+      approvalPolicy: { profile: security.profile, allowSelfApproval: security.allowSelfApproval, ...(approvers ? { approvers } : {}) }, policyRoot });
   } finally {
     await removeTemporaryTree(scratch);
   }
@@ -150,16 +154,20 @@ export async function inspectDelegatedProposal(kind, repository, branch) {
  * and neither may anyone when Git does not say who proposed it. Returns whether this is a self-approval (`'unknown'`
  * when the proposer is not recorded).
  */
-function assertMayApprove(context, approver, branch, command) {
+async function assertMayApprove(context, approver, branch, command, repository) {
   const self = context.proposer ? context.proposer.email === String(approver?.email ?? '').trim().toLowerCase() : 'unknown';
   if (context.approvalPolicy.allowSelfApproval !== false || self === false) return self;
   if (self === true) {
-    throw new SingularityFlowError(`You proposed ${branch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was approved.`, {
+    const { selfApprovalRefusalWords } = await import('./configuration-approvers.mjs');
+    throw new SingularityFlowError(`You proposed ${branch}, and this repository needs another person to approve it (allowSelfApproval is false). Nothing was approved.`
+      + selfApprovalRefusalWords(context.approvalPolicy.approvers, approver), {
       code: 'CONFIGURATION_SELF_APPROVAL_REFUSED', details: { proposer: context.proposer, nextAction: { label: 'Another person approves it', command } }
     });
   }
+  // The route names the repository the approval read, so it reaches the same proposal (review 11-17, finding 9).
   throw new SingularityFlowError(`Git does not record who proposed ${branch}, so it could be your own, and this repository needs another person to approve it. Nothing was approved. Reject it, then propose it again.`, {
-    code: 'CONFIGURATION_PROPOSER_UNKNOWN', details: { nextAction: { label: 'Reject it, then propose it again', command: `singularity-flow configuration reject ${branch}` } }
+    code: 'CONFIGURATION_PROPOSER_UNKNOWN', details: { nextAction: { label: 'Reject it, then propose it again',
+      command: `singularity-flow configuration reject ${branch}${repository ? ` --lead ${repository}` : ''}` } }
   });
 }
 
@@ -181,7 +189,7 @@ export async function activateDelegatedProposal(root, kind, repository, branch, 
     // A branch already gone approves nothing new: its engine either reports the same commit already active or refuses.
     // So does a confirmation of another revision, which its engine refuses with the revision to confirm.
     const pending = Boolean(context.proposalCommit) && String(confirm ?? '').trim() === context.proposalCommit;
-    const selfApproved = pending ? assertMayApprove(context, approver, branch, command) : false;
+    const selfApproved = pending ? await assertMayApprove(context, approver, branch, command, repository) : false;
     const policyRoot = pending ? await context.policyRoot() : null;
     const proposal = { ...(reviewed ?? {}), branch, proposalCommit: String(confirm ?? reviewed?.proposalCommit ?? context.proposalCommit ?? ''),
       targetCommit: context.configurationCommit };

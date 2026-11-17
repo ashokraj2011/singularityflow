@@ -511,9 +511,10 @@ function currentIdentityCard(view: ConfigurationCenterView): string {
     <div class="section-heading"><div><h2>${icon('approval')}Add my current Git identity</h2><p class="muted">By default, your identity is added to every configured approval group. You can narrow it to one scope or group. Existing matching members are enriched, never duplicated.</p></div></div>
     <div class="summary-grid"><div class="summary-card"><strong>${escape(identity.name)}</strong><span>Git name</span></div><div class="summary-card"><strong>${escape(identity.email || 'not configured')}</strong><span>Git email</span></div><div class="summary-card"><strong>${escape(identity.githubLogin || 'not resolved')}</strong><span>GitHub login</span></div></div>
     <div class="form-grid"><label class="span-2"><span>Apply identity to</span><select name="target">${choices}</select><small>Sign-off rights are granted only to the selected approval groups.</small></label></div>
-    <div class="check-grid"><label class="check"><input name="allowSelfApproval" type="checkbox"${view.approvalAllowSelfApproval ? ' checked' : ''}>Allow self-approval for newly started work</label>
+    <div class="check-grid"><label class="check"><input name="allowSelfApproval" type="checkbox"${view.approvalAllowSelfApproval ? ' checked' : ''}>Let people approve their own work: their own steps in new Stories, and their own configuration changes</label>
     <label class="check"><input name="autoEnrollNewIdentities" type="checkbox"${view.approvalAutoEnrollNewIdentities ? ' checked' : ''}>Automatically add a new Git identity to every approval group when work starts</label></div>
     <small>Both controls are enabled by default for normal team configuration and can be disabled here. Current profile: <code>${escape(view.approvalSecurityProfile)}</code>. Active work keeps its pinned policy.</small>
+    <small>With self-approval off, someone else approves each later configuration change, so a second person must be named first.</small>
     <div class="card-foot"><button type="submit">Propose</button></div>
   </form>`;
 }

@@ -1739,6 +1739,14 @@ test('proposals waiting for review are listed in Changes, and reviewing one relo
   state.draft.groups['architecture-reviewers'].members.push({ name: 'First', email: 'first@example.com', githubLogin: null });
   logic.reviewProposal(listed[0].branch);
   assert.deepEqual(posted.at(-1), { type: 'studio.reviewProposal', branch: listed[0].branch, pending: 1 }, 'the host learns there are unpublished changes');
+  // A proposal approval refuses is fixed in the proposal: Changes withdraws or rejects it, as the terminal does (review 11-17).
+  reply({ type: 'studio.failed', message: 'Approving it would give Feature a problem.' });
+  logic.rejectProposal(listed[1].branch);
+  assert.deepEqual(posted.at(-1), { type: 'studio.rejectProposal', branch: listed[1].branch });
+  assert.equal(state.busy, 'reject');
+  reply({ type: 'studio.proposals', proposals: [listed[0]] });
+  assert.equal(state.busy, null);
+  assert.match(state.status, /sflow\/config-change\/onboarding\/create-123 was withdrawn or rejected\./u);
   reply({ type: 'studio.configurationChanged', reason: listed[0].branch + ' was activated' });
   assert.match(state.configurationChanged, /was activated/);
   reply({ type: 'studio.model', model, reset: true });

@@ -112,6 +112,8 @@ export interface WorkflowStudioActions {
    * separate acknowledgement an unprotected configuration branch needs. Returns why it stopped, if it did.
    */
   reviewProposal(branch: string): Promise<string | null | void>;
+  /** Withdraw one's own proposal, or reject another's with a reason (`configuration reject`). Returns why it stopped, if it did. */
+  rejectProposal?(branch: string): Promise<string | null | void>;
   /**
    * Approve a proposal the person just made on the page that made it: one acknowledgement that says
    * whether it is a self-approval, then the signed `configuration approve`. Server policy still applies;
@@ -279,6 +281,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.connectJira': () => this.connectJira(),
     'studio.proposals': () => this.proposals(),
     'studio.reviewProposal': (message) => this.reviewProposal(stringField(message, 'branch'), integerField(message, 'pending') ?? 0),
+    'studio.rejectProposal': (message) => this.rejectProposal(stringField(message, 'branch')),
     'studio.exportWorkflows': (message) => this.exportWorkflows((message as { workflowIds?: unknown }).workflowIds),
     'studio.importWorkflows': (message) => this.importWorkflows(integerField(message, 'pending') ?? 0),
     'studio.retryUpload': (message) => this.retryUpload(stringField(message, 'intentId')),
@@ -424,6 +427,14 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       this.model = fresh;
       this.post({ type: 'studio.model', model: fresh, reset: pending === 0, ...(pending > 0 ? { reason: `${branch} was activated` } : {}) });
     }
+    await this.proposals();
+  }
+
+  private async rejectProposal(branch: string | null): Promise<void> {
+    if (!branch || !PROPOSAL_BRANCH.test(branch)) { this.post({ type: 'studio.failed', message: 'That is not a configuration proposal.' }); return; }
+    if (!this.actions.rejectProposal) { this.post({ type: 'studio.failed', message: 'Withdrawing or rejecting a proposal is not available here.' }); return; }
+    const stopped = await this.actions.rejectProposal(branch);
+    if (typeof stopped === 'string' && stopped) this.post({ type: 'studio.failed', message: stopped });
     await this.proposals();
   }
 

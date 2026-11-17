@@ -746,7 +746,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // instead of recovery (state.mjs +279, story-test-risk.mjs +54, story-test-command-amendment.mjs -16). No new eager file.
     // 9,745,500 (measured 9,745,489 for start.mjs): the two small-fix tracks of 2026-11-17 together, each measured above on
     // its own base (the approval's next command from the kernel route, and Stage 5's routes from the map). No new eager file.
-    assert.ok(closure.bytes <= 9_745_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,745,900 (measured 9,745,891 for start.mjs, +402 over 4d173adc1's 9,745,489): review 11-17 findings 2 and 11. Turning
+    // self-approval off is refused while nobody else is named (configuration-people.mjs +268, a call into the lazy
+    // configuration-approvers.mjs), and a test-command amendment's two refusals name the Story's own request
+    // (story-test-command-amendment.mjs +134, calls into test-command-pins.mjs, which stays lazy). The route builders were
+    // first put in test-command-amendment-contracts.mjs (+3,274 here and in session current) and moved out. No new eager file.
+    assert.ok(closure.bytes <= 9_745_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

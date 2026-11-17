@@ -67,7 +67,7 @@ import {
 import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
 import { configurationPathTarget } from './views/configuration-save.ts';
-import { activateReviewedWorkflowProposal, configurationSaveDisposition, configurationSavePlanCliArgs, selfApprovalWords,
+import { activateReviewedWorkflowProposal, approvedKindWords, configurationSaveDisposition, configurationSavePlanCliArgs, selfApprovalWords,
   type ConfigurationClash, type ConfigurationSelfApproval } from './views/configuration-save.ts';
 import type { ConfigurationGitFailure } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
@@ -8222,21 +8222,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const review = 'Review and approve';
           void showCompactInformationMessage(`Proposed as ${personBranch(result.proposal.branch)}; it waits under Workflow Studio → Changes.${removed}`, review)
             .then((choice) => (choice === review ? reviewAndActivateWorkflowProposal(result.proposal!.branch) : undefined));
-          return null;
+          return { error: null, notice: `Proposed for approval: ${personBranch(result.proposal.branch)}. Nothing changes until it is approved under Workflow Studio → Changes.${removed}` };
         }
         if (result.changed && !result.pushed) {
           const next = commandGuidanceText(result.nextAction);
           return `The configuration commit is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : `Retry it from Workflow Studio → Changes, or run: singularity-flow sync ${result.transportIntent ?? '<INTENT-ID>'}`}`;
         }
         await refreshAfterKnownMutation();
-        if (!result.changed) {
-          void showCompactInformationMessage('Your current Git identity already belongs to the selected approval groups.');
-        } else {
-          void showCompactInformationMessage(
-            'People & approvals updated on sflow/config. Future Stories will use it.'
-          );
-        }
-        return null;
+        const notice = result.changed ? 'People & approvals updated on sflow/config. Future Stories will use it.'
+          : 'Nothing to propose: your current Git identity already belongs to the selected approval groups.';
+        void showCompactInformationMessage(notice);
+        return { error: null, notice };
       } catch (error) {
         output.appendLine(`  refused: ${(error as Error).message}`);
         return (error as Error).message;
@@ -8601,7 +8597,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
       void showCompactInformationMessage(
-        `Workflow configuration approved on ${activation.targetBranch ?? 'sflow/config'}${(activation as { approval?: { selfApproved?: boolean } }).approval?.selfApproved ? ', recorded as a self-approval' : ''}. `
+        `${approvedKindWords((activation as { kind?: unknown }).kind, inspected.branch)} on ${activation.targetBranch ?? 'sflow/config'}${(activation as { approval?: { selfApproved?: boolean } }).approval?.selfApproved ? ', recorded as a self-approval' : ''}. `
         + 'It is now available to new Stories; refresh workspace configuration to project it to other repositories.'
       );
       return null;

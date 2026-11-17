@@ -5077,7 +5077,9 @@ test('People & approvals adds the current Git identity to every configured group
   assert.match(panel.webview.html, /Add my current Git identity/);
   assert.match(panel.webview.html, new RegExp(EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(panel.webview.html, /All Story approval groups/);
-  assert.match(panel.webview.html, /Add, commit &amp; push/);
+  // A people proposal, not a push to sflow/config [SCF:REQ-012]: the button and the modal say so.
+  assert.match(panel.webview.html, /<button type="submit">Propose<\/button>/);
+  assert.doesNotMatch(panel.webview.html, /commit &amp; push/);
 
   const before = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
@@ -5086,7 +5088,7 @@ test('People & approvals adds the current Git identity to every configured group
   const approvedBefore = approvedCommit();
   // Every people or policy edit is a people proposal, approved like any other [SCF:REQ-012]: the person adds
   // themselves, then takes Review and approve, reads the proposal and approves exactly that revision.
-  registered.warningAnswers.push('Add, commit & push', 'Approve exact proposal', 'Acknowledge and approve');
+  registered.warningAnswers.push('Propose', 'Approve exact proposal', 'Acknowledge and approve');
   registered.informationAnswer = 'Review and approve';
   await panel.post({
     type: 'add-current-identity', target: '*',
@@ -5094,17 +5096,25 @@ test('People & approvals adds the current Git identity to every configured group
   });
   assert.ok(registered.infos.some((message) => /^Proposed as sflow\/config-change\/people\/approval-policy\b.*; it waits under Workflow Studio → Changes\./u.test(message)),
     registered.infos.join('\n'));
+  // The modal asked to propose, and the page says what happened: proposed for approval, nothing approved yet.
+  assert.ok(registered.warnings.some((message) => /^Propose adding .+ to the approval groups\?$/u.test(message)), registered.warnings.join('\n'));
+  const proposedPage = await until(() => (/Proposed for approval: sflow\/config-change\/people\/approval-policy/u.test(panel.webview.html) ? panel.webview.html : null),
+    { what: 'the page notice after proposing' });
+  assert.match(proposedPage, /Nothing changes until it is approved under Workflow Studio → Changes\./u);
+  assert.doesNotMatch(proposedPage, /Approved configuration processed/u);
   // Review and approve runs after the message is answered; wait for its outcome on the page, not by polling Git.
   await until(() => registered.errors.length
-    || registered.infos.some((message) => /^Workflow configuration approved on sflow\/config/u.test(message)),
+    || registered.infos.some((message) => /^People configuration approved on sflow\/config/u.test(message)),
   { what: 'the people proposal approved through Review and approve' }).catch((error) => {
     throw new Error(`${error.message}\n${JSON.stringify({ infos: registered.infos, warnings: registered.warnings,
       warningActions: registered.warningActions, pages: registered.reviewConfirmations.map((page) => page.title),
       output: registered.output.slice(-20) }, null, 2)}`);
   });
   assert.deepEqual(registered.errors, []);
-  assert.ok(registered.infos.some((message) => /^Workflow configuration approved on sflow\/config, recorded as a self-approval\./u.test(message)),
+  // It names what it approved: a people proposal, never "workflow configuration".
+  assert.ok(registered.infos.some((message) => /^People configuration approved on sflow\/config, recorded as a self-approval\./u.test(message)),
     registered.infos.join('\n'));
+  assert.equal(registered.infos.some((message) => /Workflow configuration approved/u.test(message)), false, registered.infos.join('\n'));
   assert.notEqual(approvedCommit(), approvedBefore, 'the approval landed on sflow/config');
   assert.match(run('git', [`--git-dir=${remote}`, 'log', '-1', '--format=%B', 'sflow/config']).stdout, /Self-approved: yes/u,
     'the approval commit records the self-approval');

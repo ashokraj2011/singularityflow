@@ -55,7 +55,9 @@ export type ConfigurationCenterReply = string | null | {
 } | {
   error: string | null;
   inspection: TestSetupInspection;
-} | {error: string | null; commitPolicyInspection: ConfigurationCenterView['commitPolicyInspection']};
+} | {error: string | null; commitPolicyInspection: ConfigurationCenterView['commitPolicyInspection']}
+  /** What a people change did, in the person's words: proposed for approval, or nothing to propose. */
+  | { error: null; notice: string };
 
 type ConfigurationSaveOutcome = {
   error: string | null;
@@ -583,9 +585,10 @@ export class ConfigurationCenterPanel {
     }
 
     const labels = authorities.map((entry) => `${entry.label} (${entry.scope})`);
-    const action = 'Add, commit & push';
+    // A people proposal [SCF:REQ-012]: nothing changes on sflow/config until it is approved.
+    const action = 'Propose';
     const confirmed = await showCompactWarningMessage(
-      `${action} for ${identity.name}?`,
+      `Propose adding ${identity.name} to the approval groups?`,
       {
         modal: true,
         detail: [
@@ -593,21 +596,23 @@ export class ConfigurationCenterPanel {
           `Approval groups:\n${labels.map((label) => `• ${label}`).join('\n')}`,
           `Self-approval: ${allowSelfApproval ? 'enabled' : 'disabled'}`,
           `Automatic enrollment for new Git identities: ${autoEnrollNewIdentities ? 'enabled' : 'disabled'}`,
-          'Existing Story snapshots remain unchanged.'
+          'This is proposed for approval: nothing changes until someone who may approve configuration approves it. Existing Story snapshots remain unchanged.'
         ].filter(Boolean).join('\n\n')
       },
       action
     );
     if (confirmed !== action) return;
 
+    let reply: ConfigurationCenterReply;
     try {
-      const error = ConfigurationCenterPanel.replyError(await this.onMessage({
-        type: 'add-current-identity', target, allowSelfApproval, autoEnrollNewIdentities
-      }));
+      reply = await this.onMessage({ type: 'add-current-identity', target, allowSelfApproval, autoEnrollNewIdentities });
+      const error = ConfigurationCenterPanel.replyError(reply);
       if (error) return this.showErrors([error]);
     } catch (error) { return this.showErrors([(error as Error).message]); }
     this.dirty = false;
-    this.notice = `Approved configuration processed for ${identity.name}. Existing Story snapshots were not changed.`;
+    // What happened, as the host saw it: proposed, or nothing to propose.
+    this.notice = (reply && typeof reply === 'object' && 'notice' in reply ? reply.notice : null)
+      ?? `Proposed for approval: ${identity.name} in ${labels.join(', ')}. Existing Story snapshots were not changed.`;
     this.render();
   }
 

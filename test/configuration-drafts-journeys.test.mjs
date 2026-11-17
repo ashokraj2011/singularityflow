@@ -139,7 +139,7 @@ test('a proposal whose upload failed holds its drafts until it is approved; one 
   assert.match(synced.stdout, new RegExp(`Shell: singularity-flow configuration approve ${branch.replaceAll('/', '\\/')}`));
   assert.doesNotMatch(synced.stdout, /This work is finished/);
   assert.doesNotMatch(flow(a, ['configuration', 'drafts']).stdout, /upload has not finished/);
-  assert.match(approve(a).stdout, /Approved\. New Stories use these changes/);
+  assert.match(approve(a).stdout, /Workflow configuration approved\. New Stories use these changes/);
   assert.match(flow(a, ['configuration', 'drafts']).stdout, /^No drafts\. Each agent, skill or instruction change you make is saved here until you propose it\.\n$/);
 
   // Merged by the Git host, which then deleted the branch: approving records it.

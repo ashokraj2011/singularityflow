@@ -270,14 +270,15 @@ async function convergenceFacts(root, config, workflow, phase, unavailable) {
 async function askedForFacts(root, workflow, phase) {
   if (!(workflow.askedFor ?? []).some((entry) => entry.phase === phase.id)) return null;
   const source = (name) => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', name)).href);
-  const [{ phaseRequiresCodeDelivery }, { instructionAccounting }, { typedFocusOff }] = await Promise.all([import('./code-delivery-policy.mjs'),
+  const [{ phaseRequiresCodeDelivery }, { accountableStep, instructionAccounting }, { typedFocusOff }, { openScopeAppeal }, { stepDecisionOf }] = await Promise.all([
     // From the CLI source, as the departures are: the VS Code bundles load it only for a Story that has one.
-    source('asked-for-records.mjs'), source('asked-for.mjs')]);
+    import('./code-delivery-policy.mjs'), source('asked-for-records.mjs'), source('asked-for.mjs'), source('phase-finding-policy.mjs'), source('step-decision.mjs')]);
   if (!phaseRequiresCodeDelivery(phase) || typedFocusOff(workflow)) return null;
   const entries = instructionAccounting(workflow, phase.id).filter((entry) => !entry.account);
   if (!entries.length) return null;
-  const open = workflow.currentPhase === phase.id && phase.status === 'in_progress' && phase.generationIntent?.status === 'open';
-  // Published and not submitted: it is accounted for in the next version, which opens only on the person's yes [D3, OSA:REQ-030].
+  // Written or published, and not submitted: its author accounts for it in this step, with no new version (accountableStep).
+  const open = accountableStep(workflow, phase, { openScopeAppeal, decision: stepDecisionOf(workflow, phase) });
+  // Otherwise it is accounted for in the next version, which opens only on the person's yes [D3, OSA:REQ-030].
   const route = open || phase.status === 'awaiting_approval' ? null
     : await source('requested-successor.mjs').then((module) => module.nextVersionRoute(root, workflow, phase)).catch(() => null);
   return { phase: phase.id, open, ...(route ? { route } : {}), entries };

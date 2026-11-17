@@ -8,6 +8,7 @@
  * while it still fails; once it passes, the journey fails until its entry here is removed, so it turns on with the fix.
  */
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -64,6 +65,24 @@ export const quickFixIntake = (W) => [`# ${W} — Quick fix scope and plan`, '',
   '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
   `| \`${W}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified | The test reads 2. |`, '',
   '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n');
+
+/**
+ * What a /sf-code entry tells its author to do with what the person asked for in the version it writes [SCS:REQ-042]:
+ * account for each, here within the plan by `clause`, before the step is submitted (a step nobody approves completes
+ * at its submission). The check copies what was typed into the Story and names each one still open. Returns the
+ * accounts made; nothing when nothing was asked.
+ */
+export function accountForAskedFor(story, phase, clause) {
+  const record = (() => { try { return JSON.parse(readFileSync(path.join(story.root, story.item, 'workflow.json'), 'utf8')); } catch { return null; } })();
+  if (!(record?.askedFor ?? []).length && !existsSync(path.join(story.root, '.git', 'singularity-flow', 'asked-for'))) return [];
+  const checked = story.raw(['phase', 'prepublish', phase, '--json']);
+  let open = [];
+  try { open = JSON.parse(checked.stdout.slice(checked.stdout.indexOf('{'))).askedFor?.unaccounted ?? []; } catch { open = []; }
+  return open.map((instruction) => {
+    const ran = story.raw(['departure', 'account', '--instruction', String(instruction), '--clauses', clause, '--json']);
+    return { instruction, status: ran.status, out: `${ran.stdout.slice(-400)}${ran.stderr.slice(-400)}` };
+  });
+}
 
 /** The value module and its test, tagged with `clauses`; `note` is the clause comment's words (a correction changes it). */
 export async function writeValueCode(story, { value, clauses, note = 'returns the approved value to its callers', extraTest = '' }) {

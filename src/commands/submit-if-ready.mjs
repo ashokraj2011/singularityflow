@@ -72,12 +72,16 @@ export async function run({ positionals, options }) {
   }
   const submitted = await step([...argv, '--json'], cwd);
   if (!submitted.ok) stop(submitted, 'submit');
-  const shown = await step(['phase', 'show', readiness.phaseId, '--for-agent', '--json'], cwd);
+  const show = (...phase) => step(['phase', 'show', ...phase, '--for-agent', '--json'], cwd);
+  const shown = await show(readiness.phaseId);
   if (!shown.ok) stop(shown, 'phase show');
+  const result = submitted.value?.operation?.id === 'submit' ? submittedResult(submitted.value) : submitReport(submitted.stdout);
+  // A step its submission completed (nobody approves it) is behind the Story now: what follows is the step that is current,
+  // as every view names it, never a hand-off to next steps (journey Q, 2026-11-17). A Story that ended keeps the step's own.
+  const following = result?.status === 'completed' ? await show() : null;
   // First, with what follows: the readiness fields after it describe the step before submission.
   console.log(JSON.stringify({ submitIfReady: {
-    submitted: true, next: nextAfterStep(shown.value, 'Submitted.'), command: readiness.nextCommand,
-    result: submitted.value?.operation?.id === 'submit' ? submittedResult(submitted.value) : submitReport(submitted.stdout),
-    review: shown.value
+    submitted: true, next: nextAfterStep(following?.ok && following.value?.continuation ? following.value : shown.value, 'Submitted.'), command: readiness.nextCommand,
+    result, review: shown.value
   }, ...readiness }, null, 2));
 }

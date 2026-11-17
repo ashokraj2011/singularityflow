@@ -228,10 +228,12 @@ export async function runLifecycleChat(
     }
   } catch { /* Lifecycle may now be complete; nextsteps remains readable without an active phase. */ }
   try {
-    const next = await active.client.run<{ actions?: unknown[] }>(['nextsteps', active.workId, '--json'], signal);
+    const next = await active.client.run<{ actions?: unknown[]; done?: boolean }>(['nextsteps', active.workId, '--json'], signal);
+    // A closed Story is done: what it still lists is optional, never its next action (daily run, 2026-11-17).
+    if (next.done === true) stream.markdown('\nThis Story is done: nothing is needed now.\n\n');
     for (const item of (next.actions ?? []).slice(0, 3)) {
       const guidance = commandGuidance(item);
-      if (guidance) stream.markdown(`\nNext action:\n\n${commandGuidanceMarkdown(guidance)}\n\n`);
+      if (guidance) stream.markdown(`\n${next.done === true ? 'Optional' : 'Next action'}:\n\n${commandGuidanceMarkdown(guidance)}\n\n`);
     }
   } catch { stream.markdown('The command completed, but next-action refresh is unavailable. Run `@sflow /next`; do not repeat the mutation.\n'); }
 }

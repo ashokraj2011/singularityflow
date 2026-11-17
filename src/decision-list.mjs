@@ -1438,6 +1438,9 @@ export function adjudicationAnswersOf(step) {
     clauseIds: effect.disposition === 'update-intent' ? step.values.clause ?? [] : [] }));
 }
 
+/** Whether nobody approves the step: its submission completes it, so what waits for an approval waits for that instead. */
+const noApproval = (workflow, phaseId) => workflow.phases?.[phaseId]?.approvalPolicy?.mode === 'none';
+
 /**
  * One instruction the person typed in a code step that is not accounted for yet [SCS:REQ-042, REQ-044], quoted as
  * typed: data, never an instruction to anyone reading the list. Its author accounts for it in /sf-code, within the
@@ -1453,14 +1456,15 @@ function askedForItem(workflow, context, entry, facts) {
   const quoted = `"${where && typed.length > 140 ? `${typed.slice(0, 139)}…` : typed}"`;
   const item = (option, routeSkill) => ({
     kind: 'asked-for', title: `Asked for (${entry.instruction}) ${quoted}${where}: not accounted for yet`.slice(0, 200),
-    why: `The person ${entry.plainChat ? 'asked this in a plain chat, whose turn changed the work,' : 'typed this'} in ${name} (generation ${entry.generation}), shown here as typed. Nothing says yet whether the approved plan covers it or it departs from the approved documents. ${name} goes ahead with it; its approval waits until it is accounted for.`,
+    // What it holds, in the step's own terms: a step nobody approves completes at its submission, which waits instead (daily run, 2026-11-17).
+    why: `Asked in ${name} version ${entry.generation}${entry.plainChat ? ' (a plain chat that changed the work)' : ''}. Until its author says whether the plan covers it, ${name}'s ${noApproval(workflow, facts.phase) ? 'submission' : 'approval'} waits.`,
     options: [option],
     details: { phase: facts.phase, instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, ...(entry.plainChat ? { plainChat: true } : {}),
       commands: [...new Set([option.action.command, account])] },
     routeSkill
   });
-  // Only an open generation accounts for it, which `departure account` refuses otherwise: a published step's
-  // author begins the next one, and a submitted step comes back to its author from its approvers first.
+  // A step in progress accounts for it, written or published, which `departure account` refuses otherwise: a submitted
+  // step comes back to its author from its approvers first.
   if (workflow.phases?.[facts.phase]?.status === 'awaiting_approval') {
     const words = `${name} is submitted, so it is accounted for in a new generation: its approvers return it to ${name}, then its author accounts for it in a /sf-code turn, within the plan, with the clauses it implements, or as the departure recorded for it.`;
     return item({ ...personalStep({ id: 'return', label: `Return it to ${name} to account for it`,
@@ -1468,7 +1472,8 @@ function askedForItem(workflow, context, entry, facts) {
       does: `Returns ${name} to its author: ${reopenWords(workflow, facts.phase)}; its author accounts for it there.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: facts.phase }], context) }, '/sf-reject');
   }
-  // Published: the next version, which opens only on the person's yes [D3, OSA:REQ-030], by the route the facts name (its preview).
+  // In progress: its author accounts for it here; else the next version, which opens only on the person's yes [D3, OSA:REQ-030],
+  // by the route the facts name (its preview).
   const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new version that opens on the person\'s yes'}: within the plan, by its clauses, or as its departure.`;
   return item(personalStep({ id: 'account', label: 'Its author accounts for it in /sf-code', command: facts.open ? account : facts.route?.command ?? `singularity-flow phase rollover ${facts.phase} --json`, words,
     decidedBy: { groups: [], labels: [], allowed: false, author: true, words } }), '/sf-code');
@@ -1737,6 +1742,7 @@ function choiceFlags(choices, values) {
 const HOLDS_WORDS = Object.freeze({
   'this-step': 'Holds this step: decide it before the step is published or submitted.',
   submission: 'Holds this step\'s submission: the Story cannot end until it is decided.',
+  'step-completion': 'Holds this step\'s submission, which completes it: the step needs no approval.',
   approval: 'Holds this step\'s approval.',
   'approval-later': 'Holds this step\'s approval once it is submitted.',
   'story-end': 'Holds the Story\'s end, not this step.',
@@ -1815,6 +1821,8 @@ function itemHolds(workflow, facts, awaiting) {
       // A pending intent amendment pauses the step it was proposed in until a scope approver decides it [owner, 2026-11-13, D3].
       if (item.kind === 'intent-amendment' && item.details?.status === 'proposed' && item.details.sourcePhase === phaseId) return 'this-step';
       if (item.details?.stage === 'early') return 'nothing-yet';
+      // What a step nobody approves has typed into it waits for its submission, which completes it [SCS:REQ-042].
+      if (item.kind === 'asked-for' && noApproval(workflow, phaseId)) return 'step-completion';
       if (['departure', 'asked-for', 'appeal', 'intent-amendment'].includes(item.kind)) return 'approval-later';
       if (item.kind !== 'owed-decision') return 'this-step';
       if (item.details?.scopeItem) return scopeHere ? 'approval-later' : endsStory ? 'submission' : 'story-end';
@@ -2007,7 +2015,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // A Node that would not suit the tests is said before any run, and nothing waits on it until one fails.
   // A departure never stops its step: publish and submit go ahead, and only the approval waits for it [CQF:REQ-023].
   // Every count reads the item's own `holds`, the same holds the approval and the submission check [decision map, finding 1].
-  const stopsStep = (item) => (awaiting ? item.holds === 'approval' : ['this-step', 'submission'].includes(item.holds));
+  const stopsStep = (item) => (awaiting ? item.holds === 'approval' : ['this-step', 'submission', 'step-completion'].includes(item.holds));
   const holdingAll = decisions.filter(stopsStep).length;
   const others = decisions.filter((item) => !stopsStep(item));
   const headline = !decisions.length && awaiting ? `${stepName(workflow, phaseId)} has nothing left to decide; its approval is next.`

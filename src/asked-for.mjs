@@ -111,14 +111,23 @@ async function writeLedger(file, ledger) {
 export const needsAccount = (entry) => entry?.plainChat !== true || entry.changed === true;
 
 /**
+ * Whether two typed instructions say the same thing: the same words, however they were spaced. A plain chat's prompt
+ * is never the same instruction as one typed after /sf-code: it waits for an account only once its turn changed the work.
+ */
+export const sameInstruction = (one, other) => (one?.plainChat === true) === (other?.plainChat === true) && one?.plainChat !== true
+  && String(one?.text ?? '').replace(/\s+/gu, ' ').trim() === String(other?.text ?? '').replace(/\s+/gu, ' ').trim();
+
+/**
  * One turn's words in the local record of its Story step and generation; a turn past the 20th is only counted.
- * A plain chat's prompts [PCR:REQ-002] are counted apart, so questions never crowd out an instruction.
+ * A plain chat's prompts [PCR:REQ-002] are counted apart, so questions never crowd out an instruction. The same words
+ * typed again for the same step and version (a turn that ended before it made the change, typed once more) are the
+ * instruction already kept, never a second one to account for (daily run, 2026-11-17).
  */
 export async function noteAskedFor(gitDir, { workId, phase, generation, text, truncated = false, skill, turnId, at, plainChat = false }) {
   const subject = { workId, phase, generation };
   const file = ledgerFile(gitDir, subject);
   const ledger = await readLedger(file, subject) ?? { schema: LEDGER_SCHEMA, ...subject, turns: [], omitted: 0 };
-  if (ledger.turns.some((entry) => entry.turnId === turnId)) return ledger;
+  if (ledger.turns.some((entry) => entry.turnId === turnId || sameInstruction(entry, { text, plainChat }))) return ledger;
   if (ledger.turns.filter((entry) => (entry.plainChat === true) === plainChat).length >= ASKED_FOR.turns) ledger.omitted = Number(ledger.omitted ?? 0) + 1;
   else ledger.turns.push({ turnId, skill, text, ...(truncated ? { truncated: true } : {}), ...(plainChat ? { plainChat: true } : {}), at });
   await writeLedger(file, ledger);

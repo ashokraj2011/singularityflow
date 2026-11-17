@@ -959,7 +959,9 @@ function routeMarkdown(value: unknown): string {
 function renderNextAction(value: unknown): ParticipantRendered {
   const result = jsonObject(value) ?? {};
   const actions = jsonArray(result.actions).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
-  const action = actions.find((entry) => entry.timing === 'now') ?? actions[0] ?? null;
+  // A closed Story is done: what it lists is optional, never offered as the next action (daily run, 2026-11-17).
+  const done = result.done === true;
+  const action = actions.find((entry) => entry.timing === 'now') ?? (done ? null : actions[0] ?? null);
   let markdown = `### Next legal action\n\n- Story: **${markdownValue(result.workId ?? 'not selected')}**\n`;
   markdown += `- Current phase: **${markdownValue(result.currentPhase ?? 'unavailable')}**\n`;
   const verification = jsonObject(result.repositoryChecks);
@@ -969,7 +971,7 @@ function renderNextAction(value: unknown): ParticipantRendered {
       ? `${Math.max(0, Math.floor(verification.ageMs / 60000))} min ago` : checked;
     markdown += `- Repository checks: ${markdownValue(age)} · ${markdownValue(verification?.mode ?? 'unknown')} · ${markdownValue(verification?.source ?? 'unknown')}\n`;
   }
-  if (!action) return { markdown: `${markdown}- No currently available action was returned.\n`, checkNow: Boolean(checked) };
+  if (!action) return { markdown: `${markdown}- ${done ? markdownValue(result.reason ?? 'This Story is done.', 400) : 'No currently available action was returned.'}\n`, checkNow: Boolean(checked) };
   markdown += `- Why: ${markdownValue(action.reason ?? 'No reason returned.', 1000)}\n`;
   markdown += `- Availability: ${markdownValue(action.availability ?? 'unknown')}\n`;
   const commands = renderedCommand(action);

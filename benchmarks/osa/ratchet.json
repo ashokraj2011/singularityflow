@@ -325,7 +325,6 @@
       "versionArithmetic": 1
     },
     "decision-list-reads.mjs": {
-      "intentReads": 1,
       "versionArithmetic": 2,
       "lifecycleCommands": 3,
       "skillLiterals": 1

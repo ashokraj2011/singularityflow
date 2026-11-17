@@ -5628,6 +5628,8 @@ async function submitPhaseTransition(root, config, workflow, {
   await assertPhaseRepairSettled(root, workflow, phase);
   const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
   await assertPhaseAppealsResolved(root, config, workflow, phase);
+  // Completed by this submission, a step's instructions are accounted for first, before its tests run [SCS:REQ-042].
+  if (phase.approvalPolicy?.mode === 'none') await assertAskedForAccounted(root, config, workflow, phase);
   // A missing receipt holds only the Story's ending: the closing transition refuses it, this submission is told [PHR:REQ-003].
   await warnRequiredStepActions(root, config, workflow);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
@@ -6364,6 +6366,7 @@ async function submitPhaseTransition(root, config, workflow, {
     // A step that completes at its submission waits, as an approval would, for the "still holds" of a kept step it reads [CIC:REQ-021].
     const owed = stillHoldsOwed(workflow, phase);
     if (owed.length) throw stillHoldsRefusal(workflow, phase, owed);
+    if (waiver?.eligible) await assertAskedForAccounted(root, config, workflow, phase, { boundary: 'submitted' });
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;
     phase.approvedBy = null;
@@ -6449,6 +6452,10 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   if (persist) await saveWorkflow(root, config, workflow);
   return phase;
+}
+
+async function assertAskedForAccounted(root, config, workflow, phase, options) {
+  if ((workflow.askedFor ?? []).length) await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href)).assertInstructionsAccounted(root, config, workflow, phase, options);
 }
 
 /** Ordinary submission deliberately has no route through the convergence confirmation context. */

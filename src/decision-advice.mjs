@@ -280,7 +280,7 @@ export function itemRecommendation(workflow, item) {
     case 'scope-completeness':
       return lean('record it only after you looked for what is missing, ambiguous or unmeasurable; nothing waits on it.');
     case 'asked-for':
-      return only ? rec(item, only.id, 'What the person typed must be accounted for before the step\'s approval; only its author can.') : lean('its author accounts for it.');
+      return only ? rec(item, only.id, `What the person typed must be accounted for before the step's ${workflow?.phases?.[details.phase]?.approvalPolicy?.mode === 'none' ? 'submission, which completes it' : 'approval'}; only its author can.`) : lean('its author accounts for it.');
     case 'routing-decision': {
       const routes = options.filter((entry) => /^choose-/u.test(entry.id));
       if (details.reason === 'limit') return lean('move on as it is unless another round would clearly help: all its rounds are used.');

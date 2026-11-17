@@ -185,6 +185,32 @@ test('overlapping conditions follow section 5\'s precedence and keep the other o
   assert.deepEqual(ready.next.prerequisites, [{ operation: 'decide', principalKind: 'human', code: 'ACK' }]);
 });
 
+test('a hold on opening or publishing a version leads the action it blocks; edits of an open version stay (owner, 2026-11-17)', () => {
+  // An approved amendment's acknowledgement: the person acknowledges first, then is asked to start the version.
+  const hold = { code: 'ACK', owner: 'person', id: 'AMD-1', blocks: ['opening', 'publication', 'submission'], resolution: 'decide' };
+  const reopened = base({ generationIntent: { status: 'consumed', generation: 1 }, rework: 1 });
+  assert.deepEqual([stepState(snapshotOf(reopened)).state, stepState(snapshotOf(reopened)).next.operation], ['reopened', 'open-version']);
+  const asked = stepState(snapshotOf({ ...reopened, facts: { ...reopened.facts, holds: [hold] } }));
+  assertShape(asked, 'held successor');
+  assert.deepEqual([asked.state, asked.next.kind, asked.next.operation, asked.next.principalKind, asked.next.inputs, asked.next.then, asked.edit.eligible],
+    ['held', 'person-decision', 'decide', 'human', { hold: 'ACK', id: 'AMD-1', effect: 'opening' }, ['open-version'], false]);
+  // Version 1 is an opening too.
+  const initial = stepState(snapshotOf({ facts: { phase: 'implementation', kind: 'code', status: 'in_progress', generation: 0, holds: [hold] } }));
+  assert.deepEqual([initial.next.operation, initial.next.then], ['decide', ['open-version']]);
+  // An open version: its work leads to publication, so the hold leads; what it may edit is unchanged.
+  const open = stepState(snapshotOf(base()));
+  const writing = stepState(snapshotOf(base({ holds: [hold] })));
+  assert.deepEqual([writing.state, writing.next.operation, writing.next.inputs.effect, writing.next.then], ['held', 'decide', 'publication', ['author-version']]);
+  assert.deepEqual(writing.edit.permittedCategories, open.edit.permittedCategories);
+  assert.equal(writing.edit.eligible, true);
+  // Submission stays the hold's prerequisite, with the amendment named.
+  const ready = stepState(snapshotOf(base({ generationIntent: { status: 'consumed', generation: 1 }, review: { status: 'ready', generation: 1 }, holds: [hold] })));
+  assert.deepEqual([ready.next.operation, ready.next.prerequisites], ['submit-version', [{ operation: 'decide', principalKind: 'human', code: 'ACK', id: 'AMD-1' }]]);
+  // A hold on submission only still leaves the opening to the person's yes.
+  const only = stepState(snapshotOf({ ...reopened, facts: { ...reopened.facts, holds: [{ ...hold, blocks: ['submission'] }] } }));
+  assert.deepEqual([only.state, only.next.operation], ['reopened', 'open-version']);
+});
+
 // ---------------------------------------------------------------------------------------------------- generator
 
 /** Valid and invalid combinations of the lifecycle facts the kernel reads [section 12.1 the generator]. */

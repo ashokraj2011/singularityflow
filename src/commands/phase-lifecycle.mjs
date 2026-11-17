@@ -116,6 +116,8 @@ async function phaseSubcommand(positionals, options) {
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
     // The same confirmation again (a lost reply): the opening it made, as it was, never another [OSA:REQ-033].
     if (optionString(options, 'confirm') && await (await import('./phase-opening.mjs')).replayConfirmed(root, config, workflow, phase, optionString(options, 'confirm'), options)) return;
+    // An approved amendment is acknowledged before the person is asked to start a version, or confirms one (owner, 2026-11-17).
+    (await import('../source-review-policy.mjs')).assertIntentAmendmentAcknowledged(workflow);
     const plan = await generationRecovery(
       root, workflow, phase,
       async (repositoryRoot, selectedPhase) => await generationResultMatches(

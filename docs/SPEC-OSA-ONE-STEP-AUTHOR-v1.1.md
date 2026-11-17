@@ -195,7 +195,7 @@ The evaluator applies this precedence, with focused tests for overlapping facts:
    - Confirmed corruption produces a damage route.
 2. Honour a valid cancelled or completed Story. Permit historical inspection without continuing authoring.
 3. Preserve confirmed damage or an uncertain interrupted operation. Reconcile the original operation before any replacement action that could repeat an effect.
-4. Honour current authorization, authority fencing, ownership and required presence. A hold names its real owner and its supported resolution.
+4. Honour current authorization, authority fencing, ownership and required presence. A hold names its real owner and its supported resolution. A hold on opening or publishing a version leads the action it blocks; one on submission is the submission's prerequisite (owner, 2026-11-17: an approved amendment's acknowledgement comes before the version question, section 7.1).
 5. Honour an undecided amendment or any other required human decision that pauses authoring.
 6. Honour a submitted version awaiting approval. It cannot be rolled over through the authoring command.
 7. For an initial current step with no accepted opening or publication, open version 1 through the conditional opening operation, without successor consent. A nonzero high-watermark uses the actual proposed number and the successor-consent rule.
@@ -269,6 +269,8 @@ The evaluator applies this precedence, with focused tests for overlapping facts:
 - the configuration revision and the expected lifecycle revision.
 
 **Who may confirm.** The confirming person must satisfy the existing version-opening permissions. This adds no approval group and no phase-approval vote. A question tool's presence, or a selected default, is not consent.
+
+**Acknowledgement first (owner, 2026-11-17).** While an approved intent amendment waits for a person's acknowledgement, the person acknowledges it first, on the decisions card, and only then is asked "Start version N of <step>?". Until then the version's preview and its confirmation refuse with `INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED`, whose route is the acknowledgement, and the card does not ask the version question. The kernel's hold blocks what the engine refuses: opening a version, publishing one and submitting (section 5, precedence 4).
 
 **The question.** The host asks in plain language, using the actual numbers:
 

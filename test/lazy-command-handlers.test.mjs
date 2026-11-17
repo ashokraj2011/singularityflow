@@ -704,7 +704,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // files); submit.mjs rises by 3,685 for the action-to-command map (action-command-map.mjs, which took in
     // submit-route.mjs, so its files stay 473). The reducer stays eager where a command's own narration names the next
     // step (start, submit, approve, prepare, review-source, inputs) and through sequence.mjs's synchronous refusal details.
-    assert.ok(closure.bytes <= 9_740_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,743,200 (measured 9,743,160 for submit.mjs): the owner's decision of 2026-11-17, an approved amendment acknowledged
+    // before the version question (+1,967): the kernel's hold leads the opening or publishing it blocks (kernel/step-state.mjs),
+    // its route names the acknowledgement (step-decision.mjs) and sequence reads a held submission as that route. The 11-17
+    // landing at 051d9096b already measured 9,741,193, 243 over the line above, before this change. No new eager file.
+    assert.ok(closure.bytes <= 9_743_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

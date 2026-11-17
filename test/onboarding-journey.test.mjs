@@ -158,8 +158,10 @@ test('capability review through workspace creation reaches a governed first Stor
     assert.equal(activated.alreadyMerged, true);
     assert.equal(activated.audit.recorded, true);
     assert.match(activated.audit.ledgerCommit, /^[0-9a-f]{40}$/);
-    assert.equal(run('git', ['rev-parse', 'state'], { cwd: platform.remote }).stdout.trim(),
-      activated.projection.commit ?? activated.audit.ledgerCommit);
+    // The approved configuration is read from sflow/config itself and never copied to the state branch (SCF:REQ-003): the
+    // activation writes no projection, and the state branch holds the audit entry and its pin.
+    assert.equal(activated.projection, undefined);
+    assert.equal(run('git', ['rev-parse', 'state'], { cwd: platform.remote }).stdout.trim(), activated.audit.ledgerCommit);
     const activatedConfiguration = run('git', ['rev-parse', 'sflow/config'], {
       cwd: platform.remote
     }).stdout.trim();

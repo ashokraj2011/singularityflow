@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { publishedSpecificationStory, reviewReport } from './helpers/source-review-fixture.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
-import { boundedAgentOutput } from '../src/agent-output.mjs';
+import { boundedAgentOutput, completeAgentResult } from '../src/agent-output.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -29,7 +29,8 @@ function cliIn(root, results) {
 
 // The command a part of a view hands the agent: its `next` line, else act's first route.
 function visibleCommand(part) {
-  const next = part.match(/"(?:next|actNext)":"[a-z-]+: (?:run |show the person |ask the person in this chat, and only on an explicit yes run )?((?:\\"|[^"])*?)(?:; never run it)?"\}?\s*$/mu);
+  // A retained review's next step is the person's (act.show): its line names the author's command after that (fb368d49b).
+  const next = part.match(/"(?:next|actNext)":"[a-z-]+: (?:run |show the person |ask the person in this chat, and only on an explicit yes run |end your reply with act\.show for the person; only the step's author runs )?((?:\\"|[^"])*?)(?:; never run it)?"\}?\s*$/mu);
   if (next) return JSON.parse(`"${next[1]}"`);
   const first = part.match(/"do":\{"(?:shell|copilot)":"((?:\\"|[^"])*)"/u);
   return first ? JSON.parse(`"${first[1]}"`) : null;
@@ -88,8 +89,11 @@ test('check, submit, status and result last hand the agent what comes after rete
 
   const submit = cli(...checked.act.do.shell.replace(/^singularity-flow /u, '').split(' '));
   const submitted = JSON.parse(submit);
-  assert.equal(submitted.resultType, 'source-review-status');
-  assert.ok(submitted.reportSha256);
+  // The retained review's status, with its report's digest. Its act (with the next step's show line, 2026-11-16) fills
+  // the view, so a bounded view keeps the other fields in its file (agentOutput), where the whole result is read.
+  const retained = completeAgentResult(submitted);
+  assert.equal(retained.resultType, 'source-review-status', submit);
+  assert.ok(retained.reportSha256);
   assert.equal(submitted.act.state, 'next');
   // A retained review with a pending disposition goes to the person's decision, never back to retention.
   assert.match(submitted.act.do.copilot, new RegExp(`^/sf-review-decide ${phaseId} `, 'u'));
@@ -107,7 +111,7 @@ test('check, submit, status and result last hand the agent what comes after rete
   const kept = cli('result', 'last', '--command', `review-source submit ${phaseId}`, '--for-agent', '--json');
   const keptView = JSON.parse(kept);
   assert.deepEqual(keptView.act, submitted.act);
-  assert.equal(keptView.reportSha256, submitted.reportSha256);
+  assert.equal(completeAgentResult(keptView).reportSha256, retained.reportSha256);
   assertSurvivesEveryCut(kept, 'result last');
 
   // Another command's words never return the submit's result.

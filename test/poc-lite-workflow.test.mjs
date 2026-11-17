@@ -171,13 +171,16 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   };
   const preparedPlan = lifecycle('prepare', 'poc-lite-plan');
   // Preparation already ran: its route checks the prepared deterministic artifact and publishes it
-  // only when ready (/sf-publish), never as a human import.
+  // only when ready, never as a human import. A kernel-built step is checked and published by its own
+  // work command, never handed to /sf-publish (OSA Stage 3 b25, C9; action-command-map.mjs publish-version).
   assert.match(preparedPlan.stdout, /phase prepublish poc-lite-plan --for-agent --json/);
-  assert.match(preparedPlan.stdout, /Copilot: \/sf-publish poc-lite-plan/);
+  assert.match(preparedPlan.stdout, /^\s*Copilot: \/sf-phase$/mu);
+  assert.doesNotMatch(preparedPlan.stdout, /\/sf-publish/u);
   assert.doesNotMatch(preparedPlan.stdout, /--authored human/);
   publish('poc-lite-plan');
   const submittedPlan = lifecycle('run', '--yes');
-  assert.match(submittedPlan.stdout, /prepare poc-lite-act/,
+  // A code step's first version opens through the opening operation (`phase begin`, OSA Stage 3), then is written.
+  assert.match(submittedPlan.stdout, /phase begin poc-lite-act/,
     'post-submit continuation must be planned from the newly active phase');
   assert.doesNotMatch(submittedPlan.stdout, /(?:approve|reject) poc-lite-plan/,
     'a completed no-approval phase must not retain review actions');

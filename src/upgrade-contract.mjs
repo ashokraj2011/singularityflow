@@ -23,6 +23,8 @@ const guided = (healedBy = null) => Object.freeze({ resolution: 'guided', ...(he
 const integrity = (reason) => Object.freeze({ resolution: 'integrity', reason });
 const development = (reason) => Object.freeze({ resolution: 'development', reason });
 const unrelated = (reason) => Object.freeze({ resolution: 'unrelated', reason });
+// A step's version (SPEC-OSA v1.1): the numbered drafts of one step and the person's yes that opens the next one.
+const stepVersion = (what) => unrelated(`${what}, a step's own version, not a build or schema version.`);
 
 export const UPGRADE_CONTRACT = Object.freeze({
   // An installed build meets these at runtime: each has an exact step in refusal-remediation.
@@ -67,7 +69,19 @@ export const UPGRADE_CONTRACT = Object.freeze({
   WORKFLOW_ARCHIVED: unrelated('An archived workflow a new Story may not choose, not an archived schema.'),
   MODEL_SESSION_INCOMPATIBLE: unrelated('A prompt that differs from its model session\'s provider, model or tool policy, not a build or schema version.'),
   SPEC_DRAFT_VERSION_MISSING: unrelated('A saved version of a person\'s draft, not a build or schema version.'),
-  SPEC_ORIGIN_VERSION_CONFLICT: unrelated('Two versions of a parent specification chosen at once, not a build or schema version.')
+  SPEC_ORIGIN_VERSION_CONFLICT: unrelated('Two versions of a parent specification chosen at once, not a build or schema version.'),
+  PHASE_VERSION_BEING_WRITTEN: stepVersion('A step whose next version is being written'),
+  REVIEW_DELEGATION_VERSION_MISMATCH: stepVersion('A review delegated for another version of the step than the one kept'),
+  VERSION_CONSENT_DECLINED: stepVersion('The person did not say yes to starting the next version'),
+  VERSION_CONSENT_EXPIRED: stepVersion('The person\'s yes to starting the next version expired'),
+  VERSION_CONSENT_PRINCIPAL_CHANGED: stepVersion('Another person gave the yes to starting the next version'),
+  // An opening an older build kept on one checkout only meets this too; its refusal names the step's preview, which asks
+  // the person, so it is guided by its own route [OSA:REQ-030].
+  VERSION_CONSENT_REQUIRED: stepVersion('The next version opens only on the person\'s yes'),
+  VERSION_CONSENT_UNVERIFIED: stepVersion('A yes to the next version that did not reach SFlow on this machine'),
+  VERSION_CONSENT_WRONG_TARGET: stepVersion('A yes given for another proposal than the next version as it is now'),
+  VERSION_OPENING_CONFLICT: stepVersion('Another checkout changed the shared branch before this opening of the next version'),
+  VERSION_OPENING_NOT_SHARED: stepVersion('An opening commit of the next version that is no longer on the branch')
 });
 
 /** Transition refusals raised by a sequence gate rather than a code. */

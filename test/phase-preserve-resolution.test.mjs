@@ -101,15 +101,29 @@ test('advisories cannot create a current blocker, human hold or changed repair b
 });
 
 test('missing generation preparation has an executable route, while a consumed intent retains recovery', () => {
-  const workflow = { workItem: { id: 'P-1' }, currentPhase: 'team-code', status: 'in_progress' };
-  const phase = { id: 'team-code', status: 'in_progress' };
+  // The route is the kernel's, so the step is read from its Story record: a code step with no version yet [OSA:REQ-001].
+  const story = (phase) => ({ workItem: { id: 'P-1' }, currentPhase: 'team-code', status: 'in_progress', phaseOrder: ['team-code'],
+    phases: { 'team-code': phase } });
+  const phase = { id: 'team-code', status: 'in_progress', generation: 0, generationPolicy: { task: 'code' }, writeScope: 'source-and-artifact' };
   const finding = { code: 'phase.generation-intent.required', category: 'code-delivery',
     details: { sourceCode: 'GENERATION_INTENT_REQUIRED' } };
-  const route = phaseResolutionProjection(workflow, phase, [finding]).issues[0].choices[0];
-  assert.deepEqual(route.argv, ['phase', 'begin', 'team-code', '--work-id', 'P-1', '--json']);
+  const projected = phaseResolutionProjection(story(phase), phase, [finding]);
+  const route = projected.issues[0].choices[0];
+  // Version 1 opens directly, by the action-to-command map's `begin` form [OSA:REQ-021, REQ-030].
+  assert.deepEqual(route.argv, ['phase', 'begin', 'team-code', '--json']);
+  assert.equal(route.kind, 'prepare-current-generation');
   assert.equal(route.automatic, false); assert.match(route.detail, /adoption preview/);
-  const published = { ...phase, generationIntent: { status: 'consumed', generation: 1 } };
-  assert.equal(phaseResolutionProjection(workflow, published, [finding]).issues[0].choices[0].kind, 'inspect');
+  assert.equal(projected.repairContinuation.tasks[0].action, 'repair');
+  // A consumed intent that is not the published version's receipt is damage: recovery, inspected, never the author's repair.
+  const consumed = { ...phase, generationIntent: { status: 'consumed', generation: 1 } };
+  const damaged = phaseResolutionProjection(story(consumed), consumed, [finding]);
+  assert.equal(damaged.issues[0].choices[0].kind, 'inspect');
+  assert.deepEqual(damaged.issues[0].choices[0].argv, ['recover', 'P-1', '--phase', 'team-code', '--json']);
+  assert.notEqual(damaged.repairContinuation.tasks[0].action, 'repair');
+  // A record the kernel cannot place (no step order) is inspected as it is; nothing is offered as a repair.
+  const unplaced = phaseResolutionProjection({ workItem: { id: 'P-1' }, currentPhase: 'team-code', status: 'in_progress' }, phase, [finding]);
+  assert.equal(unplaced.issues[0].choices[0].kind, 'inspect');
+  assert.notEqual(unplaced.repairContinuation.tasks[0].action, 'repair');
 });
 
 test('recovery copies preserve dirty files, staged bytes and deletions without a commit or index change', async t => {

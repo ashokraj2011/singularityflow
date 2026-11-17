@@ -58,7 +58,11 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // repairs for copied IDs and hashes [Story anu-bin, 2026-11-11]; a80820a11 measures 274. The writers above stay out.
   // 277: main d64c2a9ef already measured 276 against < 276; intent-amendment-pause.mjs (on phase-roles.mjs only) joins through
   // the governance routing a review reads, so a review shows that the step waits for its amendment [owner, 2026-11-13].
-  assert.ok(visited.size < 278, `review read closure grew to ${visited.size} local modules`);
+  // 280 (11-17 landing d89eedd0d; main ea398577f measures 277): OSA v1.1's one step decision owner, which every read that
+  // routes a step now asks [OSA:REQ-001, REQ-020]. kernel/step-state.mjs and kernel/step-versions.mjs (pure, no other
+  // import), step-decision.mjs, action-command-map.mjs and writing-aliases.mjs join through sequence.mjs and the mutation
+  // contract; phase-inspection-generation.mjs and submit-route.mjs, which they replace, leave. The writers above stay out.
+  assert.ok(visited.size < 281, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

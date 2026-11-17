@@ -118,11 +118,17 @@ test('an expired upstream quality exception stays with its authority, while pres
 
 test('distinct clauses and generations have distinct repair cases without duplicate cases for aliases', () => {
   const { workflow, phase } = story();
+  // A case is bound to the version being written, by the one version arithmetic: an opening applies only at the next
+  // number (kernel/step-versions.mjs) [OSA:REQ-002]. Version 1 is written first, then version 2 over published version 1.
+  Object.assign(phase, { generation: 0 }); phase.generationIntent.generation = 1;
   const findings = ['AC-001', 'AC-002'].map(id => ({ code: 'artifact.placeholder.unresolved', path: 'draft.md', details: { clauseId: id } }));
   const tasks = phaseResolutionProjection(workflow, phase, findings).repairContinuation.tasks;
   assert.notEqual(tasks[0].id, tasks[1].id);
-  phase.generationIntent.generation = 2;
-  assert.notEqual(phaseResolutionProjection(workflow, phase, findings).repairContinuation.tasks[0].id, tasks[0].id);
+  assert.equal(tasks[0].binding.generation, 1);
+  Object.assign(phase, { generation: 1 }); phase.generationIntent.generation = 2;
+  const next = phaseResolutionProjection(workflow, phase, findings).repairContinuation.tasks[0];
+  assert.equal(next.binding.generation, 2);
+  assert.notEqual(next.id, tasks[0].id);
 });
 
 test('all seeded and future workflows derive same-phase correction without widening backward targets', async t => {

@@ -26,6 +26,7 @@ import { executeGitQuery } from './git-query.mjs';
 import { addBranchWorktree, forgetMissingWorktree, repairWorktreeLinks } from './git.mjs';
 import { readWorkspace, readWorkspaceRegistry, WORKSPACE_FILE, workspaceRepositoryPath } from './workspace-manifest.mjs';
 import { samePlatformPath, SingularityFlowError } from './util.mjs';
+import { assertConfirmation } from './text-lines.mjs';
 
 /** SFlow's saved records for one worktree live here, under its Git folder (factory-reset.mjs LOCAL_RUNTIME_ROOT). */
 const RUNTIME = 'singularity-flow';
@@ -410,10 +411,11 @@ function failed(message, code, details) {
  */
 export async function applyWorkspaceRelink(folder, { confirm, registryFile, selectionFile = null, env = process.env } = {}) {
   const plan = await planWorkspaceRelink(folder, { registryFile, selectionFile, env });
-  if (confirm !== plan.planId) {
-    throw failed(`The workspace changed since that repair was previewed, so nothing was changed. Preview it again; the new plan carries its own confirmation.`,
-      'WORKSPACE_REPAIR_PLAN_CHANGED', { planId: plan.planId, nextAction: { command: `singularity-flow workspace repair ${quote(plan.folder)}`, label: 'Preview the repair again' } });
-  }
+  // A copied plan ID goes through the one confirmation check: a copying slip is told apart from a changed workspace.
+  assertConfirmation(confirm, plan.planId, { code: 'WORKSPACE_REPAIR_PLAN_CHANGED',
+    message: 'The workspace changed since that repair was previewed, so nothing was changed. Preview it again; the new plan carries its own confirmation.',
+    details: { planId: plan.planId, nextAction: { command: `singularity-flow workspace repair ${quote(plan.folder)}`, label: 'Preview the repair again' } },
+    fail: (message, code, details) => { throw failed(message, code, details); } });
   if (plan.refusals.length) {
     const [first] = plan.refusals;
     throw failed(`${first.message}${plan.refusals.length > 1 ? ` (${plan.refusals.length - 1} more in the preview.)` : ''} Nothing was changed.`,

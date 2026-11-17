@@ -78,9 +78,11 @@ test('a command family without its program is refused with the command it meant,
   assert.match(ownToolRepair({ toolName: 'bash' }, chained), /^PHASE_MUTATION_SFLOW_PROGRAM_MISSING: the tool form was refused, nothing else/u);
 });
 
+// /sf-submit's turn is kernel-only: it runs SFlow commands and nothing else. /sf-next was one until OSA Stage 4 made it do
+// the current step's own work (D2, OSA:REQ-025); its turn runs shell commands under the authoring file checks, as /sf-phase.
 test('VS Code\'s run_in_terminal gets the same refusal', async (t) => {
   const f = await fixture(t);
-  const next = await enter(f, '/sf-next', 'vscode-next');
+  const next = await enter(f, '/sf-submit', 'vscode-submit');
   const refusal = await repositoryToolGuard({ session_id: next.sessionId, cwd: f.root, hook_event_name: 'PreToolUse',
     tool_name: 'run_in_terminal', tool_input: { command: 'nextsteps --for-agent --json', explanation: 'Next steps', isBackground: false } });
   assert.equal(refusal.permissionDecision, 'deny');
@@ -90,7 +92,7 @@ test('VS Code\'s run_in_terminal gets the same refusal', async (t) => {
 
 test('only the words change: a program, a builtin, an unknown word, an unaccepted cwd and the CLI itself keep their refusals', async (t) => {
   const f = await fixture(t);
-  const next = await enter(f, '/sf-next', 'negatives');
+  const next = await enter(f, '/sf-submit', 'negatives');
   const shell = (command) => mutationToolGuard({ ...next, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   const outside = path.join(path.dirname(f.root), 'elsewhere');
   await mkdir(outside);
@@ -103,8 +105,14 @@ test('only the words change: a program, a builtin, an unknown word, an unaccepte
   const own = await shell('singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001');
   assert.match(own.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person/u);
   // An authoring turn runs repository shell commands under its file checks: the shell itself says the word is not found.
-  const author = await enter(f, '/sf-phase', 'authoring');
-  assert.notEqual((await mutationToolGuard({ ...author, toolName: 'bash', toolArgs: { command: 'story intent-amendment status --json', cwd: f.root } })).permissionDecision, 'deny');
+  // /sf-next is one since OSA Stage 4 (D2); a person's own decision stays refused there too.
+  for (const [skill, session] of [['/sf-phase', 'authoring'], ['/sf-next', 'next-authoring']]) {
+    const author = await enter(f, skill, session);
+    const guard = (command) => mutationToolGuard({ ...author, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    assert.notEqual((await guard('story intent-amendment status --json')).permissionDecision, 'deny', skill);
+    assert.match((await guard('singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001')).permissionDecisionReason,
+      /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person/u, skill);
+  }
 });
 
 const enter = (f, skill, sessionId) => f.enter(skill, sessionId);

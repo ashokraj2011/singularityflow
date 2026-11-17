@@ -38,7 +38,8 @@ function stepOf(facts) {
     kind: { executionOwner: facts.kind === 'kernel-document' ? 'kernel' : 'agent', code: facts.kind === 'code',
       changeCapabilities: facts.producers?.includes('deterministic') ? [] : CAPABILITIES[facts.kind] },
     pause: facts.pause ? { id: facts.pause } : null, holds: facts.holds ?? [],
-    review: { required: facts.reviewRequired !== false, status: review.status, version: review.generation }, damage: null };
+    review: { required: facts.reviewRequired !== false, status: review.status, version: review.generation }, damage: null,
+    ...(facts.changeRequested ? { changeRequested: true } : {}) };
 }
 
 /** StepSnapshot/v1 for a golden case (the fixture's defaults written out). */
@@ -209,6 +210,44 @@ test('a hold on opening or publishing a version leads the action it blocks; edit
   // A hold on submission only still leaves the opening to the person's yes.
   const only = stepState(snapshotOf({ ...reopened, facts: { ...reopened.facts, holds: [{ ...hold, blocks: ['submission'] }] } }));
   assert.deepEqual([only.state, only.next.operation], ['reopened', 'open-version']);
+});
+
+// Review findings 2026-11-17 (kernel #8, #10): "No" to the version question for a typed change looped while the published
+// version's review was still owed, and a view offered the submission the engine refuses while the person's typed instruction
+// waits for its account. The question still leads; the person's No goes on with the step's own action without the change.
+test('a typed change: the version question leads, and the person\'s No goes on with the step\'s own action, never the question again', () => {
+  const published = (changes = {}) => base({ generationIntent: { status: 'consumed', generation: 1 }, changeRequested: true, ...changes });
+  const asked = (entry) => {
+    const decision = stepState(snapshotOf(entry));
+    assertShape(decision, JSON.stringify(entry.facts));
+    assert.deepEqual([decision.next.operation, decision.next.inputs.reason, decision.next.principalKind], ['open-version', 'change-requested', 'human']);
+    return decision.next.inputs.declined ?? null;
+  };
+  // Its review still owed: No leads to that review, not to the question or a submission the engine refuses.
+  for (const status of ['pending', 'not-created']) {
+    assert.deepEqual([asked(published({ review: { status, generation: 1 } }))?.operation], ['start-review'], status);
+  }
+  assert.equal(asked(published({ review: null })).operation, 'start-review');
+  // A review of another version is not this version's: still owed.
+  assert.equal(asked(published({ review: { status: 'ready', generation: 0 } })).operation, 'start-review');
+  // Reviewed and ready, or no review owed: No submits this version as it is.
+  const ready = asked(published({ review: { status: 'ready', generation: 1 } }));
+  assert.deepEqual([ready.operation, ready.prerequisites], ['submit-version', []]);
+  assert.deepEqual([asked(published({ reviewRequired: false })).operation], ['submit-version']);
+  // A review not read here: its read, which names it.
+  assert.equal(asked(published({ review: 'unavailable' })).operation, 'refresh-facts');
+  // What only a person decides of the review is theirs.
+  assert.deepEqual([asked(published({ review: { status: 'disposition-required', generation: 1 } }))?.operation], ['decide']);
+  // What the submission waits for stays its prerequisite: the author's account of what the person typed [SCS:REQ-042].
+  const instruction = { code: 'INSTRUCTIONS_UNACCOUNTED', owner: 'agent', id: '1', blocks: ['submission'], resolution: 'repair-version' };
+  const owed = asked(published({ review: { status: 'ready', generation: 1 }, holds: [instruction] }));
+  assert.deepEqual([owed.operation, owed.prerequisites], ['submit-version', [{ operation: 'repair-version', principalKind: 'agent', code: 'INSTRUCTIONS_UNACCOUNTED', id: '1' }]]);
+  // The review's own corrections are asked as the same kind of question: there is nothing else for a No to take.
+  assert.equal(asked(published({ review: { status: 'correction-required', generation: 1 } })), null);
+  // A hold on opening still leads the question, as before.
+  const acknowledgement = { code: 'ACK', owner: 'person', id: 'AMD-1', blocks: ['opening', 'publication', 'submission'], resolution: 'decide' };
+  const held = stepState(snapshotOf(published({ review: { status: 'ready', generation: 1 }, holds: [acknowledgement] })));
+  assert.deepEqual([held.state, held.next.operation, held.next.then], ['held', 'decide', ['open-version']]);
 });
 
 // ---------------------------------------------------------------------------------------------------- generator

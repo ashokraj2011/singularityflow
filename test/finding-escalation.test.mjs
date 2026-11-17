@@ -9,7 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  ESCALATION_THRESHOLD, escalateRefusalEnvelope, findingEscalation, findingFingerprint, observeFindingStreak, worktreeAttempt
+  ESCALATION_THRESHOLD, escalateRefusalEnvelope, findingEscalation, findingFingerprint, observeFindingStreak, settleFindingStreak, worktreeAttempt
 } from '../src/finding-escalation.mjs';
 import { canonicalFindingId } from '../src/finding-identity.mjs';
 import { refusalEnvelope, renderRefusalPlan } from '../src/refusal-remediation.mjs';
@@ -73,15 +73,49 @@ test('the escalation step carries every route field, so the text plan names its 
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-escalation-render-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  spawnSync('git', ['-c', 'user.name=Streak Tester', '-c', 'user.email=streak@example.test', 'commit', '-q', '--allow-empty', '-m', 'initial'], { cwd: root });
   const error = Object.assign(new Error('Delivery evidence is missing.'), { code: 'CODE_DELIVERY_EVIDENCE_REQUIRED',
     details: { workId: 'ESC-3', phase: 'implementation', problems: ['no acceptance test'] } });
   const argv = ['phase', 'publish', 'implementation'];
   let envelope;
-  for (let count = 0; count < ESCALATION_THRESHOLD; count += 1) envelope = escalateRefusalEnvelope(refusalEnvelope(error, argv), error, root);
+  // Each return follows a repair (a changed file): the same command retried unchanged is no repair and never counts.
+  for (let count = 0; count < ESCALATION_THRESHOLD; count += 1) {
+    await writeFile(path.join(root, 'attempt.txt'), `repair ${'.'.repeat(count + 1)}\n`);
+    envelope = escalateRefusalEnvelope(refusalEnvelope(error, argv), error, root);
+  }
   const [step] = envelope.remediationPlan.steps;
   assert.equal(step.id, 'escalate-repeated-finding');
   assert.equal(step.copilotCommand, '/sf-docs findings');
   const text = renderRefusalPlan(envelope.remediationPlan);
   assert.doesNotMatch(text, /undefined/u);
   assert.match(text, /- Copilot: \/sf-docs findings\n\s+- Shell: singularity-flow explain findings --section/u);
+});
+
+// Review finding 2026-11-17 (kernel #7): the refusal's escalation counted every CLI repeat by its code alone, never reset,
+// and fired for a wait no repair reaches. Now a return counts only after a repair, a passing check starts it again, and a
+// wait for a person or the environment is never escalated.
+test('a refusal escalates only when it returns after repairs; a retry, a passing check and a wait for a person never do', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-escalation-retry-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  spawnSync('git', ['-c', 'user.name=Streak Tester', '-c', 'user.email=streak@example.test', 'commit', '-q', '--allow-empty', '-m', 'initial'], { cwd: root });
+  const error = Object.assign(new Error('Delivery evidence is missing.'), { code: 'CODE_DELIVERY_EVIDENCE_REQUIRED',
+    details: { workId: 'ESC-4', phase: 'implementation', problems: ['no acceptance test'] } });
+  const argv = ['phase', 'publish', 'implementation', '--work-id', 'ESC-4'];
+  const refused = (options) => escalateRefusalEnvelope(refusalEnvelope(error, argv), error, root, options).remediationPlan.escalation ?? null;
+  // The same command retried with nothing changed: never a streak.
+  for (let count = 0; count < ESCALATION_THRESHOLD + 2; count += 1) assert.equal(refused(), null, `retry ${count + 1}`);
+  // After repairs it returns: the third return escalates.
+  // Each repair writes a longer file, so its attempt differs by size as well as time.
+  let repairs = 0;
+  const repair = async (words) => writeFile(path.join(root, 'attempt.txt'), `${words}${'.'.repeat(++repairs)}\n`);
+  await repair('one'); refused();
+  await repair('two');
+  assert.equal(refused()?.repeated, ESCALATION_THRESHOLD);
+  // Its check passed since: the count starts again.
+  settleFindingStreak(root, { workId: 'ESC-4', phaseId: 'implementation' });
+  await repair('three');
+  assert.equal(refused(), null);
+  // A wait for a person's or the environment's step is never a repair that cannot pass.
+  for (const words of ['four', 'five', 'six']) { await repair(words); assert.equal(refused({ waits: true }), null, words); }
 });

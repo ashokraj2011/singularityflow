@@ -377,11 +377,16 @@ export function stepState(snapshot) {
   }
   if (numbers.published === 0) return lead('published',
     action('agent-work', 'submit-version', { target: target(0), reasonCodes: ['NO_REVIEW_OWED'] }), { ...base, edit: NO_EDIT(['NO_REVIEW_OWED']), obligations });
-  // A change the person typed for the published version asks for its next one first, on their yes [D3, daily run 2026-11-17].
-  if (facts.changeRequested === true) return lead('published', action('person-consent', 'open-version', { target: target(numbers.proposedNext),
-    principalKind: 'human', inputs: { version: numbers.proposedNext, consent: 'required', reason: 'change-requested', from: numbers.published,
-      opening: 'successor-preview' }, reasonCodes: ['CHANGE_REQUESTED', 'CONSENT_REQUIRED'], then: after(true) }),
-  { ...base, edit: editFor(snapshot, 'published', numbers, null, { successor: true }), obligations });
+  // A change the person typed for the published version asks for its next one first, on their yes [D3, daily run 2026-11-17];
+  // `declined`: what their No goes on with, the step's own action without the change, never the question again.
+  if (facts.changeRequested === true) {
+    const declined = stepState({ ...snapshot, step: { ...facts, changeRequested: false } }).next;
+    return lead('published', action('person-consent', 'open-version', { target: target(numbers.proposedNext),
+      principalKind: 'human', inputs: { version: numbers.proposedNext, consent: 'required', reason: 'change-requested', from: numbers.published,
+        opening: 'successor-preview', ...(['open-version', 'build-version'].includes(declined.operation) ? {} : { declined }) },
+      reasonCodes: ['CHANGE_REQUESTED', 'CONSENT_REQUIRED'], then: after(true) }),
+    { ...base, edit: editFor(snapshot, 'published', numbers, null, { successor: true }), obligations });
+  }
   // 9–10. A current publication with no open successor: its review, its corrections, or its submission.
   const submitPrerequisites = obligations.filter((entry) => entry.blocks.includes('submission'))
     .map((entry) => ({ operation: entry.resolution, principalKind: entry.owner, code: entry.code, ...(entry.id ? { id: entry.id } : {}) }));

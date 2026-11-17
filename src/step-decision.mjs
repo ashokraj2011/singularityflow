@@ -192,8 +192,11 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
       `Another checkout writes version ${next.inputs.version} of ${phase.id}. Take it over here only when that checkout's work is published or set aside; this checkout may still inspect it.`, ACTION_SKILLS.takeover)];
     case 'open-version':
       // A successor, for any reason, is previewed and opened only on the person's yes [D3, OSA:REQ-030]; version 1 opens directly.
+      // Beside it, what the person's No goes on with (the kernel's `declined`).
       if (next.inputs.consent === 'required') return [render('open-version', 'preview',
-        `${next.inputs.reason === 'change-requested' ? 'The person asked for a change: p' : 'P'}review starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}.`, author)];
+        `${next.inputs.reason === 'change-requested' ? 'The person asked for a change: p' : 'P'}review starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}.`, author),
+      ...(next.inputs.declined ? decisionRoutes({ ...decision, next: next.inputs.declined }, workflow, requested, { exactSubmit }).filter(Boolean)
+        .map((entry) => ({ ...entry, detail: `If the person says no, version ${next.inputs.from} stays as it is: ${entry.detail}` })) : [])];
       return [code ? render('open-version', 'begin', 'Open the exact code generation before application edits.', author)
         : render('open-version', 'prepare', 'Continue the configured phase author; publish only after its checks pass.', author)];
     // A kernel-built step's next version opens on the person's yes like any successor [D3, D5]; then its generator builds it.
@@ -213,7 +216,8 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
     case 'submit-version': if (owed) return decisionRoutes({ ...decision, next: { ...next, operation: 'decide', prerequisites: [],
       inputs: { hold: owed.code, id: owed.id }, then: [] } }, workflow, requested);
       // Its submission completes it, so its author first accounts for what the person typed, as the decisions list says.
-      if (asked) return [render('repair-version', 'account', `Account for instruction ${asked.id} the person typed in ${phase.id}: within the plan, by the clauses it implements, or as its departure. The submission that completes ${phase.id} waits for it.`, author, asked.id)];
+      // Its skill is the crosswalk's (/sf-code), whatever the step's work command, which left no route [review 2026-11-17].
+      if (asked) return [render('repair-version', 'account', `Account for instruction ${asked.id} the person typed in ${phase.id}: within the plan, by the clauses it implements, or as its departure. The submission that completes ${phase.id} waits for it.`, null, asked.id)].filter(Boolean);
       if (exactSubmit) {
       // The map's exact form with the decision values the step records, or its readiness read when a review comes first.
       const exact = submitRoute(workflow, phase);

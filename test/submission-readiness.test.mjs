@@ -385,3 +385,56 @@ test('a required after-step delivery of an earlier step holds only the submissio
   assert.equal(submissionReadinessSnapshot(workflow({ generation: 0, publication: false })).classification, 'generation-required');
   assert.match(submissionReadinessText(held), /Classification: step-action-required\nPhase status: in_progress[\s\S]*The next step waits: the required after-step action audit → audit-log[\s\S]*Copilot: \/sf-integrations\nShell: singularity-flow integrations retry sad_1{40}\nVS Code \(model-free\): not available for this action$/);
 });
+
+// Review findings 2026-11-17 (kernel #8, #10): a typed change leads with its version question, and readiness names what the
+// person's No goes on with. Before, a review still owed gave no route but the question again, so /sf-submit asked it
+// forever; and a submission the engine refuses (an instruction still unaccounted) was offered as "submit it as it is".
+test('a typed change: the version question leads; the person\'s No goes on with the review, the account or the submission', () => {
+  const reviewed = () => {
+    const source = workflow();
+    source.resolution.sourceReview = { mode: 'enforce', phases: ['specification'], reviewerAgent: 'sflow-source-reviewer' };
+    source.resolution.obligationGraph = { nodes: [{ id: 'specification', responsibilities: ['scope'] }] };
+    return source;
+  };
+  const change = { outcome: null, changeRequested: true };
+  // The review is still owed: the question leads, and No goes to that review, never a submission or the question again.
+  const owed = snapshot(reviewed(), { sourceReviewEvidence: { status: 'pending', findings: [] }, taskOutcome: change });
+  assert.deepEqual([owed.classification, owed.lifecycleReady, owed.nextCommand], ['change-requested', false, 'singularity-flow phase rollover specification --json']);
+  assert.equal(owed.submission, undefined);
+  assert.equal(owed.otherwise?.classification, 'source-review-required', JSON.stringify(owed));
+  assert.match(owed.otherwise.command, /^singularity-flow review-source /u);
+  assert.notEqual(owed.otherwise.command, owed.nextCommand);
+  // Reviewed: No submits this version as it is.
+  const ready = snapshot(reviewed(), { sourceReviewEvidence: { status: 'ready', findings: [] }, taskOutcome: change });
+  assert.deepEqual([ready.classification, ready.lifecycleReady, ready.submission, ready.otherwise],
+    ['change-requested', true, 'singularity-flow submit specification --work-id READY-1', undefined]);
+  // What the person typed in the published version still waits for its account: No goes to that account, and the
+  // submission the engine would refuse is never offered.
+  const unaccounted = snapshot(workflow(), { taskOutcome: { ...change, askedFor: [1] } });
+  assert.deepEqual([unaccounted.classification, unaccounted.lifecycleReady, unaccounted.submission], ['change-requested', false, undefined]);
+  assert.equal(unaccounted.otherwise?.classification, 'instructions-unaccounted', JSON.stringify(unaccounted));
+  assert.match(unaccounted.otherwise.command, /^singularity-flow departure account --work-id READY-1 --instruction 1 /u);
+  // With no change typed, the account leads, as before.
+  const account = snapshot(workflow(), { taskOutcome: { askedFor: [1] } });
+  assert.deepEqual([account.classification, account.lifecycleReady], ['instructions-unaccounted', false]);
+});
+
+// Review finding 2026-11-17 (routes #3): readiness never read the code-delivery receipt, so it said "ready" and named
+// /sf-submit, whose submission refused CODE_DELIVERY_RECEIPT_MISSING; /sf-submit went round the two. Readiness now says it.
+test('a published code version without its code-delivery receipt is never "ready": readiness names the submission refusal\'s own route', () => {
+  const code = (deliveryEvidence) => {
+    const source = workflow({ phaseId: 'implement' });
+    Object.assign(source.phases.implement, { generationPolicy: { requirement: 'required', task: 'code' }, generationIntent: { status: 'consumed', generation: 1 },
+      ...(deliveryEvidence ? { deliveryEvidence } : {}) });
+    return source;
+  };
+  const missing = snapshot(code(null));
+  assert.deepEqual([missing.classification, missing.lifecycleReady, missing.reasonCode], ['code-delivery-receipt-missing', false, 'CODE_DELIVERY_RECEIPT_MISSING']);
+  assert.equal(missing.nextCommand, 'singularity-flow phase rollover implement --reason "<what to change>" --json');
+  assert.notEqual(missing.nextSkill, '/sf-submit');
+  // A receipt of another version is not this version's.
+  assert.equal(snapshot(code({ generation: 0 })).classification, 'code-delivery-receipt-missing');
+  // With its receipt it is ready, as before.
+  const ready = snapshot(code({ generation: 1 }));
+  assert.deepEqual([ready.classification, ready.nextSkill], ['ready-to-attempt', '/sf-submit']);
+});

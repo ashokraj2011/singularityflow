@@ -217,10 +217,15 @@ export const accountedBy = (phase) => (phase?.approvalPolicy?.mode === 'none' ? 
 
 /**
  * The instructions the submission of a code step nobody approves waits to see accounted for [SCS:REQ-042], oldest first;
- * none for a step someone approves (its approval waits instead), one not in progress, or when nothing is kept.
+ * none for a step someone approves (its approval waits instead), one not in progress, or when nothing is kept. A step whose
+ * low-risk policy may waive its approval completes at its submission too, which then waits the same way (submit refuses
+ * INSTRUCTIONS_UNACCOUNTED for it); if the waiver does not apply, its approval waits for the same account, so asking first
+ * never adds a wait.
  */
 export async function owedAtSubmission(workflow, phase) {
-  if (phase?.approvalPolicy?.mode !== 'none' || phase.status !== 'in_progress' || typedFocusOff(workflow)) return [];
+  if (phase?.status !== 'in_progress' || typedFocusOff(workflow)) return [];
+  if (phase.approvalPolicy?.mode !== 'none' && !(phase.approvalPolicy?.mode === 'policy'
+    && (await import('./quick-fix-policy.mjs')).supportedWaiverPolicy(phase.approvalPolicy))) return [];
   const { phaseRequiresCodeDelivery } = await import('./code-delivery-policy.mjs');
   if (!phaseRequiresCodeDelivery(phase)) return [];
   return instructionAccounting(workflow, phase.id, { upTo: phase.generation }).filter((entry) => !entry.account).map((entry) => entry.instruction);

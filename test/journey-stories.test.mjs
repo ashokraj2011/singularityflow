@@ -14,6 +14,10 @@
  *   I  a document step's review asks corrections, and the person is asked "Start version 2?" as for code [OSA:AC-013];
  *   K  a change typed after /sf-code once the code is published, without the step's name and with it: the entry, its edit
  *      permission, the kernel and the guard all ask "Start version N?", and the routes write and publish the change.
+ *   L  a change typed after the code is published while its review is still owed: the person says No to "Start version
+ *      2?", and /sf-submit goes on by that review to the submission, never the question again (review 2026-11-17, kernel #8).
+ *   R  a quick design whose published code still owes the account of what the person typed, and a change typed after it:
+ *      the person says No, and /sf-submit names that account, never a submission the engine refuses (review, kernel #10).
  *   Q  a quick design (daily run, 2026-11-17): a change typed twice is one instruction; published without its account,
  *      every view leads with that account, and the code step nobody approves completes once it is made; the code step is
  *      offered to /sf-code, never as a generated publish; once closed, the Story says it is done.
@@ -544,6 +548,51 @@ test('journey K: a change typed after /sf-code, with and without the step\'s nam
   settle(t);
 });
 
+// ------------------------------------------------------------------------------------------- L
+
+// Review findings 2026-11-17 (kernel #8): the person typed a change after version 1 of the code was published and before its
+// review; asked "Start version 2?", they said No and asked to submit it as it is. Readiness led with the change and named
+// only the version question while the review was owed, so /sf-submit asked it again, and again. Now the question leads, and
+// the person's No goes on with the review, then the submission.
+test('journey L: a change typed while the review is owed, the person says No, and /sf-submit goes on by the review to the submission', slowLane({ timeout: 1_500_000 }), async (t) => {
+  const W = 'JRN-L';
+  const story = await quickFixAtCode(t, W);
+  const agent = { author: versionedAuthor(W), review: reviewer() };
+  const validation = ({ act }) => (/^What would you like to validate\b/u.test(act?.ask?.question ?? '') ? { route: { shell: `singularity-flow nextsteps ${W} --json` } } : null);
+  const first = await followRoutes(story, { label: 'journey L, version 1', start: { copilot: '/sf-code' }, agent, person: cooperativePerson(validation),
+    done: ({ record }) => publishedGeneration(record, 'implement') >= 1, maxSteps: 16 });
+  t.diagnostic(formatTrail(first.trail));
+  assert.equal(first.reached, true, report(first));
+  const owed = json(story.raw(['status', W, '--submission-readiness', '--json']).stdout);
+  assert.equal(owed?.classification, 'source-review-required', `the review is owed before the change is typed: ${JSON.stringify(owed).slice(0, 1500)}`);
+
+  // The person types a change, is asked "Start version 2 of Implement?", says No, and asks to submit it as it is.
+  const questions = [];
+  const person = cooperativePerson((context) => {
+    if (context.act?.state === 'confirm' && /^Start version 2 of Implement\?/u.test(context.act.ask?.question ?? '')) {
+      questions.push(context.act.ask.question);
+      return { route: { copilot: '/sf-submit' } };
+    }
+    return validation(context);
+  });
+  const walk = await followRoutes(story, { label: 'journey L, No', start: { copilot: `/sf-code ${CHANGES[0]}` }, agent, person,
+    done: ({ record }) => ['awaiting_approval', 'approved', 'completed'].includes(record?.phases?.implement?.status), maxSteps: 30 });
+  t.diagnostic(formatTrail(walk.trail));
+  await check(t, 'the person is asked once, says No, and /sf-submit reviews version 1 and submits it: no loop, no stall, no dead end', {}, () => {
+    assert.equal(walk.reached, true, report(walk));
+    assert.deepEqual(walk.findings, [], report(walk));
+    assert.equal(questions.length, 1, `the version question was asked ${questions.length} times\n${report(walk)}`);
+  });
+  await check(t, 'version 1 was reviewed before it was submitted, and no version 2 opened', {}, () => {
+    const reviewed = walk.trail.findIndex((entry) => /reviewer wrote/u.test(entry.did ?? ''));
+    assert.ok(reviewed > 0, report(walk));
+    const record = storyRecord(story);
+    assert.equal(record.phases.implement.generation, 1);
+    assert.notEqual(record.phases.implement.generationIntent?.status, 'open');
+  });
+  settle(t);
+});
+
 // ------------------------------------------------------------------------------------------- I
 
 // Journey I (SPEC-OSA v1.1 §12.2): the same consent rule for a document's corrections. The planning step's independent
@@ -713,6 +762,87 @@ test('journey Q: a quick design is written, its change typed twice is accounted 
     const agent = json(story.raw(['nextsteps', W, '--for-agent', '--json']).stdout);
     assert.deepEqual((agent?.actions ?? []).filter((entry) => entry.timing === 'now'), [], JSON.stringify(agent).slice(0, 2000));
     for (const view of await personViews(story)) assert.equal(view.skill, null, JSON.stringify(view));
+  });
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- R
+
+// Review findings 2026-11-17 (kernel #10, case 1): a quick design's Implement (nobody approves it) was published without its
+// author's account of what the person typed, and the person then typed a change. Readiness led with the change and offered
+// "submit it as it is", which the engine refuses with INSTRUCTIONS_UNACCOUNTED. The question still leads; the person's No
+// now names the account first, and once it is made the same /sf-submit completes the step.
+test('journey R: an unaccounted instruction and a typed change: the person says No, and /sf-submit names the account, never a refused submission', slowLane({ timeout: 1_500_000 }), async (t) => {
+  const W = 'JRN-R';
+  const story = await journeyRepository(t, { configure: (configuration) => {
+    delete configuration.phases['fix-design'].clarification;
+    configuration.workTypes['quick-design'] = { ...configuration.workTypes['quick-fix'], label: 'Quick design', phases: ['intake', 'fix-design', 'implement', 'verify'],
+      sourceReview: { mode: 'off' } };
+  } });
+  startStory(story, W, { workType: 'quick-design', title: 'Change the value', description: 'Return 2.' });
+  story.cli('prepare', 'intake');
+  await story.write(`${story.item}/artifacts/intake/intake.md`, quickFixIntake(W));
+  story.cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  story.cli('submit', 'intake');
+  story.cli('approve', 'intake', '--yes');
+  story.cli('prepare', 'fix-design');
+  await story.write(`${story.item}/artifacts/fix-design/fix-design.md`, [`# ${W} — Fix Design`, '', '## Root cause', '',
+    'The exported constant holds the old value; nothing computes it.', '', '## Minimal safe change', '',
+    `Change the one literal that holds the value, as ${W}:AC-001 asks; no import changes.`, '', '## Alternatives and regression risk', '',
+    'A computed value was rejected as unnecessary; the only regression surface is the one test that reads it.', ''].join('\n'));
+  story.cli('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
+  story.cli('submit', 'fix-design');
+  story.cli('approve', 'fix-design', '--yes');
+  // What the person types while the code is written, which the published version then owes an account of.
+  const instruction = 'Start each value comment with "[value]".';
+  copilotTurn(story, 'journey-r-writing').prompt(`/sf-code implement ${instruction}`);
+  const author = async ({ story: s, phase }) => phase === 'implement'
+    && (await writeValueCode(s, { value: 2, clauses: [`${W}:AC-001`], note: '[value] returns the approved value to its callers' }), true);
+  const validation = ({ act }) => (/^What would you like to validate\b/u.test(act?.ask?.question ?? '') ? { route: { shell: `singularity-flow nextsteps ${W} --json` } } : null);
+  const written = await followRoutes(story, { label: 'journey R, the code', start: { copilot: '/sf-code implement' }, agent: { author, review: reviewer() },
+    person: cooperativePerson(validation), done: ({ record }) => publishedGeneration(record, 'implement') >= 1, maxSteps: 16 });
+  t.diagnostic(formatTrail(written.trail));
+  assert.equal(written.reached, true, report(written));
+
+  // The person types a change, is asked "Start version 2 of Implement?", says No, and asks to submit it as it is.
+  const account = `singularity-flow departure account --work-id ${W} --instruction 1 --clauses <CLAUSES>`;
+  const questions = [];
+  const person = cooperativePerson((context) => {
+    if (context.act?.state === 'confirm' && /^Start version 2 of Implement\?/u.test(context.act.ask?.question ?? '')) {
+      questions.push(context.act.ask.question);
+      return { route: { copilot: '/sf-submit' } };
+    }
+    return validation(context);
+  });
+  const declined = await followRoutes(story, { label: 'journey R, No', start: { copilot: `/sf-code ${CHANGES[0]}` }, agent: { author, review: reviewer() }, person,
+    done: ({ result }) => result?.act?.do?.shell === account, maxSteps: 8 });
+  t.diagnostic(formatTrail(declined.trail));
+  await check(t, 'asked once, the person says No, and /sf-submit names the author\'s account: no submission is tried and refused', {}, () => {
+    assert.equal(declined.reached, true, report(declined));
+    assert.deepEqual(declined.findings, [], report(declined));
+    assert.equal(questions.length, 1, report(declined));
+    const submit = declined.trail.find((entry) => /--submit-if-ready/u.test(entry.ran ?? ''));
+    assert.equal(submit?.status, 0, report(declined));
+    const readiness = json(story.raw(['status', W, '--submission-readiness', '--json']).stdout);
+    assert.deepEqual([readiness?.classification, readiness?.lifecycleReady, readiness?.submission, readiness?.otherwise?.command],
+      ['change-requested', false, undefined, account], JSON.stringify(readiness).slice(0, 2000));
+    const next = json(story.raw(['nextsteps', W, '--json']).stdout);
+    assert.ok(!next.actions.some((entry) => /^singularity-flow submit implement/u.test(entry.command)), JSON.stringify(next.actions).slice(0, 3000));
+    assert.ok(next.actions.some((entry) => entry.command === account), JSON.stringify(next.actions).slice(0, 3000));
+    assert.equal(storyRecord(story).phases.implement.status, 'in_progress');
+  });
+  // The author makes the account (the plan's clause covers it), and the same /sf-submit completes the step as it is.
+  const accounted = story.raw(account.replace(/^singularity-flow /u, '').replace('<CLAUSES>', `${W}:AC-001`).split(' ').concat('--json'));
+  assert.equal(accounted.status, 0, accounted.stdout.slice(-1500) + accounted.stderr.slice(-1500));
+  const submitted = await followRoutes(story, { label: 'journey R, submitted', start: { copilot: '/sf-submit' }, agent: { author, review: reviewer() }, person,
+    done: ({ record }) => ['approved', 'completed'].includes(record?.phases?.implement?.status), maxSteps: 8 });
+  t.diagnostic(formatTrail(submitted.trail));
+  await check(t, 'once accounted for, /sf-submit completes version 1 as it is, with no version 2 opened', {}, () => {
+    assert.equal(submitted.reached, true, report(submitted));
+    assert.deepEqual(submitted.findings, [], report(submitted));
+    const record = storyRecord(story);
+    assert.equal(record.phases.implement.generation, 1);
+    assert.equal(record.phases.implement.approvalDisposition, 'not_required');
   });
   settle(t);
 });

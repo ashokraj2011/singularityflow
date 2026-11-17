@@ -10,7 +10,10 @@
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { owedDecisions } from './owed-decisions.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { applicationReviewPhase, authoringRoute, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { applicationReviewPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { authorRoute, returnRoute, versionQuestionRoute } from './action-command-map.mjs';
+import { phaseCorrectionTargets } from './approval-fallback.mjs';
+import { stepDecisionOf } from './step-decision.mjs';
 
 const MAX_TEXT = 400;
 const PORT_PROBE_MS = 300;
@@ -84,11 +87,7 @@ export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, a
   const codePhase = phaseRequiresCodeDelivery(phase) ? { id: workflow.currentPhase, ...phase }
     : (workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})).map(id => workflow.phases[id] && { id, ...workflow.phases[id] })
       .findLast(item => phaseRequiresCodeDelivery(item) && item.generation > 0) ?? null;
-  const codeRepair = phaseRequiresCodeDelivery(phase) && phase.status === 'in_progress' && phase.generation > 0;
-  // A published step's repair is its next version, which opens only on the person's yes: its preview asks [OSA:REQ-030].
-  const repair = codeRepair
-    ? ['phase', 'rollover', workflow.currentPhase, '--work-id', workId, '--json']
-    : ['recover', workId, ...(phase ? ['--phase', phase.id ?? workflow.currentPhase] : []), '--for-agent', '--json'];
+  const repair = phase ? repairRoute(workflow, { id: workflow.currentPhase, ...phase }, codePhase ?? { id: workflow.currentPhase, ...phase }) : null;
   const review = {
     resultType: 'sflow-outcome-review',
     workId,
@@ -109,12 +108,32 @@ export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, a
       tests: codePhase ? safeCommandGuidance({ argv: ['tests', 'run', '--work-id', workId, '--phase', codePhase.id] }) : null,
       matrix: safeCommandGuidance({ argv: ['evidence', 'matrix', workId] }),
       decisions: safeCommandGuidance({ argv: ['decisions', workId] }),
-      repair: safeCommandGuidance({ argv: repair, ...(codeRepair ? { skill: authoringRoute(phase, workflow).effectiveAuthoringSkill } : {}) }),
+      repair: repair ? safeCommandGuidance({ command: repair.command, ...(repair.skill ? { skill: repair.skill } : {}) }) : null,
       continue: safeCommandGuidance({ argv: ['nextsteps', workId, '--for-agent', '--json'] })
     },
     optional: true
   };
   return { ...review, validation: deliveryValidation(review, codePhase, graph) };
+}
+
+/**
+ * Where "Request a repair" goes, by where the Story is [review 2026-11-17, routes #2]: the delivered code's step (else the
+ * current step) being written is repaired by its own work command; a published one by its next version, which opens on the
+ * person's yes for what they say to repair (its preview needs those words, so it carries their placeholder); from a later
+ * step, the code step's return, by the step's approvers once it is submitted, else an upstream issue against it. Before, the
+ * code branch previewed with no words (refused as no change asked for) and every other branch ran recovery, which found
+ * nothing to repair. Null for a step that is neither in progress nor submitted.
+ */
+function repairRoute(workflow, phase, code) {
+  if (code.id === phase.id) {
+    if (phase.status === 'awaiting_approval') return returnRoute(workflow, phase);
+    if (phase.status !== 'in_progress') return null;
+    return stepDecisionOf(workflow, phase).edit.authoring ? authorRoute(workflow, phase) : versionQuestionRoute(workflow, phase);
+  }
+  if (phase.status === 'awaiting_approval' && phaseCorrectionTargets(phase).includes(code.id)) {
+    return returnRoute(workflow, phase, code.id);
+  }
+  return { command: `singularity-flow upstream-issue raise --work-id ${workflow.workItem.id} --phase ${code.id} --about <CLAUSE-ID> --problem "<what to repair>"` };
 }
 
 /** One presentation contract for CLI, Copilot and the editor. Choices grant no acceptance. */

@@ -23,7 +23,7 @@ import { OPERATIONS, RECORD_ADMISSION, stepState } from '../src/kernel/step-stat
 import { ACTION_COMMANDS, actionCommand, decisionRoutes, stepDecisionOf, stepSnapshotOf } from '../src/step-decision.mjs';
 import { deriveMutationContract, mutationPathDecision } from '../src/phase-mutation-contract.mjs';
 import { outcomeCode, readGuardTaskOutcome, readTaskOutcome, taskOutcomeOf } from '../src/workflow-task-outcome.mjs';
-import { observeWorkflowTask } from '../src/workflow-task-store.mjs';
+import { observeWorkflowTask, readWorkflowTaskResume } from '../src/workflow-task-store.mjs';
 import { observeOpening } from '../src/story-version-acceptance.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
 import { workflowGuide } from '../src/guide.mjs';
@@ -166,6 +166,13 @@ test('a published step whose execution still runs is observed by every view, nev
   for (const [view, command] of Object.entries(views(f.workflow, running))) {
     assert.equal(command, 'singularity-flow session current --for-agent --json', `${view} observes the running execution`);
   }
+  // Review 2026-11-17 (kernel #11b): that route, `session current`, shows the running execution, read from the Story's live
+  // lease, never only the task record (which says nothing of it).
+  const resume = await readWorkflowTaskResume(f.root, f.workflow, f.implement, { published: true, execution: running });
+  assert.deepEqual([resume?.execution?.status, resume?.execution?.code, resume?.execution?.lastHeartbeatAt], ['running', 'STORY_LEASE_HELD', '2026-11-17T09:00:00.000Z'], JSON.stringify(resume));
+  assert.match(resume.execution.words, /still running .*Nothing is started again while it runs/u);
+  // No lease held: nothing is said to run.
+  assert.equal((await readWorkflowTaskResume(f.root, f.workflow, f.implement, { published: true }))?.execution, undefined);
   // Without it, the same published step is submitted, as before [§5 precedence 10].
   assert.equal(stepDecisionOf(f.workflow, f.implement).next.operation, 'submit-version');
   // Never on a step that has nothing published: its version 1 keeps its own action [§5 precedence 7].

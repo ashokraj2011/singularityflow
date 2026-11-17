@@ -1,7 +1,8 @@
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { sequenceGateMode } from './sequence.mjs';
 import { stepBeingWritten, successorGenerationOpen } from './phase-generation-need.mjs';
-import { approveRoute, authorRoute } from './action-command-map.mjs';
+import { approveRoute, authorRoute, versionQuestionRoute } from './action-command-map.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand, approvalHoldContinuation } from './copilot-guidance.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
@@ -460,22 +461,42 @@ export function submissionReadinessSnapshot(workflow, {
         })
   });
 
-  // A typed change waits for the next version (taskOutcome): its question leads; /sf-submit still submits this one as it is.
-  const asked = taskOutcome?.changeRequested && stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome });
-  if (asked?.next.inputs.reason === 'change-requested') {
-    const [route] = decisionRoutes(asked, workflow, phase), inputs = decisionInputsNeeded(workflow, phase);
-    const submittable = !sourceReviewRequired(workflow, phase.id) || sourceReviewEvidence?.status === 'ready';
-    return result(workflow, phase, { ...draft, classification: 'change-requested', lifecycleReady: submittable, command: route.command, nextSkill: route.skill,
-      reason: route.detail, reasonCode: 'CHANGE_REQUESTED', ...(submittable ? { submission: submitCommand(workflow, phase) } : {}),
-      ...(inputs.length ? { decisionInputs: inputs } : {}) });
+  // A typed change waits for the next version (taskOutcome): its question leads. The person's No (the kernel's `declined`)
+  // submits this version as it is (`submission`, /sf-submit's), or names what that waits for (`otherwise`).
+  const decided = taskOutcome?.changeRequested || taskOutcome?.askedFor?.length
+    ? stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome }) : null;
+  const asked = decided?.next.inputs.reason === 'change-requested' ? decided : null;
+  if (asked) {
+    const [route] = decisionRoutes(asked, workflow, phase);
+    const declined = asked.next.inputs.declined ? { ...asked, next: asked.next.inputs.declined } : null;
+    const rest = declinedReadiness(workflow, phase, { draft, sourceReviewEvidence, declined });
+    const submittable = rest.classification === 'ready-to-attempt';
+    return result(workflow, phase, { ...draft, classification: 'change-requested', lifecycleReady: submittable, command: route?.command ?? null, nextSkill: route?.skill ?? null,
+      reason: route?.detail ?? null, reasonCode: 'CHANGE_REQUESTED', ...(submittable ? { submission: rest.command } : {
+        otherwise: { classification: rest.classification, command: rest.command, skill: rest.nextSkill, reason: rest.reason ?? null } }),
+      ...(rest.decisionInputs ? { decisionInputs: rest.decisionInputs } : {}),
+      ...(rest.sourceReviewStatus ? { sourceReviewStatus: rest.sourceReviewStatus, sourceReviewFindings: rest.sourceReviewFindings } : {}) });
   }
+  return declinedReadiness(workflow, phase, { draft, sourceReviewEvidence, declined: decided });
+}
+
+/** The published version's way on with no change waiting, or declined: its author's account, its review, its submission. */
+function declinedReadiness(workflow, phase, { draft, sourceReviewEvidence, declined }) {
   // What the person typed waits for its account in a step nobody approves (taskOutcome): its submission, which completes
   // it, waits for that, so the author's account leads, as the kernel names it [SCS:REQ-042].
-  const owing = taskOutcome?.askedFor && stepDecisionOf(workflow, phase, { review: sourceReviewEvidence, task: taskOutcome });
-  if (owing?.next.prerequisites?.some((entry) => entry.code === ASKED_FOR_HOLD)) {
-    const [route] = decisionRoutes(owing, workflow, phase);
-    return result(workflow, phase, { ...draft, classification: 'instructions-unaccounted', lifecycleReady: false, command: route.command,
-      nextSkill: route.skill, reason: route.detail, reasonCode: ASKED_FOR_HOLD });
+  if (declined?.next.prerequisites?.some((entry) => entry.code === ASKED_FOR_HOLD)) {
+    const [route] = decisionRoutes(declined, workflow, phase);
+    return result(workflow, phase, { ...draft, classification: 'instructions-unaccounted', lifecycleReady: false, command: route?.command ?? null,
+      nextSkill: route?.skill ?? null, reason: route?.detail ?? null, reasonCode: ASKED_FOR_HOLD });
+  }
+
+  // Submission refuses a published code version with no receipt (CODE_DELIVERY_RECEIPT_MISSING): never "ready" first; its
+  // route is that refusal's own, the next version on the person's yes (only a publication records one).
+  if (phaseRequiresCodeDelivery(phase) && Number(phase.deliveryEvidence?.generation) !== Number(phase.generation)) {
+    const route = versionQuestionRoute(workflow, phase);
+    return result(workflow, phase, { ...draft, classification: 'code-delivery-receipt-missing', lifecycleReady: false,
+      command: route.command, nextSkill: route.skill, reasonCode: 'CODE_DELIVERY_RECEIPT_MISSING',
+      reason: `Version ${phase.generation} of ${phase.id} has no code-delivery receipt, so it cannot be submitted. Its next version records one. It opens only on the person's yes.` });
   }
 
   if (sourceReviewRequired(workflow, phase.id) && sourceReviewEvidence?.status !== 'ready') {

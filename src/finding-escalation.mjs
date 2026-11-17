@@ -95,6 +95,24 @@ export function observeFindingStreak(root, { workId, phaseId, generation = null,
 }
 
 /**
+ * The step's streaks end: what was refused passed (its check is ready), so a later return of the same finding starts again
+ * [review 2026-11-17, kernel #7]. Best effort, like the count.
+ */
+export function settleFindingStreak(root, { workId, phaseId }) {
+  const file = storeFile(root);
+  if (!file || !workId || !phaseId) return;
+  try {
+    const store = JSON.parse(readFileSync(file, 'utf8'));
+    const prefix = `${workId}\u0000${phaseId}\u0000`;
+    const kept = Object.fromEntries(Object.entries(store ?? {}).filter(([key]) => !key.startsWith(prefix)));
+    if (Object.keys(kept).length === Object.keys(store ?? {}).length) return;
+    const temporary = `${file}.${process.pid}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(kept)}\n`);
+    renameSync(temporary, file);
+  } catch { /* nothing kept, nothing to settle */ }
+}
+
+/**
  * A cheap fingerprint of the author's current attempt: the draft's own fingerprint, HEAD, and the
  * size and time of every changed file. An edit changes it; a recheck with nothing changed does not.
  */
@@ -136,18 +154,21 @@ export function findingEscalation({ count, code, workId, phaseId }) {
 }
 
 /**
- * A refusal envelope with the escalation added when the same phase refusal has repeated: its first
+ * A refusal envelope with the escalation added when the same phase refusal has returned after repairs: its first
  * step becomes "stop and read the finding's entry", and the plan carries the routes for someone
- * other than the author. Anything else is returned unchanged.
+ * other than the author. Anything else is returned unchanged. A repeat counts only when the author's attempt changed, as
+ * prepublish counts it: the same command retried on the same work is no repair [review 2026-11-17, kernel #7]. `waits`: the
+ * refusal stops at a person's or the environment's step (workflow-task-outcome.mjs refusalOutcome), which no repair
+ * reaches, so it is never escalated as a repair that cannot pass.
  */
-export function escalateRefusalEnvelope(envelope, error, root = process.cwd()) {
+export function escalateRefusalEnvelope(envelope, error, root = process.cwd(), { waits = false } = {}) {
   const plan = envelope?.remediationPlan;
   const context = plan?.context;
   const code = envelope?.error?.code ?? error?.code ?? null;
-  // A refusal that waits (a test run that may still be going) is no repair that keeps failing.
-  if (context?.scope !== 'phase' || !context.phaseId || !code || error?.details?.waits === true) return envelope;
+  // A refusal that waits (a test run that may still be going, a person's or the environment's step) is no repair that keeps failing.
+  if (context?.scope !== 'phase' || !context.phaseId || !code || waits || error?.details?.waits === true) return envelope;
   const count = observeFindingStreak(root, { workId: context.workId ?? root, phaseId: context.phaseId,
-    generation: error?.details?.generation ?? null,
+    generation: error?.details?.generation ?? null, attempt: worktreeAttempt(root),
     fingerprint: findingFingerprint([{ code, details: error?.details, message: error?.message }]) });
   const escalation = findingEscalation({ count, code, workId: context.workId ?? null, phaseId: context.phaseId });
   if (!escalation) return envelope;

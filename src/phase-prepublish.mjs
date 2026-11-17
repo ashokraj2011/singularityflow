@@ -717,6 +717,9 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
       fingerprint: findingFingerprint(blocking), attempt: worktreeAttempt(root, draftFingerprint) });
     escalation = findingEscalation({ count, code: codes.find((code) => DISPUTABLE_GATES.includes(code)) ?? codes[0],
       workId: workflow.workItem.id, phaseId: phase.id });
+  } else if (ready) {
+    // Its checks pass: a finding that returns later starts its count again [review 2026-11-17, kernel #7].
+    (await import('./finding-escalation.mjs')).settleFindingStreak(root, { workId: workflow.workItem.id, phaseId: phase.id });
   }
   return Object.freeze({
     schemaVersion: 1,

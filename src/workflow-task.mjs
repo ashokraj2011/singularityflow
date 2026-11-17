@@ -184,7 +184,7 @@ export function workflowTaskDeltaSafe(before, after) {
 /** A record suggests work; only fresh kernel facts choose the step or establish completion. */
 export function workflowTaskResume(workflow, phase, { role = 'author', generation = null, record = null,
   inputSha256 = workflowTaskInputSha256(workflow, phase), progress = null, review = null,
-  published = null, pendingPublication = false, blocked = null, nextAction = null } = {}) {
+  published = null, pendingPublication = false, blocked = null, nextAction = null, execution = null } = {}) {
   if (!workflowTaskApplies(phase, role)) return null;
   const identity = workflowTaskIdentity(workflow, phase, role, generation ?? (published === true && phase.generation > 0 ? phase.generation : null));
   if (record) validateWorkflowTask(record, identity);
@@ -246,6 +246,10 @@ export function workflowTaskResume(workflow, phase, { role = 'author', generatio
   if (!next && !complete) next = (author ? safeCommandGuidance({ argv: entry, skill: author }) : null) ?? safeCommandGuidance({ argv: entry });
   return { schemaVersion: 1, operationId: identity.id, role, generation: identity.generation, state, complete,
     ...(pendingPublication ? { stage: 'publication-pending' } : {}),
+    // Its work still running under the Story's lease: how far it got, and that nothing is started again meanwhile [§8, OSA:REQ-051].
+    ...(execution?.outcome === 'running' ? { execution: { status: 'running', code: execution.code ?? null, stage: execution.stage ?? null,
+      lastHeartbeatAt: execution.progressReference ?? null,
+      words: `${phase.id}'s work is still running${execution.progressReference ? ` (last seen working at ${execution.progressReference})` : ''}. Nothing is started again while it runs; read this again to see when it ends.` } } : {}),
     resumed: Boolean(record), inputChanged, authority: 'progress-only',
     nextAction: complete ? null : next,
     ...(checkpointRoute ? { handoff: { command: checkpointRoute.command, copilotCommand: checkpointRoute.copilotCommand,

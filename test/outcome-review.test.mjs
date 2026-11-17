@@ -165,3 +165,35 @@ test('validation chooses only ready local apps or free declared launch entries a
   assert.ok(!failure.validation.choices.some(choice => choice.id === 'configure'), 'a permission failure is not presented as absent configuration');
   assert.ok(failure.validation.choices.some(choice => choice.id === 'repair'));
 });
+
+// Review finding 2026-11-17 (routes #2): "Request a repair" previewed the published code's next version with no words, which
+// is refused as no change asked for, and from any other step ran recovery, which finds nothing to repair. It goes where a
+// repair of the delivered code is made from where the Story is.
+test('"Request a repair" names a route that repairs the delivered code from where the Story is', () => {
+  const story = (current, phases) => ({ workItem: { id: 'FIX-1' }, phaseOrder: Object.keys(phases), currentPhase: current, phases });
+  const code = (changes = {}) => ({ id: 'implement', status: 'in_progress', generation: 1, generationPolicy: { task: 'code' },
+    generationIntent: { status: 'consumed', generation: 1 }, ...changes });
+  const repair = (workflow) => buildOutcomeReview({ workflow, application: { status: 'none-declared' } }).routes.repair;
+  // Published and unchanged: its next version, on the person's yes, for what they say to repair.
+  const published = repair(story('implement', { implement: code() }));
+  assert.deepEqual([published?.command, published?.copilotCommand?.split(' ')[0]],
+    ['singularity-flow phase rollover implement --reason "<what to change>" --json', '/sf-code'], JSON.stringify(published));
+  // Being written: its own work command.
+  const writing = repair(story('implement', { implement: code({ generationIntent: { status: 'open', generation: 2 } }) }));
+  assert.deepEqual([writing?.command, writing?.copilotCommand?.split(' ')[0]], ['singularity-flow prepare implement', '/sf-code'], JSON.stringify(writing));
+  // Submitted: its return for correction, by its approvers.
+  const submitted = repair(story('implement', { implement: code({ status: 'awaiting_approval', approvalPolicy: { mode: 'human' } }) }));
+  assert.match(submitted?.command ?? '', /^singularity-flow reject implement --work-id FIX-1 --fetch --to implement /u, JSON.stringify(submitted));
+  // From a later step: the code step's return once it is submitted (where its approvers may return it there), else an upstream issue.
+  const later = (status, rejectTo) => repair(story('verify', { implement: code({ status: 'approved' }),
+    verify: { id: 'verify', status, generation: 1, generationPolicy: { task: 'analyze' }, approvalPolicy: { mode: 'human', rejectTo } } }));
+  assert.match(later('awaiting_approval', ['implement'])?.command ?? '', /^singularity-flow reject verify --work-id FIX-1 --fetch --to implement /u);
+  for (const [status, rejectTo] of [['in_progress', ['implement']], ['awaiting_approval', []]]) {
+    const raised = later(status, rejectTo);
+    assert.match(raised?.command ?? '', /^singularity-flow upstream-issue raise --work-id FIX-1 --phase implement /u, JSON.stringify(raised));
+  }
+  // Never recovery, and never a preview with no words to say what to repair.
+  for (const route of [published, writing, submitted, later('in_progress', [])]) {
+    assert.doesNotMatch(route?.command ?? '', /^singularity-flow recover |phase rollover implement --json$|phase rollover implement --work-id FIX-1 --json$/u);
+  }
+});

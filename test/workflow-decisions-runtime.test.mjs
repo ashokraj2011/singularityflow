@@ -101,7 +101,18 @@ async function state(root, workId) {
 async function work(root, workId, phaseId, submitArgs = []) {
   const agent = AGENTS[phaseId];
   const before = await state(root, workId);
-  if (before.phases[phaseId].generation > 0 || phaseId !== before.phaseOrder[0]) flow(root, ['prepare', phaseId], { agent });
+  // A step a loop sent the Story back to is published already: its next version opens only on the person's yes
+  // [D3, OSA:REQ-030]. Prepare is refused until the preview's question is answered yes in their own terminal.
+  const published = Number(before.phases[phaseId].generation ?? 0);
+  if (published > 0) {
+    const refused = flow(root, ['prepare', phaseId], { agent, allowFailure: true });
+    assert.notEqual(refused.status, 0);
+    assert.match(`${refused.stdout}\n${refused.stderr}`, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+    const preview = JSON.parse(flow(root, ['phase', 'rollover', phaseId, '--json'], { agent }).stdout);
+    assert.match(preview.question, new RegExp(`^Start version ${published + 1} of `, 'u'));
+    flow(root, ['phase', 'rollover', phaseId, '--confirm', preview.confirmation, '--json'], { agent });
+  }
+  if (published > 0 || phaseId !== before.phaseOrder[0]) flow(root, ['prepare', phaseId], { agent });
   const workflow = await state(root, workId);
   const file = path.join(root, 'singularity/work-items', workId, workflow.phases[phaseId].requiredArtifact.path);
   let text = await readFile(file, 'utf8');

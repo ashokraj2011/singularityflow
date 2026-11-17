@@ -33,7 +33,10 @@ export const MET_REFUSALS = Object.freeze({
   APPROVAL_SELF_APPROVAL_FORBIDDEN: { class: 'expected-person-step', handler: 'approver',
     ask: 'Someone other than the author approves the step.' },
   SELF_APPROVAL_NOT_ALLOWED: { class: 'expected-person-step', handler: 'approver',
-    ask: 'Someone other than the author approves the step.' }
+    ask: 'Someone other than the author approves the step.' },
+  // Every next version of a step opens only on the person's yes, the author's own correction too [D3, OSA:REQ-030].
+  VERSION_CONSENT_REQUIRED: { class: 'expected-person-step', handler: 'version',
+    ask: "The person says yes to starting the step's next version, as its preview asks them." }
 });
 
 /**

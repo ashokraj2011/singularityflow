@@ -24,6 +24,19 @@ function execute(command, args, cwd, { allowFailure = false, selection, actor = 
 
 function flow(cwd, args, options = {}) { return execute(process.execPath, [bin, ...args], cwd, options); }
 
+/**
+ * A step published before opens its next version only on the person's yes [D3, OSA:REQ-030]: prepare is refused, the
+ * preview asks "Start version N of …", and their yes in their own terminal opens it.
+ */
+function confirmNextVersion(cwd, phaseId, version, options = {}) {
+  const refused = flow(cwd, ['prepare', phaseId], { ...options, allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(`${refused.stdout}\n${refused.stderr}`, /VERSION_CONSENT_REQUIRED|opens only on the person's yes/u);
+  const preview = JSON.parse(flow(cwd, ['phase', 'rollover', phaseId, '--json'], options).stdout);
+  assert.match(preview.question, new RegExp(`^Start version ${version} of `, 'u'));
+  flow(cwd, ['phase', 'rollover', phaseId, '--confirm', preview.confirmation, '--json'], options);
+}
+
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-v2-test-'));
   execute('git', ['init', '-b', 'main'], root); execute('git', ['config', 'user.name', 'Singularity Flow Test'], root); execute('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
@@ -901,6 +914,7 @@ test('bugfix profile is immutable and rejection reopens an allowed earlier phase
   }]);
   assert.equal(workflow.phases.reproduction.approvals.at(-1).changeRequestId, 'CR-001');
   assert.equal(workflow.phases.intake.approvals[0].invalidatedAt != null, true); assert.equal(workflow.phases.reproduction.status, 'not_started');
+  confirmNextVersion(root, 'intake', 2, { selection: selection('bugfix', 'product-owner') });
   flow(root, ['prepare', 'intake'], { selection: selection('bugfix', 'product-owner') });
   workflow = JSON.parse(await readFile(workflowFile, 'utf8')); await completeArtifact(root, workflow, 'intake');
   flow(root, ['phase', 'publish', 'intake'], { selection: selection('bugfix', 'product-owner') });

@@ -282,6 +282,29 @@ async function review(walk, stepId) {
   if (!retained.ok) walk.stop(stepId, ['review-source', 'submit', stepId], retained.refusal);
 }
 
+/**
+ * A step's next version opens only on the person's yes [D3, OSA:REQ-030]. The walk follows the preview route the
+ * refusal returns and, as that person in its own copy, runs the confirmation route the preview returns; a refusal or
+ * preview that names no such route is a stop. It builds neither command itself.
+ */
+async function openNextVersion(walk, stepId, refusedArgs, refusal) {
+  const preview = refusal.routes.map(argvOf).find((argv) => argv[0] === 'phase' && argv[1] === 'rollover' && argv[2] === stepId && !argv.includes('--confirm'));
+  if (!preview) walk.stop(stepId, refusedArgs, refusal);
+  const previewArgs = [...preview.filter((arg) => arg !== '--json'), '--json'];
+  const previewed = await walk.cli(stepId, previewArgs);
+  if (!previewed.ok) walk.stop(stepId, previewArgs, previewed.refusal);
+  const confirm = Array.isArray(previewed.parsed?.argv) ? previewed.parsed.argv : argvOf(previewed.parsed?.command ?? '');
+  if (!confirm.includes('--confirm')) {
+    walk.stop(stepId, previewArgs, { code: 'WORKFLOW_WALK_NO_CONFIRMATION', message: 'The preview of the next version returned no confirmation to run.', routes: [] });
+  }
+  const asked = commandText(previewArgs);
+  walk.person(stepId, { class: 'expected-person-step', kind: 'version', ask: `${MET_REFUSALS.VERSION_CONSENT_REQUIRED.ask} It asks: "${previewed.parsed?.question ?? 'Start the next version?'}"`,
+    where: `${whereFor(asked)}; the person answers its question`, command: asked });
+  const args = [...confirm.filter((arg) => arg !== '--json'), '--json'];
+  const confirmed = await walk.cli(stepId, args, { person: true });
+  if (!confirmed.ok) walk.stop(stepId, args, confirmed.refusal);
+}
+
 /** An approver for `groups` the walk may act as, when its own identity is not one: a listed member. */
 function listedApprover(walk, details, { excludeSelf = false } = {}) {
   const authorities = walk.resolution?.approvalAuthorities ?? {};
@@ -644,7 +667,12 @@ async function driveStep(walk, stepId) {
     if (!done.prepared) {
       done.prepared = true;
       const args = ['prepare', stepId, '--json'];
-      const prepared = await walk.cli(stepId, args);
+      let prepared = await walk.cli(stepId, args);
+      // A step walked again (a return, a loop, a repair's recheck) asks the person before its next version opens.
+      if (!prepared.ok && MET_REFUSALS[prepared.refusal.code]?.handler === 'version') {
+        await openNextVersion(walk, stepId, args, prepared.refusal);
+        prepared = await walk.cli(stepId, args);
+      }
       if (!prepared.ok) walk.stop(stepId, args, prepared.refusal);
       continue;
     }

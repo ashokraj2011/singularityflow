@@ -139,7 +139,7 @@ function taskOutcomeWords(inputs, phase) {
  */
 export function decisionRoutes(decision, workflow, requested, { exactSubmit = false } = {}) {
   const { next } = decision;
-  const workId = workflow.workItem.id;
+  const workId = workflow.workItem?.id;
   // The action's own step: from an inspected step, the current one it names [§4.2 target].
   const phase = workflow.phases?.[next.target?.phase] ?? requested;
   // The step's own work command (D1: /sf-code and /sf-phase are one; a step's routes show the name its kind always had).

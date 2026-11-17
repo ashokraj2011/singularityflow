@@ -13,7 +13,7 @@ import test from 'node:test';
 
 import { noProgress, OPERATIONS, REASON_CODES, stepState, TASK_OUTCOMES } from '../src/kernel/step-state.mjs';
 import { decisionRoutes, stepDecisionOf, stepSnapshotOf } from '../src/step-decision.mjs';
-import { lifecycleMark, outcomeCode, refusalOutcome, taskOutcomeOf } from '../src/workflow-task-outcome.mjs';
+import { lifecycleMark, outcomeCode, refusalOutcome, refusalStop, taskOutcomeOf } from '../src/workflow-task-outcome.mjs';
 import { workflowGuide } from '../src/guide.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
 import { submissionReadinessSnapshot } from '../src/submission-readiness.mjs';
@@ -99,6 +99,26 @@ test('a failed required test stops at its own boundary: a Node to pin is a perso
   assert.equal(refusalOutcome({ code: 'CODE_TEST_FAILED', details: { testRunRisk: { eligible: true } } }), 'waiting-environment');
   assert.equal(refusalOutcome({ code: 'CODE_TEST_FAILED', details: {} }), 'repair-required');
   assert.equal(refusalOutcome({ code: 'GENERATION_INTENT_REQUIRED', details: {} }), null, 'only a check that stops the version is kept');
+  // A code or unknown cause (a timeout) is the step's own repair: no environment decision covers it [CVL-REQ-004].
+  for (const cause of [{ category: 'code', class: 'assertion-failure' }, { category: 'unknown', class: 'timeout' }]) {
+    assert.deepEqual(refusalStop({ code: 'CODE_TEST_FAILED', details: { testRunCause: cause } }), { outcome: 'repair-required', code: 'CODE_TEST_FAILED' }, cause.class);
+  }
+  // The environment's stop keeps its own error: the cause a person may accept, or what blocked the run before it started.
+  assert.deepEqual(refusalStop({ code: 'CODE_TEST_FAILED', details: { testRunRisk: { eligible: true, causeClass: 'launcher-unavailable' } } }),
+    { outcome: 'waiting-environment', code: 'launcher-unavailable' });
+  assert.deepEqual(refusalStop({ code: 'CODE_TEST_FAILED', details: { testRunRisk: { eligible: true, causeClass: 'docker-unavailable+service-unreachable' } } }),
+    { outcome: 'waiting-environment', code: 'docker-unavailable.service-unreachable' });
+  for (const errorCode of ['ENV_FILE_MISSING', 'ENV_FILE_IN_USE', 'ENVIRONMENT_BINDING_UNAVAILABLE']) {
+    assert.deepEqual(refusalStop({ code: 'CODE_TEST_FAILED', details: { requiredTestExecution: { errorCode }, testRunCause: { category: 'unknown', class: 'unrecognised' } } }),
+      { outcome: 'waiting-environment', code: errorCode }, errorCode);
+  }
+  // A run held back while the last one may still be going is no new stop: the next run reconciles it.
+  for (const errorCode of ['TEST_RUN_STILL_RUNNING', 'TEST_RUN_OUTCOME_UNKNOWN']) {
+    assert.equal(refusalStop({ code: 'CODE_TEST_FAILED', details: { requiredTestExecution: { errorCode } } }), null, errorCode);
+  }
+  // An input not on this laptop waits for the person, with the first missing document's identity.
+  assert.deepEqual(refusalStop({ code: 'DOCUMENT_REUPLOAD_REQUIRED', details: { documentReadiness: { missing: [{ id: 'DOC-002' }, { id: 'DOC-003' }] } } }),
+    { outcome: 'waiting-input', code: 'DOCUMENT_REUPLOAD_REQUIRED', input: 'DOC-002' });
 });
 
 test('every view names the task\'s wait at one basis: next steps, the guide, readiness and the session [OSA:REQ-020, AC-002]', () => {

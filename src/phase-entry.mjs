@@ -26,13 +26,14 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const { resumeWorkflowTask } = await import('./workflow-task-store.mjs');
   // A published generation, also while the person is asked to start its next one.
   const published = ['retained-generation', 'successor-confirmation-required'].includes(result.authoring?.entry?.status);
+  // A document missing here is the task's wait for that input, as every view names it [§8, CVL-REQ-004].
+  const missing = taskCompletion?.state === 'blocked' && result.documentReadiness && result.documentReadiness.status !== 'ready'
+    ? (await import('./workflow-task-outcome.mjs')).outcomeCode('waiting-input', 'DOCUMENT_REUPLOAD_REQUIRED', entry.workflow, result.documentReadiness.missing?.[0]?.id) : null;
   const taskResume = await resumeWorkflowTask(entry.root, entry.workflow, entry.phase, {
     generation: taskCompletion?.generation ?? (published ? entry.phase.generation : base.inspectionGeneration),
     progress: taskCompletion,
     published,
-    blocked: taskCompletion?.state === 'blocked' ? { code: result.documentReadiness?.status === 'ready'
-      ? 'PHASE_ENTRY_NOT_ADMITTED' : result.documentReadiness ? 'DOCUMENT_REUPLOAD_REQUIRED' : 'PHASE_ENTRY_NOT_ADMITTED',
-    nextAction: taskCompletion.nextAction } : null
+    blocked: taskCompletion?.state === 'blocked' ? { code: missing ?? 'PHASE_ENTRY_NOT_ADMITTED', nextAction: taskCompletion.nextAction } : null
   });
   return { ...result, taskResume, ...(taskCompletion && taskResume ? { taskCompletion: { ...taskCompletion,
     operationId: taskResume.operationId, continuationBudget: taskResume.continuationBudget,

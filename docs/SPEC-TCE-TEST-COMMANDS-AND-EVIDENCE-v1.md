@@ -137,6 +137,17 @@ still fill an uncovered module, and that command is pinned on first use.
   when the command itself has already exited: on POSIX a descendant holding its output keeps the
   group, so a deadline or cancel after the command's exit ends that descendant instead of waiting for
   it. Windows keeps the exited command alone, since its ID may then name another process.
+  - *2026-11-17 (CVL gap report piece 1, CVL-REQ-016/018):* the cleanup's answer is kept. A stopped run's result and
+    its check carry `processGroup`: `gone`, or `not-confirmed` when a member outlived the sweep or the sweep could not
+    run. A group not confirmed gone is an unknown outcome, never read as quiet. Before a gate's required test command
+    starts, a private record in the checkout's Git storage (beside the test attempts, never admitted into the Story)
+    names the run, its target, its start and its owner process, then the process it started; its result is written when
+    it ends. The next gate run of that command reconciles what the last one left (`src/verification/test-run-marker.mjs`):
+    a record with no result is read from the original run's kept attempt and its processes, and a run that may still
+    be going (its owner alive, or its processes still there) holds the next one back as a blocked check
+    (`TEST_RUN_STILL_RUNNING`, `TEST_RUN_OUTCOME_UNKNOWN`) that names no process ID. An owner that ended without a
+    result, with nothing of it left, was interrupted: the next run says so and names it. Windows still treats a
+    `taskkill /T` stop as gone.
 
 ### M3 Pinning `[TCE:REQ-010]`
 

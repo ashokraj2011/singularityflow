@@ -209,7 +209,7 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
     case 'repair-version': return [render('repair-version', 'prepare', `Repair ${phase.id} within its own work: ${next.inputs.code ?? 'its last check'} is what to fix, then publish it.`, author)];
     // The step's task waits for an input that is not on this laptop: the person restores the same original.
     case 'provide-input': return [render('provide-input', 'readiness',
-      `${phase.id} waits for an input that is not on this laptop (${next.inputs.code ?? 'a missing input'}). The person restores the same original file; nothing is repeated meanwhile.`)];
+      `${phase.id} waits for an input that is not on this laptop (${next.inputs.input ?? next.inputs.code ?? 'a missing input'}). The person restores the same original file; nothing is repeated meanwhile.`)];
     // A running execution is observed, never repeated or called damaged [§5, OSA:REQ-051].
     case 'inspect': if (next.inputs.task === 'execution') return [render('inspect', 'session',
       `${phase.id}'s work is still running: see how far it got. Nothing is started again while it runs.`)];

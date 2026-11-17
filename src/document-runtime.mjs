@@ -42,15 +42,18 @@ export async function phaseDocumentReadiness(root, definition, workflow, phaseId
       : 'Every machine-local document offered to this phase is present and hash-verified.' };
 }
 
-export async function requirePhaseDocuments(root, definition, workflow, phaseId) {
+/** `recordWait`: where the step really stops (preparation, publication), its task keeps the wait for the first missing input [§8, CVL-REQ-004]. */
+export async function requirePhaseDocuments(root, definition, workflow, phaseId, { recordWait = false } = {}) {
   const readiness = await phaseDocumentReadiness(root, definition, workflow, phaseId);
-  if (readiness.status !== 'ready') throw new SingularityFlowError(readiness.instruction, {
+  if (readiness.status === 'ready') return readiness;
+  const refusal = new SingularityFlowError(readiness.instruction, {
     code: 'DOCUMENT_REUPLOAD_REQUIRED', details: { documentReadiness: readiness,
       actions: [...readiness.missing.map(record => ({ ...record.commandGuidance,
         detail: `Re-upload ${record.id} — ${record.name} on this laptop; choose --file explicitly.` })),
       ...readiness.missing.filter(record => record.detachGuidance).map(record => ({ ...record.detachGuidance,
         detail: `If the original of ${record.id} is gone: preview detaching it (it reopens the steps that used it). The person detaches it with --reason.` }))] } });
-  return readiness;
+  if (recordWait) await (await import('./workflow-task-outcome.mjs')).recordRefusalOutcome(root, workflow, workflow.phases?.[phaseId], refusal);
+  throw refusal;
 }
 
 export async function withLocalDocumentEvidence(root, definition, workflow, phaseId, prompt) {

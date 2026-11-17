@@ -11,7 +11,9 @@ import { resolveWorkType } from '../src/config.mjs';
 import { addDocuments, restoreLocalDocument } from '../src/documents.mjs';
 import { gitDir } from '../src/git.mjs';
 import { readLocalDocument } from '../src/document-storage.mjs';
-import { withLocalDocumentEvidence, writePrivateDocumentExport } from '../src/document-runtime.mjs';
+import { requirePhaseDocuments, withLocalDocumentEvidence, writePrivateDocumentExport } from '../src/document-runtime.mjs';
+import { lifecycleMark } from '../src/workflow-task-outcome.mjs';
+import { readWorkflowTask } from '../src/workflow-task-store.mjs';
 import { compose } from '../src/phase-prompt-composer.mjs';
 import { pinnedStorySource } from '../src/story-epic-sources.mjs';
 import { buildAutoPhaseContract, absoluteAutoReadScope, absoluteAutoWriteScope } from '../src/auto/auto-phase-contract.mjs';
@@ -197,6 +199,22 @@ test('a reader opens a local document by a short name that is the original file 
   assert.equal(restored.absolutePath, image.absolutePath);
   assert.equal((await stat(restored.absolutePath)).ino, (await stat(restored.storePath)).ino);
   assert.deepEqual(await readFile(restored.absolutePath), png);
+});
+
+test('a document missing here is kept as the step\'s wait for that input where it really stops, never on a read [OSA §8, CVL-REQ-004]', async t => {
+  const f = await fixture(t);
+  const phase = f.workflow.phases[f.phaseId];
+  const kept = async () => (await readWorkflowTask(f.root, f.workflow, phase).catch(() => null))?.blockedCode ?? null;
+  const before = await kept();
+  const original = await readLocalDocument(f.root, 'REVIEW-1', f.records[1]);
+  await writeFile(original.storePath, 'not the original bytes');
+  // A read (prompt evidence, Auto's scope, a dry run) refuses and keeps nothing.
+  await assert.rejects(requirePhaseDocuments(f.root, f.definition, f.workflow, f.phaseId), { code: 'DOCUMENT_REUPLOAD_REQUIRED' });
+  assert.equal(await kept(), before);
+  // Preparation and publication stop there: the task keeps the wait, with the document's ID. (This fixture's step is
+  // published, so its task is complete and no view names the wait; an open version's views are osa-stage3-journeys'.)
+  await assert.rejects(requirePhaseDocuments(f.root, f.definition, f.workflow, f.phaseId, { recordWait: true }), { code: 'DOCUMENT_REUPLOAD_REQUIRED' });
+  assert.equal(await kept(), `waiting-input:DOCUMENT_REUPLOAD_REQUIRED:${lifecycleMark(f.workflow)}:${f.records[1].id}`);
 });
 
 test('Auto refuses missing, changed, detached and forged attachments before provider access', async t => {

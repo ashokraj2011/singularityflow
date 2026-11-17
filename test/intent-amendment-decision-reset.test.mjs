@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 
 // An approved intent amendment reset the steps after the scope but kept the decision values a step
 // had recorded, so the new round was routed on the old answers (L3, 2026-10-28).
@@ -102,8 +103,9 @@ test('an approved intent amendment clears the decision values the reset step rec
   assert.equal(after.phases.implementation.decisionInputs?.values, undefined, 'the old answer is not carried into the new round');
   assert.equal(after.completion?.evaluatedAt ?? null, null);
 
-  // The new round asks again instead of reusing ready=yes.
+  // The new round asks again instead of reusing ready=yes. Its version 2 opens on the person's yes [D3, OSA:REQ-030].
   cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
+  confirmNextVersion(cli, 'implementation');
   cli('prepare', 'implementation');
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   const unanswered = attempt('submit', 'implementation');

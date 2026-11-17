@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 import { decisionsSinceRework } from '../src/state.mjs';
 import { fallbackAuthorities, riskAuthorities } from '../src/evidence/risk-decisions.mjs';
 import { planCorrectionAuthorities } from '../src/plan-row-corrections.mjs';
@@ -95,12 +96,15 @@ test('after an upstream return corrects the plan, the unchanged code step publis
   cli('upstream-issue', 'raise', '--phase', 'intake', '--about', 'Request and outcome', '--problem', 'The intake never says that callers may cache the value.');
   cli('upstream-issue', 'decide', 'UPI-001', '--outcome', 'return', '--reason', 'Intake must state the caching rule; the code stays as it is.');
   assert.equal((await state()).currentPhase, 'intake');
+  // Each returned step's version 2 opens on the person's yes [D3, OSA:REQ-030].
+  confirmNextVersion(cli, 'intake');
   await intake(' Callers may cache it.');
   cli('wm', 'compose', '--phase', 'intake');
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'intake');
   cli('approve', 'intake', '--yes');
   assert.equal((await state()).currentPhase, 'implementation');
+  confirmNextVersion(cli, 'implementation');
   cli('prepare', 'implementation');
   // Nothing in the code changes: the corrected intake owes no new source. This was refused as
   // "no application source or test paths changed" (RG-1).

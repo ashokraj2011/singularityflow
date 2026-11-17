@@ -24,6 +24,7 @@ import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 import { applicationChangeSetProjection } from '../src/work-intervals.mjs';
 import { normalizeSpecPolicy } from '../src/specifications.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -240,18 +241,29 @@ async function fixture(t, { refuse, protect = null, observed = false }) {
   const committed = (commit) => must('git', ['show', '--name-only', '--format=', commit]).split('\n').filter(Boolean).sort();
   // What a step's publication committed, by its commit's subject.
   const published = (id, phase, generation) => committed(must('git', ['log', '-1', '--fixed-strings', `--grep=[${id}][phase:${phase}][generated:${generation}]`, '--format=%H']).trim());
-  return { root, run, must, sflow, item, workflow, code, designText, snapshot, scoped, designed, amend, guard, dirty, committed, published };
+  // A published step the amendment or a return reopened: its next version opens on the person's yes [D3, OSA:REQ-030].
+  const nextVersion = (phase) => confirmNextVersion(sflow, phase);
+  return { root, run, must, sflow, item, workflow, code, designText, snapshot, scoped, designed, amend, guard, dirty, committed, published, nextVersion };
 }
 
 const refusedCode = (result) => { try { const parsed = JSON.parse(result.stdout || result.stderr); return (parsed.error ?? parsed).code; } catch { return null; } };
+
+// On, switch 2 closed the code step's generation, so the step opens it again; off, its generation stayed open. Every
+// opening is a `version_opened` entry in the Story's history [OSA §7.2], so that one entry is the history's only difference.
+const withoutOpeningAgain = (history, phase, label) => {
+  const at = history.findLastIndex(([event, step]) => event === 'version_opened' && step === phase);
+  assert.ok(at >= 0, `${label}: ${phase} opened again, and its history says so`);
+  return history.filter((_, index) => index !== at);
+};
 
 test('a code step reopened with a draft written before the amendment cannot publish it; it is written again in that step, and the Story reads the same both ways in the middle [CIC:REQ-008, REQ-009]',
   slowLane({ timeout: 900_000 }), async (t) => {
     const on = await fixture(t, { refuse: true });
     const off = await fixture(t, { refuse: false });
     const both = async (step) => Promise.all([on, off].map(step));
-    const same = async (label) => {
+    const same = async (label, { openedAgain = null } = {}) => {
       const [left, right] = await both((f) => f.snapshot('PD-1'));
+      if (openedAgain) left.history = withoutOpeningAgain(left.history, openedAgain, label);
       assert.deepEqual(left, right, `${label}: the Story reads the same with the switch on and off`);
     };
     await both((f) => f.scoped('PD-1'));
@@ -323,7 +335,7 @@ test('a code step reopened with a draft written before the amendment cannot publ
     assert.deepEqual(JSON.parse(await readFile(on.item('PD-1', 'context/implement-gen1.json'), 'utf8')).scopeRevision,
       { revision: 2, revisionSha256: storyOn.scopeRevisions.at(-1).revisionSha256, amendment: 'AMD-001' });
     on.sflow('phase', 'publish', 'implement', '--authored', 'deterministic');
-    await same('after the reopened step is published');
+    await same('after the reopened step is published', { openedAgain: 'implement' });
   });
 
 test('a document step reopened by an amendment: an agent\'s publication waits until it is composed again, and a person may publish the old text unchanged [CIC:REQ-009]', slowLane({ timeout: 900_000 }), async (t) => {
@@ -337,6 +349,7 @@ test('a document step reopened by an amendment: an agent\'s publication waits un
   const story = await f.workflow('PD-2');
   assert.equal(story.currentPhase, 'fix-design');
   assert.equal(story.phases['fix-design'].scopePin.draft.path, 'singularity/work-items/PD-2/context/superseded/fix-design-gen2-before-AMD-001/fix-design.md');
+  f.nextVersion('fix-design');
   f.sflow('prepare', 'fix-design');
   // A publication that may be a model's (no --authored) has read nothing composed under the amended scope.
   const uncomposed = f.run(['phase', 'publish', 'fix-design', '--json']);
@@ -354,8 +367,9 @@ test('a later step the amendment resets, holding a draft from before it, is pinn
     const on = await fixture(t, { refuse: true });
     const off = await fixture(t, { refuse: false });
     const both = async (step) => Promise.all([on, off].map(step));
-    const same = async (label) => {
+    const same = async (label, { openedAgain = null } = {}) => {
       const [left, right] = await both((f) => f.snapshot('PD-3'));
+      if (openedAgain) left.history = withoutOpeningAgain(left.history, openedAgain, label);
       assert.deepEqual(left, right, `${label}: the Story reads the same with the switch on and off`);
     };
     const CODE = [' M src/value.mjs', ' M test/value.test.mjs'];
@@ -393,6 +407,7 @@ test('a later step the amendment resets, holding a draft from before it, is pinn
     await both((f) => f.sflow('resume', 'PD-3'));
     await same('before the design is written again');
     await both(async (f) => {
+      f.nextVersion('fix-design');
       f.sflow('prepare', 'fix-design');
       // Composing it: on, the code is no change for the design to review; off, the checkout holds it for a person first.
       const entry = JSON.parse(f.sflow('phase', 'enter', 'fix-design', '--compose', '--json'));
@@ -432,7 +447,7 @@ test('a later step the amendment resets, holding a draft from before it, is pinn
       f.sflow('phase', 'enter', 'implement', '--compose', '--json'); f.sflow('prepare', 'implement');
       f.sflow('phase', 'publish', 'implement', '--authored', 'deterministic');
     });
-    await same('after the code step is published');
+    await same('after the code step is published', { openedAgain: 'implement' });
     checkouts('after the code step is published', [[], []]);
     for (const f of [on, off]) assert.deepEqual(f.published('PD-3', 'implement', 1).filter((file) => !file.startsWith('singularity/')), ['src/value.mjs', 'test/value.test.mjs']);
     // On, the published generation started under the amended scope from the code the closure kept; off, it is the generation
@@ -463,6 +478,7 @@ test('a reopened design still answers for code changed after the closure, for ne
     assert.deepEqual((await f.workflow('PD-5')).phases.implement.scopePin.closedChangeSet.paths.map((entry) => entry.path), ['src/value.mjs', 'test/value.test.mjs']);
     f.sflow('story', 'intent-amendment', 'acknowledge', 'AMD-001');
     f.sflow('resume', 'PD-5');
+    f.nextVersion('fix-design');
     f.sflow('prepare', 'fix-design');
     f.sflow('phase', 'enter', 'fix-design', '--compose', '--json');
     await writeFile(f.item('PD-5', 'artifacts/fix-design/fix-design.md'), f.designText('PD-5').replace('keeps the module to a single export', 'keeps exactly one named export'));
@@ -537,6 +553,7 @@ test('a return to the design from a code step whose generation is open leaves it
       ['CR-001', open.generationIntent.id, open.generationIntent.baseline.commit, ['src/value.mjs', 'test/value.test.mjs']]);
     assert.equal((await off.workflow('PD-6')).phases.implement.heldCode, undefined);
     await both(async (f) => {
+      f.nextVersion('fix-design');
       f.sflow('prepare', 'fix-design'); f.sflow('phase', 'enter', 'fix-design', '--compose', '--json');
       await writeFile(f.item('PD-6', 'artifacts/fix-design/fix-design.md'), f.designText('PD-6').replace('holds the old value', 'holds the old literal value'));
       if (f === off) {
@@ -586,6 +603,7 @@ test('a "still holds" answered No while the amendment has the code step\'s gener
     const returned = await f.workflow('PD-7');
     assert.deepEqual([returned.currentPhase, returned.phases.implement.generationIntent.status, returned.phases.implement.heldCode],
       ['fix-design', 'superseded', undefined], 'the closure\'s record is what keeps the code for it');
+    f.nextVersion('fix-design');
     f.sflow('prepare', 'fix-design'); f.sflow('phase', 'enter', 'fix-design', '--compose', '--json');
     await writeFile(f.item('PD-7', 'artifacts/fix-design/fix-design.md'), f.designText('PD-7').replace('holds the old value', 'holds the old value, a number'));
     f.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
@@ -621,6 +639,7 @@ test('before a closed generation begins again, recovery routes exactly its recor
     await f.amend('PD-8', (text) => text.replace('The value module stays a single export.', 'The value module keeps exactly one named export.'), 'Tighten the export clause.');
     f.sflow('story', 'intent-amendment', 'acknowledge', 'AMD-001');
     f.sflow('resume', 'PD-8');
+    f.nextVersion('fix-design');
     f.sflow('prepare', 'fix-design'); f.sflow('phase', 'enter', 'fix-design', '--compose', '--json');
     await writeFile(f.item('PD-8', 'artifacts/fix-design/fix-design.md'), f.designText('PD-8').replace('keeps the module to a single export', 'keeps exactly one named export'));
     f.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place'); f.sflow('submit', 'fix-design'); f.sflow('approve', 'fix-design', '--yes');
@@ -654,6 +673,7 @@ test('before a closed generation begins again, recovery routes exactly its recor
     r.sflow('upstream-issue', 'raise', '--phase', 'fix-design', '--about', 'Root cause', '--problem', 'The design names the wrong root cause for the value.');
     r.sflow('upstream-issue', 'decide', 'UPI-001', '--outcome', 'return', '--reason', 'The design must name the right root cause first.');
     assert.ok((await r.workflow('PD-9')).phases.implement.heldCode);
+    r.nextVersion('fix-design');
     r.sflow('prepare', 'fix-design'); r.sflow('phase', 'enter', 'fix-design', '--compose', '--json');
     await writeFile(r.item('PD-9', 'artifacts/fix-design/fix-design.md'), r.designText('PD-9').replace('holds the old value', 'holds the old literal value'));
     r.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place'); r.sflow('submit', 'fix-design'); r.sflow('approve', 'fix-design', '--yes');

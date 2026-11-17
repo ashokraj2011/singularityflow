@@ -29,6 +29,7 @@ import { intentAmendmentOutcome } from '../src/commands/decisions.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionsTable } from '../plugin/extensions/decisions/card.mjs';
 import { addClause, changeImpactStory, reviseCriterion, reword } from './helpers/change-impact-story.mjs';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 import { ctkListing, softwarePresenceKey } from './helpers/presence-keys.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { CLI, specification, startedSpecificationStory, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
@@ -237,8 +238,14 @@ test('approved on the card: the amendment is installed and attributed to the car
   assert.equal(amendment.decision?.channel ?? JSON.parse(await readFile(path.join(item, 'context/intent-amendments/AMD-001.json'), 'utf8')).decisions.at(-1).channel, 'decisions-card');
   assert.equal(git('log', '-1', '--format=%s'), `[${WORK}][intent-amendment:approve] AMD-001`);
 
-  // The Story-wide hold: the reopened step is not prepared until someone acknowledges what changed.
+  // The reopened plan's version 2 opens only on the person's yes: prepare names its preview, and their yes opens it
+  // [D3, OSA:REQ-030]. The kernel asks that first: the acknowledgement holds the step's preparation, not the question.
   const prepare = () => story.run(process.execPath, [CLI, '--no-model', 'prepare', 'planning', '--json'], { allowFailure: true });
+  const unopened = prepare();
+  assert.notEqual(unopened.status, 0);
+  assert.equal(refusal(unopened).code, 'VERSION_CONSENT_REQUIRED', unopened.stdout + unopened.stderr);
+  confirmNextVersion(cli, 'planning');
+  // The Story-wide hold: the reopened step is not prepared until someone acknowledges what changed.
   const held = prepare();
   assert.notEqual(held.status, 0);
   assert.match(held.stdout + held.stderr, /INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED/u);

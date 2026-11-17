@@ -14,6 +14,7 @@ import { verifyPhaseApprovalWaiver } from '../src/approval-waiver.mjs';
 import { assertReviewCodeEvidenceFresh } from '../src/delivery-evidence.mjs';
 import { readStoryReviewPacket } from '../src/story-lineage.mjs';
 import { run } from '../src/util.mjs';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 test('first-run completion has replayable authority and verification cannot replace tested bytes', async (t) => {
@@ -280,7 +281,10 @@ test('a waiver from an earlier round never outlives rework, and a stale one neve
   workflow = await state();
   for (const id of ['implement', 'verify']) assert.equal(holdsDisposition(workflow.phases[id]), false, `${id} kept its earlier completion`);
 
-  // Round two touches an authorization path, so the policy cannot waive it and people review it.
+  // Round two touches an authorization path, so the policy cannot waive it and people review it. Each reopened step's
+  // version 2 opens on the person's yes [D3, OSA:REQ-030].
+  const nextVersion = (phase) => confirmNextVersion((...args) => flow(args), phase);
+  nextVersion('implement');
   flow(['prepare', 'implement']);
   await source(3);
   await mkdir(path.join(root, 'src/auth'), { recursive: true });
@@ -288,6 +292,7 @@ test('a waiver from an earlier round never outlives rework, and a stale one neve
   // The plan did not name the guard, so the code step accounts for it before publishing [E2G-027].
   flow(['decision', 'plan', '--add-location', 'QF-STALE:AC-001=src/auth/guard.mjs', '--reason', 'The broadened fix guards the value behind an authorization check.']);
   flow(['phase', 'publish', 'implement', '--authored', 'deterministic']); flow(['submit', 'implement']);
+  nextVersion('verify');
   publish('verify');
   // Older builds kept the record through a reopen; review and approval drop it.
   const leaveStaleRecord = async (change = () => {}) => {

@@ -26,6 +26,7 @@ import { scopeStaleness, staleClausesOf } from '../src/scope/revisions.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionsTable } from '../plugin/extensions/decisions/card.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -211,11 +212,12 @@ async function fixture(t) {
     const decided = sflow('story', 'intent-amendment', 'decide', proposal.id, '--decision', 'approve', '--confirm', proposal.id);
     return { preview, decided, proposal };
   };
-  // The code step runs again on the amended scope and is submitted.
+  // The code step runs again on the amended scope and is submitted. Its version 2 opens on the person's yes, which opens
+  // its code generation as `phase begin` did [D3, OSA:REQ-030].
   const resubmitted = async (id) => {
     sflow('story', 'intent-amendment', 'acknowledge', 'AMD-001');
     sflow('resume', id);
-    sflow('phase', 'begin', 'implement', '--json');
+    confirmNextVersion(sflow, 'implement');
     await code(id, 2);
     sflow('prepare', 'implement');
     sflow('phase', 'publish', 'implement', '--authored', 'deterministic');

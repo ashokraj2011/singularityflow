@@ -20,6 +20,7 @@ import { EQUIVALENCE_RULES } from '../src/evidence/equivalence-rules.mjs';
 import { decideIntentAmendment } from '../src/state.mjs';
 import { currentlyRemovedClauses } from '../src/spec-drift.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { confirmNextVersion } from './helpers/next-version-consent.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -169,6 +170,8 @@ test('a clause an amendment removes is named wherever a tag still claims it', sl
   const story = await f.workflow('QN-3');
   assert.deepEqual(story.scopeRevisions.at(-1).changes.removed, ['QN-3:AC-002']);
   if (story.currentPhase === 'fix-design') {
+    // Its version 2 opens on the person's yes [D3, OSA:REQ-030].
+    confirmNextVersion(f.sflow, 'fix-design');
     f.sflow('prepare', 'fix-design');
     const design = path.join(f.root, 'singularity/work-items/QN-3/artifacts/fix-design/fix-design.md');
     await writeFile(design, (await readFile(design, 'utf8')).replace('QN-3:AC-002 keeps the module to a single export, so no import changes.', 'No import changes.'));

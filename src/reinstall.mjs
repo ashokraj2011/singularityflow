@@ -9,7 +9,7 @@ import { stampBuildInfoFile } from './build-info-stamp.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import runtimeResolver from '../runtime/resolve.cjs';
 import {
-  installDirectSkills, isManagedDirectSkill, uninstallDirectSkills
+  copilotSkillsDirectory, installDirectSkills, isManagedDirectSkill, uninstallDirectSkills
 } from './direct-skills.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -349,10 +349,7 @@ export function inspectLocalProduct({
   environment = process.env,
   strict = false
 } = {}) {
-  const skillsRoot = path.resolve(
-    environment.SINGULARITY_FLOW_COPILOT_SKILLS_DIR
-      || path.join(environment.COPILOT_HOME || path.join(homeDirectory, '.copilot'), 'skills')
-  );
+  const skillsRoot = copilotSkillsDirectory({ env: environment, homeDirectory });
   const copilotAvailable = exists('copilot');
   const codeAvailable = exists('code');
   const readTimeout = productTimeout(

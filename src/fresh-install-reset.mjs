@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { gitEmptyConfigPath } from './platform-process.mjs';
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { copilotHome } from './copilot-home.mjs';
 import { copilotSkillsDirectory, uninstallDirectSkills } from './direct-skills.mjs';
 import { machineStateRoot, pendingPublicationResetRefusal, pendingPublications, resetStoryCheckouts, STORY_WORKTREES_FOLDER, storyCheckoutWork, storyCheckoutWorkRefusal } from './factory-reset.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace.mjs';
@@ -683,7 +684,7 @@ async function machineResetPlan({
     }
   }
 
-  const copilotSessionRoot = path.join(home, '.copilot', 'session-state');
+  const copilotSessionRoot = path.join(copilotHome({ env: environment, homeDirectory: home }), 'session-state');
   const copilotSessions = await managedCopilotSessions(copilotSessionRoot);
   const directSkillsProof = await resetTargetProof(
     copilotSkillsDirectory({ env: environment, homeDirectory: home }),

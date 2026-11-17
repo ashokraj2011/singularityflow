@@ -52,11 +52,13 @@ const MCP_PACKAGE_CLOSURE_MAX_BYTES = 512 * 1024 * 1024;
 const MCP_PACKAGE_CLOSURE_FILE_MAX_BYTES = 64 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
 
-function sources(root, home = os.homedir()) {
+/** The MCP configuration files VS Code and Copilot read. Copilot's home (src/copilot-home.mjs) loads only when they are read. */
+export async function mcpHostFiles(root, home = os.homedir()) {
+  const { copilotHome } = await import('./copilot-home.mjs');
   return [
     { surface: 'vscode-workspace', file: path.join(root, MCP_WORKSPACE_PATH) },
     { surface: 'copilot-workspace', file: path.join(root, '.mcp.json') },
-    { surface: 'copilot-user', file: path.join(home, '.copilot/mcp-config.json') }
+    { surface: 'copilot-user', file: path.join(copilotHome({ homeDirectory: home }), 'mcp-config.json') }
   ];
 }
 
@@ -296,7 +298,7 @@ function deterministicPlaywrightProfile(entry) {
 
 export async function inspectMcpHostEntries(root, { home = os.homedir() } = {}) {
   const rows = [];
-  for (const source of sources(root, home)) {
+  for (const source of await mcpHostFiles(root, home)) {
     if (!(await exists(source.file))) continue;
     let document;
     try { document = JSON.parse(await readFile(source.file, 'utf8')); }
@@ -324,7 +326,7 @@ export async function inspectMcpHostEntries(root, { home = os.homedir() } = {}) 
 
 async function hostEntryMap(root, options = {}) {
   const map = new Map();
-  for (const source of sources(root, options.home ?? os.homedir())) {
+  for (const source of await mcpHostFiles(root, options.home ?? os.homedir())) {
     if (!(await exists(source.file))) continue;
     let document; try { document = JSON.parse(await readFile(source.file, 'utf8')); } catch { continue; }
     for (const [name, entry] of Object.entries(document?.servers ?? document?.mcpServers ?? {})) if (!map.has(name)) map.set(name, entry);

@@ -13,6 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
 import os from 'node:os';
 import path from 'node:path';
+import { copilotHome } from './copilot-home.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import { SingularityFlowError, exists, signalProcessTree } from './util.mjs';
 
@@ -32,7 +33,7 @@ export function mcpHostSources(root, home = os.homedir()) {
   return [
     { surface: 'vscode-workspace', file: path.join(root, '.vscode', 'mcp.json'), key: 'servers' },
     { surface: 'copilot-workspace', file: path.join(root, '.mcp.json'), key: 'mcpServers' },
-    { surface: 'copilot-user', file: path.join(home, '.copilot', 'mcp-config.json'), key: 'mcpServers' }
+    { surface: 'copilot-user', file: path.join(copilotHome({ homeDirectory: home }), 'mcp-config.json'), key: 'mcpServers' }
   ];
 }
 

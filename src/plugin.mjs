@@ -3,6 +3,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { commandExists, SingularityFlowError, run } from './util.mjs';
+import { copilotHome } from './copilot-home.mjs';
 import { copilotModeFile } from './copilot-mode.mjs';
 import {
   bundledDirectSkillNames, bundledSkillDirectory, copilotSkillsDirectory, installDirectSkills,
@@ -77,8 +78,7 @@ export function removeRetiredPluginCopies({
   minimumAgeMs = RETIRED_COPY_AGE_MS,
   now = Date.now()
 } = {}) {
-  const copilotHome = String(env.COPILOT_HOME ?? '').trim() || path.join(homeDirectory, '.copilot');
-  const directRoot = path.join(copilotHome, 'installed-plugins', '_direct');
+  const directRoot = path.join(copilotHome({ env, homeDirectory }), 'installed-plugins', '_direct');
   const removed = [];
   let names = [];
   try { names = fs.readdirSync(directRoot); } catch { return removed; }
@@ -108,8 +108,7 @@ export function removeRetiredPluginCopies({
  */
 export function notePluginCopy({ env = process.env, homeDirectory = os.homedir() } = {}) {
   try {
-    const copilotHome = String(env.COPILOT_HOME ?? '').trim() || path.join(homeDirectory, '.copilot');
-    const text = fs.readFileSync(path.join(copilotHome, 'config.json'), 'utf8')
+    const text = fs.readFileSync(path.join(copilotHome({ env, homeDirectory }), 'config.json'), 'utf8')
       .split(/\r?\n/u).filter((line) => !line.trimStart().startsWith('//')).join('\n');
     const copy = (JSON.parse(text)?.installedPlugins ?? [])
       .filter((entry) => entry?.name === PLUGIN_NAME && entry.enabled !== false)

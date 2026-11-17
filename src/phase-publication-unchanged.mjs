@@ -33,3 +33,20 @@ export async function documentUnchangedSincePublication(root, config, workflow, 
       && !committedChangedPaths(root, commit).some((file) => file !== relative && file.startsWith(folder));
   } catch { return false; }
 }
+
+/**
+ * The step's document, when its authored text was edited after its publication: its path in the step, or null (unchanged,
+ * not a published document step, or any doubt). An edit is its own reason for the next version, as changed code files
+ * are: the preview asks the person in SFlow's words, and nothing is kept as theirs (review of the opening flow, 2026-11-17).
+ */
+export async function documentEditedSincePublication(root, config, workflow, phase) {
+  if (phase?.status !== 'in_progress' || phaseRequiresCodeDelivery(phase) || isConvergencePhase(phase) || !hasPublishedPhaseGeneration(phase)) return null;
+  try {
+    const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, phase.requiredArtifact.path);
+    const commit = publishedGenerationCommit(root, workflow, phase);
+    const bytes = commit ? exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true }) : null;
+    if (!bytes) return null;
+    const current = await readFile(path.join(root, relative), 'utf8');
+    return authoredArtifactFingerprint(current) !== authoredArtifactFingerprint(bytes.toString('utf8')) ? phase.requiredArtifact.path : null;
+  } catch { return null; }
+}

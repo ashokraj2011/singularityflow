@@ -128,6 +128,11 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     ...(review ? [review] : [])])];
   const next = nextPhaseGeneration(phase);
   const code = phaseRequiresCodeDelivery(phase);
+  // A published document edited since, with nothing else asked: the edit is the reason, in SFlow's words, never kept as the
+  // person's typed words; before, the preview refused and an agent made up words of its own (review, 2026-11-17).
+  const edited = !correction && !code && !requests.length
+    ? await (await import('./phase-publication-unchanged.mjs')).documentEditedSincePublication(root, config, workflow, phase) : null;
+  if (edited) requests.push(`${edited} was edited after version ${phase.generation} was published.`);
   const skill = successorSkillForPhase(phase, workflow);
   if (!requests.length) throw new SingularityFlowError(
     `${phase.id} generation ${phase.generation} is published and unchanged; its next generation opens for a change the person asks for. `
@@ -145,12 +150,13 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   const route = safeCommandGuidance({ argv: confirmArgv, skill });
   // The proposal the person answers [OSA §7.1]: its exact version, the publication it keeps and the question asked.
   const opening = await import('./commands/phase-opening.mjs');
-  const kind = correction ? 'own-correction' : review && requests.length === 1 ? 'review-corrections' : 'requested-change';
+  const kind = correction ? 'own-correction' : edited ? 'changed-after-publication' : review && requests.length === 1 ? 'review-corrections' : 'requested-change';
   const proposed = await opening.proposalNow(root, workflow, phase, { reason: kind, confirmation: expected });
   const preview = {
     schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: kind === 'review-corrections' ? 'requested-change' : kind,
     workId: workflow.workItem.id, phase: phase.id, fromGeneration: phase.generation, toGeneration: proposed.proposal.version, question: proposed.question,
-    requestedChange: { requests, keptAs: typedFocusOff(workflow) ? 'this command only' : `typed words of generation ${next} ("Asked for" once it is prepublished)` },
+    requestedChange: { requests, keptAs: edited ? 'the edited document itself; nothing is kept as typed words' : typedFocusOff(workflow) ? 'this command only'
+      : `typed words of generation ${next} ("Asked for" once it is prepublished)` },
     confirmation: expected, currentResultDigest: resultDigest,
     preserved: code ? `Generation ${phase.generation}, its evidence and its test results stay as published.`
       : `Generation ${phase.generation} and its review stay as published.`,

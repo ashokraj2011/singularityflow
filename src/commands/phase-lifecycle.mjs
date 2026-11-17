@@ -312,7 +312,11 @@ async function phaseSubcommand(positionals, options) {
   // A published document changed since: publishing it would open its next version with nobody asked. It opens only on the
   // person's yes, through its preview; the edit and the published version both stay [D3, OSA:REQ-014, REQ-030].
   const successor = await import('../prepared-document-successor.mjs');
-  if (successor.documentSuccessorUnopened(workflow, requestedPhase)) throw await successor.documentSuccessorRefusal(workflow, requestedPhase);
+  // An edited document is named as what changed, never as a change the person asked for (review, 2026-11-17).
+  if (successor.documentSuccessorUnopened(workflow, requestedPhase)) {
+    const edited = await (await import('../phase-publication-unchanged.mjs')).documentEditedSincePublication(root, config, workflow, requestedPhase);
+    throw await successor.documentSuccessorRefusal(workflow, requestedPhase, edited ? { changedPaths: [edited] } : undefined);
+  }
   const explicitAuthored = optionString(options, 'authored');
   const implicitProducer = effectivePhasePublicationProducer(requestedPhase, {
     modelEnabled: operationContext()?.modelMode.enabled !== false

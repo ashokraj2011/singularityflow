@@ -263,8 +263,9 @@ export async function openBeforePrepare(root, config, workflow, phase) {
   // A published document's next draft is a successor too: prepare never reserves it without the person's yes. A published
   // code step with nothing reopened is refused by prepare itself (GENERATION_INTENT_ALREADY_CONSUMED), as before.
   if (!code && decision.version.published >= 1 && decision.version.writing === null) {
-    // Its route is the requested change's own preview, as next steps offers it (guide.mjs).
-    const requested = (await import('../guide.mjs')).requestedSuccessorAction(workflow, phase, { requested: true });
+    // Its route is the requested change's own preview, as next steps offers it (guide.mjs), or an edited document's.
+    const edited = await (await import('../phase-publication-unchanged.mjs')).documentEditedSincePublication(root, config, workflow, phase);
+    const requested = (await import('../guide.mjs')).requestedSuccessorAction(workflow, phase, edited ? { changedPaths: [edited] } : { requested: true });
     throw consentRequired(phase, { version: decision.version.proposedNext }, requested ? { command: requested.command ?? null,
       copilotCommand: requested.copilotCommand ?? null, label: requested.label ?? requested.reason ?? null } : route);
   }

@@ -12,10 +12,10 @@
  },
  "totals": {
   "count-without-name": 27,
-  "draft-for-version": 13,
+  "draft-for-version": 6,
   "generic-route": 6356,
-  "jargon": 1353,
-  "length": 678
+  "jargon": 1352,
+  "length": 677
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -2715,29 +2715,8 @@
    "148ceefd7341": "length",
    "905948ef385a": "length"
   },
-  "plugin/skills/sflow-code/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-design/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-document-intake/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
   "plugin/skills/sflow-epic-story-draft/SKILL.md": {
    "2b43883d313e": "length"
-  },
-  "plugin/skills/sflow-phase/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-release/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-requirements/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
-  },
-  "plugin/skills/sflow-scenario-check/SKILL.md": {
-   "350c33921cb6": "draft-for-version"
   },
   "src/acceptance-owner-check.mjs": {
    "14be2ea24511": "length",
@@ -3331,7 +3310,6 @@
    "10baf212aed6": "length",
    "1d8034aa463d": "jargon:generation",
    "23ccd0738d93": "count-without-name",
-   "2995d9cade9b": "jargon:generation length",
    "32cf2099889e": "length",
    "41e7249454a3": "length",
    "45c2ab15a6de": "jargon:generation",

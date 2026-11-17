@@ -162,6 +162,8 @@ test('an agent and the step it drafts are one save, one proposal and one approva
   'the same command again saves nothing new');
 
   flow(checkout, ['configuration', 'propose']);
+  // The approval names the revision shown (SCF:REQ-006): approve shows it, then --yes approves exactly that one.
+  assert.match(flow(checkout, ['configuration', 'approve'], 1).stdout, /New file singularity\/agents\/checker\.agent\.md:/u, 'one proposal shows both');
   flow(checkout, ['configuration', 'approve', '--yes']);
   assert.match(approved('singularity/agents/checker.agent.md'), /sflow-default-for: "claim-check"/u);
   assert.match(approved('singularity/agents/scratch-agent.agent.md'), /sflow-default-for: ""/u, 'the step left the scratch agent in the same approval');

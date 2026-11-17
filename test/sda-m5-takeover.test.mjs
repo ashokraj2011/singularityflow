@@ -366,14 +366,23 @@ test('Stories from two laptops both land, and two configuration proposals for on
     const fromB = await group(b, 'Product approvers (laptop B)');
     for (const proposal of [fromA, separate, fromB]) assert.ok(proposal.branch, JSON.stringify(proposal));
 
-    const approve = (L, proposal) => L.attempt(['configuration', 'approve', proposal.branch, '--yes', '--json']);
+    // An approval names the revision its approver was shown (SCF:REQ-006): approve shows the proposal and
+    // approves nothing, then --yes approves exactly the revision it showed.
+    const approve = (L, proposal) => {
+      const shown = L.attempt(['configuration', 'approve', proposal.branch, '--json']);
+      assert.equal(JSON.parse(shown.stdout).error?.code, 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', shown.stdout);
+      return L.attempt(['configuration', 'approve', proposal.branch, '--yes', '--json']);
+    };
     const first = approve(a, fromA);
     assert.equal(first.status, 0, first.stdout + first.stderr);
     const unrelated = approve(b, separate);
     assert.equal(unrelated.status, 0, unrelated.stdout + unrelated.stderr);
     const competing = approve(b, fromB);
     assert.notEqual(competing.status, 0, competing.stdout);
-    assert.equal(JSON.parse(competing.stdout).error.code, 'CONFIGURATION_ENTITY_CONFLICT', competing.stdout);
+    // A field both changed is the approver's pick (SCF:REQ-007): without one, nothing lands, and the refusal names it.
+    const refusal = JSON.parse(competing.stdout).error;
+    assert.equal(refusal.code, 'CONFIGURATION_APPROVE_CHOICE_REQUIRED', competing.stdout);
+    assert.match(JSON.stringify(refusal.details), /singularity\/workflow\.yml#\/approvalAuthorities\/product-approvers\/label/u, competing.stdout);
 
     const approved = (relative) => f.remoteGit('show', `sflow/config:${relative}`).stdout;
     assert.equal(YAML.parse(approved('singularity/workflow.yml')).approvalAuthorities['product-approvers'].label,

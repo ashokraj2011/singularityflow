@@ -133,7 +133,9 @@ test('prepared lookup reuses the same registered legacy path as prepare without 
   const { root, id, baseCommit } = await fixture(t);
   const common = gitCommonDir(root); const canonical = await realpath(common);
   const compact = await storyWorktreePath(root, id);
-  const legacy = path.join(path.dirname(compact), hash(common).slice(0, 12), id);
+  // Before SCF D3 a clone in no workspace kept its Story checkouts beside it, in `.singularity-flow/story-worktrees`;
+  // new ones go to `<clone>.stories`, and a legacy one is still found where it was made.
+  const legacy = path.join(path.dirname(root), '.singularity-flow', 'story-worktrees', hash(common).slice(0, 12), id);
   const staging = `sflow-start-${hash(`${canonical}\0${id}`).slice(0, 16)}`;
   await mkdir(path.dirname(legacy), { recursive: true });
   git(root, 'worktree', 'add', '-q', '-b', staging, '--', legacy, baseCommit);

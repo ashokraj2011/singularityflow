@@ -135,9 +135,11 @@ export function phaseSubmissionPresentation(
   if (exact?.publicationRecorded && exact.lifecycleReady === false
       && exact.classification === 'source-review-required') {
     const published = exact.publishedGeneration ?? phase.generation;
-    // The engine's route is kept whatever skill it names: a review that asked corrections starts the next version in
-    // the step's own work command, on the person's yes (SPEC-OSA b27, S4b, S10) [OSA:REQ-020].
-    const corrections = Boolean(skill) && skill !== '/sf-review-source';
+    // The engine's route is kept: a review that asked corrections starts the next version in the step's own work
+    // command, on the person's yes (SPEC-OSA b27, S4b, S10) [OSA:REQ-020]. Submit or approve contradicts this
+    // gate (lifecycleReady is false), so such a route never becomes a guided action.
+    const route = skill && !/^\/sf-(?:submit|approve)$/u.test(skill) ? skill : null;
+    const corrections = Boolean(route) && route !== '/sf-review-source';
     return {
       kind: 'source-review-required',
       statusLabel: corrections ? `Published version ${published} — its review asked for corrections`
@@ -145,7 +147,7 @@ export function phaseSubmissionPresentation(
       detail: corrections ? 'the next version starts only on your yes; the published one stays as it is'
         : 'independent source review must be recorded before submission',
       generation: published,
-      skill
+      skill: route
     };
   }
   if (exact?.publicationRecorded) {

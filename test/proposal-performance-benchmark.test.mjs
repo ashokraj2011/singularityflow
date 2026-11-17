@@ -16,8 +16,13 @@ test('the proposal benchmark exercises actual local activation and reports bound
   assert.equal(report.protocol.applicationWorkspacesTouched, false);
   assert.equal(report.protocol.model, 'disabled');
   assert.equal(report.protocol.trackedSourceFiles, 10);
-  assert.ok(report.actions.review.gitSpawns.maximum <= 52);
-  assert.ok(report.actions.activate.gitSpawns.maximum <= 90);
+  const measured = JSON.stringify(report.actions);
+  assert.ok(report.actions.review.gitSpawns.maximum <= 52, measured);
+  // `configuration approve` is the one approval path (SCF:REQ-010): in the same process it reads the proposal for
+  // the view its approver is shown (REQ-008) and checks it against `workflow validate` (ER-F7), then activates it.
+  // Measured 127 on 2026-11-17 (Node 22, 10 files); the activation alone was 78 before SCF (ceiling 90,
+  // docs/PROPOSAL-PERFORMANCE-RESULTS.md). 135 keeps a similar headroom. The activation does not yet reuse the view's reads.
+  assert.ok(report.actions.activate.gitSpawns.maximum <= 135, measured);
   assert.equal(report.actions['list-warm'].clones.maximum, 0);
   assert.ok(report.samples[0].find(row => row.action === 'activate').sealReuse > 0);
   assert.ok(report.samples[0].find(row => row.action === 'activate').inventoryReuse > 0);

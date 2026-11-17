@@ -5297,7 +5297,7 @@ async function workflowCommand(positionals, options) {
     console.log(`  status: ${proposal.merged ? 'already merged' : !proposal.valid ? 'invalid' : proposal.state === 'needs-choice' ? 'needs a choice' : 'ready for review'}`);
     // The way forward, as src/commands/workflow.mjs prints it.
     if (proposal.activation) {
-      console.log(`Activate it: ${proposal.activation.command}`);
+      console.log(`Approve it: ${proposal.activation.command}`);
       console.log(`  ${proposal.activation.acknowledgement}`);
       console.log(`  VS Code: ${proposal.activation.vscode}`);
     }

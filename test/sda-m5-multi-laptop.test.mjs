@@ -155,6 +155,8 @@ test('a Story taken over on another laptop discloses what stayed behind, reuses 
   // The approved configuration advances on A: the draft is approved there. A laptop restoring the
   // backup now checks the draft against the configuration as it is, and never saves it again.
   a.flow(a.checkout, ['configuration', 'propose']);
+  // The approval names the revision shown (SCF:REQ-006): approve shows it, then --yes approves exactly that one.
+  a.flow(a.checkout, ['configuration', 'approve'], 1);
   a.flow(a.checkout, ['configuration', 'approve', '--yes']);
   const c = laptop(base, 'laptop-c');
   c.flow(base, ['bootstrap', remote, '--capability', 'laptops', '--into', c.checkout]);

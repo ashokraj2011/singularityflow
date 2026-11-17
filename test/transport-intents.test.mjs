@@ -980,7 +980,7 @@ test('a damaged saved push names its file and the person\'s way to set it aside,
   assert.deepEqual(damaged, [{ intentId: created.intentId, file }]);
   const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
   const status = run(process.execPath, [cli, '--no-model', 'push', 'status'], { cwd: item.work, env: item.env }).stdout;
-  assert.match(status, /1 saved push record\(s\) failed their integrity check and never authorize a push/u);
+  assert.match(status, /1 damaged push record\(s\) will never be sent; --json names their files, for you to move out of the outbox\./u);
   const listed = JSON.parse(run(process.execPath, [cli, '--no-model', 'push', 'status', '--json'], { cwd: item.work, env: item.env }).stdout);
   assert.deepEqual(listed.data.damaged, [{ intentId: created.intentId, file }]);
 });

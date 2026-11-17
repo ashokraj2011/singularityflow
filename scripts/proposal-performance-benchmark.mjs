@@ -54,7 +54,9 @@ for (let sample = 0; sample < samples; sample++) {
     const wallMs = Math.round(performance.now() - start);
     if (!refusal) check(result);
     const packet = JSON.parse(result.stdout);
-    if (refusal && (result.status === 0 || packet.error?.code !== refusal)) throw new Error('Unexpected benchmark refusal.');
+    if (refusal && (result.status === 0 || packet.error?.code !== refusal)) {
+      throw new Error(`Unexpected benchmark refusal for ${action}: expected ${refusal}, got ${packet.error?.code ?? `exit ${result.status}`}.`);
+    }
     const timing = result.stderr.split('\n').find(line => line.startsWith('[sflow timing] ')) ?? '';
     const value = key => Number(new RegExp(`(?:^|\\s)${key.replaceAll('.', '\\.')}=([0-9.]+)`).exec(timing)?.[1] ?? 0);
     if (!value('git.spawns')) throw new Error('The benchmark requires real command timing counters.');
@@ -78,16 +80,18 @@ for (let sample = 0; sample < samples; sample++) {
     git('remote', 'add', 'origin', remote);
     git('push', '-q', '-u', 'origin', 'main');
     git('push', '-q', 'origin', 'HEAD:refs/heads/sflow/config');
+    // A workflow `workflow validate` accepts: approval refuses one it reports a problem in (SCF ER-F7). Requirements
+    // defines the clauses and the implementation specification, whose template has the planned-claims table, plans them.
     const proposal = flow('create', ['workflow', 'create', 'benchmark-workflow', '--label', 'Benchmark workflow',
-      '--phases', 'requirements,implementation', '--governs', 'story', '--planned-claims', 'required',
-      '--clause-phases', 'requirements', '--claim-owners', 'implementation=requirements', '--propose']);
+      '--phases', 'requirements,implementation-spec,implementation', '--governs', 'story', '--planned-claims', 'required',
+      '--clause-phases', 'requirements', '--claim-owners', 'implementation=implementation-spec', '--propose']);
     flow('list-cold', ['workflow', 'proposals']);
     flow('list-warm', ['workflow', 'proposals']);
     flow('review', ['workflow', 'proposal', proposal.branch]);
-    flow('unacknowledged-cli', ['workflow', 'activate', proposal.branch, '--confirm', proposal.commit],
-      'WORKFLOW_CONFIGURATION_UNPROTECTED');
-    const activated = flow('activate', ['workflow', 'activate', proposal.branch, '--confirm', proposal.commit,
-      '--acknowledge-unprotected']);
+    // `configuration approve` is the one approval path (SCF:REQ-010): it names the revision shown (REQ-006),
+    // so without one it shows the proposal and changes nothing; with it, it activates that revision.
+    flow('unconfirmed-cli', ['configuration', 'approve', proposal.branch], 'CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED');
+    const activated = flow('activate', ['configuration', 'approve', proposal.branch, '--confirm', proposal.commit]);
     if (!activated.activated) throw new Error('The disposable proposal did not activate.');
     results.push(measurements);
   } finally { await rm(base, { recursive: true, force: true }); }

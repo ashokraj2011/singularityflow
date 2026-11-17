@@ -132,6 +132,10 @@ export function stepRoute(workflow, phase, options) {
   try { return decisionRoutes(stepDecisionOf(workflow, phase), workflow, phase, options).find((entry) => entry?.command) ?? null; } catch { return null; }
 }
 
+/** The current step's own chat command: what a context boundary names after its reset, as VS Code's chat prefill does. */
+export const stepChatCommand = (workflow, id = workflow?.currentPhase) =>
+  (id && id === workflow?.currentPhase && stepRoute(workflow, workflow.phases?.[id])?.copilotCommand) || undefined;
+
 /** What a step's task waits for, in the person's words: its original code is kept, and nothing is retried meanwhile. */
 function taskOutcomeWords(inputs, phase) {
   const code = inputs.code ? ` (${inputs.code})` : '';

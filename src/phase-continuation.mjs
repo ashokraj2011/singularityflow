@@ -1,7 +1,6 @@
-import { workflowNextSteps } from './nextsteps.mjs';
+import { pendingBoundary, workflowNextSteps } from './nextsteps.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { contextBoundaryPresentation, pendingContextBoundary } from './context-policy.mjs';
 
 /** Presentation of post-state only: this neither executes a next action nor grants authority. */
 export function phaseContinuation(workflow, { reviewedPhaseId = null, primary = null, snapshot = null, ...options } = {}) {
@@ -13,7 +12,7 @@ export function phaseContinuation(workflow, { reviewedPhaseId = null, primary = 
   })] : primary ? [copilotAction({ timing: 'now', ...primary })] : snapshot?.actions ?? workflowNextSteps(workflow, options);
   const nextAction = actions.find(entry => ['now', 'blocked'].includes(entry.timing)) ?? null;
   const contextBoundary = snapshot?.contextBoundary ?? (options.publicationPending || options.recovery?.requiresRecovery
-    || workflow.pendingDecision || options.stepActionHold?.missing?.length ? null : contextBoundaryPresentation(pendingContextBoundary(workflow)));
+    || workflow.pendingDecision || options.stepActionHold?.missing?.length ? null : pendingBoundary(workflow));
   return { workId: workflow.workItem.id, phase: workflow.currentPhase ?? null, reviewedPhaseId,
     ...(contextBoundary ? { contextBoundary } : {}),
     automaticAdvance: false, actions, nextAction, nextCommand: nextAction?.command ?? null,

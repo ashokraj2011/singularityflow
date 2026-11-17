@@ -734,7 +734,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,743,800 (measured 9,743,793, start.mjs now the largest; submit.mjs 9,741,327): the 11-17 follow-ups on one tree. The
     // asked-for views load submit's printed phase review only in a person's terminal (-4,800 or so), which more than covers
     // the other follow-ups' rises above. No new eager file.
-    assert.ok(closure.bytes <= 9_743_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,744,500 (measured 9,744,462 for start.mjs, +669): after an approval, its clean-chat item names the next step's own
+    // command, the one VS Code's chat prefill puts in, never /sf-next beside it (owner, 2026-11-17): step-decision.mjs's
+    // stepChatCommand (+313, the kernel route's command), state.mjs's approval, decision and rejection boundaries (+197),
+    // nextsteps.mjs's pendingBoundary (+217) that narration/continuation.mjs now shares (-112), context-policy.mjs passing it
+    // on (+53). Comments trimmed first. No new eager file.
+    assert.ok(closure.bytes <= 9_744_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

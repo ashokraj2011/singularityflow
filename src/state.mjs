@@ -99,6 +99,7 @@ import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments, revalidateCommand } from './forward-amendments.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
+import { stepChatCommand } from './step-decision.mjs';
 import {
   approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
   eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority,
@@ -7574,6 +7575,7 @@ export async function approvePhase(root, config, workflow, options = {}) {
   const contextBoundary = reached
     ? contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
       nextPhase: next?.id ?? null,
+      nextSkill: stepChatCommand(workflow),
       complete: workflow.status === 'closed'
     })
     : null;
@@ -8254,6 +8256,7 @@ export async function decideStory(root, config, workflow, {
     contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
       event: outcome.kind === 'loop' ? 'rejection' : undefined,
       nextPhase: workflow.currentPhase ?? null,
+      nextSkill: stepChatCommand(workflow),
       complete: workflow.status === 'closed'
     })
   };
@@ -8530,7 +8533,8 @@ export async function rejectPhase(root, config, workflow, {
     ...(repairBudget ? { repairBudget } : {}),
     contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
       event: 'rejection',
-      nextPhase: targetId
+      nextPhase: targetId,
+      nextSkill: stepChatCommand(workflow, targetId)
     })
   };
 }

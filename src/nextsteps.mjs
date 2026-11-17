@@ -17,6 +17,7 @@ import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
 import { contextBoundaryPresentation, formatContextBoundaryHandoff, pendingContextBoundary } from './context-policy.mjs';
+import { stepChatCommand } from './step-decision.mjs';
 import { OPEN_UPSTREAM_ISSUE_STATUSES, decisionHeadline, upstreamIssueStates } from './upstream-routes.mjs';
 import { sheetRoute } from './step-sheet-route.mjs';
 import { submissionEndsStory } from './step-actions.mjs';
@@ -519,7 +520,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
         ]
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
-    && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
+    && !stepActionHold?.missing?.length ? pendingBoundary(workflow) : null;
   const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet, changedAfterPublication, taskOutcome })
     .map((entry) => (entry.label ? entry : Object.freeze({ ...entry, label: nextActionLabel(entry, workflow) })));
   return {
@@ -541,6 +542,9 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
       ...(entry.timing === 'now' ? { copilotTiming: 'after-context-boundary' } : {}) })) : actions
   };
 }
+
+/** The boundary owed before the current step, then its own command. */
+export const pendingBoundary = (workflow) => contextBoundaryPresentation(pendingContextBoundary(workflow, stepChatCommand));
 
 const CLOSED_STORY = 'This Story is done: every step is decided and its final gate passed. Nothing is needed now.';
 

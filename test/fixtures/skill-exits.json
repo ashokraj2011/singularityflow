@@ -230,7 +230,7 @@
   ],
   "sflow-nextsteps": [
     "If unsupported, stop with the compatibility error, never retry blindly.",
-    "If this chat already worked on an earlier phase, show its ordered `commandGuidance.copilotCommand` (`/clear`, then `/sf-next`, or `/compact`, then `/sf-next`) and stop;"
+    "If this chat already worked on an earlier phase, show its ordered `commandGuidance.copilotCommand` (`/clear`, then `/sf-phase`, or `/compact`, then `/sf-code`) and stop;"
   ],
   "sflow-outcome": [
     "A summary alone is not the handoff.",
@@ -319,7 +319,7 @@
     "Stop for explicit confirmation."
   ],
   "sflow-resume": [
-    "A returned `data.contextBoundary`: relay its `commands` in order (such as `/clear`, then `/sf-next`) and stop before any authoring in this chat."
+    "A returned `data.contextBoundary`: relay its `commands` in order (such as `/clear`, then `/sf-phase`) and stop before any authoring in this chat."
   ],
   "sflow-return": [
     "If it is dirty, stop;"

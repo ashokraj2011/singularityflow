@@ -98,13 +98,13 @@ export function contextBoundaryPresentation(handoff) {
 /**
  * The context boundary a conversation owes before it starts the current phase.
  *
- * An approval made in the conversation returns its boundary (`/clear`, then `/sf-next`). One made
+ * An approval made in the conversation returns its boundary (`/clear`, then its step's command). One made
  * elsewhere (the CLI, the VS Code approvals view, another person) never reaches the conversation that
  * will author the next phase, which then carries every earlier phase into each model call: in one live
  * Copilot run the last phase started each call with 154K tokens of earlier work. Until the current
  * phase is prepared, agent entries repeat the boundary of the approval that opened it.
  */
-export function pendingContextBoundary(workflow) {
+export function pendingContextBoundary(workflow, commandOf) {
   const phaseId = workflow?.currentPhase;
   const phase = phaseId ? workflow.phases?.[phaseId] : null;
   if (!phase || phase.status !== 'in_progress') return null;
@@ -115,7 +115,7 @@ export function pendingContextBoundary(workflow) {
   const order = workflow.phaseOrder ?? [];
   const previous = order[order.indexOf(phaseId) - 1];
   if (!previous || workflow.phases?.[previous]?.status !== 'approved') return null;
-  const handoff = contextBoundaryHandoff(workflow.resolution?.contextPolicy ?? {}, previous, { nextPhase: phaseId });
+  const handoff = contextBoundaryHandoff(workflow.resolution?.contextPolicy ?? {}, previous, { nextPhase: phaseId, nextSkill: commandOf?.(workflow) });
   if (handoff.mode === 'keep') return null;
   return { ...handoff, instruction: `If this conversation already worked on an earlier phase of this Story, ask the user to run ${handoff.commands.join(', then ')} and stop. A conversation that starts here continues.` };
 }

@@ -2120,7 +2120,7 @@ contextPolicy:
     implementation: compact
 ```
 
-Once an approval reaches its threshold and its commit is pushed, `new` tells the contributor to run `/clear` and then `/sf-next`; `compact` uses `/compact`; and `keep` continues in the same conversation. Initiative phases use `/sf-initiative-next`. Flow cannot execute a built-in slash command inside its parent Copilot session, so it prints and visibly hands off the exact commands instead. The newly loaded phase is rebuilt from committed context, not remembered chat history. Rejection defaults to `keep`, and missing configuration remains backward-compatible.
+Once an approval reaches its threshold and its commit is pushed, `new` tells the contributor to run `/clear` and then the next step's own command (`/sf-phase`, or `/sf-code` for a code step); `compact` uses `/compact`; and `keep` continues in the same conversation. Initiative phases use `/sf-initiative-next`. Flow cannot execute a built-in slash command inside its parent Copilot session, so it prints and visibly hands off the exact commands instead. The newly loaded phase is rebuilt from committed context, not remembered chat history. Rejection defaults to `keep`, and missing configuration remains backward-compatible.
 
 For work items, `off` preserves the current-branch behavior, `reuse` accepts an active work-item branch but asks when none is active, and `prompt` asks once for every distinct Copilot session ID. `/sf-session` shows remote candidates and asks for an exact work ID or Jira ID. It then runs the equivalent of:
 

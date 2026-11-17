@@ -650,8 +650,9 @@ test('next executes one valid lifecycle action at a time', async () => {
   const approved = flow(root, ['next', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Next Reviewer' });
   assert.match(approved.stdout, /Approval decision committed locally/);
   assert.match(approved.stdout, /Context boundary: new/);
-  // Each next Copilot action is its own three-route block (8f25dc4b): first /clear, then /sf-next.
-  assert.match(approved.stdout, /Next Copilot actions:\n- Copilot: \/clear\n[\s\S]*?\n- Copilot: \/sf-next\n/);
+  // Each next Copilot action is its own three-route block (8f25dc4b): first /clear, then the next step's own command, the
+  // one VS Code's chat prefill puts in (owner, 2026-11-17).
+  assert.match(approved.stdout, /Next Copilot actions:\n- Copilot: \/clear\n[\s\S]*?\n- Copilot: \/sf-phase\n/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });

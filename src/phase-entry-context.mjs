@@ -12,6 +12,7 @@ import { readCopilotMode, copilotModePresentation } from './copilot-mode.mjs';
 import { resolvePersonalization } from './personalization.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionContext } from './workspace-context.mjs';
 import { contextBoundaryPresentation, pendingContextBoundary } from './context-policy.mjs';
+import { stepChatCommand } from './step-decision.mjs';
 import { storyRequestSummary } from './story-request-summary.mjs';
 import { approvedInputPhases } from './phase-input-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -61,7 +62,7 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
     inspectionGeneration: phase ? phaseInspectionGeneration(workflow, phase) : null,
     activeAgent: session.activeAgent, phaseAgent: session.phaseAgent,
     selectionSource: selected?.selectionSource ?? 'cwd', branch: branch(root), head: head(root) };
-  const contextBoundary = phase ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
+  const contextBoundary = phase ? contextBoundaryPresentation(pendingContextBoundary(workflow, stepChatCommand)) : null;
   // The planned evidence files this open code generation owes are listed with its artifacts.
   const evidence = phase?.generationIntent?.status === 'open' && turnMode === 'authoring'
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])

@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { pendingContextBoundary } from '../src/context-policy.mjs';
+import { stepChatCommand } from '../src/step-decision.mjs';
 import { nextStepsSnapshot, nextStepsText } from '../src/nextsteps.mjs';
 import { agentNextSteps } from '../src/commands/nextsteps.mjs';
 import { phaseContinuation, phaseContinuationLines } from '../src/phase-continuation.mjs';
@@ -47,7 +48,10 @@ test('approval, nextsteps, compact routing and phase continuation agree before a
     const workflow = story({ onApproval });
     const snapshot = nextStepsSnapshot({ workflow });
     const boundary = snapshot.contextBoundary;
-    assert.deepEqual(boundary.commands, [onApproval === 'new' ? '/clear' : '/compact', '/sf-next']);
+    // The reset, then the step's own command: the one its action below names and VS Code's chat prefill puts in (owner, 2026-11-17).
+    const own = snapshot.actions.find(entry => entry.timing === 'now').copilotCommand;
+    assert.equal(own, '/sf-phase');
+    assert.deepEqual(boundary.commands, [onApproval === 'new' ? '/clear' : '/compact', own]);
     assert.equal(boundary.condition, 'conversation-worked-on-earlier-phase');
     assert.equal(boundary.commandGuidance.command, null, 'a chat reset is never an executable shell command');
     assert.equal(boundary.commandGuidance.modelFreeCommand, null);
@@ -62,7 +66,7 @@ test('approval, nextsteps, compact routing and phase continuation agree before a
     assert.ok(continuationText.includes(boundary.commands.join(', then ')));
     assert.ok(continuationText.includes('singularity-flow prepare'), 'fresh chats still receive an actionable authoring command');
     assert.ok(continuationText.indexOf(boundary.commands[0]) < continuationText.indexOf('singularity-flow prepare'));
-    const approved = approvalAgentResult({ operation: { id: 'approve' }, data: { contextBoundary: pendingContextBoundary(workflow) } });
+    const approved = approvalAgentResult({ operation: { id: 'approve' }, data: { contextBoundary: pendingContextBoundary(workflow, stepChatCommand) } });
     assert.deepEqual(approved.contextBoundary.commands, boundary.commands);
     assert.match(approved.instruction, /clear|compact/);
     assert.match(boundary.instruction, /A conversation that starts here continues/);

@@ -22,7 +22,7 @@ test('the prepublish fields after a publication offer it no more', () => {
   assert.doesNotMatch(JSON.stringify(after), /phase publish/u);
 });
 
-test('publishing unchanged says so and records nothing, and a changed draft publishes its next generation', slowLane({ timeout: 240_000 }), async (t) => {
+test('publishing unchanged says so and records nothing, and a changed draft is its next version, opened only on the person\'s yes', slowLane({ timeout: 240_000 }), async (t) => {
   const repo = await repository(t, { implementCommands: false });
   const { root, must, sflow, sflowJson } = repo;
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(repo.base, 'remote.git')], repo.base);
@@ -66,23 +66,33 @@ test('publishing unchanged says so and records nothing, and a changed draft publ
     assert.doesNotMatch(JSON.stringify([plain.value.commands.next, plain.value.act?.do]), /phase publish/u);
   }
 
-  // A real change still publishes the next generation.
+  // A real change is the next version: publishing it would open version 2 with nobody asked. It opens only on the
+  // person's yes, through the step's own preview; the edit and version 1 both stay [D3, OSA:REQ-014, REQ-030].
   await writeFile(artifact, (await readFile(artifact, 'utf8')).replace('change the exported constant', 'change the exported constant to 2'));
-  const changed = publish();
-  assert.equal(changed.status, 0, JSON.stringify(changed.value));
-  assert.equal(changed.value.generation ?? 2, 2);
-  assert.notEqual(commits(), before);
-  assert.match(sflow('phase', 'show', 'intake'), /generation 2|Generation: 2/iu);
+  const consent = (result, why) => {
+    assert.notEqual(result.status, 0, why);
+    assert.equal(result.value.error?.code, 'VERSION_CONSENT_REQUIRED', JSON.stringify(result.value));
+    assert.match(result.value.error.message, /^The next version of intake opens only on the person's yes\. Nothing was opened\./u);
+    assert.match(result.value.remediationPlan.steps[0].command, /^singularity-flow phase rollover intake\b.*--json$/u, why);
+  };
+  consent(publish(), 'a changed draft never publishes in place');
+  // Preparing its inputs would reserve that next draft just the same; reading them (--dry-run) stays open.
+  consent(sflowJson('inputs', 'intake'), 'inputs never opens the next draft');
+  assert.equal(sflowJson('inputs', 'intake', '--dry-run').status, 0);
+  assert.equal(commits(), before, 'nothing was recorded');
+  assert.match(sflow('phase', 'show', 'intake'), /generation 1|Generation: 1/iu);
+  assert.match(await readFile(artifact, 'utf8'), /change the exported constant to 2/u, 'the edit is kept');
 
-  // The same words with something new to carry are no repeat: what a publication would commit can sit in the
-  // Story's context (a capture for the next generation), and a sibling can already be committed beside the document.
+  // The same words with something new to carry are no repeat either: what a publication would commit can sit in the
+  // Story's context (a capture for the next version), and a sibling can already be committed beside the document.
+  await writeFile(artifact, words('The value must be 2; change the exported constant.'));
   const story = path.join(root, 'singularity/work-items/QF-1');
   await mkdir(path.join(story, 'context'), { recursive: true });
   await writeFile(path.join(story, 'context/capture.json'), '{}\n');
-  assert.notEqual(publish().value.status, 'retained', 'an uncommitted file in the Story is new work');
+  consent(publish(), 'an uncommitted file in the Story is new work, so the next version');
   await rm(path.join(story, 'context/capture.json'), { force: true });
   await writeFile(path.join(story, 'artifacts/intake/extra.md'), '# Extra\n');
   must('git', ['add', path.join(story, 'artifacts/intake/extra.md')]);
   must('git', ['commit', '-q', '-m', 'A sibling document']);
-  assert.notEqual(publish().value.status, 'retained', 'a sibling committed since the publication is new work');
+  consent(publish(), 'a sibling committed since the publication is new work, so the next version');
 });

@@ -713,7 +713,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // builtPublicationRoute (publish-version's prepublish form), sequence.mjs's phasePublicationCommandForMode naming it, and
     // nextsteps.mjs's words. Moving sequence.mjs's soft-gate audit record to a lazy module got under this line, but added a
     // module to the VS Code gateway bundle, which is at its 884; the growth is this fix's own. No new eager file.
-    assert.ok(closure.bytes <= 9_744_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,745,200 (measured 9,745,151 for submit.mjs, +1,078): a published step's next version opens only on the person's yes
+    // [D3, OSA:REQ-030]: action-command-map.mjs's versionQuestionRoute (the open-version preview) for visual coverage's
+    // waiting captures and state.mjs's two submit refusals that said to publish again, and preparation and `phase publish`
+    // refusing a published document's next draft no yes opened (prepared-document-successor.mjs's test and refusal).
+    // visual-coverage.mjs lost its republish command. The refusal stays in that eager module: reached through
+    // commands/phase-opening.mjs, it put that module and eight of its imports into the VS Code gateway bundle, at its 884
+    // modules. No new eager file.
+    assert.ok(closure.bytes <= 9_745_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

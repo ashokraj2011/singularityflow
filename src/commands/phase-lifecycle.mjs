@@ -308,6 +308,10 @@ async function phaseSubcommand(positionals, options) {
     printPhaseReview(await phaseReview(root, config, workflow, requestedPhase), { showArtifact: optionBoolean(options, 'show-artifact') });
     return;
   }
+  // A published document changed since: publishing it would open its next version with nobody asked. It opens only on the
+  // person's yes, through its preview; the edit and the published version both stay [D3, OSA:REQ-014, REQ-030].
+  const successor = await import('../prepared-document-successor.mjs');
+  if (successor.documentSuccessorUnopened(workflow, requestedPhase)) throw await successor.documentSuccessorRefusal(workflow, requestedPhase);
   const explicitAuthored = optionString(options, 'authored');
   const implicitProducer = effectivePhasePublicationProducer(requestedPhase, {
     modelEnabled: operationContext()?.modelMode.enabled !== false

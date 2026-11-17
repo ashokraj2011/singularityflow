@@ -757,7 +757,7 @@
       "skillChooserCalls": 5,
       "versionArithmetic": 3,
       "routeObjects": 6,
-      "lifecycleCommands": 21
+      "lifecycleCommands": 18
     },
     "step-decision.mjs": {
       "predicateCalls": 1

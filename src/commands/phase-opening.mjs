@@ -104,7 +104,14 @@ export async function consentFor(root, workflow, { proposal, digest, question, t
   const [consent, { boundTurnStories }] = await Promise.all([import('../story-version-consent.mjs'), import('../story-routing.mjs')]);
   const { commonDir } = await directories(root);
   const principal = await principalHere(root);
-  const grant = await consent.readGrant(commonDir, digest);
+  let grant = await consent.readGrant(commonDir, digest);
+  // A yes another person gave never stands for this one: their own new answer is preferred, and that grant is dropped on
+  // the refusal it makes, so it is not met again for its 30 minutes (review of the opening flow, 2026-11-17).
+  const foreign = grant?.principal && principal && !consent.samePrincipal(grant.principal, principal) ? grant : null;
+  if (foreign) {
+    await consent.dropGrant(commonDir, digest);
+    grant = typed || !(await boundTurnStories(root)).includes(workflow.workItem.id) ? null : grant;
+  }
   if (grant) return { principal, receipt: consent.consentReceipt(commonDir, { proposal, digest, surface: grant.surface, question: grant.question,
     answer: grant.answer, principal: grant.principal ?? principal,
     assurance: grant.surface === 'confirm-code' ? 'host-confirm-code' : grant.surface === 'decisions-card' ? 'host-card' : 'host-answer',
@@ -331,9 +338,12 @@ export async function changedFilesSuccessor(root, config, workflow, phase, plan,
   return { preview, outcome: opened.outcome, replayed: opened.replayed };
 }
 
-/** The step's preview as a person runs it in their own terminal, which asks them the proposal's question [D3, OSA:REQ-030]. */
-export async function askingRoute(phaseId, skill = null) {
-  return (await import('../safe-command-guidance.mjs')).safeCommandGuidance({ argv: ['phase', 'rollover', phaseId], skill });
+/**
+ * The step's preview as a person runs it in their own terminal, which asks them the proposal's question [D3, OSA:REQ-030];
+ * `json`: as an agent runs it, which then asks the person with its question tool.
+ */
+export async function askingRoute(phaseId, skill = null, { json = false } = {}) {
+  return (await import('../safe-command-guidance.mjs')).safeCommandGuidance({ argv: ['phase', 'rollover', phaseId, ...(json ? ['--json'] : [])], skill });
 }
 
 /**

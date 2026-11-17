@@ -45,13 +45,13 @@ const OPERATION_ID = /^v[ot]-[0-9a-f]{32}$/u;
 const refuse = (message, code, details = {}) => new SingularityFlowError(message, { code, details });
 
 /** The step's legal next action as the kernel decides it and the host renders it, for a refusal to lead with [OSA:REQ-022]. */
-async function legalNext(root, workflow, phase) {
-  try { return (await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase)).route; }
+async function legalNext(root, workflow, phase, config = null) {
+  try { return (await (await import('./commands/phase-opening.mjs')).kernelRoute(root, workflow, phase, { config })).route; }
   catch { return null; }
 }
-/** The step's own preview, `phase rollover <step>`, which asks the person for their yes [D3, OSA:REQ-030]. */
+/** The step's own preview, `phase rollover <step> --json`, after which the person is asked for their yes [D3, OSA:REQ-030]. */
 async function askAgain(phase) {
-  try { return (await (await import('./commands/phase-opening.mjs')).askingRoute(phase.id)) ?? null; }
+  try { return (await (await import('./commands/phase-opening.mjs')).askingRoute(phase.id, null, { json: true })) ?? null; }
   catch { return null; }
 }
 const sha = (value) => `sha256:${recordSha256(value)}`;

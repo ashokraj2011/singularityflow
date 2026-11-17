@@ -248,6 +248,18 @@ the later step's submit, and again on each retried publish. Conformance, approva
   saying why. Documentation is hashed separately and is not part of that source here or of a run's binding
   (`[CQF:REQ-011]`). A run given an environment's values, the test-recovery pilot and a runner amendment's epoch
   always run.
+  **Amended (2026-11-17, CVL-REQ-013/014):** "the same" also means the installed dependencies and the test policy.
+  An attempt records `dependencies` (each lockfile its runner family resolves from its working folder up to the
+  repository root, with the runtime versions already probed) and `testPolicySha256` (the Story's pinned
+  `codeDelivery.tests`, `changedLineCoverage`, intake scope and sealed test policy). Both sit beside
+  `environmentSha256`, outside it, so a run recorded before them still compares by its environment. Such a run stands
+  only when they can be shown unchanged since: each lockfile is the one committed at the current commit, so the code
+  digest it matched covers it, and the Story's workflow snapshot was never amended. Otherwise it is stale and the run
+  that replaces it says so (`freshRun`). A later scope change is not in the digest: a whole run already ran the fewer
+  tests a narrower scope asks for. A step whose pinned definition says `testRuns: fresh` reuses nothing, through the
+  same reader as the test-recovery pilot (`mayReuseUnchangedRuns`), and a person's `decision evidence-reuse` for it
+  is refused with its fresh-run route; its runs read "tests run fresh (this step requires it)". The platform matrix
+  stays release-only.
 - `[TCE:REQ-082]` A passing `tests run` counts as such a run (owner decision 3). A `tests run` itself always runs.
 - `[TCE:REQ-083]` A reused run never reads as a run of the reusing step: the check carries `reusedFrom` and the
   times of the run that happened. Publish then submit binds the one attempt; a new generation or a local run gets

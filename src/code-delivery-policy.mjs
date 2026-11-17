@@ -181,6 +181,12 @@ export function storyTestScope(workflow) {
   return workflow?.testScopeChanges?.at(-1)?.to ?? workflow?.resolution?.testExecutionMode ?? 'changed-and-affected';
 }
 
+export const FRESH_TEST_RUNS_WORDS = 'tests run fresh (this step requires it)';
+/** Whether the step's pinned definition says `testRuns: fresh`: the one reader of it [TCE:REQ-080]. */
+export function stepRunsTestsFresh(workflow, phaseId) {
+  return (workflow?.resolution?.phases ?? []).find((entry) => entry?.id === phaseId)?.testRuns === 'fresh';
+}
+
 /**
  * Identify phases that owe executable code-delivery evidence.
  *

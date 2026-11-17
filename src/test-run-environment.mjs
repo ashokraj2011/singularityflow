@@ -114,9 +114,13 @@ export function gateTestEnvironment(inherited = process.env, { declared = null }
     observe(command, options = {}) {
       recording = testRunEnvironmentRecord(command, { ...options, removed: [...removed].sort(), declared: literal });
     },
-    // Kept on the check itself, never in its JSON: the attempt records it (code-delivery-tests.mjs).
+    // Kept on the check itself, never in its JSON: the attempt records it (code-delivery-tests.mjs). Its dependencies and
+    // test policy go beside it, as `reuseKey`, outside the environment's digest (verification/attempts.mjs) [TCE:REQ-081].
     async attach(check) {
-      if (recording && check) Object.defineProperty(check, 'runEnvironment', { value: await recording, configurable: true });
+      if (!recording || !check) return;
+      const { dependencies, testPolicySha256, ...environment } = await recording;
+      Object.defineProperty(check, 'runEnvironment', { value: environment, configurable: true });
+      if (dependencies !== undefined || testPolicySha256) Object.defineProperty(check, 'reuseKey', { value: { dependencies, testPolicySha256 }, configurable: true });
     }
   };
 }
@@ -138,14 +142,27 @@ export function declaredVariablesSha256({ declared = {}, environment = {}, bound
   return `sha256:${sha256(canonicalJson({ literal, secrets: [...secrets].sort() }))}`;
 }
 
-/** The attempt's environment fields for one finished environment. Never rejects. */
-export async function testRunEnvironmentRecord(command, { cwd = process.cwd(), environment = {}, bound = null, removed = [], declared = {}, nodeVersion = null } = {}) {
+/**
+ * The attempt's environment fields for one finished environment. Never rejects. With `checkout`, the run's installed
+ * dependencies too (`dependencies`, test-toolchain.mjs), and with `testPolicySha256` the Story test policy it was
+ * judged under: `attach` keeps both beside the environment, not in its digest, so a run recorded before they were
+ * kept still compares by its environment [TCE:REQ-081].
+ */
+export async function testRunEnvironmentRecord(command, { cwd = process.cwd(), environment = {}, bound = null, removed = [], declared = {}, nodeVersion = null,
+  checkout = null, testPolicySha256 = null } = {}) {
   const key = named(environment, 'CI').at(-1);
   const ci = key == null ? null : (bound?.secretsPresent ?? []).some(name => name.toUpperCase() === 'CI') ? '[redacted:CI]' : environment[key];
   let toolchain = {};
-  try { toolchain = await (await import('./test-toolchain.mjs')).runnerToolchain(command, { cwd, environment }); } catch { /* recorded as unknown */ }
+  let dependencies;
+  try {
+    const owner = await import('./test-toolchain.mjs');
+    try { toolchain = await owner.runnerToolchain(command, { cwd, environment }); } catch { /* recorded as unknown */ }
+    // Unreadable is recorded as null: a run it cannot compare is never reused on it.
+    if (checkout) dependencies = await owner.runnerDependencies(command, { checkout, toolchain }).catch(() => null);
+  } catch { /* recorded as unknown */ }
   // Only its digest: NODE_OPTIONS is no selection (it stays), yet a different value is a different environment [TCE:REQ-081].
   const nodeOptions = environment[named(environment, 'NODE_OPTIONS').at(-1)];
   return { ci, removed: [...removed], declaredSha256: declaredVariablesSha256({ declared, environment, bound }), toolchain, ...(nodeVersion ? { nodeVersion } : {}),
-    ...(nodeOptions ? { nodeOptionsSha256: `sha256:${sha256(String(nodeOptions))}` } : {}) };
+    ...(nodeOptions ? { nodeOptionsSha256: `sha256:${sha256(String(nodeOptions))}` } : {}),
+    ...(dependencies !== undefined ? { dependencies } : {}), ...(testPolicySha256 ? { testPolicySha256 } : {}) };
 }

@@ -32,7 +32,7 @@ const W = 'RERUN-1';
 const [AC1, AC2] = [`${W}:AC-001`, `${W}:AC-002`];
 
 /** A repository at the code step of a real Story whose later step runs the repository's tests. */
-async function storyAtCode(t, { existingImports = false } = {}) {
+async function storyAtCode(t, { existingImports = false, configure = null, lockfile = null } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-unchanged-runs-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -62,6 +62,8 @@ async function storyAtCode(t, { existingImports = false } = {}) {
   await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
   await write('src/value.mjs', 'export const value = 1;\n');
   await write('test/value.test.mjs', check(1, { tagged: false }));
+  // A lockfile Git ignores: the code digest cannot see it change, only the run's dependencies can [TCE:REQ-081].
+  if (lockfile) { await write('.gitignore', 'package-lock.json\n'); await write('package-lock.json', lockfile); }
   await write('test/existing.test.mjs', `import test from 'node:test';\nimport { appendFileSync } from 'node:fs';\n${existingImports ? "import { value } from '../src/value.mjs';\n" : ''}`
     + `test('existing', () => { appendFileSync(${JSON.stringify(existingLog)}, 'run\\n'); ${existingImports ? 'if (!value) throw new Error(\'no value\');' : ''} });\n`);
   sflow('init');
@@ -75,6 +77,7 @@ async function storyAtCode(t, { existingImports = false } = {}) {
   // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
   // review-every-step-cli.test.mjs.
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
+  configure?.(config);
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Fixture']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], { cwd: base });
@@ -248,6 +251,49 @@ test('a generation back on code that already passed reuses that run under its ow
   f.sflow('approve', 'implementation', '--yes');
   await f.finishTesting();
   assert.equal(await f.runs(), start + 4, 'and the later step reuses the last of them');
+});
+
+test('a step whose workflow says its tests run fresh runs them at publish and again at submit, says why, and the next step still reuses', slowLane({ timeout: 600_000 }), async (t) => {
+  const f = await storyAtCode(t, { configure: (config) => { config.phases.implementation.testRuns = 'fresh'; } });
+  assert.equal((await f.workflow()).resolution.phases.find((phase) => phase.id === 'implementation').testRuns, 'fresh', 'pinned with the Story');
+  const start = await f.runs();
+  const published = f.publish();
+  assert.equal(await f.runs(), start + 1);
+  assert.match(published.stderr, /Running \.-node-tests: tests run fresh \(this step requires it\)\./u);
+  const statement = JSON.parse(f.sflow('phase', 'show', 'implementation', '--json').stdout).testEvidence.acceptance.statement;
+  assert.match(statement, /; submission runs them again: tests run fresh \(this step requires it\)\.$/u);
+  const submitted = f.sflow('submit', 'implementation');
+  assert.equal(await f.runs(), start + 2, 'submission runs them again on the same code');
+  assert.doesNotMatch(submitted.stderr, /Not run again/u);
+  const delivered = (await f.workflow()).phases.implementation;
+  const check = delivered.checks.find((entry) => entry.id === '.-node-tests');
+  assert.equal(check.evidenceUse, undefined);
+  assert.deepEqual(check.freshRun, { reason: 'step-requires', words: 'tests run fresh (this step requires it)' });
+  assert.notEqual(delivered.deliveryEvidence.testExecutions[0].attemptId, delivered.deliveryEvidence.preflightAttempts[0].attemptId, 'two runs, each recorded');
+  const summary = JSON.parse(f.sflow('tests', 'summary', '--work-id', W, '--phase', 'implementation', '--json').stdout);
+  assert.match(summary.commands[0].note, /Tests run fresh \(this step requires it\)\./u);
+  f.sflow('approve', 'implementation', '--yes');
+  const reviewed = await f.finishTesting();
+  assert.equal(await f.runs(), start + 2, "the setting is the code step's own: the testing step reuses its last run");
+  assert.match(reviewed.stderr, /Not run again: node-tests passed on this exact code/u);
+});
+
+test('a lockfile that changes runs the tests again, and one that does not, does not [TCE:REQ-081]', slowLane({ timeout: 600_000 }), async (t) => {
+  const f = await storyAtCode(t, { lockfile: '{"name":"fixture","lockfileVersion":3,"requires":true,"packages":{"":{"name":"fixture"}}}\n' });
+  const start = await f.runs();
+  f.publish();
+  assert.equal(await f.runs(), start + 1);
+  const [published] = await f.attempts();
+  assert.deepEqual(published.dependencies.lockfiles.map((entry) => entry.path), ['package-lock.json']);
+  assert.match(published.testPolicySha256, /^sha256:[a-f0-9]{64}$/u);
+  await f.write('package-lock.json', '{"name":"fixture","lockfileVersion":3,"requires":true,"packages":{"":{"name":"fixture","version":"1.0.0"}}}\n');
+  const submitted = f.sflow('submit', 'implementation');
+  assert.equal(await f.runs(), start + 2, 'a changed lockfile runs them');
+  assert.match(submitted.stderr, new RegExp(`Running \\.-node-tests again: its installed dependencies changed since ${published.attemptId}`, 'u'));
+  f.sflow('approve', 'implementation', '--yes');
+  const reviewed = await f.finishTesting();
+  assert.equal(await f.runs(), start + 2, 'an unchanged one does not');
+  assert.match(reviewed.stderr, /Not run again: node-tests passed on this exact code/u);
 });
 
 test('a recorded tests run on the same code counts for publish', slowLane({ timeout: 600_000 }), async (t) => {

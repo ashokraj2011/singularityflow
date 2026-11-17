@@ -734,7 +734,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,743,800 (measured 9,743,793, start.mjs now the largest; submit.mjs 9,741,327): the 11-17 follow-ups on one tree. The
     // asked-for views load submit's printed phase review only in a person's terminal (-4,800 or so), which more than covers
     // the other follow-ups' rises above. No new eager file.
-    assert.ok(closure.bytes <= 9_743_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,746,550 (measured 9,746,521 for start.mjs, +2,728; submit.mjs 9,744,211): the fuller test-reuse key and the
+    // `testRuns: fresh` step setting [TCE:REQ-080/081, CVL-REQ-013/014]. The step setting's one reader
+    // (code-delivery-policy.mjs +351), its check at load (config.mjs +711), the gates reading it and handing a run's
+    // dependencies and test policy to the reuse check (state.mjs +884), and the attempt keeping them (attempts.mjs +782).
+    // The comparison itself, the policy digest and the lockfile reads stay lazy (evidence-reuse.mjs, test-toolchain.mjs).
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_746_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1132,7 +1138,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,288,300 (measured 4,288,283, +269): the 11-17 landing's fixes. manual-authorship.mjs loads the artifact checks only
   // where an artifact is checked, which takes 20 modules out of the Copilot edit guard on every tool call (68 -> 56); this
   // projection reaches those checks another way, so it keeps them and gains only the loader. No new eager file.
-  assert.ok(current.bytes <= 4_288_300, `session current loads ${current.bytes} source bytes`);
+  // 4,289,350 (measured 4,289,303 on 4,288,241, +1,062): the `testRuns: fresh` step setting [TCE:REQ-080, CVL-REQ-014]:
+  // its one reader (code-delivery-policy.mjs +351) and its check at load (config.mjs +711). The fuller reuse key stays
+  // out of this closure. No new eager file.
+  assert.ok(current.bytes <= 4_289_350, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

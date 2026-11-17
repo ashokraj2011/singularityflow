@@ -203,11 +203,11 @@ export async function resolveStoryLocalTestCommands(root, config, workflow, { ph
  * preflight would run, by the gates' own kernel, on the Candidate's isolated worktree, each staged as
  * one attempt. Publication then finds a passing run on this code and does not run it again; the
  * Candidate's receipt still records only how each command ended on the frozen bytes. Null when no
- * gate could reuse the runs (the test-recovery pilot) or the commands do not resolve: verification
+ * gate could reuse the runs (the test-recovery pilot, a step whose tests run fresh) or the commands do not resolve: verification
  * runs as it did, and publication runs and refuses for itself.
  */
 export async function candidateGateTests(root, config, workflow, phase) {
-  if (!kernel.mayReuseUnchangedRuns(workflow)) return null;
+  if (!kernel.mayReuseUnchangedRuns(workflow, phase)) return null;
   const { commands } = await resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id }).catch(() => ({ commands: [] }));
   const reports = commands.filter(({ result }) => result.path).map(({ workingDirectory, result }) => path.posix.join(workingDirectory, result.path));
   if (!commands.length || new Set(reports).size !== reports.length) return null;

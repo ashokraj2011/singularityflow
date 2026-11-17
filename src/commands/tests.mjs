@@ -458,6 +458,8 @@ function attemptGroups(attempts) {
 function testRunNote(attempt, workflow, phaseId, narrowed = null) {
   const source = attempt.reusedFrom ?? (attempt.phase !== phaseId ? attempt : null);
   const reused = source ? `Not run again: this is ${source.attemptId} recorded by ${source.phase}, on the same code.` : null;
+  // Why it ran on code an earlier run may have covered: its step requires it, or that run is stale [TCE:REQ-080, REQ-081].
+  const fresh = !source && typeof attempt.freshRun?.words === 'string' ? `${attempt.freshRun.words[0].toUpperCase()}${attempt.freshRun.words.slice(1)}.` : null;
   // At the last step that runs tests, the existing tests importing a changed module ran too [CQF:REQ-017].
   const importers = attempt.testScope?.importers ?? [];
   const added = attempt.testScope?.files?.filter((file) => !importers.includes(file)) ?? [];
@@ -466,7 +468,7 @@ function testRunNote(attempt, workflow, phaseId, narrowed = null) {
     : attempt.testScope?.whole ? `Ran whole although the Story runs only its new and changed tests: ${attempt.testScope.whole}.` : null;
   // A path the Story's script names is shown even when it dropped nothing and nobody was asked.
   const paths = narrowed ? (attempt.narrowing?.paths ?? []).map(narrowed.pathNarrowingWords).join(' ') : '';
-  return [reused, scoped, paths].filter(Boolean).join(' ') || null;
+  return [reused, fresh, scoped, paths].filter(Boolean).join(' ') || null;
 }
 
 /** `{ flaky }` when this run, or the run it reused, is one of a flaky command's disagreeing runs; else {}. */

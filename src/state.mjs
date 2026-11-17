@@ -118,7 +118,8 @@ import {
   reviewCodeSource, reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
-import { generationSkillForPhase, pinCodeDeliveryTask, storyTestScope, successorSkillForPhase, TEST_SCOPES } from './code-delivery-policy.mjs';
+import { FRESH_TEST_RUNS_WORDS, generationSkillForPhase, pinCodeDeliveryTask, stepRunsTestsFresh, storyTestScope, successorSkillForPhase,
+  TEST_SCOPES } from './code-delivery-policy.mjs';
 import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
 import { prospectiveTestCommandAmendment, verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
@@ -4968,7 +4969,7 @@ export const localTestRunKernel = Object.freeze({
   stageTransientQualityResult: (...args) => stageTransientQualityResult(...args),
   restoreTransientQualityResult: (...args) => restoreTransientQualityResult(...args),
   environmentQualityCommandGate: (...args) => environmentQualityCommandGate(...args),
-  mayReuseUnchangedRuns: (workflow) => mayReuseUnchangedRuns(workflow),
+  mayReuseUnchangedRuns: (workflow, phase) => mayReuseUnchangedRuns(workflow, phase),
   stdoutReportCaptured, boundedQualityDiagnostic, defaultTimeoutMs: DEFAULT_QUALITY_COMMAND_TIMEOUT_MS
 });
 
@@ -4986,6 +4987,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   // A base run's worktree holds other code by design: what must not change is that worktree's own.
   const { treeSha256: sourceTreeSha256, codeTreeSha256 } = await sourceTreeDigests(candidateIsOtherCode ? candidateRoot : root, config, workflow);
   const testInputSha256 = await testInputTreeHash(candidateIsOtherCode ? candidateRoot : root, config, workflow);
+  // [TCE:REQ-080, REQ-081]
+  const testPolicySha256 = commands.some((command) => command?.kind === 'test') ? (await import('./evidence-reuse.mjs')).storyTestPolicySha256(workflow) : null;
+  const freshStep = stepRunsTestsFresh(workflow, phase.id);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
   let activeTransientRestore = null;
@@ -5155,14 +5159,17 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       }
       commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
     }
-    gateRun?.observe(policy, { cwd: executionRoot, environment: commandEnvironment, bound: materialized?.environment, nodeVersion: requestedNode.nodeVersion });
+    gateRun?.observe(policy, { cwd: executionRoot, environment: commandEnvironment, bound: materialized?.environment, nodeVersion: requestedNode.nodeVersion,
+      checkout: isolation?.root ?? root, testPolicySha256 });
     // A passing run of this command on exactly this code, under the same pin and in the same environment, stands [TCE:REQ-080].
     let rerunReason = null;
+    let freshRun = policy.kind === 'test' && freshStep ? { reason: 'step-requires', words: FRESH_TEST_RUNS_WORDS } : null;
     if (reuseUnchanged && policy.kind === 'test' && policy.argv && gateRun && !environmentGate.run) {
       const observed = {};
       await gateRun.attach(observed);
       const standing = await unchangedTestRun(root, workDirRelative(config, workflow.workItem.id), workflow, phase.id, value, {
         commit: sourceCommit, treeSha256: sourceTreeSha256, codeTreeSha256, testInputSha256, environmentSha256: runEnvironmentSha256(observed.runEnvironment),
+        dependencies: observed.reuseKey?.dependencies ?? null, testPolicySha256,
         ...(pinOf ? { pinSha256: pinOf(policy.id) } : {}) });
       if (standing.attempt) {
         // Nothing ran: the report staged for this run returns untouched.
@@ -5174,8 +5181,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         continue;
       }
       rerunReason = standing.moved;
+      if (standing.stale) freshRun = standing.stale;
     }
     if (rerunReason) console.warn(`Running ${policy.id} again: ${rerunReason}.`);
+    else if (freshRun?.reason === 'step-requires') console.warn(`Running ${policy.id}: ${FRESH_TEST_RUNS_WORDS}.`);
     // A coverage report the command writes is read only when this run wrote it [CQF:REQ-030]; a run
     // given an environment's values, or on another tree than the Story's, is not measured.
     const coverageBefore = policy.kind === 'test' && policy.argv && !environmentGate.run && !candidateIsOtherCode
@@ -5223,6 +5232,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, sourceTreeSha256, codeTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
       ...(policy.kind === 'test' ? { testRuntime: testRuntimeIdentity(workflow?.resolution?.testRuntime, commandEnvironment) } : {}),
+      ...(freshRun ? { freshRun } : {}),
       startedAt, completedAt: nowIso(),
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
       ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
@@ -5330,9 +5340,10 @@ function reusedQualityCheck(policy, command, standing, { testInputSha256, testRu
   return check;
 }
 
-/** Whether a Story's gates may reuse an earlier passing run: never under the test-recovery pilot, which observes each run itself. */
-function mayReuseUnchangedRuns(workflow) {
-  return !workflow.testRecovery && workflow.resolution?.testRecovery?.enabled !== true;
+/** Whether a step's gates may reuse an earlier passing run: not under the test-recovery pilot, which observes each run, nor for `testRuns: fresh`. */
+function mayReuseUnchangedRuns(workflow, phase = null) {
+  return !workflow.testRecovery && workflow.resolution?.testRecovery?.enabled !== true
+    && !(phase && stepRunsTestsFresh(workflow, phase.id));
 }
 
 /**
@@ -5398,7 +5409,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   commands = await storyScopedTestCommands(root, workflow, phase, commands, deliveryEvidence);
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
-    reuseUnchanged: mayReuseUnchangedRuns(workflow), pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null,
+    reuseUnchanged: mayReuseUnchangedRuns(workflow, phase), pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null,
     onMutation: (ran) => recordRunsBeforeRefusal(root, workDirRelative(config, workflow.workItem.id), commands, ran, { pins,
       purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase), delivery: deliveryEvidence })
   });
@@ -5957,7 +5968,7 @@ async function submitPhaseTransition(root, config, workflow, {
     commandProvenance: new Map(deliveryCommands.map((command) => [command,
       trpSelection && command?.kind === 'test' ? command.provenance
         : testCommandProvenance(phase, command)])),
-    reuseUnchanged: mayReuseUnchangedRuns(workflow) && !testCommandEpochRun, published: true,
+    reuseUnchanged: mayReuseUnchangedRuns(workflow, phase) && !testCommandEpochRun, published: true,
     ...(pins ? { pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null } : {}),
     onMutation: (ran) => recordRunsBeforeRefusal(root, workDirRelative(config, workflow.workItem.id), codeDeliveryRequired ? requiredTestCommands : repositoryTests?.commands ?? [], ran, { pins,
       purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null,

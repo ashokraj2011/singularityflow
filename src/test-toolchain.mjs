@@ -9,7 +9,8 @@
  * working folder and with its environment, so a version manager picks what the run picked. A
  * version that cannot be read is null; a probe never fails or delays a run past its own deadline.
  */
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { runQualityCommand } from './quality-command-runner.mjs';
@@ -168,6 +169,45 @@ function goVersion(context) {
 function dotnetVersion(context) {
   return once(['dotnet', context.cwd, valueOf(context.environment, 'PATH')], () => asked('dotnet', ['--version'], /(\d+\.\d+\.\d+\S*)/u,
     { ...context, environment: { ...context.environment, DOTNET_NOLOGO: '1', DOTNET_CLI_TELEMETRY_OPTOUT: '1' } }));
+}
+
+// The lockfiles each runner family's package manager resolves, from the run's folder up to the checkout's root.
+const LOCKFILES = Object.freeze({
+  node: ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'],
+  python: ['poetry.lock', 'uv.lock', 'Pipfile.lock', 'pdm.lock'],
+  go: ['go.sum', 'go.work.sum'],
+  gradle: ['gradle.lockfile', 'settings-gradle.lockfile'],
+  dotnet: ['packages.lock.json'],
+  rust: ['Cargo.lock']
+});
+const MAX_LOCKFILE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * The installed dependencies a test run ran with [TCE:REQ-081]: each lockfile its runner family resolves, read in
+ * the folders from the command's working directory up to `checkout`'s root (no other folder is read), with the
+ * runtime versions already probed for the run (`toolchain`). Paths are repository-relative, so a Candidate's
+ * worktree and the Story's checkout give the same record for the same bytes. `{ lockfiles, runtime, sha256 }`.
+ */
+export async function runnerDependencies(command, { checkout, toolchain = {} } = {}) {
+  const names = LOCKFILES[runnerFamily(command) ?? (baseName(command?.argv?.[0]) === 'cargo' ? 'rust' : '')] ?? [];
+  const lockfiles = [];
+  let folder = path.posix.normalize(String(command?.workingDirectory ?? '.').replaceAll('\\', '/'));
+  if (folder.startsWith('../') || folder === '..' || path.posix.isAbsolute(folder)) folder = '.';
+  for (let level = 0; level < 64 && names.length; level += 1) {
+    for (const name of names) {
+      const relative = folder === '.' ? name : `${folder}/${name}`;
+      const file = path.join(checkout, ...relative.split('/'));
+      const entry = await lstat(file).catch(() => null);
+      if (!entry) continue;
+      // A link or an oversized file is named, never followed or read.
+      const bytes = entry.isFile() && entry.size <= MAX_LOCKFILE_BYTES ? await readFile(file).catch(() => null) : null;
+      lockfiles.push({ path: relative, sha256: bytes ? createHash('sha256').update(bytes).digest('hex') : null });
+    }
+    if (folder === '.') break;
+    folder = path.posix.dirname(folder);
+  }
+  const runtime = Object.fromEntries(Object.entries(toolchain ?? {}).sort(([left], [right]) => left.localeCompare(right)));
+  return { lockfiles, runtime, sha256: `sha256:${createHash('sha256').update(JSON.stringify({ lockfiles, runtime })).digest('hex')}` };
 }
 
 /** `{ tool: version | null }` for the runner family of one test command; {} for an unknown family. */

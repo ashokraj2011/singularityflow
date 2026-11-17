@@ -1,5 +1,5 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
-import { storyTestScope } from '../../code-delivery-policy.mjs';
+import { FRESH_TEST_RUNS_WORDS, stepRunsTestsFresh, storyTestScope } from '../../code-delivery-policy.mjs';
 import { createDocumentReadSession } from '../../documents-read.mjs';
 import { measureCommandSpan } from '../../dx-timing-context.mjs';
 import { phaseDocumentVersionMatches, phaseDisplayBinding } from '../../review-display.mjs';
@@ -224,7 +224,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
         proof: (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'criterion-proof.mjs')).href)).criterionProof(phase.deliveryEvidence),
         skippedTests,
         statement: criteria.length
-          ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; a passing run stands for submission while nothing it ran on changes.'}`
+          ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : stepRunsTestsFresh(workflow, phase.id) ? `; submission runs them again: ${FRESH_TEST_RUNS_WORDS}.`
+            : '; a passing run stands for submission while nothing it ran on changes.'}`
           : 'No acceptance criterion is tagged on a test in this delivery.'
       },
       notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.',

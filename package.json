@@ -36,6 +36,8 @@
     "examples/",
     "distribution/",
     "runtime/",
+    "update-sflow.sh",
+    "update-sflow.ps1",
     "docs/",
     "README.md",
     "README-AD-HOC-WORK.md",

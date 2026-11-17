@@ -6,6 +6,7 @@ export const VSIX_SOURCE_MANIFEST_ENV = 'SINGULARITY_FLOW_VSIX_SOURCE_MANIFEST';
 export const VSIX_SOURCE_MANIFEST_SHA256_ENV = 'SINGULARITY_FLOW_VSIX_SOURCE_MANIFEST_SHA256';
 export const VSIX_CLI_PAYLOAD = Object.freeze([
   'runtime',
+  'update-sflow.sh', 'update-sflow.ps1',
   'bin', 'src', 'docs', 'templates', 'plugin', 'schemas',
   'examples/demo-tagged-workflow.xml', 'examples/demo-intent-workflow.xml',
   'scripts/install-staged-artifacts.mjs',
@@ -22,6 +23,10 @@ export const VSIX_CLI_PAYLOAD = Object.freeze([
  * boundary, with the missing path, instead of producing a VSIX that crashes on first command use.
  */
 export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
+  'update-sflow.sh', 'update-sflow.ps1',
+  'runtime/update.mjs', 'runtime/install-pair.mjs',
+  'runtime/updater/sharepoint.mjs', 'runtime/updater/installer.mjs',
+  'runtime/updater/artifacts.mjs', 'runtime/updater/process.mjs',
   'src/gal-async-read.mjs',
   'src/step-actions.mjs',
   'src/step-action-delivery.mjs',

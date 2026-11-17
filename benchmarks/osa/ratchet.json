@@ -352,7 +352,7 @@
       "versionArithmetic": 1
     },
     "evidence-reuse.mjs": {
-      "lifecycleCommands": 4
+      "lifecycleCommands": 3
     },
     "evidence/cross-phase-change.mjs": {
       "lifecycleCommands": 2

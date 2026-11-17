@@ -169,3 +169,68 @@ test('a verify approver reuses the run implement recorded, and it always reads a
   assert.deepEqual(final.evidenceReuses.map((item) => item.id ?? `revokes ${item.revokes}`),
     ['ERU-001', 'revokes ERU-001', 'ERU-002', 'revokes ERU-002']);
 });
+
+test('a step\'s own test command runs again at its submission and the run is recorded: the fresh run evidence reuse routes to', slowLane({ timeout: 300_000 }), async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-evidence-reuse-submit-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'repo');
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'Reuse Submit Tester',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspaces.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json'),
+    GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Reuse Submit Tester',
+    GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'reuse.submit@example.invalid' };
+  const must = (command, args) => {
+    const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', env, timeout: childTimeout(180_000) });
+    assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const sflow = (...args) => must(process.execPath, [cli, '--no-model', ...args]);
+  await mkdir(root, { recursive: true });
+  must('git', ['init', '-q', '-b', 'main', root]);
+  await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'test'));
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
+  await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
+  await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { value } from '../src/value.mjs';\ntest('value', () => assert.equal(value, 1));\n");
+  sflow('init');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off';
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
+  // verify has a test command of its own, so a fresh recorded run is its own.
+  config.phases.verify.qualityCommands = [...config.phases.verify.qualityCommands, { id: 'verify-unit', kind: 'test', argv: ['node', '--test'], modelPolicy: 'never' }];
+  await writeFile(configPath, YAML.stringify(config));
+  must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Evidence reuse submission fixture']);
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')]);
+  must('git', ['remote', 'add', 'origin', path.join(base, 'remote.git')]); must('git', ['push', '-q', '-u', 'origin', 'main']);
+  sflow('start', 'QF-2', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Change the value', '--description', 'Return 2.');
+  sflow('prepare', 'intake');
+  await writeFile(path.join(root, 'singularity/work-items/QF-2/artifacts/intake/intake.md'), [
+    '# QF-2 — Quick fix scope and plan', '', '## Problem and fix', '', 'The value must be 2; change the exported constant.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', '| [QF-2:AC-001] | The exported value equals 2. |', '',
+    '## Planned implementation evidence', '',
+    '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
+    '| `QF-2:AC-001` | `src/value.mjs` | `test/value.test.mjs` | modified | The test reads 2. |', '',
+    '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n'));
+  sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  sflow('submit', 'intake'); sflow('approve', 'intake', '--yes');
+  sflow('resume', 'QF-2'); sflow('phase', 'begin', 'implement', '--json');
+  await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-2:AC-001 the exported value is the approved 2\nexport const value = 2;\n');
+  await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\n"
+    + "import { value } from '../src/value.mjs';\n// @ac:QF-2:AC-001\ntest('value', () => assert.equal(value, 2));\n");
+  sflow('prepare', 'implement'); sflow('phase', 'publish', 'implement'); sflow('submit', 'implement');
+  const workflowPath = path.join(root, 'singularity/work-items/QF-2/workflow.json');
+  sflow('prepare', 'verify');
+  sflow('phase', 'publish', 'verify', '--authored', 'deterministic', '--channel', 'kernel-generator');
+  // Publishing verify runs none of its quality commands: a publication again would record no run.
+  const published = JSON.parse(await readFile(workflowPath, 'utf8')).phases.verify;
+  assert.deepEqual([published.status, published.generation, published.checks ?? []], ['in_progress', 1, []]);
+  const before = Date.now();
+  sflow('submit', 'verify');
+  const submitted = JSON.parse(await readFile(workflowPath, 'utf8')).phases.verify;
+  assert.equal(submitted.generation, 1, 'no new version');
+  const run = submitted.checks.find((check) => check.id === 'verify-unit');
+  assert.deepEqual([run?.kind, run?.status, run?.evidenceUse ?? null], ['test', 'passed', null], JSON.stringify(submitted.checks));
+  assert.ok(Date.parse(run.startedAt) >= before - 1000, 'a fresh run, at this submission');
+});

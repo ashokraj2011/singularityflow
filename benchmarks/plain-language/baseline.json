@@ -15,7 +15,7 @@
   "draft-for-version": 13,
   "generic-route": 6356,
   "jargon": 1353,
-  "length": 678
+  "length": 677
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -3436,7 +3436,6 @@
    "fefe9b831413": "jargon:binding"
   },
   "src/evidence-reuse.mjs": {
-   "8a891359299d": "length",
    "9632126c391a": "length",
    "cc4460a4a675": "jargon:generation length"
   },

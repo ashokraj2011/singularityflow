@@ -416,7 +416,8 @@ async function changedApplicationPaths(root, config, workflow, commit) {
 /**
  * The two ways forward when a recorded run no longer describes the source: repair (return the
  * change to the step that ran the tests, whose next generation runs and records them again), or a
- * fresh recorded run of the reusing step's own test command when it has one.
+ * fresh recorded run of the reusing step's own test command when it has one: its submission, the
+ * map's submit route, which runs that command again and records it [OSA:REQ-021].
  */
 async function reuseRoutes(workflow, consumer, producer) {
   const { isTestQualityCommand, reviewMayReturnToCode, reviewRepairTarget } = await import('./delivery-evidence.mjs');
@@ -430,9 +431,12 @@ async function reuseRoutes(workflow, consumer, producer) {
     ? `Repair: return the change to ${producer.id}; its next generation runs and records the tests again.`
     : `Repair: ${consumer.id} has no direct return to ${producer.id} now; inspect the legal next actions and request a return to ${producer.id}.` };
   const ownTests = (consumer.qualityCommands ?? []).some((command) => isTestQualityCommand(command));
-  const fresh = ownTests
-    ? { command: `singularity-flow phase publish ${consumer.id}`,
-      label: `Fresh recorded run: publish ${consumer.id}; its own test command runs and its run is recorded.` }
+  // Its submission runs its own test command again on this source and records the run with it; nothing in the step changed,
+  // so no new version is needed. Publishing it again ran none of a document step's tests, and opened a version unasked.
+  const submit = ownTests ? (await import('./action-command-map.mjs')).submitRoute(workflow, consumer) : null;
+  const fresh = submit
+    ? { command: submit.command, skill: submit.skill,
+      label: `Fresh recorded run: submit ${consumer.id}; its submission runs its tests again.` }
     : { command: repair.command,
       label: `Fresh recorded run: ${consumer.id} has no test command of its own, so a new ${producer.id} generation records a new attempt; a person who approves ${consumer.id} may then reuse that one.` };
   return { repair, fresh };

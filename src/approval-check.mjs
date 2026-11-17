@@ -675,6 +675,9 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   ARA_REVIEW_REQUIRED: 'someone-decides',
   ARA_EVIDENCE_UNAVAILABLE: 'someone-decides',
   ARA_REVIEW_STALE: 'someone-decides',
+  // A report on a published step in a Story that keeps no typed words: the person says the change in the step's preview,
+  // which asks them to start the version (review 11-17, opening #3).
+  ARA_REPAIR_VERSION_REQUIRED: 'someone-decides',
   STORY_ARCHIVED_BY_REBUILD: 'someone-decides',
   READ_ONLY_AGENT_CANNOT_MUTATE: 'this-checkout',
   // Whoever works here sets their Git name and email (SCF:REQ-018).

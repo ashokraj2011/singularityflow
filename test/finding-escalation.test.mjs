@@ -119,3 +119,14 @@ test('a refusal escalates only when it returns after repairs; a retry, a passing
   // A wait for a person's or the environment's step is never a repair that cannot pass.
   for (const words of ['four', 'five', 'six']) { await repair(words); assert.equal(refused({ waits: true }), null, words); }
 });
+
+test('only a test failure can wait on a person or the environment, so the CLI loads the phase outcomes for it alone (cli-failure.mjs)', async () => {
+  const { refusalOutcome } = await import('../src/workflow-task-outcome.mjs');
+  const waiting = (outcome) => ['waiting-person', 'waiting-environment'].includes(outcome);
+  // Every fact that makes a test failure wait, put on other codes: none of them waits.
+  const details = { nodePin: { version: '22' }, testRunRisk: { eligible: true, causeClass: 'network' }, requiredTestExecution: { errorCode: 'ENV_FILE_MISSING' } };
+  for (const code of ['DOCUMENT_REUPLOAD_REQUIRED', 'STORY_NOT_FOUND', 'CODE_DELIVERY_EVIDENCE_REQUIRED', 'ENV_FILE_MISSING', 'TEST_RUN_STILL_RUNNING']) {
+    assert.equal(waiting(refusalOutcome({ code, details })), false, `${code} would wait: widen the guard in cli-failure.mjs`);
+  }
+  assert.equal(refusalOutcome({ code: 'CODE_TEST_FAILED', details: { nodePin: { version: '22' } } }), 'waiting-person');
+});

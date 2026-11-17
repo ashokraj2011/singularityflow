@@ -86,9 +86,14 @@ export async function reportCliFailure(error, argv = []) {
     }
   } else {
     // A phase refusal that keeps returning unchanged says to stop and hand it on [recoverable-findings M3].
-    const envelope = relayed?.resultType === 'sflow-refusal-plan' && relayed.remediationPlan ? relayed
-      : (await import('./finding-escalation.mjs')).escalateRefusalEnvelope(refusalEnvelope(error, argv), error, process.cwd(), {
-        waits: ['waiting-person', 'waiting-environment'].includes((await import('./workflow-task-outcome.mjs')).refusalOutcome(error)) });
+    // Only a phase refusal escalates. Of the refusals that name a stop (workflow-task-outcome.mjs refusalStop), only a test
+    // failure can wait on a person or the environment, so only it loads the phase outcomes: any refusal loading them put
+    // the cold phases chunk under every refused command, `phase show` of a missing Story among them.
+    const plain = relayed?.resultType === 'sflow-refusal-plan' && relayed.remediationPlan ? null : refusalEnvelope(error, argv);
+    const envelope = !plain ? relayed : plain.remediationPlan?.context?.scope !== 'phase' ? plain
+      : (await import('./finding-escalation.mjs')).escalateRefusalEnvelope(plain, error, process.cwd(), {
+        waits: error?.code === 'CODE_TEST_FAILED'
+          && ['waiting-person', 'waiting-environment'].includes((await import('./workflow-task-outcome.mjs')).refusalOutcome(error)) });
     if (json) await printJson(JSON.stringify(envelope, null, 2));
     else {
       console.error(`\nSingularity Flow error: ${redactDiagnosticText(error?.message ?? String(error), { multiline: true })}`);

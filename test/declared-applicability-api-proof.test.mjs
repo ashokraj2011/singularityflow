@@ -268,7 +268,8 @@ test('an API criterion needs status, schema and body together, from all its test
     { clauseId: 'API-1:AC-003', testSource: 'src/test/java/OrderApiTest.java', identity: null, gaps: ['ADAPTER_COUNTS_ONLY'] },
     { clauseId: 'API-1:AC-005', testSource: 'test/a.test.mjs' }
   ];
-  const check = await apiCriterionAssertionCheck(root, { contracts, witnesses, phaseId: 'implementation' });
+  const step = { workflow: { workItem: { id: 'API-1' } }, phase: { id: 'implementation', generationPolicy: { task: 'code' } } };
+  const check = await apiCriterionAssertionCheck(root, { contracts, witnesses, ...step });
   assert.deepEqual(check.criteria.map(({ clauseId, asserts, missing }) => [clauseId, asserts, missing]), [
     ['API-1:AC-001', ['status', 'body'], ['schema']],
     ['API-1:AC-002', [], ['status', 'schema', 'body']],
@@ -282,9 +283,9 @@ test('an API criterion needs status, schema and body together, from all its test
     { code: 'code.delivery.api-assertions-missing', path: null, value: ['API-1:AC-001'] },
     { code: 'code.delivery.api-assertions-missing', path: null, value: ['API-1:AC-002'] }
   ]);
-  assert.equal(check.nextAction.command, 'singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready');
+  assert.deepEqual([check.nextAction.command, check.nextAction.skill], ['singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready', '/sf-code']);
   // Nothing missing: no problem and no route.
-  const met = await apiCriterionAssertionCheck(root, { contracts, witnesses: witnesses.filter((entry) => entry.clauseId === 'API-1:AC-003'), phaseId: 'implementation' });
+  const met = await apiCriterionAssertionCheck(root, { contracts, witnesses: witnesses.filter((entry) => entry.clauseId === 'API-1:AC-003'), ...step });
   assert.deepEqual([met.problems, met.nextAction], [[], undefined]);
 });
 

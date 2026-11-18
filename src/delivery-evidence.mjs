@@ -1573,7 +1573,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   // An API criterion's tests assert status, schema and body [CQF:REQ-036]; the check loads only for one.
   const contracts = mergedVerificationContracts(specRecords.planned ?? []);
   const apiAssertions = [...contracts.values()].some((entry) => entry.interface === 'api') ? await (await import(CORNER_CASE_MODULE))
-    .apiCriterionAssertionCheck(root, { contracts, witnesses: witnessDiscovery.witnesses, phaseId: phase.id }) : null;
+    .apiCriterionAssertionCheck(root, { contracts, witnesses: witnessDiscovery.witnesses, workflow, phase }) : null;
   if (apiAssertions) reportAll(apiAssertions.problems, apiAssertions.problemFindings);
   const enforceCornerCases = workflow.resolution?.codeDelivery?.cornerCaseObligations === 'enforce'
     || config.governance?.requireCornerCaseCoverage === true;

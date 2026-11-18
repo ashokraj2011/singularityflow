@@ -101,13 +101,14 @@ test('VS Code offers only the exact engine-selected delivery and rejects stale, 
 });
 
 test('submitted and approved deliveries never offer direct source-generation admission', () => {
-  for (const status of ['awaiting_approval', 'approved', 'not_started']) {
+  // Submitted, its approvers return it to its author; approved or not started, there is nothing to repair here. Recovery
+  // found nothing to repair in either [review 2026-11-17, routes #2].
+  for (const [status, expected] of [['awaiting_approval', ['reject', '/sf-reject']], ['approved', null], ['not_started', null]]) {
     const { workflow, phase } = delivery();
     phase.status = status;
     const before = structuredClone(workflow);
-    const review = buildOutcomeReview({ workflow });
-    assert.equal(review.routes.repair.argv[0], 'recover', status);
-    assert.equal(review.routes.repair.copilotCommand, '/sf-recover');
+    const repair = buildOutcomeReview({ workflow }).routes.repair;
+    assert.deepEqual(repair && [repair.argv[0], repair.copilotCommand], expected, status);
     assert.deepEqual(workflow, before);
   }
 });
@@ -157,8 +158,9 @@ test('real code publication offers the review and its snapshot without starting 
   assert.equal(agentReview.act.ask.tool.input.workId, 'QF-1');
   assert.equal(agentReview.data.outcome.workId, 'QF-1');
   assert.equal(outcome.value.data.outcome.routes.continue.command, 'singularity-flow nextsteps QF-1 --for-agent --json');
-  assert.equal(outcome.value.data.outcome.routes.repair.command, 'singularity-flow phase rollover implement --work-id QF-1 --json');
-  assert.equal(outcome.value.data.outcome.routes.repair.copilotCommand, '/sf-code implement');
+  // A published step's repair is its next version, opened on the person's yes for what they say to repair [OSA:REQ-030].
+  assert.equal(outcome.value.data.outcome.routes.repair.command, 'singularity-flow phase rollover implement --reason "<what to change>" --json');
+  assert.equal(outcome.value.data.outcome.routes.repair.copilotCommand, '/sf-code implement <what to change>');
   assert.deepEqual(await readFile(workflowFile), workflowBytes);
   assert.equal(repo.must('git', ['rev-parse', 'HEAD']), beforeHead);
   assert.equal(repo.must('git', ['status', '--porcelain']), beforeStatus);

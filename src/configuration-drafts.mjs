@@ -1431,7 +1431,8 @@ export async function rejectDelegatedProposal(root, branch, kind, {
   // Its proposer withdraws it [SCF:REQ-009].
   const withdrawn = Boolean(rejecter) && proposedBy(reviewed, rejecter) === true;
   const revision = reviewed.proposalCommit;
-  const command = `singularity-flow configuration reject ${branch} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}${on}`;
+  // `--lead` before `--confirm`, as the proposal's other routes name it: nothing is joined to the revision a route confirms.
+  const command = `singularity-flow configuration reject ${branch}${on} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}`;
   const decided = await decidedRevision(root, branch, revision, { yes, confirm, interactive, ask,
     question: withdrawn ? 'Withdraw your proposal? Nothing in sflow/config changes. [y/N] ' : 'Reject this proposal? Nothing in sflow/config changes. [y/N] ', command });
   if (!decided) {

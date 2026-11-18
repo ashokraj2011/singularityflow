@@ -217,6 +217,8 @@ function phaseRemediationContext(argv, error) {
   });
 }
 
+const withoutKey = (object, key) => Object.fromEntries(Object.entries(object).filter(([name]) => name !== key));
+
 function optionValueRaw(argv, name) {
   const index = argv.findIndex((value) => value === `--${name}`);
   return index >= 0 ? String(argv[index + 1] ?? '').trim() : '';
@@ -2189,7 +2191,8 @@ function remediationPlanFor(error, argv = []) {
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
       retryCommand: null, retrySkill: null })
     : identityBlocked && rawPhaseContext
-      ? Object.freeze({ ...rawPhaseContext, strategy: 'approval-identity', turn: 'current-turn',
+      // Who decides, not what is decided: the step under review needs no return, so its return command is not offered.
+      ? Object.freeze({ ...withoutKey(rawPhaseContext, 'returnCommand'), strategy: 'approval-identity', turn: 'current-turn',
         retryCommand: null, retrySkill: null })
     : upstreamInputBlocked && rawPhaseContext
       ? Object.freeze({ ...rawPhaseContext, strategy: 'upstream-input',

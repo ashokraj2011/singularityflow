@@ -18,6 +18,7 @@ import { isAllowedTestAutomationPath, isTestSourceName } from '../code-delivery-
 import { documentationLanguage, publicDeclarations } from '../code-documentation.mjs';
 import { buildComprehensionDiffPreview } from '../comprehension/diff-preview.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
+import { codePublicationRoute } from '../action-command-map.mjs';
 import { maskPolyglotNonCode } from '../polyglot-lexical.mjs';
 import { runBoundedTaskPool } from '../quality-command-runner.mjs';
 import { recordSha256 } from '../records.mjs';
@@ -725,9 +726,9 @@ export function apiAssertionSignals(source, { sourcePath = 'test.js', clauseId =
  * body [CQF:REQ-036]: together, the criterion's tests need all three. Static names, like the rest of this check. A
  * screenshot never stands in: the plan cannot make one an API criterion's primary witness (contracts.mjs). Each
  * problem refuses the code step's publication with its other delivery findings, and `nextAction` keeps the repair in
- * the code step.
+ * the code step: its own publication, from the one action-command map [OSA:REQ-021].
  */
-export async function apiCriterionAssertionCheck(root, { contracts = new Map(), witnesses = [], phaseId = null } = {}) {
+export async function apiCriterionAssertionCheck(root, { contracts = new Map(), witnesses = [], workflow = null, phase = null } = {}) {
   const criteria = [...contracts.values()].filter((contract) => contract.interface === 'api').map((contract) => contract.clauseId).sort();
   const sources = new Map();
   const results = [];
@@ -757,7 +758,7 @@ export async function apiCriterionAssertionCheck(root, { contracts = new Map(), 
       + `its schema and its body: ${tests.join(', ')} ${asserts.length ? `assert${tests.length === 1 ? 's' : ''} only ${asserts.map((signal) => API_SIGNAL_WORDS[signal]).join(' and ')}`
         : `assert${tests.length === 1 ? 's' : ''} none of them`}. Add ${missing.map((signal) => API_SIGNAL_ADD[signal]).join(', ').replace(/, (?=[^,]*$)/u, ' and ')}. A screenshot never proves an API`),
     problemFindings: refused.map(({ clauseId }) => ({ code: 'code.delivery.api-assertions-missing', path: null, value: [clauseId] })),
-    ...(refused.length && phaseId ? { nextAction: { command: `singularity-flow phase prepublish ${phaseId} --for-agent --json --publish-if-ready`, skill: '/sf-code',
+    ...(refused.length && phase ? { nextAction: { ...codePublicationRoute(workflow, phase),
       label: 'Add the missing status, schema or body assertions, then check again.' } } : {})
   };
 }

@@ -125,7 +125,8 @@ test('every authoring skill makes a change asked for after publication in its ow
     const text = await readFile(fileURLToPath(new URL(`../plugin/skills/${name}/SKILL.md`, import.meta.url)), 'utf8');
     // The person is asked the engine's own question, in versions: "Start draft 2 for this change?" was a draft, the private
     // working copy, and a checkbox form the model made up around it (daily run 2026-11-17).
-    assert.match(text, /A change asked for after publication \(typed after this skill\)(?:, or files changed after it,)? is made here: run entry's `singularity-flow phase rollover <phase> --json` preview, ask its "Start version N\+1 of …\?", and its confirmation only on their yes/u, name);
+    // The general authoring skills also name the question's other answer, "No, it was just a question" (question account).
+    assert.match(text, /A change asked for after publication \(typed after this skill\)(?:, or files changed after it,)? is made here: run entry's `singularity-flow phase rollover <phase> --json` preview, ask its "Start version N\+1 of …\?"(?: \(with `justAQuestion`, its `answer` too: on it run its `command`\))?, and its confirmation only on their yes/u, name);
     assert.doesNotMatch(text, /\bdraft N\+1\b/u, name);
     // Asked before the published step's ordinary next, so a request is never relayed away.
     assert.ok(text.indexOf('"Start version N+1 of …?"') < text.search(/`retained-generation`: relay `next`|Otherwise unchanged publication: relay `next`/u), name);

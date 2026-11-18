@@ -144,8 +144,10 @@ test('submission readiness never says "ready to submit" or "review version 1" wh
     assert.equal(readiness.nextCommand ?? readiness.command, 'singularity-flow prepare implement', name);
     assert.equal(readiness.nextSkill, '/sf-code', name);
   }
-  // Published, nothing open, no review owed: ready to submit, as before.
-  assert.equal(submissionReadinessSnapshot(story()).classification, 'ready-to-attempt');
+  // Published with its code-delivery receipt, nothing open, no review owed: ready to submit, as before. Without the receipt,
+  // submission refuses it, so readiness never says ready (CODE_DELIVERY_RECEIPT_MISSING, review 2026-11-17).
+  assert.equal(submissionReadinessSnapshot(story({ phase: { deliveryEvidence: { generation: 1 } } })).classification, 'ready-to-attempt');
+  assert.equal(submissionReadinessSnapshot(story()).classification, 'code-delivery-receipt-missing');
 });
 
 test('the sequence guidance and a refusal\'s "next for this Story" write the open version [C2, C21]', () => {

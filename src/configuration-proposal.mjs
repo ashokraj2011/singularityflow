@@ -385,15 +385,15 @@ function packageOrderFailure(reader, branch, targetCommit, proposalCommit) {
       + 'singularity-flow workspace refresh-configuration --rollback, run from that older build.' };
 }
 
-/**
- * How a proposal without drafts is made again, from the operation its branch names (proposeConfigurationChange's
- * label): an import is imported again, a copy copied again, a new workflow created again.
- */
 /** A proposal that adds a workflow: an import, a copy, a new workflow made in Studio, the builder or `workflow create`. */
 function createsWorkflow(reviewed) {
   return (reviewed.workflows ?? []).some((row) => row.change === 'added');
 }
 
+/**
+ * How a proposal without drafts is made again, from the operation its branch names (proposeConfigurationChange's
+ * label): an import is imported again, a copy copied again, a new workflow created again.
+ */
 function remadeBy(branch) {
   const label = String(branch).split('/').at(-1);
   return [['import-workflows-', 'import the bundle again'], ['copy-workflow-', 'copy the workflow again'],

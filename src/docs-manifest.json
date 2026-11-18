@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "8bbd9ed082f50ec6707d565e82e012f4d082e19e",
+  "sourceCommit": "236e2d61e1b0d0e4fe60d08aa3c0cdcd1c50d302",
   "topicCount": 93,
-  "contentSha256": "99fb5adf54044dbdf91fa6bd9d4d04491876e6bead56ba887b0eb1e8d71e8de1",
+  "contentSha256": "34e3595647bbd05494b917d9d71f17dd0875748ada724328e843530ebd9f1f76",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -704,8 +704,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 107,
-      "sha256": "98ae7a059dd42ad00d862f84fb3b8d4c60e32e8c6dc9bc1d0c93289feb2828ed",
+      "version": 108,
+      "sha256": "dcb89aad6105b95c8648b0e7cc6522b6b615a4be2573e78a871c2a8a3d36941c",
       "routingSha256": "38bb5bce292c6f41c7f3a7b688849a3b0342eeeddb14286a50488eead607e0c2",
       "file": "workflow-authoring.md"
     },
@@ -728,8 +728,8 @@
     {
       "id": "workflow-markup",
       "title": "Create workflows with Copilot and checked tags",
-      "version": 10,
-      "sha256": "b52ea679fce11a090a0363a3c6d732d86acf48385b0feff01462b788540183c3",
+      "version": 11,
+      "sha256": "0dc322052c2c92d0051b562a21a3c6dfd493bbf205a2b61e6bb7c56a15950640",
       "routingSha256": "8517db9f9dfdd60d5fbd14dca5ecb7b8c13b8545d869b3c692637ac7dbfb89ce",
       "file": "workflow-markup.md"
     },

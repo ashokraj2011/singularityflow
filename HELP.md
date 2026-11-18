@@ -3319,6 +3319,19 @@ for real ones. It applies nothing: `--write` puts the change set in the private 
 check --change-set <file>` confirms what it leaves, and `workflow studio apply --change-set <file>
 --propose` makes it one reviewed proposal. `--answers <file>` turns answered questions into changes.
 
+Every way of making a workflow runs the same check before anything is proposed or written: `workflow
+import` (a bundle from export, `workflow markup compile`, `workflow import-team` or `workflow build --out`),
+`workflow create` and `edit`, `workflow copy` and `duplicate`, `workflow install`, Workflow Studio (and the
+builder and `configuration propose`, which apply through it), a whole `configuration save` of workflow.yml,
+and `workflow author submit`. The workflows it makes are judged by `workflow validate` as approval judges
+them, on the configuration they land on. A step's template that lacks only placeholders gets them: two TODO
+clauses with anchors, the planned-claims table with a TODO row per clause, a missing section, or the template
+itself; nothing written there changes, and a packaged workflow's template is never touched. The preview says
+"SFlow added to <template> ..." and the plan you confirm names those bytes; the bundle file is not changed.
+Any other problem is shown in the preview with its fix and refused when applied or proposed, never first at
+approval; only a local Workflow Studio apply, like a saved draft, is still written, with the warning that says
+why no Story can start from it yet.
+
 `--background-sync` saves an exact configuration proposal commit and durable Push recovery intent
 before starting a bounded background upload. It is supported by workflow proposals (including
 terminal-confirmed `workflow author submit --background-sync`), Studio change

@@ -7,7 +7,7 @@ questions:
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-intent, workflow-authoring, workflow-decisions, reusable-instructions]
-version: 10
+version: 11
 ---
 
 ## Purpose and prerequisites
@@ -75,7 +75,9 @@ singularity-flow workflow import ./demo.sflow-workflows.json --dry-run --propose
 `compile -` reads private stdin. `--out` creates a **new** file and refuses replacement. Separately
 review and confirm the exact destination import plan. Portable-ready means definition, dependency,
 startability and native route checks passed—not destination compatibility, application test success,
-approval or activation.
+approval or activation. The import preview judges the workflow as approval will on the destination: a
+step's template that lacks only clause anchors, the planned-claims table or a section gets them as TODO
+placeholders ("SFlow added to ..."), and any other problem is shown with its fix and stops the import there.
 
 `--design-review` adds resolved phase policy and graph metadata without loading every guidance body.
 `--inspect-phase` adds the selected phase's hash-bound static agent/skill/instruction composition;

@@ -42,7 +42,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 107
+version: 108
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1079,6 +1079,35 @@ For a lead-repository, Workflow Studio (and every `--propose` command) performs 
 4. push one exact `sflow/config-change/workflow/...` review branch;
 5. leave the application/Story branch, index, and working tree unchanged.
 
+### Every way of making a workflow is checked as approval checks it
+
+`workflow import`, `workflow create` and `edit`, `workflow copy` and `duplicate`, `workflow install`, Workflow
+Studio (with the builder, `workflow fix` proposals and `configuration propose`, which apply through it), a
+whole-file `configuration save` of workflow.yml and `workflow author submit` all run one check before anything is
+proposed or written. Each workflow the change adds or changes is judged by `workflow validate` exactly as
+approval will judge it, on the configuration it lands on, and only a problem the change adds counts.
+
+What only needs per-Story placeholders in a step's template is added there, then checked again:
+
+- a step that defines the requirement clauses gets two TODO clauses with their anchors,
+  `[{{work.id}}:REQ-001]` and `[{{work.id}}:AC-001]`;
+- a step that plans a code step's claims gets the planned-claims table
+  (`| Clause | Expected paths | Planned tests | Fulfillment | Observable result |`), one TODO row per clause;
+- a section the step's publication checks for gets its heading and a TODO line;
+- a template that does not exist is created from the packaged one of that name, or a starter.
+
+Nothing written in the template is changed or removed, the same check finds nothing more to add a second
+time, and a packaged workflow's template is never touched. The preview says what was added
+("SFlow added to qa-web/e2e-intake.md (Web E2E test intake): two TODO clauses ..."), and the plan you
+confirm binds the repaired bytes. Every other problem is shown in the preview with its fix and refused when
+the change is applied or proposed (a local Workflow Studio apply, like a saved draft, is still written, with the
+warning that says why no Story can start from it yet; proposing it is refused): anchors or a planned-claims table that are there but refused, a token
+step entry cannot fill, a fixed clause namespace (each fix rewrites the author's words), and anything about
+the workflow itself (who drafts or signs off a step, its routes, which step plans the code). Approval keeps
+its own check as a safety net; when it refuses a proposal that held no drafts, its way out is to withdraw it
+and make it again the same way (import the bundle again, copy or create the workflow again), which now
+repairs it.
+
 Approve that proposal (`singularity-flow configuration approve <BRANCH>`), or merge it on the Git host where
 `sflow/config` is protected. New Stories read `sflow/config` directly, so the workflow is available to them at
 once. Existing Stories remain
@@ -1174,7 +1203,10 @@ singularity-flow workflow export \
 
 Import is preview-first. Review the exact `add`, `reuse`, `conflicts`, and shared-dependency sets,
 then apply the unchanged bundle with the returned plan SHA. `--propose` keeps the change inside the
-normal approved configuration-review path.
+normal approved configuration-review path. The preview also lists `repairs`, what SFlow added to each
+template the import writes, and `problems`, what approval would refuse that SFlow cannot add a fix for,
+each with its fix (see "Every way of making a workflow is checked as approval checks it"). A plan with
+problems is `blocked`; fix them where the bundle was made, export it again and preview the new file.
 Approved-destination previews also bind the authority kind, remote fingerprint, `sflow/config`
 source revision and observed mirror revision when applicable. A byte-identical configuration in
 a different authority or a newer approved commit cannot reuse the old confirmation. Import and

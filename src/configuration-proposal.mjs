@@ -385,6 +385,17 @@ function packageOrderFailure(reader, branch, targetCommit, proposalCommit) {
       + 'singularity-flow workspace refresh-configuration --rollback, run from that older build.' };
 }
 
+/**
+ * How a proposal without drafts is made again, from the operation its branch names (proposeConfigurationChange's
+ * label): an import is imported again, a copy copied again, a new workflow created again.
+ */
+function remadeBy(branch) {
+  const label = String(branch).split('/').at(-1);
+  return [['import-workflows-', 'import the bundle again'], ['copy-workflow-', 'copy the workflow again'],
+    ['create-workflow-', 'create the workflow again'], ['studio-', 'apply the Workflow Studio change again']]
+    .find(([prefix]) => label.startsWith(prefix))?.[1] ?? 'make the change again';
+}
+
 /** Each problem `workflow validate` finds in `ids`, read in `checkout` [finding ER-F7] (workflow-validation.mjs). */
 const workflowProblems = async (checkout, ids) => ids.length ? (await import('./workflow-validation.mjs')).workflowProblems(checkout, ids) : new Map();
 
@@ -906,15 +917,18 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
           const drafts = Boolean(mine && Array.isArray(mine.held) && mine.held.length);
           const redo = mine && !drafts && Array.isArray(mine.changes) && mine.changes.length ? mine.changes : null;
           const why = `workflow validate reports ${added.length === 1 ? 'a problem' : 'problems'} in ${named.join(', ')}`;
+          // A proposal with no drafts is made again the way it was made: every such way now adds what a template
+          // lacks and refuses the rest before proposing (src/workflow-autofix.mjs), so "again" is the fix itself.
+          const again = remadeBy(proposalBranch);
           throw new SingularityFlowError(
             `Approving ${proposalBranch} would give ${named.join(', ')} ${added.length === 1 ? 'a problem' : `${added.length} problems`} \`workflow validate\` reports: `
             + `${added.map((entry) => `${entry.workflow}: ${entry.title}`).join('; ')}. Nothing was changed. `
             + (drafts ? 'Withdraw it: your drafts come back to fix, then propose them again.'
               : redo ? `Withdraw it; it held no drafts, so redo in Workflow Studio: ${redo.join('; ')}.`
-                : own ? 'Withdraw your proposal, then propose the change again without them.'
+                : own ? `Withdraw your proposal, then ${again}: that now repairs or refuses it first.`
                   : 'Reject it with that reason: its proposer fixes it and proposes it again.'),
             { code: 'WORKFLOW_PROPOSAL_PROBLEMS', details: { problems: added, ...(redo ? { redo } : {}), nextAction: {
-              label: drafts ? 'Withdraw it, fix your drafts, then propose again' : own ? 'Withdraw your proposal, fix it, then propose again'
+              label: drafts ? 'Withdraw it, fix your drafts, then propose again' : own ? `Withdraw your proposal, then ${again}`
                 : 'Reject it, so its proposer fixes it',
               command: `singularity-flow configuration reject ${proposalBranch} --confirm ${reviewed.proposalCommit} --reason "${why}"` } } }
           );

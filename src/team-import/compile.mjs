@@ -365,8 +365,11 @@ export async function compileTeamImport(sessionId, {
         const { initializeDefinition } = await import('../config.mjs');
         await initializeDefinition(freshRoot);
         const freshPlan = await planWorkflowImport(freshRoot, bundle, importResolutionOptions([], 'suggested'));
-        fresh = { status: freshPlan.status === 'ready' ? 'passed' : 'failed', counts: freshPlan.counts, conflicts: freshPlan.conflicts };
-        if (fresh.status === 'failed') findings.push({ at: 'import', code: 'TEAM_IMPORT_FRESH_IMPORT_BLOCKED', owner: 'model', message: `The bundle does not import into a fresh configuration: ${freshPlan.conflicts.map((entry) => entry.reason).join('; ')}` });
+        // The import adds what a template lacks (src/workflow-autofix.mjs) and refuses the rest with its fix.
+        fresh = { status: freshPlan.status === 'ready' ? 'passed' : 'failed', counts: freshPlan.counts, conflicts: freshPlan.conflicts,
+          ...(freshPlan.repairs ? { repairs: freshPlan.repairs } : {}), ...(freshPlan.problems ? { problems: freshPlan.problems } : {}) };
+        if (fresh.status === 'failed') findings.push({ at: 'import', code: 'TEAM_IMPORT_FRESH_IMPORT_BLOCKED', owner: 'model', message: `The bundle does not import into a fresh configuration: ${[
+          ...freshPlan.conflicts.map((entry) => entry.reason), ...(freshPlan.problems ?? []).map((entry) => `${entry.title}${entry.fix ? ` (fix: ${entry.fix})` : ''}`)].join('; ')}` });
       } catch (error) {
         findings.push({ at: 'bundle', code: error.code ?? 'TEAM_IMPORT_BUNDLE_INVALID', owner: 'model', message: error.message });
       }
@@ -379,10 +382,15 @@ export async function compileTeamImport(sessionId, {
           const { withApprovedConfigurationRead } = await import('../approved-configuration-reader.mjs');
           const plan = await withApprovedConfigurationRead(root, () => planWorkflowImport(root, bundle, importResolutionOptions([], 'suggested')), { preferAuthority: true });
           destinationPlan = { root, status: plan.status, planSha256: plan.planSha256, bundleSha256: plan.bundleSha256,
-            counts: plan.counts, conflicts: plan.conflicts, renamed: plan.renamed ?? [] };
-          if (plan.status !== 'ready') {
+            counts: plan.counts, conflicts: plan.conflicts, renamed: plan.renamed ?? [],
+            ...(plan.repairs ? { repairs: plan.repairs } : {}), ...(plan.problems ? { problems: plan.problems } : {}) };
+          if (plan.status !== 'ready' && plan.conflicts.length) {
             findings.push({ at: 'destination', code: 'TEAM_IMPORT_DESTINATION_CONFLICT', owner: 'person',
               message: `Importing into ${root} needs choices: ${plan.conflicts.map((entry) => `${entry.kind} ${entry.id}: ${entry.reason}`).join('; ')}.` });
+          }
+          if (plan.problems?.length) {
+            findings.push({ at: 'destination', code: 'TEAM_IMPORT_DESTINATION_PROBLEMS', owner: 'model',
+              message: `Importing into ${root} would bring what approval refuses: ${plan.problems.map((entry) => `${entry.title}${entry.fix ? ` (fix: ${entry.fix})` : ''}`).join('; ')}.` });
           }
         } catch (error) {
           destinationPlan = { root, status: 'unavailable', error: { code: error.code ?? null, message: error.message } };

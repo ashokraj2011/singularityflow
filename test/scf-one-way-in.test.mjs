@@ -239,11 +239,28 @@ test('a workflow that workflow validate calls invalid cannot be approved (ER-F7)
       assert.ok(error.details.problems.every((problem) => problem.workflow === 'thin-flow'));
       assert.equal(error.details.nextAction.command,
         `singularity-flow configuration reject ${thin.branch} --confirm ${thin.commit} --reason "workflow validate reports ${error.details.problems.length === 1 ? 'a problem' : 'problems'} in thin-flow"`);
-      assert.equal(error.details.nextAction.label, 'Withdraw your proposal, fix it, then propose again');
-      assert.match(error.message, /Withdraw your proposal, then propose the change again without them\./u);
-      assert.doesNotMatch(`${error.message} ${error.details.nextAction.label}`, /drafts/u);
+      // Made again the way it was made: every way of making a workflow now repairs or refuses before proposing.
+      assert.equal(error.details.nextAction.label, 'Withdraw your proposal, then make the change again');
+      assert.match(error.message, /Withdraw your proposal, then make the change again: that now repairs or refuses it first\./u);
+      assert.doesNotMatch(`${error.message} ${error.details.nextAction.label}`, /drafts|without them/u);
       return true;
     });
+    // An import is imported again: its preview now adds what a template lacks and shows any other problem with its fix.
+    const imported = await proposeConfigurationChange(f.alice, { operation: 'import-workflows', subject: 'thin-import',
+      async mutate(root) {
+        const file = path.join(root, WORKFLOW);
+        const definition = YAML.parse(await readFile(file, 'utf8'));
+        definition.workTypes['thin-import'] = { label: 'Thin import', phases: ['requirements', 'implementation'] };
+        await writeFile(file, YAML.stringify(definition));
+        return { id: 'thin-import' };
+      } });
+    await assert.rejects(approve(f.alice, imported.branch, imported.commit), (error) => {
+      assert.equal(error.code, 'WORKFLOW_PROPOSAL_PROBLEMS');
+      assert.equal(error.details.nextAction.label, 'Withdraw your proposal, then import the bundle again');
+      assert.match(error.message, /Withdraw your proposal, then import the bundle again: that now repairs or refuses it first\./u);
+      return true;
+    });
+    await rejectBranch(f, imported.branch);
     // A proposal recorded on this machine that held no saved drafts gives none back: it names the Studio edits to make
     // again instead (review 11-17, finding 7).
     const { draftsDirectory, PROPOSED_SCHEMA } = await import('../src/configuration-drafts.mjs');
@@ -253,7 +270,7 @@ test('a workflow that workflow validate calls invalid cannot be approved (ER-F7)
     await recordProposed({ draftIds: [], changes: ['Create workflow thin-flow'], held: [] });
     await assert.rejects(approve(f.alice, thin.branch, thin.commit), (error) => {
       assert.equal(error.code, 'WORKFLOW_PROPOSAL_PROBLEMS');
-      assert.equal(error.details.nextAction.label, 'Withdraw your proposal, fix it, then propose again');
+      assert.equal(error.details.nextAction.label, 'Withdraw your proposal, then make the change again');
       assert.match(error.message, /Withdraw it; it held no drafts, so redo in Workflow Studio: Create workflow thin-flow\./u);
       assert.doesNotMatch(error.message, /drafts come back/u);
       assert.deepEqual(error.details.redo, ['Create workflow thin-flow']);

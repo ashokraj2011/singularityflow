@@ -56,7 +56,9 @@ test('independent duplication copies all editable contracts and native names wit
 test('integration targets travel, can be renamed, and keep secret names rather than secret values', async (t) => {
   const source = await repo(t), target = await repo(t), value = await config(source);
   value.integrations = { targets: { 'team-events': { kind: 'webhook', url: 'https://events.example.test/hook', signingSecret: 'SFLOW_SECRET_TEAM_EVENTS_TOKEN' } } };
-  value.workTypes['custom-flow'] = { ...structuredClone(value.workTypes.feature), label: 'Custom', phaseOverrides: { intake: { afterStep: [{ id: 'notify', on: ['approved'], target: 'team-events', send: 'event' }] } } };
+  // The feature workflow's own step overrides stay: without them its send-back rules are ones approval refuses.
+  value.workTypes['custom-flow'] = { ...structuredClone(value.workTypes.feature), label: 'Custom', phaseOverrides: {
+    ...structuredClone(value.workTypes.feature.phaseOverrides ?? {}), intake: { afterStep: [{ id: 'notify', on: ['approved'], target: 'team-events', send: 'event' }] } } };
   await save(source, value);
   const bundle = await exportWorkflowBundle(source, ['custom-flow']);
   assert.deepEqual(bundle.objects.story.integrations.targets, value.integrations.targets);

@@ -5502,6 +5502,7 @@ async function workflowCommand(positionals, options) {
       ...proposal
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(imported, null, 2));
+    for (const repair of imported.repairs ?? []) console.log(repair.text);
     if (printProposal(imported)) return;
     console.log(`Imported ${ids.length} workflow${ids.length === 1 ? '' : 's'} from ${inputPath}.`);
     console.log(`  Added: ${imported.added?.length ?? 0} · Reused exact: ${imported.reused?.length ?? 0}`
@@ -5526,6 +5527,14 @@ async function workflowCommand(positionals, options) {
       console.log(`Workflow copy preview: ${sourceId} → ${targetId}.`);
       console.log('  The complete workflow record is copied; phase, template, artifact, agent, and authority contracts remain shared.');
       if (plan.changedPaths?.length) console.log(`  Changed paths: ${plan.changedPaths.join(', ')}`);
+      for (const repair of plan.repairs ?? []) console.log(`  ${repair.text}`);
+      if (plan.problems?.length) {
+        console.log(`  Approval would refuse ${plan.problems.length === 1 ? 'this problem' : `these ${plan.problems.length} problems`}, and SFlow cannot add a fix:`);
+        for (const problem of plan.problems) console.log(`    ${problem.workflow}: ${problem.title}${problem.fix ? `\n      Fix: ${String(problem.fix).split('\n').join('\n           ')}` : ''}`);
+        console.log(`  Fix ${sourceId} first (singularity-flow workflow validate ${sourceId}), then preview the copy again.`);
+        process.exitCode = 1;
+        return;
+      }
       // Confirmed by the plan's short code, never its digest (confirm-code.mjs).
       const resolveAll = options['resolve-all'];
       printCommandRoutes(routeArgv(['singularity-flow', 'workflow', subcommand, sourceId, targetId, '--label', label,
@@ -5552,6 +5561,7 @@ async function workflowCommand(positionals, options) {
       ...proposal
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(copied, null, 2));
+    for (const repair of copied.repairs ?? []) console.log(repair.text);
     if (printProposal(copied)) return;
     console.log(`Copied workflow ${sourceId} to ${targetId} in ${copied.path}.`);
     console.log('  Shared phase, template, artifact, agent, and authority contracts were not duplicated.');
@@ -5643,6 +5653,7 @@ async function workflowCommand(positionals, options) {
         mutate: async (target) => (await import('./workflow-validation.mjs')).createdWithoutProblems(target, id, () => defineWorkflow(target, id, input), options)
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
+      for (const repair of created.repairs ?? []) console.log(repair.text);
       if (printProposal(created)) return;
       console.log(`Created ${created.governs} workflow ${created.workflowId}: ${created.phases.join(' \u2192 ')}`);
       console.log(`  ${created.path} — commit it to put the workflow into use.`);
@@ -5664,6 +5675,7 @@ async function workflowCommand(positionals, options) {
       mutate: async (target) => (await import('./workflow-validation.mjs')).editedWithoutNewProblems(target, id, () => editWorkflow(target, id, changes), options)
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
+    for (const repair of edited.repairs ?? []) console.log(repair.text);
     if (printProposal(edited)) return;
     console.log(`Updated ${edited.governs} workflow ${edited.workflowId} in ${edited.path}.`);
     if (edited.governs === 'story') process.stdout.write(simulationText(await simulateWorkflow(root, id)));

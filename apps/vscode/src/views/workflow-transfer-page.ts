@@ -91,7 +91,8 @@ export const WORKFLOW_TRANSFER_SCRIPT = String.raw`
       return [row.kind, row.sourceId, input, !row.renameable ? row.reason || 'Shared, read-only contract' : value !== row.sourceId ? 'Independent identity' : (row.occupiedIds || []).indexOf(value) >= 0 ? 'Reuse exact only; rename to keep independent' : 'Will add'];
     })));
     document.getElementById('transfer-plan').textContent = JSON.stringify({ status: plan.status, operations: plan.operations, renamed: plan.renamed,
-      changedPaths: plan.changedPaths, destination: plan.destinationAuthority, confirmation: plan.planSha256, unresolved: plan.unresolved }, null, 2);
+      changedPaths: plan.changedPaths, destination: plan.destinationAuthority, confirmation: plan.planSha256, unresolved: plan.unresolved,
+      repairs: (plan.repairs || []).map(function (repair) { return repair.text; }), problems: plan.problems }, null, 2);
     var errors = validation(rows); apply.disabled = pending || errors.length > 0 || plan.status !== 'ready' || !plan.planSha256;
     status.textContent = errors.length ? errors.join('; ') : pending ? 'Names changed. Validate the plan.' : plan.status === 'ready'
       ? 'Ready. Review all identities and changes before creating the proposal.' : 'Blocked. The exact plan below explains what needs to change.';

@@ -34,6 +34,9 @@ export type WorkflowMutationPreview = {
   addsText?: string;
   alreadyHereText?: string;
   removesText?: string;
+  /** What SFlow added to each template the change writes, and what approval would refuse that it cannot fix (src/workflow-autofix.mjs). */
+  repairs?: Array<{ path?: string; text: string }>;
+  problems?: Array<{ workflow: string; title: string; fix?: string }>;
   added?: unknown[];
   reused?: unknown[];
   conflicts?: unknown[];
@@ -140,6 +143,14 @@ function dependencyText(plan: WorkflowMutationPreview): string {
     : 'shared contracts remain linked';
 }
 
+function repairLines(plan: WorkflowMutationPreview): string[] {
+  return (plan.repairs ?? []).map((repair) => repair.text);
+}
+
+function problemLines(plan: WorkflowMutationPreview): string[] {
+  return (plan.problems ?? []).map((problem) => `${problem.workflow}: ${problem.title}${problem.fix ? ` Fix: ${problem.fix}` : ''}`);
+}
+
 function destinationText(plan: WorkflowMutationPreview): string {
   const destination = plan.destinationAuthority;
   if (!destination) return 'local working-tree content; no remote authorization';
@@ -166,6 +177,8 @@ export function workflowMutationPlanDetail(plan: WorkflowMutationPreview): strin
     ...choices,
     ...detailSection('Conflicts', operations(plan, 'conflicts')),
     '',
+    ...(repairLines(plan).length ? [...detailSection('SFlow added', repairLines(plan)), ''] : []),
+    ...(problemLines(plan).length ? [...detailSection('Approval would refuse', problemLines(plan)), ''] : []),
     `Shared dependencies: ${dependencyText(plan)}`,
     `Predicted changed paths: ${plan.changedPaths?.length ? plan.changedPaths.join(', ') : 'none'}`,
     `Bound destination: ${destinationText(plan)}`,
@@ -182,6 +195,8 @@ export function workflowMutationPlanSummary(plan: WorkflowMutationPreview): stri
     ...(plan.addsText ? [`Adds: ${plan.addsText}`] : []),
     ...(plan.alreadyHereText ? [`Already here: ${plan.alreadyHereText}`] : []),
     ...(plan.removesText ? [`Removes: ${plan.removesText}`] : []),
+    ...repairLines(plan),
+    ...(problemLines(plan).length ? [`Approval would refuse: ${problemLines(plan).join('; ')}`] : []),
     `${plan.renamed?.length ?? 0} renamed · ${plan.changedPaths?.length ?? 0} changed files`,
     `Destination: ${plan.destinationAuthority?.branch ?? 'local working tree'}`,
     'Creates a configuration proposal or local edit; it does not approve the workflow.'].join('\n');
@@ -197,6 +212,8 @@ export function workflowMutationPlanMarkdown(plan: WorkflowMutationPreview, titl
     ...(plan.addsText ? [`- Adds: ${markdownEscape(plan.addsText)}`] : []),
     ...(plan.alreadyHereText ? [`- Already here: ${markdownEscape(plan.alreadyHereText)}`] : []),
     ...(plan.removesText ? [`- Removes: ${markdownEscape(plan.removesText)}`] : []), '',
+    ...(repairLines(plan).length ? markdownSection('SFlow added', repairLines(plan)) : []),
+    ...(problemLines(plan).length ? markdownSection('Approval would refuse', problemLines(plan)) : []),
     ...markdownSection('Predicted changed paths', plan.changedPaths ?? []),
     AUTHORITY_DISPOSITION, '',
     ...markdownSection('Add', operations(plan, 'add')),

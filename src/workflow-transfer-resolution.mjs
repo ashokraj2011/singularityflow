@@ -311,6 +311,16 @@ export function importPlanText(plan, file, { propose = false } = {}) {
     lines.push(`  New name: ${subjectNoun(kind)} ${id} → ${item.to}`);
   }
   if (plan.changedPaths?.length) lines.push(`  Changed paths: ${plan.changedPaths.join(', ')}`);
+  // What approval would refuse, settled here: placeholders SFlow added, and what it could not fix itself.
+  for (const repair of plan.repairs ?? []) lines.push(`  ${repair.text}`);
+  if (plan.problems?.length) {
+    lines.push('', `  Approval would refuse ${plan.problems.length === 1 ? 'this problem' : `these ${plan.problems.length} problems`}, and SFlow cannot add a fix:`);
+    for (const problem of plan.problems) {
+      lines.push(`    ${problem.workflow}: ${problem.title}`);
+      if (problem.fix) lines.push(`      Fix: ${String(problem.fix).split('\n').join('\n           ')}`);
+    }
+    lines.push('  Fix each where the bundle was made (Workflow Studio, /sf-build-workflow or the markup), export it again, then preview the new file.');
+  }
   if (plan.status === 'ready') {
     lines.push(`  Confirm plan: ${plan.planSha256}`);
     lines.push(`  Apply it: singularity-flow workflow import ${fileArgument} --confirm ${plan.planSha256}${chosenText}${proposeText}`);

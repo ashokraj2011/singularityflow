@@ -476,8 +476,11 @@ test('own declarations named constructor remain valid workflow phase MCP artifac
       && error.toJSON().message === "Unknown work type 'constructor'.", 'an inherited work type must report the structured unknown-work-type error');
   // Keep the stock profiles and ordinary empty override maps: inherited constructor values
   // in any of those maps must neither invalidate nor replace this own phase declaration.
+  // A workflow that writes no code says so, and why: the import judges it as approval will [owner, 2026-11-18].
   f.configuration.workTypes.constructor = {
-    label: 'Own constructor workflow', phases: ['intake', 'constructor'], phaseOverrides: {}, templateOverrides: {}
+    label: 'Own constructor workflow', phases: ['intake', 'constructor'], phaseOverrides: {}, templateOverrides: {},
+    omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({ responsibility,
+      reason: 'The constructor workflow records findings only; it writes no code.', authority: 'engineering-reviewers' }))
   };
   assert.equal(Object.hasOwn(f.configuration.workTypes.constructor.phaseOverrides, 'constructor'), false);
   assert.equal(typeof f.configuration.workTypes.constructor.phaseOverrides.constructor, 'function');
@@ -510,7 +513,7 @@ test('own declarations named constructor remain valid workflow phase MCP artifac
     assert.deepEqual(bundle.objects.story[catalog].constructor, f.configuration[catalog].constructor);
   }
   const plan = await planWorkflowImport(f.target, bundle);
-  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.problems ?? plan.conflicts));
   await applyWorkflowImport(f.target, bundle, { expectedPlanSha256: plan.planSha256 });
   const imported = await loadDefinition(f.target);
   assert.equal(Object.hasOwn(imported.phases, 'constructor'), true);
@@ -1101,10 +1104,14 @@ test('an imported workflow without a planned-claim contract is refused at previe
   }];
   await writeWorkflowConfiguration(source, configuration);
   const repaired = await planWorkflowImport(target, await exportWorkflowBundle(source, ['legacy-custom']));
-  assert.equal(repaired.status, 'ready', JSON.stringify(repaired.conflicts));
-  const applied = await applyWorkflowImport(target, await exportWorkflowBundle(source, ['legacy-custom']),
-    { expectedPlanSha256: repaired.planSha256 });
-  assert.equal(applied.status, 'imported');
+  assert.deepEqual(repaired.conflicts, []);
+  // What is left is what approval would still refuse (a code step with nothing planned before it): the same
+  // preview names it with its fix, and nothing is imported [owner, 2026-11-18].
+  assert.equal(repaired.status, 'blocked');
+  assert.ok(repaired.problems.some((entry) => entry.code === 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN' && /planned-claims table/u.test(entry.fix)), JSON.stringify(repaired.problems));
+  await assert.rejects(applyWorkflowImport(target, await exportWorkflowBundle(source, ['legacy-custom']), { expectedPlanSha256: repaired.planSha256 }),
+    (error) => error.code === 'WORKFLOW_IMPORT_PROBLEMS');
+  assert.equal(await readFile(path.join(target, 'singularity/workflow.yml'), 'utf8'), before);
 });
 
 test('workflow import reuses pure LF/CRLF text and refuses ambiguous text encodings', async (t) => {
@@ -1478,7 +1485,9 @@ test('export carries event action targets, loop decision groups and agents scope
   await apply([
     { op: 'phase.create', id: 'team-review', label: 'Team review', output: 'document', agent: 'qa-x' },
     { op: 'phase.create', id: 'extra-check', label: 'Extra check', output: 'document', agent: 'qa-x' },
-    { op: 'workflow.create', id: 'team-flow', label: 'Team flow', description: 'Review.', phases: ['requirements', 'team-review'] },
+    // It writes no code, and says so: an import judges it as approval will [owner, 2026-11-18].
+    { op: 'workflow.create', id: 'team-flow', label: 'Team flow', description: 'Review.', phases: ['intake', 'requirements', 'team-review'],
+      omits: ['implement', 'verify'].map((responsibility) => ({ responsibility, reason: 'A team review records a decision; it writes no code.', authority: 'engineering-reviewers' })) },
     { op: 'workflow.create', id: 'other-flow', label: 'Other flow', description: 'Check.', phases: ['requirements', 'extra-check'] }
   ]);
   const file = path.join(source, 'singularity/workflow.yml');
@@ -1504,7 +1513,7 @@ test('export carries event action targets, loop decision groups and agents scope
   assert.ok(exported.contents.some((line) => /integration target \(team-hook\)/.test(line)), exported.contents.join('\n'));
   const target = await initializedRepository(t, 'sflow-closure-target-');
   const plan = await planWorkflowImport(target, bundle);
-  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.problems ?? plan.conflicts));
   await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 });
   await loadDefinition(target);
   // Importing again under new names rewrites the event action's target and the loop's group too.
@@ -1523,7 +1532,7 @@ test('export carries event action targets, loop decision groups and agents scope
   assert.ok(copy, 'the renamed workflow arrived');
   const [loop] = copy.decisions;
   assert.ok(Object.hasOwn(imported.approvalAuthorities, loop.by[0]) && loop.by[0] !== 'team-leads', JSON.stringify(loop.by));
-  const step = imported.phases[copy.phases[1]];
+  const step = imported.phases[copy.phases.at(-1)];
   assert.ok(Object.hasOwn(imported.integrations.targets, step.afterStep[0].target) && step.afterStep[0].target !== 'team-hook');
   await loadDefinition(target);
   // The same agent already here, with its other step, is reused rather than a conflict.

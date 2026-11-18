@@ -2801,6 +2801,30 @@ async function importPlan(root, destination, original, chosen) {
       }));
     }
   }
+  // What approval will judge, judged now on the configuration the import lands on: a template this import
+  // writes that lacks only placeholders gets them, and the plan binds those bytes; any other problem the
+  // import adds is shown with its fix and stops it here, never first at approval [owner, 2026-11-18].
+  const contents = new Map();
+  let repairs = [];
+  let problems = [];
+  const storyWorkflows = [...additions, ...replaced].filter((item) => item.kind === 'story.workTypes').map((item) => item.id);
+  if (!open.length && storyWorkflows.length) {
+    const internal = { bundle, target, assetTargets, importRecords: importRecords.filter(([key]) => [...additions, ...replaced]
+      .some((item) => item.kind === 'import-record' && item.id === key)), replacedObjects, keptAgents, extendedAgents, extendedServers };
+    // Files the import cannot lay out are refused by apply with their own reason; the check needs them laid out.
+    const outputs = await importOutputs({ add: additions, replace: replaced, remove: removals }, internal).catch(() => null);
+    const relativeOf = (file) => path.relative(target.root, file).split(path.sep).join('/');
+    const writtenTemplates = new Set(assetTargets.filter(({ asset, relative }) => asset.kind === 'template'
+      && [...additions, ...replaced].some((item) => item.kind === 'template' && item.id === relative)).map(({ relative }) => relative));
+    const checked = outputs ? await (await import('./workflow-autofix.mjs')).checkCandidate(target.root,
+      outputs.map((output) => ({ path: relativeOf(output.file), content: output.remove ? null : output.content })),
+      { workflows: storyWorkflows, editable: (file) => writtenTemplates.has(file) }) : { files: [], repairs: [], problems: [] };
+    for (const file of checked.files) if (writtenTemplates.has(file.path) && checked.repairs.some((entry) => entry.path === file.path)) contents.set(file.path, String(file.content));
+    repairs = checked.repairs;
+    problems = checked.problems;
+    // Each repaired template's entry names the bytes the import writes.
+    for (const item of [...additions, ...replaced]) if (item.kind === 'template' && contents.has(item.id)) item.sha256 = digest(contents.get(item.id));
+  }
   const writes = [...additions, ...replaced];
   const changedPaths = new Set();
   if (writes.some((item) => item.kind.startsWith('story.'))) changedPaths.add(WORKFLOW_PATH);
@@ -2914,11 +2938,14 @@ async function importPlan(root, destination, original, chosen) {
     },
     ...(renamed.length ? { renamed } : {}),
     changedPaths: [...changedPaths].sort(),
-    sharedDependencies: summarizeBundle(bundle)
+    sharedDependencies: summarizeBundle(bundle),
+    // What SFlow added to each template this import writes, and what it could not: the plan binds both.
+    ...(repairs.length ? { repairs } : {}),
+    ...(problems.length ? { problems } : {})
   };
   const planSha256 = digest(planCore);
   const result = {
-    ...planCore, planSha256, status: open.length ? 'blocked' : 'ready',
+    ...planCore, planSha256, status: open.length || problems.length ? 'blocked' : 'ready',
     added: planCore.operations.add, reused: planCore.operations.reuse,
     replaced: planCore.operations.replace ?? [], kept: planCore.operations.keep ?? [],
     ...(removals.length ? { removed: removals, removesText: planEntriesText(removals) } : {}),
@@ -2934,7 +2961,7 @@ async function importPlan(root, destination, original, chosen) {
   // paths in JSON or binding the plan digest to a temporary approved-configuration mount.
   Object.defineProperty(result, '_internal', {
     value: {
-      bundle, target, assetTargets, unused, replacedObjects, keptAgents, extendedAgents, extendedServers,
+      bundle, target, assetTargets, unused, replacedObjects, keptAgents, extendedAgents, extendedServers, contents,
       importRecords: importRecords.filter(([key]) => writeKeys.has(`import-record\0${key}`))
     },
     enumerable: false, configurable: false, writable: false
@@ -3036,13 +3063,39 @@ export async function applyWorkflowImport(root, bundleOrPath, {
       + 'Preview it with --dry-run to choose keep, replace or rename for each.',
     'WORKFLOW_IMPORT_CONFLICT', { conflicts: plan.conflicts });
   }
-  const { bundle, target, assetTargets, importRecords, replacedObjects, keptAgents, extendedAgents, extendedServers } = plan._internal;
-  const writes = new Set([...plan.operations.add, ...(plan.operations.replace ?? [])]
+  if (plan.problems?.length) {
+    fail(`Workflow import would bring ${plan.problems.length === 1 ? 'a problem' : `${plan.problems.length} problems`} SFlow cannot add a fix for; nothing was changed. `
+      + 'Preview it with --dry-run: each problem names its fix.', 'WORKFLOW_IMPORT_PROBLEMS',
+    { problems: plan.problems, nextAction: { label: 'Fix them where the bundle was made, then export and import it again', command: 'singularity-flow workflow import <FILE> --dry-run' } });
+  }
+  const outputs = await importOutputs(plan.operations, plan._internal);
+  await applyFiles(outputs);
+  return {
+    schemaVersion: 1, resultType: 'workflow-import', status: outputs.length ? 'imported' : 'current',
+    planSha256: plan.planSha256, bundleSha256: plan.bundleSha256,
+    workflows: plan._internal.bundle.workflows, added: plan.added, reused: plan.reused,
+    replaced: plan.replaced, kept: plan.kept, renamed: plan.renamed ?? [], conflicts: [],
+    ...(plan.removed ? { removed: plan.removed } : {}),
+    ...(plan.repairs?.length ? { repairs: plan.repairs } : {}),
+    changed: outputs.length > 0,
+    paths: outputs.map((item) => path.relative(plan._internal.target.root, item.file).split(path.sep).join('/')).sort()
+  };
+}
+
+/**
+ * The files an import writes, in the order it writes them: `{ file, content }` or `{ file, remove }`.
+ * `contents` holds a template's bytes as SFlow repaired them (src/workflow-autofix.mjs), by target path.
+ * Nothing is written here.
+ */
+async function importOutputs(operations, {
+  bundle, target, assetTargets, importRecords, replacedObjects, keptAgents, extendedAgents, extendedServers, contents = new Map()
+}) {
+  const writes = new Set([...operations.add, ...(operations.replace ?? [])]
     .map((item) => `${item.kind}\0${item.id}`));
   const outputs = [];
-  const attachedWorkflows = new Set([...plan.operations.add, ...(plan.operations.replace ?? [])]
+  const attachedWorkflows = new Set([...operations.add, ...(operations.replace ?? [])]
     .filter((entry) => entry.kind === 'workflow-skill-attachments').map((entry) => entry.id));
-  const agentAttachments = plan.operations.add.filter((entry) => entry.kind === 'agent-skill-attachments')
+  const agentAttachments = operations.add.filter((entry) => entry.kind === 'agent-skill-attachments')
     .flatMap((entry) => entry.attachments);
   if (attachedWorkflows.size || agentAttachments.length) {
     const current = await readSkillAttachments(target.root);
@@ -3115,21 +3168,12 @@ export async function applyWorkflowImport(root, bundleOrPath, {
   }
   for (const { asset, relative } of assetTargets) {
     if (!writes.has(`${asset.kind}\0${relative}`)) continue;
-    outputs.push({ file: await assertSafeTarget(target.root, relative), content: assetBytes(asset) });
+    outputs.push({ file: await assertSafeTarget(target.root, relative), content: contents.has(relative) ? Buffer.from(contents.get(relative)) : assetBytes(asset) });
   }
   // A reused agent's own file, with only the added steps written into its lists.
   for (const { relative, text } of extendedAgents.values()) outputs.push({ file: await assertSafeTarget(target.root, relative), content: text });
-  for (const item of plan.operations.remove ?? []) outputs.push({ file: await assertSafeTarget(target.root, item.id), remove: true });
-  await applyFiles(outputs);
-  return {
-    schemaVersion: 1, resultType: 'workflow-import', status: outputs.length ? 'imported' : 'current',
-    planSha256: plan.planSha256, bundleSha256: plan.bundleSha256,
-    workflows: bundle.workflows, added: plan.added, reused: plan.reused,
-    replaced: plan.replaced, kept: plan.kept, renamed: plan.renamed ?? [], conflicts: [],
-    ...(plan.removed ? { removed: plan.removed } : {}),
-    changed: outputs.length > 0,
-    paths: outputs.map((item) => path.relative(target.root, item.file).split(path.sep).join('/')).sort()
-  };
+  for (const item of operations.remove ?? []) outputs.push({ file: await assertSafeTarget(target.root, item.id), remove: true });
+  return outputs;
 }
 
 async function locateWorkflow(root, id) {
@@ -3222,6 +3266,17 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label, indepe
       .map((id) => entry(linkedDependencyKind(governs, section), id)));
   for (const asset of [...closure.assets, ...skillFileAssets(closure)]) reuse.push(entry(asset.kind, asset.path));
   for (const id of Object.keys(closure.agentLocks)) reuse.push(entry('agent-lock', id));
+  // The copy judged as approval will judge it: its shared templates get the placeholders a new workflow of
+  // theirs needs, and the plan binds them; any other problem is shown with its fix [owner, 2026-11-18].
+  let checked = { repairs: [], problems: [], files: [] };
+  if (!conflicts.length && located.governs === 'story') {
+    const outputs = await copyOutputs(located, label, target).catch(() => null);
+    if (outputs) {
+      checked = await (await import('./workflow-autofix.mjs')).checkCandidate(located.root, outputs.map((output) => ({
+        path: output.relative, content: output.content })), { workflows: [target] });
+    }
+  }
+  const repairedFiles = checked.files.filter((file) => file.repaired);
   const core = {
     schemaVersion: 1, resultType: 'workflow-copy-plan', sourceId: source,
     ...(destination ? { destinationAuthority: destination.identity } : {}),
@@ -3231,9 +3286,11 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label, indepe
       skillAttachments: skillAttachmentsText(await readSkillAttachments(located.root)) ?? ''
     }),
     definitionSha256: digest(definition),
-    changedPaths: conflicts.length ? [] : [located.store.file, ...((closure.workflowSkillAttachments ?? []).length ? [SKILL_ATTACHMENTS_PATH] : [])],
+    changedPaths: conflicts.length ? [] : [located.store.file, ...((closure.workflowSkillAttachments ?? []).length ? [SKILL_ATTACHMENTS_PATH] : []),
+      ...repairedFiles.map((file) => file.path)],
     operations: {
-      add: conflicts.length ? [] : [entry(`${located.governs}.workflow`, target)],
+      add: conflicts.length ? [] : [entry(`${located.governs}.workflow`, target),
+        ...repairedFiles.map((file) => entry('template-repair', file.path, { sha256: digest(String(file.content)) }))],
       reuse: reuse.sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`)),
       conflicts
     },
@@ -3242,16 +3299,37 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label, indepe
       worldModelViews: clone(closure.requirements.worldModelViews),
       dependencyMaterialization: closure.requirements.dependencyMaterialization,
       linked: true
-    }
+    },
+    ...(checked.repairs.length ? { repairs: checked.repairs } : {}),
+    ...(checked.problems.length ? { problems: checked.problems } : {})
   };
   const result = {
-    ...core, planSha256: digest(core), status: conflicts.length ? 'blocked' : 'ready',
+    ...core, planSha256: digest(core), status: conflicts.length || checked.problems.length ? 'blocked' : 'ready',
     added: core.operations.add, reused: core.operations.reuse, conflicts
   };
+  Object.defineProperty(result, '_internal', { value: { repairedFiles }, enumerable: false });
   TRANSFER_PLANS.set(result, {
     destination, operation: 'copy', input: { sourceId, targetId, label }, planSha256: result.planSha256
   });
   return result;
+}
+
+/** The files a plain copy writes: the configuration with the copied workflow, and its skill attachments. */
+async function copyOutputs(located, label, targetId) {
+  const document = located.document.document.clone();
+  const definition = clone(located.document.value[located.store.workflows][located.id]);
+  definition.label = label.trim();
+  document.setIn([located.store.workflows, targetId], document.createNode(definition));
+  located.store.validate(document.toJS());
+  const outputs = [{
+    file: located.document.file, relative: located.store.file, content: renderPreservingFormatting(located.document.text, document)
+  }];
+  if (located.governs === 'story') {
+    const attachments = await readSkillAttachments(located.root);
+    const copied = attachments.filter((entry) => entry.workflow === located.id).map((entry) => ({ ...entry, workflow: targetId }));
+    if (copied.length) outputs.push({ file: await assertSafeTarget(located.root, SKILL_ATTACHMENTS_PATH), relative: SKILL_ATTACHMENTS_PATH, content: skillAttachmentsText([...attachments, ...copied]) });
+  }
+  return outputs;
 }
 
 /** The agent text with rows added to its `## Attached skills` table, which is made when it has none. */
@@ -3514,27 +3592,22 @@ export async function copyWorkflow(root, {
   }
   if (plan.conflicts.length) fail(`Workflow '${targetId}' already exists; nothing was changed.`,
     'WORKFLOW_COPY_TARGET_EXISTS', { conflicts: plan.conflicts });
-  const located = await locateWorkflow(root, sourceId);
-  const document = located.document.document.clone();
-  const definition = clone(located.document.value[located.store.workflows][located.id]);
-  definition.label = label.trim();
-  document.setIn([located.store.workflows, targetId], document.createNode(definition));
-  located.store.validate(document.toJS());
-  const outputs = [{
-    file: located.document.file, content: renderPreservingFormatting(located.document.text, document)
-  }];
-  if (located.governs === 'story') {
-    const attachments = await readSkillAttachments(located.root);
-    const copied = attachments.filter((entry) => entry.workflow === located.id).map((entry) => ({ ...entry, workflow: targetId }));
-    if (copied.length) outputs.push({ file: await assertSafeTarget(located.root, SKILL_ATTACHMENTS_PATH), content: skillAttachmentsText([...attachments, ...copied]) });
+  if (plan.problems?.length) {
+    fail(`Copying ${sourceId} would give ${targetId} ${plan.problems.length === 1 ? 'a problem' : `${plan.problems.length} problems`} SFlow cannot add a fix for; nothing was changed. `
+      + 'Preview it with --dry-run: each problem names its fix.', 'WORKFLOW_COPY_PROBLEMS',
+    { problems: plan.problems, nextAction: { label: `Fix ${sourceId}, then copy it again`, command: `singularity-flow workflow validate ${sourceId}` } });
   }
+  const located = await locateWorkflow(root, sourceId);
+  const outputs = await copyOutputs(located, label, targetId);
+  for (const file of plan._internal?.repairedFiles ?? []) outputs.push({ file: await assertSafeTarget(located.root, file.path), content: String(file.content) });
   await applyFiles(outputs);
   return {
     schemaVersion: 1, resultType: 'workflow-copy', status: 'copied',
     sourceId: located.id, sourceSelector: located.selector,
     targetId, workflowId: targetId, governs: located.governs,
     path: located.store.file, planSha256: plan.planSha256,
-    sharedDependencies: plan.sharedDependencies, changed: true
+    sharedDependencies: plan.sharedDependencies, changed: true,
+    ...(plan.repairs?.length ? { repairs: plan.repairs } : {})
   };
 }
 

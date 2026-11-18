@@ -188,14 +188,17 @@ function problemKey(workflowId, finding) {
 /**
  * Each problem `workflow validate` finds in `ids`, read in `checkout` [finding ER-F7]: keyed by workflow, code and
  * subject (problemKey), so the problems a change adds are the ones its result has and the configuration before it had not.
+ * `findings`, when given, collects every finding of those workflows with its key, for a repair to act on
+ * (src/workflow-autofix.mjs).
  */
-export async function workflowProblems(checkout, ids) {
+export async function workflowProblems(checkout, ids, { findings = null } = {}) {
   const problems = new Map();
   for (const id of ids) {
     let result;
     try { result = await validateWorkflows(checkout, { workflow: id }); }
     catch (error) { if (error?.code === 'WORKFLOW_UNKNOWN') continue; throw error; }
     for (const workflow of result.workflows ?? []) {
+      if (findings) for (const finding of workflow.findings ?? []) findings.push({ workflow: workflow.id, key: problemKey(workflow.id, finding), finding });
       for (const finding of (workflow.findings ?? []).filter((entry) => entry.severity === 'problem')) {
         const key = problemKey(workflow.id, finding);
         // What a route misses, joined over its ends, so a change adds a problem only where something is newly missing.
@@ -218,10 +221,16 @@ export async function workflowProblems(checkout, ids) {
  * a responsibility it did not miss before. Approval and `workflow edit` compare the same way [ER-F7].
  */
 export function addedProblems(before, after) {
-  return [...after].filter(([key, problem]) => {
+  const added = addedProblemKeys(before, after);
+  return [...after].filter(([key]) => added.has(key)).map(([, problem]) => problem);
+}
+
+/** The keys of the problems addedProblems returns. */
+export function addedProblemKeys(before, after) {
+  return new Set([...after].filter(([key, problem]) => {
     const was = before.get(key);
     return !was || (problem.missing ?? []).some((name) => !(was.missing ?? []).includes(name));
-  }).map(([, problem]) => problem);
+  }).map(([key]) => key));
 }
 
 /**
@@ -243,11 +252,15 @@ async function withoutAddedProblems(checkout, id, change, { verb, options, befor
   const file = path.join(checkout, WORKFLOW_PATH), saved = await readFile(file).catch(() => null);
   const restore = async () => { if (saved) await writeFile(file, saved); };
   const result = await change();
-  let added;
+  // The one check every way of making a workflow runs (src/workflow-autofix.mjs): what only needs placeholders
+  // in a step's template is added there, and the rest is refused here with its fix [owner, 2026-11-18].
+  let outcome = { repairs: [], problems: [], restore: async () => {} };
   try {
-    added = result?.governs === 'story' ? addedProblems(before, await workflowProblems(checkout, [id])) : [];
+    if (result?.governs === 'story') outcome = await (await import('./workflow-autofix.mjs')).repairCheckout(checkout, [id], { before });
   } catch (error) { await restore(); throw error; }
-  if (!added.length) return result;
+  const added = outcome.problems;
+  if (!added.length) return outcome.repairs.length ? { ...result, repairs: outcome.repairs } : result;
+  await outcome.restore();
   await restore();
   // The same command, to run again once each problem is changed.
   const argv = ['workflow', verb, id, ...Object.entries(options).flatMap(([name, value]) => value === true ? [`--${name}`]

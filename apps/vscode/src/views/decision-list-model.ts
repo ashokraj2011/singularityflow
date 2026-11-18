@@ -12,6 +12,7 @@
  *
  * Pure on purpose (no `vscode` import), so the tests pin every control and every argv.
  */
+import { SIGN_OFF_ANSWERS, signOffAnswers, signOffQuestion, unsureWords } from '../../../../src/sign-off-question.mjs';
 import type { ReviewConfirmationRequest } from './review-confirmation-page.ts';
 
 export interface DecisionTextNeed { default: string; minimum: number; maximum: number }
@@ -110,7 +111,7 @@ export interface DecisionPacket {
   status: 'decisions-needed' | 'nothing-to-decide' | string;
   headline: string; rule?: string;
   /** The headline in plain words, and what nobody can answer yet, one line each [owner, 2026-11-16]. */
-  plain?: { headline: string; later: string[]; nothingToRecord?: string };
+  plain?: { headline: string; later: string[]; nothingToRecord?: string; afterAnswer?: string };
   items: DecisionItemPacket[];
   /** Offered beside what waits: on the list's digest and record, in nobody's count. */
   offered?: DecisionItemPacket[];
@@ -227,6 +228,7 @@ export interface DecisionListView {
   /** Nothing open is this person's to act on now: why, and what its approval waits for [owner, 2026-11-18]. */
   nothingToRecord?: string | null;
   storyNext?: StoryNext | null;
+  afterAnswer?: string | null;
   unavailable: string[];
   chosen: number;
   notice: string | null; error: string | null;
@@ -358,6 +360,7 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
     items, later, checking: items.some((item) => item.check !== null && item.allowed),
     nothingToRecord: packet.plain?.nothingToRecord ?? null,
     storyNext: packet.storyNext ?? null,
+    afterAnswer: packet.plain?.afterAnswer ?? null,
     unavailable: (packet.unavailable ?? []).map((entry) => `${entry.phase ?? 'A step'}'s report could not be read (${entry.reason ?? 'unreadable'}).`),
     chosen: items.filter((item) => item.chosen).length,
     notice, error, outcome, busy,
@@ -639,16 +642,13 @@ export interface WitnessReviewHost {
   file(repository: string, files: string[]): Promise<string | undefined>;
   digest(repository: string, file: string): Promise<string>;
   inspect(repository: string, file: string): Promise<void>;
-  answer(question: string): Promise<boolean | undefined>;
-  reason(): Promise<string | undefined>;
-  confirm(detail: string): Promise<boolean>;
+  /** The one question [owner, 2026-11-18]: 'yes', 'no' or 'unsure'; undefined when the person closes it. */
+  answer(question: string, answers: typeof SIGN_OFF_ANSWERS): Promise<'yes' | 'no' | 'unsure' | undefined>;
+  /** The note: required for No (what is wrong), optional for Yes. Undefined when the person closes it. */
+  note(required: boolean): Promise<string | undefined>;
   record(repository: string, argv: string[]): Promise<unknown>;
 }
-export const WITNESS_QUESTIONS = [
-  ['states-the-outcome', 'Does this file show the acceptance criterion’s observable outcome?'],
-  ['matches-the-criterion', 'Does the evidence match the acceptance criterion as written?'],
-  ['current-for-this-change', 'Is this evidence current for this change?']
-] as const;
+export { SIGN_OFF_ANSWERS };
 
 export function witnessReviewChoices(packet: DecisionPacket): WitnessReviewChoice[] {
   const seen = new Set<string>();
@@ -678,20 +678,16 @@ export async function runWitnessReview(target: WitnessReviewTarget, host: Witnes
   if (!file) return { status: 'cancelled', message: 'No witness was recorded.' };
   const digest = await host.digest(repository, file);
   await host.inspect(repository, file);
-  const answers: Array<[string, boolean]> = [];
-  for (const [id, question] of WITNESS_QUESTIONS) {
-    const answer = await host.answer(`${review.clauseId} · ${review.slot}: ${question}`);
-    if (answer === undefined) return { status: 'cancelled', message: 'No witness was recorded.' };
-    answers.push([id, answer]);
-  }
-  const reason = (await host.reason())?.trim();
-  if (!reason) return { status: 'cancelled', message: 'No witness was recorded.' };
-  if (reason.length < 10 || reason.length > 1000) throw new Error('Describe what you inspected in 10 to 1000 characters.');
-  const detail = [`Story: ${target.workId}`, `Criterion: ${review.clauseId}`, ...(review.clauseText ? [`Approved criterion: ${review.clauseText}`] : []), `Slot: ${review.slot} (${review.method})`,
-    // The witness binds the file's exact bytes and this candidate; a person reads the file, never the digests (owner, 2026-11-11).
-    `File: ${file} (its exact bytes as read now)`,
-    ...answers.map(([id, answer]) => `${id}: ${answer ? 'yes' : 'no'}`), `Your reason: ${reason}`].join('\n');
-  if (!await host.confirm(detail)) return { status: 'cancelled', message: 'No witness was recorded.' };
+  // One question with the file open beside it; answering is the looking [owner, 2026-11-18].
+  const answer = await host.answer(signOffQuestion(review, file), SIGN_OFF_ANSWERS);
+  if (answer === undefined) return { status: 'cancelled', message: 'Nothing was recorded.' };
+  if (answer === 'unsure') return { status: 'unsure', message: unsureWords(target.workId) };
+  const note = await host.note(answer === 'no');
+  if (note === undefined) return { status: 'cancelled', message: 'Nothing was recorded.' };
+  const given = signOffAnswers(answer, note);
+  if ('problem' in given) throw new Error(given.problem);
+  if (!('reason' in given)) return { status: 'unsure', message: unsureWords(target.workId) };
+  const { reason, answers } = given;
   const fresh = await host.read();
   const current = witnessReviewChoices(fresh).find(entry => entry.clauseId === review.clauseId && entry.slot === review.slot);
   if (fresh.workId !== target.workId || fresh.repositoryPath !== repository || current?.contextBinding !== review.contextBinding

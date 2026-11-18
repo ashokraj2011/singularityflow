@@ -6,7 +6,8 @@
  *
  * The same shape here, from the engine's own builder (a generic Story, no person's name): each surface prints the same
  * plain words, every item recommends, the check is SFlow's and comes first until it has a result, the sign-off is one
- * "Later:" line, the settled choice one line with its Undo, and one open item is asked directly.
+ * "Waiting:" line (2026-11-18: what waits on someone or something else), the settled choice one line with its Undo,
+ * and one open item is asked directly; the list ends with "Next:".
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -68,9 +69,12 @@ test('after SFlow checked: the Copilot CLI card says it in plain words, once, an
     'Recommended: Pin Node 22. Tests pass on Node 22 (checked).',
     '- Pin Node 22 (recommended): Creates .nvmrc with Node 22 and adds it to the plan; the code stays the same.',
     '',
-    'Later: Sign off AC-001 after Implementation publishes its screenshot.',
+    'Waiting: Sign off AC-001 after Implementation publishes its screenshot.',
     '',
-    `**Settled for you.** SFlow opened ${W} because its branch is the one checked out here. Undo if wrong.`
+    `**Settled for you.** SFlow opened ${W} because its branch is the one checked out here. Undo if wrong.`,
+    // Always the last line: what happens once the person answers [owner, 2026-11-18].
+    '',
+    '**Next: After you answer, Implementation goes on.**'
   ].join('\n'));
   // The question, why, recommendation and options: about 40 to 60 words.
   const item = decisionsTable(AFTER).split('\n').slice(2, 6).join(' ');
@@ -96,7 +100,7 @@ test('every host says the same plain words, and none of the incident\'s', () => 
     const hosts = [['Copilot CLI', decisionsTable(packet)], ['terminal', packetText(packet)], ['VS Code', text(decideHtml(packet))],
       ['VS Code Decisions page', text(decisionListHtml(buildDecisionListView(packet)))]];
     for (const [host, shown] of hosts) {
-      for (const line of [node.plain.question, node.plain.why, node.plain.recommended, 'Later: Sign off AC-001 after Implementation publishes its screenshot.',
+      for (const line of [node.plain.question, node.plain.why, node.plain.recommended, 'Waiting: Sign off AC-001 after Implementation publishes its screenshot.',
         `SFlow opened ${W} because its branch is the one checked out here. Undo if wrong.`]) assert.ok(shown.includes(line), `${host} lacks: ${line}\n${shown}`);
       for (const word of JARGON) assert.doesNotMatch(shown, word, host);
       // The item's text is shown once: never a table and then the same words again below it.
@@ -106,7 +110,8 @@ test('every host says the same plain words, and none of the incident\'s', () => 
     }
     assert.ok(packetText(packet).startsWith(`Decide ${W} · Implementation. One question for you.\n`), packetText(packet));
   }
-  assert.deepEqual(AFTER.plain, { headline: 'One question for you.', later: ['Sign off AC-001 after Implementation publishes its screenshot.'] });
+  assert.deepEqual(AFTER.plain, { headline: 'One question for you.', later: ['Sign off AC-001 after Implementation publishes its screenshot.'],
+    afterAnswer: 'After you answer, Implementation goes on.' });
 });
 
 test('one open item is asked directly: its question, its recommended option first, and the settled line kept unless undone', () => {
@@ -221,7 +226,7 @@ test('the VS Code Decisions page says it the same way: question, why, Recommende
   assert.ok(page.includes('Run Implementation\'s tests on Node 22?'), page);
   assert.ok(page.includes('Recommended: Check first. The check did not finish within 60 seconds.'), page);
   assert.match(html, /data-check-item="d1">Check first: run the tests on Node 22 <span class="pill ok">Recommended<\/span><\/button>/u);
-  assert.equal(page.split('Later: Sign off AC-001 after Implementation publishes its screenshot.').length - 1, 1);
+  assert.equal(page.split('Waiting: Sign off AC-001 after Implementation publishes its screenshot.').length - 1, 1);
   assert.doesNotMatch(html, /data-item="d2"/u, 'the sign-off nobody can give yet is no item of its own');
   assert.ok(page.includes(`SFlow opened ${W} because its branch is the one checked out here. Undo if wrong.`), page);
   assert.match(html, /<details class="dl-detail"><summary>What it rests on<\/summary>/u, 'its evidence behind a detail');

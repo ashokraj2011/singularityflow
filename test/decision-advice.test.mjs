@@ -324,7 +324,8 @@ test('what SFlow settled for the person shows under "Settled for you" on every h
   // One line each, "Undo if wrong" [owner, 2026-11-16]; VS Code keeps its evidence behind a detail.
   assert.match(decideHtml(withSettled), /<h2>Settled for you<\/h2>[\s\S]*Scope does not apply\. Undo if wrong\.[\s\S]*<details class="dc-detail"><summary>What it rests on<\/summary>[\s\S]*The workflow names no scope step\.[\s\S]*value="undo"/u);
   assert.ok(decideRows(withSettled).some((item) => item.id === 'd40'), 'its Undo is chosen and recorded like any answer');
-  assert.match(decisionsTable(withSettled), /\n\*\*Settled for you\.\*\* Scope does not apply\. Undo if wrong\.$/u);
+  // Then the list's last line, its next step [owner, 2026-11-18].
+  assert.match(decisionsTable(withSettled), /\n\*\*Settled for you\.\*\* Scope does not apply\. Undo if wrong\.\n\n\*\*Next: [^\n]+\*\*$/u);
   assert.match(packetText(withSettled), /Settled for you:\n\nd40\. Scope does not apply\. Undo if wrong\.\n {3}undo: Undo: decide it yourself/u);
   assert.match(decisionListHtml(buildDecisionListView(withSettled)), /<h2>Settled for you<\/h2>[\s\S]*Undo: decide it yourself/u);
 });

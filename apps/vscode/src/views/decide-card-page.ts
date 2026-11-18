@@ -272,14 +272,15 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
       <thead><tr><th>The question</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${rows.map((item) => rowHtml(item, draft)).join('')}</tbody>
     </table></div>` : ''}
-    ${later.map((line) => `<p class="dc-later">Later: ${escape(line)}</p>`).join('')}
+    ${later.map((line) => `<p class="dc-later">Waiting: ${escape(line)}</p>`).join('')}
     ${settled.length ? `<section class="dc-settled" aria-label="Settled for you"><h2>Settled for you</h2>
       <div class="dc-table"><table><thead><tr><th>What SFlow chose</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${settled.map((item) => rowHtml(item, draft)).join('')}</tbody></table></div></section>` : ''}
     ${approvalHtml(packet)}
     ${evidenceHtml(packet)}
     ${packet.storyNext ? `<div class="dc-own dc-next" role="status"><strong>${escape(nextWords(packet.storyNext))}</strong>${packet.storyNext.command
-      ? `<button type="button" class="secondary" data-next>Put it in a terminal</button>` : ''}</div>` : ''}
+      ? `<button type="button" class="secondary" data-next>Put it in a terminal</button>` : ''}</div>`
+    : packet.plain?.afterAnswer ? `<p class="dc-next" role="status"><strong>Next: ${escape(packet.plain.afterAnswer)}</strong></p>` : ''}
     <footer><button type="button" class="secondary" data-cancel>Not now</button>
       ${yours ? `<button type="button" data-review${busy ? ' disabled' : ''}>Review and record</button>`
     // Nothing here is theirs to record: the card says why on itself, never a button that does nothing [owner, 2026-11-18].

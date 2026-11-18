@@ -137,7 +137,8 @@ export async function storyNextFrom(now, workflow = null) {
 /** The packet with the Story's next step beside it: `storyNext`, and `next` too where the list had only "see nextsteps". */
 export function withStoryNext(packet, storyNext) {
   if (!storyNext) return packet;
-  const generic = !packet.next || packet.next.command === `singularity-flow nextsteps ${packet.workId} --json` || /^singularity-flow decisions\b/u.test(packet.next.command ?? '');
+  // The list's own pointer when it has nothing to start: "see the next steps", or the list itself.
+  const generic = !packet.next || packet.next.copilotCommand === `/sf-next ${packet.workId}` || /^singularity-flow decisions\b/u.test(packet.next.command ?? '');
   return { ...packet, storyNext, ...(generic ? { next: storyNext } : {}) };
 }
 
@@ -321,7 +322,8 @@ export function packetText(packet) {
     else lines.push(...itemLines(item, index), '');
   }
   // What nobody can answer yet, one line each, never a question of its own.
-  if (later.length) lines.push(...later.map((line) => `Later: ${line}`), '');
+  // What waits on someone or something else, one line each [owner, 2026-11-18].
+  if (later.length) lines.push(...later.map((line) => `Waiting: ${line}`), '');
   // Nothing open is this person's to act on now: why, and what its approval waits for, as both cards say it [owner, 2026-11-18].
   if (packet.plain?.nothingToRecord) lines.push(packet.plain.nothingToRecord, '');
   if (settled.length) {
@@ -336,6 +338,8 @@ export function packetText(packet) {
       modelFreeCommand: VSCODE_DECISIONS_CARD }));
     if (packet.record.recommended) lines.push('Or record the recommended choices:', ...formatCommandRouteLines({ command: packet.record.recommended, copilotCommand: packet.record.copilotCommand }));
     if (packet.inApproval) lines.push('Or answer them in the approval, in one commit:', ...formatCommandRouteLines(packet.inApproval));
+    // Always the last line: what happens once the person answers [owner, 2026-11-18].
+    if (packet.plain?.afterAnswer) lines.push(`Next: ${packet.plain.afterAnswer}`);
   // The next step's own model-free route when it has one (@sflow /approve for the approval), never "not available" beside it.
   } else if (packet.next?.kind === 'story-next') lines.push(...storyNextLines(packet.next));
   else if (packet.next) lines.push('Next:', ...formatCommandRouteLines({ ...packet.next, modelFreeCommand: packet.next.modelFreeCommand ?? modelFreeCommandForCommand(packet.next.command) }));
@@ -520,7 +524,7 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
     if (error.ended) { say('\nInput ended; nothing was recorded.'); return null; }
     throw error;
   }
-  for (const line of later) say(`\nLater: ${line}`);
+  for (const line of later) say(`\nWaiting: ${line}`);
   if (!Object.keys(values.choose).length) {
     reader.close();
     say(`\n${nothingChosen}`);

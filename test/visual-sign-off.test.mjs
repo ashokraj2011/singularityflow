@@ -23,7 +23,7 @@ import { owedDecisionLines } from '../src/owed-decisions.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { inspectLifecycleWorktree } from '../src/lifecycle-worktree.mjs';
 import { SIGN_OFF_CAPTURE_DIRECTORY, signOffBuild, signOffCapturePath, signOffFile, signOffViewport } from '../src/visual-sign-off-capture.mjs';
-import { decisionsTable, directForm, LEAVE, runCard, SIGN } from '../plugin/extensions/decisions/card.mjs';
+import { decisionsTable, directForm, LEAVE, runCard } from '../plugin/extensions/decisions/card.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
 import { buildDecisionListView } from '../apps/vscode/src/views/decision-list-model.ts';
 import { decisionListHtml } from '../apps/vscode/src/views/decision-list-page.ts';
@@ -98,7 +98,7 @@ test('after publication the sign-off offers the person\'s screenshot first, neve
   // A question with its recommendation, never a "Later:" line: the person can act now.
   assert.equal(item.plain.later, undefined);
   assert.equal(item.plain.question, 'Does the screenshot show what AC-002 asks for?');
-  assert.match(item.plain.why, /^Take its screenshot first: SFlow opens what was published and you bring up the screen it is about; then you sign it off; Implementation can't be approved until it is decided\.$/u);
+  assert.equal(item.plain.why, 'Sign off AC-002, the graph layout: tests can\'t check how it looks, so you capture its screen and confirm it before Implementation is approved.');
   assert.match(item.plain.recommended, /^Recommended: Take the screenshot\. /u);
   assert.equal(packet.plain.nothingToRecord, undefined, 'something is the person\'s to do');
   // It waits for a person at a browser: no card's check or probe ever runs it, quick or long.
@@ -154,23 +154,22 @@ test('Copilot CLI: "Take the screenshot", then the person looks at it and signs 
   const reads = [];
   const lists = [before, after, after, after];
   const replies = [{ action: 'accept', content: { decision0: 'Take the screenshot (recommended)' } },
-    { action: 'accept', content: { choice: 'I looked at it', 'states-the-outcome': 'Yes', 'matches-the-criterion': 'Yes', 'current-for-this-change': 'Yes',
-      reason: 'The graph is laid out in the Grapher workspace at desktop size.' } },
-    { action: 'accept', content: { confirm: SIGN } }];
+    // One question for the sign-off [owner, 2026-11-18].
+    { action: 'accept', content: { answer: 'Yes', note: 'The graph is laid out in the Grapher workspace at desktop size.' } }];
   const witnessed = [];
   const inspected = [];
   const shots = [];
   const result = await runCard({ read: async (options) => { reads.push(options ?? null); return lists[Math.min(reads.length - 1, lists.length - 1)]; },
     show: async () => {}, ask: async () => replies.shift() ?? { action: 'cancel' }, record: async () => assert.fail('nothing else is recorded'),
     screenshot: async (packet, check) => { shots.push([packet.workId, check.criterion, check.slot]); return { file: FILE }; },
-    witness: async (packet, review, answer) => { witnessed.push([review.clauseId, review.slot, answer.file]); return { record: { id: 'WIT-001' } }; },
+    witness: async (packet, review, answer) => { witnessed.push([review.clauseId, review.slot, answer.file]); return { record: { id: 'WIT-001', outcome: 'met' } }; },
     inspect: async (packet, file) => { inspected.push(file); } });
   assert.deepEqual(reads.slice(0, 2), [null, null], 'no probe builds it: the person\'s choice runs decision screenshot, then the list is read again');
   assert.deepEqual(shots, [[W, `${W}:AC-002`, 'graph-layout']]);
   assert.deepEqual(inspected, [FILE], 'the screenshot is put in front of the person first');
   assert.deepEqual(witnessed, [[`${W}:AC-002`, 'graph-layout', FILE]]);
   assert.equal(result.status, 'recorded');
-  assert.match(result.message, /Signed off WORK-9:AC-002 · graph-layout/u);
+  assert.match(result.message, /AC-002 signed off/u);
 });
 
 test('a screenshot that failed says why, and is offered again', () => {

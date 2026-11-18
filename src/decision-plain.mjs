@@ -154,9 +154,9 @@ function why(workflow, item) {
       if (details.scopeItem) return 'Every statement in the scope needs a clause or a reason before the Story can end.';
       if (details.responsibility) return details.declaredReason ? `The workflow leaves it out: ${bare(plainSentence(details.declaredReason, { words: 20 }))}.`
         : 'This Story leaves it out, and it can\'t end until someone says why.';
-      // The person takes the screenshot first, of the screen they bring up in SFlow's browser; then they look at it [owner, 2026-11-18].
-      if (details.clause && checkOf(item)) return `Take its screenshot first: SFlow opens what was published and you bring up the screen it is about; then you sign it off${waits ? `; ${waits}` : ''}.`;
-      if (details.clause) return `A person must look at it and sign it off${waits ? `; ${waits}` : ''}.`;
+      // What is signed off and why, as the person says it [owner, 2026-11-18]: "Sign off AC-002, the layout
+      // structure: tests can't check how it looks, so a person confirms it before Implementation is approved."
+      if (details.clause) return signOffWhy(workflow, item);
       return plainSentence(item.why);
     case 'plan-accounting':
       return details.path ? `${details.path} changed, and no row of the plan names it.` : plainSentence(item.why);
@@ -203,6 +203,30 @@ function later(workflow, item) {
   return `${bare(item.title)}: ${bare(plainSentence(item.options[0]?.words ?? item.why, { words: 20 })).replace(/^./u, (first) => first.toLowerCase())}.`;
 }
 
+/** A slot's name as people say it: "layout-structure" is "the layout structure"; a one-word name says nothing more. */
+const slotWords = (slot) => (/^[a-z0-9]+(?:-[a-z0-9]+)+$/u.test(String(slot ?? '')) ? `the ${String(slot).replaceAll('-', ' ')}` : null);
+
+/** A sign-off's one line: what is signed off, why a person does it, and what waits for it. */
+function signOffWhy(workflow, item) {
+  const details = item.details ?? {};
+  const named = slotWords(details.slot);
+  const what = `Sign off ${clauseName(workflow, details.clause)}${named ? `, ${named}` : ''}`;
+  const looks = details.method === 'visual' ? 'tests can\'t check how it looks' : 'tests can\'t check this file';
+  const step = stepName(workflow, (details.owners ?? []).at(-1) ?? details.phase ?? workflow?.currentPhase);
+  const before = ['approval', 'approval-later'].includes(item.holds) ? ` before ${step} is approved` : item.holds === 'story-end' ? ' before the Story ends' : '';
+  // Its screenshot comes first: the person brings the screen up in SFlow's browser and captures it.
+  return checkOf(item) ? `${what}: ${looks}, so you capture its screen and confirm it${before}.` : `${what}: ${looks}, so a person confirms it${before}.`;
+}
+
+/** The "Waiting:" line of an item that is not this person's: who decides it, else why nobody here can. */
+function waitingLine(workflow, item) {
+  const labels = item.decidedBy?.labels ?? [];
+  const asked = bare(question(workflow, item));
+  if (labels.length) return `${asked}: waiting on ${listWords(labels)}.`;
+  const words = bare(plainSentence(item.decidedBy?.words ?? '', { words: 16 }));
+  return words ? `${asked}. ${words}.` : `${asked}: waiting on someone else.`;
+}
+
 /** The check SFlow offers before an item whose answer depends on one, as its first option; null when there is none. */
 const checkOf = (item) => (item.check && item.check.status !== 'checked' ? item.check : null);
 
@@ -210,6 +234,8 @@ const checkOf = (item) => (item.check && item.check.status !== 'checked' ? item.
 export function plainItem(workflow, item) {
   const waiting = later(workflow, item);
   if (waiting) return { later: waiting };
+  // Not this person's to answer: one "Waiting:" line naming who, never a question they cannot answer [owner, 2026-11-18].
+  if (item.kind !== 'approval' && item.decidedBy && item.decidedBy.allowed === false) return { later: waitingLine(workflow, item) };
   const check = checkOf(item);
   return { question: question(workflow, item), why: why(workflow, item), recommended: recommended(item),
     ...(check ? { check: check.label } : {}) };
@@ -284,7 +310,14 @@ export function plainPacket(items, workflow = null) {
   const open = items.filter((item) => !item.settled);
   const asked = open.filter((item) => item.plain?.question).length;
   const nothing = workflow ? nothingToRecord(workflow, items) : null;
-  return { headline: plainHeadline(asked), later: open.map((item) => item.plain?.later).filter(Boolean), ...(nothing ? { nothingToRecord: nothing } : {}) };
+  // What happens once the person answers, as the list's last line [owner, 2026-11-18: always end with "Next:"].
+  const approval = items.find((item) => item.kind === 'approval');
+  const questions = open.filter((item) => item.plain?.question && item.kind !== 'approval').length;
+  const step = workflow ? stepName(workflow, approval?.details?.phase ?? workflow.currentPhase) : null;
+  const afterAnswer = !workflow || !asked ? null : !questions ? 'Once it is approved, the Story moves on to its next step.'
+    : `After you answer, ${approval ? `${step}'s approval is next` : `${step} goes on`}.`;
+  return { headline: plainHeadline(asked), later: open.map((item) => item.plain?.later).filter(Boolean), ...(nothing ? { nothingToRecord: nothing } : {}),
+    ...(afterAnswer ? { afterAnswer } : {}) };
 }
 
 /** A settled item's record, as plainSettled reads it, from what the list carries of it. */

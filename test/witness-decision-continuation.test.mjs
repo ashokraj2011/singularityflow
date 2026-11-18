@@ -21,8 +21,9 @@ function packet(w=workflow(), evidence=[]) {
 function host(p=packet()) {
   const calls=[];
   return {calls,read:async()=>p,choose:async choices=>choices[0],file:async()=> 'evidence/plot.png',digest:async()=>HASH,
-    inspect:async()=>calls.push('inspect'),answer:async question=>{calls.push(question);return true;},reason:async()=> 'I inspected the current sine graph and its labels.',
-    confirm:async detail=>{calls.push(detail);return true;},record:async(repository,argv)=>{calls.push({repository,argv});return {data:{record:{id:'WIT-001'}}};}};
+    // One question and its note [owner, 2026-11-18]: 'yes', 'no' or 'unsure'; the note required only for No.
+    inspect:async()=>calls.push('inspect'),answer:async question=>{calls.push(question);return 'yes';},note:async()=> 'I inspected the current sine graph and its labels.',
+    record:async(repository,argv)=>{calls.push({repository,argv});return {data:{record:{id:'WIT-001'}}};}};
 }
 
 test('an owed witness survives entry into a later custom phase without repeating completed plan accounting',()=>{
@@ -51,7 +52,7 @@ test('the same terminal slot appears once when both owed and terminal evidence r
   assert.equal(witnessReviewChoices(p).length,1);
 });
 
-test('native review records only human answers, after inspection, fresh binding and explicit confirmation',async()=>{
+test('native review records only the person\'s answer, after the file is opened and the binding read fresh',async()=>{
   const h=host();const result=await runWitnessReview({workId:W,criterion:C,slot:'plot'},h);
   assert.equal(result.status,'recorded');assert.equal(h.calls[0],'inspect');
   const {repository,argv}=h.calls.at(-1);
@@ -62,21 +63,23 @@ test('native review records only human answers, after inspection, fresh binding 
   assert.equal(argv.includes('--yes'),false);
 });
 
-test('closing any native checklist question or final confirmation records nothing',async()=>{
-  for (let cancel=0;cancel<5;cancel++) {
-    const h=host();let count=0;h.answer=async()=> count++===cancel?undefined:true;
-    if(cancel===3)h.reason=async()=>undefined;
-    if(cancel===4)h.confirm=async()=>false;
-    assert.equal((await runWitnessReview({workId:W},h)).status,'cancelled');
+test('closing the question or its note, or not being sure, records nothing',async()=>{
+  for (const close of ['answer','note','unsure']) {
+    const h=host();
+    if(close==='answer')h.answer=async()=>undefined;
+    if(close==='note')h.note=async()=>undefined;
+    if(close==='unsure')h.answer=async()=>'unsure';
+    assert.equal((await runWitnessReview({workId:W},h)).status,close==='unsure'?'unsure':'cancelled');
     assert.equal(h.calls.some(call=>call.argv),false);
   }
 });
 
-test('a negative human answer stays negative and does not become a passing sign-off',async()=>{
-  const h=host();h.answer=async()=>false;
+test('a No stays negative, with what is wrong, and does not become a passing sign-off',async()=>{
+  const h=host();h.answer=async()=>'no';h.note=async()=>'The axis labels are missing from the graph.';
   await runWitnessReview({workId:W},h);
-  assert.equal(h.calls.at(-1).argv.filter(value=>value==='--deny').length,3);
-  assert.equal(h.calls.at(-1).argv.includes('--confirm'),false);
+  const argv=h.calls.at(-1).argv;
+  assert.equal(argv.filter(value=>value==='--deny').length,2);
+  assert.equal(argv[argv.indexOf('--reason')+1],'The axis labels are missing from the graph.');
 });
 
 test('a changed evidence file or candidate, and a review already completed elsewhere, never writes a duplicate',async()=>{

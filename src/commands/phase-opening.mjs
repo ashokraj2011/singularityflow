@@ -163,8 +163,15 @@ export async function openSuccessor(root, config, workflow, phase, { proposal, d
   }
   const { openVersion } = await opening();
   const session = await (await import('../session.mjs')).loadSession(root, { required: false }).catch(() => null);
-  return openVersion(root, config, workflow, phase, { proposal, digest, receipt: found.receipt, principal: found.principal, operationId, open, fault,
-    agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null });
+  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
+  const opened = await openVersion(root, config, workflow, phase, { proposal, digest, receipt: found.receipt, principal: found.principal, operationId, open, fault, agent });
+  // A code version's Node, when the evidence names it, is pinned as the version opens, before anything runs: settled with an
+  // undo, never a question (node-version-settle.mjs) [owner, 2026-11-18]. Never fails the opening.
+  if ((await import('../code-delivery-policy.mjs')).phaseRequiresCodeDelivery(phase)) {
+    await (await import('../settle-before-publication.mjs')).settleBeforePublication(root, config, workflow, phase,
+      { actor: (await import('../git.mjs')).actionActor(root), agent }).catch(() => null);
+  }
+  return opened;
 }
 
 /** A code step's generation opened inside the governed commit, as `phase begin` opened it before. */

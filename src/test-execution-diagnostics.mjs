@@ -203,6 +203,7 @@ export function requiredTestExecutionForRefusal(error) {
     ...(execution.hostRuntime && typeof execution.hostRuntime === 'object' ? { hostRuntime: {
       node: boundedText(execution.hostRuntime.node, 64), platform: boundedText(execution.hostRuntime.platform, 32), arch: boundedText(execution.hostRuntime.arch, 32)
     } } : {}),
+    ...(typeof execution.ranOnNode === 'string' ? { ranOnNode: boundedText(execution.ranOnNode, 64) } : {}),
     argv: inferred ? argv : null,
     argvWithheld: !inferred,
     argvRedacted,

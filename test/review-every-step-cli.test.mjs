@@ -165,6 +165,12 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   assert.ok(!JSON.stringify(routes).includes('/sf-phase-documents'), JSON.stringify(routes).slice(0, 3000));
   const delivery = (recovery.actions ?? []).find((entry) => entry.id === 'complete-code-delivery:implement');
   assert.deepEqual([delivery?.skill, delivery?.command], ['/sf-code', 'singularity-flow prepare implement'], JSON.stringify(recovery.actions).slice(0, 3000));
+  // What publication checks is this version's checklist, the author's own work, never a blocker or a person's route
+  // (Story new-ash-graph, 2026-11-18: reported as a blocker on a version just opened with no code).
+  const blockers = recovery.blockers ?? recovery.recovery?.blockers ?? [];
+  assert.equal(blockers.find((entry) => entry.code === 'code.delivery.checklist')?.blocking, false, JSON.stringify(blockers).slice(0, 2000));
+  assert.ok(!blockers.some((entry) => entry.code === 'code.delivery.incomplete'), JSON.stringify(blockers).slice(0, 2000));
+  assert.ok(!(recovery.actions ?? []).some((entry) => ['/sf-decide', '/sf-appeal'].includes(entry.skill)), JSON.stringify(recovery.actions).slice(0, 3000));
   // The rollover changed the Story record in the checkout, uncommitted; the entry to generation 2 still reads
   // generation 1's review from the commit, so the code step is not held as unverifiable [incident 2026-11-16].
   const entry = sflowJson('phase', 'enter', 'implement', '--compose');

@@ -94,7 +94,7 @@ test('every test skipped is an environment cause the step approvers can accept, 
   await writeFile(noDatabase, 'none\n');
   const blocked = refused('phase', 'publish', 'implement');
   assert.equal(blocked.code, 'CODE_TEST_FAILED');
-  assert.match(blocked.message, /did not produce passing test evidence before publication \(exit 0\)/u);
+  assert.match(blocked.message, /did not produce passing test evidence before publication on Node \d+\.\d+\.\d+ \(exit 0\)/u);
   assert.match(blocked.message, /No test executed in this run, so the environment may be what stopped it/u);
   assert.equal(blocked.requiredTestExecution.failure.kind, 'all-tests-skipped');
   assert.match(blocked.requiredTestExecution.failure.guidance, /A skipped test is not a pass/u);

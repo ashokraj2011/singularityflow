@@ -516,6 +516,18 @@ function inside(root, target) {
 
 // One whole absolute path: no wildcard, expansion or quoting a shell could turn into many.
 const EXACT_ABSOLUTE_PATH = /^\/[^\s*?[\]{}$~`'"()<>|;&!#]+$/u;
+// The folders version managers install Node into: listing one finds a Node to run tests on, never a repository. On Story
+// new-ash-graph the agent, refused `ls /opt/homebrew/opt/node@22/bin`, ran the tests on the wrong Node three times.
+const NODE_INSTALL_FOLDER = /^\/(?:opt\/homebrew|usr\/local)\/(?:opt|Cellar)\/node(?:@\d{1,3})?(?:\/[^\s*?[\]{}$~`'"()<>|;&!#]*)?$/u;
+const HOME_NODE_FOLDERS = ['.nvm/versions/node', '.volta/tools/image/node', '.fnm/node-versions', '.local/share/fnm/node-versions',
+  '.asdf/installs/nodejs', '.local/share/mise/installs/node', '.nodenv/versions'];
+function nodeInstallFolder(target) {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const expanded = home ? target.replace(/^(?:~|\$\{?HOME\}?)(?=\/|$)/u, home) : target;
+  if (/[*?[\]{}`'"()<>|;&!#]|\.\.(?:\/|$)/u.test(expanded) || !path.isAbsolute(expanded)) return false;
+  if (NODE_INSTALL_FOLDER.test(expanded)) return true;
+  return Boolean(home) && HOME_NODE_FOLDERS.some(folder => platformPathWithin(path.resolve(expanded), path.join(home, folder)));
+}
 
 function searchTargets(call) {
   let args = call.args ?? call.toolArgs ?? call.tool_input ?? {};
@@ -586,6 +598,7 @@ export async function repositoryDiscoveryGuard(payload = {}, { now = Date.now(),
   for (const { target, directories = [], named = false } of targets) {
     const base = directories.reduce((current, directory) => path.resolve(current, directory), cwd);
     const normalized = target.replaceAll('\\', '/');
+    if (named && nodeInstallFolder(normalized)) continue;
     if (/^(?:~|\$\{?HOME\}?|\/Users\/?$|\/home\/?$|\/\*|\/$)/u.test(normalized)
         || !root || !inside(path.resolve(root), path.resolve(base, target))) {
       // Exact temporary tool-output files remain readable; this is a directory-discovery guard.

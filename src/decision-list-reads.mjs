@@ -544,7 +544,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   // A list a person answers reads what SFlow's own check found for this code (decision-probes.mjs); a count needs none of it.
   const offeredPin = await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: !answering, probe: answering }).catch(() => null);
   // A Node the repository names is settled before the tests run, never asked [owner, 2026-11-13]; undone, it is asked again.
-  const nodePin = offeredPin?.source && (await import('./settled-decisions.mjs')).settleableNodePin(workflow, phase, offeredPin) ? null : offeredPin;
+  const nodePin = offeredPin && (await import('./settled-decisions.mjs')).settleableNodePin(workflow, phase, offeredPin) ? null : offeredPin;
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
   catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
   blocking.unavailable = blocking.unavailable ?? [];

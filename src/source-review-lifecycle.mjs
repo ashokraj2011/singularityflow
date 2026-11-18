@@ -463,11 +463,35 @@ async function stepReviewInput(root, config, workflow, phase, kind, { reviewerAg
   const passedTests = passedRun ? [...new Set([...(evidence.testPaths ?? []),
     ...(evidence.acceptanceCriteria?.witnesses ?? []).map((witness) => witness.testSource).filter(Boolean)])].sort() : [];
   const quality = qualityResultsForReview(evidence.qualityFindings);
+  const testRuns = await gateTestRuns(root, evidence.preflightAttempts);
   const code = { deliveredClauses: planned ? Object.keys(planned).sort() : clauses.map((clause) => clause.id).sort(),
     planned, changedPaths: sources.filter((source) => source.id !== 'summary').map((source) => source.path), passedTests, quality };
   const visualSources = await plannedFileSources(root, `${itemRelative(config, workflow.workItem.id)}/evidence/`, evidence, planned, sources);
-  const context = { ...common, sources, code, ...(visualSources.length ? { visualSources } : {}), ...(planArtifact ? { plan: planArtifact } : {}) };
+  const context = { ...common, sources, code, ...(testRuns.length ? { testRuns } : {}), ...(visualSources.length ? { visualSources } : {}), ...(planArtifact ? { plan: planArtifact } : {}) };
   return { ...context, binding: sourceReviewBinding(context) };
+}
+
+/**
+ * Every test run SFlow made of this version at its publication, each with its counts and the Node it ran on, read from
+ * the run's own record [owner, 2026-11-18]. The summary is written before them: on Story new-ash-graph it said 17 tests
+ * failed on Node 26 with a rerun pending, the gate then passed 31 of 31 on Node 22, and the review, shown only the
+ * changed test files, kept the summary's word as a finding that opened a version for nothing. Outside the review's
+ * binding, so a review retained before them stays current.
+ */
+async function gateTestRuns(root, attempts) {
+  const runs = [];
+  for (const attempt of (Array.isArray(attempts) ? attempts : []).slice(0, 20)) {
+    let record = null;
+    try { record = readRecord('test-execution', (await checkedFile(root, attempt.receiptPath, 'Test run record', null, { maxBytes: 4 * 1024 * 1024 })).bytes).record; }
+    catch { record = null; }
+    const tests = record?.tests ?? null;
+    const node = record?.environment?.toolchain?.node ?? record?.environment?.nodeVersion?.node ?? null;
+    const status = String(attempt?.status ?? record?.status ?? 'unknown');
+    const counts = tests ? `${tests.passed} of ${tests.discovered} tests passed, ${tests.failed} failed` : 'no test counts';
+    runs.push({ commandId: String(attempt?.commandId ?? ''), attemptId: attempt?.attemptId ?? null, status, tests, node,
+      words: `${attempt?.commandId} ${status}: ${counts}${node ? `, on Node ${node}` : ''}.` });
+  }
+  return runs;
 }
 
 // Plan rows met by a file that is not changed code: the review offers that file, or the row could never be cited.
@@ -971,6 +995,7 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     // A code review reads the approved plan and the delivery evidence its checks (a)-(c) are made against.
     ...(input.plan ? { plan: hashView(input.plan, input.binding.plan) } : {}),
     ...(input.code ? { code: input.code } : {}),
+    ...(input.testRuns?.length ? { testRuns: input.testRuns } : {}),
     // A finding about that specification names this step as its ownerPhase [PHR:REQ-003].
     ...(input.upstreamSpecPhase ? { upstreamSpecPhase: input.upstreamSpecPhase } : {}),
     citationGuide: sourceReviewCitationGuide(input),

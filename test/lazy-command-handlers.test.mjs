@@ -812,7 +812,19 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // No new eager file.
     // 9,761,100 (measured 9,761,073 for submit.mjs, start.mjs 9,759,536, 2026-11-18): both rises above merged with the
     // local-service fixes on one landing; they overlap, so together they add +33 over the first. No new eager file.
-    assert.ok(closure.bytes <= 9_761_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,761,850 (measured 9,761,835 for submit.mjs, +795 over 9,761,040; start.mjs 9,760,298): a failed test whose Node pin
+    // the evidence names, and nobody undid, is settled before the next run, not a person's choice (owner, 2026-11-18): the
+    // refusal asks the lazy node-version-settle.mjs, loaded by its path, for an earlier Story's pin and says SFlow pins it
+    // (state.mjs +795). The settlement, the pin history and their checks stay lazy. No new eager file.
+    // 9,762,350 (measured 9,762,325 for submit.mjs, +490 over 9,761,835; start.mjs 9,760,788): a refused test run names the
+    // Node it ran on, not SFlow's own (owner, 2026-11-18, Story new-ash-graph): ranOnNode and "failed on Node N" (state.mjs
+    // +381) and its projection (test-execution-diagnostics.mjs +109). `tests base` on the pinned Node stays lazy. No new eager file.
+    // 9,762,500 (measured 9,762,472 for submit.mjs, +147 over 9,762,325; start.mjs 9,760,935): a version with nothing
+    // written yet says so on its refusal (delivery-evidence.mjs nothingWritten), so recovery shows its findings as the version's
+    // checklist, never a blocker (owner, 2026-11-18, Story new-ash-graph). No new eager file.
+    // 9,762,550 (measured 9,762,505 for submit.mjs, start.mjs 9,760,968, 2026-11-19): the sf-code recovery above merged with
+    // the local-service fixes and the Decide screens on one landing (+5 over its own measure). No new eager file.
+    assert.ok(closure.bytes <= 9_762_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -934,7 +946,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 871,180 (measured 871,180, +76): the local browser service's `ui` command, registered as an upkeep family
   // (command-registry.mjs), kept out of repository routing and the mutation lease (cli-entry.mjs) and its `--drain`
   // boolean (util.mjs) [local service merge, 2026-11-18]. The service itself stays lazy (src/local-ui/). No new eager file.
-  assert.ok(root.bytes <= 871_180, `root dispatch loads ${root.bytes} source bytes`);
+  // 871,600 (measured 871,573, +469): a refused command derives the live Copilot turns again, as a successful one does, so a
+  // test failure recorded mid-turn never ends the turn as stale; both paths share one helper (cli-entry.mjs refreshTurns)
+  // [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
+  assert.ok(root.bytes <= 871_600, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1242,7 +1257,11 @@ test('the common session projection does not import attach, state stores or publ
   // and an amendment's refusal is in plain words (source-review-policy.mjs) [owner, 2026-11-18]. No new eager file.
   // 4,293,500 (measured 4,293,489, 2026-11-18): both rises above merged with the local-service fixes on one landing; they
   // overlap, so together they add +33 over the first. No new eager file.
-  assert.ok(current.bytes <= 4_293_500, `session current loads ${current.bytes} source bytes`);
+  // 4,293,600 (measured 4,293,565, +109): a refused test run's projection keeps the Node it ran on (test-execution-diagnostics.mjs
+  // ranOnNode) [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
+  // 4,293,750 (measured 4,293,712, +147): a version with nothing written yet says so on its refusal (delivery-evidence.mjs
+  // nothingWritten), read by recovery as the version's checklist [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
+  assert.ok(current.bytes <= 4_293_750, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

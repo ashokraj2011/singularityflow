@@ -274,7 +274,8 @@ export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent
       + `Its review is this turn's work: never offer ${prompt} while it runs, and never end the turn before it returns but as just said. It reviews read-only and retains its report; do not review, edit or retain it yourself. When it returns, run ${status} once and follow its route here: `
       // The author ended its turn on "/sf-phase" after a correction, leaving the person to start it again (Story anu-bin, 2026-11-11).
       // The person's yes starts the next version; asked in these words, a confirmed rollover is held to it (copilot-answer-binding.mjs).
-      + `a correction: show the person its findings and ask now with ask_user "Start version ${generation + 1} to fix the review's findings?" (Yes, No); on yes, run the route's command (a rollover preview: then the confirmation it returns) and correct the draft in this same turn, then prepublish; never end the turn on that route. `
+      // Asked before its preview, the question came again after it, in the code step's own turn (Story new-ash-graph): one question, after the preview.
+      + `a correction: run the route's command first (a rollover preview), then show the person its findings and ask once with ask_user the preview's question, "Start version ${generation + 1} to fix the review's findings?" (Yes, No); on yes, run the confirmation it returns and correct the draft in this same turn, then prepublish; never end the turn on that route. `
       + 'A ready review goes to submission. '
       + `No sub-agent tool: end with "Run this in a new chat:" and ${prompt}.`
   };

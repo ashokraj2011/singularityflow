@@ -141,6 +141,12 @@ export async function workflowTaskAgentStop(payload = {}) {
       || operation.kind !== 'phase-authoring' || operation.workId !== value.contract.workId
       || operation.phaseId !== value.contract.phaseId || operation.generation !== taskVersion(value)) return {};
   const answers = ANSWER_STATES.includes(operation.state);
+  // Only a person's route is left: the turn ends on it as it reported it, and no continuation repeats what already stopped.
+  if (!answers && await waitsOnPerson(value).catch(() => false)) {
+    operation.blocked = true;
+    await saveReviewCompletionTurn(payload, value).catch(() => {});
+    return {};
+  }
   const next = answers || ['publish-ready', 'prepare-successor', 'load-context', 'validate-draft', 'open-code-generation'].includes(operation.state) ? safeCommandGuidance(operation.nextAction)
     : safeCommandGuidance(operation.recheck);
   if (!next) return {};
@@ -159,6 +165,22 @@ export async function workflowTaskAgentStop(payload = {}) {
       : `Reuse the current exact paths, prompt and already read inputs. Finish the configured deliverables and required verification inside the current mutation contract; repair only current-scope findings. Then run ${next.command}. `)
     + 'Input reads, preparation, an authored draft and diagnostic tests are not task completion. Continue this existing task in this turn; never reload unchanged context, restart implementation, change protected files, submit, approve or start a new phase. '
     + 'This is one automatic continuation only. If a real missing-file, permission, tool, human-approval or owner blocker remains, preserve the draft and report the exact error and returned recovery route. Never infer success or make a decision for a person.' };
+}
+
+/**
+ * Whether the step's task record holds a stop only a person or the environment ends: a person's decision, an input or an
+ * environment to wait for, or a spent repair budget [workflow-task-outcome.mjs]. Read from private files, never Git. On
+ * Story new-ash-graph a continuation was forced after the step had stopped on a person's choice (SFLOW_WORKFLOW_TASK_INCOMPLETE).
+ */
+async function waitsOnPerson(value) {
+  const [{ readFile }, { readRecord }] = await Promise.all([import('node:fs/promises'), import('./schema-migrations.mjs')]);
+  const workflow = readRecord('story-workflow', await readFile(value.binding.workflowFile)).record;
+  const phase = workflow.phases?.[value.contract.phaseId];
+  if (!phase || workflow.currentPhase !== phase.id) return false;
+  const [{ readWorkflowTask }, { taskOutcomeOf }] = await Promise.all([import('./workflow-task-store.mjs'), import('./workflow-task-outcome.mjs')]);
+  const kept = taskOutcomeOf(await readWorkflowTask(value.contract.repositoryRoot, workflow, phase), workflow);
+  return ['waiting-person', 'waiting-environment', 'waiting-input'].includes(kept?.outcome)
+    || (kept?.outcome === 'repair-required' && kept.repairs.used >= kept.repairs.budget);
 }
 
 export async function sourceReviewAgentStop(payload = {}) {

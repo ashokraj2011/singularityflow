@@ -182,6 +182,15 @@ async function hasMutationContracts() {
   } catch { return false; }
 }
 
+/** Derive live Copilot turns again after a command, refused or not (Story new-ash-graph); true when there were any. */
+async function refreshTurns(root, definition, operation, options) {
+  if (!root || LOCAL_STATE_RESET_COMMANDS.has(definition.name) || definition.name === 'hook' || operation.classification === 'upkeep'
+    || !await hasMutationContracts()) return false;
+  await import('./copilot-mutation-guard.mjs').then(module => module.refreshMutationContracts(root, null,
+    { ...options, advanceBaseline: operation.classification === 'mutation' })).catch(() => {});
+  return true;
+}
+
 function rootIfAvailable(cwd = process.cwd()) {
   try { return repoRoot(cwd); } catch { return null; }
 }
@@ -1093,15 +1102,9 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     // to read it, though the host still waits for the process. Each part is its own timed stage.
     timer.feedback();
     // A private refresh cannot turn a successful publication into a replayable failure. Upkeep rebuilds no turn.
-    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && definition.name !== 'hook' && root
-        && operation.classification !== 'upkeep' && await hasMutationContracts()) {
-      await import('./copilot-mutation-guard.mjs').then(module => module.refreshMutationContracts(root, null, {
-        decisionEnded: ['approve', 'reject'].includes(definition.name)
-          || definition.name === 'review-source' && positionals[1] === 'decide',
-        advanceBaseline: operation.classification === 'mutation'
-      })).catch(() => {});
-      timer.stage('contract-refresh');
-    }
+    if (await refreshTurns(root, definition, operation, {
+      decisionEnded: ['approve', 'reject'].includes(definition.name) || definition.name === 'review-source' && positionals[1] === 'decide'
+    })) timer.stage('contract-refresh');
     /**
      * Private return memory is downstream of authority, never inside its transaction.
      *
@@ -1151,6 +1154,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     } else if (root && (definition.name === 'decision' ? positionals[1] !== 'show' : definition.name === 'decisions' && positionals[1] === 'record')) {
       await import('./copilot-mutation-guard.mjs').then(module => module.endMutationDecisionTurns(root, { modes: ['decision-only'] })).catch(() => {});
     }
+    // A refusal may change what a turn stands on (a failed test records its task stage): it is the agent's to repair in the turn.
+    await refreshTurns(root, definition, operation, { refused: true });
     timer.stage('execute');
     timer.feedback();
     const terminal = commandFailureTiming(error);

@@ -45,7 +45,8 @@ test('the handoff starts the pinned reviewer as a sub-agent in this chat, then r
   assert.match(handoff.instruction, /never offer \/sf-review-source implement while it runs, and never end the turn before it returns but as just said/u);
   // A correction is confirmed by the person in this chat and corrected in the same turn, never left as "/sf-phase" (Story anu-bin, 2026-11-11).
   // Asked in the words a confirmed rollover is held to: "Start version 3 …?" (owner, 2026-11-16).
-  assert.match(handoff.instruction, /a correction: show the person its findings and ask now with ask_user "Start version 3 to fix the review's findings\?" \(Yes, No\); on yes, run the route's command \(a rollover preview: then the confirmation it returns\) and correct the draft in this same turn, then prepublish; never end the turn on that route\. A ready review goes to submission\./u);
+  // Asked once, after its preview: asked before it, the question came again in the code step's turn (Story new-ash-graph, 2026-11-18).
+  assert.match(handoff.instruction, /a correction: run the route's command first \(a rollover preview\), then show the person its findings and ask once with ask_user the preview's question, "Start version 3 to fix the review's findings\?" \(Yes, No\); on yes, run the confirmation it returns and correct the draft in this same turn, then prepublish; never end the turn on that route\. A ready review goes to submission\./u);
   assert.match(handoff.instruction, /No sub-agent tool: end with "Run this in a new chat:" and \/sf-review-source implement\.$/u);
   assert.equal(reviewSubagentHandoff({ workId: 'QF-1', phase: 'implement', generation: 2, reviewerAgent: 'Not An Id' }), null);
   // Hosts name a sub-agent differently: Copilot CLI agentType on its calls and agentName at its start, VS Code agent_type.

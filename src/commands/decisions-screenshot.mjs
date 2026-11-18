@@ -23,11 +23,11 @@ export const WITNESS_QUESTIONS = Object.freeze([
 ]);
 const WAIT_WORDS = 'up to 10 minutes; closing the browser takes nothing';
 
-/** Runs this same CLI, as the cards run it, and answers its JSON result; a refusal throws with its own words. */
-async function runSelf(args) {
+/** Runs this same CLI in the Story's own checkout, as the cards run it, and answers its JSON result; a refusal throws with its own words. */
+async function runSelf(args, cwd) {
   try {
     const { stdout } = await promisify(execFile)(process.execPath, [path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs'), ...args],
-      { encoding: 'utf8', maxBuffer: 12 * 1024 * 1024, timeout: 120000 });
+      { cwd, encoding: 'utf8', maxBuffer: 12 * 1024 * 1024, timeout: 120000 });
     return JSON.parse(stdout);
   } catch (error) {
     let refusal = null;
@@ -104,7 +104,7 @@ export async function screenshotWalkthrough(root, { workId, packet, request, rer
       const args = ['decision', 'witness', '--work-id', workId, '--criterion', review.clauseId, '--slot', review.slot, '--file', file, '--reason', reason,
         '--expected-context-sha256', review.contextBinding, '--expected-file-sha256', digest, ...answers.flatMap(([id, yes]) => [yes ? '--confirm' : '--deny', id]), '--json'];
       try {
-        const result = await (deps.record ?? runSelf)(args);
+        const result = await (deps.record ?? ((list) => runSelf(list, current.repositoryPath ?? root)))(args);
         const record = result?.data?.record ?? null;
         say(`   Recorded ${record?.id ?? 'the sign-off'}: ${record?.outcome === 'met' ? `${name} is signed off` : `${name} is not signed off by this review`}.`);
         return { status: 'recorded', record: record?.id ?? null };

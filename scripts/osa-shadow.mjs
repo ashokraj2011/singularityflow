@@ -28,6 +28,9 @@ export function* capturedRecords() {
           generationPolicy: { requirement: 'required', task: kind, defaultProducer: 'governed-agent', allowedProducers: ['governed-agent'] },
           requiredArtifact: { path: `artifacts/${id}/summary.md`, kind: kind === 'code' ? 'implementation-summary' : 'document' },
           generationPublications: generation > 0 ? [{ generation, record: RECORD }] : [] };
+        // A code version is published with its code-delivery receipt (only a publication records one); a published code
+        // version without one is not a state a publication leaves, and readiness sends it to its next version (routes #3).
+        if (kind === 'code' && generation > 0) phase.deliveryEvidence = { generation };
         if (intent) phase.generationIntent = intent === 'open-next' ? { status: 'open', generation: generation + 1 }
           : intent === 'open-stale' ? { status: 'open', generation: Math.max(1, generation) }
             : { status: 'consumed', generation: intent === 'consumed-same' ? generation : generation - 1 };

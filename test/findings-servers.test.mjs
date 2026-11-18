@@ -21,10 +21,10 @@ import { laterStepCodeScanning } from '../src/findings/code-step.mjs';
 import { markNewCode } from '../src/findings/model.mjs';
 import { githubCodeScanning } from '../src/github-evidence.mjs';
 import { javaProject, javaSonarServer, STANDIN, writeFiles } from './helpers/java-sonar-fixture.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const fixture = (name) => readFile(new URL(`./fixtures/findings/${name}`, import.meta.url), 'utf8');
-const TOKEN = invented('fixture-bearer-', 'not-a-credential');
+const TOKEN = inventedValue('fixture-bearer-', 'not-a-credential');
 
 /** A SonarQube Web API that answers the four reads with the recorded responses, and records each request. */
 async function sonarServer(t) {

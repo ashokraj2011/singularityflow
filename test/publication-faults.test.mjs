@@ -36,7 +36,7 @@ import {
 } from '../src/capability-publication-recovery.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -286,7 +286,7 @@ test('publication redacts and bounds rejected push diagnostics before durable an
   git(['remote', 'add', 'origin', remote], root);
   git(['push', '-u', 'origin', 'main'], root);
   const baseline = git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root);
-  const secret = invented('office-secret', '-do-not-retain');
+  const secret = inventedValue('office-secret', '-do-not-retain');
   const hook = path.join(remote, 'hooks/pre-receive');
   await writeFile(hook,
     `#!/bin/sh\ncat >&2 <<'SFLOW_DIAGNOSTIC'\nhttps://reviewerone:${secret}@corp.example/repository.git token=${secret}\n${'x'.repeat(12_000)}\nSFLOW_DIAGNOSTIC\nexit 1\n`);

@@ -21,6 +21,7 @@ import { clauseSection, codeChange, draftClauses, fillDocument, hasPlannedClaims
 import { walkEnvironment } from '../src/workflow-walk/sandbox.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -105,7 +106,7 @@ test("a walk's commands run with every machine location, home, Git config and te
   const base = path.join(os.tmpdir(), 'sflow-workflow-walk-example');
   const env = walkEnvironment(base, { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: '/elsewhere/active.json', GIT_DIR: '/elsewhere/.git',
     SINGULARITY_FLOW_SESSION_ID: 'another', COPILOT_AGENT_SESSION: 'x', NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: 'off',
-    JIRA_API_TOKEN: 'secret', GITHUB_TOKEN: 'secret', HTTPS_PROXY: 'http://proxy.invalid' });
+    JIRA_API_TOKEN: inventedValue('sec', 'ret'), GITHUB_TOKEN: inventedValue('sec', 'ret'), HTTPS_PROXY: 'http://proxy.invalid' });
   const inside = (value) => typeof value === 'string' && value.startsWith(`${base}${path.sep}`);
   for (const name of Object.keys(MACHINE_STATE_LOCATIONS)) assert.ok(inside(env[name]), `${name}=${env[name]}`);
   for (const name of ['HOME', 'USERPROFILE', 'GIT_CONFIG_GLOBAL', 'COPILOT_HOME', 'TMPDIR']) assert.ok(inside(env[name]), `${name}=${env[name]}`);

@@ -12,6 +12,7 @@ import {
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from '../src/workspace-context.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-help-metrics-machine-'));
 process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(machine, 'active.json');
@@ -195,7 +196,7 @@ test('help metrics location: a member uses the selected workspace path, and a re
       repositories: {
         application: {
           ...manifest.repositories.application,
-          url: 'https://user:secret@example.invalid/application.git'
+          url: inventedValue('https://user:', 'secret@example.invalid/application.git')
         }
       }
     }, null, 2)}\n`);

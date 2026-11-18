@@ -9,6 +9,7 @@ import {
 } from 'singularity-flow/gal/async-read';
 import { run } from '../src/util.mjs';
 import { validateFactoryResetRepositoryDirectory } from '../apps/vscode/src/cli/runner.ts';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 test('published GAL async root read keeps one exact argv, owner deadline, and cancellation signal', async () => {
   const calls = [];
@@ -45,7 +46,7 @@ test('unknown or malformed async read requests never reach a Git runner', async 
 
 test('async adapter keeps supervised failures typed and never exposes Git stderr', async () => {
   const result = (failure, status = null, stdout = Buffer.alloc(0)) => async () => ({
-    status, stdout, stderr: 'https://user:secret@example.invalid/repo.git', failure
+    status, stdout, stderr: inventedValue('https://user:', 'secret@example.invalid/repo.git'), failure
   });
   for (const [failure, code] of [
     ['timeout', 'GAL_TIMEOUT'], ['cancelled', 'GAL_CANCELLED'],

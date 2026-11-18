@@ -119,7 +119,7 @@ const COMMANDS = Object.freeze({
     `singularity-flow story test-policy accept-risk PMC-1 --phase custom-step --apply --confirm ${digest}`, `singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "The runner moved." --apply --confirm ${digest}`,
     `singularity-flow story test-policy baseline-admission PMC-1 --phase custom-step --apply --confirm ${digest}`, `singularity-flow story test-policy confirm PMC-1 --phase custom-step --confirm ${digest}`,
     `singularity-flow story approvers refresh PMC-1 --reason "The reviewer joined the group." --confirm ${digest}`],
-  'sf-guard-person-step': ['singularity-flow guard register', 'singularity-flow guard rotate --key SHA256:abc', 'singularity-flow guard recover --key SHA256:abc',
+  'sf-guard-person-step': ['singularity-flow guard register', 'singularity-flow guard rotate --key=SHA256:abc', 'singularity-flow guard recover --key=SHA256:abc',
     'singularity-flow guard revoke approver-0123456789ab --reason "Left the team."', 'singularity-flow guard enable --remote-check sf-guard-verify', 'singularity-flow guard disable --reason "Moving to another signer."',
     'singularity-flow guard exception add approver-0123456789ab', 'singularity-flow guard exception revoke EXC-001 --reason "Now on a Mac."'],
   // New since this record was first taken: a person's choice on the list, a plan amendment over several paths, and the Node pin.

@@ -9,7 +9,7 @@ import {
   feedbackAttachmentFormats, previewFeedbackAttachments, registerFeedbackAttachments
 } from '../src/revision/feedback-attachments.mjs';
 import { createFeedbackAttachmentStore } from '../src/revision/feedback-attachment-store.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-rev-attachment-'));
@@ -264,7 +264,7 @@ test('delimited intake validates unselected rows and rejects text-disguised bina
     selection: [0], authorizeRead: value.authorizeRead
   }), { code: 'REV_ATTACHMENT_MIME' });
   const json = path.join(value.root, 'encoded.json');
-  const escapedCredential = invented('gh', 'p_abcdefghijklmnopqrs', 'tuvwxyzABCDEFGHIJ123456')
+  const escapedCredential = inventedValue('gh', 'p_abcdefghijklmnopqrs', 'tuvwxyzABCDEFGHIJ123456')
     .split('').map((character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`).join('');
   await writeFile(json, `{"value":"${escapedCredential}"}`);
   await assert.rejects(previewFeedbackAttachments({
@@ -352,7 +352,7 @@ test('binary admission fails closed on policy, scanner, extractor, and secret fa
   await assert.rejects(previewFeedbackAttachments({ ...args, binaryAdmission: unsortedPages }),
     { code: 'REV_ATTACHMENT_EXTRACT_UNAVAILABLE' });
   const secret = fakeBinaryAdmission('application/pdf',
-    [{ kind: 'page', index: 1, text: invented('gh', 'p_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ123456') }]);
+    [{ kind: 'page', index: 1, text: inventedValue('gh', 'p_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ123456') }]);
   await assert.rejects(previewFeedbackAttachments({ ...args, binaryAdmission: secret }),
     { code: 'REV_ATTACHMENT_SECRET' });
   const oversized = fakeBinaryAdmission('application/pdf',
@@ -388,7 +388,7 @@ test('read authorization, secret screening, and unselected exclusion fail closed
   await assert.rejects(previewFeedbackAttachments({
     context: value.context, sources: value.sources, selection: [0], authorizeRead: async () => false
   }), { code: 'REV_ATTACHMENT_UNAUTHORIZED' });
-  await writeFile(value.file, invented('gh', 'p_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ123456\n'));
+  await writeFile(value.file, inventedValue('gh', 'p_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ123456\n'));
   await assert.rejects(previewFeedbackAttachments({
     context: value.context, sources: value.sources, selection: [0], authorizeRead: value.authorizeRead
   }), { code: 'REV_ATTACHMENT_SECRET' });

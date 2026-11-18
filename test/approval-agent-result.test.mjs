@@ -4,7 +4,7 @@ import { approvalAgentResult } from '../src/approval-agent-result.mjs';
 import { action, commandResult, effects, succeeded, validateCommandResult } from '../src/narration/command-result.mjs';
 import { renderCommandResult } from '../src/narration/render-terminal.mjs';
 import { redactDiagnosticText } from '../src/git-remote-diagnostics.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 test('compact approval keeps receipt, identity warnings and final verdict without authoring instructions', () => {
   const result = commandResult({ operation: { id: 'approve', classification: 'mutation' }, subject: { kind: 'story', id: 'PMC-1' },
@@ -35,7 +35,7 @@ test('every rendered action shows three ordered surfaces without inventing unsup
 });
 
 test('human refusal lines survive redaction without exposing credentials or terminal escapes', () => {
-  const redacted = redactDiagnosticText(invented('Next:\nCopilot: /sf-submit\nShell: singularity-flow submit phase\npass', 'word=secret-value\n\x1b[31munsafe'), { multiline: true });
+  const redacted = redactDiagnosticText(inventedValue('Next:\nCopilot: /sf-submit\nShell: singularity-flow submit phase\npass', 'word=secret-value\n\x1b[31munsafe'), { multiline: true });
   assert.match(redacted, /^Next:\nCopilot: \/sf-submit\nShell:/);
   assert.doesNotMatch(redacted, /secret-value|\x1b/);
   assert.doesNotMatch(redactDiagnosticText('a\nb'), /\n/);

@@ -13,7 +13,7 @@ import { performanceReportText, readPerformanceReport, writePerformanceTrace, wr
 import { run, readJson, snapshot } from '../src/util.mjs';
 import { runRemoteGit, runRemoteGitAsync } from '../src/git-execution.mjs';
 import { pinnedHttpRequest } from '../src/pinned-http.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 test('nested spans preserve return types, exceptions, parents and non-overlapping attribution', async () => {
   let now = 0n;
@@ -101,7 +101,7 @@ test('timeout, cancellation and DNS failure stay classified without retaining pr
     assert.throws(() => measurePerformance('git-local', 'git.object-read', () => { throw timeout; }), error => error === timeout);
     measurePerformance('external', 'process.run', () => ({ error: { code: 'ETIMEDOUT' } }));
     measurePerformance('external', 'process.run', () => ({ aborted: true }));
-    const result = await pinnedHttpRequest({ url: invented('https://private.example.invalid/path?to', 'ken=private'), timeoutMs: 100,
+    const result = await pinnedHttpRequest({ url: inventedValue('https://private.example.invalid/path?to', 'ken=private'), timeoutMs: 100,
       lookupImpl: async () => { throw new Error('private DNS error'); } });
     assert.equal(result.transport.code, 'STEP_ACTION_DNS_FAILED');
   });

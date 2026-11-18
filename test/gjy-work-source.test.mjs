@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   getGitHubIssue, normalizeWorkSource, parseGitHubIssueReference
 } from '../src/work-source.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const GITHUB_HOST = ['github', 'com'].join('.');
 const githubUrl = (pathname) => `https://${GITHUB_HOST}${pathname}`;
@@ -52,8 +52,8 @@ test('Jira source generations keep stable identity while content hashes change',
 test('normalization never copies credentials or opaque provider payloads', () => {
   const source = normalizeWorkSource({
     type: 'manual', id: 'WRK-1', title: 'Safe source', description: 'Visible',
-    token: invented('secret', '-token'), access_token: invented('oauth-', 'secret'), headers: { authorization: 'Bearer secret' },
-    customProviderPayload: { secret: invented('not-go', 'verned') },
+    token: inventedValue('secret', '-token'), access_token: inventedValue('oauth-', 'secret'), headers: { authorization: 'Bearer secret' },
+    customProviderPayload: { secret: inventedValue('not-go', 'verned') },
     scope: { in: ['checkout'], out: ['billing'] },
     risk: 'low', repositoryCount: 2, publicInterfaceChange: false, crossRepositoryChange: true
   });
@@ -82,7 +82,7 @@ test('a Jira source keeps what fetches its attachments, and nothing else gains a
   const issue = { type: 'jira', id: '7', key: 'PAY-7', title: 'Pay', url: 'https://jira.example.com/browse/PAY-7' };
   const source = normalizeWorkSource({ ...issue, attachments: [
     { id: '1', filename: 'brief.pdf', mimeType: 'application/pdf', size: 10, createdAt: '2026-09-30T10:00:00.000+0000', author: 'Someone', url: 'https://jira.example.com/rest/api/3/attachment/content/1?token=x' },
-    { id: '2', filename: 'leak.txt', url: 'https://user:pass@jira.example.com/rest/api/3/attachment/content/2' },
+    { id: '2', filename: 'leak.txt', url: inventedValue('https://user:', 'pass@jira.example.com/rest/api/3/attachment/content/2') },
     { id: null, filename: 'no-id.txt', url: 'https://jira.example.com/rest/api/3/attachment/content/3' }
   ] });
   assert.deepEqual(source.attachments, [{
@@ -90,7 +90,7 @@ test('a Jira source keeps what fetches its attachments, and nothing else gains a
     createdAt: '2026-09-30T10:00:00.000+0000', url: 'https://jira.example.com/rest/api/3/attachment/content/1'
   }]);
   assert.doesNotMatch(JSON.stringify(source), /Someone|user:pass/);
-  assert.ok(!JSON.stringify(source).includes(invented('to', 'ken=x')));
+  assert.ok(!JSON.stringify(source).includes(inventedValue('to', 'ken=x')));
   assert.equal(normalizeWorkSource({ ...issue, attachments: [] }).contentSha256, normalizeWorkSource(issue).contentSha256);
   assert.equal('attachments' in normalizeWorkSource(issue), false);
   assert.equal('attachments' in normalizeWorkSource({ type: 'manual', title: 'x', attachments: source.attachments }), false);

@@ -17,7 +17,7 @@ import { agentFrontMatter } from '../src/team-import/formats.mjs';
 import { docx } from './helpers/office-fixtures.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const sha = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -38,7 +38,7 @@ async function teamFolder(base) {
   await writeFile(path.join(folder, '.env'), 'API_TOKEN=abc\n');
   await writeFile(path.join(folder, 'tool.bin'), Buffer.from([0, 1, 2, 3]));
   await writeFile(path.join(folder, 'node_modules', 'x', 'i.js'), 'x');
-  await writeFile(path.join(folder, 'leaked.md'), `key: ghp_${invented('A1b2C3d4E5f6', 'G7h8I9j0K1l2', 'M3n4O5p6Q7r8')}\n`);
+  await writeFile(path.join(folder, 'leaked.md'), `key: ghp_${inventedValue('A1b2C3d4E5f6', 'G7h8I9j0K1l2', 'M3n4O5p6Q7r8')}\n`);
   await symlink(path.join(folder, 'notes', 'style.md'), path.join(folder, 'linked.md'));
   return folder;
 }

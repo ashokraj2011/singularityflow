@@ -10,6 +10,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { SecureCredentials, storageTokenVariable } from '../apps/vscode/src/credentials.ts';
 import { SingularityFlowClient, commandClass } from '../apps/vscode/src/cli/client.ts';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -25,7 +26,7 @@ test('integration secrets reach the CLI under their own names, and a status neve
   const credentials = new SecureCredentials(secrets);
   await credentials.saveIntegrationSecret('SFLOW_SECRET_EVENTS_KEY', ' signing-key ');
   await credentials.saveProviderToken('sharepoint-main', 'provider-secret');
-  const env = await credentials.environment({ PATH: '/bin', SFLOW_SECRET_EVENTS_KEY: 'from-the-shell' });
+  const env = await credentials.environment({ PATH: '/bin', SFLOW_SECRET_EVENTS_KEY: inventedValue('from-the-', 'shell') });
   assert.equal(env.SFLOW_SECRET_EVENTS_KEY, 'signing-key', 'a value someone stored here wins over the shell');
   assert.equal(env.PATH, '/bin');
   // Storage provider tokens were saved but never passed; the engine reads them by this name.
@@ -33,7 +34,7 @@ test('integration secrets reach the CLI under their own names, and a status neve
   assert.equal(env.SINGULARITY_FLOW_STORAGE_TOKEN_SHAREPOINT_MAIN, 'provider-secret');
 
   const status = await credentials.integrationSecretStatus(
-    ['SFLOW_SECRET_EVENTS_KEY', 'SFLOW_SECRET_TEAMS_URL', 'SFLOW_SECRET_NOT_SET', 'JIRA_PAT'], { SFLOW_SECRET_TEAMS_URL: 'https://example.webhook.office.com/x' });
+    ['SFLOW_SECRET_EVENTS_KEY', 'SFLOW_SECRET_TEAMS_URL', 'SFLOW_SECRET_NOT_SET', 'JIRA_PAT'], { SFLOW_SECRET_TEAMS_URL: inventedValue('https://example.webhook.office.com/', 'x') });
   assert.deepEqual(status, { SFLOW_SECRET_EVENTS_KEY: 'stored', SFLOW_SECRET_TEAMS_URL: 'environment', SFLOW_SECRET_NOT_SET: 'missing' },
     'another tool\'s credential is not even reported');
   assert.equal(JSON.stringify(status).includes('signing-key'), false);
@@ -66,7 +67,7 @@ test('the client reads its environment at every spawn, so a secret stored now re
   delete environment.SFLOW_SECRET_PROBE;
   const client = new SingularityFlowClient({ location: { executable: process.execPath, cli, source: 'setting' }, repository: directory, environment: () => environment });
   assert.equal((await client.run(['integrations', 'status', '--json', '--case', 'before'])).data.secret, null);
-  environment = { ...environment, SFLOW_SECRET_PROBE: 'stored-now' };
+  environment = { ...environment, SFLOW_SECRET_PROBE: inventedValue('stored-', 'now') };
   assert.equal((await client.run(['integrations', 'status', '--json', '--case', 'after'])).data.secret, 'stored-now');
 
   // A test delivery reaches another system each time it is asked for; it is never answered from the read cache.

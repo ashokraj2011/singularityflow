@@ -11,7 +11,7 @@ import {
   createReadOnlyLessonCatalog, platformSha256, validateLearningFixture,
   validateLearningModule, validateLearningOfflineBundle
 } from '../src/sgos/platform/index.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function learningModule(overrides = {}) {
   return createLearningModule({
@@ -172,7 +172,7 @@ test('learning fixtures are bounded text-only identities and refuse unsafe paylo
 
   const secret = structuredClone(fixture);
   delete secret.fixtureSha256;
-  secret.files[0].content = invented('-----BEGIN PRIVATE', ' KEY-----\nnot-a-real-key'); // sflow-allow-secret: invented key marker asserting learning-fixture refusal
+  secret.files[0].content = inventedValue('-----BEGIN PRIVATE', ' KEY-----\nnot-a-real-key'); // sflow-allow-secret: invented key marker asserting learning-fixture refusal
   assert.throws(() => createLearningFixture(secret),
     (error) => error.code === 'SGOS_LEARN_SECRET_REFUSED');
 });

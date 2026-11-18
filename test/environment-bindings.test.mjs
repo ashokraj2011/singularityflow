@@ -14,7 +14,7 @@ import {
 import {
   bindEnvironment, environmentBindingStatus, resolveEnvironmentBinding, unbindEnvironment
 } from '../src/environment-bindings.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
 
@@ -218,7 +218,7 @@ test('quality-command environment validation rejects only relevant ambiguity and
 
 test('private binding status never returns values, references, or process environment', async () => {
   const root = await repository(DECLARATION);
-  const secret = invented('correct-horse', '-private-value');
+  const secret = inventedValue('correct-horse', '-private-value');
   const reference = 'broker:qa/feature-x';
   const bound = await bindEnvironment(root, 'qa', {
     bindings: {
@@ -323,7 +323,7 @@ test('unbind removes a corrupt private record without parsing or exposing it', a
 
 test('env CLI accepts binding values only on bounded stdin and emits secret-free JSON', async () => {
   const root = await repository(DECLARATION);
-  const secret = invented('cli-private-', 'secret-value');
+  const secret = inventedValue('cli-private-', 'secret-value');
   const payload = JSON.stringify({
     bindings: { DB_CONN: { source: 'local', value: secret } }
   });
@@ -343,7 +343,7 @@ test('env CLI accepts binding values only on bounded stdin and emits secret-free
   assert.equal(text.status, 0, text.stderr);
   assert.equal(text.stdout.trim(), "Environment 'qa': bound");
 
-  const rejectedSecret = invented('rejected-legac', 'y-private-value');
+  const rejectedSecret = inventedValue('rejected-legac', 'y-private-value');
   const unsafe = spawnSync(process.execPath, [
     CLI, 'env', 'bind', 'qa', '--set', `DB_CONN=${rejectedSecret}`, '--json'
   ], {
@@ -360,7 +360,7 @@ test('env CLI accepts binding values only on bounded stdin and emits secret-free
       `rejected private argv reached ${path.relative(root, file)}`);
   }
 
-  const malformedSecret = invented('malformed-priv', 'ate-json-value');
+  const malformedSecret = inventedValue('malformed-priv', 'ate-json-value');
   const malformed = spawnSync(process.execPath, [CLI, 'env', 'bind', 'qa', '--stdin'], {
     cwd: root, input: `{"bindings":{"DB_CONN":${malformedSecret}}}`,
     encoding: 'utf8', env: { ...process.env }

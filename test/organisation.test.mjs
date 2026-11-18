@@ -58,7 +58,7 @@ import {
 import { changedLines, foldYamlFile, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
 import { writeLegacyStateCopy } from './helpers/legacy-state-copy.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 // These tests read configuration through the clone path unless one names its own pool. The
 // default pool lives in the running checkout's .git, so its contents would come from whatever
@@ -1246,7 +1246,7 @@ test('capability authority diagnostics always retain their exact Copilot doctor 
 test('the machine lead registry never returns or newly stores credential-bearing remotes', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-safe-leads-'));
   const file = registry(root);
-  const secret = invented('legacy-regi', 'stry-secret');
+  const secret = inventedValue('legacy-regi', 'stry-secret');
   await writeFile(file, `${JSON.stringify({
     schemaVersion: 1,
     leads: [
@@ -1915,7 +1915,7 @@ test('repository inspection never returns a rejected registered lead URL', async
   });
   const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
   await rememberLeadRepository(org.platform);
-  const rejected = invented('https://reviewerone:', 'super-secret@example.test/private.git');
+  const rejected = inventedValue('https://reviewerone:', 'super-secret@example.test/private.git');
   // Simulate a registry written by an older release. New writes reject this value at the boundary,
   // but inspection still has to diagnose a pre-existing corrupt entry without reflecting it.
   const registryPath = registry(org.base);
@@ -5248,13 +5248,13 @@ test('delivery repository reachability is proven before mapping mutates any auth
 test('proposal push policy refusals retain sanitized evidence and an exact recovery action', async (t) => {
   const cases = [{
     name: 'repository hook or rule rejection',
-    diagnostic: invented('remote: error: GH013: Repository rule violations found; pass', 'word=LEAKMARK'),
+    diagnostic: inventedValue('remote: error: GH013: Repository rule violations found; pass', 'word=LEAKMARK'),
     classification: 'policy-rejected',
     code: 'REMOTE_POLICY_REJECTED',
     advice: /repository rule or server hook/
   }, {
     name: 'provider without atomic push support',
-    diagnostic: invented('fatal: the receiving end does not support --atomic push; pass', 'word=LEAKMARK'),
+    diagnostic: inventedValue('fatal: the receiving end does not support --atomic push; pass', 'word=LEAKMARK'),
     classification: 'atomic-push-unsupported',
     code: 'REMOTE_ATOMIC_PUSH_UNSUPPORTED',
     advice: /atomic multi-ref update/

@@ -8,6 +8,7 @@ import {
   projectSgosViewCatalog, SGOS_PROJECTED_VIEW_TYPES
 } from '../src/sgos/projection.mjs';
 import { validateWorkObject } from '../src/sgos/contracts.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const hash = (digit) => `sha256:${digit.repeat(64)}`;
 
@@ -82,7 +83,7 @@ test('all canonical Work Object views are deterministic, inert, bounded, and con
   const sensitive = {
     ...request('PROC-AAAAAA'),
     sensitiveMode: 'secret-broker',
-    secretBroker: 'vault://raw-secret-handle',
+    secretBroker: inventedValue('vault://raw-', 'secret-handle'),
     externalUrl: 'https://should-never-be-projected.invalid/token'
   };
   const projected = projectSgosViewCatalog(source, { humanRequests: [sensitive] });

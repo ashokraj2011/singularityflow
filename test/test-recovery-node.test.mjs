@@ -6,6 +6,7 @@ import test from 'node:test';
 import { readTrpNodeCaseInventory, matchTrpNodeReport, trpNodeExecutionEnvironment } from '../src/test-recovery-node.mjs';
 import { runQualityCommand } from '../src/quality-command-runner.mjs';
 import { parseNativeNodeJunitReport } from '../src/code-delivery-tests.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function fixture(source = 'import test from "node:test";import assert from "node:assert/strict";test("first case",()=>assert.equal(1,2));\n') {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-trp-node-')));
@@ -94,7 +95,7 @@ test('native file arguments cannot turn absolute or parent paths into an approve
 });
 
 test('the effective risk child environment preserves application inputs and removes only host transport controls', () => {
-  assert.deepEqual(trpNodeExecutionEnvironment({ NODE_ENV: 'production', TZ: 'UTC', SERVICE_TOKEN: 'secret',
+  assert.deepEqual(trpNodeExecutionEnvironment({ NODE_ENV: 'production', TZ: 'UTC', SERVICE_TOKEN: inventedValue('sec', 'ret'),
     NODE_TEST_CONTEXT: 'child-v8', NODE_TEST_WORKER_ID: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'actor', _: 'shell', SHLVL: '2' }),
-  { NODE_ENV: 'production', TZ: 'UTC', SERVICE_TOKEN: 'secret' });
+  { NODE_ENV: 'production', TZ: 'UTC', SERVICE_TOKEN: inventedValue('sec', 'ret') });
 });

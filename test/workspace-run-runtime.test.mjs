@@ -13,6 +13,7 @@ import { dependencyOrder } from '../src/application-dependencies.mjs';
 import { saveLocalApplicationProfile, resetLocalApplicationProfile, localApplicationProfilePath } from '../src/local-application-profile.mjs';
 import { commandScope, overrideStoryEnvironmentFile, environmentFilesReport, storyEnvironmentFilePath, placeEnvironmentFilesForRun } from '../src/environment-files.mjs';
 import { checkApplicationConnections } from '../src/application-connections.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const server = `import http from 'node:http';
 http.createServer((req,res)=>res.end('ok')).listen(Number(process.argv[2]),'127.0.0.1',()=>console.log('service ready'));
@@ -135,11 +136,11 @@ test('Story YAML overrides are private, isolated, excluded, and retained when re
     const linked = path.join(repo.base, 'story'); git(repo.root, ['worktree', 'add', '-qb', 'story', linked]);
     const scope = await commandScope(linked);
     const result = await overrideStoryEnvironmentFile(scope, 'dev', 'config/dev.local.yml');
-    await writeFile(result.location, 'token: story-only-private-value\n', { mode: 0o600 });
+    await writeFile(result.location, inventedValue('to', 'ken: story-only-private-value\n'), { mode: 0o600 });
     await placeEnvironmentFilesForRun(linked, 'dev');
     const report = await environmentFilesReport(linked, { environment: 'dev' });
     assert.doesNotMatch(JSON.stringify(report), /story-only-private-value/);
-    assert.equal(await readFile(path.join(linked, 'config/dev.local.yml'), 'utf8'), 'token: story-only-private-value\n');
+    assert.equal(await readFile(path.join(linked, 'config/dev.local.yml'), 'utf8'), inventedValue('to', 'ken: story-only-private-value\n'));
     assert.notEqual(result.location, storyEnvironmentFilePath(repo.root, 'dev', 'config/dev.local.yml'));
     assert.equal(git(linked, ['check-ignore', 'config/dev.local.yml']).status, 0);
     const cleared = await overrideStoryEnvironmentFile(scope, 'dev', 'config/dev.local.yml', { clear: true });

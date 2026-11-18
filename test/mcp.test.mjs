@@ -37,7 +37,7 @@ import { secureWindowsAuthAcl } from '../src/mcp-auth-profile.mjs';
 import {
   defaultNetworkProbe, inspectMcpPhaseReadiness, rpcSmoke, verifyPlaywrightOfflineStart
 } from '../src/mcp-readiness.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const configured = () => normalizeMcpServers({
   playwright: {
@@ -984,8 +984,8 @@ test('MCP host inventory discovers workspace and user files without reading secr
   const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-mcp-home-'));
   await mkdir(path.join(root, '.vscode'), { recursive: true });
   await mkdir(path.join(home, '.copilot'), { recursive: true });
-  await writeFile(path.join(root, '.vscode/mcp.json'), JSON.stringify({ servers: { playwright: { command: 'npx', env: { SECRET: invented('do-not', '-return') } } } }));
-  await writeFile(path.join(home, '.copilot/mcp-config.json'), JSON.stringify({ mcpServers: { corporate: { url: 'https://example.invalid', token: invented('do-not', '-return') } } }));
+  await writeFile(path.join(root, '.vscode/mcp.json'), JSON.stringify({ servers: { playwright: { command: 'npx', env: { SECRET: inventedValue('do-not', '-return') } } } }));
+  await writeFile(path.join(home, '.copilot/mcp-config.json'), JSON.stringify({ mcpServers: { corporate: { url: 'https://example.invalid', token: inventedValue('do-not', '-return') } } }));
   const inventory = await mcpHostInventory(root, { home });
   assert.deepEqual(inventory.map((row) => row.name).sort(), ['corporate', 'playwright']);
   assert.equal(JSON.stringify(inventory).includes('do-not-return'), false);
@@ -1111,7 +1111,7 @@ test('phase readiness requires a hash-bound live smoke receipt when configured',
     })
   }), /ended outside the authorized origin/);
   await assert.rejects(() => smokeMcpHost(root, definition, 'playwright', {
-    targetUrl: 'https://user:secret@example.test/health', probe: async () => ({ status: 'passed' })
+    targetUrl: inventedValue('https://user:', 'secret@example.test/health'), probe: async () => ({ status: 'passed' })
   }), /must not contain credentials/);
 });
 
@@ -1373,7 +1373,7 @@ test('MCP evidence rejects symbolic-link sources and credential-bearing URLs', a
   }), /symbolic|outside the repository|regular/i);
   await assert.rejects(() => recordMcpEvidence(root, workflow, {
     server: 'playwright', tool: 'browser_navigate', agent: 'qa',
-    outputUrl: 'https://user:secret@example.test/evidence.txt'
+    outputUrl: inventedValue('https://user:', 'secret@example.test/evidence.txt')
   }), /must not contain credentials/);
   await assert.rejects(() => recordMcpEvidence(root, workflow, {
     server: 'playwright', tool: 'browser_navigate', agent: 'qa', note: 'Authorization: bearer private'

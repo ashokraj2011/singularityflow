@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { codeOccurrences } from './source-text.mjs';
 import { storyPublicationPreflightError } from '../src/story-publication-preflight.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
@@ -157,7 +157,7 @@ test('a native authority error keeps safe diagnostics and omits raw provider det
       classification: 'unknown',
       retryable: false,
       remote: 'https://example.invalid/RuleEngineUI.git',
-      diagnostic: invented('https://credential-user:', 'office-secret@example.invalid/private.git')
+      diagnostic: inventedValue('https://credential-user:', 'office-secret@example.invalid/private.git')
     }
   });
   const { view: card, fidelity } = refusalFor(error, { headline: 'Could not read the Story configuration authority' });
@@ -219,7 +219,7 @@ test('a credential-shaped authority is never copied into exact recovery guidance
     code: 'REMOTE_UNKNOWN',
     details: {
       classification: 'unknown', retryable: false,
-      remote: invented('https://credential-user:', 'office-secret@example.invalid/private.git')
+      remote: inventedValue('https://credential-user:', 'office-secret@example.invalid/private.git')
     }
   });
   const { view: card } = refusalFor(error, {

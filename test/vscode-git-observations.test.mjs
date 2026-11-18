@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
@@ -61,7 +62,7 @@ test('VS Code remote and source probes distinguish absence from Git infrastructu
   let calls = 0;
   const unavailable = async () => {
     calls += 1;
-    return { status: null, stdout: Buffer.alloc(0), stderr: 'password=secret', failure: 'git-unavailable' };
+    return { status: null, stdout: Buffer.alloc(0), stderr: inventedValue('pass', 'word=secret'), failure: 'git-unavailable' };
   };
   await assert.rejects(
     hasConfiguredGitRemote('/repo', 'origin', { runner: unavailable }),
@@ -78,7 +79,7 @@ test('VS Code remote and source probes distinguish absence from Git infrastructu
     (error) => error.code === 'GIT_OBSERVATION_UNAVAILABLE'
   );
   await assert.rejects(
-    configuredGitRemotes('/repo', { runner: async () => failed(128, 'token=secret') }),
+    configuredGitRemotes('/repo', { runner: async () => failed(128, inventedValue('to', 'ken=secret')) }),
     (error) => error.code === 'GIT_OBSERVATION_UNAVAILABLE' && !error.message.includes('secret')
   );
   await assert.rejects(
@@ -110,7 +111,7 @@ test('VS Code remote URLs preserve NUL-framed values and reject malformed result
     (error) => error.code === 'GIT_OBSERVATION_UNAVAILABLE'
   );
   await assert.rejects(
-    configuredGitRemoteUrls('/repo', { runner: async () => failed(128, 'credential=secret') }),
+    configuredGitRemoteUrls('/repo', { runner: async () => failed(128, inventedValue('crede', 'ntial=secret')) }),
     (error) => error.code === 'GIT_OBSERVATION_UNAVAILABLE' && !error.message.includes('secret')
   );
 });

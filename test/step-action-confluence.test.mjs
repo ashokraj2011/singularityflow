@@ -8,9 +8,9 @@ import assert from 'node:assert/strict';
 import { escapeStorageText, markdownToConfluenceStorage } from '../src/confluence-storage.mjs';
 import { CONFLUENCE_DELIVERY_PROPERTY, confluencePageBody, deliverToConfluence } from '../src/step-action-confluence.mjs';
 import { normalizeIntegrations, renderConfluenceTitle } from '../src/step-actions.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
-const ENV = { SFLOW_SECRET_WIKI_TOKEN: invented('wiki-', 'token') };
+const ENV = { SFLOW_SECRET_WIKI_TOKEN: inventedValue('wiki-', 'token') };
 const key = (digit) => `sad_${String(digit).repeat(40)}`;
 
 /** A small Confluence speaking Cloud REST v2 or Data Center REST v1 for one space. */

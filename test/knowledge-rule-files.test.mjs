@@ -14,7 +14,7 @@ import { isDocumentationPath, readDocumentation } from '../src/knowledge/brief.m
 import { buildRuleRecords, ruleStatusWords } from '../src/knowledge/records/rules.mjs';
 import { isRuleFile, ruleFileRules } from '../src/knowledge/rule-files.mjs';
 import { buildKnowledge } from '../src/knowledge/store.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const file = (relative, text) => ({ path: relative, lines: text.split('\n') });
@@ -40,7 +40,7 @@ test('rule files are recognised by folder or name, and their rule objects read i
     rules: [
       { id: 'minimum-age', condition: { age: { gte: 18 } }, outcome: 'eligible' },
       { id: 'region', if: { any: [{ fact: 'country', operator: 'in', value: ['NL', 'BE'] }, { fact: 'vip', operator: 'equal', value: true }] }, then: { route: 'eu' } },
-      { id: 'partner', condition: { field: 'partner', op: 'eq', value: 'acme' }, outcome: { route: 'partner-queue', apiKey: invented('not-a-r', 'eal-key') } }
+      { id: 'partner', condition: { field: 'partner', op: 'eq', value: 'acme' }, outcome: { route: 'partner-queue', apiKey: inventedValue('not-a-r', 'eal-key') } }
     ]
   }, null, 2)));
   assert.deepEqual(json.map((rule) => [rule.name, rule.when.join('; '), rule.then]), [

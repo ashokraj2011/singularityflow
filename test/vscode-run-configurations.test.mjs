@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
@@ -228,14 +228,14 @@ const suggestions = () => ({
   suggestions: [
     suggestion(),
     suggestion({ source: { kind: 'webstorm', file: '.run/web.run.xml', name: 'dev' }, variants: undefined, start: { ...WEB_DRAFT, arguments: {} }, environmentNames: [], notes: [] }),
-    suggestion({ source: { kind: 'vscode', file: '.vscode/launch.json', name: 'Worker' }, variants: undefined, start: { id: 'worker', argv: ['node', 'worker.js', invented('--db-pass', 'word=hunter2-db')], arguments: {} }, environmentNames: [], notes: [] }),
+    suggestion({ source: { kind: 'vscode', file: '.vscode/launch.json', name: 'Worker' }, variants: undefined, start: { id: 'worker', argv: ['node', 'worker.js', inventedValue('--db-pass', 'word=hunter2-db')], arguments: {} }, environmentNames: [], notes: [] }),
     suggestion({ source: { kind: 'launch-settings', file: 'services/billing/Properties/launchSettings.json', name: 'http' }, variants: undefined,
       start: { id: 'billing-http', argv: ['dotnet', 'run'], workingDirectory: 'services/billing', arguments: {}, debug: { runtime: 'dotnet' } }, environmentNames: [],
       notes: ["Already declared as start entry 'old'; the draft keeps that one."] }),
     suggestion({ source: { kind: 'rider', file: '../outside/x.run.xml', name: 'Outside' }, start: { id: 'outside', argv: ['dotnet', 'run'], workingDirectory: '../elsewhere' } }),
     suggestion({ source: { kind: 'detected', file: 'go.mod' }, start: { id: 'bad', argv: [] } })
   ],
-  applicationDraft: draft([EXISTING, API_DRAFT, WEB_DRAFT, { id: 'worker', argv: ['node', 'worker.js', invented('--db-pass', 'word=hunter2-db')] }]),
+  applicationDraft: draft([EXISTING, API_DRAFT, WEB_DRAFT, { id: 'worker', argv: ['node', 'worker.js', inventedValue('--db-pass', 'word=hunter2-db')] }]),
   environmentsDraft: '# Additions for singularity/environments.yml.\nenvironments:\n  dev:\n    requires:\n      - { name: DB_PASSWORD, kind: secret }\n      - { name: SPRING_PROFILES_ACTIVE, kind: flag, default: dev }\n',
   notes: ['Entries with environments start only when the capability sets policy.localIntegrationEvidence: allowed (a capability proposal).'],
   files: { read: 12, skipped: [{ file: '.vscode/launch.json', reason: "configuration 'Attach to Node' attaches to a running process; nothing to start" }] }

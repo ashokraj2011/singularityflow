@@ -21,7 +21,7 @@ import { changes, commitIsolated, headAndBranch, admitExactProspectiveTree } fro
 import { setAgentSession } from '../src/session.mjs';
 import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
 import { createWorkflow, loadConfig, loadWorkflow, validateWorkflow } from '../src/state.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const source = (relative) => fileURLToPath(new URL(`../src/${relative}`, import.meta.url));
 
@@ -121,7 +121,7 @@ test('an isolated commit builds its tree once and still admits exactly the bytes
   assert.equal(git(root, 'show', '--format=', '--name-only', 'HEAD'), 'governed.json');
 
   // The admission the second build used to make now runs on the committed tree itself.
-  await writeFile(path.join(root, 'leak.json'), invented('{"key":"AK', 'IA1234567890ABCDEF"}\n'));
+  await writeFile(path.join(root, 'leak.json'), inventedValue('{"key":"AK', 'IA1234567890ABCDEF"}\n'));
   const before = git(root, 'rev-parse', 'HEAD');
   const refused = probe(root, `await git.commitIsolated(process.cwd(), 'leak', ['leak.json'], { expectedHead: ${JSON.stringify(before)} })`);
   assert.notEqual(refused.status, 0);

@@ -8,6 +8,7 @@ import test from 'node:test';
 
 import { createGitRuntime } from '../src/git-access.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(cwd, args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: childTimeout(10_000) });
@@ -91,7 +92,7 @@ test('GAL remoteRef observes the exact pinned origin/ref without fetching local 
 
 test('GAL remoteRef refuses naked endpoints, malformed caller pins and invalid refs', async (t) => {
   const { bare, pin, invocation } = await fixture(t);
-  for (const remote of ['origin', '../authority.git', 'https://user:secret@example.test/repo.git',
+  for (const remote of ['origin', '../authority.git', inventedValue('https://user:', 'secret@example.test/repo.git'),
     'ext::helper example.test', '--upload-pack=/tmp/evil']) {
     assert.equal((await invocation.remoteRef({ remote, ref: 'refs/heads/main' })).code,
       'GAL_INPUT_INVALID', remote);

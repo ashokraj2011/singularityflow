@@ -15,7 +15,7 @@ import {
   readProviderCache, recordRepositoryDiscoveryAudit
 } from '../src/repositories/store.mjs';
 import { repositoryContinuationCommand } from '../src/commands/repositories.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-rds-'));
@@ -117,7 +117,7 @@ test('GitHub provider uses fixed stdin GraphQL, strips ambient tokens, and valid
     host: 'github.example', query: 'query Fixed { viewer { id } }', operationName: 'Fixed'
   }, {
     launch,
-    environment: { PATH: '/approved', GH_TOKEN: invented('must-no', 't-cross'), DEBUG: 'must-not-cross' },
+    environment: { PATH: '/approved', GH_TOKEN: inventedValue('must-no', 't-cross'), DEBUG: 'must-not-cross' },
     spawnCommand: fakeGraphql(() => ({ data: { viewer: { id: 'V_1' } } }), observed)
   });
   assert.equal(result.envelope.data.viewer.id, 'V_1');

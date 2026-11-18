@@ -10,7 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { readKnowledgeSource } from '../src/knowledge/source.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -26,9 +26,9 @@ async function fixture(t, environments) {
   git(root, 'config', 'user.name', 'Knowledge Environment');
   for (const directory of ['src', 'config', 'generated/client', 'singularity']) await mkdir(path.join(root, directory), { recursive: true });
   await writeFile(path.join(root, 'src', 'app.mjs'), 'export const application = true;\n');
-  await writeFile(path.join(root, 'config', 'local-settings.mjs'), invented("export const to", "ken = 'historically-tracked';\n"));
+  await writeFile(path.join(root, 'config', 'local-settings.mjs'), inventedValue("export const to", "ken = 'historically-tracked';\n"));
   await writeFile(path.join(root, 'generated', 'client', 'api.mjs'), 'export const generated = true;\n');
-  await writeFile(path.join(root, '.env.local.mjs'), invented("export const sec", "ret = 'tracked';\n"));
+  await writeFile(path.join(root, '.env.local.mjs'), inventedValue("export const sec", "ret = 'tracked';\n"));
   await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'worldModel:\n  excludedRoots: [generated]\n');
   if (environments) await writeFile(path.join(root, 'singularity', 'environments.yml'), environments);
   // Raw Git simulates a repository that tracked local content before it declared it.

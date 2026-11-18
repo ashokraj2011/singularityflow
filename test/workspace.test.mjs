@@ -44,7 +44,7 @@ import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { writeLegacyStateCopy } from './helpers/legacy-state-copy.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -2993,7 +2993,7 @@ test('workspace adoption never persists credentials embedded in an origin URL', 
   await writeFile(path.join(repository, 'README.md'), '# repository\n');
   run('git', ['add', '.'], { cwd: repository });
   run('git', ['commit', '-m', 'initial'], { cwd: repository });
-  run('git', ['remote', 'add', 'origin', invented('https://reviewerone:', 'office-token@example.com/acme/repository.git')], {
+  run('git', ['remote', 'add', 'origin', inventedValue('https://reviewerone:', 'office-token@example.com/acme/repository.git')], {
     cwd: repository
   });
 
@@ -3826,7 +3826,7 @@ test('stale workspace-manifest lease recovery cannot retire its live successor',
   await writeFile(manifest, '{}\n');
   await writeFile(lock, `${JSON.stringify({
     pid: 2_147_483_647,
-    token: invented('00000000-0000-4000', '-8000-000000000001'),
+    token: inventedValue('00000000-0000-4000', '-8000-000000000001'),
     createdAt: '2000-01-01T00:00:00.000Z'
   })}\n`, { mode: 0o600 });
   const staleTime = new Date(Date.now() - (16 * 60_000));
@@ -3984,8 +3984,8 @@ test('workspace-manifest lease held by a recycled PID is reclaimed', async (t) =
     pid: process.pid,
     host: os.hostname(),
     processStartedAt: 0,
-    processToken: invented('old-proces', 's-instance'),
-    token: invented('00000000-0000-4000', '-8000-000000000002'),
+    processToken: inventedValue('old-proces', 's-instance'),
+    token: inventedValue('00000000-0000-4000', '-8000-000000000002'),
     createdAt: '2000-01-01T00:00:00.000Z'
   })}\n`, { mode: 0o600 });
   const staleTime = new Date(Date.now() - 31_000);
@@ -4004,7 +4004,7 @@ test('workspace-manifest lease fences and advances past an interrupted reclaim c
   const lock = `${manifest}.lock`;
   const ownerBytes = `${JSON.stringify({
     pid: 2_147_483_647,
-    token: invented('00000000-0000-4000', '-8000-000000000003'),
+    token: inventedValue('00000000-0000-4000', '-8000-000000000003'),
     createdAt: '2000-01-01T00:00:00.000Z'
   })}\n`;
   await writeFile(manifest, '{}\n');
@@ -4025,8 +4025,8 @@ test('workspace-manifest lease fences and advances past an interrupted reclaim c
     pid: 2_147_483_647,
     host: os.hostname(),
     processStartedAt: 0,
-    processToken: invented('crashed', '-reaper'),
-    claimToken: invented('crashe', 'd-claim'),
+    processToken: inventedValue('crashed', '-reaper'),
+    claimToken: inventedValue('crashe', 'd-claim'),
     reclaimIdentity: identity,
     createdAt: '2000-01-01T00:00:00.000Z'
   })}\n`);

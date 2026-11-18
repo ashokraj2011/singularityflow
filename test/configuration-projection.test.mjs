@@ -8,7 +8,7 @@ import { createConfigurationProjection, fetchConfigurationBase } from '../src/co
 import { frozenRemoteTransport } from '../src/git-remote-diagnostics.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import { run } from '../src/util.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function fixture(t, { count = 3, partial = true, format = 'sha1' } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-projection-objects-'));
@@ -83,7 +83,7 @@ test('large missing inventories use Windows-safe bounded batches through the app
 test('hydration failures preserve authentication evidence and never expose credential-shaped provider text', async t => {
   const f = await fixture(t);
   await assert.rejects(() => f.project('denied', async () => ({ status: 128,
-    stderr: invented("could not read Username for 'https://fixture-user:", "secret-value@example.invalid/private.git'"),
+    stderr: inventedValue("could not read Username for 'https://fixture-user:", "secret-value@example.invalid/private.git'"),
     failure: { code: 'REMOTE_AUTHENTICATION_REQUIRED', classification: 'authentication-required', advice: 'Sign in to Git and retry.' } })), error => {
     assert.equal(error.code, 'REMOTE_AUTHENTICATION_REQUIRED');
     assert.equal(error.details.stage, 'configuration-object-hydration');

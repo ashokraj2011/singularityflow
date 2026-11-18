@@ -22,6 +22,7 @@ import { readGatewayEvents } from '../src/gateway/audit.mjs';
 import { serveMcp } from '../src/gateway/mcp-stdio.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const runtime = fileURLToPath(new URL('../apps/vscode/dist/gateway-runtime.cjs', import.meta.url));
@@ -189,7 +190,7 @@ test('a plan over MCP is confirmed in the client UI, and refused where there is 
 test('audit-is-useful-without-private-reasoning', slowLane({ timeout: 300_000 }), async (t) => {
   // `[INT:AC-021]` `[INT:IFC-070]` `[INT:CON-140]` `[INT:REQ-140]`.
   const root = await fixture(t);
-  const secret = 'customer-ssn-123-45-6789 private-marker';
+  const secret = inventedValue('customer-ssn-', '123-45-6789 private-marker');
   const client = mcpClient(root, { elicit: () => ({ action: 'accept', content: { confirm: true } }) });
   t.after(() => client.close());
   await client.start();

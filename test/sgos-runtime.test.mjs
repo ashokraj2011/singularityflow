@@ -96,7 +96,7 @@ import {
 } from '../src/sgos/store.mjs';
 import { publishSgosProgramAuthority } from './helpers/sgos-authority.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const HASH = Object.freeze({
   intent: `sha256:${'1'.repeat(64)}`,
@@ -1021,10 +1021,10 @@ test('a Process lock another machine holds keeps its own refusal: its holder and
   const started = await start(fixture.root, fixture.storyId, compiled);
   const subject = { kind: 'sgos-process', id: started.process.processId };
   const lock = subjectLockPath(fixture.root, subject);
-  const lockToken = invented('6e2d4c1b-3a5f-4b7e', '-8d9c-0a1b2c3d4e5f');
+  const lockToken = inventedValue('6e2d4c1b-3a5f-4b7e', '-8d9c-0a1b2c3d4e5f');
   await mkdir(lock, { recursive: true });
   await writeFile(path.join(lock, 'owner.json'), `${JSON.stringify({ schemaVersion: 1, subject, pid: 4242,
-    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: invented('else', 'where'), lockToken,
+    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: inventedValue('else', 'where'), lockToken,
     acquiredAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-01T03:00:00.000Z' })}\n`);
   const began = Date.now();
   const outcome = await runReadySgosTasks(fixture.root, started.process.processId, { program: compiled, maximumParallel: 2, clock: T1 })
@@ -3733,7 +3733,7 @@ test('typed Human Response schema and sensitive-channel handles fail closed', as
   };
   await assert.rejects(
     () => respondToSgosHumanRequest(fixture.root, waiting.process.processId, {
-      ...base, input: { token: invented('raw-s', 'ecret') }
+      ...base, input: { token: inventedValue('raw-s', 'ecret') }
     }),
     (error) => error.code === 'SGOS_HUMAN_RESPONSE_SENSITIVE_VALUE_REFUSED'
   );

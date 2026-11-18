@@ -15,6 +15,7 @@ import YAML from 'yaml';
 
 import { deliverStepActions, enqueueStepActions, listStepActionDeliveries } from '../src/step-action-delivery.mjs';
 import { normalizeIntegrations, normalizeStepActions, pinStepActions } from '../src/step-actions.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -168,7 +169,7 @@ test('a pipeline delivers a pushed approval to a trusted target and records it; 
   run('git', ['config', 'user.name', 'Delivery Pipeline'], ci);
   run('git', ['config', 'user.email', 'pipeline-bot@example.test'], ci);
   run('git', ['checkout', '-q', '-B', W, `origin/${W}`], ci);
-  const pipelineEnv = { SFLOW_SECRET_PIPELINE_KEY: 'pipeline-only-secret' };
+  const pipelineEnv = { SFLOW_SECRET_PIPELINE_KEY: inventedValue('pipeline-only-', 'secret') };
   const deliver = (...args) => runAsync(process.execPath, [CLI, '--no-model', 'integrations', 'deliver', ...args, '--json'], ci, pipelineEnv, { allowFailure: true });
 
   // Many pipelines check out a detached commit: delivery works there, recording asks for the branch.

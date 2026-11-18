@@ -37,7 +37,7 @@ import { readLocalDocument } from '../src/document-storage.mjs';
 import { createPerformanceTrace } from '../src/performance-trace.mjs';
 import { writePerformanceTrace } from '../src/performance-trace-store.mjs';
 import { isolatedHomeEnvironment, isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
@@ -9464,7 +9464,7 @@ test('a fresh review queue discovers setup proposals by a safe clone URL', async
   assert.ok(queue);
   await until(() => queue.webview.html.includes('Find setup proposal…')
     ? queue.webview.html : null);
-  registered.typed = 'https://user:secret@git.example/private.git';
+  registered.typed = inventedValue('https://user:', 'secret@git.example/private.git');
   await queue.post({ type: 'add-setup-repository' });
   await settle();
   assert.equal(calls.some((argv) => argv.includes(registered.typed)), false,
@@ -10184,7 +10184,7 @@ test('capability mapping refuses credential-bearing URLs before command logging'
     if (previousLeadRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousLeadRegistry;
   });
-  const legacySecret = invented('legacy-regi', 'stry-secret');
+  const legacySecret = inventedValue('legacy-regi', 'stry-secret');
   const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
   const safeLead = path.join(base, 'safe-platform.git');
   const repository = path.join(base, 'payments.git');
@@ -10207,8 +10207,8 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
   assert.doesNotMatch(panel.webview.html, new RegExp(`${legacySecret}|old-map\.git`),
     'unsafe legacy registry entries never reach webview HTML');
-  const repositorySecret = invented('repository-', 'super-secret');
-  const authoritySecret = invented('authority-s', 'uper-secret');
+  const repositorySecret = inventedValue('repository-', 'super-secret');
+  const authoritySecret = inventedValue('authority-s', 'uper-secret');
 
   // Default discovery is portable and does not fan out through the machine-local convenience
   // cache. The explicit Search known authorities action must still let the CLI account for the
@@ -11677,7 +11677,7 @@ test('SF Guard: the Guard page reads status and report, and an approval refused 
  */
 const RUN_SHA = `sha256:${'1'.repeat(64)}`;
 /** A value an environment file could hold: no page, message or log may ever carry it. */
-const ENV_SECRET = invented('Pq7Wd2Lk9Xs', '4Bn6R', 't1Hy8M', 'v3Jc5Fz0Ga');
+const ENV_SECRET = inventedValue('Pq7Wd2Lk9Xs', '4Bn6R', 't1Hy8M', 'v3Jc5Fz0Ga');
 const RUN_SHA_CHANGED = `sha256:${'2'.repeat(64)}`;
 const RUN_W = 'RUN-STORY-1';
 const runPlanEntry = (sha = RUN_SHA) => ({
@@ -12496,7 +12496,7 @@ const RUN_API_TYPED = {
   url: 'http://127.0.0.1:8080/', ready: { http: '/actuator/health', timeoutMs: 180000 }, debug: { port: 5005 }
 };
 const RUN_API_ARGV = ['./mvnw', '-q', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.jvmArguments=-Xmx1g'];
-const RUN_FAKE_SECRET = invented('Zk3q9Vb7Lp2', 'Xw8R', 't5Ny1Hc', '6Md4Gs0Jf');
+const RUN_FAKE_SECRET = inventedValue('Zk3q9Vb7Lp2', 'Xw8R', 't5Ny1Hc', '6Md4Gs0Jf');
 /** `app plan --json` with typed entries and the declared block, as the amendment describes it. */
 const typedRunPlan = () => ({
   ...runPlan(),

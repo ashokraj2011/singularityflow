@@ -9,7 +9,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { invented } from './invented-secrets.mjs';
+import { inventedValue } from './invented-secrets.mjs';
 
 export const LEAD = '.github/agents/delivery-lead.agent.md';
 
@@ -65,7 +65,7 @@ Review the change against the plan. Report findings; do not edit.
 `,
   'ACME.md': '# Team rules\nBe kind.\n',
   'docs/process.md': '# Delivery process\nPlan, build, test, review.\n',
-  'docs/notes.md': invented('aws_access_key_id = AK', 'IAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalr', 'XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n'),
+  'docs/notes.md': inventedValue('aws_access_key_id = AK', 'IAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalr', 'XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n'),
   'docs/tokens.md': 'never read\n'
 };
 

@@ -15,7 +15,7 @@ import {
 } from '../src/choices.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn } from '../src/copilot-mutation-guard.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -407,7 +407,7 @@ test('selection receipt reads reject mismatched tokens, unsupported schemas, and
 
   let receipt = await create();
   let file = path.join(root, '.git', 'singularity-flow', 'choices', `${receipt.token}.json`);
-  await writeFile(file, JSON.stringify({ ...receipt, token: invented('11111111-1111-4111', '-8111-111111111111') }));
+  await writeFile(file, JSON.stringify({ ...receipt, token: inventedValue('11111111-1111-4111', '-8111-111111111111') }));
   await assert.rejects(() => selectionReceiptStatus(root, receipt.token), /token does not match/i);
 
   receipt = await create();

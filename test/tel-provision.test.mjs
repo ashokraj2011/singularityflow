@@ -17,6 +17,7 @@ import {
   TELEMETRY_DISCLOSURE_DIGEST
 } from '../src/telemetry-provision.mjs';
 import { run } from '../src/util.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function repository(prefix = 'sflow-telemetry-') {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
@@ -136,7 +137,7 @@ test('a Windows host session resolves Copilot from PATH without consulting the r
 test('existing exporter configuration and forced content capture are preserved and never disclosed', async () => {
   const root = await repository();
   const env = await acceptedEnvironment(root);
-  const secretEndpoint = 'https://collector.example.test/token/example-secret-value';
+  const secretEndpoint = inventedValue('https://collector.example.test/token/', 'example-secret-value');
   const conflict = await prepareTelemetryLaunch({
     root, baseEnv: { ...env, OTEL_EXPORTER_OTLP_ENDPOINT: secretEndpoint, OTEL_EXPORTER_OTLP_HEADERS: 'Authorization=secret' }
   });

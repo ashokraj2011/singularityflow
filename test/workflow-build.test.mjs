@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { classifyCommand, scanGuidanceText } from '../src/guidance-scan.mjs';
 import { textCandidate } from '../src/team-import/formats.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -57,7 +57,7 @@ const TEAM = {
   'requests/payments.http': ['### Capture', 'POST https://api.example.com/payments/capture', 'Content-Type: application/json', ''].join('\n'),
   '.vscode/mcp.json': JSON.stringify({ servers: { jira: { url: 'https://mcp.example.com/jira' }, files: { command: 'npx', args: ['files-server'] } } }, null, 2),
   'scripts/deploy.sh': ['#!/bin/sh', 'curl -X PUT https://deploy.example.com/releases/$VERSION', ''].join('\n'),
-  'config/tokens.env': invented('TO', 'KEN=not-really\n'),
+  'config/tokens.env': inventedValue('TO', 'KEN=not-really\n'),
   'notes/leaked.md': `Ask the release captain. Old key ${fakeKey}\n`
 };
 
@@ -162,7 +162,7 @@ test('single files and notes are screened before they are copied, and adding mat
   const extra = await mkdtemp(path.join(os.tmpdir(), 'sflow-extra-'));
   await writeFile(path.join(extra, 'lead-notes.txt'), 'Production deploys need approval by the payments lead.\nGET https://status.example.com/api/v2/summary.json\n');
   await writeFile(path.join(extra, 'old.md'), `key ${fakeKey}\n`);
-  await writeFile(path.join(extra, 'secrets.yml'), 'password: hunter2\n');
+  await writeFile(path.join(extra, 'secrets.yml'), inventedValue('pass', 'word: hunter2\n'));
   const added = json(os.tmpdir(), ['workflow', 'build', 'add', '--build', started.id, '--file', path.join(extra, 'lead-notes.txt'),
     '--file', path.join(extra, 'old.md'), '--file', path.join(extra, 'secrets.yml'), '--notes', '-'], { input: 'Second runbook: run `make check`.\n' }).build;
   assert.equal(added.id, started.id);

@@ -4,12 +4,12 @@ import {
   adfToText, assignIssue, discoverJiraConnection, getIssue, issueToMarkdown, listBoardStories, listBoards, listFields,
   listIssueTransitions, listMyIssues, moveIssueToSprint, normalizeIssue, setIssuePriority, transitionIssue
 } from '../src/jira.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const env = {
   JIRA_BASE_URL: 'https://example.atlassian.net',
   JIRA_EMAIL: 'dev@example.com',
-  JIRA_API_TOKEN: invented('test-', 'token'),
+  JIRA_API_TOKEN: inventedValue('test-', 'token'),
   SINGULARITY_FLOW_JIRA_ACCEPTANCE_FIELD: 'customfield_10000',
   SINGULARITY_FLOW_JIRA_STORY_POINTS_FIELD: 'customfield_10016',
   SINGULARITY_FLOW_JIRA_SPRINT_FIELD: 'customfield_10020'

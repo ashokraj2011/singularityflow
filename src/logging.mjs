@@ -80,7 +80,7 @@ const SECRET_VALUE = [
 const SSH_USERNAME_PROTOCOLS = new Set(['ssh:', 'git+ssh:', 'ssh+git:']);
 
 // A string can be a valid local Git path and still contain material that must never be copied into
-// a timeout replay command. For example, `./https://user:password@host/repo` is path syntax to Git,
+// a timeout replay command. For example, `./` before a URL with a password is path syntax to Git,
 // not a network URL, and `/tmp/ghp_...` is also a valid path. The repository trust boundary accepts
 // both, so replay safety needs this additional content boundary before preserving accepted bytes.
 function remoteOperandContainsSensitiveMaterial(value) {

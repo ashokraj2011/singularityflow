@@ -8,7 +8,7 @@ import { ARGUMENT_SCHEMAS } from '../src/gateway/argument-schemas.mjs';
 import {
   checkForm, draftRecord, formModel, readDraft, restoreDraft, schemaFingerprint, terminalEquivalent
 } from '../src/gateway/form-model.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 test('a form is the schema, not a hand-written copy of it', () => {
   /**
@@ -100,7 +100,7 @@ test('a confirmation is filtered on the way in, not only on the way out', () => 
    * Once it reaches storage the rule has already been broken: workspace state is a file someone can
    * open, and a later reader declining to restore a confirmation does not unwrite it.
    */
-  const record = draftRecord('work-list-v1', { group: 'active', confirm: 'PAY-1187', apiKey: invented('sk-l', 'ive-x') });
+  const record = draftRecord('work-list-v1', { group: 'active', confirm: 'PAY-1187', apiKey: inventedValue('sk-l', 'ive-x') });
   assert.deepEqual(record.values, { group: 'active' });
   assert.equal(record.values.confirm, undefined);
   // `[UXH:REQ-074]` names secrets separately from confirmation text, because they are separate

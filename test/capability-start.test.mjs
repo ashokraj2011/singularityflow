@@ -22,6 +22,7 @@ import {
   ensureConfigurationBranch, loadStoryConfigurationSnapshot,
   resolveStoryConfigurationAuthority, resolveStoryConfigurationSnapshotCapability
 } from '../src/configuration-branch.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const git = (cwd, ...args) => run('git', args, { cwd, allowFailure: false });
 
@@ -759,7 +760,7 @@ test('Story preflight resolves a valid capability from code-only application bra
   });
   // A read/local-only Story policy needs fetch authority but must not be blocked by an unusable
   // push destination that it will never contact.
-  git(lifecycleRoot, 'config', 'remote.origin.pushurl', 'https://user:secret@example.invalid/unused.git');
+  git(lifecycleRoot, 'config', 'remote.origin.pushurl', inventedValue('https://user:', 'secret@example.invalid/unused.git'));
 
   const checked = await preflightStoryRepositories(base, {
     repositories: [repositoryEntry],

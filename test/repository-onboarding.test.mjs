@@ -36,7 +36,7 @@ import { recordSha256 } from '../src/records.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { run } from '../src/util.mjs';
 import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 // Successful onboarding remembers a lead by default. Keep every test in this file away from
 // the operator's machine-local registry, including cases without an explicit per-test override.
@@ -230,7 +230,7 @@ test('repeat onboarding preview reuses exact-ref metadata while refresh and new 
     assert.equal(cacheBytes.includes(fixture.remote), false,
       'the cache identifies the credential-free repository by fingerprint');
     await assert.rejects(
-      inspectRepositoryOnboarding(invented('https://cache-user:', 'cache-secret@internal.invalid/team/app.git'), options),
+      inspectRepositoryOnboarding(inventedValue('https://cache-user:', 'cache-secret@internal.invalid/team/app.git'), options),
       /credential|user.?info|secret|token/iu
     );
     assert.equal((await readFile(cacheFile, 'utf8')).includes('cache-secret'), false,
@@ -2415,7 +2415,7 @@ test('a protected setup target remains pending under repository review controls'
       if (args[0] === 'push' && args.at(-1)?.endsWith(':refs/heads/sflow/config')) {
         return {
           status: 1, stdout: '',
-          stderr: 'remote: protected branch proxy page at https://name:secret@example.test/repo',
+          stderr: inventedValue('remote: protected branch proxy page at https://name:', 'secret@example.test/repo'),
           failure: {
             classification: 'network-transient', code: 'REMOTE_NETWORK_TRANSIENT',
             retryable: true, advice: 'Retry the network connection.'

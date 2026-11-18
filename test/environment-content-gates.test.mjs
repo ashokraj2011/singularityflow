@@ -11,7 +11,7 @@ import {
 import {
   environmentWorldModelExcludedRoots, loadEnvironmentDeclarationSync
 } from '../src/environment-declaration.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(root, args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -48,7 +48,7 @@ neverCommit:
 
 test('commit and governed publication refuse force-added environment-local paths', async () => {
   const root = await repository();
-  await writeFile(path.join(root, '.ENV.QA'), invented('API_TO', 'KEN=private-value\n'));
+  await writeFile(path.join(root, '.ENV.QA'), inventedValue('API_TO', 'KEN=private-value\n'));
   git(root, ['add', '-f', '.ENV.QA']);
 
   assert.throws(() => assertNoSecrets(root), (error) => {

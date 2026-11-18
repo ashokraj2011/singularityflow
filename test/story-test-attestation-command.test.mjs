@@ -3,7 +3,7 @@ import test from 'node:test';
 import { attestStoryTestCommand } from '../src/commands/story-test-attestation.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const digest = `sha256:${'b'.repeat(64)}`;
 function fixture() {
@@ -19,9 +19,9 @@ function fixture() {
     head: () => sourceHead,
     workDir: () => '/repository/singularity/work-items/repair',
     testCommandReviewReattestationAuthorization(review) { assert.equal(review, row.review); return { plan: {}, action: {} }; },
-    async captureTerminalActionAuthorization() { calls.push('terminal'); return { token: invented('live-w', 'itness') }; },
+    async captureTerminalActionAuthorization() { calls.push('terminal'); return { token: inventedValue('live-w', 'itness') }; },
     async reattestTestCommandReviewOrigin(_root, _workRoot, args) {
-      assert.deepEqual(args, { review: row.review, token: invented('live-w', 'itness') }); calls.push('reattest');
+      assert.deepEqual(args, { review: row.review, token: inventedValue('live-w', 'itness') }); calls.push('reattest');
     }
   };
   const run = (options = {}, overrides = {}) => attestStoryTestCommand({ root: '/repository', options }, { ...dependencies, ...overrides });
@@ -57,7 +57,7 @@ test('origin recovery refuses stale selection, changed HEAD, caller authority, a
   await assert.rejects(f.run({ apply: true, confirm: `sha256:${'c'.repeat(64)}` }), { code: 'TCA_ATTEST_REVIEW_STALE' });
   assert.equal(f.calls.includes('terminal'), false);
   await assert.rejects(f.run({ apply: true, confirm: digest }, {
-    async captureTerminalActionAuthorization() { f.move(); return { token: invented('live-w', 'itness') }; }
+    async captureTerminalActionAuthorization() { f.move(); return { token: inventedValue('live-w', 'itness') }; }
   }), { code: 'TCA_ATTEST_REVIEW_STALE' });
   assert.equal(f.calls.includes('reattest'), false);
 });

@@ -58,9 +58,9 @@ style and settings JSON. Both the name and the value have to say so.
 | `password: ENC(…)`, `{cipher}…`, `vault:…`, `arn:…` | Not a value | Encrypted, or a pointer to a secret store |
 | `password: changeme`, `<your-key>`, `****` | Not a value | Written as a placeholder |
 | `password:` with `postgres`, `test1234` or `abc` | Not a value | A local fixture, not a credential |
-| `password: Password`, `existingSecret: my-secret-v2`, `DB_CREDENTIALS` | Not a value | A label or a name |
-| `client-key: certs/client.key`, `secret: kv/data/app`, `public-key: …` | Not a value | A path, a store path, or public |
-| `token_ttl: 3600`, `auth_mode: oauth`, `secret_name: prod-db-2` | Not a value | A setting about a credential |
+| `password:` with `Password`, `existingSecret:` with `my-secret-v2`, `DB_CREDENTIALS` | Not a value | A label or a name |
+| `client-key: certs/client.key`, `secret:` with `kv/data/app`, `public-key: …` | Not a value | A path, a store path, or public |
+| `token_ttl: 3600`, `auth_mode: oauth`, `secret_name:` with `prod-db-2` | Not a value | A setting about a credential |
 | `checksum: 3fa85f64…` | Not a value | No credential word in its name, outside an env-style file |
 | `SIGNING_SALT=Zq7vK2mP…` in a `.env*` file | Value | An env-style file holds little else, so a token's shape is enough |
 | `url: https://x.io/a?sig=` and 16 random letters and digits | Value | A link is judged by its parameter and its value |

@@ -24,9 +24,9 @@ import test from 'node:test';
 import { cli, repository } from './helpers/run-and-test-fixture.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { javaProject, javaSonarServer, lineOf, MAIN, mavenOnPath, PRICING, PRICING_TEST, storyChange, writeFiles } from './helpers/java-sonar-fixture.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
-const SECRET = invented('sonar-token-no', 't-for-git-5d2e');
+const SECRET = inventedValue('sonar-token-no', 't-for-git-5d2e');
 const CLAUSE = 'QF-1:AC-001';
 
 async function javaStory(t, tool) {

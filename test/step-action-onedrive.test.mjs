@@ -9,9 +9,9 @@ import assert from 'node:assert/strict';
 import { storageAdapter } from '../src/epic-sources.mjs';
 import { GRAPH_BASE, deliverToOneDrive, graphDrivePath, oneDriveItemPath } from '../src/step-action-onedrive.mjs';
 import { normalizeIntegrations } from '../src/step-actions.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
-const ENV = { SFLOW_SECRET_GRAPH_TOKEN: invented('graph', '-token') };
+const ENV = { SFLOW_SECRET_GRAPH_TOKEN: inventedValue('graph', '-token') };
 const KEY = `sad_${'5'.repeat(40)}`;
 
 function driveRecord({ target = { kind: 'onedrive', drive: 'b!lib-1', site: 'contoso.sharepoint.com,11,22', tokenSecret: 'SFLOW_SECRET_GRAPH_TOKEN' }, generation = 2, artifact } = {}) {
@@ -104,10 +104,10 @@ test('a OneDrive delivery says what a person has to do, and retries only what ma
 test('storage uploads of small files succeed although the answer is larger than the file', async () => {
   const reply = (status, text) => new Response(text, { status, headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(text)) } });
   const description = JSON.stringify({ id: 'item-7', eTag: '"{1,1}"', webUrl: 'https://contoso.sharepoint.com/x', padding: 'x'.repeat(4000) });
-  const sharepoint = storageAdapter('docs', { type: 'sharepoint', siteId: 'site-1', driveId: 'drive-1' }, { token: invented('graph', '-token'), fetchImpl: async () => reply(201, description) });
+  const sharepoint = storageAdapter('docs', { type: 'sharepoint', siteId: 'site-1', driveId: 'drive-1' }, { token: inventedValue('graph', '-token'), fetchImpl: async () => reply(201, description) });
   const stored = await sharepoint.put({ initiativeId: 'EPIC-1', filename: 'note.md', bytes: Buffer.from('tiny\n'), sha256: 'b'.repeat(64) });
   assert.equal(stored.objectId, 'item-7');
-  const artifactory = storageAdapter('corporate', { type: 'artifactory', baseUrl: 'https://artifacts.example.test/artifactory', repository: 'releases' }, { token: invented('a-t', 'oken'), fetchImpl: async () => reply(201, JSON.stringify({ repo: 'releases', path: '/x', checksums: { sha256: 'c'.repeat(64) } })) });
+  const artifactory = storageAdapter('corporate', { type: 'artifactory', baseUrl: 'https://artifacts.example.test/artifactory', repository: 'releases' }, { token: inventedValue('a-t', 'oken'), fetchImpl: async () => reply(201, JSON.stringify({ repo: 'releases', path: '/x', checksums: { sha256: 'c'.repeat(64) } })) });
   const deployed = await artifactory.put({ initiativeId: 'EPIC-1', filename: 'note.md', bytes: Buffer.from('tiny\n'), sha256: 'b'.repeat(64) });
   assert.equal(deployed.version, 'b'.repeat(64));
 });

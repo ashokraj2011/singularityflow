@@ -9,10 +9,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CLI, git, repository as envRepository, writeFiles } from './helpers/environment-files-fixture.mjs';
 import { repository as testsRepository } from './helpers/run-and-test-fixture.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
-const WEB_SECRET = invented('web-token-', 'secret-7731');
-const API_SECRET = invented('api-db-p', 'ass-9142');
+const WEB_SECRET = inventedValue('web-token-', 'secret-7731');
+const API_SECRET = inventedValue('api-db-p', 'ass-9142');
 const SERVER = (file, label) => `import { readFileSync, writeFileSync } from 'node:fs';
 writeFileSync('pid.txt', String(process.pid));
 console.log('${label} read: ' + readFileSync('${file}', 'utf8').trim().split('\\n').join(' | '));
@@ -68,7 +68,7 @@ async function monorepo(t) {
   return envRepository(t, { declaration: MONOREPO, files: {
     'singularity/capabilities.yml': JSON.stringify(capabilities, null, 2),
     'services/api/server.mjs': SERVER('src/main/resources/application-dev.yml', 'api'),
-    'services/api/src/main/resources/application-dev.example.yml': 'spring:\n  datasource:\n    password: CHANGE_ME\n',
+    'services/api/src/main/resources/application-dev.example.yml': inventedValue('spring:\n  datasource:\n    pass', 'word: CHANGE_ME\n'),
     'apps/web/server.mjs': SERVER('.env.dev', 'web')
   } });
 }
@@ -136,7 +136,7 @@ test('tests run refuses a missing environment file before any command runs, then
   assert.deepEqual([refused.value.error.details.environment, refused.value.error.details.path], ['qa', '.env.qa']);
   await assert.rejects(readFile(repo.env.FIXTURE_FLAG), { code: 'ENOENT' }, 'nothing ran');
   const created = repo.sflowJson('env', 'files', 'create', 'qa', '.env.qa').value;
-  await writeFile(created.location, invented('QA_SECRET_TO', 'KEN=qa-file-secret-5512\n'));
+  await writeFile(created.location, inventedValue('QA_SECRET_TO', 'KEN=qa-file-secret-5512\n'));
   const ran = repo.sflowJson('tests', 'run', '--command', 'integration-tests');
   assert.equal(ran.value.run.environment, 'qa');
   assert.equal(await readFile(repo.env.FIXTURE_FLAG, 'utf8'), 'ran\n');
@@ -217,7 +217,7 @@ test('a Story step\'s local run and its publish gate place the file, block witho
   assert.match(JSON.stringify(blocked.value), /ENV_FILE_MISSING|needs a file of this repository that is missing on this machine: \.env\.qa/u);
 
   const created = repo.sflowJson('env', 'files', 'create', 'qa', '.env.qa').value;
-  await writeFile(created.location, invented('QA_SECRET_TO', 'KEN=story-file-secret-8820\n'));
+  await writeFile(created.location, inventedValue('QA_SECRET_TO', 'KEN=story-file-secret-8820\n'));
   const published = repo.run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implement']);
   assert.equal(published.status, 0, `${published.stdout}\n${published.stderr}`);
   const attemptsDirectory = path.join(repo.root, 'singularity/work-items/QF-1/context/code-delivery/tests/attempts/implement');

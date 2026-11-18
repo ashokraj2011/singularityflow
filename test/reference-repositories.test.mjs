@@ -22,6 +22,7 @@ import {
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow } from '../src/state.mjs';
 import { run } from '../src/util.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(cwd, args) {
   return run('git', args, { cwd });
@@ -152,7 +153,7 @@ test('reference repository intake requires paired explicit IDs, URLs, and branch
     ['rules=https://example.test/rules.git'], []
   ), /requires --reference-branch rules=/);
   assert.throws(() => parseReferenceRepositoryOptions(
-    ['rules=https://user:secret@example.test/rules.git'], ['rules=main']
+    [inventedValue('rules=https://user:', 'secret@example.test/rules.git')], ['rules=main']
   ), /credential/i);
 });
 

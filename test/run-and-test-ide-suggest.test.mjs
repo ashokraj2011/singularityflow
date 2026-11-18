@@ -10,7 +10,7 @@ import { parseJsonc, resolveIdePath, splitCommandLine } from '../src/app-suggest
 import { normalizeCapabilityApplication } from '../src/capabilities.mjs';
 import { FAKE_SECRETS, ideRepository, springBootRun } from './helpers/ide-run-configurations.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
 const cli = (root, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000) });
@@ -249,11 +249,11 @@ test('secret classification: names, JWTs, cloud keys, userinfo URLs and long ran
     assert.deepEqual(classifyVariable(name, value, { reference: value.startsWith('${env:') }, secrets), expected, name);
   }
   assert.equal(looksSecretValue('com.example.shop.ApiApplication2Main'), false);
-  assert.equal(looksSecretValue(invented('-----BEGIN RSA PRIVATE', ' KEY-----\nabc')), true);
+  assert.equal(looksSecretValue(inventedValue('-----BEGIN RSA PRIVATE', ' KEY-----\nabc')), true);
   const notes = [];
-  const scrubbed = withoutSecretArguments(['--server.port=8081', invented('--db.pass', 'word=hunter22'), '--api-token', 'tok-12345', '--verbose',
-    invented('-Dspring-boot.run.jvmArguments=-Xmx1g -Dspring.datasource.pass', 'word=pw-123456 -Dx=1'), `--header=${FAKE_SECRETS.jwt}`,
-    'postgres://user:pass@db/x', FAKE_SECRETS.highEntropy], secrets, notes);
+  const scrubbed = withoutSecretArguments(['--server.port=8081', inventedValue('--db.pass', 'word=hunter22'), '--api-token', 'tok-12345', '--verbose',
+    inventedValue('-Dspring-boot.run.jvmArguments=-Xmx1g -Dspring.datasource.pass', 'word=pw-123456 -Dx=1'), `--header=${FAKE_SECRETS.jwt}`,
+    inventedValue('postgres://user:', 'pass@db/x'), FAKE_SECRETS.highEntropy], secrets, notes);
   assert.deepEqual(scrubbed.tokens, ['--server.port=8081', '--verbose', '-Dspring-boot.run.jvmArguments=-Xmx1g -Dx=1']);
   assert.deepEqual(scrubbed.secretNames, ['DB_PASSWORD', 'API_TOKEN', 'SPRING_DATASOURCE_PASSWORD', 'HEADER']);
   assert.equal(notes.length, 1);

@@ -12,9 +12,9 @@ import { environmentDoesNotCountWords } from '../src/code-delivery-tests.mjs';
 import {
   environmentCountsForStep, localIntegrationPolicyRefusal, selectRunEnvironment
 } from '../src/run-environment.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
-const SECRET = invented('very-privat', 'e-token-3141');
+const SECRET = inventedValue('very-privat', 'e-token-3141');
 const declaration = { environments: { dev: {}, qa: {}, uat: {} } };
 
 test('a run uses a listed environment, else the checks-linked one, and refuses any other by name', () => {
@@ -87,7 +87,7 @@ test('materialization gives values to a child environment only and never seriali
   const serialized = JSON.stringify(bound) + JSON.stringify({ ...bound }) + JSON.stringify(structuredClone({ ...bound }));
   assert.doesNotMatch(serialized, new RegExp(SECRET, 'u'));
   assert.deepEqual(Object.keys(bound), ['status', 'environment', 'missing']);
-  const env = bound.childEnvironment({ PATH: process.env.PATH, api_token: invented('sha', 'dow') });
+  const env = bound.childEnvironment({ PATH: process.env.PATH, api_token: inventedValue('sha', 'dow') });
   assert.equal(env.API_TOKEN, SECRET);
   assert.equal(env.API_BASE_URL, 'https://qa.example.test');
   assert.equal(env.api_token, undefined);

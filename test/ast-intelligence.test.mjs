@@ -23,6 +23,7 @@ import { createGatewayKernel } from '../src/gateway/kernel.mjs';
 import { astQueryPlanner } from '../src/gateway/planners/ast-intelligence.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { validateSflowResult } from '../src/gateway/result.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -641,7 +642,7 @@ test('an explicit adapter executes through bounded structured JSON without a she
   assert.doesNotMatch(JSON.stringify(rejected), /secret/);
   const diagnostic = validateAstAdapterResponse({
     ...response,
-    diagnostics: [{ code: 'PARSE_WARNING', message: 'token=secret /Users/private/source.ts' }]
+    diagnostics: [{ code: 'PARSE_WARNING', message: inventedValue('to', 'ken=secret /Users/private/source.ts') }]
   }, manifest, request);
   assert.deepEqual(diagnostic.diagnostics, [{
     code: 'PARSE_WARNING', message: "AST adapter 'syntax-fixture' reported diagnostic PARSE_WARNING."

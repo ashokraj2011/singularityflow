@@ -28,7 +28,7 @@ import {
 import { resolveOperation } from '../src/command-registry.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion, readRecord } from '../src/schema-migrations.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const FLIGHT_ID = `AFL-${'A'.repeat(26)}`;
 const HASH = (value) => `sha256:${String(value).repeat(64).slice(0, 64)}`;
@@ -983,7 +983,7 @@ test('typed Human Requests require exact CAS, reject secret-shaped credential an
   );
   await assert.rejects(
     () => respondAutoHumanRequest(root, FLIGHT_ID, created.request.requestId,
-      { secret: invented('do-not', '-store') }, created.request.requestSha256),
+      { secret: inventedValue('do-not', '-store') }, created.request.requestSha256),
     (error) => error.code === 'AUTO_HUMAN_REQUEST_RESPONSE_INVALID'
   );
   await assert.rejects(

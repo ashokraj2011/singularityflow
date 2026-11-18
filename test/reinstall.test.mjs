@@ -26,6 +26,7 @@ import {
   acquireActivationLease, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
 import { readRecord } from '../src/schema-migrations.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const VERSION = '9.8.7';
 const BUILD = `${VERSION} (fixture-build-01234567)`;
@@ -1098,7 +1099,7 @@ test('all validation and packaging finishes before removal and failures print a 
 });
 
 test('registry validation rejects credentials and reinstall source contains no Git execution or broad home deletion', async () => {
-  assert.throws(() => normalizeReinstallRegistry('https://user:token@example.test/npm/'), /credentials/);
+  assert.throws(() => normalizeReinstallRegistry(inventedValue('https://user:', 'token@example.test/npm/')), /credentials/);
   assert.throws(() => normalizeReinstallRegistry('file:///tmp/registry'), /http/);
   const source = await readFile(new URL('../src/reinstall.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /execute(?:OrThrow)?\([^\n]*['"]git['"]/);

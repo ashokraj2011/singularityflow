@@ -11,7 +11,7 @@ import { skillForCommandLine } from '../src/command-skills.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { testOnlyCorrection } from '../src/evidence/evaluate.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 // Refusals whose way out existed but was never named, or was cut, or pointed back at the turn that
 // refused (second unhappy-path sweep, 2026-10-29).
@@ -128,7 +128,7 @@ test('story approvers with no verb is the refresh preview, in the registry as in
 test('a lock only a person can end: its reviewed release is the person\'s first step on every surface, then the read', () => {
   // SUBJECT_LOCK_BUSY, the reset barrier, registry, selection, transport and Authority Store leases carry
   // their release as details.releaseCommand; the plan was recover/phase show or help/doctor (E5/D2).
-  const token = invented('3f2c1a9e-8b7d-4e6f', '-9a0b-1c2d3e4f5a6b');
+  const token = inventedValue('3f2c1a9e-8b7d-4e6f', '-9a0b-1c2d3e4f5a6b');
   const owner = { pid: 4242, host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000',
     acquiredAt: '2026-10-30T10:00:00.000Z', lockToken: token };
   const liveness = { state: 'unknown', reason: 'other-machine', heartbeat: 'stale', lastHeartbeatAt: '2026-10-30T10:01:00.000Z' };

@@ -11,7 +11,7 @@ import { buildTestSummary, testSummaryText } from '../src/test-summary.mjs';
 
 import { repository } from './helpers/run-and-test-fixture.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const xml = (body) => `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>${body}</testsuites>`;
 
@@ -101,7 +101,7 @@ test('the summary text shows each failed case\'s message under it [CQF:REQ-014]'
   assert.match(text, /^ {2}✖ unit › a › two \(test\/a\.test\.js:4\)\n {6}Expected: 2\n\n {6}Received: 1\n {2}✖ unit › a › three\n/mu, 'a blank line stays blank');
 });
 
-const SECRET = invented('case-message', '-secret-4d1f');
+const SECRET = inventedValue('case-message', '-secret-4d1f');
 const SECRET_JUNIT = `import { mkdirSync, writeFileSync } from 'node:fs';
 mkdirSync('.sflow/results', { recursive: true });
 writeFileSync('.sflow/results/secret.xml', '<?xml version="1.0"?><testsuites><testsuite name="api">'

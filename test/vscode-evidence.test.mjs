@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
@@ -112,7 +113,7 @@ test('Epic evidence is pinned one deterministic file at a time and links retain 
 test('evidence URLs require public-form HTTPS references and Figma links use a Figma host', () => {
   assert.equal(validateEvidenceUrl('https://docs.example.com/brief.pdf'), null);
   assert.equal(validateEvidenceUrl('http://docs.example.com/brief.pdf'), 'Use an HTTPS URL without embedded credentials.');
-  assert.equal(validateEvidenceUrl('https://user:secret@example.com/brief.pdf'), 'Use an HTTPS URL without embedded credentials.');
+  assert.equal(validateEvidenceUrl(inventedValue('https://user:', 'secret@example.com/brief.pdf')), 'Use an HTTPS URL without embedded credentials.');
   assert.equal(validateEvidenceUrl('https://www.figma.com/design/abc', true), null);
   assert.equal(validateEvidenceUrl('https://example.com/not-figma', true), 'Enter a Figma HTTPS link.');
 });

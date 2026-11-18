@@ -11,7 +11,7 @@ import { repairDigest } from '../src/phase-repair-journal.mjs';
 import { run } from '../src/util.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const WORK = 'JOURNEY-1';
 function aggregate(id = 'team-build') {
@@ -140,7 +140,7 @@ test('confirmed continuation performs only bounded publish and submit, never app
 });
 test('a failed operation stays visible after reopening and its retained diagnostic is redacted', async t => {
   const f = await fixture(t); const plan = await f.invoke();
-  const diagnostic = invented('Runner refused https://user:', 'super-secret@example.test/repo?to', 'ken=secret-token');
+  const diagnostic = inventedValue('Runner refused https://user:', 'super-secret@example.test/repo?to', 'ken=secret-token');
   const result = await f.invoke('run', plan.confirmation, { execute: async () => ({ code: 'RUNNER_UNAVAILABLE', diagnostic }) });
   assert.equal(result.journey.state, 'operation-review');
   assert.equal(result.status, 'operation-review');

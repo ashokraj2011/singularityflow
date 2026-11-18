@@ -14,7 +14,7 @@ import { deliveredContent, sameDeliveredContent } from '../src/comprehension/xpl
 import { validateXpl2Narration, xpl2NarrationInput } from '../src/comprehension/xpl2/narration.mjs';
 import { explainXpl2Subject, xpl2LineHistoryRequest } from '../src/comprehension/xpl2/subjects.mjs';
 import { cliJson, createChangeRepository, createXpl2Fixture, git, isolatedHome, xpl2InputFor } from './helpers/xpl2-fixture.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const GENERATION = { subject: 'generation', phase: 'implementation', generation: 2 };
 const texts = (model) => [...model.statements, ...model.derived].map((entry) => entry.text).join('\n');
@@ -97,7 +97,7 @@ test('review 5: commentary with any link, markup or wrapped secret is withheld',
   const id = input.statements[0].id;
   for (const text of ['see https://example.test/run', 'visit www.example.test now', 'write to mailto:someone@example.test',
     'run `rm` first', '# Heading', 'this is **bold**', 'a &gt b', 'see ftp://example.test/x', 'quoted "QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Njc4OTA" token',
-    invented('wrapped (Zm9vYmFyYmF6c', 'XV4MTIzNDU2Nz', 'g5MGFiY2RlZg) value'), '> quoted line', '- [x] task']) {
+    inventedValue('wrapped (Zm9vYmFyYmF6c', 'XV4MTIzNDU2Nz', 'g5MGFiY2RlZg) value'), '> quoted line', '- [x] task']) {
     const result = validateXpl2Narration(JSON.stringify({ sections: [], commentary: { text, citations: [id] } }), input, { commentary: true });
     assert.equal(result.commentary.status, 'withheld', text);
   }

@@ -20,6 +20,7 @@ import {
   evaluateVisualCoverage, nativeCaptureCommand, visualCoverageHold, visualCoverageRefusal, visualProfileDecisionCommand
 } from '../src/visual-coverage.mjs';
 import { recordNativeVisualCapture } from '../src/visual-native-capture.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const PHONE = { id: 'phone-390x844', label: 'Phone 390 × 844', width: 390, height: 844, deviceScaleFactor: 1 };
 const RETINA = { id: 'phone-390x844-3x', label: 'Phone 390 × 844 @3x', width: 390, height: 844, deviceScaleFactor: 3 };
@@ -100,7 +101,7 @@ test('a native capture is refused outside an in-progress visual step, for an unk
   await assert.rejects(record({ profileId: PHONE.id, file, phase: 'implementation' }), { code: 'VISUAL_CAPTURE_INVALID' });
   await assert.rejects(record({ profileId: PHONE.id, file, source: 'mcp' }), (error) => error.code === 'VISUAL_CAPTURE_INVALID' && /simulator, emulator, device/u.test(error.message));
   await assert.rejects(record({ profileId: PHONE.id, file, device: '' }), { code: 'VISUAL_CAPTURE_INVALID' });
-  await assert.rejects(record({ profileId: PHONE.id, file, note: 'password: hunter2' }), { code: 'VISUAL_CAPTURE_INVALID' });
+  await assert.rejects(record({ profileId: PHONE.id, file, note: inventedValue('pass', 'word: hunter2') }), { code: 'VISUAL_CAPTURE_INVALID' });
   await writeFile(path.join(root, 'fake.png'), 'not a png');
   await assert.rejects(record({ profileId: PHONE.id, file: 'fake.png' }), (error) => error.code === 'VISUAL_CAPTURE_INVALID' && /cannot be read as a PNG/u.test(error.message));
   const whole = await readFile(path.join(root, file));

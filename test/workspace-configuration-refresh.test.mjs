@@ -33,7 +33,7 @@ import {
 } from '../src/workspace-configuration-refresh.mjs';
 import { openConfigurationReviews } from '../src/configuration-review-pass.mjs';
 import { changedLines, foldYamlFile, unfoldFirst } from './helpers/folded-yaml.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
 
@@ -578,7 +578,7 @@ test('confirmed refresh preserves allowlisted enterprise Git transport and auth 
   const globalConfig = path.join(root, 'global.gitconfig');
   const systemCa = path.join(root, 'system-ca.pem');
   const globalCa = path.join(root, 'global-ca.pem');
-  const secretHeader = invented('Authorization: Bearer ', 'must-not-enter-refresh');
+  const secretHeader = inventedValue('Authorization: Bearer ', 'must-not-enter-refresh');
   const secretKey = path.join(root, 'must-not-enter-refresh-client.key');
   const hostileHooks = path.join(root, 'must-not-enter-refresh-hooks');
   const executableMarker = path.join(root, 'must-not-execute-git-transport-override');
@@ -717,8 +717,8 @@ test('confirmed refresh failures never disclose allowlisted proxy or credential-
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-enterprise-redaction-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const globalConfig = path.join(root, 'global.gitconfig');
-  const proxySecret = invented('sflow-proxy-passw', 'ord-must-not-leak');
-  const helperSecret = invented('sflow-helper-pass', 'word-must-not-leak');
+  const proxySecret = inventedValue('sflow-proxy-passw', 'ord-must-not-leak');
+  const helperSecret = inventedValue('sflow-helper-pass', 'word-must-not-leak');
   run('git', [
     'config', '--file', globalConfig, 'http.proxy',
     `http://employee:${proxySecret}@127.0.0.1:1`
@@ -788,8 +788,8 @@ test('confirmed refresh carries Windows GCM, proxy case variants, and custom tru
     'config', '--file', globalConfig,
     'credential.https://dev.azure.com.useHttpPath', 'true'
   ]);
-  const upperProxySecret = invented('upper-proxy-secr', 'et-must-not-leak');
-  const lowerProxySecret = invented('lower-proxy-secr', 'et-must-not-leak');
+  const upperProxySecret = inventedValue('upper-proxy-secr', 'et-must-not-leak');
+  const lowerProxySecret = inventedValue('lower-proxy-secr', 'et-must-not-leak');
   const sourceEnv = {
     ...process.env,
     GIT_CONFIG_SYSTEM: systemConfig,
@@ -2249,7 +2249,7 @@ test('configuration refresh reclaims an old cache lock only after its owner is d
   const { lock } = await plantConfigurationCacheLock(registry, {
     // Outside the portable process-ID range used by the supported hosts, and therefore not live.
     pid: 2_147_483_647,
-    token: invented('00000000-0000-4000', '-8000-000000000001')
+    token: inventedValue('00000000-0000-4000', '-8000-000000000001')
   });
 
   const timer = commandTimer('configuration-refresh-stale-cache-lock');
@@ -2277,7 +2277,7 @@ test('configuration refresh never steals an old cache lock from a live owner', a
   assert.equal(preview.status, 'preview');
   const { lock, owner } = await plantConfigurationCacheLock(registry, {
     pid: process.pid,
-    token: invented('00000000-0000-4000', '-8000-000000000002')
+    token: inventedValue('00000000-0000-4000', '-8000-000000000002')
   });
 
   const timer = commandTimer('configuration-refresh-live-cache-lock');

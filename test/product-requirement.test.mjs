@@ -22,6 +22,7 @@ import { versionLine } from '../src/build-info.mjs';
 import { parseBuildLine } from '../src/product-alignment.mjs';
 import { distributionFixture } from './helpers/distribution-artifacts.mjs';
 import { harness } from './helpers/distribution-harness.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const OLDER = Object.freeze({ commit: 'a'.repeat(40), sourceSha256: null, branch: null, dirty: false, builtAt: '2026-09-01T00:00:00.000Z' });
 const REQUIRED_AT = '2026-09-20T00:00:00.000Z';
@@ -56,7 +57,7 @@ test('a requirement names one build, one signed release source and the key that 
     '/shared/sflow/current');
   for (const [label, text] of [
     ['http', requirementText({ source: 'http://releases.example.test/', key: pem(publicKey) })],
-    ['credentials', requirementText({ source: 'https://user:secret@releases.example.test/', key: pem(publicKey) })],
+    ['credentials', requirementText({ source: inventedValue('https://user:', 'secret@releases.example.test/'), key: pem(publicKey) })],
     ['relative folder', requirementText({ source: 'shared/sflow', key: pem(publicKey) })],
     ['no key', requirementText({ source: 'https://releases.example.test/', key: 'not a key' })],
     ['unknown field', `${requirementText({ source: 'https://releases.example.test/', key: pem(publicKey) })}\nautoApprove: true`],

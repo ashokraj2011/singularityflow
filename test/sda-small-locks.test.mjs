@@ -20,13 +20,13 @@ import { readProviderCache } from '../src/repositories/store.mjs';
 import { consumeSelectionReceipt } from '../src/choices.mjs';
 import { activePublicationRefusal, livePreparedPublicationOwner } from '../src/publication-pending.mjs';
 import { subjectLockPath } from '../src/subject-lock.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-small-locks-machine-'));
 process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(machine, 'active.json');
 process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(machine, 'registry.json');
 
-const TOKEN = invented('6f1c2b3a-4d5e-4f60', '-8a7b-9c0d1e2f3a4b');
+const TOKEN = inventedValue('6f1c2b3a-4d5e-4f60', '-8a7b-9c0d1e2f3a4b');
 const HOUR_AGO = new Date(Date.now() - 60 * 60_000);
 const exists = (file) => lstat(file).then(() => true, () => false);
 

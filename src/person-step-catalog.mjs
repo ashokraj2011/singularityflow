@@ -101,6 +101,10 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   // settlement, publication and discard (SPEC-SPA v1.3 §4.1).
   ['spec-library-decision', ([command, sub, verb]) => command === 'spec' && sub === 'author'
     && ['accept', 'reject', 'decide', 'settle', 'publish', 'discard'].includes(verb)],
+  // Secret-shaped values other answers withhold: the person's own page only [2026-11-18].
+  ['person-specification-view', ([command, sub], options) => command === 'spec' && sub === 'author' && options['for-person'] !== undefined],
+  // The person's own browser grant; `ui status` is anyone's.
+  ['browser-workspace', ([command, sub]) => command === 'ui' && sub !== 'status'],
   // Dropping a clause of a Story's specification slice changes its requested outcome (SPEC-SPA v1.3 §6.3).
   ['spec-slice-change', ([command, sub]) => command === 'spec' && sub === 'attach'],
   // Publishing a split creates child drafts and lists Story start commands for every taker (SPEC-SPA v1.3 §7).

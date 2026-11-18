@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { invokeCli } from './runner.ts';
+import type { invokeCli } from './runner.ts';
 
 type Location = { executable: string; cli: string };
 type Result = { status: 'prepared' | 'unavailable' | 'cancelled' | 'failed' };
@@ -11,8 +11,8 @@ const preparations = new Map<string, Promise<Result>>();
 
 /** Same executable/environment as real commands; a failed warmup is always retryable. */
 export async function prewarmCliRuntime(location: Location, env: NodeJS.ProcessEnv, {
-  signal, invoke = invokeCli
-}: { signal?: AbortSignal; invoke?: typeof invokeCli } = {}): Promise<Result> {
+  signal, invoke
+}: { signal?: AbortSignal; invoke: typeof invokeCli }): Promise<Result> {
   if (signal?.aborted) return { status: 'cancelled' };
   if (env.NODE_DISABLE_COMPILE_CACHE === '1' || String(env.SINGULARITY_FLOW_BUNDLE).toLowerCase() === 'off') return { status: 'unavailable' };
   // Warmup deliberately has no repository cwd. Relative overrides belong to the real command's

@@ -67,6 +67,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'code-explanation': 'singularityFlow.openCodeExplanation',
   'repository-knowledge': 'singularityFlow.openRepositoryKnowledge',
   'spec-studio': 'singularityFlow.openSpecStudio',
+  'browser-workspace': 'singularityFlow.openBrowserWorkspace',
   findings: 'singularityFlow.findings'
 };
 
@@ -86,6 +87,7 @@ interface FavoriteMenu {
  * confirmation, repository check, or lifecycle gate.
  */
 export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
+  { id: 'browser-workspace', label: 'Open SFlow in browser', description: 'independent local workspace and Spec Studio', icon: 'home', command: ACTION_COMMANDS['browser-workspace']! },
   { id: 'about', label: 'About / Build information', description: 'CLI and VS Code versions, dates and build mismatches', icon: 'help', command: ACTION_COMMANDS.about! },
   { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
   { id: 'artifacts', label: 'Artifacts', description: 'documents each phase produced', icon: 'document', command: ACTION_COMMANDS.artifacts! },
@@ -415,7 +417,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   private async openTools(group: string): Promise<void> {
     const groups: Record<string, { title: string; ids: string[] }> = {
-      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'spec-studio', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'findings', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
+      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'browser-workspace', 'spec-studio', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'findings', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
       'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'repository-knowledge', 'code-explanation', 'comprehension-center'] },
       'help-tools': { title: 'Help & diagnostics', ids: ['about', 'help-open', 'diagnostics', 'copilot-extensions', 'fault-repairs', 'after-install', 'local-reset'] },
       'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'performance', 'prompt-audit', 'journal'] }

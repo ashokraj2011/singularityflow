@@ -757,7 +757,7 @@ export class SingularityFlowClient {
       ? this.options.environment() : this.options.environment) ?? process.env) };
     try {
       const { prewarmCliRuntime } = require(path.join(__dirname, 'runtime-prewarm.cjs')) as typeof import('./prewarm.ts');
-      const result = await prewarmCliRuntime(this.location, env, { signal });
+      const result = await prewarmCliRuntime(this.location, env, { signal, invoke: invokeCli });
       this.options.onOutput?.(`[Singularity Flow runtime] ${JSON.stringify(result)}\n`, 'stderr');
     } catch { /* Optional acceleration must never deny opening intake or starting work. */ }
   }

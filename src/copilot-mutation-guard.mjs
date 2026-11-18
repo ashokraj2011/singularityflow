@@ -691,6 +691,7 @@ function confirmCodeArgv(positionals, options) {
  */
 function hostOnlyCommand(positionals) {
   return ['hook', 'exec'].includes(positionals[0])
+    || (positionals[0] === 'ui' && positionals[1] !== 'status')
     || (positionals[0] === 'gateway' && !['tools', 'events', 'session'].includes(positionals[1] ?? 'tools'));
 }
 
@@ -1100,6 +1101,9 @@ function ownTerminalStepCall(call, value) {
 // the person's exact terminal line instead of a turn-mode or tool-form refusal (E5/D2, 2026-10-31).
 const OWN_STEP_DENIALS = Object.freeze({
   'visual-screenshot': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this opens SFlow\'s browser for a person to bring up the screen a visual criterion is about and capture it; no turn takes it. /sf-decide opens the Decide card, whose Take the screenshot runs it for them, and their own terminal takes the same command. Show the user the command and stop; do not retry it',
+  // The person's own browser grant and its service: a chat that ran it would hold the grant [review of the local service, 2026-11-18].
+  'browser-workspace': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: opening, serving or stopping the SFlow browser workspace issues or ends the person\'s own browser access, which no chat holds; they run this exact command in their own terminal, or Open SFlow in browser in VS Code. `singularity-flow ui status --json` may run here. Show the user the command and stop; do not retry it',
+  'person-specification-view': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: --for-person shows a specification\'s secret-shaped values, which every answer to a chat withholds; only the person\'s own Spec Studio page asks for it. Run the same command without --for-person, or show the user the command and stop; do not retry it',
   witness: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence is the word of a person who approves the step that delivered it, after looking for themselves; an agent never signs off its own work. /sf-decide opens the page that asks them and records it under their name (in a /sf-decide turn, sflowWitnessReview or sflow_witness_review); their own terminal takes the same command',
   'adjudication-answers': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this records what a person answered on the decisions page, and no turn writes those answers. Call sflowAdjudicate or sflow_adjudicate with the Story ID, which opens that page, or run /sf-converge, which asks them.',
   'adjudication-table': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this asks a person at their own terminal to answer the whole table, and no turn answers it. Call sflowAdjudicate or sflow_adjudicate with the Story ID where it is available; otherwise show the user this command to run themselves, and stop',

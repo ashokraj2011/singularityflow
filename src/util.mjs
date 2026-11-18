@@ -200,6 +200,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  * guessing wrong would swallow a real value, which is the worse failure.
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
+  'drain',
   'heartbeat', 'not-applicable',
   // guard register|rotate|recover --author (src/commands/guard.mjs).
   'author',

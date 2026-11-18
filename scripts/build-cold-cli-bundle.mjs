@@ -101,6 +101,8 @@ const FAMILIES = Object.freeze([
     'story-version-opening.mjs', 'commands/phase-opening.mjs',
     'evidence-consistency-read.mjs', 'scope/authoring.mjs', 'owed-decisions.mjs',
     'phase-repair-journal.mjs', 'phase-appeals.mjs', 'phase-quality-risk.mjs', 'source-review-lifecycle.mjs',
+    // A version opened to fix its review's test findings, read by the gate beside the review it reads (delivery-evidence.mjs).
+    'review-test-correction.mjs',
     'workflow-task-store.mjs', 'workflow-task.mjs',
     'verification/witness-decisions.mjs', 'evidence/terminal.mjs', 'evidence/graph.mjs',
     'evidence/evaluate.mjs', 'verification/contracts.mjs',

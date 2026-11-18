@@ -571,13 +571,18 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           skill: generationSkill(phase, workflow), authoringSkill: generationSkill(phase, workflow)
         }));
         if (missingEvidence.length && Number(error.details?.problemCount) === missingEvidence.length) continue;
+        // A version just opened, nothing written yet: what publication checks is this version's to-do list, the author's own
+        // work in this turn, never a blocker or a person's question (Story new-ash-graph, 2026-11-18).
+        // A return's withdrawal, or any other route the refusal names, keeps its finding as it is.
+        const checklist = error.code === 'CODE_DELIVERY_EVIDENCE_REQUIRED' && !configurationDependency
+          && error.details?.nothingWritten === true && !error.details?.deliveryRoute;
         blockers.push({
-          code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
+          code: checklist ? 'code.delivery.checklist' : 'code.delivery.incomplete', category: 'code-delivery', blocking: !checklist,
           phase: phase.id, generation: inspectionGeneration,
           path: error.code === 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED' ? error.details?.paths?.[0] ?? null : null,
           line: null, value: error.code === 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED' ? JSON.stringify(error.details?.paths ?? []) : null,
           details: {
-            sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),
+            sourceCode: error.code ?? null, message: checklist ? `This version's checklist, the author's own work in this turn: ${error.message}` : error.message, ...(error.details ?? {}),
             ...(invalidPinnedCommand ? {
               recoveryBoundary: {
                 kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
@@ -664,7 +669,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
             : generationSkill(phase, workflow),
           authoringSkill: configurationDependency ? null : generationSkill(phase, workflow)
         }));
-        if (planCorrection) {
+        if (planCorrection && !checklist) {
           actions.push(action({ id: `correct-plan-row:${phase.id}`, mode: 'manual', detail: planCorrection.label, command: planCorrection.command }));
         }
         // A return left unchanged: the change it asks for is the author's (above); its withdrawal is a person's.

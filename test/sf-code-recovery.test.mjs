@@ -5,6 +5,8 @@
  *      product source and sent to an appeal, a read-only preflight and the doctor, round and round.
  *   C: a refused test run recorded where the step stopped, the CLI exited without deriving the turn again, and the next
  *      tool call ended the turn as stale (PHASE_MUTATION_CONTRACT_STALE): /sf-decide and /sf-code again, about 66 minutes.
+ *   G: with only a person's route left, the end of the turn forced an automatic continuation (SFLOW_WORKFLOW_TASK_INCOMPLETE).
+ *   B: the agent, refused a look at the installed Node 22's folder, ran the tests on Node 26 itself, three times.
  *   Node: Node 26 breaks Vitest's DOM localStorage, Node 22 was installed, and the same question was a person's three times.
  *   D: the refusal named SFlow's own Node 26, not the Node 22 the tests ran on, and `tests base` ran on Node 26 and matched
  *      failures by name, so it said every failure was there before the change.
@@ -231,6 +233,46 @@ test('C: a refused test run that records where the step stopped never cuts the c
   assert.deepEqual(await f.write(turn), {});
   await f.stopAt('repair-required', 'CODE_TEST_FAILED', { repairConsumed: 2 });
   assert.equal((await f.write(turn)).permissionDecision, 'deny');
+});
+
+test('G: with only a person\'s route left, the end of the turn reports it and is not continued', async (t) => {
+  const f = await codeTurnStory(t);
+  // The step already waits for a person (a Node to pin, an accepted risk): /sf-code has nothing it may do about it.
+  await f.stopAt('waiting-person', 'CODE_TEST_FAILED');
+  const turn = await f.enter('/sf-code', 'sfc-stop');
+  await repositoryToolGuard({ ...turn, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter implement --for-agent --json' } });
+  const entry = { resultType: 'sflow-phase-entry', ready: true, workId: W, phase: 'implement', authoringAllowed: true,
+    contextAdmission: { allowed: true }, authoring: { entry: { status: 'authoring-entry' } },
+    authoringProgress: { generation: 2, next: safeCommandGuidance({ argv: ['prepare', 'implement'] }) } };
+  await recordPhaseTaskProgress(f.root, phaseTaskCompletion(entry));
+  assert.deepEqual(await repositoryAgentStop({ ...turn, stopReason: 'end_turn' }), {}, 'no SFLOW_WORKFLOW_TASK_INCOMPLETE continuation');
+});
+
+test('B: a version manager\'s Node folder may be listed in a code turn; searching outside the repository still may not', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-sfc-ls-'));
+  const previous = { mode: process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, home: process.env.HOME };
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(directory, 'mode.json');
+  process.env.HOME = path.join(directory, 'home');
+  t.after(async () => {
+    for (const [name, value] of [['SINGULARITY_FLOW_COPILOT_MODE_FILE', previous.mode], ['HOME', previous.home]]) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+    await rm(directory, { recursive: true, force: true });
+  });
+  const root = path.join(directory, 'repository');
+  const scratch = path.join(directory, 'chat');
+  await mkdir(root); await mkdir(scratch);
+  const payload = { sessionId: 'sfc-ls', cwd: scratch };
+  await recordRepositoryBoundaryTurn({ ...payload, prompt: '/sf-code' }, { captureMutation: async () => {} });
+  const guard = (command) => repositoryDiscoveryGuard({ ...payload, toolCalls: [{ name: 'bash', args: { command } }] }, { resolveRoot: async () => root });
+  for (const command of ['ls -la /opt/homebrew/opt/node@22/bin', 'ls /usr/local/opt/node@20/bin', 'ls /opt/homebrew/Cellar/node@22',
+    'ls ~/.nvm/versions/node', 'ls -1 $HOME/.nvm/versions/node/v22.14.0/bin', `ls ${path.join(directory, 'home', '.volta', 'tools', 'image', 'node')}`]) {
+    assert.deepEqual(await guard(command), {}, command);
+  }
+  for (const command of ['ls /opt/homebrew', 'ls /opt/homebrew/opt', 'ls ~', 'ls ~/.nvm', 'ls ~/.nvm/versions/node/../../..', 'ls /opt/homebrew/opt/node@22/*',
+    'find /opt/homebrew/opt/node@22 -name node', 'grep -r x /opt/homebrew/opt/node@22']) {
+    assert.equal((await guard(command)).permissionDecision, 'deny', command);
+  }
 });
 
 /** A Node that says it is `version` and runs as this Node: PATH's, or a version manager's. */

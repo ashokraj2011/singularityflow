@@ -418,7 +418,8 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
     } : null,
     revision,
     blockers,
-    phaseRepairRequired: phaseRecovery.blockers.length > 0,
+    // A version's checklist (nothing written yet) is no repair.
+    phaseRepairRequired: phaseRecovery.blockers.some((blocker) => blocker.blocking !== false),
     ...(modelEnabled === false ? { modelEnabled: false } : {}),
     testExecution: phaseRecovery.testExecution ?? { status: 'not-required', commands: [] },
     containment: phase ? {

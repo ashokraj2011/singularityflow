@@ -1659,6 +1659,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             .flatMap((entry) => entry.paths.filter((item) => item.state === 'missing')
               .map((item) => ({ clauseId: entry.clauseId, path: item.path }))),
           problemCount: errors.length,
+          // Nothing written yet: the version's checklist (recovery-plan.mjs).
+          ...(unchangedGeneration ? { nothingWritten: true } : {}),
           // Read-only repair input, derived from the verified planning pointer and candidate.
           // Do not select a test/function by guessing from a file name or invent its meaning.
           traceabilityRepair: {

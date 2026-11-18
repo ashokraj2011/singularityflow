@@ -630,8 +630,8 @@ export async function main(argv) {
     // Every command accepts --for-agent. The compact entries read it (and check a pause) themselves;
     // for the others it shapes the output only, and a paused SFlow answers before any Git or lookup.
     const agentFlag = options['for-agent'] !== undefined;
+    // `ui serve` prints its own JSON readiness and keeps running; the --for-agent refusal is the ui command's (local-ui/cli.mjs).
     const foregroundUi = positionals[0] === 'ui' && positionals[1] === 'serve';
-    if (foregroundUi && agentFlag) throw new SingularityFlowError('ui serve is native-only. Open the browser from a terminal or VS Code; /sf-ui only inspects status.', { code: 'UI_FOREGROUND_NATIVE_ONLY' });
     const ownsFlag = interpretsForAgent(positionals);
     if ((utilityEntry || agentFlag && (!ownsFlag || positionals[0] === 'app-review')) && !['pause', 'hook'].includes(positionals[0])) {
       const paused = await copilotPause();

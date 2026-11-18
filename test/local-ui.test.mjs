@@ -589,3 +589,17 @@ test('actual browser creates, edits, previews, saves and reloads a draft without
   await page.getByRole('heading', { name: 'Fixture standard', exact: true }).waitFor();
   assert.deepEqual(errors, []);
 });
+
+test('an agent turn only reads the service status: ui open, serve and stop with --for-agent are refused with the person\'s route', async () => {
+  const { run } = await import('../src/local-ui/cli.mjs');
+  for (const action of ['open', 'serve', 'stop']) {
+    await assert.rejects(run(['ui', action, '--for-agent'], { positionals: ['ui', action], options: { 'for-agent': true } }), (error) => {
+      assert.equal(error.code, 'UI_FOREGROUND_NATIVE_ONLY');
+      assert.match(error.message, new RegExp(`^ui ${action} runs only from the person's own terminal or VS Code`, 'u'));
+      return true;
+    });
+  }
+  // `ui status` is never refused for being an agent turn (it may still fail for another reason, never this one).
+  await run(['ui', 'status', '--for-agent'], { positionals: ['ui', 'status'], options: { 'for-agent': true } })
+    .then(() => {}, (error) => assert.notEqual(error.code, 'UI_FOREGROUND_NATIVE_ONLY'));
+});

@@ -21,9 +21,15 @@ export async function run(argv, parsed = {}) {
 
 async function runLifecycle({ positionals = ['ui'], options = {} } = {}) {
   const action = positionals[1] ?? 'open';
+  // An agent turn only reads the service's status (/sf-ui); opening, serving and stopping it are the person's.
+  if (options['for-agent'] !== undefined && action !== 'status') {
+    throw new SingularityFlowError(`ui ${action} runs only from the person's own terminal or VS Code; /sf-ui only shows its status.`, { code: 'UI_FOREGROUND_NATIVE_ONLY',
+      details: { nextAction: { label: 'The person opens it from their own terminal or VS Code', command: 'singularity-flow ui open' } } });
+  }
   const allowed = { open: ['json', 'open', 'idle-minutes', 'resume-request', 'timings'], status: ['json', 'timings'], stop: ['json', 'drain', 'timings'], serve: ['json', 'idle-minutes', 'timings'] };
   if (!allowed[action] || positionals.length > 2 || Object.keys(options).some(key => !allowed[action].includes(key))) {
-    throw new SingularityFlowError('Use ui open [--no-open] [--idle-minutes 1..60] [--resume-request INVOCATION-ID], ui status --json, ui stop [--drain], or ui serve.', { code: 'UI_COMMAND_INVALID' });
+    throw new SingularityFlowError('Use ui open [--no-open] [--idle-minutes 1..60] [--resume-request INVOCATION-ID], ui status --json, ui stop [--drain], or ui serve.', { code: 'UI_COMMAND_INVALID',
+      details: { nextAction: { label: 'See the supported local service forms', command: 'singularity-flow ui --help' } } });
   }
   const idle = idleMinutes(optionString(options, 'idle-minutes') ?? process.env.SINGULARITY_FLOW_UI_IDLE_MINUTES ?? 10);
   // Keep the independent program in its shipped source location. Bundling its import.meta worker

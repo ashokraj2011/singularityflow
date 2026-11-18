@@ -90,11 +90,11 @@ test('after publication the sign-off offers the person\'s screenshot first, neve
   const item = signOff(packet);
   assert.deepEqual([item.check.kind, item.check.onRequest, item.check.label, item.check.criterion, item.check.slot, item.check.command],
     ['screenshot', true, 'Take the screenshot', `${W}:AC-002`, 'graph-layout', NEEDED.command]);
-  assert.match(item.check.does, /^SFlow builds what Implementation published in a private copy \(npm ci --no-audit --no-fund, then npm run build \(inferred: package\.json builds with vite build; output dist\)\) and opens it at 1280×800 in its own browser: bring up the screen AC-002 is about \(Grapher workspace at desktop viewport\), then click "Capture this screen for AC-002" on SFlow's bar\./u);
-  assert.match(item.check.does, /nothing is recorded or approved before that\.$/u);
+  assert.match(item.check.does, /^SFlow builds what Implementation published \(npm ci --no-audit --no-fund, then npm run build \(inferred: package\.json builds with vite build; output dist\)\) and opens it at 1280×800\. Bring up the screen \(Grapher workspace at desktop viewport\) and click "Capture this screen for AC-002"\.$/u);
+  assert.doesNotMatch(item.check.does, /recorded|approved/u, 'taking the screenshot records nothing; the sign-off that follows is its own step');
   assert.equal(item.options[0].available, false);
   assert.equal(item.options[0].label, 'Sign it off once SFlow has taken its screenshot');
-  assert.match(item.why, /you bring up the screen it is about \(Grapher workspace at desktop viewport\) and capture it/u);
+  assert.match(item.why, /Choose "Take the screenshot", bring up the screen \(Grapher workspace at desktop viewport\) and capture it\.$/u);
   // A question with its recommendation, never a "Later:" line: the person can act now.
   assert.equal(item.plain.later, undefined);
   assert.equal(item.plain.question, 'Does the screenshot show what AC-002 asks for?');
@@ -187,7 +187,7 @@ test('when SFlow cannot take the screenshot, the sign-off names what works: the 
   const packet = packetOf(owed({ capture: { ...capture, riskCommand: RISK } }));
   const item = signOff(packet);
   assert.equal(item.check, undefined);
-  assert.match(item.why, new RegExp(`SFlow cannot take one: .*Take it yourself and save it as ${FILE.replaceAll('.', '\\.')}; it is then yours to look at and sign off here\\. Or accept it as a dated risk: `, 'u'));
+  assert.match(item.why, new RegExp(`SFlow cannot take a screenshot for AC-002: .*\\. Save one as ${FILE.replaceAll('.', '\\.')}, then sign it off here\\.$`, 'u'));
   assert.doesNotMatch(item.why, / {2}/u);
   const risk = item.options.find((entry) => entry.id === 'accept-risk');
   assert.equal(risk.action.command, RISK);
@@ -276,7 +276,7 @@ test('end to end: a published web change, the person brings up the screen and SF
   assert.ok(first, JSON.stringify(list().items.map((item) => item.title)));
   assert.equal(first.check?.kind, 'screenshot', JSON.stringify(first));
   assert.match(first.check.does, /inferred: package\.json builds with vite build; output dist/u);
-  assert.match(first.check.does, /bring up the screen AC-001 is about \(Value display at desktop viewport\), then click "Capture this screen for AC-001"/u);
+  assert.match(first.check.does, /Bring up the screen \(Value display at desktop viewport\) and click "Capture this screen for AC-001"/u);
   assert.equal(first.check.command, 'singularity-flow decision screenshot --work-id QF-1 --criterion QF-1:AC-001 --slot screen');
   const file = first.details.capture.file;
   // No read of the card builds it, even its longest check: it waits for a person.

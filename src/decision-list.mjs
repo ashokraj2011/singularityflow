@@ -1039,10 +1039,10 @@ function notPublishedYet(workflow, entry) {
   const name = clauseName(workflow, entry.clauseId);
   const capture = entry.capture ?? null;
   if (capture?.status === 'needed') {
-    return `It cannot be signed off yet: the plan names no screenshot for ${name}. Choose "${screenshotLabel(capture)}": SFlow opens what ${owners} published in its own browser, you bring up ${capture.target ? `the screen it is about (${capture.target})` : 'the screen it is about'} and capture it; then you look at it and sign it off.`;
+    return `It cannot be signed off yet: there is no screenshot for ${name}. Choose "${screenshotLabel(capture)}", bring up ${capture.target ? `the screen (${capture.target})` : 'the screen'} and capture it.`;
   }
   if (capture?.status === 'unavailable') {
-    return `It cannot be signed off yet: the plan names no screenshot for ${name}, and SFlow cannot take one: ${capture.reason}. Take it yourself and save it as ${capture.file}; it is then yours to look at and sign off here.${entry.capture.riskCommand ? ` Or accept it as a dated risk: ${entry.capture.riskCommand}.` : ''}`;
+    return `It cannot be signed off yet: SFlow cannot take a screenshot for ${name}: ${capture.reason}. Save one as ${capture.file}, then sign it off here.`;
   }
   if (!entry.files?.length) return `It cannot be signed off yet: the plan names no screenshot for ${name}. SFlow takes one once ${owners} publishes; sign it off after that.`;
   return `It cannot be signed off yet: nothing has published ${listWords(entry.files)} for ${name}. ${owners} publishes it with its delivery; sign it off after that.`;
@@ -1064,7 +1064,7 @@ function screenshotCheck(workflow, entry) {
   const name = clauseName(workflow, entry.clauseId);
   return { kind: 'screenshot', status: capture.failed ? 'failed' : 'unknown', onRequest: true, criterion: entry.clauseId, slot: entry.slot,
     label: screenshotLabel(capture), command: capture.command,
-    does: `SFlow builds what ${owners} published in a private copy (${capture.build.words}) and opens it at ${width}×${height} in its own browser: bring up the screen ${name} is about${capture.target ? ` (${capture.target})` : ''}, then click "Capture this screen for ${name}" on SFlow's bar. You then look at the screenshot and sign it off; nothing is recorded or approved before that.`,
+    does: `SFlow builds what ${owners} published (${capture.build.words}) and opens it at ${width}×${height}. Bring up the screen${capture.target ? ` (${capture.target})` : ''} and click "Capture this screen for ${name}".`,
     ...(capture.failed ? { failed: `The last screenshot failed: ${capture.failed}` } : {}) };
 }
 

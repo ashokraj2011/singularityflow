@@ -1107,6 +1107,8 @@ export class SingularityFlowClient {
     if (args[0] === 'configuration' && ['reconcile', 'approve'].includes(args[1] ?? '')) return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     // Engine bounds human browser review at 15 minutes; leave time for its guarded transaction.
     if (args[0] === 'appeal' && args[1] === 'evidence-accept' && enabledBooleanOption(args, 'review-ui')) return 20 * 60_000;
+    // A visual sign-off's screenshot: the build (15 minutes at most), then the person at SFlow's browser (10 minutes).
+    if (args[0] === 'decision' && args[1] === 'screenshot') return 30 * 60_000;
     // The dry-run only inventories bytes and stays under the ordinary bounded read deadline. Once
     // the exact reset is confirmed, however, the engine may have moved old roots into rollback
     // staging. A host timeout at that point is less safe than waiting for the engine's guarded

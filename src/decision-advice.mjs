@@ -173,7 +173,7 @@ export function itemRecommendation(workflow, item) {
   // A sign-off whose screenshot SFlow takes when asked: taking it comes first [owner, 2026-11-18].
   if (item.kind === 'owed-decision' || item.kind === 'evidence-obligation') {
     if (item.check?.kind === 'screenshot' && item.check.status !== 'checked') {
-      return checkFirst(item.check.failed ? `${firstSentence(item.check.failed)} Take it again once that is fixed.` : 'SFlow screenshots what was published; you then look at it and sign it off.');
+      return checkFirst(item.check.failed ? `${firstSentence(item.check.failed)} Take it again once that is fixed.` : 'SFlow opens what was published; you bring up the screen and capture it, then sign it off.');
     }
   }
   if (!options.length) return lean(item.options[0]?.words ? firstSentence(item.options[0].words) : 'answer it once it can be answered.');

@@ -174,8 +174,7 @@ test('several items are named on the first form, in grammar', () => {
 });
 
 test('SFlow runs each check within its time, skips what it already knows, and a check that fails leaves "Check first"', async () => {
-  // A visual sign-off's own screenshot joined them (owed-decision, evidence-obligation) [owner, 2026-11-18]; it runs only when asked.
-  assert.deepEqual(PROBE_KINDS, ['owed-decision', 'evidence-obligation', 'node-pin', 'test-run-risk'], 'the kinds whose answer SFlow checks itself');
+  assert.deepEqual(PROBE_KINDS, ['node-pin', 'test-run-risk'], 'the kinds whose answer SFlow checks itself');
   assert.deepEqual([probeSeconds(undefined), probeSeconds('5'), probeSeconds('100000'), probeSeconds('soon')], [DEFAULT_SECONDS, 5, LONGEST_SECONDS, DEFAULT_SECONDS]);
   assert.deepEqual(itemsToCheck(AFTER), [], 'a checked answer is never checked again');
   assert.deepEqual(itemsToCheck(BEFORE).map((item) => item.id), ['d1']);

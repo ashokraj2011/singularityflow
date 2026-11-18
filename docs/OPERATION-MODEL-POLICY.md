@@ -247,6 +247,7 @@ Every public operation is classified before its implementation module is importe
 | decision.plan | mutation | never | — | — |
 | decision.risk | mutation | never | — | — |
 | decision.scope | mutation | never | — | — |
+| decision.screenshot | mutation | never | — | — |
 | decision.show | read | never | — | — |
 | decision.test-command | mutation | never | — | — |
 | decision.test-narrowing | mutation | never | — | — |

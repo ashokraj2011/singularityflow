@@ -547,7 +547,7 @@ async function askVersionOpening(packet, { ask, show, consent, question = null }
   return { started: true, words: result?.words ?? null, next: result?.next ?? null };
 }
 
-export async function runCard({ ask, show, read, record, witness, inspect, consent = null, question = null, askedInChat = false }) {
+export async function runCard({ ask, show, read, record, witness, inspect, screenshot = null, consent = null, question = null, askedInChat = false }) {
   let packet = await read();
   const opening = await askVersionOpening(packet, { ask, show, consent, question });
   if (opening?.started && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-opening'], remaining: [],
@@ -588,8 +588,17 @@ export async function runCard({ ask, show, read, record, witness, inspect, conse
   for (let round = 0; asked.check && round < 2; round += 1) {
     // A check that failed says why, in its own words (a screenshot whose build failed), not that it ran out of time.
     if (round === 1) return { status: 'cancelled', recorded, remaining: [], message: checkOf(asked.check)?.failed ? `${checkOf(asked.check).failed} Nothing was recorded.` : 'The check gave no answer in time; nothing was recorded.' };
-    await show(`Checking: ${checkOf(asked.check).label.replace(/^Check first: /u, '')} (up to ${CHECK_FIRST_SECONDS / 60} minutes; nothing is recorded).`);
-    packet = await read({ probe: CHECK_FIRST_SECONDS });
+    const shot = checkOf(asked.check);
+    if (shot.kind === 'screenshot') {
+      // The person's own capture at SFlow's browser (`decision screenshot`), never a check SFlow runs [owner, 2026-11-18].
+      if (!screenshot) return { status: 'needs-terminal', recorded, remaining: [], command: shot.command, message: `Take the screenshot in your own terminal: ${shot.command}` };
+      await show(`${shot.does}`);
+      try { await screenshot(packet, shot); } catch (error) { await show(`No screenshot was taken: ${error.message}`); }
+      packet = await read();
+    } else {
+      await show(`Checking: ${shot.label.replace(/^Check first: /u, '')} (up to ${CHECK_FIRST_SECONDS / 60} minutes; nothing is recorded).`);
+      packet = await read({ probe: CHECK_FIRST_SECONDS });
+    }
     await show(decisionsTable(packet));
     asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
   }

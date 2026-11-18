@@ -106,10 +106,8 @@ export async function readDecisionPacket(root, config, workflow, { phaseId = nul
  */
 async function checkedPacket(root, config, workflow, packet, { seconds, phaseId, card = true, say }) {
   const probes = await import('../decision-probes.mjs');
-  // A check that runs only on request (SFlow's screenshot builds the app) runs when the person asked for the longer check.
-  const asked = probes.askedFor(seconds);
-  if (!probes.itemsToCheck(packet, { asked }).length) return packet;
-  const { ran } = await probes.runDecisionProbes(root, packet, { seconds: probes.probeSeconds(seconds), say, asked });
+  if (!probes.itemsToCheck(packet).length) return packet;
+  const { ran } = await probes.runDecisionProbes(root, packet, { seconds: probes.probeSeconds(seconds), say });
   return ran.length ? readDecisionPacket(root, config, workflow, { phaseId, at: nowIso(), card }) : packet;
 }
 

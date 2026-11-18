@@ -154,8 +154,8 @@ function why(workflow, item) {
       if (details.scopeItem) return 'Every statement in the scope needs a clause or a reason before the Story can end.';
       if (details.responsibility) return details.declaredReason ? `The workflow leaves it out: ${bare(plainSentence(details.declaredReason, { words: 20 }))}.`
         : 'This Story leaves it out, and it can\'t end until someone says why.';
-      // SFlow takes the screenshot first, when the person asks for it; then they look at it [owner, 2026-11-18].
-      if (details.clause && checkOf(item)) return `SFlow takes the screenshot of what was published first, then you look at it and sign it off${waits ? `; ${waits}` : ''}.`;
+      // The person takes the screenshot first, of the screen they bring up in SFlow's browser; then they look at it [owner, 2026-11-18].
+      if (details.clause && checkOf(item)) return `Take its screenshot first: SFlow opens what was published and you bring up the screen it is about; then you sign it off${waits ? `; ${waits}` : ''}.`;
       if (details.clause) return `A person must look at it and sign it off${waits ? `; ${waits}` : ''}.`;
       return plainSentence(item.why);
     case 'plan-accounting':

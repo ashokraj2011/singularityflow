@@ -171,32 +171,74 @@ export async function prepareStaticReview(root, config, workflow, session, { hea
   } catch (error) { await browser?.close(); served.close(); throw error; }
 }
 
+// The bar SFlow puts over the application while a person brings up the screen a criterion is about: fixed, above
+// everything, in a closed shadow root and put back if the page removes it, on every page and after every navigation.
+const CAPTURE_BAR = ({ label, button }) => {
+  if (window.top !== window) return;
+  const mount = () => {
+    if (!document.documentElement || document.querySelector('sflow-capture-bar')) return;
+    const host = document.createElement('sflow-capture-bar');
+    host.setAttribute('style', 'all:initial;position:fixed;z-index:2147483647;left:0;right:0;bottom:0;display:block');
+    const shadow = host.attachShadow({ mode: 'closed' });
+    shadow.innerHTML = '<style>div{font:13px system-ui,sans-serif;background:#122332;color:#fff;padding:8px 12px;display:flex;gap:12px;align-items:center;justify-content:space-between}'
+      + 'button{font:600 13px system-ui,sans-serif;padding:7px 14px;border:0;border-radius:4px;background:#1f7a46;color:#fff;cursor:pointer}</style><div><span></span><button type="button"></button></div>';
+    shadow.querySelector('span').textContent = label;
+    const control = shadow.querySelector('button');
+    control.textContent = button;
+    control.addEventListener('click', () => { control.disabled = true; control.textContent = 'Capturing…'; window.sflowCaptureScreen(); });
+    document.documentElement.appendChild(host);
+  };
+  const keep = () => { mount(); new MutationObserver(mount).observe(document.documentElement, { childList: true, subtree: true }); };
+  if (document.documentElement) keep(); else document.addEventListener('readystatechange', keep, { once: true });
+};
+
 /**
- * One screenshot of a built static output's first page, in the pinned browser, headless, with the same profile and
- * network rule as the live review: only the served build is reachable. Returns the PNG bytes and what was served.
+ * The screen a person brought up, captured when they say so [owner, 2026-11-18]: a built static output served on a
+ * loopback port and opened in the pinned browser, headed, with the SFlow bar naming the criterion and what the plan says
+ * to show. The person navigates to that screen and clicks the bar's button; SFlow hides the bar, takes the screenshot of
+ * what is on screen, and closes the browser. Only the served build is reachable. Refuses ARA_CAPTURE_NOT_TAKEN when the
+ * browser is closed or `deadline` passes first, nothing taken. `drive(page)` clicks for a test, headless.
  */
-export async function staticOutputScreenshot(files, { viewport, deadline }) {
+export async function personCapturedScreenshot(files, { viewport, deadline, label, button, headless = false, drive = null }) {
   const served = await serveReviewBuild(files);
   const left = () => Math.max(1000, deadline - Date.now());
   let browser;
+  let timer;
   try {
-    browser = await reviewBrowser({ headless: true, timeoutMs: Math.min(30000, left()) });
+    browser = await reviewBrowser({ headless, timeoutMs: 30000 });
     const context = await browser.newContext({ viewport, locale: 'en-US', timezoneId: 'UTC', deviceScaleFactor: 1, serviceWorkers: 'block' });
-    const blocked = new Set();
     await context.route('**/*', route => {
       const url = new URL(route.request().url());
-      if (url.origin === served.origin || ['data:', 'blob:'].includes(url.protocol)) return route.continue();
-      blocked.add(url.origin); return route.abort();
+      return url.origin === served.origin || ['data:', 'blob:'].includes(url.protocol) ? route.continue() : route.abort();
     });
-    await context.routeWebSocket('**/*', socket => { blocked.add(new URL(socket.url()).origin); socket.close(); });
+    await context.routeWebSocket('**/*', socket => socket.close());
+    let chosen;
+    const picked = new Promise(resolve => { chosen = resolve; });
+    await context.exposeBinding('sflowCaptureScreen', ({ page }) => chosen(page));
+    await context.addInitScript(CAPTURE_BAR, { label, button });
     const page = await context.newPage();
     page.on('dialog', async dialog => { await dialog.dismiss().catch(() => {}); });
-    await page.goto(served.origin, { waitUntil: 'networkidle', timeout: Math.min(30000, left()) });
-    await evaluateReviewPage(page, () => document.fonts.ready, Math.min(10000, left()));
-    const bytes = await page.screenshot({ type: 'png', animations: 'disabled', timeout: left() });
+    await page.goto(served.origin, { waitUntil: 'networkidle', timeout: 30000 });
+    const ended = new Promise((resolve) => {
+      browser.on('disconnected', () => resolve('closed'));
+      context.on('close', () => resolve('closed'));
+      page.on('close', () => { if (!context.pages().some(open => !open.isClosed())) resolve('closed'); });
+      timer = setTimeout(() => resolve('timeout'), left());
+    });
+    if (drive) await drive(page);
+    const outcome = await Promise.race([picked, ended]);
+    if (outcome === 'closed' || outcome === 'timeout') {
+      araFail('ARA_CAPTURE_NOT_TAKEN', outcome === 'closed' ? 'The browser was closed before a screen was captured, so nothing was taken.'
+        : 'Nobody captured a screen before the time ran out, so nothing was taken.', { reason: outcome === 'closed' ? 'closed' : 'nobody-captured' });
+    }
+    const shown = outcome;
+    await shown.evaluate(() => { for (const bar of document.querySelectorAll('sflow-capture-bar')) bar.style.setProperty('display', 'none', 'important'); });
+    await evaluateReviewPage(shown, () => document.fonts.ready, Math.min(10000, left()));
+    const bytes = await shown.screenshot({ type: 'png', animations: 'disabled', timeout: left() });
     if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) araFail('ARA_CAPTURE_FAILED', 'The browser did not return a PNG image.');
-    return { bytes, browser: browser.version(), served: served.manifest.length, blockedOrigins: [...blocked].slice(0, 10) };
+    return { bytes, browser: browser.version(), screen: { title: await shown.title(), path: new URL(shown.url()).pathname + new URL(shown.url()).hash } };
   } finally {
+    clearTimeout(timer);
     await browser?.close().catch(() => {});
     served.close();
   }

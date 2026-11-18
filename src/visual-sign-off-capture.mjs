@@ -5,12 +5,15 @@
  * A primary visual criterion a code step answers for, whose plan names no screenshot (no evidence file), had nothing a
  * person could look at: its sign-off was never available (signOffReady needs a file), the step's approval waited for
  * it, and nothing led out ("Approve Implementation … waits for d1" on the owner's rehearsal Story). Now, once the step
- * has published, a person asks for the screenshot on the sign-off itself ("Take the screenshot", the item's check):
- * SFlow copies the application's checked source into a private folder, builds it, serves the static output on a
- * loopback port, opens it in the pinned review browser and saves one screenshot in the Story's own folder, named for
- * the criterion, its slot and the candidate it shows. The sign-off then has that file, and the person looks at it and
- * signs it off with the same witness review as any other file: the Decide card on Copilot CLI, the Decide card or the
- * Decisions page in VS Code, or `decision witness` in their own terminal. Nothing here records or decides anything.
+ * has published, a person asks for the screenshot on the sign-off itself ("Take the screenshot" on the Decide card, or
+ * `decision screenshot` in their own terminal; a person's own step, never a chat turn's): SFlow copies the application's
+ * checked source into a private folder, builds it, serves the static output on a loopback port and opens it in the
+ * pinned review browser with SFlow's bar naming the criterion and the screen the plan says it shows. The person brings
+ * that screen up and clicks "Capture this screen", since an app's first page is often another screen [owner review,
+ * 2026-11-18]; SFlow saves that screenshot in the Story's own folder, named for the criterion, its slot and the candidate
+ * it shows. The sign-off then has that file, and the person looks at it and signs it off with the same witness review as
+ * any other file: the Decide card on Copilot CLI, the Decide card or the Decisions page in VS Code, or `decision witness`
+ * in their own terminal. Nothing here records or decides anything.
  *
  * The build, materialization, server and browser are application review's own static adapter
  * (application-review-preview.mjs); this adds no second screenshot system. Which build runs:
@@ -20,7 +23,7 @@
  *    root whose `build` script runs `vite build`, with a package-lock.json beside it, built with
  *    `npm ci --no-audit --no-fund` then `npm run build`, its output `dist` (Vite's default). Anything else is named
  *    with a route that works, never guessed.
- * It runs only when a person asks for the screenshot, never on a read, and only on the code the step published.
+ * It runs only when a person asks for the screenshot, never on a read or a card's check, and only on published code.
  *
  * The image is written untracked in the Story's folder (`evidence/visual-sign-offs/`). The lifecycle checks count it
  * as SFlow's own output, not a change to review (lifecycle-worktree.mjs), and the sign-off's own publication commits
@@ -77,11 +80,13 @@ export async function lastCaptureFailure(root, workflow, clauseId, slot, binding
  * its reason, unpublished, or taken), with its terminal lines and a dated risk's command. Before, such a sign-off had no
  * file, so it was never available and the step's approval waited for it with no way out.
  */
-export function signOffFile({ root, config }, workflow, { clauseId, slot, owners, row }) {
+export function signOffFile({ root, config }, workflow, { clauseId, slot, target = null, owners, row }) {
   const binding = witnessContextBinding(workflow);
   const workId = workflow.workItem.id;
+  // The person's own step that takes it: on the Decide card's button, or in their own terminal.
+  const command = screenshotCommand(workId, clauseId, slot);
   const taken = currentSignOffCapture(root, config, workflow, clauseId, slot, binding);
-  if (taken) return { files: [taken], capture: { status: 'taken', workId, file: taken } };
+  if (taken) return { files: [taken], capture: { status: 'taken', workId, file: taken, again: `${command} --replace` } };
   const file = signOffCapturePath(config, workflow, clauseId, slot, binding);
   if (!owners.some((owner) => Number(workflow.phases?.[owner]?.generation ?? 0) >= 1)) return { files: [], capture: { status: 'unpublished', workId, file } };
   const riskCommand = (row?.actions ?? []).find((entry) => entry.kind === 'accept-risk')?.command ?? null;
@@ -89,13 +94,16 @@ export function signOffFile({ root, config }, workflow, { clauseId, slot, owners
   const head = `  ${clauseId} ${slot} (visual: the plan names no file) — `;
   const risk = riskCommand ? { riskCommand } : {};
   const capture = build.source
-    ? { status: 'needed', workId, file, ...risk, build: { source: build.source, words: build.words }, viewport: signOffViewport(workflow),
-      lines: [`${head}SFlow takes its screenshot when a person asks for it (Take the screenshot), then they look at it and sign it off:`, `    /sf-decide ${workId}`] }
+    ? { status: 'needed', workId, file, command, ...(target ? { target } : {}), ...risk, build: { source: build.source, words: build.words }, viewport: signOffViewport(workflow),
+      lines: [`${head}a person takes its screenshot on the Decide card (/sf-decide ${workId}, Take the screenshot) or in their own terminal, bringing up the screen it is about, then looks at it and signs it off:`, `    ${command}`] }
     : { status: 'unavailable', workId, file, reason: build.reason, ...risk,
       lines: [`${head}SFlow cannot take its screenshot: ${build.reason}. Save one as ${file}, then sign it off: /sf-decide ${workId}`,
         ...(riskCommand ? [`    Or accept it as a dated risk: ${riskCommand}`] : [])] };
   return { files: [], capture };
 }
+
+/** The person's own command that opens the app for them to bring up and capture the screen a visual sign-off is about. */
+export const screenshotCommand = (workId, clauseId, slot) => `singularity-flow decision screenshot --work-id ${workId} --criterion ${clauseId} --slot ${slot}`;
 
 /** A visual sign-off's planned files, or SFlow's own screenshot of this candidate once taken when the plan names none (approve --confirm-evidence). */
 export function plannedOrTaken(root, config, workflow, row, slot, planned) {

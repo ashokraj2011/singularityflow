@@ -46,7 +46,7 @@ function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhas
       const files = slot.method === 'inspection' ? [slot.witness.path]
         : (claim.obligations ?? [claim]).filter(entry => entry.fulfillment === 'evidence').flatMap(entry => entry.expectedPaths ?? []);
       // No file planned for a visual one: SFlow's own screenshot [owner, 2026-11-18].
-      const own = slot.method === 'visual' && !files.length ? shot.signOffFile(where, workflow, { clauseId, slot: slot.slot, owners, row }) : null;
+      const own = slot.method === 'visual' && !files.length ? shot.signOffFile(where, workflow, { clauseId, slot: slot.slot, target: slot.witness?.target, owners, row }) : null;
       const unique = [...new Set(own?.files ?? files)];
       // Retained evidence no delivery recorded yet: its witness is refused until the step that owes it publishes it.
       const retained = (claim.obligations ?? [claim]).filter(entry => entry.fulfillment === 'evidence').flatMap(entry => entry.expectedPaths ?? []);

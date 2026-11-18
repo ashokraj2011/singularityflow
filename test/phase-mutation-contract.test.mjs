@@ -985,6 +985,8 @@ test('every step only a person takes in their own terminal is refused in every t
     risk: ['singularity-flow decision risk PMC-1 --obligation OBL-001 --category evidence --expires 2099-01-01 --reason "Accepted until the device lab returns."'],
     'visual-risk': ['singularity-flow decision visual-risk PMC-1 --comparison visual-0123456789abcdef01234567 --expires 2099-01-01 --reason "The device lab renders this one pixel row differently."'],
     'witness-deferral': ['singularity-flow decision witness-defer PMC-1 --criterion PMC-1:AC-001 --slot screen --to custom-step --reason "The later step changes the screen this sign-off reads."'],
+    // The person brings up the screen at SFlow's browser and captures it; a turn never runs it [owner, 2026-11-18].
+    'visual-screenshot': ['singularity-flow decision screenshot PMC-1 --criterion PMC-1:AC-001 --slot screen'],
     'witness-exception-renewal': [`singularity-flow decision witness-exception PMC-1 --phase custom-step --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`],
     'test-run-risk': ['test-risk --phase custom-step --cause "No browser here." --expires 2099-01-01', 'test-narrowing --phase custom-step',
       'evidence-reuse --phase custom-step --from-attempt TA-001', 'visual-profile --phase custom-step --profile tablet --not-applicable']

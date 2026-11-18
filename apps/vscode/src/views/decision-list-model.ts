@@ -70,7 +70,7 @@ export interface DecisionItemPacket {
   /** A read-only check SFlow runs itself before the answer is recommended, offered first until it has a result. */
   check?: { kind: string; status: string; label: string; does: string; command?: string; cutShort?: boolean; seconds?: number;
     /** Run only when the person asks for it (SFlow's screenshot builds the app), never on the page's first read. */
-    onRequest?: boolean; failed?: string };
+    onRequest?: boolean; failed?: string; criterion?: string; slot?: string };
   /** A chat may ask it as a plain yes or no, bound to the person's own typed answer. */
   chatYesNo?: boolean; yesNo?: { question: string; yes: string; no: string | null; route: string };
   /** SFlow settled it for the person: shown under "Settled for you", with its evidence and an Undo. */

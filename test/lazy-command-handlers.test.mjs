@@ -795,13 +795,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,758,250 (measured 9,758,201 for submit.mjs, +2,543 over 9,755,658; start.mjs 9,757,880): the question account and
     // CVL piece 4 merged on the review fixes (after-demo, 2026-11-18), each measured above on its own base. Same 472 files.
     // No new eager file.
-    // 9,759,600 (measured 9,759,580 for submit.mjs, +1,381 over 9,758,199; start.mjs 9,758,073): a visual sign-off the plan
-    // names no file for gets SFlow's own screenshot (owner, 2026-11-18): the owed sign-off asks the lazy
-    // visual-sign-off-capture.mjs, loaded by its path, for its file (owed-decisions.mjs +759), approve --confirm-evidence
-    // confirms it (verification/witness-records.mjs +427), and an untracked screenshot in the Story's folder is SFlow's
-    // output, not a change to review (lifecycle-worktree.mjs +195). The build, server and browser stay lazy
+    // 9,759,850 (measured 9,759,839 for submit.mjs, +1,640 over 9,758,199; start.mjs 9,758,302): a visual sign-off the plan
+    // names no file for gets the screenshot a person captures at SFlow's browser (owner, 2026-11-18): the owed sign-off asks
+    // the lazy visual-sign-off-capture.mjs, loaded by its path, for its file (owed-decisions.mjs +789), approve
+    // --confirm-evidence confirms it (verification/witness-records.mjs +427), an untracked screenshot in the Story's folder
+    // is SFlow's output, not a change to review (lifecycle-worktree.mjs +195), and `decision screenshot` is a person's own
+    // step (person-step-catalog.mjs +215, command-registry.mjs +14). The build, server and browser stay lazy
     // (visual-sign-off-screenshot.mjs, application-review-preview.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_759_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_759_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1218,7 +1219,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,290,400 (measured 4,290,341, +61): the person-step catalog's confirming runs share one check. No new eager file.
   // 4,292,200 (measured 4,292,155, +1,814): CVL piece 4 (2026-11-18), the plan's Interface api column
   // (verification/contracts.mjs +1,092) and the gate's lazy API assertion check (delivery-evidence.mjs +722). No new eager file.
-  assert.ok(current.bytes <= 4_292_200, `session current loads ${current.bytes} source bytes`);
+  // 4,292,400 (measured 4,292,397, +229): `decision screenshot`, where a person brings up the screen a visual sign-off is
+  // about at SFlow's browser, is their own step (person-step-catalog.mjs +215, command-registry.mjs +14) [owner, 2026-11-18].
+  // No new eager file.
+  assert.ok(current.bytes <= 4_292_400, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

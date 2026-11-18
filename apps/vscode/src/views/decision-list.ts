@@ -82,7 +82,7 @@ export class DecisionListPanel implements vscode.Disposable {
   private router = registerMessageRouter('singularityFlow.decisions', {
     'decisions.refresh': () => this.guard(() => this.load()),
     // "Check first": SFlow runs the check with up to 15 minutes, then the list says what it found [owner, 2026-11-16].
-    'decisions.check': () => this.guard(() => this.load({ probe: 900 })),
+    'decisions.check': (message) => this.guard(() => this.check(stringField(message, 'item'))),
     'decisions.review': (message) => this.guard(() => this.review(message.choices, stringField(message, 'digest'))),
     'decisions.witness': (message) => this.guard(() => this.witness(stringField(message, 'item'), stringField(message, 'option'))),
     'decisions.copy': (message) => this.copy(stringField(message, 'item'), stringField(message, 'option')),
@@ -128,6 +128,25 @@ export class DecisionListPanel implements vscode.Disposable {
     // A check still pending on what this person decides runs once, bounded, before they answer.
     // One that runs only when asked (SFlow's screenshot builds the app) waits for its button.
     if (!probe && !this.disposed && !this.error && this.packet?.items.some((item) => checkOf(item) && !checkOf(item)!.onRequest && item.decidedBy?.allowed)) await this.load({ probe: 60 });
+  }
+
+  /**
+   * "Check first" runs the check with up to 15 minutes; a visual sign-off's "Take the screenshot" runs `decision
+   * screenshot` instead, where the person brings up the screen at SFlow's browser and captures it [owner, 2026-11-18].
+   */
+  private async check(itemId: string | null): Promise<void> {
+    const row = this.packet?.items.find((item) => item.id === itemId);
+    const shot = row ? checkOf(row) : null;
+    if (shot?.kind !== 'screenshot' || !shot.criterion || !shot.slot) return this.load({ probe: 900 });
+    this.busy = true;
+    this.notice = 'SFlow is opening what was published in its own browser: bring up the screen the criterion is about, then click "Capture this screen" on SFlow\'s bar.';
+    this.render();
+    try {
+      await this.client.run(['decision', 'screenshot', '--work-id', this.target.workId, '--criterion', shot.criterion, '--slot', shot.slot, '--json'], undefined, { priority: 'interactive' });
+      this.notice = 'The screenshot is taken: look at it and sign it off below.';
+      this.error = null;
+    } catch (error) { this.notice = null; this.error = `No screenshot was taken: ${(error as Error).message}`; }
+    finally { this.busy = false; await this.load(); }
   }
 
   private async review(raw: unknown, digest: string | null): Promise<void> {

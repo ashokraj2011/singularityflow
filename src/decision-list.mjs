@@ -1039,7 +1039,7 @@ function notPublishedYet(workflow, entry) {
   const name = clauseName(workflow, entry.clauseId);
   const capture = entry.capture ?? null;
   if (capture?.status === 'needed') {
-    return `It cannot be signed off yet: the plan names no screenshot for ${name}, so SFlow takes one of what ${owners} published when you choose "${screenshotLabel(capture)}"; then you look at it and sign it off.`;
+    return `It cannot be signed off yet: the plan names no screenshot for ${name}. Choose "${screenshotLabel(capture)}": SFlow opens what ${owners} published in its own browser, you bring up ${capture.target ? `the screen it is about (${capture.target})` : 'the screen it is about'} and capture it; then you look at it and sign it off.`;
   }
   if (capture?.status === 'unavailable') {
     return `It cannot be signed off yet: the plan names no screenshot for ${name}, and SFlow cannot take one: ${capture.reason}. Take it yourself and save it as ${capture.file}; it is then yours to look at and sign off here.${entry.capture.riskCommand ? ` Or accept it as a dated risk: ${entry.capture.riskCommand}.` : ''}`;
@@ -1051,18 +1051,20 @@ function notPublishedYet(workflow, entry) {
 const screenshotLabel = (capture) => (capture?.failed ? 'Take the screenshot again' : 'Take the screenshot');
 
 /**
- * The check a visual sign-off with no file offers first [owner, 2026-11-18: "SFlow should take a screenshot and ask for
- * approval"]: SFlow builds what the step published and takes the screenshot (decision-probes.mjs runs it). Only when a
- * person asks for it (`onRequest`), never on a read: it runs the app's build. Null when there is nothing to take.
+ * The step a visual sign-off with no file offers first [owner, 2026-11-18: "SFlow should take a screenshot and ask for
+ * approval"]: SFlow builds what the step published and opens it in its own browser, where the person brings up the
+ * screen the criterion is about and captures it (`decision screenshot`, the card's button runs `command`). It waits
+ * for the person, so it runs only when they ask (`onRequest`), never as a card's check. Null when there is nothing to take.
  */
 function screenshotCheck(workflow, entry) {
   const capture = entry?.capture;
   if (capture?.status !== 'needed' || entry.available !== false) return null;
   const owners = listWords((entry.owners ?? []).map((id) => stepName(workflow, id)));
   const { width, height } = capture.viewport ?? {};
+  const name = clauseName(workflow, entry.clauseId);
   return { kind: 'screenshot', status: capture.failed ? 'failed' : 'unknown', onRequest: true, criterion: entry.clauseId, slot: entry.slot,
-    label: screenshotLabel(capture),
-    does: `SFlow builds what ${owners} published in a private copy (${capture.build.words}), opens it at ${width}×${height} in its own browser and saves the screenshot for you to look at; nothing is recorded or approved.`,
+    label: screenshotLabel(capture), command: capture.command,
+    does: `SFlow builds what ${owners} published in a private copy (${capture.build.words}) and opens it at ${width}×${height} in its own browser: bring up the screen ${name} is about${capture.target ? ` (${capture.target})` : ''}, then click "Capture this screen for ${name}" on SFlow's bar. You then look at the screenshot and sign it off; nothing is recorded or approved before that.`,
     ...(capture.failed ? { failed: `The last screenshot failed: ${capture.failed}` } : {}) };
 }
 
@@ -1131,7 +1133,10 @@ function owedItem(workflow, context, entry) {
   const check = witness ? screenshotCheck(workflow, entry) : null;
   // SFlow cannot take the screenshot: the person's own dated risk is a way through beside their own screenshot.
   const risk = notYet && entry.capture?.status === 'unavailable' && entry.capture.riskCommand ? [{ id: 'accept-risk', label: 'Accept it as a dated risk, in your terminal',
-    command: entry.capture.riskCommand, words: 'You record a dated risk in your own terminal; the criterion stays unproven until that date.' }] : [];
+    command: entry.capture.riskCommand, words: 'You record a dated risk in your own terminal; the criterion stays unproven until that date.' }]
+    // The screenshot shows another screen: the person captures the right one again before signing it off.
+    : !notYet && entry.capture?.status === 'taken' && entry.capture.again ? [{ id: 'capture', label: 'Take the screenshot again, of the screen it is about',
+      command: entry.capture.again, words: 'SFlow opens what was published again; you bring up the screen and capture it, replacing this screenshot.' }] : [];
   const item = stepItem(workflow, context, {
     kind: 'owed-decision', title: witness ? `Sign off ${clauseName(workflow, entry.clauseId)} (${entry.method})` : `Decide scope item ${entry.id}`,
     why: witness ? witnessWhy(workflow, entry)

@@ -16,13 +16,14 @@ import path from 'node:path';
 
 import { decisionPacket } from '../src/decision-list.mjs';
 import { withPlainWords } from '../src/decision-plain.mjs';
-import { askedFor, itemsToCheck, PROBE_KINDS, runDecisionProbes } from '../src/decision-probes.mjs';
+import { itemsToCheck, PROBE_KINDS } from '../src/decision-probes.mjs';
+import { ownTerminalStep } from '../src/command-skills.mjs';
 import { approvalHold } from '../src/approval-check.mjs';
 import { owedDecisionLines } from '../src/owed-decisions.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { inspectLifecycleWorktree } from '../src/lifecycle-worktree.mjs';
 import { SIGN_OFF_CAPTURE_DIRECTORY, signOffBuild, signOffCapturePath, signOffFile, signOffViewport } from '../src/visual-sign-off-capture.mjs';
-import { CHECK_FIRST_SECONDS, decisionsTable, directForm, LEAVE, runCard, SIGN } from '../plugin/extensions/decisions/card.mjs';
+import { decisionsTable, directForm, LEAVE, runCard, SIGN } from '../plugin/extensions/decisions/card.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
 import { buildDecisionListView } from '../apps/vscode/src/views/decision-list-model.ts';
 import { decisionListHtml } from '../apps/vscode/src/views/decision-list-page.ts';
@@ -46,7 +47,8 @@ function story({ status = 'awaiting_approval' } = {}) {
 const owed = (extra = {}) => ({ kind: 'witness', clauseId: `${W}:AC-002`, clauseText: 'The graph lays out in the Grapher workspace.', slot: 'graph-layout', method: 'visual',
   files: [], owners: ['implementation'], available: false, groups: ['engineering'], contextBinding: `sha256:${'c'.repeat(64)}`,
   command: `singularity-flow decision witness --work-id ${W} --criterion ${W}:AC-002 --slot graph-layout --file <EVIDENCE-PATH>`, ...extra });
-const NEEDED = { status: 'needed', workId: W, file: FILE, viewport: { width: 1280, height: 800 },
+const NEEDED = { status: 'needed', workId: W, file: FILE, viewport: { width: 1280, height: 800 }, target: 'Grapher workspace at desktop viewport',
+  command: `singularity-flow decision screenshot --work-id ${W} --criterion ${W}:AC-002 --slot graph-layout`,
   build: { source: 'inferred', words: 'npm ci --no-audit --no-fund, then npm run build (inferred: package.json builds with vite build; output dist)' } };
 
 /** The list as `decisions` reads it for every host, with the approval held by the sign-off as the approval gate holds it. */
@@ -83,31 +85,37 @@ test('the dead end, as it was: a published step\'s visual sign-off with no file 
   assert.ok(text(decisionListHtml(buildDecisionListView(packet))).includes(packet.plain.nothingToRecord));
 });
 
-test('after publication the sign-off offers SFlow\'s screenshot first, run only when the person asks, and nobody types a path', () => {
+test('after publication the sign-off offers the person\'s screenshot first, never as a card\'s check, and nobody types a path', () => {
   const packet = packetOf(owed({ capture: NEEDED }));
   const item = signOff(packet);
-  assert.deepEqual([item.check.kind, item.check.onRequest, item.check.label, item.check.criterion, item.check.slot], ['screenshot', true, 'Take the screenshot', `${W}:AC-002`, 'graph-layout']);
-  assert.match(item.check.does, /^SFlow builds what Implementation published in a private copy \(npm ci --no-audit --no-fund, then npm run build \(inferred: package\.json builds with vite build; output dist\)\), opens it at 1280×800/u);
-  assert.match(item.check.does, /nothing is recorded or approved\.$/u);
+  assert.deepEqual([item.check.kind, item.check.onRequest, item.check.label, item.check.criterion, item.check.slot, item.check.command],
+    ['screenshot', true, 'Take the screenshot', `${W}:AC-002`, 'graph-layout', NEEDED.command]);
+  assert.match(item.check.does, /^SFlow builds what Implementation published in a private copy \(npm ci --no-audit --no-fund, then npm run build \(inferred: package\.json builds with vite build; output dist\)\) and opens it at 1280×800 in its own browser: bring up the screen AC-002 is about \(Grapher workspace at desktop viewport\), then click "Capture this screen for AC-002" on SFlow's bar\./u);
+  assert.match(item.check.does, /nothing is recorded or approved before that\.$/u);
   assert.equal(item.options[0].available, false);
   assert.equal(item.options[0].label, 'Sign it off once SFlow has taken its screenshot');
+  assert.match(item.why, /you bring up the screen it is about \(Grapher workspace at desktop viewport\) and capture it/u);
   // A question with its recommendation, never a "Later:" line: the person can act now.
   assert.equal(item.plain.later, undefined);
   assert.equal(item.plain.question, 'Does the screenshot show what AC-002 asks for?');
-  assert.match(item.plain.why, /^SFlow takes the screenshot of what was published first, then you look at it and sign it off; Implementation can't be approved until it is decided\.$/u);
+  assert.match(item.plain.why, /^Take its screenshot first: SFlow opens what was published and you bring up the screen it is about; then you sign it off; Implementation can't be approved until it is decided\.$/u);
   assert.match(item.plain.recommended, /^Recommended: Take the screenshot\. /u);
   assert.equal(packet.plain.nothingToRecord, undefined, 'something is the person\'s to do');
-  // A card's first read never builds the app; the person's "Take the screenshot" (the longer check) does.
-  assert.deepEqual([askedFor(undefined), askedFor('60'), askedFor('900')], [false, false, true]);
+  // It waits for a person at a browser: no card's check or probe ever runs it, quick or long.
+  assert.ok(!PROBE_KINDS.includes('owed-decision') && !PROBE_KINDS.includes('evidence-obligation'));
   assert.deepEqual(itemsToCheck(packet), []);
-  assert.deepEqual(itemsToCheck(packet, { asked: true }).map((entry) => entry.id), [item.id]);
-  assert.ok(PROBE_KINDS.includes('owed-decision') && PROBE_KINDS.includes('evidence-obligation'));
+  // A person's own step: refused in a chat turn, run by the card's button or their own terminal.
+  assert.equal(ownTerminalStep(NEEDED.command), 'visual-screenshot');
   // Each host offers it on the row: Copilot CLI's form, VS Code's Decide card and its Decisions page.
   assert.deepEqual(directForm(packet).form.requestedSchema.properties.decision0.enum, ['Take the screenshot (recommended)', LEAVE]);
   assert.match(decisionsTable(packet), /\n- Take the screenshot \(recommended\): SFlow builds what Implementation published/u);
   assert.match(decideHtml(packet), new RegExp(`data-check="${item.id}">Take the screenshot</button>`, 'u'));
   assert.match(decisionListHtml(buildDecisionListView(packet)), new RegExp(`data-check-item="${item.id}">Take the screenshot`, 'u'));
   assert.doesNotMatch(decideHtml(packet), /data-review/u, 'nothing to record until the screenshot is taken and looked at');
+  // Taken: the sign-off asks for it, and the person may take it again when it shows another screen.
+  const taken = signOff(packetOf(owed({ files: [FILE], available: true, capture: { status: 'taken', workId: W, file: FILE, again: `${NEEDED.command} --replace` } })));
+  assert.equal(taken.check, undefined);
+  assert.deepEqual(taken.options.find((entry) => entry.id === 'capture').action.command, `${NEEDED.command} --replace`);
 });
 
 test('the owed sign-off\'s file: SFlow\'s screenshot once taken, else what taking it needs, and the terminal says which', async (t) => {
@@ -128,7 +136,7 @@ test('the owed sign-off\'s file: SFlow\'s screenshot once taken, else what takin
   await writeFile(path.join(root, 'package-lock.json'), '{}');
   const needed = ask(1).capture;
   assert.equal(needed.status, 'needed');
-  assert.match(lines(needed), /SFlow takes its screenshot when a person asks for it \(Take the screenshot\)[\s\S]*\/sf-decide WORK-9/u);
+  assert.match(lines(needed), /a person takes its screenshot on the Decide card \(\/sf-decide WORK-9, Take the screenshot\) or in their own terminal, bringing up the screen it is about[\s\S]*\n {4}singularity-flow decision screenshot --work-id WORK-9 --criterion WORK-9:AC-002 --slot graph-layout$/u);
   assert.doesNotMatch(lines(needed), /nothing has published/u);
   // Taken (by SFlow, or saved there by the person): it is the sign-off's file.
   await mkdir(path.dirname(path.join(root, needed.file)), { recursive: true });
@@ -136,15 +144,6 @@ test('the owed sign-off\'s file: SFlow\'s screenshot once taken, else what takin
   assert.deepEqual([ask(1).files, ask(1).capture.status], [[needed.file], 'taken']);
   // A new generation is a new candidate: a new screenshot.
   assert.notEqual(ask(2).capture.file, needed.file);
-});
-
-test('the probe runs SFlow\'s screenshot only when asked, within the time it is given', async () => {
-  const packet = packetOf(owed({ capture: NEEDED }));
-  const calls = [];
-  const probes = { 'owed-decision': async (root, read, item, seconds) => { calls.push([item.check.criterion, item.check.slot, seconds]); } };
-  assert.deepEqual(await runDecisionProbes('/repo', packet, { seconds: 60, probes }), { ran: [] }, 'a card\'s first read builds nothing');
-  assert.deepEqual(await runDecisionProbes('/repo', packet, { seconds: 900, probes, now: () => 0 }), { ran: [signOff(packet).id] });
-  assert.deepEqual(calls, [[`${W}:AC-002`, 'graph-layout', 900]]);
 });
 
 test('Copilot CLI: "Take the screenshot", then the person looks at it and signs it off on the card', async () => {
@@ -160,11 +159,14 @@ test('Copilot CLI: "Take the screenshot", then the person looks at it and signs 
     { action: 'accept', content: { confirm: SIGN } }];
   const witnessed = [];
   const inspected = [];
+  const shots = [];
   const result = await runCard({ read: async (options) => { reads.push(options ?? null); return lists[Math.min(reads.length - 1, lists.length - 1)]; },
     show: async () => {}, ask: async () => replies.shift() ?? { action: 'cancel' }, record: async () => assert.fail('nothing else is recorded'),
+    screenshot: async (packet, check) => { shots.push([packet.workId, check.criterion, check.slot]); return { file: FILE }; },
     witness: async (packet, review, answer) => { witnessed.push([review.clauseId, review.slot, answer.file]); return { record: { id: 'WIT-001' } }; },
     inspect: async (packet, file) => { inspected.push(file); } });
-  assert.deepEqual(reads.slice(0, 2), [null, { probe: CHECK_FIRST_SECONDS }], 'no automatic build; the person\'s choice runs it');
+  assert.deepEqual(reads.slice(0, 2), [null, null], 'no probe builds it: the person\'s choice runs decision screenshot, then the list is read again');
+  assert.deepEqual(shots, [[W, `${W}:AC-002`, 'graph-layout']]);
   assert.deepEqual(inspected, [FILE], 'the screenshot is put in front of the person first');
   assert.deepEqual(witnessed, [[`${W}:AC-002`, 'graph-layout', FILE]]);
   assert.equal(result.status, 'recorded');
@@ -244,8 +246,10 @@ test('the screenshot is named for its criterion, slot and candidate, and an untr
   assert.deepEqual(inspection.entries.map((entry) => entry.path.value).sort(), ['notes.txt', `singularity/work-items/${W}/evidence/stray.png`]);
 });
 
-test('end to end: a published web change, SFlow\'s own screenshot, the person\'s sign-off, and the criterion is met', { timeout: 600_000 }, async (t) => {
-  const page = '<!doctype html><html lang="en"><meta charset="utf-8"><title>Grapher</title><h1>Grapher workspace</h1><p>Value 2</p></html>';
+test('end to end: a published web change, the person brings up the screen and SFlow captures it, the person signs it off, and the criterion is met', { timeout: 600_000 }, async (t) => {
+  // The app opens on another screen (as the owner's ApexCalc opens on its calculator); the criterion is about the grapher.
+  const page = '<!doctype html><html lang="en"><meta charset="utf-8"><title>Calculator</title><body><h1>Classic desk calculator</h1>'
+    + '<button id="graph" onclick="document.title=\'Grapher\';location.hash=\'grapher\';document.body.innerHTML=\'<h1>Grapher workspace</h1><p>Value 2</p>\'">Graph mode</button></body></html>';
   const repo = await repository(t, { implementCommands: false, files: {
     'package.json': JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test', build: 'vite build' } }),
     'package-lock.json': JSON.stringify({ name: 'grapher', lockfileVersion: 3, requires: true, packages: {} }),
@@ -272,19 +276,40 @@ test('end to end: a published web change, SFlow\'s own screenshot, the person\'s
   assert.ok(first, JSON.stringify(list().items.map((item) => item.title)));
   assert.equal(first.check?.kind, 'screenshot', JSON.stringify(first));
   assert.match(first.check.does, /inferred: package\.json builds with vite build; output dist/u);
+  assert.match(first.check.does, /bring up the screen AC-001 is about \(Value display at desktop viewport\), then click "Capture this screen for AC-001"/u);
+  assert.equal(first.check.command, 'singularity-flow decision screenshot --work-id QF-1 --criterion QF-1:AC-001 --slot screen');
   const file = first.details.capture.file;
-  // A card's first read builds nothing.
-  repo.sflowJson('decisions', 'QF-1', '--probe', '--probe-wait', '60');
-  await assert.rejects(readFile(path.join(repo.root, file)));
-  // The person's "Take the screenshot".
+  // No read of the card builds it, even its longest check: it waits for a person.
   repo.sflowJson('decisions', 'QF-1', '--probe', '--probe-wait', '900');
-  const shot = await readFile(path.join(repo.root, file)).catch(() => null);
-  if (!shot) {
-    const notes = path.join(repo.must('git', ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim(), 'singularity-flow', 'visual-sign-offs', 'QF-1');
-    const failure = (await Promise.all((await readdir(notes).catch(() => [])).map((name) => readFile(path.join(notes, name), 'utf8')))).join('\n');
-    if (/ARA_CAPTURE_UNAVAILABLE/u.test(failure)) return t.skip('The pinned review browser is not installed here: run singularity-flow app-review browser install');
-    assert.fail(`no screenshot was taken: ${failure}`);
-  }
+  await assert.rejects(readFile(path.join(repo.root, file)));
+  const missing = repo.sflowJson('decision', 'screenshot', '--work-id', 'QF-1');
+  assert.notEqual(missing.status, 0);
+  assert.equal(missing.value.error.code, 'VISUAL_SIGN_OFF_INVALID');
+  // The person's capture, headless here and driven by the test: SFlow's own build of what was published, in its browser.
+  const { takeSignOffCapture } = await import('../src/visual-sign-off-screenshot.mjs');
+  const previousPath = process.env.PATH;
+  process.env.PATH = repo.env.PATH;
+  t.after(() => { process.env.PATH = previousPath; });
+  const take = (drive) => takeSignOffCapture(repo.root, { workId: 'QF-1', clauseId: 'QF-1:AC-001', slot: 'screen', wait: 60, browser: { headless: true, drive } });
+  const unavailable = (error) => error?.code === 'ARA_CAPTURE_UNAVAILABLE' && /Executable doesn't exist/u.test(String(error.details?.cause));
+  // The browser closed before anyone captured: nothing taken, and the card says so and offers it again.
+  const closed = await take(async (browserPage) => { await browserPage.close(); }).then(() => null, (error) => error);
+  if (unavailable(closed)) return t.skip('The pinned review browser is not installed here: run singularity-flow app-review browser install');
+  assert.equal(closed?.code, 'ARA_CAPTURE_NOT_TAKEN', String(closed?.stack ?? closed));
+  await assert.rejects(readFile(path.join(repo.root, file)));
+  const offered = list().items.find((item) => item.details?.clause === 'QF-1:AC-001');
+  assert.equal(offered.check.label, 'Take the screenshot again');
+  assert.match(offered.check.failed, /The browser was closed before a screen was captured, so nothing was taken\./u);
+  // The person goes to the grapher, then clicks SFlow's bar: the screenshot is of that screen, not the first page.
+  const taken = await take(async (browserPage) => {
+    await browserPage.click('#graph');
+    await browserPage.waitForFunction(() => location.hash === '#grapher');
+    const bar = await browserPage.locator('sflow-capture-bar').boundingBox();
+    await browserPage.mouse.click(bar.x + bar.width - 60, bar.y + bar.height / 2);
+  });
+  assert.equal(taken.file, file);
+  assert.deepEqual(taken.screen, { title: 'Grapher', path: '/#grapher' });
+  const shot = await readFile(path.join(repo.root, file));
   assert.deepEqual([...shot.subarray(1, 4)], [...Buffer.from('PNG')]);
   const ready = list().items.find((item) => item.details?.clause === 'QF-1:AC-001');
   assert.equal(ready.check, undefined);

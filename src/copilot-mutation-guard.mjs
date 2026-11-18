@@ -882,6 +882,8 @@ export function argvAllowed(argv, mode, value) {
   // Witnessing evidence and accepting a dated obligation risk are a person's word on what they looked
   // at, in no turn: run under the person's Git identity, an agent would sign off its own work.
   if (signOff(positionals)) return false;
+  // So is the screenshot a visual sign-off reads: the person brings up its screen at SFlow's browser [owner, 2026-11-18].
+  if (positionals[0] === 'decision' && positionals[1] === 'screenshot') return false;
   // The decisions page records what a person answered on it; a turn that wrote that file would answer for them.
   if (positionals[0] === 'story' && positionals[1] === 'adjudicate' && options.answers !== undefined) return false;
   // The table asks a person at their own terminal; a turn that answered it would answer for them.
@@ -1097,6 +1099,7 @@ function ownTerminalStepCall(call, value) {
 // What each person's own step is, for the ones no earlier refusal names; any later entry still gets
 // the person's exact terminal line instead of a turn-mode or tool-form refusal (E5/D2, 2026-10-31).
 const OWN_STEP_DENIALS = Object.freeze({
+  'visual-screenshot': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this opens SFlow\'s browser for a person to bring up the screen a visual criterion is about and capture it; no turn takes it. /sf-decide opens the Decide card, whose Take the screenshot runs it for them, and their own terminal takes the same command. Show the user the command and stop; do not retry it',
   witness: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence is the word of a person who approves the step that delivered it, after looking for themselves; an agent never signs off its own work. /sf-decide opens the page that asks them and records it under their name (in a /sf-decide turn, sflowWitnessReview or sflow_witness_review); their own terminal takes the same command',
   'adjudication-answers': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this records what a person answered on the decisions page, and no turn writes those answers. Call sflowAdjudicate or sflow_adjudicate with the Story ID, which opens that page, or run /sf-converge, which asks them.',
   'adjudication-table': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this asks a person at their own terminal to answer the whole table, and no turn answers it. Call sflowAdjudicate or sflow_adjudicate with the Story ID where it is available; otherwise show the user this command to run themselves, and stop',

@@ -1,8 +1,10 @@
 /**
- * SFlow's own screenshot for a visual sign-off whose plan names no file, taken when a person asks for it
- * (visual-sign-off-capture.mjs says which build and where it goes). It builds the application's checked source with
- * application review's static adapter (application-review-preview.mjs), serves the output on a loopback port, opens it
- * in the pinned browser and writes one PNG in the Story's folder. Loaded only when a screenshot is taken.
+ * SFlow's own screenshot for a visual sign-off whose plan names no file, taken when a person asks for it (`decision
+ * screenshot`; visual-sign-off-capture.mjs says which build and where it goes). It builds the application's checked
+ * source with application review's static adapter (application-review-preview.mjs), serves the output on a loopback
+ * port and opens it in the pinned browser with SFlow's bar: the person brings up the screen the criterion is about and
+ * clicks "Capture this screen" [owner review, 2026-11-18: the first page is often another screen]. SFlow writes that
+ * screenshot in the Story's folder. Loaded only when a screenshot is taken.
  */
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -16,21 +18,26 @@ function refused(message, code, details = {}) {
   return new SingularityFlowError(message, { code, details });
 }
 
+export const BUILD_SECONDS = 900;
+export const WAIT_SECONDS = 600;
+
 /**
- * Take SFlow's screenshot for `clauseId`'s visual slot `slot` within `seconds`, and return `{ file, reused, build,
- * viewport }`. A screenshot of this candidate already here is reused. Refuses, naming the route, when the step that
- * answers for the criterion has not published, when this checkout has application code nobody published, or when no
- * build can be named. A failure is kept as a note (lastCaptureFailure) and thrown.
+ * Take the screenshot a person captures for `clauseId`'s visual slot `slot`, and return `{ file, reused, build,
+ * viewport, screen }`. The build gets BUILD_SECONDS; the person `wait` seconds (WAIT_SECONDS) once the browser opens. A
+ * screenshot of this candidate already here is reused unless `again`. Refuses, naming the route, when the step that
+ * answers for the criterion has not published, when this checkout has application code nobody published, when no build
+ * can be named, or when nobody captured a screen. A failure is kept as a note (lastCaptureFailure) and thrown.
+ * `browser` ({ headless, drive }) is for tests only.
  */
-export async function takeSignOffCapture(root, { workId, clauseId, slot, seconds = 900 }) {
+export async function takeSignOffCapture(root, { workId, clauseId, slot, wait = WAIT_SECONDS, again = false, browser = {} }) {
   const { loadAcceptedStoryExecution } = await import('./accepted-story-execution.mjs');
   const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
   const binding = witnessContextBinding(workflow);
   const existing = currentSignOffCapture(root, config, workflow, clauseId, slot, binding);
-  if (existing) return { file: existing, reused: true };
+  if (existing && !again) return { file: existing, reused: true };
   const note = await failureNote(root, workflow, clauseId, slot, binding);
   try {
-    const result = await capture(root, config, workflow, { clauseId, slot, binding, deadline: Date.now() + seconds * 1000 });
+    const result = await capture(root, config, workflow, { clauseId, slot, binding, wait, again, browser });
     await rm(note, { force: true }).catch(() => {});
     return result;
   } catch (error) {
@@ -40,7 +47,7 @@ export async function takeSignOffCapture(root, { workId, clauseId, slot, seconds
   }
 }
 
-async function capture(root, config, workflow, { clauseId, slot, binding, deadline }) {
+async function capture(root, config, workflow, { clauseId, slot, binding, wait, again, browser }) {
   const workId = workflow.workItem.id;
   const { owedDecisions } = await import('./owed-decisions.mjs');
   const owed = await owedDecisions(root, config, workflow, workflow.phaseOrder ?? Object.keys(workflow.phases ?? {}), { limit: 1000 });
@@ -50,7 +57,7 @@ async function capture(root, config, workflow, { clauseId, slot, binding, deadli
     throw refused(`${clauseId} has no visual sign-off of slot ${slot} owed now, so SFlow took no screenshot. The decision list says what is open: ${list.copilotCommand}.`,
       'VISUAL_SIGN_OFF_NOT_OWED', { nextAction: list });
   }
-  if (witness.files.length) return { file: witness.files[0], reused: true };
+  if (witness.files.length && !(again && witness.capture?.status === 'taken')) return { file: witness.files[0], reused: true };
   const published = (witness.owners ?? []).filter((id) => Number(workflow.phases?.[id]?.generation ?? 0) >= 1);
   if (!published.length) {
     throw refused(`Nothing has published ${clauseId} yet: SFlow takes its screenshot once ${(witness.owners ?? []).join(' or ') || 'its step'} publishes. Nothing was taken.`,
@@ -78,7 +85,7 @@ async function capture(root, config, workflow, { clauseId, slot, binding, deadli
   const preview = await import('./application-review-preview.mjs');
   const steps = build.source === 'declared' ? await preview.declaredStaticBuild(root, workflow, build.entry)
     : { steps: build.steps, workingDirectory: '.', env: {} };
-  const built = await preview.buildStaticOutput(root, config, workflow, steps, { outputDirectory: build.outputDirectory, deadline,
+  const built = await preview.buildStaticOutput(root, config, workflow, steps, { outputDirectory: build.outputDirectory, deadline: Date.now() + BUILD_SECONDS * 1000,
     label: build.source === 'inferred' ? 'The inferred build (npm ci, then npm run build)' : 'The declared preview build' });
   try {
     if (!built.files.has('index.html')) {
@@ -86,13 +93,17 @@ async function capture(root, config, workflow, { clauseId, slot, binding, deadli
         'VISUAL_SIGN_OFF_BUILD_UNAVAILABLE', { file });
     }
     const viewport = signOffViewport(workflow);
-    const shot = await preview.staticOutputScreenshot(built.files, { viewport, deadline });
+    const name = clauseId.slice(clauseId.lastIndexOf(':') + 1);
+    // What the plan says the screen shows, on the bar the person reads while they bring it up.
+    const shows = witness.capture?.target ? `: ${witness.capture.target}` : '';
+    const shot = await preview.personCapturedScreenshot(built.files, { viewport, deadline: Date.now() + wait * 1000, ...browser,
+      label: `SFlow · ${name}${shows}. Bring this screen up, then capture it.`, button: `Capture this screen for ${name}` });
     // Written once SFlow has every byte: the sign-off binds this exact file.
     const { secureRepositoryPath, writeAtomic } = await import('./util.mjs');
     const target = await secureRepositoryPath(root, file, { label: 'Visual sign-off screenshot' });
     await mkdir(path.dirname(target.absolute), { recursive: true });
     await writeAtomic(target.absolute, shot.bytes);
-    return { file, reused: false, build: { source: build.source, words: build.words }, viewport, browser: shot.browser, blockedOrigins: shot.blockedOrigins };
+    return { file, reused: false, build: { source: build.source, words: build.words }, viewport, browser: shot.browser, screen: shot.screen };
   } finally {
     await rm(built.materialization, { recursive: true, force: true }).catch(() => {});
   }

@@ -71,6 +71,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   // A later step gives a sign-off the delivering step's approvers deferred to it [PHR:REQ-007].
   ['witness-deferral', ([command, sub]) => command === 'decision' && sub === 'witness-defer'],
   ['visual-risk', ([command, sub]) => command === 'decision' && sub === 'visual-risk'],
+  // The screen a visual sign-off is about, brought up and captured by the person at SFlow's browser [owner, 2026-11-18].
+  ['visual-screenshot', ([command, sub]) => command === 'decision' && sub === 'screenshot'],
   ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(sub)],
   ['test-command-decision', ([command, sub], options) => command === 'decision' && sub === 'test-command'
     && (options.accept !== undefined || options.revoke !== undefined)],

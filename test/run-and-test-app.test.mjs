@@ -8,10 +8,10 @@ import test, { after } from 'node:test';
 
 import { buildRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
-const SECRET = invented('fixture-secr', 'et-value-7f3a');
+const SECRET = inventedValue('fixture-secr', 'et-value-7f3a');
 
 const SERVER = `import http from 'node:http';
 import { writeFileSync } from 'node:fs';

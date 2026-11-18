@@ -38,7 +38,7 @@ import { publicationPushOutcome } from '../src/git.mjs';
 import { gitTestWrapperEnvironment, realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
 import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
 import { rewriteRecordedEntry } from './helpers/ledger-rewrite.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(root, args) {
   return run('git', args, { cwd: root });
@@ -1253,7 +1253,7 @@ test('first ledger publication is deadline-supervised and returns no hook diagno
   skip: process.platform === 'win32'
 }, async () => {
   const { root, remote } = await repository();
-  const secret = invented('office-hook-secr', 'et-must-not-leak');
+  const secret = inventedValue('office-hook-secr', 'et-must-not-leak');
   const hook = path.join(remote, 'hooks/pre-receive');
   await writeFile(hook, [
     '#!/bin/sh',
@@ -1291,7 +1291,7 @@ test('state projection push failures expose only a digest of hook diagnostics', 
 }, async () => {
   const { root, remote } = await repository();
   await initializeLedger(root, enabled);
-  const secret = invented('state-hook-secr', 'et-must-not-leak');
+  const secret = inventedValue('state-hook-secr', 'et-must-not-leak');
   const hook = path.join(remote, 'hooks/pre-receive');
   await writeFile(hook, `#!/bin/sh\necho '${secret}' >&2\nexit 1\n`);
   await chmod(hook, 0o755);
@@ -1335,7 +1335,7 @@ test('exact state projection writes reviewed bytes without a hash-object stdin p
 
 test('state authority observation failures never expose remote diagnostics', async () => {
   const { root, parent } = await repository();
-  const secret = invented('office-remote-to', 'ken-must-not-leak');
+  const secret = inventedValue('office-remote-to', 'ken-must-not-leak');
   const unavailable = path.join(parent, secret, 'missing.git');
   git(root, ['remote', 'set-url', 'origin', unavailable]);
   let refusal;
@@ -1362,7 +1362,7 @@ test('state worktree creation failures never expose checkout filter diagnostics'
     '.gitattributes': 'filtered.txt filter=sflow-secret-filter\n',
     'filtered.txt': 'checked-in bytes\n'
   }, 'Install adversarial state filter fixture');
-  const secret = invented('office-filter-to', 'ken-must-not-leak');
+  const secret = inventedValue('office-filter-to', 'ken-must-not-leak');
   const filter = path.join(parent, 'secret-filter.sh');
   await writeFile(filter, `#!/bin/sh\necho '${secret}' >&2\nexit 1\n`);
   await chmod(filter, 0o755);

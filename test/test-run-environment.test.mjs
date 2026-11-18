@@ -11,7 +11,7 @@ import {
   declaredVariablesSha256, gateTestEnvironment, NODE_SELECTION_FLAGS, SELECTION_VARIABLES, testRunEnvironmentRecord
 } from '../src/test-run-environment.mjs';
 import { runnerFamily, runnerToolchain } from '../src/test-toolchain.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 /**
  * The environment a gate gives a test run [TCE:REQ-030]: CI=1 unless the command declares CI,
@@ -66,10 +66,10 @@ test('the command\'s own environment sets CI and selection variables it declares
 test('the declared digest covers literal values and bound names, and a secret only by name', async () => {
   assert.equal(declaredVariablesSha256({}), null);
   const bound = { boundNames: ['API_TOKEN', 'BASE_URL'], secretsPresent: ['API_TOKEN'] };
-  const environment = { BASE_URL: 'http://localhost:3000', API_TOKEN: invented('secre', 't-one') };
+  const environment = { BASE_URL: 'http://localhost:3000', API_TOKEN: inventedValue('secre', 't-one') };
   const digest = declaredVariablesSha256({ declared: { LOCALE: 'C' }, environment, bound });
   assert.equal(digest, sha({ literal: { BASE_URL: 'http://localhost:3000', LOCALE: 'C' }, secrets: ['API_TOKEN'] }));
-  assert.equal(declaredVariablesSha256({ declared: { LOCALE: 'C' }, environment: { ...environment, API_TOKEN: invented('secre', 't-two') }, bound }), digest,
+  assert.equal(declaredVariablesSha256({ declared: { LOCALE: 'C' }, environment: { ...environment, API_TOKEN: inventedValue('secre', 't-two') }, bound }), digest,
     'a secret value never enters the digest');
   assert.notEqual(declaredVariablesSha256({ declared: { LOCALE: 'C' }, environment: { ...environment, BASE_URL: 'http://other' }, bound }), digest);
 

@@ -10,7 +10,7 @@ import {
   createTransportIntent, observeRemoteTarget, readTransportIntent, retryTransportIntent
 } from '../src/transport-intents.mjs';
 import { releaseLeaseAfterReview, subjectLockPath } from '../src/subject-lock.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function fixture() {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-transport-'));
@@ -380,10 +380,10 @@ test('a transport lock another machine holds names its owner and reviewed releas
   }, item.options);
   const subject = { kind: 'transport-intent', id: created.intentId };
   const lock = subjectLockPath(item.work, subject);
-  const lockToken = invented('7c0f2a51-9a36-4d0b', '-8b5e-0f6a1d2c3b4e');
+  const lockToken = inventedValue('7c0f2a51-9a36-4d0b', '-8b5e-0f6a1d2c3b4e');
   await mkdir(lock, { recursive: true });
   await writeFile(path.join(lock, 'owner.json'), `${JSON.stringify({ schemaVersion: 1, subject, pid: 4242,
-    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: invented('else', 'where'),
+    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: inventedValue('else', 'where'),
     lockToken, acquiredAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-01T03:00:00.000Z' })}\n`);
   const release = `singularity-flow lock release transport-intent ${created.intentId} --confirm ${lockToken}`;
   await assert.rejects(() => retryTransportIntent(created.intentId, item.options), (error) => {
@@ -439,7 +439,7 @@ test('transport failure evidence redacts credentials and has a hard byte bound',
     repositoryRoot: item.work, sourceCommit: item.commit,
     targetRef: 'refs/heads/redacted-diagnostic', expectedRemote: null
   }, item.options);
-  const secret = invented('office-secret', '-do-not-retain');
+  const secret = inventedValue('office-secret', '-do-not-retain');
   const result = await retryTransportIntent(created.intentId, {
     ...item.options,
     runCommand: (command, args, options) => args[0] === 'push' && args.includes('--dry-run')

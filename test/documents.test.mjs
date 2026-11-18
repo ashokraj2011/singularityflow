@@ -13,7 +13,7 @@ import { renderActiveStoryEvidence } from '../src/evidence-context.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
 import { confirmNextVersion } from './helpers/next-version-consent.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -98,12 +98,12 @@ test('progress and document commands upload, list, and view files, images, and F
   flow(root, ['start', 'DOCS-1', '--from-branch', 'main', '--title', 'Document intake']);
 
   const credentialed = flow(root, [
-    'documents', 'upload', '--url', 'https://reviewer:secret@example.com/private', '--name', 'Private page'
+    'documents', 'upload', '--url', inventedValue('https://reviewer:', 'secret@example.com/private'), '--name', 'Private page'
   ], { allowFailure: true });
   assert.notEqual(credentialed.status, 0);
   assert.match(credentialed.stderr, /must not contain credentials/);
   const signed = flow(root, [
-    'documents', 'upload', '--url', 'https://example.com/private?token=secret', '--name', 'Signed page'
+    'documents', 'upload', '--url', inventedValue('https://example.com/private?to', 'ken=secret'), '--name', 'Signed page'
   ], { allowFailure: true });
   assert.notEqual(signed.status, 0);
   assert.match(signed.stderr, /must not contain credential parameter 'token'/);
@@ -519,7 +519,7 @@ neverCommit:
 
   const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-environment-documents-'));
   const environmentFile = path.join(uploads, '.env.qa');
-  await writeFile(environmentFile, invented('API_TO', 'KEN=not-printed\n'));
+  await writeFile(environmentFile, inventedValue('API_TO', 'KEN=not-printed\n'));
   const localRefusal = flow(root, ['documents', 'upload', environmentFile, '--name', 'QA environment'], { allowFailure: true });
   assert.notEqual(localRefusal.status, 0);
   assert.match(localRefusal.stderr, /ENVIRONMENT_LOCAL_CONTENT_REFUSED|matches .*\.env\*/);

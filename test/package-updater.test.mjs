@@ -16,7 +16,7 @@ import { installPair } from '../runtime/install-pair.mjs';
 import { pair } from './helpers/package-updater-artifacts.mjs';
 import { localCertificate } from './helpers/package-updater-tls.mjs';
 import { standaloneUpdater } from './helpers/package-updater-package.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const exec = promisify(execFile), root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex'), silent = () => {};
@@ -39,14 +39,14 @@ test('one positional folder argument and remembered invocation require no extra 
   assert.equal(timeoutSeconds(),900); assert.equal(timeoutSeconds(300),300);
   for (const bad of [60,299,3601,'600ms']) assert.throws(()=>timeoutSeconds(bad));
   assert.throws(()=>folderUrl('http://files.sharepoint.com/x'),/HTTPS/);
-  assert.throws(()=>folderUrl('https://user:pass@files.sharepoint.com/x'),/credentials/);
+  assert.throws(()=>folderUrl(inventedValue('https://user:', 'pass@files.sharepoint.com/x')),/credentials/);
   assert.throws(()=>parseOptions(['--folder']),/requires/);
 });
 
 test('public page metadata uses its scoped drive details, preserving literal percent characters', () => {
   const url = new URL('https://files.sharepoint.com/folder');
   url.searchParams.set('id','/sites/team/Shared Documents/SFlow/%20 literal');
-  const value = {'.driveUrl':'https://files.sharepoint.com/_api/v2.0/drives/d1','.driveAccessToken':invented('tempauth=t', 'oken%2B123'),'listUrl':'/sites/team/Shared%20Documents'};
+  const value = {'.driveUrl':'https://files.sharepoint.com/_api/v2.0/drives/d1','.driveAccessToken':inventedValue('tempauth=t', 'oken%2B123'),'listUrl':'/sites/team/Shared%20Documents'};
   const metadata = folderMetadata('<script>window.context='+JSON.stringify(value)+'</script>',url.href);
   assert.equal(metadata.folder,'SFlow/%20 literal');
   const api = new URL(childrenUrl(metadata));
@@ -193,7 +193,7 @@ test('real HTTPS public-folder listing, paging, cookies and binary downloads thr
     assert.equal(req.headers['cache-control'],'no-cache');
     const drive=origin+'/_api/v2.0/drives/d1';
     if(url.pathname==='/folder'){
-      res.end('<html><script>window.ctx='+JSON.stringify({'.driveUrl':drive,'.driveAccessToken':invented('tempauth=scope', 'd-public-token'),'listUrl':'/sites/team/Shared Documents'})+'</script></html>');return;
+      res.end('<html><script>window.ctx='+JSON.stringify({'.driveUrl':drive,'.driveAccessToken':inventedValue('tempauth=scope', 'd-public-token'),'listUrl':'/sites/team/Shared Documents'})+'</script></html>');return;
     }
     if(url.pathname.startsWith('/_api/')){
       assert.equal(url.searchParams.get('tempauth'),'scoped-public-token');

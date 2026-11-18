@@ -4,7 +4,7 @@
  */
 import { changeExplorerBody, visibleText } from '../../apps/vscode/src/views/change-explorer.ts';
 import { escape as escapeHtml } from '../../apps/vscode/src/views/webview.ts';
-import { invented } from './invented-secrets.mjs';
+import { inventedValue } from './invented-secrets.mjs';
 
 export function decodeAttribute(value) {
   return value.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -23,7 +23,7 @@ export function shown(value) {
 
 export function renderExplorer(view, {
   patch = null, patchFiles = [], timeline = null, audience = 'reviewer', newerSnapshot = false,
-  token = invented('fixtur', 'e-nonce'), unavailableReason = null, focus = null, newerView = null
+  token = inventedValue('fixtur', 'e-nonce'), unavailableReason = null, focus = null, newerView = null
 } = {}) {
   return changeExplorerBody({ view, unavailableReason, patch, patchFiles, timeline, audience, newerSnapshot, token, focus, newerView });
 }

@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
@@ -70,7 +71,7 @@ test('Git URL maintenance collapses only proven aliases without weakening identi
   ), false, 'password-shaped SCP user information is never an identity proof');
   assert.equal(sameGitRepository('ext::opaque', 'ext::opaque'), false,
     'external remote helpers are outside the closed comparison boundary');
-  assert.equal(gitRepositoryComparisonKey('https://git.example.invalid/acme/RuleEngineUI.git?token=secret'), null);
+  assert.equal(gitRepositoryComparisonKey(inventedValue('https://git.example.invalid/acme/RuleEngineUI.git?to', 'ken=secret')), null);
   assert.equal(
     gitRepositoryComparisonKey('C:\\Work\\RuleEngineUI.git'),
     'local:c:/work/ruleengineui.git'

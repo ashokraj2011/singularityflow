@@ -11,7 +11,7 @@ import {
 } from '../src/auto/auto-candidate.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -47,7 +47,7 @@ function noCandidateRefs(root, namespace) {
   return git(root, 'for-each-ref', '--format=%(refname)', namespace);
 }
 
-const secret = invented('AK', 'IA1234567890ABCDEF');
+const secret = inventedValue('AK', 'IA1234567890ABCDEF');
 const actor = Object.freeze({ kind: 'human', id: 'candidate-admission@example.invalid' });
 
 test('Auto Candidate issuance refuses environment-local paths and detected secrets before retention', async (t) => {

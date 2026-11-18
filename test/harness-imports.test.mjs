@@ -14,7 +14,7 @@ import { currentSchemaVersion, familyForStoredPath } from '../src/schema-migrati
 import { initializeDefinition } from '../src/config.mjs';
 import { schemaCensus } from '../src/schema-census.mjs';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(root, args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -122,7 +122,7 @@ test('reference registration and resolution follow a configured non-default Stor
 
 test('protected paths remain blocked', async () => {
   const { root } = await repository();
-  const secret = invented('singularity/work-items/R', 'EF-1/context/session.json');
+  const secret = inventedValue('singularity/work-items/R', 'EF-1/context/session.json');
   await mkdir(path.dirname(path.join(root, secret)), { recursive: true });
   await writeFile(path.join(root, secret), '{}');
   git(root, ['add', secret]); git(root, ['commit', '-m', 'Add protected fixture']);
@@ -237,7 +237,7 @@ test('harness reports redact verified legacy command capabilities at the read bo
   legacy.command = [
     'singularity-flow', 'choices', 'status', 'legacy-receipt-secret',
     '--authorization', 'legacy-authorization-secret',
-    invented('--repository=https://reviewerone:', 'legacy-url-secret@example.test/repo.git?signature=x')
+    inventedValue('--repository=https://reviewerone:', 'legacy-url-secret@example.test/repo.git?signature=x')
   ];
   await writeFile(completed.path, canonicalJson({ ...legacy, eventId: recordSha256(legacy) }));
 

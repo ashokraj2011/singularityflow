@@ -12,7 +12,7 @@ import {
 import {
   CAPABILITY_MAP_INPUT_LIMITS, normalizeCapabilityTeamRequest
 } from '../src/organisation.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const roots = [];
 
@@ -72,7 +72,7 @@ test('map-team request files and manual flags reach the exact same domain normal
 });
 
 test('map-team request JSON is closed at the request and member boundaries', async () => {
-  const withRootSecret = await requestFile({ ...canonicalRequest, token: invented('do-not-r', 'eflect-me') });
+  const withRootSecret = await requestFile({ ...canonicalRequest, token: inventedValue('do-not-r', 'eflect-me') });
   await assert.rejects(readCapabilityTeamRequestFile(withRootSecret), (error) => {
     assert.equal(error.code, 'CAPABILITY_TEAM_REQUEST_INVALID');
     assert.doesNotMatch(error.message, /token|do-not-reflect-me/iu);
@@ -81,7 +81,7 @@ test('map-team request JSON is closed at the request and member boundaries', asy
 
   const withMemberSecret = await requestFile({
     ...canonicalRequest,
-    members: [{ ...canonicalRequest.members[0], credential: invented('also-p', 'rivate') }]
+    members: [{ ...canonicalRequest.members[0], credential: inventedValue('also-p', 'rivate') }]
   });
   await assert.rejects(readCapabilityTeamRequestFile(withMemberSecret), (error) => {
     assert.equal(error.code, 'CAPABILITY_TEAM_REQUEST_INVALID');
@@ -113,7 +113,7 @@ test('map-team request parsing never echoes malformed JSON contents', async () =
 });
 
 test('map-team request URLs retain the shared credential-free validation', async () => {
-  const secret = invented('not-for-d', 'iagnostics');
+  const secret = inventedValue('not-for-d', 'iagnostics');
   const file = await requestFile({
     ...canonicalRequest,
     lead: `https://user:${secret}@git.example.com/platform.git`

@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import { assertNoSecrets, exactFileAtObject, governedCommitIdentity, localRefHeads, prefetchExactObjectFiles,
   shallowBoundaryCommit, stagedEntriesForPaths } from '../src/git.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const gitModule = new URL('../src/git.mjs', import.meta.url).href;
 
@@ -109,7 +110,7 @@ test('an index commit is refused for a staged credential even when the file on d
   await writeFile(path.join(root, 'a.txt'), 'plain\n');
   await writeFile(path.join(root, 'config.txt'), `token=${credential}\n`);
   git(root, ['add', 'a.txt', 'config.txt']);
-  await writeFile(path.join(root, 'config.txt'), 'token=redacted\n');
+  await writeFile(path.join(root, 'config.txt'), inventedValue('to', 'ken=redacted\n'));
   assert.throws(() => assertNoSecrets(root), (error) => error.code === 'SECRET_DETECTED');
 
   // And the reverse: a credential only on disk does not refuse a commit of the clean staged blob.

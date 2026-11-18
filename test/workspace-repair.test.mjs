@@ -28,6 +28,7 @@ import {
 } from '../src/story-worktree.mjs';
 import { findWorkspaceMembership } from '../src/workspace-membership.mjs';
 import { removeTemporaryTree } from '../src/util.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const IDENTITY = ['-c', 'user.name=Repair Tester', '-c', 'user.email=repair.tester@example.invalid'];
@@ -121,7 +122,7 @@ test('one repository key: https or ssh, .git, letter case and a trailing slash n
   for (const [left, right] of [
     ['https://git.example.com/team/app', 'https://other.example.com/team/app'],
     ['https://git.example.com/team/app', 'https://git.example.com/team/app-two'],
-    ['https://person:secret@git.example.com/team/app', 'https://git.example.com/team/app']
+    [inventedValue('https://person:', 'secret@git.example.com/team/app'), 'https://git.example.com/team/app']
   ]) assert.equal(sameRepository(left, right), false, `${left} != ${right}`);
   // Recorded keys (the Story index, record identities) keep their meaning: only GitHub aliases its protocols there.
   assert.notEqual(gitRepositoryComparisonKey('git@git.example.com:team/app.git'), gitRepositoryComparisonKey('https://git.example.com/team/app'));

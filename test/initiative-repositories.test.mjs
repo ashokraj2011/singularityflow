@@ -23,6 +23,7 @@ import { deriveInitiativeReport } from '../src/initiative-report.mjs';
 import { initiativeImpact } from '../src/initiative-impact.mjs';
 import { run } from '../src/util.mjs';
 import { readPendingPublication } from '../src/publication-pending.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
@@ -44,7 +45,7 @@ test('Initiative repository matching does not erase enterprise scheme or port', 
     'ssh://git@git.internal.test/team/rules.git'), false);
   assert.equal(sameRepositoryRemote('https://git.internal.test/team/rules.git',
     'https://git.internal.test/team/rules.git/'), true);
-  assert.equal(sameRepositoryRemote('https://user:secret@git.internal.test/team/rules.git',
+  assert.equal(sameRepositoryRemote(inventedValue('https://user:', 'secret@git.internal.test/team/rules.git'),
     'https://git.internal.test/team/rules.git'), false);
 });
 

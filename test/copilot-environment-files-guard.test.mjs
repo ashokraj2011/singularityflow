@@ -12,13 +12,14 @@ import { workspaceFilesBase } from '../src/environment-files.mjs';
 import { setHookCli } from '../src/copilot-mode.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { git, repository, writeFiles } from './helpers/environment-files-fixture.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const SPRING = 'services/api/src/main/resources/application-dev.yml';
 const call = (cwd, toolName, toolArgs) => ({ cwd, toolName, toolArgs });
 const denied = (result) => result?.permissionDecision === 'deny' && /^ENVIRONMENT_FILE_PRIVATE/u.test(result.permissionDecisionReason);
 
 test('file tools, searches, patches and shell commands that name an environment file are refused in any turn', async (t) => {
-  const repo = await repository(t, { files: { 'services/api/src/main/resources/application-dev.example.yml': 'password: CHANGE_ME\n', 'src/App.jsx': 'x\n' } });
+  const repo = await repository(t, { files: { 'services/api/src/main/resources/application-dev.example.yml': inventedValue('pass', 'word: CHANGE_ME\n'), 'src/App.jsx': 'x\n' } });
   assert.equal(repo.json(['env', 'files', 'create', 'dev', SPRING, '--from-template']).status, 0);
   const location = repo.json(['env', 'files', 'path', 'dev', SPRING]).value.location;
   const guard = (toolName, toolArgs, cwd = repo.root) => environmentFilesToolGuard(call(cwd, toolName, toolArgs), { env: repo.env });
@@ -70,7 +71,7 @@ test('file tools, searches, patches and shell commands that name an environment 
 });
 
 test('the launcher\'s verified Node and CLI entry, which the turn names off PATH, are the CLI here too', async (t) => {
-  const repo = await repository(t, { files: { 'services/api/src/main/resources/application-dev.example.yml': 'password: CHANGE_ME\n' } });
+  const repo = await repository(t, { files: { 'services/api/src/main/resources/application-dev.example.yml': inventedValue('pass', 'word: CHANGE_ME\n') } });
   assert.equal(repo.json(['env', 'files', 'create', 'dev', SPRING, '--from-template']).status, 0);
   const guard = (toolName, command) => environmentFilesToolGuard(call(repo.root, toolName, { command }), { env: repo.env });
   const node = path.resolve('/opt/Node runtime/bin/node');
@@ -90,7 +91,7 @@ test('personal files, linked files and workspace folders are protected too, and 
   const repo = await repository(t);
   const own = path.join(repo.base, 'my-secrets', 'api-dev.yml');
   await mkdir(path.dirname(own), { recursive: true });
-  await writeFile(own, 'token: s3cr3t-value\n');
+  await writeFile(own, inventedValue('to', 'ken: s3cr3t-value\n'));
   assert.equal(repo.json(['env', 'files', 'add', 'dev', 'tools/dev.local.json', '--personal']).status, 0);
   assert.equal(repo.json(['env', 'files', 'link', 'dev', SPRING, '--to', own]).status, 0);
   const folder = path.join(repo.base, 'uat-folder');

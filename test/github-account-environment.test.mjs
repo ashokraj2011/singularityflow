@@ -21,7 +21,7 @@ import { GITHUB_LOOKUP, accountEnvironmentDigest, identity, resetGitProcessCache
 import { enforceSequenceGate, withConfirmationPort } from '../src/sequence.mjs';
 import { loadSession, setAgentSession } from '../src/session.mjs';
 import { actingDecision } from '../src/story-publication-service.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const POSIX = { skip: process.platform === 'win32' ? 'the gh stub is a POSIX shell script' : false };
 const STUB = `#!/bin/sh
@@ -166,7 +166,7 @@ test('a different Git identity in the same environment is a miss, and so is anot
   assert.equal((await value.asked()).length, 2, 'the new Git identity asks gh for itself');
 
   // A token variable chooses the account too; only a digest of it is kept.
-  const tokenEnv = { ...a.env, GH_TOKEN: invented('environment', '-token-value') };
+  const tokenEnv = { ...a.env, GH_TOKEN: inventedValue('environment', '-token-value') };
   assert.equal(identity(value.root, { env: tokenEnv, offline: true }).githubLookup, GITHUB_LOOKUP.NOT_CHECKED);
   identity(value.root, { env: tokenEnv });
   assert.equal((await value.asked()).length, 3);

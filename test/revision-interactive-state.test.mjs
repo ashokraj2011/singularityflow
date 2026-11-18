@@ -10,7 +10,7 @@ import {
   readOrCreateRevisionStartPin, readRevisionInteractiveState,
   writeRevisionInteractiveState
 } from '../src/revision/interactive-state.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const H = (character) => `sha256:${character.repeat(64)}`;
 const feedbackSha256 = (text) =>
@@ -49,7 +49,7 @@ test('REV start pin refuses secret-bearing feedback before durable storage', asy
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-revision-start-secret-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   spawnSync('git', ['init', '-b', 'main'], { cwd: root, encoding: 'utf8' });
-  const feedbackText = invented('to', 'ken=gh', 'p_abcdefghijklmnopqrstuvwxyz1234567890'); // sflow-allow-secret: invented token asserting start-pin refusal
+  const feedbackText = inventedValue('to', 'ken=gh', 'p_abcdefghijklmnopqrstuvwxyz1234567890'); // sflow-allow-secret: invented token asserting start-pin refusal
   await assert.rejects(readOrCreateRevisionStartPin(root, {
     workId: 'PAY-142', phaseId: 'implementation', phaseGeneration: 1
   }, {

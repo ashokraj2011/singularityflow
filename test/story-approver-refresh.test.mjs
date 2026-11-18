@@ -22,7 +22,7 @@ import { approvePhase, commitAndPublish, createWorkflow, publishGeneration, scan
 import { applyStoryApproverRefresh } from '../src/story-approver-refresh.mjs';
 import { createStoryReviewPacket } from '../src/story-lineage.mjs';
 import { verifyWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 // A Story's approval groups are fixed when it starts, so a group whose only approver left could
 // never gain anyone and the Story could not finish (2026-10-29). The refresh carries members the
@@ -172,7 +172,7 @@ async function fixture(t) {
 }
 
 // The person's live terminal review stands in for the reviewed card only; every other check runs.
-const terminal = { capture: async () => ({ token: invented('live-', 'review') }), consume: async () => ({ authorizationId: randomUUID() }) };
+const terminal = { capture: async () => ({ token: inventedValue('live-', 'review') }), consume: async () => ({ authorizationId: randomUUID() }) };
 const refresh = (value, options) => context(value.root, () => refreshStoryApprovers({ root: value.root, positionals: [ID], options }, {
   apply: (root, config, workflow, refreshOptions) => applyStoryApproverRefresh(root, config, workflow, refreshOptions, terminal)
 }));

@@ -7,7 +7,7 @@ import { validateLedgerDeployment } from '../src/ledger-deployment.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { initializeLedger } from '../src/ledger.mjs';
 import { run } from '../src/util.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function repository() {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-ledger-deployment-'));
@@ -77,7 +77,7 @@ test('bare confirmation flags never prove a high-trust server policy', async () 
 
 test('deployment validation refuses credentialed remote URLs without exposing them', async () => {
   const { root } = await repository();
-  run('git', ['remote', 'set-url', 'origin', invented('https://operator:', 'office-secret@corp.invalid/ledger.git')], { cwd: root });
+  run('git', ['remote', 'set-url', 'origin', inventedValue('https://operator:', 'office-secret@corp.invalid/ledger.git')], { cwd: root });
   const result = await validateLedgerDeployment(root, tier0);
   assert.equal(result.valid, false);
   assert.equal(result.checks.find((check) => check.id === 'remote-configured').status, 'fail');

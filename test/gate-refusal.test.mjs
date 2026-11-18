@@ -9,7 +9,7 @@ import { gateRefusal, GATE_REFUSAL_VERSION, projectGateRefusal } from '../src/ev
 import { assertRefusalChanged, forgetRefusal, refusalFingerprint, rememberRefusal } from '../src/evidence/refusal-memory.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const obligation = (id, responsibility, status, owningSteps = ['build']) => ({
   id, responsibility, subject: id.split(':').at(-1), status, owningSteps,
@@ -70,14 +70,14 @@ test('only the v1 fields cross the process boundary, bounded, and a refusal enve
     code: 'STORY_COMPLETION_REFUSED', gate: 'terminal', subject: { workId: 'W-1' },
     evaluation: evaluation(Array.from({ length: 60 }, (_, index) => obligation(`OBL:W-1:verify:AC-${index}`, 'verify', 'missing')))
   });
-  const projected = projectGateRefusal({ ...refusal, secret: invented('toke', 'n-123'), subject: { ...refusal.subject, extra: 'x' } });
+  const projected = projectGateRefusal({ ...refusal, secret: inventedValue('toke', 'n-123'), subject: { ...refusal.subject, extra: 'x' } });
   assert.equal(projected.secret, undefined);
   assert.equal(projected.subject.extra, undefined);
   assert.equal(projected.obligations.length, 50);
   assert.equal(projectGateRefusal({ ...refusal, schema: 'gate-refusal/v2' }), null);
   assert.equal(projectGateRefusal({ ...refusal, gate: 'elsewhere' }), null);
 
-  const error = new SingularityFlowError('refused', { code: 'STORY_COMPLETION_REFUSED', details: { gate: refusal, password: invented('hun', 'ter2') } });
+  const error = new SingularityFlowError('refused', { code: 'STORY_COMPLETION_REFUSED', details: { gate: refusal, password: inventedValue('hun', 'ter2') } });
   const envelope = refusalEnvelope(error, ['approve', '--json']);
   assert.equal(envelope.error.details.gate.schema, GATE_REFUSAL_VERSION);
   assert.equal(envelope.error.details.gate.obligations.length, 50);

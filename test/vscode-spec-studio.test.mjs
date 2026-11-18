@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { environment as isolatedEnvironment } from './helpers/run-and-test-fixture.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 // SPEC-SPA v1.3 S3: the Spec Studio panel, model-free. The panel host runs against a `vscode` stub,
 // as in vscode-apm-packages.test.mjs, and every command it runs goes through a recording client to
@@ -1198,7 +1198,7 @@ test('sharing resumes once a value is gone that was not wording, with nobody typ
   quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
   const { saveDraft } = await import('../src/spec-library/draft-store.mjs');
   await saveDraft(root, SPEC, { operationId: 'old-source', operation: 'source', change: draft => ({ ...draft,
-    sources: [{ id: 'SRC-0000000000000009', type: 'url', name: 'files.acme.io', url: invented('https://files.acme.io/old?to', 'ken=Zx9fK2mQ', '7vLp4Tn8'), purpose: '', standing: 'not-read' }] }) });
+    sources: [{ id: 'SRC-0000000000000009', type: 'url', name: 'files.acme.io', url: inventedValue('https://files.acme.io/old?to', 'ken=Zx9fK2mQ', '7vLp4Tn8'), purpose: '', standing: 'not-read' }] }) });
   const studio = await live(client, root, {}, { keep: true }); t.after(() => studio.dispose());
   const refused = () => posted(studio, 'spec.syncState').some(message => /Not shared/u.test(message.message ?? ''));
   for (let attempt = 0; !refused() && attempt < 800; attempt++) await new Promise(resolve => setTimeout(resolve, 10));

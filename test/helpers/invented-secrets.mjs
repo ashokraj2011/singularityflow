@@ -5,8 +5,8 @@
  * byte-identical to the literal it replaced. test/no-secret-literals.test.mjs keeps new ones out.
  */
 
-/** Joins the pieces of one invented value: `invented('gh', 'p_ABC…')` is the token the test means. */
-export function invented(...parts) {
+/** Joins the pieces of one invented value: `inventedValue('gh', 'p_ABC…')` is the token the test means. */
+export function inventedValue(...parts) {
   return parts.join('');
 }
 

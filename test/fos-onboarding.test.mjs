@@ -18,6 +18,7 @@ import { proposeConfigurationChange } from '../src/configuration-proposal.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { createRepoContext } from '../src/repo-context.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -405,7 +406,7 @@ test('FOS:AC-003 an existing authority cannot be rebound by repeating onboard', 
 
 test('FOS:AC-006 credential-bearing remote literals are refused before persistence', async () => {
   const root = await governedRepository();
-  git(['remote', 'add', 'credentialed', 'https://person:secret@example.invalid/repository.git'], root);
+  git(['remote', 'add', 'credentialed', inventedValue('https://person:', 'secret@example.invalid/repository.git')], root);
   await assert.rejects(() => onboardRepository(root, { remote: 'credentialed' }),
     (error) => error.code === 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
   assert.equal(await readFosAttachment(root), null);

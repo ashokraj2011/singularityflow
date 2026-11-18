@@ -18,7 +18,7 @@ import { initializeDefinition } from '../src/config.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
 import { run } from '../src/util.mjs';
 import YAML from 'yaml';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function response(payload, status = 200, headers = {}) {
   return {
@@ -30,8 +30,8 @@ function response(payload, status = 200, headers = {}) {
 }
 
 test('Jira connections enforce HTTPS and deployment-specific authentication', () => {
-  assert.throws(() => normalizeJiraConnection({ baseUrl: 'http://jira.example.com', email: 'a@b.com', token: 'secret' }), /HTTPS/);
-  assert.throws(() => normalizeJiraConnection({ baseUrl: 'https://jira.example.com', deployment: 'data-center', email: 'a@b.com', token: 'secret', authMode: 'user-token' }), /Data Center/);
+  assert.throws(() => normalizeJiraConnection({ baseUrl: 'http://jira.example.com', email: 'a@b.com', token: inventedValue('sec', 'ret') }), /HTTPS/);
+  assert.throws(() => normalizeJiraConnection({ baseUrl: 'https://jira.example.com', deployment: 'data-center', email: 'a@b.com', token: inventedValue('sec', 'ret'), authMode: 'user-token' }), /Data Center/);
   const cloud = normalizeJiraConnection({ name: 'office', baseUrl: 'https://office.atlassian.net/', username: 'a@b.com', pat: 'secret' });
   assert.equal(cloud.baseUrl, 'https://office.atlassian.net');
   assert.equal(cloud.auth.mode, 'user-token');
@@ -133,7 +133,7 @@ test('Jira request retries throttling and sends Data Center PAT only as Bearer a
   let calls = 0;
   const waits = [];
   const result = await jiraRequest('/rest/api/2/myself', {
-    connection: { baseUrl: 'https://jira.example.com', deployment: 'data-center', token: invented('pat-s', 'ecret'), authMode: 'pat' },
+    connection: { baseUrl: 'https://jira.example.com', deployment: 'data-center', token: inventedValue('pat-s', 'ecret'), authMode: 'pat' },
     sleep: async (milliseconds) => waits.push(milliseconds),
     fetchImpl: async (url, init) => {
       calls += 1;
@@ -157,7 +157,7 @@ test('Jira request pins credentials to the configured API base and rejects absol
       connection: {
         baseUrl: 'https://jira.example.com',
         deployment: 'data-center',
-        token: invented('pat-s', 'ecret'),
+        token: inventedValue('pat-s', 'ecret'),
         authMode: 'pat'
       },
       fetchImpl: async () => {
@@ -172,7 +172,7 @@ test('Jira request pins credentials to the configured API base and rejects absol
       connection: {
         baseUrl: 'https://jira.example.com',
         deployment: 'data-center',
-        token: invented('pat-s', 'ecret'),
+        token: inventedValue('pat-s', 'ecret'),
         authMode: 'pat'
       },
       fetchImpl: async () => {
@@ -188,7 +188,7 @@ test('Jira request pins credentials to the configured API base and rejects absol
         baseUrl: 'https://office.atlassian.net',
         cloudId: 'cloud-123',
         email: 'developer@example.com',
-        token: invented('api-s', 'ecret')
+        token: inventedValue('api-s', 'ecret')
       },
       fetchImpl: async () => {
         calls += 1;
@@ -207,7 +207,7 @@ test('Jira request aborts a stalled connection check with an explicit timeout', 
       connection: {
         baseUrl: 'https://jira.example.com',
         deployment: 'data-center',
-        token: invented('pat-s', 'ecret'),
+        token: inventedValue('pat-s', 'ecret'),
         authMode: 'pat'
       },
       requestTimeoutMs: 10,
@@ -231,7 +231,7 @@ test('Jira request timeout covers a response body that stalls after headers', as
     connection: {
       baseUrl: 'https://jira.example.com',
       deployment: 'data-center',
-      token: invented('pat-s', 'ecret'),
+      token: inventedValue('pat-s', 'ecret'),
       authMode: 'pat'
     },
     requestTimeoutMs: 10,
@@ -262,7 +262,7 @@ test('Jira request rejects oversized response bodies without retrying or reading
   const connection = {
     baseUrl: 'https://jira.example.com',
     deployment: 'data-center',
-    token: invented('pat-s', 'ecret'),
+    token: inventedValue('pat-s', 'ecret'),
     authMode: 'pat'
   };
   await assert.rejects(
@@ -331,7 +331,7 @@ test('Jira request rejects a non-JSON success response instead of accepting a pr
       connection: {
         baseUrl: 'https://jira.example.com',
         deployment: 'data-center',
-        token: invented('pat-s', 'ecret'),
+        token: inventedValue('pat-s', 'ecret'),
         authMode: 'pat'
       },
       maxRetries: 3,
@@ -436,7 +436,7 @@ test('Jira issue search paginates Cloud tokens and Data Center offsets without e
       cloudBodies.push(body);
       return body.nextPageToken
         ? response({ issues: issues.slice(100), isLast: true })
-        : response({ issues: issues.slice(0, 100), isLast: false, nextPageToken: invented('pag', 'e-2') });
+        : response({ issues: issues.slice(0, 100), isLast: false, nextPageToken: inventedValue('pag', 'e-2') });
     }
   });
   assert.equal(cloud.length, 120);
@@ -450,7 +450,7 @@ test('Jira issue search paginates Cloud tokens and Data Center offsets without e
     connection: {
       baseUrl: 'https://jira.example.com',
       deployment: 'data-center',
-      token: invented('pat-s', 'ecret'),
+      token: inventedValue('pat-s', 'ecret'),
       authMode: 'pat'
     },
     limit: 120,
@@ -485,7 +485,7 @@ test('Jira issue search rejects duplicate issues and non-advancing Data Center p
                 { id: '2', key: 'APP-2', fields: { summary: 'Two' } }
               ],
               isLast: false,
-              nextPageToken: invented('pag', 'e-2')
+              nextPageToken: inventedValue('pag', 'e-2')
             })
           : response({
               issues: [
@@ -505,7 +505,7 @@ test('Jira issue search rejects duplicate issues and non-advancing Data Center p
       connection: {
         baseUrl: 'https://jira.example.com',
         deployment: 'data-center',
-        token: invented('pat-s', 'ecret'),
+        token: inventedValue('pat-s', 'ecret'),
         authMode: 'pat'
       },
       limit: 120,

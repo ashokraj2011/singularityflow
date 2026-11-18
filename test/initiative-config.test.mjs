@@ -16,6 +16,7 @@ import { publishInitiativePhase } from '../src/initiative-evidence.mjs';
 import { completeEpicIntake } from '../src/epic-lifecycle.mjs';
 import { usesEpicPlanningLifecycle } from '../src/initiative-phase-roles.mjs';
 import { run } from '../src/util.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-config-'));
@@ -52,7 +53,7 @@ test('starter portfolio resolves lite and enterprise profiles with generic phase
 test('Initiative repository URLs refuse credentials and option-shaped Git operands at load time', async () => {
   const root = await repository();
   const portfolio = await loadPortfolio(root);
-  for (const url of ['https://operator:secret@git.example.invalid/team/app.git', '--upload-pack=helper']) {
+  for (const url of [inventedValue('https://operator:', 'secret@git.example.invalid/team/app.git'), '--upload-pack=helper']) {
     const altered = structuredClone(portfolio);
     altered.repositories.app = { url };
     assert.throws(() => validatePortfolio(altered));

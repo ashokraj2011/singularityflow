@@ -14,11 +14,11 @@ import {
   postDelivery, releaseWaitingStepActions, runStepActionsAfterTransition, stepActionWarning
 } from '../src/step-action-delivery.mjs';
 import { normalizeIntegrations, pinStepActions, normalizeStepActions } from '../src/step-actions.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
-const SECRET = invented('test-sign', 'ing-secret');
+const SECRET = inventedValue('test-sign', 'ing-secret');
 
 function run(command, args, cwd, env = {}, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
@@ -63,7 +63,7 @@ async function receiver(t, statuses = []) {
       const status = queue.length ? queue.shift() : 200;
       if (status === 302) response.writeHead(302, { location: 'https://elsewhere.example.com/' });
       else response.writeHead(status, { 'content-type': 'application/json' });
-      response.end(status >= 400 ? invented('{"error":"nope","to', 'ken":"leaked-value"}') : '{}');
+      response.end(status >= 400 ? inventedValue('{"error":"nope","to', 'ken":"leaked-value"}') : '{}');
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -100,17 +100,17 @@ test('each target kind builds its request, and a missing secret makes the delive
   assert.equal(hook.headers['x-sflow-signature'], `v1=${expected}`, 'receivers can verify the body and timestamp');
   assert.deepEqual(deliveryRequest(record('hook'), {}, clock).unavailable.code, 'STEP_ACTION_SECRET_MISSING');
 
-  const splunk = deliveryRequest(record('splunk'), { SFLOW_SECRET_HEC: 'hec-token' }, clock);
+  const splunk = deliveryRequest(record('splunk'), { SFLOW_SECRET_HEC: inventedValue('hec-', 'token') }, clock);
   assert.equal(splunk.headers.authorization, 'Splunk hec-token');
   assert.equal(JSON.parse(splunk.body).fields.index, 'eng');
-  const datadog = deliveryRequest(record('datadog'), { SFLOW_SECRET_DD: 'dd-key' }, clock);
+  const datadog = deliveryRequest(record('datadog'), { SFLOW_SECRET_DD: inventedValue('dd-', 'key') }, clock);
   assert.equal(datadog.headers['dd-api-key'], 'dd-key');
   assert.equal(JSON.parse(datadog.body)[0].ddtags, 'team:eng');
   const loki = deliveryRequest(record('loki'), {}, clock);
   assert.equal(JSON.parse(loki.body).streams[0].values[0][0], `${Date.parse('2026-10-03T10:00:00.000Z')}000000`);
   assert.equal(loki.headers.authorization, undefined, 'loki without a token sends none');
 
-  const teams = deliveryRequest(record('teams'), { SFLOW_SECRET_TEAMS_URL: 'https://example.webhook.office.com/abc' }, clock);
+  const teams = deliveryRequest(record('teams'), { SFLOW_SECRET_TEAMS_URL: inventedValue('https://example.webhook.office.com/', 'abc') }, clock);
   assert.equal(teams.url, 'https://example.webhook.office.com/abc');
   assert.match(JSON.parse(teams.body).text, /Intake approved/);
   assert.equal(deliveryRequest(record('teams'), { SFLOW_SECRET_TEAMS_URL: 'http://plain.example.com' }, clock).failed.code, 'STEP_ACTION_ADDRESS_REFUSED');
@@ -133,7 +133,7 @@ test('an answer decides the delivery: done, try later, or needs a person', () =>
   for (const status of [408, 425, 429, 500, 502, 503]) assert.equal(classifyResponse(status).outcome, 'retry', String(status));
   for (const status of [400, 401, 403, 404, 410, 413, 422]) assert.equal(classifyResponse(status).outcome, 'failed', String(status));
   assert.equal(classifyResponse(302).code, 'STEP_ACTION_REDIRECT_REFUSED');
-  assert.doesNotMatch(classifyResponse(500, invented('{"to', 'ken":"abc123"}')).detail, /abc123/, 'answers are redacted before they are kept');
+  assert.doesNotMatch(classifyResponse(500, inventedValue('{"to', 'ken":"abc123"}')).detail, /abc123/, 'answers are redacted before they are kept');
 });
 
 test('a real HTTP conflict cannot create delivered evidence; only a bound duplicate acknowledgement can', async t => {

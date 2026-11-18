@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { amendStoryTestCommand, publicTestAmendment } from '../src/commands/story-test-amendment.mjs';
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const digest = `sha256:${'a'.repeat(64)}`;
 function fixture() {
@@ -82,8 +82,8 @@ test('wrong phase and missing retained authority refuse without candidate lookup
 });
 
 test('public amendment output redacts nested credentials without altering the original binding', () => {
-  const raw = { argv: [invented('https://person:', 'private-secret@ghe.example.test/team/service?token=secret')],
-    review: { token: invented('live-', 'token'), secret: invented('priva', 'te-key') }, planSha256: digest };
+  const raw = { argv: [inventedValue('https://person:', 'private-secret@ghe.example.test/team/service?to', 'ken=secret')],
+    review: { token: inventedValue('live-', 'token'), secret: inventedValue('priva', 'te-key') }, planSha256: digest };
   const output = publicTestAmendment(raw);
   assert.equal(output.planSha256, digest);
   assert.equal(output.review.token, '[REDACTED]');
@@ -93,8 +93,8 @@ test('public amendment output redacts nested credentials without altering the or
 });
 
 test('attestation presentation redacts paired argv and opaque environment values in both command inventories', () => {
-  const command = { kind: 'test', argv: ['runner', '--token', 'opaque-secret-value', invented('--api', '-key=other-private-value')],
-    env: { CUSTOM_CREDENTIAL: invented('environment-', 'secret-value'), NORMAL_CONFIG: 'also-private' } };
+  const command = { kind: 'test', argv: ['runner', '--token', 'opaque-secret-value', inventedValue('--api', '-key=other-private-value')],
+    env: { CUSTOM_CREDENTIAL: inventedValue('environment-', 'secret-value'), NORMAL_CONFIG: 'also-private' } };
   const raw = { reviews: [{ previousCommands: [command], adoptedCommands: [{ ...command, argv: [...command.argv, '--verbose'] }] }] };
   const output = JSON.stringify(publicTestAmendment(raw));
   for (const secret of ['opaque-secret-value', 'other-private-value', 'environment-secret-value', 'also-private']) {

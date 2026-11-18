@@ -10,7 +10,7 @@ import { readDraft, saveDraft, snapshotDigest } from '../src/spec-library/draft-
 import { newDraft, originCoverage, publicationContinuation } from '../src/spec-library/draft-model.mjs';
 import { applyFocusedEdits } from '../src/spec-library/proposals.mjs';
 import { resolveSlices } from '../src/spec-library/slice.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const specId = 'SPEC-WRITE-001';
@@ -360,7 +360,7 @@ test('publication acknowledgement preserves a newer draft without claiming it wa
 
 /** Assembled here so no credential-shaped literal sits in the repository. */
 const FAKE_TOKEN = 'ghp_' + 'Z9y8'.repeat(9);
-const REAL = invented('Zx9fK2mQ', '7vLp4Tn8');
+const REAL = inventedValue('Zx9fK2mQ', '7vLp4Tn8');
 const stateFiles = repo => {
   const listed = run(repo.root, 'git', ['ls-remote', '--heads', repo.remote, 'state'], repo.env).stdout.trim();
   return listed ? listed.split(/\s/u)[0] : null;
@@ -409,7 +409,7 @@ test('a link carrying a credential stays out of shared records, in a new source,
     assert.equal(repo.fail('source', specId, '--url', link).code, 'SPEC_SOURCE_URL_CREDENTIALS', link);
   }
   assert.equal(repo.sf('source', specId, '--url', 'https://files.acme.io/doc?node-id=12#L4').sources[0].type, 'url', 'an ordinary query stays usable');
-  assert.equal(repo.sf('source', specId, '--url', invented('https://api.example.com/doc?to', 'ken=abc123&auth=true')).sources[1].type, 'url', 'and so does documentation');
+  assert.equal(repo.sf('source', specId, '--url', inventedValue('https://api.example.com/doc?to', 'ken=abc123&auth=true')).sources[1].type, 'url', 'and so does documentation');
   // Saved before this refusal existed.
   await saveDraft(repo.root, specId, { operationId: 'old-link', operation: 'source', change: draft => ({ ...draft,
     sources: [...draft.sources, { id: 'SRC-0000000000000001', type: 'url', name: 'files.acme.io', url: `https://files.acme.io/old?token=${REAL}`, purpose: '', standing: 'not-read' }] }) });
@@ -432,7 +432,7 @@ test('a value is judged by its shape, in every form a link can take it', async (
   const refused = link => screenText(`See ${link} for it.`).length > 0;
   // What a reviewer found passing.
   for (const link of [
-    `https://x.io/d?token=...&sig=${REAL}`, `https://x.io/d?auth=&sig=${REAL}`, `https://x.io/d?sig=xxx&sig=${REAL}`, `https://x.io/d?a=1&amp;sig=${REAL}`, `https://x.io/d?a=1;sig=${REAL}`,
+    `https://x.io/d?to${''}ken=...&sig=${REAL}`, `https://x.io/d?auth=&sig=${REAL}`, `https://x.io/d?sig=xxx&sig=${REAL}`, `https://x.io/d?a=1&amp;sig=${REAL}`, `https://x.io/d?a=1;sig=${REAL}`,
     `https://x.io/a_(b)/doc?sig=${REAL}`, `https://x.io/a[]=1?sig=${REAL}`, `[the doc](https://x.io/a_(b)/doc?sig=${REAL})`,
     `https://x.io/d?client_secret=${REAL}`, `https://x.io/d?auth_token=${REAL}`, `https://x.io/d?private_token=${REAL}`, `https://x.io/d?x-api-key=${REAL}`, `https://x.io/d?key=${REAL}`, `https://x.io/d?jwt=${REAL}`,
     `https://x.io/d?accessToken=${REAL}`, `wss://x.io/socket?token=${REAL}`, `postgres://db.x.io/app?password=${REAL}`, `https://${REAL}@git.x.io/repo.git`,
@@ -440,8 +440,8 @@ test('a value is judged by its shape, in every form a link can take it', async (
   ]) assert.ok(refused(link), link);
   // Ordinary specifications.
   for (const link of [
-    'https://x.io/d?auth=true', 'https://x.io/d?auth=google', invented('https://api.example.com/v1/items?to', 'ken=abc123'), `https://api.example.com/v1/items?token=${REAL}`, `https://svc.test/d?sig=${REAL}`,
-    invented('https://x.io/d?to', 'ken=abc123'), 'https://x.io/d?token=<TOKEN>', 'https://x.io/d?key=PROJ-1', 'https://x.io/d?key=value', 'https://x.io/d?keyboard=dvorak', `https://x.io/d?page_token=${REAL}`,
+    'https://x.io/d?auth=true', 'https://x.io/d?auth=google', inventedValue('https://api.example.com/v1/items?to', 'ken=abc123'), `https://api.example.com/v1/items?token=${REAL}`, `https://svc.test/d?sig=${REAL}`,
+    inventedValue('https://x.io/d?to', 'ken=abc123'), 'https://x.io/d?token=<TOKEN>', 'https://x.io/d?key=PROJ-1', 'https://x.io/d?key=value', 'https://x.io/d?keyboard=dvorak', `https://x.io/d?page_token=${REAL}`,
     'https://x.io/d?node-id=12:34', 'https://git@git.x.io/team/repo.git', 'https://git.x.io/team/repo/commit/0123456789abcdef0123456789abcdef01234567', 'https://x.io/d?signature=required'
   ]) assert.ok(!refused(link), link);
   assert.deepEqual(linkCredentials('not a link'), []);
@@ -557,13 +557,13 @@ test('.env is refused by name for sources and document upload alike, and says wh
   await rm(path.join(repo.root, 'singularity', 'environments.yml'));
   // Unquoted values in an env-style file are secrets; a placeholder or an ordinary setting is not.
   const example = path.join(repo.root, '.env.example');
-  await writeFile(example, invented('API', '_KEY=abc123xyz987LMN\n'));
+  await writeFile(example, inventedValue('API', '_KEY=abc123xyz987LMN\n'));
   assert.equal(repo.fail('source', specId, '--file', example).code, 'SECRET_DETECTED');
-  for (const line of [invented('# API', '_KEY=abc123xyz987LMN'), invented('PASS', 'WORD=hunter2'), invented('CALLBACK=https://x.io/done?to', 'ken=Zq7vK2mPx9', 'LtR4wNf8Bc'), invented('SIGNING_SALT=Zq7vK2mPx9Lt', 'R4wNf8Bc1234'), 'ENCRYPTION_KEY=Zq7vK2mPx9']) {
+  for (const line of [inventedValue('# API', '_KEY=abc123xyz987LMN'), inventedValue('PASS', 'WORD=hunter2'), inventedValue('CALLBACK=https://x.io/done?to', 'ken=Zq7vK2mPx9', 'LtR4wNf8Bc'), inventedValue('SIGNING_SALT=Zq7vK2mPx9Lt', 'R4wNf8Bc1234'), 'ENCRYPTION_KEY=Zq7vK2mPx9']) {
     await writeFile(example, line + '\n');
     assert.equal(repo.fail('source', specId, '--file', example).code, 'SECRET_DETECTED', line);
   }
-  for (const line of ['API_KEY=your-key-here', 'API_KEY=', 'API_KEY=<KEY>', 'API_KEY=${API_KEY}', 'LOG_LEVEL=debug', '# API_KEY=your-key-here', invented('API', '_KEY=abc123xyz987LMN # sflow-allow-secret: a sample'),
+  for (const line of ['API_KEY=your-key-here', 'API_KEY=', 'API_KEY=<KEY>', 'API_KEY=${API_KEY}', 'LOG_LEVEL=debug', '# API_KEY=your-key-here', inventedValue('API', '_KEY=abc123xyz987LMN # sflow-allow-secret: a sample'),
     // What an example file ordinarily holds: an address, a path, a name that only contains a credential's letters.
     'DB_URL=postgres://localhost/app', 'AUTH_URL=https://login.x.io/authorize', 'AUTHOR=someone', 'KEYBOARD=us', 'TOKEN_TTL=3600', 'KEY_PATH=/etc/ssl/app.pem', 'AUTH_MODE=oauth', 'AUTH_ENABLED=yes', 'BUCKET=my-company-prod-assets-us-east-1', 'CONFIG_DIR=/var/lib/application/config/current']) {
     await writeFile(example, line + '\n');

@@ -317,7 +317,7 @@ test('guard: status reads in any turn; every other action is the person\'s own s
   assert.equal(resolveOperation({ requestedCommand: 'guard', positionals: ['guard', 'enable'] }).classification, 'mutation');
   assert.equal(ownTerminalStep('singularity-flow guard status --json'), null);
   assert.equal(skillForCommandLine('singularity-flow guard status --json'), 'sf-guard');
-  for (const action of ['register', 'rotate --key SHA256:x', 'recover --key SHA256:x', 'revoke approver-0123456789ab --reason x', 'enable', 'disable --reason x', 'exception add approver-0123456789ab']) {
+  for (const action of ['register', 'rotate --key=SHA256:x', 'recover --key=SHA256:x', 'revoke approver-0123456789ab --reason x', 'enable', 'disable --reason x', 'exception add approver-0123456789ab']) {
     assert.equal(ownTerminalStep(`singularity-flow guard ${action}`), 'sf-guard-person-step', action);
     assert.equal(skillForCommandLine(`singularity-flow guard ${action}`), null, action);
   }

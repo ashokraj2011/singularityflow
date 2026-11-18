@@ -7,6 +7,7 @@ import test from 'node:test';
 import { environmentFilesToolGuard, plainChatEnvironmentFilesGuard } from '../src/copilot-environment-files-guard.mjs';
 import { hookAnswerForEveryHost } from '../src/copilot-repository-boundary.mjs';
 import { searchesInCommand, searchOfTool } from '../src/copilot-search-exposure.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const VALUE = 'Xq7mA2pLz9vB4xT';
 
@@ -20,7 +21,7 @@ async function repository(t, { sflow = true } = {}) {
   await writeFile(path.join(root, 'application.yml'), `server:\n  port: 8080\npassword: ${VALUE}\n`);
   await writeFile(path.join(root, 'clean.yml'), 'password: ${DB_PASSWORD}\n');
   await writeFile(path.join(root, '.env'), `API_KEY=${VALUE}\n`);
-  await writeFile(path.join(root, 'src', 'app.js'), 'const passwordField = "password";\n');
+  await writeFile(path.join(root, 'src', 'app.js'), inventedValue('const passwordField = "pass', 'word";\n'));
   return root;
 }
 

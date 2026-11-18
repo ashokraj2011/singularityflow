@@ -309,7 +309,7 @@ async function heldValue(target, cwd) {
   } catch { return null; }
   const { scanText } = await import('./secrets.mjs');
   const lines = content.split('\n');
-  // A compose file's `postgres://postgres:postgres@db` names a service on its own network: the commit gate judges it, this does not hide the file.
+  // A compose file's postgres URL with a user and password at host `db` names a service on its own network: the commit gate judges it, this does not hide the file.
   const onItsOwnNetwork = (entry) => entry.rule === 'url-credentials'
     && !/:\/\/[^\s/:@]*:[^\s/@]+@[^\s/:?#]*\./u.test(lines[entry.line - 1] ?? '');
   const findings = scanText(content, { path: target }).filter((entry) => !entry.waived && !onItsOwnNetwork(entry));

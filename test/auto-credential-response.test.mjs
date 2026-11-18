@@ -13,7 +13,7 @@ import {
   createAutoFlightState, readAutoFlightState
 } from '../src/auto/auto-flight-store.mjs';
 import { readAutoP1Record } from '../src/auto/auto-p1-records.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const FLIGHT_ID = `AFL-${'C'.repeat(26)}`;
 const HASH = (value) => `sha256:${String(value).repeat(64).slice(0, 64)}`;
@@ -63,7 +63,7 @@ test('credential broker references use one closed broker:// handle grammar', () 
     'vault:office/copilot',
     'broker://https://vault.example.test/entry',
     'broker://office//copilot',
-    invented('broker://office/copilot?to', 'ken=inline'),
+    inventedValue('broker://office/copilot?to', 'ken=inline'),
     'broker://office/copilot#fragment',
     'broker://office/copilot/',
     ' broker://office/copilot'

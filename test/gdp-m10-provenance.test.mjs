@@ -14,6 +14,7 @@ import {
 import {
   currentSchemaVersion, familyForStoredPath, migrationRegistrySnapshot
 } from '../src/schema-migrations.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(repositoryRoot, 'bin', 'singularity-flow.mjs');
@@ -80,7 +81,7 @@ test('M10 is unavailable without configuration and remains fail-closed without a
   assert.equal(configured.authority, 'none');
   assert.deepEqual(configured.gaps, ['PROVENANCE_VERIFIER_NOT_INSTALLED']);
   assert.deepEqual(configured.acceptedFamilies, []);
-  assert.throws(() => normalizeProvenanceProvider({ ...provider(), token: 'secret' }), /invalid field set/);
+  assert.throws(() => normalizeProvenanceProvider({ ...provider(), token: inventedValue('sec', 'ret') }), /invalid field set/);
 });
 
 test('M10 builds five exact provider-neutral envelopes without credentials', async () => {

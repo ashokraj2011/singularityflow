@@ -2,16 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { entropy, redact, scanEntries, scanText, secretRefusal, scannablePath, scannedAsExtractedText, SECRET_RULES } from '../src/secrets.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 /** Assembled at runtime so this test file is not itself a file full of credential-shaped strings. */
 const fake = {
   aws: `AKIA${'Q7RJ2NXWMBK4TZVD'}`,
   github: `ghp_${'a'.repeat(36)}`,
-  modelProvider: `sk-ant-${invented('A1b2C3d4E5', 'f6G7h8J9k0')}`,
+  modelProvider: `sk-ant-${inventedValue('A1b2C3d4E5', 'f6G7h8J9k0')}`,
   npm: `npm_${'b'.repeat(36)}`,
-  stripe: `sk_live_${invented('9XqZ4mT7wR2v', 'N8kL5bH3jD6y')}`,
-  google: `AIza${invented('SyD9xQ2mK7vR', '4tW8nL3bJ6hF', '5gY1cA0zEqW').slice(0, 35)}`
+  stripe: `sk_live_${inventedValue('9XqZ4mT7wR2v', 'N8kL5bH3jD6y')}`,
+  google: `AIza${inventedValue('SyD9xQ2mK7vR', '4tW8nL3bJ6hF', '5gY1cA0zEqW').slice(0, 35)}`
 };
 
 test('every rule has a stable id, a label and a severity', () => {
@@ -34,13 +34,13 @@ test('provider credential formats are caught', () => {
 });
 
 test('a private key header is caught wherever it appears', () => {
-  for (const armour of [invented('-----BEGIN PRIVATE', ' KEY-----'), invented('-----BEGIN RSA PRIVATE', ' KEY-----'), invented('-----BEGIN OPENSSH PRIVATE', ' KEY-----')]) { // sflow-allow-secret: armour headers with no key body, the input this rule is tested against
+  for (const armour of [inventedValue('-----BEGIN PRIVATE', ' KEY-----'), inventedValue('-----BEGIN RSA PRIVATE', ' KEY-----'), inventedValue('-----BEGIN OPENSSH PRIVATE', ' KEY-----')]) { // sflow-allow-secret: armour headers with no key body, the input this rule is tested against
     assert.equal(scanText(armour, { path: 'id_rsa' })[0]?.rule, 'private-key');
   }
 });
 
 test('credentials inside a remote URL are caught, which is how tokens usually arrive', () => {
-  const findings = scanText(invented('git remote add origin https://deploy:', 'hunter2hunter2@code.acme.internal/x/y.git'), { path: 'README.md' }); // sflow-allow-secret: invented URL asserting this rule fires
+  const findings = scanText(inventedValue('git remote add origin https://deploy:', 'hunter2hunter2@code.acme.internal/x/y.git'), { path: 'README.md' }); // sflow-allow-secret: invented URL asserting this rule fires
   assert.equal(findings[0].rule, 'url-credentials');
   // A URL with no password is a URL.
   assert.deepEqual(scanText('https://code.acme.internal/x/y.git', { path: 'README.md' }), []);
@@ -80,7 +80,7 @@ test('an assigned value that actually looks random is caught', () => {
   assert.equal(findings.length, 1);
   assert.equal(findings[0].rule, 'assigned-secret');
   assert.equal(findings[0].severity, 'likely');
-  assert.ok(entropy(invented('K7#mQ9xL2vB8', 'nR4tZ6wY')) >= 3.4);
+  assert.ok(entropy(inventedValue('K7#mQ9xL2vB8', 'nR4tZ6wY')) >= 3.4);
 
   /**
    * Prose is NOT separated by entropy — `the quick brown fox` scores above the threshold too. What

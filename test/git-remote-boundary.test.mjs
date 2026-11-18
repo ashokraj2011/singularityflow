@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { safeGitDiagnosticReference } from '../src/git-remote-diagnostics.mjs';
 import { nonInteractiveGitEnvironment } from '../src/git-execution.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -140,7 +140,7 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
 });
 
 test('post-clone Git diagnostics retain correlation without disclosing helper output', () => {
-  const secret = invented('Authorization: Bearer ', 'office-secret-must-not-leak');
+  const secret = inventedValue('Authorization: Bearer ', 'office-secret-must-not-leak');
   const message = safeGitDiagnosticReference({
     status: 1,
     stdout: '',

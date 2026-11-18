@@ -15,7 +15,7 @@ import { gitCommonDir } from '../src/git.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { refreshPackagedConfiguration } from '../src/workspace-configuration-refresh.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const executable = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -339,7 +339,7 @@ test('credential-bearing remotes and executable PATH do not enter or execute a p
   const root = await repository({
     'package.json': '{"name":"safe","packageManager":"npm@10","scripts":{"test":"node --test"}}\n'
   });
-  git(root, ['remote', 'add', 'origin', invented('https://someone:', 'very-secret@example.invalid/repository.git?to', 'ken=also-secret')]);
+  git(root, ['remote', 'add', 'origin', inventedValue('https://someone:', 'very-secret@example.invalid/repository.git?to', 'ken=also-secret')]);
   const toolDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-counterfeit-tool-'));
   const marker = path.join(toolDirectory, 'executed');
   await writeFile(path.join(toolDirectory, 'npm'), `#!/bin/sh\nprintf called > "${marker}"\n`, { mode: 0o755 });

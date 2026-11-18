@@ -15,12 +15,12 @@ import { proseValueFindings } from '../src/config-values.mjs';
 import { scanEntries, scannablePath, scanText } from '../src/secrets.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { docx, zip } from './helpers/office-fixtures.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
 const actor = 'Attachment Tester', actorEmail = 'attachments@example.invalid';
-const KEY = invented('AK', 'IAQX7MP2VL9ST4KR8W'), PASSWORD = invented('Xq7mP2vL9s', 'T4kR8wZb3N');
+const KEY = inventedValue('AK', 'IAQX7MP2VL9ST4KR8W'), PASSWORD = inventedValue('Xq7mP2vL9s', 'T4kR8wZb3N');
 const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: actor, SINGULARITY_FLOW_NO_MODEL: '1',
   SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }) };
 const run = (cwd, command, args) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(120_000), maxBuffer: 1 << 26 });
@@ -139,10 +139,10 @@ test('a value in a sentence is found, and what only looks like one is not', () =
   for (const [line, name] of [
     [`The password is ${PASSWORD}.`, 'password'], [`password: ${PASSWORD} on staging`, 'password'], [`API key: ${PASSWORD}`, 'API_key'],
     [`client secret = "${PASSWORD}"`, 'client_secret'], [`CREATE USER a IDENTIFIED BY '${PASSWORD}';`, 'password'], [`ALTER ROLE a WITH PASSWORD '${PASSWORD}';`, 'password'],
-    ['password: hunter2', 'password']
+    [inventedValue('pass', 'word: hunter2'), 'password']
   ]) assert.deepEqual(values(line), [name], line);
-  for (const line of ['The password is required.', 'password: required', 'token = getToken()', 'password: ${DB_PASSWORD}', 'token: <your token>', 'password: changeme123', 'password is strong.',
-    'secret: process.env.API_SECRET', 'A token: see the vault.', 'password: example-Xq7mP2vL9sT4', 'api key: {{ .Values.apiKey }}', 'password = os.environ["DB"]']) {
+  for (const line of ['The password is required.', 'password: required', 'token = getToken()', 'password: ${DB_PASSWORD}', 'token: <your token>', inventedValue('pass', 'word: changeme123'), 'password is strong.',
+    'secret: process.env.API_SECRET', 'A token: see the vault.', inventedValue('pass', 'word: example-Xq7mP2vL9sT4'), 'api key: {{ .Values.apiKey }}', 'password = os.environ["DB"]']) {
     assert.deepEqual(values(line), [], line);
   }
 });

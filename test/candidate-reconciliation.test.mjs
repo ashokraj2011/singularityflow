@@ -8,7 +8,7 @@ import { agentAct } from '../src/agent-output.mjs';
 import { unreconciledCandidatePaths } from '../src/candidate-scope.mjs';
 import YAML from 'yaml';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function draft(t) {
   const repo = await repository(t, { implementCommands: false });
@@ -122,10 +122,10 @@ test('an always-local file needs no accounting, and publication leaves it on thi
   // A checkout from before this rule: nothing has told Git about the name yet.
   await writeFile(path.join(repo.root, '.git/info/exclude'), '');
   const env = path.join(repo.root, '.env');
-  await writeFile(env, invented('API', '_KEY=abc123xyz98', '7LMNopq456\n'));
+  await writeFile(env, inventedValue('API', '_KEY=abc123xyz98', '7LMNopq456\n'));
   repo.sflow('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
   assert.equal(repo.must('git', ['ls-files', '--', '.env']).trim(), '');
-  assert.equal(await readFile(env, 'utf8'), invented('API', '_KEY=abc123xyz98', '7LMNopq456\n'));
+  assert.equal(await readFile(env, 'utf8'), inventedValue('API', '_KEY=abc123xyz98', '7LMNopq456\n'));
   assert.match(await readFile(path.join(repo.root, '.git/info/exclude'), 'utf8'), /^\.env$/mu);
 });
 

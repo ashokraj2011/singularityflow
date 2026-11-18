@@ -14,7 +14,7 @@ import {
 import { parseEnvironmentDeclaration } from '../src/environment-declaration.mjs';
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
 import { environmentQualityCommandBlock } from '../src/state.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -111,7 +111,7 @@ test('Auto Plan packet lists only names-only environment prerequisites', () => {
 test('public environment projections and quality receipts omit values, hashes, and references', async (t) => {
   const root = await repository(t, DECLARATION);
   const endpoint = 'https://qa.private.example.test';
-  const secret = invented('private-runti', 'me-token-value');
+  const secret = inventedValue('private-runti', 'me-token-value');
   const reference = 'vault://teams/payments/feature-switch';
   await bindEnvironment(root, 'qa', {
     bindings: {

@@ -12,7 +12,7 @@ import {
   STORY_INTAKE_RECEIPT_TTL_MS, claimStoryIntakeReceipt, mintStoryIntakeReceipt, storyIntakeInputsDigest
 } from '../src/story-intake-receipt.mjs';
 import { admitStoryIntakeReceipt } from '../src/story-intake-verification.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const commit = 'a'.repeat(40);
 const inputs = {
@@ -191,7 +191,7 @@ test('local admission exceptions release the receipt before ownership reaches th
   const file = path.join(directory, `${minted.id}.json`);
   const original = await readFile(file, 'utf8');
   assert.equal(spawnSync('git', ['-C', root, 'remote', 'add', 'origin',
-    invented('https://fixture-user:', 'fixture-not-a-secret@example.test/org/service.git')]).status, 0);
+    inventedValue('https://fixture-user:', 'fixture-not-a-secret@example.test/org/service.git')]).status, 0);
   await assert.rejects(admitStoryIntakeReceipt(root, minted.id, {
     inputs, workId: inputs.workId, remote: inputs.remote, baseBranch: inputs.baseBranch
   }), { code: 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL' });

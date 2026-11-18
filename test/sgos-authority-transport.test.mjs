@@ -20,7 +20,7 @@ import {
   validateCapabilityPackTransportRollback,
   verifyPortableAuthorityTransport
 } from '../src/sgos/platform/index.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const at = '2026-09-01T10:00:00.000Z';
 
@@ -852,7 +852,7 @@ test('transport rejects another repository, stale trust, tamper, truncation, and
     actorId: 'git-email:transport-actor',
     authorization: authorization('pack.activate'),
     changes: [{ op: 'put', key: 'policy:credential', value: {
-      password: invented('plain-text-pas', 'sword-forbidden')
+      password: inventedValue('plain-text-pas', 'sword-forbidden')
     } }]
   });
   await assert.rejects(() => store.exportTransport({

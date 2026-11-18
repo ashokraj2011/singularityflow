@@ -12,7 +12,7 @@ import { phaseResolutionProjection } from '../src/phase-resolution.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { agentAct } from '../src/agent-output.mjs';
 import { requiredTestFailureExamples, requiredTestExecutionForRefusal } from '../src/test-execution-diagnostics.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const fixture = (phaseId = 'custom-delivery') => {
   const phase = { id: phaseId, status: 'in_progress', generationPolicy: { task: 'code' },
@@ -24,7 +24,7 @@ const failed = (code = 'CODE_TEST_FAILED') => Object.assign(new Error('Test fail
     commandId: 'unit', provenance: 'configured', argv: ['npm', 'test', '--token', 'private-token'],
     cwd: '/repo', resultPath: '/repo/results/unit.json', status: 'failed', exitCode: 1,
     report: { status: 'observed', tests: { discovered: 34, passed: 16, failed: 18, skipped: 0 },
-      failureExamples: ['TypeError: localStorage is undefined\n at /repo/src/App.test.jsx:28', invented('to', 'ken=private-secret')],
+      failureExamples: ['TypeError: localStorage is undefined\n at /repo/src/App.test.jsx:28', inventedValue('to', 'ken=private-secret')],
       sha256: 'a'.repeat(64) }, failure: { kind: 'failed-tests' }
   }
 } });

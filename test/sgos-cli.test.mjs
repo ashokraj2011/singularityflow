@@ -21,7 +21,7 @@ import {
   createSgosProgramAuthorityRecord, sgosProgramAuthorityPath
 } from '../src/sgos/program-trust.mjs';
 import { sgosProcessDirectory } from '../src/sgos/store.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -155,13 +155,13 @@ function providedTask({ sensitive = false } = {}) {
     properties: { answer: { type: 'string', minLength: 3 } }
   };
   return {
-    ...task(sensitive ? 'credential' : invented('cla', 'rify'), 'HUMAN_REQUEST'),
+    ...task(sensitive ? 'credential' : inventedValue('cla', 'rify'), 'HUMAN_REQUEST'),
     operation: sensitive ? 'human.credential' : 'human.clarification',
     authority: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
     metadata: {
       sourceConstruct: 'human-request',
       humanRequest: {
-        requestType: sensitive ? 'credential' : invented('clarif', 'ication'),
+        requestType: sensitive ? 'credential' : inventedValue('clarif', 'ication'),
         requestedBy: { id: 'sgos-runtime', kind: 'system' },
         authorityRequired: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
         prompt: { title: sensitive ? 'Provide credential handle' : 'Clarify intent', detail: 'Provide typed input.' },
@@ -730,7 +730,7 @@ test('SGOS CLI validates typed JSON and accepts only non-secret handles for sens
     }
     const raw = flowResult(root, 'request', 'respond', waiting.request.requestId,
       '--process', started.process.processId, '--decision', 'provided',
-      '--input-json', JSON.stringify({ token: invented('raw-s', 'ecret') }),
+      '--input-json', JSON.stringify({ token: inventedValue('raw-s', 'ecret') }),
       '--confirm', waiting.request.requestSha256, ...humanCas(waiting), '--json');
     assert.notEqual(raw.status, 0);
     assert.match(raw.stdout, /refuse --input-json|non-secret typed reference/);

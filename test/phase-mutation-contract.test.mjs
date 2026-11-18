@@ -25,7 +25,7 @@ import { boundedAgentOutput, boundedAgentText } from '../src/agent-output.mjs';
 import { commandLineWithoutSkill, OWN_TERMINAL_STEPS, ownTerminalStep, skillForCommandLine } from '../src/command-skills.mjs';
 import { clarificationStagingPath, phaseStagingPaths, sourceReviewStagingPath } from '../src/phase-staging-paths.mjs';
 import { acceptOpening } from './helpers/accepted-opening.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 test('all generated context, JSON, catalog, refusal and text files get exact read-only hints in linked worktrees', async t => {
   const f = await fixture(t);
@@ -805,7 +805,7 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
 test('an approval in a chat turn carries only the upstream-issue options a chat turn may record, and /sf-decide continues into it [SPEC-OAP M4]', async t => {
   const f = await fixture(t);
   const digest = `sha256:${'d'.repeat(64)}`;
-  const token = invented('11111111-1111-4111', '-8111-111111111111');
+  const token = inventedValue('11111111-1111-4111', '-8111-111111111111');
   const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   const approve = (extra = '') => `singularity-flow approve custom-step --work-id PMC-1 --fetch --selection-receipt ${token} --for-agent --json${extra}`;
   const approval = await f.enter('/sf-approve', 'chat-approver');
@@ -1044,8 +1044,8 @@ test('every step only a person takes in their own terminal is refused in every t
       `singularity-flow story test-policy confirm PMC-1 --phase custom-step --confirm ${digest}`,
       `singularity-flow story approvers refresh PMC-1 --reason "The reviewer joined the group." --confirm ${digest}`],
     // SF Guard: each action but status takes the person's Touch ID (SPEC-PSS-v1).
-    'sf-guard-person-step': ['singularity-flow guard register', 'singularity-flow guard register --key SHA256:abc --propose --json',
-      'singularity-flow guard rotate --key SHA256:abc', 'singularity-flow guard recover --key SHA256:abc',
+    'sf-guard-person-step': ['singularity-flow guard register', 'singularity-flow guard register --key=SHA256:abc --propose --json',
+      'singularity-flow guard rotate --key=SHA256:abc', 'singularity-flow guard recover --key=SHA256:abc',
       'singularity-flow guard revoke approver-0123456789ab --reason "Left the team."', 'singularity-flow guard enable --remote-check sf-guard-verify',
       'singularity-flow guard disable --reason "Moving to another signer."', 'singularity-flow guard exception add approver-0123456789ab',
       'singularity-flow guard exception revoke EXC-001 --reason "Now on a Mac."']

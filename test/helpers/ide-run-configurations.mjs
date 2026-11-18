@@ -7,21 +7,21 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { invented, inventedJwt, base64url } from './invented-secrets.mjs';
+import { inventedValue, inventedJwt, base64url } from './invented-secrets.mjs';
 
 /** Fake secrets of every shape the reader must never copy. */
 export const FAKE_SECRETS = Object.freeze({
-  dbPassword: invented('Fake-Db-Pa', 'ssw0rd-1729'),
-  jvmPassword: invented('Jvm-Inline-', 'Secret-4242'),
-  awsKey: invented('AK', 'IAIOSFODNN7EXAMPLE'),
-  awsSecret: invented('wJalr', 'XUtnFEMI/K7MDEN', 'G/bPxRfiCYEXAMPLEKEY'),
+  dbPassword: inventedValue('Fake-Db-Pa', 'ssw0rd-1729'),
+  jvmPassword: inventedValue('Jvm-Inline-', 'Secret-4242'),
+  awsKey: inventedValue('AK', 'IAIOSFODNN7EXAMPLE'),
+  awsSecret: inventedValue('wJalr', 'XUtnFEMI/K7MDEN', 'G/bPxRfiCYEXAMPLEKEY'),
   jwt: inventedJwt({ alg: 'HS256', typ: 'JWT' }, { sub: 'fake-user' }, base64url('signature-fake-1234567890')),
-  urlPassword: invented('pr1c1n', 'gFakePw'),
+  urlPassword: inventedValue('pr1c1n', 'gFakePw'),
   djangoKey: 'django-insecure-fake-key-for-tests-only',
-  highEntropy: invented('Zk3q9Vb7Lp2', 'Xw8Rt5Ny1Hc', '6Md4Gs0Jf'),
-  argumentToken: invented('cli-token-', 'value-31337'),
-  vscodeToken: invented('vsc-fake-t', 'oken-24601'),
-  launchSecret: invented('Lnch-Fake-Secr', 'et-Profile-8080')
+  highEntropy: inventedValue('Zk3q9Vb7Lp2', 'Xw8Rt5Ny1Hc', '6Md4Gs0Jf'),
+  argumentToken: inventedValue('cli-token-', 'value-31337'),
+  vscodeToken: inventedValue('vsc-fake-t', 'oken-24601'),
+  launchSecret: inventedValue('Lnch-Fake-Secr', 'et-Profile-8080')
 });
 
 const xml = (configurations) => `<component name="ProjectRunConfigurationManager">\n${configurations}\n</component>\n`;

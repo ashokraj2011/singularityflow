@@ -13,6 +13,7 @@ import {
 import { buildGdpReadiness } from '../src/delivery-modes/readiness.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { commandClass } from '../apps/vscode/src/cli/client.ts';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(repositoryRoot, 'bin', 'singularity-flow.mjs');
@@ -104,7 +105,7 @@ test('the closed provider descriptor accepts only IDs and digests and still gran
 
 test('provider validation rejects credentials, unknown providers, malformed digests, and duplicates', () => {
   assert.throws(
-    () => normalizeAuthenticatedRunnerProvider({ ...provider(), token: 'secret' }),
+    () => normalizeAuthenticatedRunnerProvider({ ...provider(), token: inventedValue('sec', 'ret') }),
     (error) => error.code === 'CAB_RUNNER_PROVIDER_INVALID' && /invalid field set/.test(error.message)
   );
   assert.throws(
@@ -131,8 +132,8 @@ test('provider validation rejects credentials, unknown providers, malformed dige
     { integrationId: ['cabi_' + 'b'.repeat(64)] },
     { trustRootSha256: [digest('1')] },
     { acceptedIssuerDigests: [[digest('7')]] },
-    { providerId: 'token:supersecret' },
-    { integrationId: 'password:hunter2' }
+    { providerId: inventedValue('to', 'ken:supersecret') },
+    { integrationId: inventedValue('pass', 'word:hunter2') }
   ]) {
     assert.throws(
       () => normalizeAuthenticatedRunnerProvider(provider(invalid)),

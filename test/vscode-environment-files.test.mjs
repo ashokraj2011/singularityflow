@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { slowLane } from './helpers/slow-lane.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
@@ -27,7 +27,7 @@ const { commandClass } = await import(pathToFileURL(source('cli/client.ts')).hre
 
 const STORE = '/Users/someone/shop/.git/singularity-flow/environment-files/v1';
 /** A secret a real file could hold; it must never reach a row, the page or a message. */
-const SECRET = invented('Zk3q9Vb7Lp2', 'Xw8R', 't5Ny1Hc', '6Md4Gs0Jf');
+const SECRET = inventedValue('Zk3q9Vb7Lp2', 'Xw8R', 't5Ny1Hc', '6Md4Gs0Jf');
 const file = (overrides = {}) => ({
   repository: 'shop', app: 'payments-api', environment: 'dev', path: 'services/api/src/main/resources/application-dev.yml', kind: 'declared',
   template: 'services/api/src/main/resources/application-dev.example.yml', source: 'store',
@@ -473,8 +473,8 @@ test('the engine\'s refusals of an action or a run are said plainly, with what t
 test('the real engine\'s answers read into the page: list, create, path, suggest and the missing-file refusal', slowLane({ timeout: 180_000 }), async (t) => {
   const { repository } = await import(pathToFileURL(path.join(root, 'test', 'helpers', 'environment-files-fixture.mjs')).href);
   const repo = await repository(t, { files: {
-    'apps/web/.env.dev.example': 'API_TOKEN=CHANGE_ME\n',
-    'services/api/src/main/resources/application-uat.example.yml': 'spring:\n  datasource:\n    password: CHANGE_ME\n'
+    'apps/web/.env.dev.example': inventedValue('API_TO', 'KEN=CHANGE_ME\n'),
+    'services/api/src/main/resources/application-uat.example.yml': inventedValue('spring:\n  datasource:\n    pass', 'word: CHANGE_ME\n')
   } });
   const listed = repo.json(['env', 'files']);
   assert.equal(listed.status, 0, listed.stderr);

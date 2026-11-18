@@ -16,7 +16,7 @@ import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 import { homeProjectionV2 } from '../src/gateway/home-projection-v2.mjs';
 import { canonicalJson } from '../src/specifications.mjs';
 import { initializeDefinition } from '../src/config.mjs';
-import { invented, inventedJwt } from './helpers/invented-secrets.mjs';
+import { inventedValue, inventedJwt } from './helpers/invented-secrets.mjs';
 
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -63,7 +63,7 @@ async function allStoredText(directory) {
 
 test('fault intake is immutable, idempotent, redacted, grouped, and leaves the checkout clean', async (t) => {
   const root = await repository(t);
-  const secret = invented('github_', 'pat_abcdefghijkl', 'mnopqrstuvwxyz1234567890');
+  const secret = inventedValue('github_', 'pat_abcdefghijkl', 'mnopqrstuvwxyz1234567890');
   const first = await reportFault(root, envelope({
     idempotencyKey: 'run-19',
     failure: { ...envelope().failure, message: `token=${secret} Authorization: Bearer ${''}bearer-value` },
@@ -119,27 +119,27 @@ test('an omitted occurredAt remains idempotent and abbreviated local commits are
 });
 
 test('redaction covers common credential shapes before storage', () => {
-  const result = sanitizeFaultText(invented('pass', 'word=hunter2 sk-abcdefghijklmnopq https://user:pass@example.test'));
+  const result = sanitizeFaultText(inventedValue('pass', 'word=hunter2 sk-abcdefghijklmnopq https://user:', 'pass@example.test'));
   assert.doesNotMatch(result.text, /hunter2|sk-abcdefghijklmnopq|user:pass/);
   assert.deepEqual(result.redactions.map((entry) => entry.rule), ['assignment', 'openai-token', 'url-credentials']);
 
   for (const secret of [
-    invented('{"to', 'ken":"example-secret-value"}'),
-    invented('{"access_to', 'ken":"example-secret-value"}'),
-    invented('client_sec', 'ret=example-secret-value'),
+    inventedValue('{"to', 'ken":"example-secret-value"}'),
+    inventedValue('{"access_to', 'ken":"example-secret-value"}'),
+    inventedValue('client_sec', 'ret=example-secret-value'),
     inventedJwt({ alg: 'HS256' }, { sub: '123' }, 'signature'),
-    invented('-----BEGIN PRIVATE', ' KEY-----\nprivate-material\n-----END PRIVATE KEY-----'),
-    'postgres://user:password@example.test/database',
-    invented('redis://:', 'redis-password@example.test/0'),
+    inventedValue('-----BEGIN PRIVATE', ' KEY-----\nprivate-material\n-----END PRIVATE KEY-----'),
+    inventedValue('postgres://user:', 'password@example.test/database'),
+    inventedValue('redis://:', 'redis-password@example.test/0'),
     'Endpoint=sb://example.test/;SharedAccessKey=service-bus-secret;',
-    invented('Server=db;User Id=person;Pass', 'word=connection-secret;')
+    inventedValue('Server=db;User Id=person;Pass', 'word=connection-secret;')
   ]) {
     const sanitized = sanitizeFaultText(secret);
     assert.doesNotMatch(sanitized.text, /example-secret-value|signature|private-material|user:password|redis-password|service-bus-secret|connection-secret/);
     assert.ok(sanitized.redactions.length, secret);
   }
 
-  const escaped = sanitizeFaultText(JSON.stringify({ nested: { token: invented('pre', 'fix"still-secret') } }));
+  const escaped = sanitizeFaultText(JSON.stringify({ nested: { token: inventedValue('pre', 'fix"still-secret') } }));
   assert.deepEqual(JSON.parse(escaped.text), { nested: { token: '[REDACTED]' } });
   assert.doesNotMatch(escaped.text, /still-secret/);
 });
@@ -216,10 +216,10 @@ test('JSON and OAuth credentials are redacted before content-addressed evidence 
   const jwt = inventedJwt({ alg: 'HS256' }, { sub: 'poc' }, 'signature');
   const recorded = await reportFault(root, envelope({
     correlationId: 'structured-secrets',
-    failure: { ...envelope().failure, message: invented('client_sec', 'ret=oauth-secret') },
+    failure: { ...envelope().failure, message: inventedValue('client_sec', 'ret=oauth-secret') },
     evidence: [{
       type: 'stderr', mediaType: 'application/json',
-      inline: JSON.stringify({ token: invented('json-', 'secret'), access_token: invented('oauth', '-token'), jwt })
+      inline: JSON.stringify({ token: inventedValue('json-', 'secret'), access_token: inventedValue('oauth', '-token'), jwt })
     }]
   }));
   assert.equal(recorded.fault.redaction.applied, true);
@@ -388,7 +388,7 @@ test('authorization is anchored to the immutable plan rather than a rehashed sta
 test('verification runs with a scrubbed environment in a disposable worktree', async (t) => {
   const root = await repository(t);
   const prior = process.env.REPAIR_TEST_SECRET;
-  process.env.REPAIR_TEST_SECRET = invented('must-n', 'ot-leak');
+  process.env.REPAIR_TEST_SECRET = inventedValue('must-n', 'ot-leak');
   try {
     const reported = await reportFault(root, envelope({ failure: { ...envelope().failure, commandArgv: null } }));
     const requested = await requestRepair(root, reported.fault.faultId, {

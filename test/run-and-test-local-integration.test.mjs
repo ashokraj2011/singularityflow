@@ -8,9 +8,9 @@ import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
 import { environmentQualityCommandBlock, environmentQualityCommandGate } from '../src/state.mjs';
 import { repository, startQuickFix } from './helpers/run-and-test-fixture.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
-const SECRET = invented('qa-token-not', '-for-git-8c41');
+const SECRET = inventedValue('qa-token-not', '-for-git-8c41');
 const identity = {
   sourceCommit: '0123456789abcdef0123456789abcdef01234567',
   sourceTreeSha256: `sha256:${'a'.repeat(64)}`,

@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { initApmMarketplace, marketplaceWorkflowText, packagedAgentText, publishApmPackage, remoteRepository } from '../src/apm-marketplace.mjs';
 import { parseAgentDependencies } from '../src/agent-document-parser.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 // APM A4 (2026-10-30): the organisation's marketplace as APM's monorepo-hybrid shape, and this
 // repository's agents published to it as one package per pull request. The stand-in APM CLI writes
@@ -300,7 +301,7 @@ test('the shell commands print the change and its next steps, and a marketplace 
   const packedJson = ok(space.flow(app, ['apm', 'publish', 'reviewer', '--marketplace', '../other-catalog', '--json']));
   assert.deepEqual([JSON.parse(packedJson.stdout).committed, JSON.parse(packedJson.stdout).marketplace], [true, 'other-catalog'], packedJson.stdout);
 
-  assert.equal(remoteRepository('https://someone:secret@git.example.test/acme/app.git'), 'git.example.test/acme/app');
+  assert.equal(remoteRepository(inventedValue('https://someone:', 'secret@git.example.test/acme/app.git')), 'git.example.test/acme/app');
   assert.equal(remoteRepository('git@git.example.test:acme/app.git'), 'git.example.test/acme/app');
   assert.equal(remoteRepository('ssh://git@gitea.example.com:2222/org/app'), 'gitea.example.com/org/app');
   assert.equal(remoteRepository('/srv/git/app.git'), null);

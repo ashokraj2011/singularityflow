@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { schemaCensus } from '../src/schema-census.mjs';
 import { auditAllWorkspaceSchemas } from '../src/schema-upgrade-all.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-schema-upgrade-all-'));
@@ -163,7 +163,7 @@ test('does not report completion when the registry has no active workspaces', as
 test('redacts malformed manifest content from coverage failures', async (t) => {
   const example = await fixture(t);
   await writeFile(path.join(example.workspacePath, 'workspace.json'),
-    invented('{"api', 'Key":"must-not-appear",broken}\n'));
+    inventedValue('{"api', 'Key":"must-not-appear",broken}\n'));
 
   const result = await auditAllWorkspaceSchemas({ registryFile: example.registryFile });
   assert.equal(result.status, 'partial');
@@ -173,7 +173,7 @@ test('redacts malformed manifest content from coverage failures', async (t) => {
 
 test('refuses an invalid registry without exposing its content', async (t) => {
   const example = await fixture(t);
-  await writeFile(example.registryFile, invented('{"api', 'Key":"must-not-appear",broken}\n'));
+  await writeFile(example.registryFile, inventedValue('{"api', 'Key":"must-not-appear",broken}\n'));
 
   await assert.rejects(
     auditAllWorkspaceSchemas({ registryFile: example.registryFile }),

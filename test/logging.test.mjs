@@ -9,7 +9,7 @@ import {
   createLogger, filterLogEntries, logFilePath, normalizeLogging, normalizeLogLevel,
   parseLogLines, redact, redactCommandArgv, REDACTED, resolveLogging
 } from '../src/logging.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 async function logger(overrides = {}) {
   const gitDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-logging-'));
@@ -49,14 +49,14 @@ test('the file sink honours its level independently of the console sink', async 
 
 test('secrets are redacted by key and by shape, including inside free text', async () => {
   const { gitDirectory, log } = await logger();
-  log.info('jira.connect', invented('authorizing with Bearer ', 'abcdefghijklmnopqrst'), {
-    token: invented('plain-', 'secret'),
-    apiKey: invented('another', '-secret'),
-    nested: { password: invented('hun', 'ter2'), authorization: 'Basic zzzz', note: invented('the pat is gh', 'p_abcdefghijklmnopqrstuvwxyz01') },
+  log.info('jira.connect', inventedValue('authorizing with Bearer ', 'abcdefghijklmnopqrst'), {
+    token: inventedValue('plain-', 'secret'),
+    apiKey: inventedValue('another', '-secret'),
+    nested: { password: inventedValue('hun', 'ter2'), authorization: 'Basic zzzz', note: inventedValue('the pat is gh', 'p_abcdefghijklmnopqrstuvwxyz01') },
     safe: 'keep-me'
   });
   const raw = await readFile(logFilePath(gitDirectory), 'utf8');
-  for (const secret of ['plain-secret', 'another-secret', 'hunter2', 'Basic zzzz', invented('gh', 'p_abcdefghijklmnopqrstuvwxyz01'), invented('Bearer ', 'abcdefghijklmnopqrst')]) {
+  for (const secret of ['plain-secret', 'another-secret', 'hunter2', 'Basic zzzz', inventedValue('gh', 'p_abcdefghijklmnopqrstuvwxyz01'), inventedValue('Bearer ', 'abcdefghijklmnopqrst')]) {
     assert.equal(raw.includes(secret), false, `leaked ${secret}`);
   }
   const [entry] = await entries(gitDirectory);
@@ -69,29 +69,29 @@ test('secrets are redacted by key and by shape, including inside free text', asy
     note: 'Provider failed for https://example.test/repo?signature=embedded-query-secret',
     relative: 'Provider failed //example.test/repo?signature=scheme-relative-secret',
     malformed: 'Provider failed https:/reviewerone:malformed-secret@example.test/repo',
-    combined: 'Provider failed https://reviewerone:password@example.test/repo?signature=combined-secret#frag',
+    combined: inventedValue('Provider failed https://reviewerone:', 'password@example.test/repo?signature=combined-secret#frag'),
     relativeCombined: 'Provider failed //reviewerone:password@example.test/repo?signature=relative-combined-secret#frag'
   });
   assert.equal(legacy.remote, 'https://example.test/repo');
   assert.match(legacy.note, /https:\/\/example\.test\/repo/);
   assert.doesNotMatch(JSON.stringify(legacy), /legacy-query-secret|embedded-query-secret|scheme-relative-secret|malformed-secret|combined-secret|relative-combined-secret|signature=|password@/);
   for (const message of [
-    invented('provider says pass', 'word=office-secret'),
-    invented('provider says access_to', 'ken=office-secret'),
-    'provider says password = office-secret',
-    'provider says access_token : office-secret',
-    invented('provider says authorization=Basic ', 'QWxhZGRpbjpvcGVuIHNlc2FtZQ=='),
-    invented('http.extraHeader="Authorization: Basic ', 'QWxhZGRpbjpvcGVuIHNlc2FtZQ=="'),
-    invented("http.extraHeader='Authorization: Basic ", "QWxhZGRpbjpvcGVuIHNlc2FtZQ=='"),
-    invented('provider says pass', 'word=TOP/LEAKMARK'),
-    'provider says credential=domain\\user:LEAKMARK',
+    inventedValue('provider says pass', 'word=office-secret'),
+    inventedValue('provider says access_to', 'ken=office-secret'),
+    inventedValue('provider says pass', 'word = office-secret'),
+    inventedValue('provider says access_to', 'ken : office-secret'),
+    inventedValue('provider says authorization=Basic ', 'QWxhZGRpbjpvcGVuIHNlc2FtZQ=='),
+    inventedValue('http.extraHeader="Authorization: Basic ', 'QWxhZGRpbjpvcGVuIHNlc2FtZQ=="'),
+    inventedValue("http.extraHeader='Authorization: Basic ", "QWxhZGRpbjpvcGVuIHNlc2FtZQ=='"),
+    inventedValue('provider says pass', 'word=TOP/LEAKMARK'),
+    inventedValue('provider says crede', 'ntial=domain\\user:LEAKMARK'),
     'provider says ext::LEAKMARK',
     'provider says cookie="office secret"',
     'provider says selection-receipt=office-secret',
-    invented('provider {"pass', 'word":"LEAKMARK"}'),
+    inventedValue('provider {"pass', 'word":"LEAKMARK"}'),
     'provider {\\\\\\"password\\\\\\":\\\\\\"LEAKMARK\\\\\\"}',
-    invented('provider {"access_to', 'ken":"LEAKMARK"}'),
-    invented('provider pass', 'word="abc\\\"LEAKMARK" tail'),
+    inventedValue('provider {"access_to', 'ken":"LEAKMARK"}'),
+    inventedValue('provider pass', 'word="abc\\\"LEAKMARK" tail'),
     'fatal /tmp/reviewerone:LEAKMARK@host/repo',
     'fatal ./x//LEAKMARK@host/repo',
     'Cookie: sid=LEAKMARK; remember=LEAKMARK',
@@ -112,7 +112,7 @@ test('secrets are redacted by key and by shape, including inside free text', asy
     "fatal https:reviewerone:PREFIX'LEAKMARK@example.test/repo",
     'fatal ssh:reviewerone:PREFIX<LEAKMARK@example.test/repo',
     'fatal remote "ext::sh -c echo LEAKMARK" failed',
-    invented('-----BEGIN PRIVATE', ' KEY-----\nLEAKMARK\n-----END PRIVATE KEY-----')
+    inventedValue('-----BEGIN PRIVATE', ' KEY-----\nLEAKMARK\n-----END PRIVATE KEY-----')
   ]) {
     assert.doesNotMatch(redact(message), /office-secret|office secret|QWxhZGRpb|LEAKMARK/);
   }
@@ -130,10 +130,10 @@ test('secrets are redacted by key and by shape, including inside free text', asy
 test('CLI argv redaction removes rejected remote and option secrets before durable logging', () => {
   const projected = redactCommandArgv([
     'workspace', 'doctor', '--network',
-    '--repository', invented('ssh://git@example.test/repo?access_to', 'ken=short-secret'),
-    invented('--lead=https://reviewerone:', 'office-secret@example.test/platform.git'),
+    '--repository', inventedValue('ssh://git@example.test/repo?access_to', 'ken=short-secret'),
+    inventedValue('--lead=https://reviewerone:', 'office-secret@example.test/platform.git'),
     '--token', 'another-short-secret',
-    invented('--access-to', 'ken=access-secret'),
+    inventedValue('--access-to', 'ken=access-secret'),
     'git@example.test:team/repo#fragment-secret'
   ]);
   assert.deepEqual(projected.slice(0, 4), ['workspace', 'doctor', '--network', '--repository']);
@@ -155,9 +155,9 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
     ])), /malformed-secret/, malformed);
   }
   for (const unsafe of [
-    invented('ext::pass', 'word=office-secret'),
-    invented('-pass', 'word=office-secret'),
-    invented('foo://host/pass', 'word=office-secret')
+    inventedValue('ext::pass', 'word=office-secret'),
+    inventedValue('-pass', 'word=office-secret'),
+    inventedValue('foo://host/pass', 'word=office-secret')
   ]) {
     assert.deepEqual(redactCommandArgv([
       'workspace', 'doctor', '--repository', unsafe
@@ -187,17 +187,17 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
     '--repository', 'https://git.example'
   ]);
   for (const sensitivePath of [
-    invented('./https://reviewerone:', 'office-secret@example.test/repo?signature=signed'),
+    inventedValue('./https://reviewerone:', 'office-secret@example.test/repo?signature=signed'),
     './https:/reviewerone:office-secret@example.test/repo',
     '/tmp/https:reviewerone:office-secret@example.test/repo',
     './http:\\reviewerone:office-secret@example.test/repo',
     './reviewerone:office-secret@example.test/repo',
     '/tmp/reviewerone:office-secret@example.test/repo',
-    invented('/tmp/gh', 'p_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'),
-    invented('/tmp/cache/pass', 'word=office-secret'),
+    inventedValue('/tmp/gh', 'p_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'),
+    inventedValue('/tmp/cache/pass', 'word=office-secret'),
     '/tmp/cache/cookie=office-secret',
-    invented('/tmp/github-to', 'ken=office-secret'),
-    invented('/tmp/identity-to', 'ken=office-secret'),
+    inventedValue('/tmp/github-to', 'ken=office-secret'),
+    inventedValue('/tmp/identity-to', 'ken=office-secret'),
     '/tmp/selection-receipt=office-secret',
     '/tmp/access-key=office-secret',
     '/tmp/cookie = office-secret'
@@ -220,13 +220,13 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
   assert.equal(collided.at(-1), '[redacted]');
   assert.doesNotMatch(JSON.stringify(collided), /actual-auth-secret/);
   for (const command of [
-    [invented('--client-sec', 'ret=LEAKMARK')],
+    [inventedValue('--client-sec', 'ret=LEAKMARK')],
     ['--jira-token', 'LEAKMARK'],
-    [invented('client_sec', 'ret=LEAKMARK')],
-    [invented('--proxy-pass', 'word=LEAKMARK')],
+    [inventedValue('client_sec', 'ret=LEAKMARK')],
+    [inventedValue('--proxy-pass', 'word=LEAKMARK')],
     ['--aws-access-key', 'LEAKMARK'],
-    [invented('--label=x=pass', 'word=LEAKMARK')],
-    ['--repository', invented('--ext::pass', 'word=LEAKMARK')],
+    [inventedValue('--label=x=pass', 'word=LEAKMARK')],
+    ['--repository', inventedValue('--ext::pass', 'word=LEAKMARK')],
     ['--authorization', '--title', 'SAFE', 'actual-auth-secret'],
     ['--authorization', '--title=9ac6d4a8-4b84-4cd4-9b17-4b10eaab8899'],
     ['--authorization', '--title=arbitrary-auth-secret'],
@@ -243,8 +243,8 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
     ['--pass\u001b[31mword', 'LEAKMARK'],
     ['--repository', '--title', 'SAFE', '/tmp/reviewerone:LEAKMARK@host/repo'],
     ['--repository', './x//LEAKMARK@host/repo'],
-    [invented('--label={"pass', 'word":"LEAKMARK"}')],
-    [invented('--label={"access_to', 'ken":"LEAKMARK"}')],
+    [inventedValue('--label={"pass', 'word":"LEAKMARK"}')],
+    [inventedValue('--label={"access_to', 'ken":"LEAKMARK"}')],
     ['http.extraHeader="Authorization: Basic LEAKMARK"']
   ]) assert.doesNotMatch(JSON.stringify(redactCommandArgv(command)), /LEAKMARK|actual-auth-secret/);
   assert.deepEqual(redactCommandArgv(['status', 'A'.repeat(100_000)]), ['status', REDACTED]);
@@ -261,8 +261,8 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
   ]);
   for (const compound of [
     'service=https:/reviewerone:compound-secret@example.test/repo',
-    invented('service=ext::pass', 'word=compound-secret'),
-    invented('service=-pass', 'word=compound-secret')
+    inventedValue('service=ext::pass', 'word=compound-secret'),
+    inventedValue('service=-pass', 'word=compound-secret')
   ]) {
     assert.doesNotMatch(JSON.stringify(redactCommandArgv([
       'workspace', 'create', '--repository', compound,
@@ -270,7 +270,7 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
     ])), /compound-secret/);
   }
 
-  const scpCredential = invented('reviewerone:scp-secret@e', 'xample.test:team/repo.git');
+  const scpCredential = inventedValue('reviewerone:scp-secret@e', 'xample.test:team/repo.git');
   assert.equal(redactCommandArgv([
     'workspace', 'doctor', '--repository', scpCredential
   ]).at(-1), '[redacted-remote]');
@@ -287,14 +287,14 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
   ]).at(-1), /^\[redacted-remote\]$/);
 
   for (const [option, remote] of [
-    ['--lead-repository', invented('ext::pass', 'word=lead-secret')],
+    ['--lead-repository', inventedValue('ext::pass', 'word=lead-secret')],
     ['--organisation', '//reviewerone:organisation-secret@example.test/platform.git?token=x']
   ]) {
     const combined = redactCommandArgv(['capability', 'map', `${option}=${remote}`]);
     assert.doesNotMatch(JSON.stringify(combined), /lead-secret|organisation-secret|token=x/);
   }
   for (const controlled of [
-    invented('//host/path\npass', 'word=office-secret'),
+    inventedValue('//host/path\npass', 'word=office-secret'),
     '/tmp/repo\u001b]0;PWN\u0007'
   ]) {
     assert.equal(redactCommandArgv([
@@ -391,9 +391,9 @@ test('redaction survives cycles, depth, and error objects without throwing', () 
     iteration: 1,
     path: 'singularity/work-items/WRK-1/context/convergence/iteration-1.json',
     currentBindingsSha256: 'a'.repeat(64),
-    token: invented('must-n', 'ot-leak'),
+    token: inventedValue('must-n', 'ot-leak'),
     diagnostic: 'private prompt text must-not-leak',
-    url: invented('https://person:', 'office-password@example.invalid/repo.git')
+    url: inventedValue('https://person:', 'office-password@example.invalid/repo.git')
   };
   source.details.parent = source;
   const failure = redact(source);
@@ -417,7 +417,7 @@ test('redaction survives cycles, depth, and error objects without throwing', () 
   unrelated.code = 'SOME_OTHER_ERROR';
   unrelated.details = { innocentName: 'raw private prompt must-not-leak' };
   assert.equal(redact(unrelated).details, undefined, 'arbitrary Error.details entered the activity log');
-  assert.equal(redact(invented('https://person:', 'office-password@example.invalid/repo.git')).includes('office-password'), false);
+  assert.equal(redact(inventedValue('https://person:', 'office-password@example.invalid/repo.git')).includes('office-password'), false);
 });
 
 test('activity log persists only bounded required-test diagnostics, including report and stderr', async () => {
@@ -436,7 +436,7 @@ test('activity log persists only bounded required-test diagnostics, including re
         report: { status: 'observed', tests: { discovered: 2, passed: 1, failed: 1, skipped: 0 },
           sha256, bytes: 391, failedTestcases: [{ name: 'unit::fails', status: 'failed' }] },
         failure: { kind: 'failed-tests', guidance: 'private-guidance' },
-        secret: invented('private-', 'execution')
+        secret: inventedValue('private-', 'execution')
       },
       unrelated: 'private-details'
     }
@@ -535,7 +535,7 @@ test('filtering selects by level, event, and time, and a truncated line is repor
 });
 
 test('an unreadable legacy log line exposes only content-free evidence', () => {
-  const secret = invented('truncated-autho', 'rization-secret');
+  const secret = inventedValue('truncated-autho', 'rization-secret');
   const [entry] = parseLogLines(
     `{"event":"command.start","argv":["action","execute","--authorization","${secret}"`
   );
@@ -551,7 +551,7 @@ test('legacy log reads redact command capabilities that predate write-side prote
     argv: [
       'choices', 'status', 'legacy-receipt-secret',
       '--authorization', 'legacy-authorization-secret',
-      invented('--repository=https://reviewerone:', 'legacy-url-secret@example.test/repo.git?signature=x')
+      inventedValue('--repository=https://reviewerone:', 'legacy-url-secret@example.test/repo.git?signature=x')
     ]
   }));
   assert.equal(legacy[0].argv[2], REDACTED);

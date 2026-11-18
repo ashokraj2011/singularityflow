@@ -16,6 +16,7 @@ import {
 } from '../src/git.mjs';
 import { deliverToGit, gitDeliveryMessage, sameGitRepository } from '../src/step-action-writers.mjs';
 import { normalizeIntegrations, renderGitDeliveryPath } from '../src/step-actions.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const ENV = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Delivery Tester' };
 
@@ -60,7 +61,7 @@ test('a git target names a repository, an ordinary branch and a path template', 
   const code = (target) => { try { normalizeIntegrations({ targets: { one: { kind: 'git', ...target } } }); return null; } catch (error) { return error.code; } };
   for (const target of [
     { repository: 'http://git.example.com/docs', branch: 'docs' }, { repository: 'file:///srv/docs.git', branch: 'docs' },
-    { repository: '/srv/docs.git', branch: 'docs' }, { repository: 'https://user:pass@git.example.com/docs', branch: 'docs' },
+    { repository: '/srv/docs.git', branch: 'docs' }, { repository: inventedValue('https://user:', 'pass@git.example.com/docs'), branch: 'docs' },
     { repository: 'https://git.example.com/docs', branch: 'sflow/config' }, { repository: 'https://git.example.com/docs', branch: '../x' },
     { repository: 'https://git.example.com/docs', branch: 'docs', path: '../outside' }, { repository: 'https://git.example.com/docs', branch: 'docs', path: '{secret}/x' },
     { repository: 'https://git.example.com/docs', branch: 'docs', network: 'private' }

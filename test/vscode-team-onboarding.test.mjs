@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Suite routing: this test imports apps/vscode TypeScript sources directly.
@@ -302,7 +303,7 @@ test('map-team argv refuses unsafe host state before it could be logged', () => 
   view = {
     ...view,
     inspection: { ...view.inspection, running: false },
-    repositories: [{ ...view.repositories[0], locator: 'https://user:secret@git.corp.invalid/repo.git' }]
+    repositories: [{ ...view.repositories[0], locator: inventedValue('https://user:', 'secret@git.corp.invalid/repo.git') }]
   };
   assert.throws(() => mapTeamCommand(view), /credential-free/);
 });

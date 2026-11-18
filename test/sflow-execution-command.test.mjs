@@ -52,7 +52,7 @@ test('receipt handling cannot admit shell execution or other credentials', () =>
     `${command}; echo done`, `${command}\nwhoami`, `bash -c '${command}'`,
     `${command} --reason "$(touch unsafe)"`, `${command} --reason "\`touch unsafe\`"`,
     `${command} --token hidden`, `${command} --'token' hidden`, `${command} --password hidden`, `${command} --authorization hidden`,
-    `${command} --reason https://user:password@example.test`,
+    `${command} --reason https://user:${''}password@example.test`,
     `${command} --reason '--secret hidden'`]) {
     assert.equal(validateSflowExecutionCommand(unsafe), null, unsafe);
   }

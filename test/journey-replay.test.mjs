@@ -19,7 +19,7 @@ import { captureMutationTurn } from '../src/copilot-mutation-guard.mjs';
 import { readConfiguredPrivacyTerms } from '../scripts/documentation-privacy.mjs';
 import { normalizeArguments, normalizeCommand, PLACEHOLDERS, registryWords, tokenAllowed, TOOL_NAME } from '../scripts/journey-extract.mjs';
 import { refusalFromCompletion } from '../scripts/route-audit.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const JOURNEYS = path.join(ROOT, 'test/fixtures/journeys');
@@ -179,7 +179,7 @@ test('the extractor keeps only what is on its lists, whatever a real command hel
     ['git commit -m "Calculator secret message"', 'git commit -m <TEXT>'],
     ['curl https://example.test/acme/private-repo.git', '<PROGRAM> <REPO-PATH>'],
     ['node -e "console.log(\'secret\')"', 'node -e <VALUE>'],
-    [invented('TO', 'KEN=hunter2 ./private-script.sh widget'), '<ENV>=<VALUE> <REPO-PATH> <VALUE>'],
+    [inventedValue('TO', 'KEN=hunter2 ./private-script.sh widget'), '<ENV>=<VALUE> <REPO-PATH> <VALUE>'],
     ['PATH="/opt/private/bin:$PATH" singularity-flow phase prepublish implementation --work-id STORY-9', 'PATH=<SYSTEM-PATH> singularity-flow phase prepublish implementation --work-id <WORK-ID>'],
     ["cat <<'EOF' > notes.md\nsecret words\nEOF", 'cat <HEREDOC>'],
     ['rg "Calculator" src/widget.jsx | head -5', 'rg <VALUE> <REPO-PATH> | head <VALUE>'],

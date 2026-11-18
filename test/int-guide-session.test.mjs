@@ -22,7 +22,7 @@ import {
 } from '../src/gateway/local-store.mjs';
 import { referencedSubject, visibleSubjects } from '../src/gateway/conversation.mjs';
 import { run } from '../src/util.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ACTOR = { login: 'dev-1', email: 'dev-1@example.com', name: 'Dev One' };
@@ -73,7 +73,7 @@ test('the guide session keeps only the fields it names, so nothing that can act 
     lastResultHandles: [HANDLE('rea', 'b'), HANDLE('sel', 'c'), HANDLE('pla', 'd'), HANDLE('rcp', 'e'), 'ceremony:review.open:WRK-1'],
     lastMenu: ['legal:work.continue', 'run this: sflow approve design'],
     confirmationValue: 'WRK-1', receiptId: HANDLE('rcp', 'f'), planHash: 'f'.repeat(64), prompt: 'approve everything',
-    utterance: 'continue it', reasoning: 'the model thought', secret: invented('ghp_sec', 'retvalue'), token: invented('xoxb-', 'token')
+    utterance: 'continue it', reasoning: 'the model thought', secret: inventedValue('ghp_sec', 'retvalue'), token: inventedValue('xoxb-', 'token')
   }, { env });
   assert.deepEqual(Object.keys(stored).sort(), ['actorId', 'expiresAt', 'lastMenu', 'lastResultHandles', 'pending',
     'presentationWorkspaceId', 'scope', 'subject', 'updatedAt', 'visibleSubjects']);

@@ -9,7 +9,7 @@ import {
 import {
   parseEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog
 } from '../src/environment-declaration.mjs';
-import { invented } from './helpers/invented-secrets.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const sourceIdentity = {
   sourceCommit: '0123456789abcdef0123456789abcdef01234567',
@@ -84,7 +84,7 @@ test('an unavailable environment creates a required blocked check without relayi
   const check = await environmentQualityCommandBlock('/not-used', policy, {
     ...sourceIdentity,
     resolver: async () => {
-      throw new Error(invented('provider response accidentally included sec', 'ret=do-not-relay'));
+      throw new Error(inventedValue('provider response accidentally included sec', 'ret=do-not-relay'));
     }
   });
 
@@ -123,7 +123,7 @@ test('a declaration resolution failure blocks an otherwise unmapped command with
   const check = await environmentQualityCommandBlock('/not-used', policy, {
     ...sourceIdentity,
     resolver: async () => {
-      throw new Error(invented('invalid declaration included sec', 'ret=do-not-relay'));
+      throw new Error(inventedValue('invalid declaration included sec', 'ret=do-not-relay'));
     }
   });
   assert.equal(check.status, 'blocked');
@@ -173,7 +173,7 @@ test('a declaration mapping cannot turn a shell command into an environment-boun
         source: 'private-binding', bindingRevision: 'envb_00000000-0000-4000-8000-000000000001',
         fingerprintSha256: `sha256:${'f'.repeat(64)}`
       },
-      processEnvironment: { TOKEN: invented('never-u', 'se-this') }
+      processEnvironment: { TOKEN: inventedValue('never-u', 'se-this') }
     })
   });
   assert.equal(check.status, 'blocked');

@@ -41,12 +41,17 @@ const WINDOW_LINES = 6;
 
 async function shippedSources() {
   const sources = [];
-  for (const [directory, extension] of [['src', '.mjs'], ['apps/vscode/src', '.ts']]) {
+  for (const [directory, extension] of [['src', '.mjs'], ['runtime/updater', '.mjs'], ['apps/vscode/src', '.ts']]) {
     for (const entry of await readdir(path.join(root, directory), { recursive: true })) {
       if (!entry.endsWith(extension)) continue;
       const relative = path.posix.join(directory, entry.split(path.sep).join('/'));
       sources.push({ relative, text: await readFile(path.join(root, relative), 'utf8') });
     }
+  }
+  // Bootstrap/installation APIs have their own injected-home tests. Include the new machine-local
+  // updater entry points here because they use the common environment-based test isolation.
+  for (const relative of ['runtime/update.mjs', 'runtime/install-pair.mjs']) {
+    sources.push({ relative, text: await readFile(path.join(root, relative), 'utf8') });
   }
   return sources;
 }

@@ -1,5 +1,10 @@
 # Install or update Singularity Flow
 
+For direct updates from a public SharePoint folder containing the CLI `.tgz` and VSIX, the source
+checkout and CLI package include `update-sflow.sh` and `update-sflow.ps1`. Give the folder link once;
+later runs remember it. See the package's `docs/package-updater.md`. This path uses the selected folder
+as its package source and keeps the full-product installer's consistency/recovery checks.
+
 ## One-command user installation (Mac and Windows)
 
 VS Code and GitHub Copilot CLI must already be installed for this user. These commands install or

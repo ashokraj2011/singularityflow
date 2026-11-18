@@ -3692,6 +3692,10 @@ singularity-flow harness report [--json]
 ```text
 singularity-flow about
 sflow-about
+singularity-flow ui open [--no-open] [--idle-minutes 1..60] [--resume-request INVOCATION-ID] [--json]
+singularity-flow ui status [--json]
+singularity-flow ui stop [--drain] [--json]
+singularity-flow ui serve [--idle-minutes 1..60] [--json]
 singularity-flow help [TOPIC] [--json]
 singularity-flow pause [on|off|status] [--json]
 singularity-flow init [--work-id ID --base BRANCH --fetch] [--check|--repair]
@@ -4259,6 +4263,11 @@ singularity-flow refresh-branch [--remote origin] [--json]
 singularity-flow stack status|sync [--epic INIT-ID] [--json]
 singularity-flow regression analyze [--base main] [--good REF] [--bad REF] [--path PATH]...
 ```
+
+`ui open` starts or reuses the independent local service and opens its browser workspace for the
+checkout it runs from; `--no-open --json` returns the one-use link instead. Opening, serving and
+shutting it down are the person's own steps in their terminal or VS Code (**Open SFlow in browser**);
+`/sf-ui` only reads its status. See `singularity-flow explain browser-workspace`.
 
 Intent amendments are available by default in every workflow after scope approval, including
 existing Story pins. No convergence finding, convergence phase, revision-loop declaration, YAML

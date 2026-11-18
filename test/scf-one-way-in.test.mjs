@@ -224,6 +224,90 @@ test('a repository whose groups name nobody else never turns self-approval off, 
   } finally { await f.done(); }
 });
 
+/** A proposal that adds a workflow, as an import makes it, and may also name its proposer in Engineering reviewers. */
+function proposeNewWorkflow(checkout, id, { addMe = null, edit = () => {} } = {}) {
+  return proposeConfigurationChange(checkout, { operation: 'import-workflows', subject: id,
+    async mutate(root) {
+      const file = path.join(root, WORKFLOW);
+      const definition = YAML.parse(await readFile(file, 'utf8'));
+      definition.workTypes[id] = { ...structuredClone(definition.workTypes.feature), label: `Imported ${id}` };
+      if (addMe) definition.approvalAuthorities['engineering-reviewers'].members.push({ email: addMe });
+      edit(definition);
+      await writeFile(file, YAML.stringify(definition));
+      return { id };
+    } });
+}
+
+async function removeAlice(f) {
+  const removal = await propose(f.bob, `remove-alice-${Date.now()}`, (definition) => {
+    const group = definition.approvalAuthorities['engineering-reviewers'];
+    group.members = group.members.filter((member) => member.email !== 'alice@example.test');
+  });
+  assert.equal((await approve(f.bob, removal.branch, removal.commit)).activated, true);
+}
+
+test('a workflow\'s creator approves its import in full, even where it puts them back in a group they were removed from (owner, 2026-11-18)', async () => {
+  const f = await fixture();
+  try {
+    await publishCurrentIdentityToConfiguration(f.alice, { target: '*', automatic: true });
+    await removeAlice(f);
+    assert.deepEqual(reviewersOf(f), ['bob@example.test']);
+    // The office case: her import's bundle names her in the group again.
+    const imported = await proposeNewWorkflow(f.alice, 'qa-flow', { addMe: 'alice@example.test' });
+    const shown = await inspectWorkflowConfigurationProposal(f.alice, imported.branch);
+    const { proposalViewLines } = await import('../src/configuration-approval-view.mjs');
+    assert.ok(proposalViewLines(shown, { approver: { name: 'Alice Example', email: 'alice@example.test' } }).includes(
+      'This also puts you in engineering-reviewers. If an earlier approved change removed you, you may still approve it yourself as the workflow\'s creator; the approval commit records that it put you back.'),
+    'the approve view says so before anyone confirms');
+    const landed = await approve(f.alice, imported.branch, imported.commit);
+    assert.equal(landed.activated, true);
+    assert.equal(landed.approval.selfApproved, true);
+    assert.deepEqual(landed.approval.readmitted, [{ scope: 'story', id: 'engineering-reviewers' }]);
+    assert.match(message(f), /^Sflow-Readmitted: Alice Example <alice@example\.test> to story:engineering-reviewers$/mu, 'the approval commit records it');
+    assert.match(message(f), /^Self-approved: yes$/mu);
+    assert.ok(reviewersOf(f).includes('alice@example.test'));
+    assert.ok(approved(f).workTypes['qa-flow']);
+
+    // An edit of an existing workflow that puts her back is still someone else's to approve.
+    await removeAlice(f);
+    const edited = await propose(f.alice, 'relabel', (definition) => {
+      definition.workTypes.feature.label = 'Feature, relabelled';
+      definition.approvalAuthorities['engineering-reviewers'].members.push({ email: 'alice@example.test' });
+    });
+    const before = tip(f);
+    await assert.rejects(approve(f.alice, edited.branch, edited.commit), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_SELF_READMISSION_REFUSED');
+      assert.equal(error.message, 'This approval would add you back to engineering-reviewers, which an approved change removed you from. Someone else must approve it; nothing was changed.');
+      return true;
+    });
+    assert.equal(tip(f), before);
+  } finally { await f.done(); }
+});
+
+test('a workflow\'s creator still cannot turn self-approval off with nobody else named, nor approve where self-approval is off (owner, 2026-11-18)', async () => {
+  const solo = await fixture({ reviewers: [] });
+  try {
+    const off = await proposeNewWorkflow(solo.alice, 'solo-flow', { edit: (definition) => {
+      definition.approvalSecurity = { ...definition.approvalSecurity, allowSelfApproval: false };
+    } });
+    await assert.rejects(approve(solo.alice, off.branch, off.commit), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_SELF_APPROVAL_NO_SECOND_PERSON');
+      assert.match(error.message, /yourself would turn self-approval off with nobody named, so nobody could approve a later change\. Nothing was changed\./u);
+      return true;
+    });
+  } finally { await solo.done(); }
+  const strict = await fixture({ security: { allowSelfApproval: false } });
+  try {
+    const imported = await proposeNewWorkflow(strict.alice, 'strict-flow');
+    await assert.rejects(approve(strict.alice, imported.branch, imported.commit), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_SELF_APPROVAL_REFUSED');
+      assert.match(error.message, /^You proposed \S+, and this repository needs another person to approve it \(allowSelfApproval is false\)\. Nothing was changed\./u);
+      return true;
+    });
+    assert.equal((await approve(strict.bob, imported.branch, imported.commit)).activated, true, 'another person approves it');
+  } finally { await strict.done(); }
+});
+
 test('a workflow that workflow validate calls invalid cannot be approved (ER-F7)', async () => {
   const f = await fixture();
   try {

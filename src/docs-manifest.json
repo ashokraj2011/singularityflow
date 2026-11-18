@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "236e2d61e1b0d0e4fe60d08aa3c0cdcd1c50d302",
+  "sourceCommit": "01cc8fe5bac43e2a8c3d7fb28b4dc65ac5caf5f1",
   "topicCount": 93,
-  "contentSha256": "34e3595647bbd05494b917d9d71f17dd0875748ada724328e843530ebd9f1f76",
+  "contentSha256": "c508e82d9e9b112f10d38bc6ba00f389991bf8ce07b189ea88bf9828ae5d4afc",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -56,8 +56,8 @@
     {
       "id": "approvals",
       "title": "Approvals",
-      "version": 28,
-      "sha256": "e17b093ce5100c46a28d8c442e24689efa488ba63ec6185592f6b48c29c157b6",
+      "version": 29,
+      "sha256": "cd90ef3a7771e4b29c5063d34f31e051919514ae087bca35d87c761c2d3a4612",
       "routingSha256": "85a95a3a36e07139ed38692e07cbb4cace9e5c4581d595e45769611fc93f6698",
       "file": "approvals.md"
     },
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 30,
-      "sha256": "b3d322684946d58141904f82ac9228ed6703028c7a215742f6aeed878ac25c5d",
+      "version": 31,
+      "sha256": "2e29cc65c8506eae97ed5f742fa2f23c9910e6d216ce121738e767203890e698",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },

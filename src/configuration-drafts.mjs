@@ -1223,6 +1223,8 @@ export async function approveProposal(root, requested, {
     await forgetProposal(root, branch);
     print(approvedWords(kind));
     if (result?.approval?.selfApproved) print('Recorded as a self-approval: you proposed it and approved it.');
+    const back = (result?.approval?.readmitted ?? []).map((group) => group.id);
+    if (back.length) print(`This put you back in ${back.join(', ')} (an earlier approved change removed you). As the workflow's creator you approved it yourself; the approval commit records it.`);
     if (approval?.unsigned) {
       print(`SF Guard: approved without a signature, because ${approval.unsigned}. Anyone with access to this repository can change the configuration, so this holds nothing back; guard status shows the commit as unsigned.`);
       result.presence = { status: 'unsigned', reason: approval.unsigned };

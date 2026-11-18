@@ -287,7 +287,7 @@ export function planEntriesText(entries = []) {
  * A preview asked with `--propose` prints commands that keep it: without it the import changes
  * only this checkout's files and never reaches review.
  */
-export function importPlanText(plan, file, { propose = false } = {}) {
+export function importPlanText(plan, file, { propose = false, identity = null } = {}) {
   const counts = plan.counts ?? {};
   const fileArgument = shellWord(file);
   const proposeText = propose ? ' --propose' : '';
@@ -311,6 +311,18 @@ export function importPlanText(plan, file, { propose = false } = {}) {
     lines.push(`  New name: ${subjectNoun(kind)} ${id} → ${item.to}`);
   }
   if (plan.changedPaths?.length) lines.push(`  Changed paths: ${plan.changedPaths.join(', ')}`);
+  // Who each approval group the import writes adds or takes out, and whether that is you.
+  const person = (member) => member?.email ?? (member?.githubLogin ? `@${member.githubLogin}` : 'someone');
+  const lower = (value) => String(value ?? '').trim().toLowerCase();
+  const isYou = (member) => Boolean(identity && ((identity.email && lower(member?.email) === lower(identity.email))
+    || (identity.login && lower(member?.githubLogin) === lower(identity.login))));
+  for (const entry of plan.memberships ?? []) {
+    lines.push(`  Approval group ${entry.group}${entry.ifReplaced ? ' (if you replace it)' : ''}: ${[entry.adds.length ? `adds ${entry.adds.map(person).join(', ')}` : '',
+      entry.removes.length ? `takes out ${entry.removes.map(person).join(', ')}` : ''].filter(Boolean).join('; ')}.`);
+    if (entry.adds.some(isYou)) lines.push(`  ${entry.ifReplaced ? 'Replacing it' : 'This import'} puts you in ${entry.group}.`);
+    if (entry.removes.some(isYou)) lines.push(`  ${entry.ifReplaced ? 'Replacing it' : 'This import'} takes you out of ${entry.group}.`);
+    if (entry.existed && !entry.ifReplaced) lines.push(`    Keep this repository's ${entry.group} instead: --resolve ${shellWord(`approval-group:${entry.group}=keep`)}`);
+  }
   // What approval would refuse, settled here: placeholders SFlow added, and what it could not fix itself.
   for (const repair of plan.repairs ?? []) lines.push(`  ${repair.text}`);
   if (plan.problems?.length) {

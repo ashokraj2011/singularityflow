@@ -145,6 +145,36 @@ export function proposalViewLines(reviewed, { approver = null } = {}) {
     lines.push('', 'You proposed this, and this repository needs another person to approve configuration changes: someone else approves it.');
   } else if (self) {
     lines.push('', `You proposed this, so approving it is a self-approval: the approval commit records it as one${reviewed.approvalPolicy?.profile === 'poc' ? ' (a solo repository approves its own changes)' : ''}.`);
+    // Whose approval it is when it names you in a group [owner, 2026-11-18]: said before anyone confirms.
+    const groups = groupsAdding(reviewed, approver);
+    if (groups.length) {
+      lines.push((reviewed.workflows ?? []).some((row) => row.change === 'added')
+        ? `This also puts you in ${groups.join(', ')}. If an earlier approved change removed you, you may still approve it yourself as the workflow's creator; the approval commit records that it put you back.`
+        : `This also puts you in ${groups.join(', ')}. If an earlier approved change removed you, someone else must approve it.`);
+    }
   }
   return lines;
+}
+
+/** The approval groups the landing adds `approver` to (by email or GitHub login), from its workflow.yml and portfolio.yml values. */
+function groupsAdding(reviewed, approver) {
+  const lower = (value) => String(value ?? '').trim().toLowerCase();
+  const named = (entry) => Boolean(entry && typeof entry === 'object' && ((approver?.email && lower(entry.email) === lower(approver.email))
+    || (approver?.githubLogin && lower(entry.githubLogin) === lower(approver.githubLogin))));
+  const mentions = (value) => Boolean(value && typeof value === 'object'
+    && (Array.isArray(value) ? value.some(mentions) : named(value) || Object.values(value).some(mentions)));
+  const groups = new Set();
+  for (const file of reviewed.lands?.fields ?? []) {
+    if (!['singularity/workflow.yml', 'singularity/portfolio.yml'].includes(file.path) || !Array.isArray(file.values)) continue;
+    for (const change of file.values) {
+      const parts = String(change.pointer ?? '/').split('/').filter(Boolean).map((part) => part.replace(/~1/gu, '/').replace(/~0/gu, '~'));
+      const before = change.before?.value, after = change.after?.value;
+      if (parts.length && parts[0] !== 'approvalAuthorities') continue;
+      if (parts.length >= 2) { if (mentions(after) && !mentions(before)) groups.add(parts[1]); continue; }
+      // The whole file, or every group at once.
+      const map = (value) => (parts.length ? value : value?.approvalAuthorities) ?? {};
+      for (const [id, group] of Object.entries(map(after))) if (mentions(group) && !mentions(map(before)[id])) groups.add(id);
+    }
+  }
+  return [...groups];
 }

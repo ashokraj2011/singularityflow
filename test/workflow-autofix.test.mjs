@@ -347,3 +347,27 @@ test('workflow install, a whole workflow.yml save and a confirmed workflow packa
     return true;
   });
 });
+
+test('the import preview names who an approval group it brings puts in or takes out, you included (owner, 2026-11-18)', async (t) => {
+  const source = await configuration(t, 'sflow-autofix-source-');
+  await addIncidentWorkflow(source);
+  await editDefinition(source, (definition) => { definition.approvalAuthorities['product-approvers'].members = [{ email: 'importer@example.test' }]; });
+  const base = await temporary(t, 'sflow-autofix-bundle-');
+  const bundleFile = path.join(base, `${ID}.json`);
+  await exportWorkflowBundle(source, [ID], bundleFile);
+  const root = await configuration(t, 'sflow-autofix-target-');
+  const bundle = await readWorkflowBundle(bundleFile);
+  const me = { name: 'Importer', email: 'importer@example.test' };
+  // The repository's group differs, so it is a choice; the preview says what replacing it would do.
+  const asked = await planWorkflowImport(root, bundle);
+  assert.deepEqual(asked.memberships, [{ scope: 'story', group: 'product-approvers', existed: true, ifReplaced: true, adds: [{ email: 'importer@example.test' }], removes: [] }]);
+  const askedText = importPlanText(asked, bundleFile, { identity: me });
+  assert.ok(askedText.includes('  Approval group product-approvers (if you replace it): adds importer@example.test.'), askedText.join('\n'));
+  assert.ok(askedText.includes('  Replacing it puts you in product-approvers.'));
+  const replaced = await planWorkflowImport(root, bundle, { resolutions: { 'approval-group:product-approvers': { action: 'replace' } } });
+  const text = importPlanText(replaced, bundleFile, { identity: me });
+  assert.ok(text.includes('  This import puts you in product-approvers.'), text.join('\n'));
+  assert.ok(text.includes("    Keep this repository's product-approvers instead: --resolve approval-group:product-approvers=keep"), text.join('\n'));
+  const kept = await planWorkflowImport(root, bundle, { resolutions: { 'approval-group:product-approvers': { action: 'keep' } } });
+  assert.equal(kept.memberships, undefined, 'keeping the repository\'s group changes nobody');
+});

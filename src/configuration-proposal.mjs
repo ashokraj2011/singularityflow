@@ -389,6 +389,11 @@ function packageOrderFailure(reader, branch, targetCommit, proposalCommit) {
  * How a proposal without drafts is made again, from the operation its branch names (proposeConfigurationChange's
  * label): an import is imported again, a copy copied again, a new workflow created again.
  */
+/** A proposal that adds a workflow: an import, a copy, a new workflow made in Studio, the builder or `workflow create`. */
+function createsWorkflow(reviewed) {
+  return (reviewed.workflows ?? []).some((row) => row.change === 'added');
+}
+
 function remadeBy(branch) {
   const label = String(branch).split('/').at(-1);
   return [['import-workflows-', 'import the bundle again'], ['copy-workflow-', 'copy the workflow again'],
@@ -844,6 +849,8 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
     }
     let alreadyMerged = reviewed.merged;
     let approver = null;
+    // Groups this approval puts its own approver back in, as the workflow's creator (annotate, below).
+    let readmitted = [];
     const stateService = await openConfigurationStateService(root, remote);
     let prepared = null;
     let journalWarning = null;
@@ -879,17 +886,24 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       const problemsBefore = await workflowProblems(scratch, changedWorkflows).catch(() => null);
       prepared = await measureCommandSpan('proposal.prepare', () => prepareConfigurationStateTransaction(scratch, transport.remote, reviewed, {
         env: transport.env, runRemoteCommand: runRemoteGitAsync, actor: { name: actor.name, email: actor.email },
-        proposalId: stateService.identity(proposalBranch), objectReader: transport.reader, choices
+        proposalId: stateService.identity(proposalBranch), objectReader: transport.reader, choices,
+        annotate: async (files) => {
+          readmitted = await selfReadmissions(scratch, reviewed, files, transport.reader, approver, transport.env);
+          if (!readmitted.length) return [];
+          // The person who made a workflow approves their own proposal of it in full, a group that names them again
+          // included [owner, 2026-11-18]: said in the view, and recorded in the approval commit. Any other proposal
+          // that puts its own approver back is someone else's to approve.
+          if (!(selfApproval(reviewed.proposer, approver) && createsWorkflow(reviewed))) {
+            throw new SingularityFlowError(
+              `This approval would add you back to ${readmitted.map((group) => group.id).join(', ')}, which an approved change removed you from. `
+              + 'Someone else must approve it; nothing was changed.',
+              { code: 'CONFIGURATION_SELF_READMISSION_REFUSED', details: { groups: readmitted,
+                nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
+            );
+          }
+          return readmitted.map((group) => `Sflow-Readmitted: ${approver.name} <${approver.email}> to ${group.scope}:${group.id}`);
+        }
       }));
-      const readmitted = await selfReadmissions(scratch, reviewed, prepared.files, transport.reader, approver, transport.env);
-      if (readmitted.length) {
-        throw new SingularityFlowError(
-          `This approval would add you back to ${readmitted.map((group) => group.id).join(', ')}, which an approved change removed you from. `
-          + 'Someone else must approve it; nothing was changed.',
-          { code: 'CONFIGURATION_SELF_READMISSION_REFUSED', details: { groups: readmitted,
-            nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
-        );
-      }
       // Approving yourself a change that turns self-approval off, with nobody else named, would lock every later
       // configuration change out (review 11-17, finding 2): someone else approves it, and is then the second person.
       const lockedOut = selfApproval(reviewed.proposer, approver) ? selfApprovalLockout(reviewed, prepared.files, transport.reader) : null;
@@ -1069,7 +1083,8 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       activationMethod: prepared ? 'semantic-transaction' : 'retained-history',
       // Who proposed and who approved, as the approval commit records them [SCF:REQ-018].
       ...(prepared ? { approval: { proposer: reviewed.proposer ?? null, approver: { name: approver.name, email: approver.email },
-        selfApproved: prepared.selfApproved, picked: prepared.decided } } : {}),
+        selfApproved: prepared.selfApproved, picked: prepared.decided,
+        ...(readmitted.length ? { readmitted: readmitted.map(({ scope, id }) => ({ scope, id })) } : {}) } } : {}),
       referenceSync, journalWarning, ...(finished ? { finished: finished.status } : {}),
       nextAction: journalWarning?.nextAction ?? (prepared && referenceSync?.status !== 'complete'
         ? finishApprovalCommand(proposalBranch, prepared.receipt ? prepared.transaction.id : null)

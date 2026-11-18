@@ -281,7 +281,7 @@ export async function configurationStateAtRef(root, remote, commit, env, runRemo
  * approved [SCF:REQ-018]: its author is the proposer, its committer the approver.
  */
 export async function prepareConfigurationStateTransaction(root, remote, reviewed, {
-  env, runRemoteCommand, actor, proposalId, objectReader = null, choices = null
+  env, runRemoteCommand, actor, proposalId, objectReader = null, choices = null, annotate = null
 }) {
   const reader = objectReader ?? new ConfigurationObjectReader(root, remote, env, runRemoteCommand);
   if (reader.root !== root || reader.remote !== remote) fail('Configuration object reader belongs to another checkout or authority.');
@@ -306,6 +306,9 @@ export async function prepareConfigurationStateTransaction(root, remote, reviewe
       nextAction: { label: 'Approve with your pick for each field (proposal or current)', command }
     });
   }
+  // What the approver's own check adds to the record (a refusal throws here, before anything is written): trailers
+  // for the approval commit, such as the approver an approval puts back in a group [owner, 2026-11-18].
+  const notes = annotate ? await annotate(files) : [];
   // Compute every conflict before materializing any candidate change.
   // Only a workflow proposal's approval is appended to the shared receipt, which every build checks field by
   // field; a people or package approval is recorded by its approval commit alone (SCF:REQ-018), so the receipt
@@ -349,7 +352,7 @@ export async function prepareConfigurationStateTransaction(root, remote, reviewe
   const commitEnv = { ...env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date,
     GIT_AUTHOR_NAME: proposer.name, GIT_AUTHOR_EMAIL: proposer.email, GIT_COMMITTER_NAME: actor.name, GIT_COMMITTER_EMAIL: actor.email };
   const message = approvalCommitMessage(transaction.id, { proposer: reviewed.proposer ?? null, approver: actor, decided: landing.decided,
-    branch: receipt ? null : reviewed.branch });
+    branch: receipt ? null : reviewed.branch, notes });
   const targetCommit = git(root, ['commit-tree', candidateTree, '-p', reviewed.targetCommit, '-p', reviewed.proposalCommit,
     '-F', '-'], commitEnv, { input: message }).stdout.trim();
   if (!CONFIGURATION_OID.test(targetCommit)) fail('The configuration transaction commit is invalid.');
@@ -377,11 +380,11 @@ function loadableDefinition(source) {
 }
 
 /** The approval commit's message: who proposed, who approved, and each pick the approver made [SCF:REQ-018, REQ-007]. */
-export function approvalCommitMessage(transactionId, { proposer = null, approver, decided = [], branch = null }) {
+export function approvalCommitMessage(transactionId, { proposer = null, approver, decided = [], branch = null, notes = [] }) {
   const person = identity => `${identity.name} <${identity.email}>`;
   const trailers = [...(branch ? [`Sflow-Proposal: ${branch}`] : []), ...(proposer ? [`Proposed-by: ${person(proposer)}`] : []), `Approved-by: ${person(approver)}`,
     ...(selfApproval(proposer, approver) ? ['Self-approved: yes'] : []),
-    ...decided.map(entry => `Sflow-Picked: ${entry.pick} ${entry.key}`)];
+    ...decided.map(entry => `Sflow-Picked: ${entry.pick} ${entry.key}`), ...notes];
   return `[configuration] activate ${transactionId}\n\n${trailers.join('\n')}\n`;
 }
 

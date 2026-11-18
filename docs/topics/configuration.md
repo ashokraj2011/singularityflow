@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 30
+version: 31
 commands:
   - configuration
   - workflow
@@ -82,7 +82,14 @@ People and approval policy change by proposal too. A newcomer's first Story star
 where the repository allows self-approval, and an approved change never removed them from those groups, they approve it
 in the same step, as a self-approval, and the start says so. Otherwise the Story starts without them as an approver and
 the proposal waits, once, for someone who may approve configuration. A person a reviewed change removed from a group is
-never added back to it at Story start, and an approval that would add its own approver back to it is refused.
+never added back to it at Story start, and an approval that would add its own approver back to it is refused, with one
+exception: the person who made a workflow (an import, a copy, `workflow create`, the builder or a new workflow in Workflow
+Studio) approves their own proposal of it in full. The approve view says "This also puts you in <group>" before anyone
+confirms, the approval says "This put you back in <group> (an earlier approved change removed you)", and the approval
+commit records it as `Sflow-Readmitted: <name> <email> to story:<group>`. A repository's `allowSelfApproval: false`, and
+turning self-approval off with nobody else named, still need someone else. The import preview names who each approval
+group it brings puts in or takes out ("This import puts you in <group>"); `--resolve approval-group:<id>=keep` keeps the
+repository's group.
 `configuration add-current-identity` and its policy options (`--solo`, `--self-approval`, `--auto-enroll`) make a people
 proposal; approve it with `configuration approve`.
 

@@ -2825,6 +2825,21 @@ async function importPlan(root, destination, original, chosen) {
     // Each repaired template's entry names the bytes the import writes.
     for (const item of [...additions, ...replaced]) if (item.kind === 'template' && contents.has(item.id)) item.sha256 = digest(contents.get(item.id));
   }
+  // Who an imported or replaced approval group adds or takes out [owner, 2026-11-18]: shown before anyone confirms,
+  // so a person sees "this import puts you in <group>"; --resolve approval-group:<id>=keep keeps the repository's.
+  const memberships = [];
+  const memberKey = (member) => (member?.email ? `e:${String(member.email).trim().toLowerCase()}` : member?.githubLogin ? `g:${String(member.githubLogin).trim().toLowerCase()}` : JSON.stringify(member));
+  const pending = new Set(open);
+  for (const item of [...additions, ...replaced, ...open]) {
+    const [governs, section] = String(item.kind).split('.');
+    if (section !== 'approvalAuthorities' || !STORE[governs]) continue;
+    const after = transferCatalog(bundle.objects[governs], 'approvalAuthorities')[item.id]?.members ?? [];
+    const before = transferCatalog(values[governs], 'approvalAuthorities')[item.id]?.members ?? [];
+    const adds = after.filter((member) => !before.some((other) => memberKey(other) === memberKey(member)));
+    const removes = before.filter((member) => !after.some((other) => memberKey(other) === memberKey(member)));
+    if (adds.length || removes.length) memberships.push({ scope: governs, group: item.id, existed: Object.hasOwn(transferCatalog(values[governs], 'approvalAuthorities'), item.id),
+      ...(pending.has(item) ? { ifReplaced: true } : {}), adds, removes });
+  }
   const writes = [...additions, ...replaced];
   const changedPaths = new Set();
   if (writes.some((item) => item.kind.startsWith('story.'))) changedPaths.add(WORKFLOW_PATH);
@@ -2939,6 +2954,7 @@ async function importPlan(root, destination, original, chosen) {
     ...(renamed.length ? { renamed } : {}),
     changedPaths: [...changedPaths].sort(),
     sharedDependencies: summarizeBundle(bundle),
+    ...(memberships.length ? { memberships } : {}),
     // What SFlow added to each template this import writes, and what it could not: the plan binds both.
     ...(repairs.length ? { repairs } : {}),
     ...(problems.length ? { problems } : {})

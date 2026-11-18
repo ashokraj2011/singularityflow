@@ -5480,7 +5480,10 @@ async function workflowCommand(positionals, options) {
       const plan = await withApprovedConfigurationRead(root, () =>
         planWorkflowImport(root, bundle, choices), { preferAuthority: true });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
-      for (const line of importPlanText(plan, positionals[2], { propose: proposing })) console.log(line);
+      // Who an imported approval group puts in or takes out is named, "you" included (git's identity here).
+      let me = null;
+      try { me = identity(root, { offline: true }); } catch { me = null; }
+      for (const line of importPlanText(plan, positionals[2], { propose: proposing, identity: me })) console.log(line);
       return;
     }
     const expectedPlanSha256 = optionString(options, 'confirm');

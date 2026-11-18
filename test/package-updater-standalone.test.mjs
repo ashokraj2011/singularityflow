@@ -25,6 +25,19 @@ test('the extracted updater runs without a repository or node_modules, including
   for (const file of STANDALONE_UPDATER_FILES) assert.ok(existsSync(path.join(root, file)), file);
   assert.equal(existsSync(path.join(root, '.git')), false);
   assert.equal(existsSync(path.join(root, 'node_modules')), false);
+  const zip = await readFile(path.join(directory, 'distribution', 'SFlow-Updater.zip')), end = zip.length - 22;
+  let offset = zip.readUInt32LE(end + 16), executable = false;
+  for (let index = 0; index < zip.readUInt16LE(end + 10); index++) {
+    const length = zip.readUInt16LE(offset + 28), name = zip.toString('utf8', offset + 46, offset + 46 + length);
+    assert.ok(!name.includes('\\'), 'ZIP names must use forward slashes on every build host: ' + name);
+    if (name.endsWith('/Update SFlow.command')) {
+      assert.equal(zip[offset + 5], 3, 'the archive declares Unix file permissions');
+      assert.equal((zip.readUInt32LE(offset + 38) >>> 16) & 0o111, 0o111);
+      executable = true;
+    }
+    offset += 46 + length + zip.readUInt16LE(offset + 30) + zip.readUInt16LE(offset + 32);
+  }
+  assert.equal(executable, true);
   const env = { ...process.env, SINGULARITY_FLOW_UPDATER_NO_PAUSE: '1' };
   const direct = await execute(process.execPath, [path.join(root, 'update-sflow.mjs'), '--help'], { cwd: directory, env });
   assert.match(direct.stdout, /SFlow updater/);

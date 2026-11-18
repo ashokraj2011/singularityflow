@@ -26,7 +26,15 @@ async function portableModes(archive) {
   const count = bytes.readUInt16LE(end + 10);
   for (let index = 0; index < count; index++) {
     if (cursor + 46 > end || bytes.readUInt32LE(cursor) !== 0x02014b50) throw new Error('The updater ZIP directory is invalid.');
-    const length = bytes.readUInt16LE(cursor + 28), name = bytes.toString('utf8', cursor + 46, cursor + 46 + length);
+    const length = bytes.readUInt16LE(cursor + 28), name = bytes.toString('utf8', cursor + 46, cursor + 46 + length).replaceAll('\\', '/');
+    const encoded = Buffer.from(name, 'utf8'), local = bytes.readUInt32LE(cursor + 42);
+    if (encoded.length !== length || local + 30 + length > bytes.length
+      || bytes.readUInt32LE(local) !== 0x04034b50 || bytes.readUInt16LE(local + 26) !== length) {
+      throw new Error('The updater ZIP filename metadata is invalid.');
+    }
+    // .NET Framework's ZIP writer uses backslashes. ZIP paths must use forward slashes in both
+    // directories, even when the archive is built on Windows and extracted on Mac.
+    encoded.copy(bytes, cursor + 46); encoded.copy(bytes, local + 30);
     const mode = name.endsWith('/') ? 0o40755 : /\.(sh|command)$/u.test(name) ? 0o100755 : 0o100644;
     bytes[cursor + 5] = 3; // Unix creator: extraction honors the high-word mode on Mac.
     bytes.writeUInt32LE((mode * 65536) >>> 0, cursor + 38);

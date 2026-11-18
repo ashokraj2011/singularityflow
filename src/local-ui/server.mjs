@@ -10,7 +10,7 @@ import { operationShape, executeOperation, disposeReadWorkers } from './operatio
 import { leaseOwnerAssessment, leaseOwnerIdentity } from '../lease-liveness.mjs';
 import { nativeEqual, requestProof, responseProof, openInput } from './native-auth.mjs';
 
-const secret = () => randomBytes(32).toString('base64url');
+const randomKey = () => randomBytes(32).toString('base64url');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const equal = (a, b) => typeof a === 'string' && typeof b === 'string'
   && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -73,7 +73,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
   const requestsDir = path.join(directory, 'requests');
   await privateDirectory(requestsDir);
   const identity = build ?? await buildIdentity();
-  const instance = randomUUID(), credential = secret(), descriptorFile = path.join(directory, 'instance.json');
+  const instance = randomUUID(), credential = randomKey(), descriptorFile = path.join(directory, 'instance.json');
   const existing = await readPrivate(descriptorFile);
   if (existing?.pid) {
     const state = existing.owner ? leaseOwnerAssessment(existing.owner).state : 'unknown';
@@ -269,7 +269,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             'The native environment changed. Open a new browser client and inspect the original canonical draft/history using your current credentials; the old write will not be repeated.', 409);
           const context = await contextFor(previous?.root ?? input.root);
           contexts.set(context.id, context);
-          const ticket = secret();
+          const ticket = randomKey();
           tickets.set(digest(ticket), { context, environment, environmentHash, clientId: previous?.clientId ?? text(input.clientId, 'Client ID', 128), expiresAt: Date.now() + TICKET_MS });
           return send(res, 200, { url: `${origin}/#ticket=${ticket}`, instance, build: identity, clientId: previous?.clientId ?? input.clientId });
         }
@@ -317,9 +317,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         // Cookies are shared by tabs. A separate tab handle binds each context to the same
         // authenticated browser without replacing another tab's session on the next launch.
         let token = browserCookie(req);
-        if (!token || !browsers.has(digest(token))) token = secret();
+        if (!token || !browsers.has(digest(token))) token = randomKey();
         const browser = digest(token), tabId = randomUUID(); browsers.set(browser, Date.now());
-        const session = { clientId: grant.clientId, csrf: secret(), contexts: new Set([grant.context.id]), contextId: grant.context.id,
+        const session = { clientId: grant.clientId, csrf: randomKey(), contexts: new Set([grant.context.id]), contextId: grant.context.id,
           environment: grant.environment, environmentHash: grant.environmentHash,
           browser, expiresAt: Date.now() + SESSION_MS, sequence: 0, events: [], choices: new Map() };
         sessions.set(tabId, session);

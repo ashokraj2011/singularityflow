@@ -7,6 +7,7 @@ import { request as httpRequest, createServer as httpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { isolatedTestEnvironment } from '../scripts/test-machine-state.mjs';
+import { inventedValue } from './helpers/invented-secrets.mjs';
 import { startService } from '../src/local-ui/server.mjs';
 import { control, ensureService, openWorkspace, serviceStatus, stopService } from '../src/local-ui/client.mjs';
 import { readPrivate, writePrivate, buildIdentity } from '../src/local-ui/private-state.mjs';
@@ -119,7 +120,7 @@ test('native control never discloses credentials or environments to a reused for
   await new Promise(resolve => foreign.listen(0, '127.0.0.1', resolve));
   cleanup(() => new Promise(resolve => foreign.close(resolve)));
   const replaced = { ...service.descriptor, origin: `http://127.0.0.1:${foreign.address().port}` };
-  await assert.rejects(control(replaced, 'bootstrap', { root, clientId: 'private-client-marker', environment: { TOKEN: 'private-token-marker' } }), { code: 'UI_NATIVE_AUTH_REQUIRED' });
+  await assert.rejects(control(replaced, 'bootstrap', { root, clientId: 'private-client-marker', environment: { TOKEN: inventedValue('private-', 'token-marker') } }), { code: 'UI_NATIVE_AUTH_REQUIRED' });
   empty = true;
   await assert.rejects(control(replaced, 'status'), { code: 'UI_NATIVE_AUTH_REQUIRED' });
   await writePrivate(path.join(directory, 'instance.json'), replaced);

@@ -17,7 +17,6 @@ const reads = {
   'story.list': () => ['workspace', 'stories'],
   'repository.read': () => ['snapshot', '--include', 'repository'],
   'story.read': input => ['snapshot', ...(input.workId ? ['--work-id', identifier(input.workId, 'Story ID')] : [])],
-  'story.next': input => ['nextsteps', ...(input.workId ? [identifier(input.workId, 'Story ID')] : [])],
   'spec.list': () => ['spec', 'author', 'list', '--local', '--for-person'],
   'spec.read': input => ['spec', 'author', 'status', identifier(input.specId, 'Specification ID'), '--quick', '--for-person',
     ...(input.operationId ? ['--operation-id', identifier(input.operationId, 'Save operation ID')] : [])],
@@ -38,7 +37,7 @@ const reads = {
   'tests.summary': () => ['tests', 'summary']
 };
 const fields = {
-  'story.read': ['workId'], 'story.next': ['workId'], 'decision.list': ['workId'],
+  'story.read': ['workId'], 'decision.list': ['workId'],
   ...Object.fromEntries(['read', 'show', 'check', 'history', 'sources', 'gaps'].map(name => [`spec.${name}`, ['specId']])),
   'spec.read': ['specId', 'operationId'],
   'spec.create': ['title', 'intent', 'kind'], 'spec.save': ['specId', 'sequence', 'content', 'title', 'kind'],

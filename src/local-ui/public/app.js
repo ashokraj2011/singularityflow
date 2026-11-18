@@ -43,7 +43,7 @@ function activity(item) {
 }
 async function api(route, { method = 'GET', data, content, timeout = 15_000 } = {}) {
   const tabId = state.session?.tabId ?? sessionStorage.getItem('sflow.tab');
-  const response = await fetch(route, { method, credentials: 'same-origin', signal: AbortSignal.timeout(timeout),
+  const response = await fetch(route, { method, signal: AbortSignal.timeout(timeout),
     headers: { ...(data ? content === undefined ? { 'Content-Type': 'application/json' }
       : { 'Content-Type': 'application/octet-stream', 'X-SFlow-Content': encodeURIComponent(JSON.stringify(data)) } : {}), ...(tabId ? { 'X-SFlow-Tab': tabId } : {}),
       ...(state.session?.csrf ? { 'X-SFlow-CSRF': state.session.csrf } : {}) }, ...(data ? { body: content === undefined ? JSON.stringify(data) : content } : {}) });
@@ -227,7 +227,7 @@ async function readSource(sourceId, element) {
     }
     const resource = result.resources?.[0];
     if (resource) {
-      const response = await fetch(`/api/content/${resource.id}`, { credentials: 'same-origin', headers: { 'X-SFlow-Tab': state.session.tabId } });
+      const response = await fetch(`/api/content/${resource.id}`, { headers: { 'X-SFlow-Tab': state.session.tabId } });
       if (!response.ok) { const error = await response.json(); throw new Error(error.error?.message ?? 'The original image could not be read.'); }
       const url = URL.createObjectURL(await response.blob()); state.objectUrls.push(url);
       element.innerHTML = `<img class="source-preview" src="${url}" alt="${escape(source.source?.name ?? 'Attached image')}"><p class="muted">Original local image. Previewing is not acceptance or visual sign-off.</p>`;

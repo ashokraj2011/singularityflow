@@ -795,7 +795,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,758,250 (measured 9,758,201 for submit.mjs, +2,543 over 9,755,658; start.mjs 9,757,880): the question account and
     // CVL piece 4 merged on the review fixes (after-demo, 2026-11-18), each measured above on its own base. Same 472 files.
     // No new eager file.
-    assert.ok(closure.bytes <= 9_758_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,759,600 (measured 9,759,580 for submit.mjs, +1,381 over 9,758,199; start.mjs 9,758,073): a visual sign-off the plan
+    // names no file for gets SFlow's own screenshot (owner, 2026-11-18): the owed sign-off asks the lazy
+    // visual-sign-off-capture.mjs, loaded by its path, for its file (owed-decisions.mjs +759), approve --confirm-evidence
+    // confirms it (verification/witness-records.mjs +427), and an untracked screenshot in the Story's folder is SFlow's
+    // output, not a change to review (lifecycle-worktree.mjs +195). The build, server and browser stay lazy
+    // (visual-sign-off-screenshot.mjs, application-review-preview.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_759_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

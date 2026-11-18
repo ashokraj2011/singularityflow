@@ -18,7 +18,7 @@ import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, 
   justAQuestionArgv, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { approvalRows, checkNames, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
+import { approvalRows, checkNames, checkOf, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
   guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
 
 // How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
@@ -103,7 +103,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     const reread = async () => { packet = await readList(client, workId).catch(() => packet); };
     // What an answer depends on, SFlow checks itself, read-only and bounded, and the rows recommend from it [owner, 2026-11-16].
     const check = async (seconds: number, { asked = false } = {}) => {
-      const names = checkNames(packet);
+      const names = checkNames(packet, { asked });
       if (!names.length || busy) return;
       busy = true;
       render(null, `Checking: ${names.join('; ')} (up to ${seconds >= 120 ? `${Math.round(seconds / 60)} minutes` : `${seconds} seconds`}; nothing is recorded).`);
@@ -112,8 +112,10 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       // Closed while it checked: nothing to show it on.
       if (settled) return;
       panel.reveal();
-      // The row itself says so when the first check ran out of time; only a check the person asked for is reported.
-      render(null, asked && checkNames(packet).length ? 'The check did not finish in time; nothing was recorded.' : null);
+      // The row itself says so when the first check ran out of time; only a check the person asked for is reported,
+      // and one that failed in its own words (a screenshot whose build failed).
+      const failed = decideRows(packet).map((item) => checkOf(item)?.failed).find(Boolean);
+      render(null, asked && checkNames(packet, { asked }).length ? failed ? `${failed} Nothing was recorded.` : 'The check did not finish in time; nothing was recorded.' : null);
     };
     const optionOf = (message: InboundMessage) => decideRows(packet).find((item) => item.id === stringField(message, 'item'))
       ?.options.find((option) => option.id === stringField(message, 'option'));

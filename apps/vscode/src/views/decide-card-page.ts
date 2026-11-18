@@ -21,8 +21,12 @@ const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
 const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const witnesses = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
 
-/** The checks this page's read waits on, in words ("run the tests on Node 22"). */
-export const checkNames = (packet: DecisionPacket): string[] => decideRows(packet).filter((item) => checkOf(item) && item.decidedBy?.allowed)
+/**
+ * The checks this page's read waits on, in words ("run the tests on Node 22"). One that runs only when the person asks
+ * (SFlow's screenshot builds the app) is left to its row's button unless `asked`.
+ */
+export const checkNames = (packet: DecisionPacket, { asked = false } = {}): string[] => decideRows(packet)
+  .filter((item) => checkOf(item) && item.decidedBy?.allowed && (asked || !checkOf(item)!.onRequest))
   .map((item) => checkOf(item)!.label.replace(/^Check first: /u, ''));
 /** The recommended option first, then the rest in the list's order. */
 const recommendedFirst = (item: DecisionItemPacket, options: DecisionOptionPacket[]) => [...options]
@@ -275,7 +279,9 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
     ${approvalHtml(packet)}
     ${evidenceHtml(packet)}
     <footer><button type="button" class="secondary" data-cancel>Not now</button>
-      <button type="button" data-review${yours && !busy ? '' : ' disabled'}>Review and record</button></footer>
+      ${yours ? `<button type="button" data-review${busy ? ' disabled' : ''}>Review and record</button>`
+    // Nothing here is theirs to record: the card says why on itself, never a button that does nothing [owner, 2026-11-18].
+    : packet.plain?.nothingToRecord ? `<p class="muted" role="status">${escape(packet.plain.nothingToRecord)}</p>` : ''}</footer>
   </main>`;
 }
 

@@ -131,7 +131,9 @@ export function decisionListHtml(view: DecisionListView): string {
       <div class="dl-items">${settled.map(itemHtml).join('')}</div></section>` : ''}
     ${view.rule ? `<p class="muted dl-rule">${escape(view.rule)}</p>` : ''}
     ${yours ? `<div class="dl-actions"><p class="muted" data-progress aria-live="polite"></p>
-      <button type="submit" data-action="review" disabled>${icon('approval')}Review choices</button></div>` : ''}
+      <button type="submit" data-action="review" disabled>${icon('approval')}Review choices</button></div>`
+    // Nothing here is theirs to record: the page says why on itself, never a review that does nothing [owner, 2026-11-18].
+    : view.nothingToRecord ? `<div class="notice warning" role="status">${escape(view.nothingToRecord)}</div>` : ''}
   </form>`;
 }
 

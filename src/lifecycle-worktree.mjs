@@ -22,14 +22,15 @@ export function regularWorktreeFile(root, relative) {
 }
 
 // The temporary file an SFlow atomic write leaves when it is interrupted (util.mjs writeAtomic):
-// `<file>.tmp-<pid>-<uuid>`. Only inside this Story's own folder; elsewhere it could be anyone's.
+// `<file>.tmp-<pid>-<uuid>`, and SFlow's screenshot for a visual sign-off, which the sign-off commits
+// (visual-sign-off-capture.mjs). Only inside this Story's own folder; elsewhere it could be anyone's.
 const ABANDONED_ATOMIC_WRITE = /\.tmp-\d+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 
 function abandonedStoryWrite(relative, config, workflow) {
   const id = workflow?.workItem?.id;
-  if (!id || !ABANDONED_ATOMIC_WRITE.test(relative)) return false;
+  if (!id) return false;
   const itemRoot = `${config?.workItemRoot ?? workflow.resolution?.workItemRoot ?? 'singularity/work-items'}/${id}/`;
-  return relative.startsWith(itemRoot);
+  return relative.startsWith(itemRoot) && (ABANDONED_ATOMIC_WRITE.test(relative) || /^evidence\/visual-sign-offs\/[\w.-]+\.png$/u.test(relative.slice(itemRoot.length)));
 }
 
 export function inspectLifecycleWorktree(root, config = null, workflow = null, { held = null } = {}) {

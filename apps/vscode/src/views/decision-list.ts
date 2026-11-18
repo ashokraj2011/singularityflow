@@ -126,7 +126,8 @@ export class DecisionListPanel implements vscode.Disposable {
       if (!this.disposed) this.render();
     }
     // A check still pending on what this person decides runs once, bounded, before they answer.
-    if (!probe && !this.disposed && !this.error && this.packet?.items.some((item) => checkOf(item) && item.decidedBy?.allowed)) await this.load({ probe: 60 });
+    // One that runs only when asked (SFlow's screenshot builds the app) waits for its button.
+    if (!probe && !this.disposed && !this.error && this.packet?.items.some((item) => checkOf(item) && !checkOf(item)!.onRequest && item.decidedBy?.allowed)) await this.load({ probe: 60 });
   }
 
   private async review(raw: unknown, digest: string | null): Promise<void> {

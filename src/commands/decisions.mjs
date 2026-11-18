@@ -106,8 +106,10 @@ export async function readDecisionPacket(root, config, workflow, { phaseId = nul
  */
 async function checkedPacket(root, config, workflow, packet, { seconds, phaseId, card = true, say }) {
   const probes = await import('../decision-probes.mjs');
-  if (!probes.itemsToCheck(packet).length) return packet;
-  const { ran } = await probes.runDecisionProbes(root, packet, { seconds: probes.probeSeconds(seconds), say });
+  // A check that runs only on request (SFlow's screenshot builds the app) runs when the person asked for the longer check.
+  const asked = probes.askedFor(seconds);
+  if (!probes.itemsToCheck(packet, { asked }).length) return packet;
+  const { ran } = await probes.runDecisionProbes(root, packet, { seconds: probes.probeSeconds(seconds), say, asked });
   return ran.length ? readDecisionPacket(root, config, workflow, { phaseId, at: nowIso(), card }) : packet;
 }
 
@@ -275,6 +277,8 @@ export function packetText(packet) {
   }
   // What nobody can answer yet, one line each, never a question of its own.
   if (later.length) lines.push(...later.map((line) => `Later: ${line}`), '');
+  // Nothing open is this person's to act on now: why, and what its approval waits for, as both cards say it [owner, 2026-11-18].
+  if (packet.plain?.nothingToRecord) lines.push(packet.plain.nothingToRecord, '');
   if (settled.length) {
     lines.push('Settled for you:', '');
     for (const [index, item] of settled.entries()) lines.push(...itemLines(item, index), '');

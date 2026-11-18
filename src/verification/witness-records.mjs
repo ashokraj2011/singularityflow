@@ -68,6 +68,9 @@ export function applicationReviewSlotResults(workflow, view, { targetCurrent, ev
       captureReceipts: record.captureReceipts, authorityGroup: record.authorityGroup, at: record.at, file: null })));
 }
 
+/** A visual sign-off's own screenshot (visual-sign-off-capture.mjs), loaded by its path like the adapter below. */
+export const visualSignOffCapture = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'visual-sign-off-capture.mjs')).href);
+
 /** Lazy owner adapter; ordinary witnesses load no application-review or browser closure. */
 export async function applicationReviewWitnesses(root, workflow, config = null) {
   if (!workflow?.applicationAcceptanceRecords?.length) return [];
@@ -390,10 +393,10 @@ export function witnessRecordResults(records = [], currentSha256 = new Map(), { 
  */
 export async function evidenceConfirmations(root, config, workflow, actor) {
   const [{ createHash }, { readFile }, { evidenceGraphFromAggregate }, { evaluateEvidence }, { mergedVerificationContracts },
-    { mergePlannedClaimRecords }, { riskAuthorities }, { requireApprovalAuthority }, { plannedEvidenceFiles }, { secureRepositoryPath }, deferrals] = await Promise.all([
+    { mergePlannedClaimRecords }, { riskAuthorities }, { requireApprovalAuthority }, { plannedEvidenceFiles }, { secureRepositoryPath }, deferrals, shot] = await Promise.all([
     import('node:crypto'), import('node:fs/promises'), import('../evidence/graph.mjs'), import('../evidence/evaluate.mjs'),
     import('./contracts.mjs'), import('../specifications.mjs'), import('../evidence/risk-decisions.mjs'),
-    import('../approval-authority.mjs'), import('../evidence/terminal.mjs'), import('../util.mjs'), import('../witness-deferrals.mjs')]);
+    import('../approval-authority.mjs'), import('../evidence/terminal.mjs'), import('../util.mjs'), import('../witness-deferrals.mjs'), visualSignOffCapture()]);
   const graph = await evidenceGraphFromAggregate(root, config, workflow);
   const plans = graph.records.planned ?? [];
   const contracts = mergedVerificationContracts(plans);
@@ -404,7 +407,8 @@ export async function evidenceConfirmations(root, config, workflow, actor) {
     for (const open of row.verification?.contract?.slots ?? []) {
       if (open.status !== 'missing' || !['visual', 'inspection'].includes(open.method)) continue;
       const slot = contracts.get(row.id)?.slots.find((entry) => entry.slot === open.slot) ?? null;
-      const files = open.method === 'inspection' ? [slot?.witness?.path].filter(Boolean) : plannedEvidenceFiles(row);
+      // A visual one the plan names no file for: SFlow's own screenshot, once taken.
+      const files = open.method === 'inspection' ? [slot?.witness?.path].filter(Boolean) : shot.plannedOrTaken(root, config, workflow, row, open.slot, plannedEvidenceFiles(row));
       // A later step a person deferred this sign-off to gives it too, and the visual step a visual one [PHR:REQ-007].
       const deferredTo = deferrals.signOffStep(workflow, row.id, open.slot, open.method);
       const owning = [...new Set([...row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps),

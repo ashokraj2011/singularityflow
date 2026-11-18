@@ -9,7 +9,7 @@
  * its exact command. Nothing here blocks, records or decides: only the authorized person may.
  */
 import { finalScopeStep, ownerStepChecks, stepResponsibilities } from './phase-roles.mjs';
-import { retainedEvidenceDelivered, WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
+import { retainedEvidenceDelivered, visualSignOffCapture, WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SCOPE_CHOICE_WORDS, scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
 
@@ -19,13 +19,13 @@ const MAX_TEXT = 160;
 // The evidence modules load only when a witnessing step is read; readiness of any other step and
 // the terminal lines below pay nothing for them.
 async function evidenceReader() {
-  const [{ evidenceGraphFromAggregate, previewScopeInventory }, { evaluateEvidence }, { mergedVerificationContracts }, { plannedClaimsForObservedPhase }, { signOffStep }] = await Promise.all([
-    import('./evidence/graph.mjs'), import('./evidence/evaluate.mjs'), import('./verification/contracts.mjs'), import('./specifications.mjs'), import('./witness-deferrals.mjs')
+  const [{ evidenceGraphFromAggregate, previewScopeInventory }, { evaluateEvidence }, { mergedVerificationContracts }, { plannedClaimsForObservedPhase }, { signOffStep }, capture] = await Promise.all([
+    import('./evidence/graph.mjs'), import('./evidence/evaluate.mjs'), import('./verification/contracts.mjs'), import('./specifications.mjs'), import('./witness-deferrals.mjs'), visualSignOffCapture()
   ]);
-  return { evidenceGraphFromAggregate, previewScopeInventory, evaluateEvidence, mergedVerificationContracts, plannedClaimsForObservedPhase, signOffStep };
+  return { evidenceGraphFromAggregate, previewScopeInventory, evaluateEvidence, mergedVerificationContracts, plannedClaimsForObservedPhase, signOffStep, capture };
 }
 
-function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhase, signOffStep }, workflow, graph, evaluation, phaseId) {
+function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhase, signOffStep, capture: shot }, workflow, graph, evaluation, phaseId, where) {
   const owned = plannedClaimsForObservedPhase(workflow, phaseId, graph.records.planned ?? []);
   const contracts = mergedVerificationContracts(graph.records.planned ?? []);
   const witnesses = [];
@@ -45,7 +45,9 @@ function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhas
       const status = slots.find(result => result.slot === slot.slot)?.status ?? 'pending';
       const files = slot.method === 'inspection' ? [slot.witness.path]
         : (claim.obligations ?? [claim]).filter(entry => entry.fulfillment === 'evidence').flatMap(entry => entry.expectedPaths ?? []);
-      const unique = [...new Set(files)];
+      // No file planned for a visual one: SFlow's own screenshot [owner, 2026-11-18].
+      const own = slot.method === 'visual' && !files.length ? shot.signOffFile(where, workflow, { clauseId, slot: slot.slot, owners, row }) : null;
+      const unique = [...new Set(own?.files ?? files)];
       // Retained evidence no delivery recorded yet: its witness is refused until the step that owes it publishes it.
       const retained = (claim.obligations ?? [claim]).filter(entry => entry.fulfillment === 'evidence').flatMap(entry => entry.expectedPaths ?? []);
       const available = !retained.length || retained.some(file => retainedEvidenceDelivered(workflow, clauseId, file));
@@ -57,7 +59,7 @@ function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhas
       // checklist. Before its step publishes it, there is nothing to review and no route to one.
       const command = { ...shell, skill: available ? '/sf-decide' : null, copilotCommand: available ? `/sf-decide ${workflow.workItem.id}` : null, copilotStatus: available ? 'available' : 'unavailable',
         ...(available ? {} : { copilotReason: 'Nothing has published it yet; it can be signed off once its step does.' }) };
-      witnesses.push({ clauseId, clauseText: (graph.records.indexes ?? []).flatMap(index => index.clauses ?? []).find(clause => clause.id === clauseId)?.body ?? null, slot: slot.slot, method: slot.method, status, files: unique,
+      witnesses.push({ clauseId, clauseText: (graph.records.indexes ?? []).flatMap(index => index.clauses ?? []).find(clause => clause.id === clauseId)?.body ?? null, slot: slot.slot, method: slot.method, status, files: unique, ...(own && { capture: own.capture }),
         owners: deferredTo ? [...owners.filter((id) => id !== deferredTo), deferredTo] : owners,
         checklist: WITNESS_CHECKLIST, commandGuidance: command, humanRequired: true,
         available, availableAfterPublication: true, availableAfterSubmission: true, contractClassificationIsWitness: false,
@@ -72,7 +74,7 @@ export async function phaseWitnessObligations(root, config, workflow, phase) {
   const graph = await reader.evidenceGraphFromAggregate(root, config, workflow);
   if (graph.untrusted) return { witnesses: [], findings: graph.findings.filter(f => f.blocking !== false)
     .map(f => ({ ...f, category: 'integrity' })) };
-  return { witnesses: witnessesOf(reader, workflow, graph, reader.evaluateEvidence(graph), phase.id), findings: [] };
+  return { witnesses: witnessesOf(reader, workflow, graph, reader.evaluateEvidence(graph), phase.id, { root, config }), findings: [] };
 }
 
 /** The steps up to and including `phaseId`, or before it when `inclusive` is false. */
@@ -146,11 +148,13 @@ export async function owedDecisions(root, config, workflow, phaseIds, { limit = 
     if (graph.untrusted && !scoping.length) return { advisory: true, status: 'unavailable', reason: 'evidence-untrusted' };
     const evaluation = graph.untrusted ? null : reader.evaluateEvidence(graph);
     const seen = new Set();
-    const witnesses = !evaluation ? [] : witnessing.flatMap((phaseId) => witnessesOf(reader, workflow, graph, evaluation, phaseId)
+    const witnesses = !evaluation ? [] : witnessing.flatMap((phaseId) => witnessesOf(reader, workflow, graph, evaluation, phaseId, { root, config })
       .filter((witness) => witness.status !== 'met' && witness.owners.includes(phaseId)))
       .filter((witness) => !seen.has(`${witness.clauseId}\u0000${witness.slot}`) && seen.add(`${witness.clauseId}\u0000${witness.slot}`))
       .map((witness) => ({ clauseId: witness.clauseId, clauseText: witness.clauseText, slot: witness.slot, method: witness.method, status: witness.status,
-        files: witness.files, owners: witness.owners, available: witness.available && signOffReady(workflow, witness), humanRequired: true, command: witness.commandGuidance.command ?? null }));
+        files: witness.files, owners: witness.owners, available: witness.available && signOffReady(workflow, witness), humanRequired: true, command: witness.commandGuidance.command ?? null,
+        ...(witness.capture && { capture: witness.capture }) }));
+    await reader.capture.withCaptureFailures(root, workflow, witnesses);
     const scopeItems = !scoping.length ? []
       : scopeItemsOf(workflow, graph.untrusted ? await reader.previewScopeInventory(root, config, workflow) : graph.scope);
     if (!witnesses.length && !scopeItems.length) return null;
@@ -181,6 +185,8 @@ export function owedDecisionLines(owed) {
   if (witnessCount) {
     lines.push(`Owed sign-offs (${witnessCount}, human only, ${owed.inspectionHoldsApproval ? `approving ${owed.inspectionHoldsApproval} waits for its inspections` : 'not blocking this step'}):`);
     for (const witness of owed.witnesses) {
+      // SFlow takes its screenshot, or cannot and says what works (visual-sign-off-capture.mjs).
+      if (witness.available === false && witness.capture?.lines) { lines.push(...witness.capture.lines); continue; }
       lines.push(`  ${witness.clauseId} ${witness.slot} (${witness.method}${witness.files.length ? `: ${witness.files.join(', ')}` : ': the plan names no file'}) — ${witness.available === false ? 'nothing has published it yet; once its step does, inspect it, then:' : 'inspect it first, then:'}`,
         `    ${witness.command ?? 'singularity-flow evidence matrix --json'}`);
     }

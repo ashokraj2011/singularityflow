@@ -477,13 +477,16 @@ function evidenceItem(workflow, context, entry) {
   const slots = entry.witnesses.map((witness) => witness.files.length === 1 ? witness.files[0] : `slot ${witness.slot}`);
   const owedFor = (witness) => (context.facts.pending?.owed ?? []).find(row => row.kind === 'witness' && row.clauseId === entry.criterion && row.slot === witness.slot);
   const notYet = (witness) => owedFor(witness)?.available === false;
+  // SFlow's own screenshot, taken when a person asks, is the file a sign-off the plan names none for is given [owner, 2026-11-18].
+  const check = entry.witnesses.map((witness) => screenshotCheck(workflow, owedFor(witness))).find(Boolean) ?? null;
   const options = [
     ...entry.witnesses.map((witness) => {
       const owed = owedFor(witness);
       const words = notYet(witness) ? notPublishedYet(workflow, owed) : 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.';
       const step = personalStep({
       id: `witness-${witness.slot}`,
-      label: notYet(witness) ? `Sign off ${listWords(witness.files)} once it is published` : witness.files.length === 1 ? `Sign off ${witness.files[0]} after looking at it` : `Sign off the ${witness.method} evidence for slot ${witness.slot}: witness it`,
+      label: notYet(witness) ? (witness.files.length ? `Sign off ${listWords(witness.files)} once it is published` : `Sign off the ${witness.method} evidence for slot ${witness.slot} once it has a file`)
+        : witness.files.length === 1 ? `Sign off ${witness.files[0]} after looking at it` : `Sign off the ${witness.method} evidence for slot ${witness.slot}: witness it`,
       command: notYet(witness) ? null : witness.command,
       words,
       decidedBy: stepDecidedBy(workflow, context, owed?.groups ?? witness.groups ?? [...new Set((owed?.owners ?? []).flatMap(id => approvers(workflow, id)))], words)
@@ -503,6 +506,7 @@ function evidenceItem(workflow, context, entry) {
   ];
   return {
     kind: 'evidence-obligation',
+    ...(check ? { check } : {}),
     // The same title the sign-off carried from its first publication: one item for one subject [decision map, finding 3].
     title: slots.length ? `Sign off ${name}` : `Decide the open evidence for ${name}`, subject: `sign-off:${entry.criterion}`,
     why: `${name} is ${entry.result}: ${slots.length ? `approval waits for a person to witness ${listWords(slots)} for this change` : 'an obligation is still open'}. `
@@ -1025,10 +1029,41 @@ function appealItem(workflow, context, appeal) {
   });
 }
 
-/** Why a witness of evidence no step has published cannot be recorded yet (WITNESS_EVIDENCE_UNPUBLISHED). */
+/**
+ * Why a witness of evidence no step has published cannot be recorded yet (WITNESS_EVIDENCE_UNPUBLISHED), and what gets
+ * it a file. A visual sign-off the plan names no file for read "nothing has published  for AC-002" with no way on: it is
+ * now given SFlow's own screenshot, taken when a person asks (visual-sign-off-capture.mjs) [owner, 2026-11-18].
+ */
 function notPublishedYet(workflow, entry) {
-  const owners = listWords(entry.owners.map((id) => stepName(workflow, id)));
-  return `It cannot be signed off yet: nothing has published ${listWords(entry.files)} for ${clauseName(workflow, entry.clauseId)}. ${owners} publishes it with its delivery; sign it off after that.`;
+  const owners = listWords((entry.owners ?? []).map((id) => stepName(workflow, id)));
+  const name = clauseName(workflow, entry.clauseId);
+  const capture = entry.capture ?? null;
+  if (capture?.status === 'needed') {
+    return `It cannot be signed off yet: the plan names no screenshot for ${name}, so SFlow takes one of what ${owners} published when you choose "${screenshotLabel(capture)}"; then you look at it and sign it off.`;
+  }
+  if (capture?.status === 'unavailable') {
+    return `It cannot be signed off yet: the plan names no screenshot for ${name}, and SFlow cannot take one: ${capture.reason}. Take it yourself and save it as ${capture.file}; it is then yours to look at and sign off here.${entry.capture.riskCommand ? ` Or accept it as a dated risk: ${entry.capture.riskCommand}.` : ''}`;
+  }
+  if (!entry.files?.length) return `It cannot be signed off yet: the plan names no screenshot for ${name}. SFlow takes one once ${owners} publishes; sign it off after that.`;
+  return `It cannot be signed off yet: nothing has published ${listWords(entry.files)} for ${name}. ${owners} publishes it with its delivery; sign it off after that.`;
+}
+
+const screenshotLabel = (capture) => (capture?.failed ? 'Take the screenshot again' : 'Take the screenshot');
+
+/**
+ * The check a visual sign-off with no file offers first [owner, 2026-11-18: "SFlow should take a screenshot and ask for
+ * approval"]: SFlow builds what the step published and takes the screenshot (decision-probes.mjs runs it). Only when a
+ * person asks for it (`onRequest`), never on a read: it runs the app's build. Null when there is nothing to take.
+ */
+function screenshotCheck(workflow, entry) {
+  const capture = entry?.capture;
+  if (capture?.status !== 'needed' || entry.available !== false) return null;
+  const owners = listWords((entry.owners ?? []).map((id) => stepName(workflow, id)));
+  const { width, height } = capture.viewport ?? {};
+  return { kind: 'screenshot', status: capture.failed ? 'failed' : 'unknown', onRequest: true, criterion: entry.clauseId, slot: entry.slot,
+    label: screenshotLabel(capture),
+    does: `SFlow builds what ${owners} published in a private copy (${capture.build.words}), opens it at ${width}×${height} in its own browser and saves the screenshot for you to look at; nothing is recorded or approved.`,
+    ...(capture.failed ? { failed: `The last screenshot failed: ${capture.failed}` } : {}) };
 }
 
 /** What a sign-off asks, in what the plan and the deliveries say of its evidence. */
@@ -1093,24 +1128,32 @@ function owedItem(workflow, context, entry) {
   if (entry.kind === 'scope' && entry.groups?.length) return scopeItem(workflow, context, entry);
   const witness = entry.kind === 'witness';
   const notYet = witness && entry.available === false;
+  const check = witness ? screenshotCheck(workflow, entry) : null;
+  // SFlow cannot take the screenshot: the person's own dated risk is a way through beside their own screenshot.
+  const risk = notYet && entry.capture?.status === 'unavailable' && entry.capture.riskCommand ? [{ id: 'accept-risk', label: 'Accept it as a dated risk, in your terminal',
+    command: entry.capture.riskCommand, words: 'You record a dated risk in your own terminal; the criterion stays unproven until that date.' }] : [];
   const item = stepItem(workflow, context, {
     kind: 'owed-decision', title: witness ? `Sign off ${clauseName(workflow, entry.clauseId)} (${entry.method})` : `Decide scope item ${entry.id}`,
     why: witness ? witnessWhy(workflow, entry)
       : `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of a step that defines the scope.`,
     groups: entry.groups ?? (witness ? [...new Set(entry.owners.flatMap((id) => approvers(workflow, id)))] : []),
-    options: [{ id: witness ? 'witness' : 'disposition', label: notYet ? 'Sign it off once it is published' : witness ? 'Sign it off after looking at it' : 'Include it, or say it exists, naming its clauses',
+    options: [{ id: witness ? 'witness' : 'disposition', label: notYet ? (entry.capture?.status === 'needed' ? 'Sign it off once SFlow has taken its screenshot'
+      : entry.capture?.status === 'unavailable' ? `Sign it off once ${entry.capture.file} is saved` : 'Sign it off once it is published')
+      : witness ? 'Sign it off after looking at it' : 'Include it, or say it exists, naming its clauses',
       // What its command would refuse names no command: a real chat printed it, under "Copilot: no verified equivalent".
       command: notYet ? null : entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: notYet ? notPublishedYet(workflow, entry) : 'Only a person records it; an agent never answers it.',
       ...(notYet ? { available: false } : witness ? { humanReview: { kind: 'witness', clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
         files: entry.files, owners: entry.owners, contextBinding: entry.contextBinding } } : {}) },
     ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
-      words: 'Only a person records it; an agent never answers it.' }] : [])],
+      words: 'Only a person records it; an agent never answers it.' }] : []), ...risk],
     // Whose delivery publishes its evidence and what it is: a sign-off nobody can give yet says when it can [owner, 2026-11-16].
-    details: witness ? { clause: entry.clauseId, slot: entry.slot, contextBinding: entry.contextBinding, owners: entry.owners ?? [], files: entry.files ?? [], method: entry.method ?? null }
+    details: witness ? { clause: entry.clauseId, slot: entry.slot, contextBinding: entry.contextBinding, owners: entry.owners ?? [], files: entry.files ?? [], method: entry.method ?? null,
+      ...(entry.capture ? { capture: { status: entry.capture.status, file: entry.capture.file, ...(entry.capture.reason ? { reason: entry.capture.reason } : {}),
+        ...(entry.capture.build ? { build: entry.capture.build.words } : {}), ...(entry.capture.failed ? { failed: entry.capture.failed } : {}) } } : {}) }
       : { scopeItem: entry.id, ...(entry.text ? { statement: entry.text } : {}) }
   });
   // The steps that answer for a sign-off: with owner-step checks, the approval of each is refused until it is given.
-  return witness ? { ...item, owners: entry.owners ?? [], subject: `sign-off:${entry.clauseId}` } : { ...item, subject: `scope:${entry.id}` };
+  return witness ? { ...(check ? { check } : {}), ...item, owners: entry.owners ?? [], subject: `sign-off:${entry.clauseId}` } : { ...item, subject: `scope:${entry.id}` };
 }
 
 /** What Singularity Flow finishes itself and could not: shown only after the automatic attempt failed. */

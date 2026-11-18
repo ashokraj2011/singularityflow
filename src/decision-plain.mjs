@@ -52,9 +52,10 @@ const clauseName = (workflow, clauseId) => {
 };
 const IMAGE = /\.(?:png|jpe?g|gif|webp|svg)$/iu;
 /** What a sign-off is about, as a person says it: "the screenshot", a file's name, or "its evidence". */
+// A visual sign-off with no file yet is about a screenshot too: SFlow takes it (visual-sign-off-capture.mjs).
 const evidenceName = (files = [], method = '') => (files.length === 1 ? (IMAGE.test(files[0]) || method === 'visual' ? 'the screenshot' : files[0])
-  : files.length ? 'the files' : 'its evidence');
-const evidenceNoun = (files = [], method = '') => (files.length === 1 && (IMAGE.test(files[0]) || method === 'visual') ? 'its screenshot'
+  : files.length ? 'the files' : method === 'visual' ? 'the screenshot' : 'its evidence');
+const evidenceNoun = (files = [], method = '') => ((files.length === 1 && IMAGE.test(files[0])) || (files.length < 2 && method === 'visual') ? 'its screenshot'
   : files.length > 1 ? 'its files' : 'its evidence');
 
 /** What blocks while it waits, in one clause: "Implementation can't be approved" or "the Story can't end". */
@@ -153,6 +154,8 @@ function why(workflow, item) {
       if (details.scopeItem) return 'Every statement in the scope needs a clause or a reason before the Story can end.';
       if (details.responsibility) return details.declaredReason ? `The workflow leaves it out: ${bare(plainSentence(details.declaredReason, { words: 20 }))}.`
         : 'This Story leaves it out, and it can\'t end until someone says why.';
+      // SFlow takes the screenshot first, when the person asks for it; then they look at it [owner, 2026-11-18].
+      if (details.clause && checkOf(item)) return `SFlow takes the screenshot of what was published first, then you look at it and sign it off${waits ? `; ${waits}` : ''}.`;
       if (details.clause) return `A person must look at it and sign it off${waits ? `; ${waits}` : ''}.`;
       return plainSentence(item.why);
     case 'plan-accounting':
@@ -177,7 +180,7 @@ function recommended(item) {
   // An approval waits on what is above it; the item numbers it names are no words for a person.
   if (item.kind === 'approval' && item.details?.ready === false) return 'Recommended: Answer the questions above first; the approval waits for them.';
   const reason = plainSentence(advice.why, { words: 24 });
-  if (advice.check && item.check) return `Recommended: Check first. ${reason}`.trim();
+  if (advice.check && item.check) return `Recommended: ${item.check.kind === 'screenshot' ? item.check.label : 'Check first'}. ${reason}`.trim();
   const option = advice.option ? item.options.find((entry) => entry.id === advice.option) : null;
   if (option) return `Recommended: ${label(option)}. ${reason}`.trim();
   return `Recommended: ${capital(reason || 'decide it on its own facts.')}`;
@@ -186,8 +189,13 @@ function recommended(item) {
 /** The later line of an item nobody can answer yet, or null. */
 function later(workflow, item) {
   const live = item.options.filter((entry) => entry.available !== false);
-  if (live.length || !item.options.length) return null;
+  // A check SFlow runs when asked (a screenshot to take) is something the person can do now.
+  if (live.length || !item.options.length || checkOf(item)) return null;
   const details = item.details ?? {};
+  // SFlow cannot take the screenshot: the person's own, saved where SFlow would have saved it, is asked here.
+  if (item.kind === 'owed-decision' && details.clause && details.capture?.status === 'unavailable') {
+    return `Sign off ${clauseName(workflow, details.clause)} once its screenshot is saved as ${details.capture.file}: SFlow cannot take it (${bare(details.capture.reason)}).`;
+  }
   if (item.kind === 'owed-decision' && details.clause) {
     const steps = (details.owners ?? []).map((id) => stepName(workflow, id));
     return `Sign off ${clauseName(workflow, details.clause)} after ${listWords(steps) || 'its step'} ${steps.length > 1 ? 'publish' : 'publishes'} ${evidenceNoun(details.files, details.method)}.`;
@@ -244,14 +252,39 @@ export function plainHeadline(asked) {
   return !asked ? 'Nothing waits on you now.' : asked === 1 ? 'One question for you.' : `${asked} questions for you.`;
 }
 
+/** Whether this person can do something about an open item now: a choice to record, a check, a review or their own step. */
+function actionable(item) {
+  if (!item.decidedBy?.allowed) return false;
+  if (checkOf(item)) return true;
+  return item.options.some((entry) => entry.available !== false && entry.decidedBy?.allowed !== false
+    && (entry.recordable !== false || entry.action?.command || entry.action?.humanReview));
+}
+
+/**
+ * When nothing open is this person's to act on now, why, in one line, with what its approval waits for: the Decide
+ * card offered "Review and record" over a list nothing on could be recorded, and clicking it did nothing visible
+ * [owner, 2026-11-18]. Null when something is theirs to do, or nothing is open.
+ */
+export function nothingToRecord(workflow, items) {
+  const open = items.filter((item) => !item.settled && item.kind !== 'approval');
+  if (!open.length || open.some(actionable)) return null;
+  const why = open.map((item) => item.plain?.later
+    ?? (item.decidedBy?.allowed ? `${bare(item.plain?.question ?? item.title)}: ${bare(plainSentence(item.options[0]?.words ?? item.why, { words: 24 }))}.`
+      : `${bare(item.plain?.question ?? item.title)}: ${bare(item.decidedBy?.words || 'someone else decides it')}.`));
+  const approval = items.find((item) => item.kind === 'approval' && item.details?.heldBy?.length);
+  const held = approval ? ` Approving ${stepName(workflow, approval.details?.phase ?? workflow?.currentPhase)} waits for ${open.length === 1 ? 'it' : 'them'}.` : '';
+  return `Nothing here can be recorded yet. ${why.join(' ')}${held}`;
+}
+
 /**
  * The list's own plain words: its headline from what is asked now, and every later line in one place. An item asked
  * now is one with a question; what was settled is never a question.
  */
-export function plainPacket(items) {
+export function plainPacket(items, workflow = null) {
   const open = items.filter((item) => !item.settled);
   const asked = open.filter((item) => item.plain?.question).length;
-  return { headline: plainHeadline(asked), later: open.map((item) => item.plain?.later).filter(Boolean) };
+  const nothing = workflow ? nothingToRecord(workflow, items) : null;
+  return { headline: plainHeadline(asked), later: open.map((item) => item.plain?.later).filter(Boolean), ...(nothing ? { nothingToRecord: nothing } : {}) };
 }
 
 /** A settled item's record, as plainSettled reads it, from what the list carries of it. */
@@ -268,5 +301,5 @@ export function withPlainWords(workflow, packet) {
   const items = (packet.items ?? []).map(word);
   const offered = packet.offered ? packet.offered.map(word) : null;
   const settled = packet.settled ? packet.settled.map(word) : null;
-  return { ...packet, plain: plainPacket([...items, ...(offered ?? [])]), items, ...(offered ? { offered } : {}), ...(settled ? { settled } : {}) };
+  return { ...packet, plain: plainPacket([...items, ...(offered ?? [])], workflow), items, ...(offered ? { offered } : {}), ...(settled ? { settled } : {}) };
 }

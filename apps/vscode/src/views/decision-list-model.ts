@@ -68,7 +68,9 @@ export interface DecisionItemPacket {
    */
   plain?: { question?: string; why?: string; recommended?: string | null; check?: string; later?: string; settled?: string };
   /** A read-only check SFlow runs itself before the answer is recommended, offered first until it has a result. */
-  check?: { kind: string; status: string; label: string; does: string; command?: string; cutShort?: boolean; seconds?: number };
+  check?: { kind: string; status: string; label: string; does: string; command?: string; cutShort?: boolean; seconds?: number;
+    /** Run only when the person asks for it (SFlow's screenshot builds the app), never on the page's first read. */
+    onRequest?: boolean; failed?: string };
   /** A chat may ask it as a plain yes or no, bound to the person's own typed answer. */
   chatYesNo?: boolean; yesNo?: { question: string; yes: string; no: string | null; route: string };
   /** SFlow settled it for the person: shown under "Settled for you", with its evidence and an Undo. */
@@ -108,7 +110,7 @@ export interface DecisionPacket {
   status: 'decisions-needed' | 'nothing-to-decide' | string;
   headline: string; rule?: string;
   /** The headline in plain words, and what nobody can answer yet, one line each [owner, 2026-11-16]. */
-  plain?: { headline: string; later: string[] };
+  plain?: { headline: string; later: string[]; nothingToRecord?: string };
   items: DecisionItemPacket[];
   /** Offered beside what waits: on the list's digest and record, in nobody's count. */
   offered?: DecisionItemPacket[];
@@ -212,6 +214,8 @@ export interface DecisionListView {
   later: string[];
   /** Whether a check SFlow runs itself is still pending on an item this person decides. */
   checking: boolean;
+  /** Nothing open is this person's to act on now: why, and what its approval waits for [owner, 2026-11-18]. */
+  nothingToRecord?: string | null;
   unavailable: string[];
   chosen: number;
   notice: string | null; error: string | null;
@@ -314,8 +318,8 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
   const later = packet.items.map(laterOf).filter((line): line is string => Boolean(line));
   const items = [...packet.items, ...extra].filter((item) => !laterOf(item)).map((item): DecisionItemRow => {
     const options = ordered(item.options).map((option) => ({ ...optionRow(option), recommended: option.recommended === true || item.recommended?.option === option.id }));
-    // Theirs when they may choose an option here or take one of its steps themselves (a command to run).
-    const allowed = item.decidedBy?.allowed === true && options.some((option) => option.choosable || option.yours !== null);
+    // Theirs when they may choose an option here, take one of its steps themselves (a command to run) or have SFlow check first.
+    const allowed = item.decidedBy?.allowed === true && (options.some((option) => option.choosable || option.yours !== null) || Boolean(checkOf(item)));
     const facts = [...(Array.isArray(item.details?.lines) ? item.details.lines : []), item.details?.proposedBy, item.details?.reach].filter((line): line is string => typeof line === 'string');
     const plain = plainWords(item);
     const check = checkOf(item);
@@ -341,6 +345,7 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
     rule: packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind)) ? packet.rule ?? null : null, digest: packet.packetSha256,
     nothingToDecide: packet.items.length === 0,
     items, later, checking: items.some((item) => item.check !== null && item.allowed),
+    nothingToRecord: packet.plain?.nothingToRecord ?? null,
     unavailable: (packet.unavailable ?? []).map((entry) => `${entry.phase ?? 'A step'}'s report could not be read (${entry.reason ?? 'unreadable'}).`),
     chosen: items.filter((item) => item.chosen).length,
     notice, error, outcome, busy,

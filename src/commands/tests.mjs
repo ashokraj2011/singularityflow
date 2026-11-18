@@ -654,9 +654,9 @@ const cutByTime = (check, bounded, command) => check.timedOut === true && bounde
 export async function tryStoryBase(root, options) {
   const seconds = withinOf(options, 'base');
   const deadline = seconds === null ? null : Date.now() + seconds * 1000;
-  const [state, { localTestRunKernel: kernel }, { baseComparison, failedNames, runOnBase, storyBaseCommit }, { stepAttempts }, { workDirRelative }, { nodeVersion }, { parseTestResult }, { realpath }] = await Promise.all([
+  const [state, { localTestRunKernel: kernel }, { attemptFailureMessages, baseComparison, failedNames, runOnBase, storyBaseCommit, storyTestNode }, { stepAttempts }, { workDirRelative }, { parseTestResult }, { realpath }] = await Promise.all([
     import('../local-test-runs.mjs'), import('../state-stores.mjs'), import('../verification/base-run.mjs'), import('../verification/attempts.mjs'),
-    import('../story-paths.mjs'), import('../test-toolchain.mjs'), import('../code-delivery-tests.mjs'), import('node:fs/promises')]);
+    import('../story-paths.mjs'), import('../code-delivery-tests.mjs'), import('node:fs/promises')]);
   const context = await storyContext(root, options);
   const { phase, commands } = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, { phaseId: optionString(options, 'phase', null) });
   const baseCommit = storyBaseCommit(context.workflow, phase);
@@ -670,8 +670,11 @@ export async function tryStoryBase(root, options) {
     const latest = attempts.filter((attempt) => attempt.commandId === command.id).at(-1) ?? null;
     const here = latest && latest.status !== 'passed' ? failedNames(latest.occurrences) : [];
     const cwd = path.join(root, command.workingDirectory ?? '.');
-    const version = await nodeVersion('node', { cwd, environment: process.env }).catch(() => null);
-    const result = await runOnBase(root, command, { baseCommit, nodeVersion: version, within: seconds, gateRun: async (workspace) => {
+    // The Node the Story's tests run on: its version file's, carried into the base when the base names none [owner, 2026-11-18].
+    const { version, versionFile } = await storyTestNode(root, cwd);
+    const hereMessages = here.length ? await attemptFailureMessages(root, context.workflow.workItem.id, latest).catch(() => null) : null;
+    const hereNode = latest?.environment?.toolchain?.node ?? latest?.environment?.nodeVersion?.node ?? null;
+    const result = await runOnBase(root, command, { baseCommit, nodeVersion: version, versionFile, within: seconds, gateRun: async (workspace) => {
       if (deadline !== null && deadline - Date.now() < 1000) return { cutShort: true, why: `it did not start within ${seconds} seconds` };
       const bounded = boundedCommand(command, deadline);
       const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [bounded], { candidateRoot: await realpath(workspace), candidateIsOtherCode: true });
@@ -681,10 +684,11 @@ export async function tryStoryBase(root, options) {
         return { check, parsed, reportError: parsed ? null : 'SFlow could not read a report from this run.' };
       } finally { await kernel.restoreTransientQualityResult(check); }
     } });
-    results.push({ ...result, here, ...baseComparison(result, { here }) });
+    results.push({ ...result, here, ...baseComparison(result, { here, hereMessages, hereNode }) });
   }
   return { resultType: 'sflow-test-base', scope, baseCommit, results };
 }
+
 
 /**
  * `tests node`: would these tests pass on another installed Node? Each command once, as a gate runs it, on a

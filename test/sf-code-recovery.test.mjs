@@ -6,6 +6,8 @@
  *   C: a refused test run recorded where the step stopped, the CLI exited without deriving the turn again, and the next
  *      tool call ended the turn as stale (PHASE_MUTATION_CONTRACT_STALE): /sf-decide and /sf-code again, about 66 minutes.
  *   Node: Node 26 breaks Vitest's DOM localStorage, Node 22 was installed, and the same question was a person's three times.
+ *   D: the refusal named SFlow's own Node 26, not the Node 22 the tests ran on, and `tests base` ran on Node 26 and matched
+ *      failures by name, so it said every failure was there before the change.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -307,4 +309,52 @@ test('Node: a pin an earlier Story of the repository chose is evidence; earlier 
   assert.equal(await withEarlierPin(here, workflow, offered, { installedOfMajor }), offered, 'Node 20 and Node 22 differ: the person chooses');
   // Never the Node the tests just failed on.
   assert.equal((await withEarlierPin(here, workflow, { ...offered, running: '22.14.0' }, { earlier: [found[0]], installedOfMajor })).version, '24');
+});
+
+test('D: a base run of the Story\'s tests uses its pinned Node, and a failure counts as the same only with the same message', async (t) => {
+  const { baseComparison, runOnBase } = await import('../src/verification/base-run.mjs');
+  const here = ['keeps the history', 'plots a circle'];
+  // new-ash-graph: here the gate ran on Node 22 and failed on its own assertion; the base, on PATH's Node 26, failed on localStorage.
+  const onBase = { commandId: '.-node-tests', baseCommit: 'a'.repeat(40), nodeVersion: '26.12.0', status: 'failed', exitCode: 1,
+    tests: { discovered: 31, passed: 14, failed: 17, skipped: 0 }, failed: here,
+    messages: { 'keeps the history': "TypeError: Cannot read properties of undefined (reading 'clear')", 'plots a circle': "TypeError: Cannot read properties of undefined (reading 'clear')" } };
+  const otherNode = baseComparison(onBase, { here, hereNode: '22.14.0',
+    hereMessages: { 'keeps the history': 'AssertionError: expected 2 to be 3', 'plots a circle': "TypeError: Cannot read properties of undefined (reading 'clear')" } });
+  assert.notEqual(otherNode.verdict, 'fails-on-base');
+  assert.doesNotMatch(otherNode.words, /Every failure here also fails without this change|A person decides/u);
+  const sameNode = baseComparison({ ...onBase, nodeVersion: '22.14.0' }, { here, hereNode: '22.14.0',
+    hereMessages: { 'keeps the history': 'AssertionError: expected 2 to be 3 at src/history.test.js:12:5', 'plots a circle': "TypeError: Cannot read properties of undefined (reading 'clear')\n    at src/a.js:3:1" } });
+  assert.deepEqual([sameNode.verdict, sameNode.alsoOnBase, sameNode.onlyHere], ['partly-on-base', ['plots a circle'], ['keeps the history']]);
+
+  // The base commit has no .nvmrc (it came with the Story); its run gets the Story's.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-sfc-base-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['init', '-q', '-b', 'main']); git(root, ['config', 'user.name', 'SFC']); git(root, ['config', 'user.email', 'sfc@example.test']);
+  await writeFile(path.join(root, 'package.json'), '{}\n');
+  git(root, ['add', '.']); git(root, ['commit', '-qm', 'base']);
+  const baseCommit = git(root, ['rev-parse', 'HEAD']);
+  let seen = null;
+  const { readFile: read } = await import('node:fs/promises');
+  const result = await runOnBase(root, { id: '.-node-tests', argv: ['npm', 'test'], workingDirectory: '.', result: { adapter: 'vitest-json' } },
+    { baseCommit, nodeVersion: '22.14.0', versionFile: { name: '.nvmrc', text: '22\n' }, gateRun: async (workspace) => {
+      seen = await read(path.join(workspace, '.nvmrc'), 'utf8').catch(() => null);
+      return { check: { status: 'passed', exitCode: 0 }, parsed: null };
+    } });
+  assert.equal(seen, '22\n', 'the base runs on the Story\'s pinned Node');
+  assert.equal(result.status, 'passed');
+});
+
+test('D: a refused test run names the Node it ran on, not the Node SFlow runs on', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-sfc-ran-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { attachRequiredTestExecution } = await import('../src/state.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const check = { id: '.-node-tests', status: 'failed', exitCode: 1, stdout: '', stderr: '' };
+  // The gate's run environment, kept on the check as the gate keeps it (test-run-environment.mjs).
+  Object.defineProperty(check, 'runEnvironment', { value: { toolchain: { node: '22.14.0' }, nodeVersion: { file: '.nvmrc', wanted: '22', status: 'selected', node: '22.14.0' } } });
+  const command = { id: '.-node-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', provenance: 'inferred', result: { adapter: 'vitest-json', path: 'r.json' } };
+  const refusal = await attachRequiredTestExecution(new SingularityFlowError('Required test failed.', { code: 'CODE_TEST_FAILED' }), root, command, check, { workId: W });
+  assert.match(refusal.message, /^Required test command '\.-node-tests' failed on Node 22\.14\.0 \(exit 1\)\./u);
+  assert.equal(refusal.details.requiredTestExecution.ranOnNode, '22.14.0');
+  assert.equal(refusal.details.requiredTestExecution.hostRuntime.node, process.version, 'SFlow\'s own Node stays named as the host\'s');
 });

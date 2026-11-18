@@ -2074,7 +2074,7 @@ test('failed required test execution reports bounded diagnostics before publicat
     }
   )), (error) => {
     assert.equal(error.code, 'CODE_TEST_FAILED');
-    assert.match(error.message, /failed before publication \(exit 23\).*error\.requiredTestExecution/u);
+    assert.match(error.message, /failed before publication on Node \d+\.\d+\.\d+ \(exit 23\).*error\.requiredTestExecution/u);
     const execution = error.details.requiredTestExecution;
     assert.equal(execution.commandId, 'fixture-tests');
     assert.equal(execution.argv, null);
@@ -2492,7 +2492,7 @@ test('a submission that runs its tests again exposes a required test failure wit
     context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
   ))), (error) => {
     assert.equal(error.code, 'CODE_TEST_FAILED');
-    assert.match(error.message, /failed \(exit 23\).*error\.requiredTestExecution/u);
+    assert.match(error.message, /failed on Node \d+\.\d+\.\d+ \(exit 23\).*error\.requiredTestExecution/u);
     const execution = error.details.requiredTestExecution;
     assert.equal(execution.argv, null);
     assert.equal(execution.argvWithheld, true);
@@ -2533,7 +2533,7 @@ test('every suite of a refused run keeps its attempt, and the refusal reports ev
   await assert.rejects(() => publishTwoSuites(context), (error) => {
     assert.equal(error.code, 'CODE_TEST_FAILED');
     assert.equal(error.details.requiredTestExecution.commandId, 'fixture-tests', 'the first refusal keeps its full diagnostic');
-    assert.match(error.message, /'fixture-tests' failed before publication \(exit 1\).*Also failed: 'second-tests' \(exit 7, 2 of 2 tests failed: tests ran and failed\)\./su);
+    assert.match(error.message, /'fixture-tests' failed before publication on Node \d+\.\d+\.\d+ \(exit 1\).*Also failed: 'second-tests' \(exit 7, 2 of 2 tests failed: tests ran and failed\)\./su);
     assert.deepEqual(error.details.otherFailedTests.map((entry) => [entry.commandId, entry.status, entry.exitCode, entry.tests.failed, entry.causeClass]),
       [['second-tests', 'failed', 7, 2, 'assertion-failure']]);
     assert.match(error.details.otherFailedTests[0].attemptId, /^TA-/u);
@@ -2604,7 +2604,7 @@ test('a submission that runs its tests again records every suite and reports eve
   ))), (error) => {
     assert.equal(error.code, 'CODE_TEST_FAILED');
     assert.equal(error.details.requiredTestExecution.commandId, 'fixture-tests');
-    assert.match(error.message, /'fixture-tests' failed \(exit 3\).*Also failed: 'second-tests' \(exit 4, 2 of 2 tests failed/su);
+    assert.match(error.message, /'fixture-tests' failed on Node \d+\.\d+\.\d+ \(exit 3\).*Also failed: 'second-tests' \(exit 4, 2 of 2 tests failed/su);
     return true;
   });
   const submissions = (await attemptsOf(context)).filter(([, purpose]) => purpose === 'submission');

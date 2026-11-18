@@ -4448,9 +4448,12 @@ function requiredTestExecutionDiagnostic(root, command, check) {
       truncated: check?.[`${stream}Truncated`] === true || value.length > 2000
     };
   };
+  // The Node the tests ran on, which the repository's version file chose; hostRuntime is SFlow's own (Story new-ash-graph).
+  const ranOnNode = check?.runEnvironment?.toolchain?.node ?? check?.runEnvironment?.nodeVersion?.node ?? null;
   return {
     commandId: command.id,
     hostRuntime: { node: process.version, platform: process.platform, arch: process.arch },
+    ...(ranOnNode ? { ranOnNode } : {}),
     argv: command.provenance !== 'configured' ? [...command.argv] : null,
     argvWithheld: command.provenance === 'configured',
     provenance: command.provenance ?? 'configured',
@@ -4469,7 +4472,7 @@ function requiredTestExecutionDiagnostic(root, command, check) {
   };
 }
 
-async function attachRequiredTestExecution(error, root, command, check, { workId = null, workflow: workflowOf = null } = {}) {
+export async function attachRequiredTestExecution(error, root, command, check, { workId = null, workflow: workflowOf = null } = {}) {
   if (!(error instanceof SingularityFlowError) && !(error instanceof SyntaxError)) return error;
   const refusal = error instanceof SingularityFlowError
     ? error
@@ -4519,7 +4522,8 @@ async function attachRequiredTestExecution(error, root, command, check, { workId
     const outcome = check?.status === 'blocked' ? 'was blocked'
       : check?.status === 'passed' ? 'did not produce passing test evidence' : 'failed';
     const exit = Number.isInteger(check?.exitCode) ? ` (exit ${check.exitCode})` : '';
-    refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
+    const ran = refusal.details.requiredTestExecution.ranOnNode;
+    refusal.message = `Required test command '${command.id}' ${outcome}${stage}${ran ? ` on Node ${ran}` : ''}${exit}. `
       + `See error.requiredTestExecution in --json for the command and bounded output. To see whether it also fails without this change: singularity-flow tests base --work-id ${workId ?? '<WORK-ID>'} --command ${command.id}.`
       + ((refusal.details?.testRunRisk ?? refusal.details?.testRunCause)?.guidance ? ` ${(refusal.details.testRunRisk ?? refusal.details.testRunCause).guidance}` : '');
     // The Node here is what stops it, and another is installed: one person's choice, unless the evidence names it.

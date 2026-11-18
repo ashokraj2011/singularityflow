@@ -810,7 +810,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the evidence names, and nobody undid, is settled before the next run, not a person's choice (owner, 2026-11-18): the
     // refusal asks the lazy node-version-settle.mjs, loaded by its path, for an earlier Story's pin and says SFlow pins it
     // (state.mjs +795). The settlement, the pin history and their checks stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_761_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,762,350 (measured 9,762,325 for submit.mjs, +490 over 9,761,835; start.mjs 9,760,788): a refused test run names the
+    // Node it ran on, not SFlow's own (owner, 2026-11-18, Story new-ash-graph): ranOnNode and "failed on Node N" (state.mjs
+    // +381) and its projection (test-execution-diagnostics.mjs +109). `tests base` on the pinned Node stays lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_762_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1236,7 +1239,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,293,500 (measured 4,293,456, +1,061): a version opened to fix its review's findings about tests or evidence only carries
   // the published source (delivery-evidence.mjs, the gate's call into review-test-correction.mjs, loaded by its path)
   // [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
-  assert.ok(current.bytes <= 4_293_500, `session current loads ${current.bytes} source bytes`);
+  // 4,293,600 (measured 4,293,565, +109): a refused test run's projection keeps the Node it ran on (test-execution-diagnostics.mjs
+  // ranOnNode) [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
+  assert.ok(current.bytes <= 4_293_600, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

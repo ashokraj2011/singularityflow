@@ -66,8 +66,9 @@ export function refusalStop(refusal) {
   if (refusal?.code === 'DOCUMENT_REUPLOAD_REQUIRED') return { outcome: 'waiting-input', code: refusal.code, input: details.documentReadiness?.missing?.[0]?.id ?? null };
   if (refusal?.code !== 'CODE_TEST_FAILED') return null;
   const execution = details.requiredTestExecution ?? {};
-  // A Node to pin is one person's choice on the decisions card.
-  if (details.nodePin?.version) return { outcome: 'waiting-person', code: refusal.code };
+  // A Node to pin is one person's choice on the decisions card, unless the evidence names it: then SFlow settles it before
+  // the next run, and the run is the step's own again (node-version-settle.mjs).
+  if (details.nodePin?.version && !details.nodePin.settles) return { outcome: 'waiting-person', code: refusal.code };
   // The environment stopped the run: a person accepts the risk, or the environment is fixed; kept with the environment's name.
   if (ENVIRONMENT_BLOCKS.has(execution.errorCode)) return { outcome: 'waiting-environment', code: execution.errorCode, input: execution.environment ?? null };
   const cause = String(details.testRunRisk?.causeClass ?? '').replaceAll('+', '.');

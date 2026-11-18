@@ -465,7 +465,8 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
     if (major(version) >= 25 && await usesVitestDomStorage(root, directory, node, reads)) {
       found.push(check('node-version', `Tests here would run on Node ${version}, whose own localStorage stands in front of the DOM environment's under Vitest. Tests that use localStorage then fail with errors such as "Cannot read properties of undefined (reading 'clear')", and the change is not the cause.${offer}`,
         'Do not stub localStorage to get past it. Switch Node before starting, or a person pins an earlier one: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.',
-        { node: version, installed, ...((earlier) => (earlier ? { pin: { ...pin(earlier).pin, cause: `Node ${version} here breaks tests that use localStorage; Node ${earlier} is installed` } } : {}))(others.find((other) => major(other) < 25)) }));
+        // A known clash with an earlier Node installed is the answer, settled with this evidence (node-version-settle.mjs).
+        { node: version, installed, ...((earlier) => (earlier ? { pin: { ...pin(earlier).pin, clash: 'vitest-dom-storage', cause: `Node ${version} here breaks tests that use localStorage; Node ${earlier} is installed` } } : {}))(others.find((other) => major(other) < 25)) }));
     }
   }
   return found;

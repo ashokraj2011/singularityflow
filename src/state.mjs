@@ -4469,7 +4469,7 @@ function requiredTestExecutionDiagnostic(root, command, check) {
   };
 }
 
-async function attachRequiredTestExecution(error, root, command, check, { workId = null } = {}) {
+async function attachRequiredTestExecution(error, root, command, check, { workId = null, workflow: workflowOf = null } = {}) {
   if (!(error instanceof SingularityFlowError) && !(error instanceof SyntaxError)) return error;
   const refusal = error instanceof SingularityFlowError
     ? error
@@ -4522,11 +4522,15 @@ async function attachRequiredTestExecution(error, root, command, check, { workId
     refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
       + `See error.requiredTestExecution in --json for the command and bounded output. To see whether it also fails without this change: singularity-flow tests base --work-id ${workId ?? '<WORK-ID>'} --command ${command.id}.`
       + ((refusal.details?.testRunRisk ?? refusal.details?.testRunCause)?.guidance ? ` ${(refusal.details.testRunRisk ?? refusal.details.testRunCause).guidance}` : '');
-    // The Node here is what stops it, and another is installed: the way through is one person's choice.
-    const pin = await (await import('./node-pin.mjs')).nodePinOffer(root, [command], { attempts: [{ commandId: command.id, status: check?.status ?? 'failed', cause: refusal.details?.testRunRisk ?? refusal.details?.testRunCause ?? null }] }).catch(() => null);
+    // The Node here is what stops it, and another is installed: one person's choice, unless the evidence names it.
+    const offered = await (await import('./node-pin.mjs')).nodePinOffer(root, [command], { attempts: [{ commandId: command.id, status: check?.status ?? 'failed', cause: refusal.details?.testRunRisk ?? refusal.details?.testRunCause ?? null }] }).catch(() => null);
+    const pin = offered && workflowOf ? await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'node-version-settle.mjs')).href)).withEarlierPin(root, workflowOf, offered).catch(() => offered) : offered;
+    // Evidence that names the Node settles it before the next run (node-version-settle.mjs): the agent runs the gate again.
+    const settles = Boolean(pin && workflowOf && (await import('./settled-decisions.mjs')).settleableNodePin(workflowOf, workflowOf.phases?.[workflowOf.currentPhase], pin));
     if (pin) {
-      refusal.details.nodePin = { file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, words: pin.words, ...(pin.replaces ? { replaces: pin.replaces } : {}) };
-      refusal.message += ` ${pin.words} A person can choose ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`} on the decision list: singularity-flow decisions ${workId ?? '<WORK-ID>'}. It ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step.`;
+      refusal.details.nodePin = { file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, words: pin.words, ...(pin.replaces ? { replaces: pin.replaces } : {}), ...(settles ? { settles: true } : {}) };
+      refusal.message += settles ? ` ${pin.words} SFlow pins Node ${pin.version} in ${pin.file} itself before the next run, settled with an undo on the decisions card: run the same gate again.`
+        : ` ${pin.words} A person can choose ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`} on the decision list: singularity-flow decisions ${workId ?? '<WORK-ID>'}. It ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step.`;
     } else {
       // Nothing here says the Node is at fault, but another one is installed: a command answers that, with no chain of shell commands.
       const other = await (await import('./node-pin.mjs')).otherInstalledNode(root, command).catch(() => null);
@@ -5532,7 +5536,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         if (narrowed) attempts.find((entry) => entry.commandId === command.id).testNarrowing = narrowed;
         passing.push(command);
       } catch (error) {
-        refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check, { workId: workflow.workItem.id }), check);
+        refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check, { workId: workflow.workItem.id, workflow }), check);
       }
     }
     if (refusal) {
@@ -6117,7 +6121,7 @@ async function submitPhaseTransition(root, config, workflow, {
             }
           }
         } catch (error) {
-          refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check, { workId: workflow.workItem.id }), check);
+          refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check, { workId: workflow.workItem.id, workflow }), check);
           continue;
         }
         if (runRisk) {

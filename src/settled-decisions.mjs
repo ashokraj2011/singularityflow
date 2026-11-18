@@ -59,10 +59,17 @@ export function settlementState(workflow, kind, subject) {
   return !latest ? 'open' : latest.undone ? 'undone' : 'settled';
 }
 
-/** A Node pin the repository named and nobody undid: settled before the tests run, never asked (node-version-settle.mjs). */
+/**
+ * A Node pin with one clear answer the evidence names, and nobody undid: settled before the tests run, never asked
+ * (node-version-settle.mjs). The repository names it (`source`), the Node here is known to break what its tests use and an
+ * earlier one is installed (`clash`), an earlier Story of the repository pinned it (`earlier`), or SFlow's own check found
+ * the tests pass on it on this code (`tried`) [owner, 2026-11-18].
+ */
 export const nodeVersionSubject = (phase, pin) => `Node ${pin.version} for ${phase.id}'s tests`;
+export const nodePinBasis = (pin) => (pin?.source ? 'source' : pin?.clash ? 'clash' : pin?.earlier?.length ? 'earlier'
+  : pin?.tried?.current && pin.tried.known && pin.tried.passed ? 'tried' : null);
 export function settleableNodePin(workflow, phase, pin) {
-  return Boolean(pin?.source && !pin.replaces) && settlementState(workflow, 'node-version', nodeVersionSubject(phase, pin)) === 'open';
+  return Boolean(nodePinBasis(pin) && !pin.replaces) && settlementState(workflow, 'node-version', nodeVersionSubject(phase, pin)) === 'open';
 }
 
 const nextId = (workflow) => `STL-${String((workflow.settledDecisions ?? []).length + 1).padStart(3, '0')}`;

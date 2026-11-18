@@ -714,7 +714,10 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
 
   // A person's one choice leads over another read (bin-opr2), never over the author's own repair: the pin
   // stops nothing until the tests do (Story anu-bin, owner policy 2026-11-10).
-  const nodePin = (testExecution.earlyChecks ?? []).find((entry) => entry.pin);
+  // A pin the evidence names (a known clash, the repository's range) and nobody undid is settled before the tests run, never a
+  // person's action (node-version-settle.mjs).
+  const pinned = (testExecution.earlyChecks ?? []).find((entry) => entry.pin);
+  const nodePin = pinned && !(await import('./settled-decisions.mjs')).settleableNodePin(workflow, phase, pinned.pin) ? pinned : null;
   if (nodePin) {
     const afterOwn = actions.reduce((last, entry, index) => (entry.authoringSkill ? index + 1 : last), 0);
     actions.splice(afterOwn, 0, action({

@@ -806,7 +806,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // review's findings about tests or evidence only carries the published source (owner, 2026-11-18, Story new-ash-graph):
     // the gate's call into review-test-correction.mjs, loaded by its path, and the carried rows (delivery-evidence.mjs
     // +1,104) and the receipt's field (state.mjs +99). The rule and its review read stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_761_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,761,850 (measured 9,761,835 for submit.mjs, +795 over 9,761,040; start.mjs 9,760,298): a failed test whose Node pin
+    // the evidence names, and nobody undid, is settled before the next run, not a person's choice (owner, 2026-11-18): the
+    // refusal asks the lazy node-version-settle.mjs, loaded by its path, for an earlier Story's pin and says SFlow pins it
+    // (state.mjs +795). The settlement, the pin history and their checks stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_761_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

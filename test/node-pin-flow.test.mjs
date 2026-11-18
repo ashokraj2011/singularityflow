@@ -211,7 +211,7 @@ test('a pin replaces only the version a person was shown', { ...posix }, async (
 });
 
 // Real tools, with no fake Node: what a real Story met, a Vitest suite failing on Node's own localStorage.
-test('real Vitest on real Node: the localStorage failure walks to the pin, the answer is real, and the pinned gate passes', { ...posix, ...slowLane({ timeout: 600_000 }) }, async (t) => {
+test('real Vitest on real Node: the localStorage clash is settled before the gate, and the gate passes on the pinned Node', { ...posix, ...slowLane({ timeout: 600_000 }) }, async (t) => {
   const modules = path.join(process.env.SINGULARITY_FLOW_TEST_NODE_TOOLS ?? path.join(path.dirname(fileURLToPath(import.meta.url)), '..'), 'node_modules');
   const { installedNodeOfMajor } = await import('../src/node-pin.mjs');
   if (!existsSync(path.join(modules, '.bin', 'vitest')) || !existsSync(path.join(modules, 'jsdom'))) return t.skip('vitest and jsdom are not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS');
@@ -234,38 +234,14 @@ test('real Vitest on real Node: the localStorage failure walks to the pin, the a
   const run = (...args) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd: root, env: repo.env, encoding: 'utf8', timeout: childTimeout(240_000) });
   const json = (...args) => { const result = run(...args, '--json'); return { status: result.status, value: JSON.parse(result.stdout), stderr: result.stderr }; };
 
-  // Before any run the choice is on the list, stopping nothing.
-  const early = json('decisions', 'QF-1').value.data.items.find((item) => item.kind === 'node-pin');
-  assert.ok(early, 'listed before any run');
-  assert.equal(early.details.version, '22');
-  assert.match(early.why, /own localStorage/u);
-
-  // The gate really fails on this Node, and its first route is the choice.
+  // Node 25 and later breaks Vitest's DOM localStorage and Node 22 is installed: SFlow pins it before the gate runs, settled
+  // with that evidence and an undo, never a person's question (owner, 2026-11-18, Story new-ash-graph). The undo and the
+  // person's choice after it are walked with fake Nodes above.
+  assert.equal(json('decisions', 'QF-1').value.data.items.some((item) => item.kind === 'node-pin'), false, 'never asked');
   const gate = json('phase', 'prepublish', 'implement', '--for-agent', '--publish-if-ready');
-  assert.notEqual(gate.status, 0, JSON.stringify(gate.value.publishIfReady ?? {}));
-  assert.equal(gate.value.error.code, 'CODE_TEST_FAILED', gate.value.error.message);
-  assert.equal(gate.value.error.details.nodePin.version, '22', JSON.stringify(gate.value.error.details));
-  assert.equal(gate.value.remediationPlan.steps[0].id, 'pin-node-version');
-  assert.equal(gate.value.remediationPlan.steps[1].id, 'try-node-version');
-
-  // The question has a real answer: the same tests, on real Node 22, in a throwaway copy.
-  const tried = json('tests', 'node', '--work-id', 'QF-1', '--phase', 'implement', '--node', '22');
-  assert.equal(tried.status, 0, JSON.stringify(tried.value));
-  const answer = tried.value.data ?? tried.value;
-  assert.equal(answer.node, node22);
-  assert.deepEqual(answer.results.map((entry) => [entry.status, entry.tests?.passed, entry.tests?.failed]), [['passed', 1, 0]], JSON.stringify(answer.results));
-  await assert.rejects(stat(path.join(root, '.nvmrc')), 'trying it creates nothing');
-
-  const list = json('decisions', 'QF-1').value.data;
-  const offered = list.items.find((item) => item.kind === 'node-pin');
-  assert.match(offered.why, new RegExp(`It passes on Node ${node22.replaceAll('.', '\\.')} \\(1 of 1 passed\\)`, 'u'), offered.why);
-  const reason = 'The Vitest suite needs Node 22; the code does not change.';
-  const recorded = json('decisions', 'record', 'QF-1', '--choose', `${offered.id}=pin-node`, '--reason', `${offered.id}=${reason}`, '--confirm', list.packetSha256);
-  assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
+  assert.equal(gate.status, 0, JSON.stringify(gate.value.error ?? gate.value.publishIfReady ?? {}));
   assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '22\n');
-
-  // The same gate, now on real Node 22.
-  const published = run('phase', 'publish', 'implement');
-  assert.equal(published.status, 0, published.stdout + published.stderr);
-  assert.match(published.stderr, new RegExp(`Using Node ${node22.replaceAll('.', '\\.')} from \\S+ for this run: \\.nvmrc asks for 22\\.`, 'u'));
+  assert.match(gate.stderr, new RegExp(`Using Node ${node22.replaceAll('.', '\\.')} from \\S+ for this run: \\.nvmrc asks for 22\\.`, 'u'));
+  const settled = json('decisions', 'QF-1').value.data.settled.find((entry) => entry.details.settledKind === 'node-version');
+  assert.match(settled.evidenceWords, /own localStorage in front of the DOM environment's under Vitest/u);
 });

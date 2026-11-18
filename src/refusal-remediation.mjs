@@ -355,17 +355,21 @@ function requiredTestFailureSteps(argv, error) {
     `singularity-flow tests node --work-id ${context.workId} --phase ${context.phaseId} --node ${version}`, 'diagnostic');
   // A run the environment blocked before it started: its own fix commands, from its refusal, before any repair [review 2026-11-17].
   const fixes = error?.details?.requiredTestExecution?.environmentFix;
+  // The step's own repair, in its code turn.
+  const ownRepairSkill = context?.phaseId ? '/sf-code' : null;
   return [
     ...(Array.isArray(fixes) ? fixes.slice(0, 3).map((command, index) => step(`fix-environment-${index + 1}`, index ? 'Or this.'
       : 'The environment is not set up here, so no change in the step passes it: fix it with this, then run the same check again.', command, 'remediation')) : []),
-    ...(pin && context?.workId ? [step('pin-node-version',
+    ...(pin?.settles && context?.workId ? [step('rerun-on-pinned-node', `SFlow pins Node ${pin.version} in ${pin.file} itself before the next run, settled with an undo on the decisions card: ${pin.words} Run the same gate again.`,
+      prepublishAgain(context.phaseId), 'remediation', ownRepairSkill)] : []),
+    ...(pin && !pin.settles && context?.workId ? [step('pin-node-version',
       `A person chooses ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`}: ${pin.words} Node ${pin.node} is installed here. Choosing it ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step, with their reason; an agent cannot record it. Show them this, then rerun the gate once it is recorded.`,
       `singularity-flow decisions ${context.workId}`, 'remediation', '/sf-decide'),
     tryNode(pin.version)] : []),
     // What clears a failed test is repairing it here and running the same gate, so that comes before any read.
     step('repair-required-test',
       failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
-      prepublishAgain(context?.phaseId), 'remediation', context?.phaseId ? '/sf-code' : null),
+      prepublishAgain(context?.phaseId), 'remediation', ownRepairSkill),
     testRunRiskStep(error),
     ...(!pin && other && context?.workId ? [tryNode(other.version)] : []),
     baseComparisonStep(argv, error, context),
@@ -2699,7 +2703,7 @@ export function refusalDetails(details) {
   if (Array.isArray(details.unclaimedPaths)) projected.unclaimedPaths = details.unclaimedPaths.map(String).slice(0, 20);
   if (details.setAside?.command) projected.setAside = { command: details.setAside.command, paths: (details.setAside.paths ?? []).slice(0, 20) };
   if (details.otherNode?.version) projected.otherNode = { version: details.otherNode.version, node: details.otherNode.node };
-  if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null, ...(details.nodePin.replaces ? { replaces: details.nodePin.replaces } : {}) };
+  if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null, ...(details.nodePin.replaces ? { replaces: details.nodePin.replaces } : {}), ...(details.nodePin.settles === true ? { settles: true } : {}) };
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
     scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',
     applicationFiles: 'not-modified-by-probe', index: 'not-modified-by-probe',

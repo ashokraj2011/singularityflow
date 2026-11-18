@@ -5,6 +5,7 @@
  *      product source and sent to an appeal, a read-only preflight and the doctor, round and round.
  *   C: a refused test run recorded where the step stopped, the CLI exited without deriving the turn again, and the next
  *      tool call ended the turn as stale (PHASE_MUTATION_CONTRACT_STALE): /sf-decide and /sf-code again, about 66 minutes.
+ *   Node: Node 26 breaks Vitest's DOM localStorage, Node 22 was installed, and the same question was a person's three times.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -228,4 +229,82 @@ test('C: a refused test run that records where the step stopped never cuts the c
   assert.deepEqual(await f.write(turn), {});
   await f.stopAt('repair-required', 'CODE_TEST_FAILED', { repairConsumed: 2 });
   assert.equal((await f.write(turn)).permissionDecision, 'deny');
+});
+
+/** A Node that says it is `version` and runs as this Node: PATH's, or a version manager's. */
+async function fakeNode(bin, version) {
+  const { chmod } = await import('node:fs/promises');
+  await mkdir(bin, { recursive: true });
+  await writeFile(path.join(bin, 'node'), `#!/bin/sh\nif [ "$1" = --version ]; then echo v${version}; exit 0; fi\nexec '${process.execPath}' "$@"\n`);
+  await chmod(path.join(bin, 'node'), 0o755);
+}
+
+test('Node: a known clash with an earlier Node installed is settled, never asked; no engines field needed', { skip: process.platform === 'win32' ? 'the fake Nodes are shell scripts' : false }, async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-sfc-clash-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const home = path.join(base, 'home');
+  await fakeNode(path.join(base, 'path-bin'), '26.12.0');
+  await fakeNode(path.join(home, '.nvm', 'versions', 'node', 'v22.14.0', 'bin'), '22.14.0');
+  const environment = { ...process.env, HOME: home, NVM_DIR: path.join(home, '.nvm'), PATH: `${path.join(base, 'path-bin')}${path.delimiter}${process.env.PATH}` };
+  const root = path.join(base, 'repository');
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await mkdir(path.join(root, 'node_modules', '.bin'), { recursive: true });
+  // new-ash-graph's calculator: Vitest in a DOM environment, code that uses localStorage, and no engines field.
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', scripts: { test: 'vitest run' }, devDependencies: { vitest: '4' } }));
+  await writeFile(path.join(root, 'node_modules', '.bin', 'vitest'), '');
+  await writeFile(path.join(root, 'vite.config.js'), "export default { test: { environment: 'jsdom' } };\n");
+  await writeFile(path.join(root, 'src', 'history.js'), "export const clear = () => localStorage.clear();\n");
+  const { fileReads, nodeVersionChecks } = await import('../src/test-plan.mjs');
+  const commands = [{ id: '.-node-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'], result: { adapter: 'vitest-json', path: 'r.json' } }];
+  const pin = (await nodeVersionChecks(root, commands, { environment, reads: fileReads(root) })).find((entry) => entry.pin)?.pin;
+  assert.ok(pin, 'Node 26 with Vitest\'s DOM localStorage is a known clash');
+  assert.ok(Number(pin.version) < 25, pin.version);
+  assert.equal(pin.clash, 'vitest-dom-storage');
+  const { settleableNodePin } = await import('../src/settled-decisions.mjs');
+  const { nodeSettlement } = await import('../src/node-version-settle.mjs');
+  const phase = { id: 'implementation', label: 'Implementation' };
+  const workflow = { workItem: { id: W }, settledDecisions: [] };
+  assert.equal(settleableNodePin(workflow, phase, { ...pin, running: '26.12.0' }), true, 'settled before the tests run, never a person\'s question');
+  const settled = nodeSettlement(phase, { ...pin, running: '26.12.0' });
+  assert.match(settled.answer, new RegExp(`^Pinned Node ${pin.version} in \\.nvmrc for Implementation's tests: Node 26\\.12\\.0 here breaks tests that use localStorage under Vitest`, 'u'));
+  assert.ok(settled.evidence.length >= 2 && settled.evidence.every((entry) => entry.what && entry.where));
+  // A person who undid it once has it as their question again.
+  workflow.settledDecisions = [{ id: 'STL-001', kind: 'node-version', subject: `Node ${pin.version} for implementation's tests`, answer: 'x', evidence: [{ what: 'a', where: 'b' }], by: 'sflow', at: 'now' },
+    { id: 'STL-002', undoes: 'STL-001', actor: 'person', at: 'later' }];
+  assert.equal(settleableNodePin(workflow, phase, pin), false);
+});
+
+test('Node: a pin an earlier Story of the repository chose is evidence; earlier pins that differ stay the person\'s choice', async (t) => {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-sfc-earlier-')));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'raj-calc');
+  await mkdir(root);
+  const git = (...args) => { const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout; };
+  git('init', '-q', '-b', 'main'); git('config', 'user.name', 'SFC'); git('config', 'user.email', 'sfc@example.test');
+  await writeFile(path.join(root, 'README.md'), 'calc\n');
+  git('add', '.'); git('commit', '-qm', 'base');
+  // Two earlier Stories checked out beside this one, as new-graph-plot and new-grapj were; the one being opened has no pin yet.
+  for (const branch of ['new-graph-plot', 'new-ash-graph']) git('worktree', 'add', '-q', '-b', branch, path.join(base, branch));
+  await writeFile(path.join(base, 'new-graph-plot', '.nvmrc'), '22\n');
+  const here = path.join(base, 'new-ash-graph');
+  const { earlierStoryNodePins, keepNodePin } = await import('../src/node-pin-history.mjs');
+  const found = await earlierStoryNodePins(here, { workId: 'new-ash-graph', branch: 'new-ash-graph' });
+  assert.deepEqual(found, [{ version: '22', workId: 'new-graph-plot', where: '.nvmrc on branch new-graph-plot' }]);
+  const { withEarlierPin, nodeSettlement } = await import('../src/node-version-settle.mjs');
+  const { settleableNodePin } = await import('../src/settled-decisions.mjs');
+  const workflow = { workItem: { id: 'new-ash-graph', branch: 'new-ash-graph' }, settledDecisions: [] };
+  const phase = { id: 'implementation', label: 'Implementation' };
+  // The tests failed on the toolchain here (no file names the Node): the newest other installed Node is what was offered.
+  const offered = { file: '.nvmrc', version: '24', node: '24.1.0', running: '26.12.0', stage: 'failed', commandId: '.-node-tests', words: 'The latest run stopped on the toolchain.' };
+  assert.equal(settleableNodePin(workflow, phase, offered), false, 'nothing names the Node on its own');
+  const installedOfMajor = async (major) => ({ 22: '22.14.0', 24: '24.1.0' })[major] ?? null;
+  const pin = await withEarlierPin(here, workflow, offered, { installedOfMajor });
+  assert.deepEqual([pin.version, pin.node, pin.earlier.map((entry) => entry.workId)], ['22', '22.14.0', ['new-graph-plot']]);
+  assert.equal(settleableNodePin(workflow, phase, pin), true);
+  assert.match(nodeSettlement(phase, pin).evidence[0].what, /^Story new-graph-plot pinned Node 22$/u);
+  // A person's choice kept by another Story counts the same way, and earlier pins that differ answer nothing.
+  await keepNodePin(here, { version: '20', workId: 'new-grapj', by: 'person' });
+  assert.equal(await withEarlierPin(here, workflow, offered, { installedOfMajor }), offered, 'Node 20 and Node 22 differ: the person chooses');
+  // Never the Node the tests just failed on.
+  assert.equal((await withEarlierPin(here, workflow, { ...offered, running: '22.14.0' }, { earlier: [found[0]], installedOfMajor })).version, '24');
 });

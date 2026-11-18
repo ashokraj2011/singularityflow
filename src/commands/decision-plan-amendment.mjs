@@ -4,9 +4,11 @@
  */
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { planAuthorities, recordPlanAmendment } from '../plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from '../specifications.mjs';
 import { actorKey, assertNoPendingPublication, transactStory } from '../state-stores.mjs';
@@ -119,6 +121,9 @@ export async function commitNodePin(root, config, workflow, { version, reason, r
     const { amendment } = await commitPlanAmendment(root, config, workflow, {
       changes: [{ kind: 'add-supporting', path: NODE_PIN_FILE, class: NODE_PIN_CLASS, reason }], reason
     }, { actor, agent });
+    // The next Story of this repository reads the person's choice as evidence, never asks it again (node-pin-history.mjs).
+    // Read by path, out of the VS Code bundles.
+    await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'node-pin-history.mjs')).href)).keepNodePin(root, { version: major, workId: workflow.workItem.id, by: 'person' }).catch(() => {});
     return { ...amendment, file: NODE_PIN_FILE, version: major, node };
   } catch (error) {
     await undo();

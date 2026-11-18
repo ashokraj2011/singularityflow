@@ -371,7 +371,23 @@ test('from a Story checkout, Studio changes become one review proposal on the ap
     { op: 'phase.create', id: 'vendor-analysis', label: 'Vendor analysis', output: 'analysis', inputs: ['intake'], approval: { group: 'product-approvers' }, agent: 'vendor-analyst' },
     { op: 'agent.create', id: 'vendor-analyst', label: 'Vendor analyst', description: 'Compares vendor options against the approved intake.', role: 'analyst' }
   ], model.base);
-  const proposal = studio(['workflow', 'studio', 'apply', '--change-set', file, '--propose',
+  // An analysis-only workflow approval would refuse is not proposed: the refusal names each problem and its fix.
+  const proposing = ['--propose', '--expected-authority-kind', model.authority.kind, '--expected-authority-commit', model.authority.commit,
+    '--expected-authority-remote-fingerprint', remoteFingerprint(remote), '--expected-authority-source-commit', model.authority.sourceCommit ?? approved];
+  const refused = run(process.execPath, [bin, 'workflow', 'studio', 'apply', '--change-set', file, ...proposing, '--json'], story, { env: proposalEnv, allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.equal(JSON.parse(refused.stdout).error.code, 'STUDIO_WORKFLOW_PROBLEMS', refused.stdout);
+  assert.match(JSON.parse(refused.stdout).error.message, /vendor-assessment: A route that ends after Vendor analysis skips/u);
+  assert.equal(run('git', ['--git-dir', remote, 'for-each-ref', 'refs/heads/sflow/config-change/'], base).stdout, '', 'nothing was proposed');
+  // Saying once that it writes no code, and why, makes it one approval accepts.
+  const omit = (responsibility) => ({ responsibility, reason: 'A vendor assessment compares options; it writes no code.', authority: 'product-approvers' });
+  const valid = await changeSet(story, [
+    { op: 'constitution.set', path: 'singularity/constitution.md', articles: [{ id: 'ART-001', type: 'judged', status: 'active', title: 'Recoverable delivery', level: 'must', evidenceRequired: true, prose: 'Retain a rollback procedure for every delivery.' }] },
+    { op: 'workflow.create', id: 'vendor-assessment', label: 'Vendor assessment', phases: ['intake', 'vendor-analysis'], omits: ['scope', 'plan', 'implement', 'verify'].map(omit) },
+    { op: 'phase.create', id: 'vendor-analysis', label: 'Vendor analysis', output: 'analysis', inputs: ['intake'], approval: { group: 'product-approvers' }, agent: 'vendor-analyst' },
+    { op: 'agent.create', id: 'vendor-analyst', label: 'Vendor analyst', description: 'Compares vendor options against the approved intake.', role: 'analyst' }
+  ], model.base);
+  const proposal = studio(['workflow', 'studio', 'apply', '--change-set', valid, '--propose',
     '--expected-authority-kind', model.authority.kind, '--expected-authority-commit', model.authority.commit,
     '--expected-authority-remote-fingerprint', remoteFingerprint(remote), '--expected-authority-source-commit', model.authority.sourceCommit ?? approved]);
   assert.equal(proposal.reviewRequired, true, JSON.stringify(proposal));

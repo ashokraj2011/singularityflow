@@ -248,7 +248,8 @@ export async function draftWorkflowFixes(root, { workflow = null, answers = null
     const changeSet = changeSetOf(studioChanges());
     if (!changeSet) break;
     let next = null;
-    const plan = await planStudioChangeSet(root, changeSet, { inspect: async (candidateRoot) => {
+    // The fixes drafted here are the template fixes too; the proposal of them runs the one check when it is written.
+    const plan = await planStudioChangeSet(root, changeSet, { check: false, inspect: async (candidateRoot) => {
       const inspection = await checkWorkflowConfiguration(candidateRoot, only);
       // Fix what this change set leaves, as long as that is something new to fix.
       if (rounds.length < MAX_ROUNDS) {
@@ -264,7 +265,7 @@ export async function draftWorkflowFixes(root, { workflow = null, answers = null
   }
   const replan = async () => {
     const changeSet = changeSetOf(studioChanges());
-    lastPlan = changeSet ? await planStudioChangeSet(root, changeSet, { inspect: (candidateRoot) => checkWorkflowConfiguration(candidateRoot, only) }) : null;
+    lastPlan = changeSet ? await planStudioChangeSet(root, changeSet, { check: false, inspect: (candidateRoot) => checkWorkflowConfiguration(candidateRoot, only) }) : null;
     after = lastPlan ? afterOf(lastPlan) : null;
   };
   if (verify && rounds.length > 1) await replan();
@@ -288,7 +289,7 @@ export async function draftWorkflowFixes(root, { workflow = null, answers = null
         const trial = new Map([...refusedKeys].map(([entry, keys]) => [entry, new Set(keys)]));
         trial.set(candidate.entry, new Set([...(trial.get(candidate.entry) ?? []), ...candidate.change.keys]));
         const changes = rounds.flatMap((entry) => entry.draft.studioChanges(trial.get(entry)));
-        const plan = changes.length ? await planStudioChangeSet(root, changeSetOf(changes)) : { valid: true };
+        const plan = changes.length ? await planStudioChangeSet(root, changeSetOf(changes), { check: false }) : { valid: true };
         if (plan.valid) { culprits.push({ ...candidate, problem: lastPlan.problems[0] }); break; }
       }
     }

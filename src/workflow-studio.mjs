@@ -3210,7 +3210,7 @@ async function loadSources(root, options = {}) {
  * written to `root` — call that only where the configuration really lives: a proposal clone, or a
  * local authority's working tree. Without it nothing is written.
  */
-export async function planStudioChangeSet(root, changeSet, { write = false, imports = null, fetchImpl = globalThis.fetch, inspect = null } = {}) {
+export async function planStudioChangeSet(root, changeSet, { write = false, imports = null, fetchImpl = globalThis.fetch, inspect = null, check = true, proposing = false } = {}) {
   if (!changeSet || typeof changeSet !== 'object' || changeSet.schema !== STUDIO_CHANGE_SET_SCHEMA) {
     throw new SingularityFlowError(`A Studio change set must declare schema '${STUDIO_CHANGE_SET_SCHEMA}'.`, { code: 'STUDIO_CHANGE_SET_INVALID' });
   }
@@ -3278,6 +3278,24 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
     try { files = await candidate.files(); }
     catch (error) { problems.push({ code: error?.code ?? 'STUDIO_CHANGE_INVALID', message: error.message }); }
   }
+  // The one check every way of making a workflow runs (src/workflow-autofix.mjs): each workflow this change
+  // set adds or changes is judged as approval will judge it; a step's template that lacks only placeholders
+  // gets them in this change set, and any other problem it adds is shown here and refused when it is
+  // proposed (`proposing`), never first at approval [owner, 2026-11-18]. A local edit with such a problem is
+  // still written, as an unfinished draft is (obligationFindings): it reaches no approval, and the same
+  // warning says why no Story can start from it yet.
+  let checked = null;
+  const workflowFile = !problems.length && check ? files.find((entry) => entry.path === WORKFLOW_PATH && entry.after != null) : null;
+  const autofix = workflowFile ? await import('./workflow-autofix.mjs') : null;
+  const changedWorkflows = autofix ? autofix.changedWorkflows(sources.raw, (() => { try { return parseYamlText(asText(workflowFile.after)) ?? {}; } catch { return {}; } })()) : [];
+  if (changedWorkflows.length) {
+    checked = await autofix.checkCandidate(sources.configRoot,
+      files.map((file) => ({ path: file.path, content: file.after == null ? null : asText(file.after) })), { workflows: changedWorkflows });
+    const byPath = new Map(checked.files.map((file) => [file.path, file]));
+    files = files.map((file) => (byPath.get(file.path)?.content != null && checked.repairs.some((entry) => entry.path === file.path)
+      ? { ...file, after: byPath.get(file.path).content } : file));
+    for (const file of checked.files.filter((entry) => entry.repaired)) files.push({ path: file.path, before: file.before, after: file.content });
+  }
   // `inspect` reads the configuration as it would be after the change set: the validated copy, or the
   // configuration itself when nothing would change.
   let inspection = null;
@@ -3293,14 +3311,19 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
     }
   } else if (!problems.length && inspectCandidate) await inspectCandidate(root);
   const obligationWarnings = problems.length ? [] : obligationFindings(files, [...candidate.workflows.keys()]);
+  // What approval would refuse and SFlow cannot add itself: shown in a preview, refused when proposed.
+  const refused = problems.length ? [] : (checked?.problems ?? []).map((problem) => ({ code: 'STUDIO_WORKFLOW_PROBLEM',
+    message: `Approval would refuse ${problem.workflow}: ${problem.title}${problem.fix ? ` Fix: ${problem.fix}` : ''}`,
+    subject: { kind: 'workflow', id: problem.workflow }, problem }));
   const plan = {
     schemaVersion: 1,
     resultType: 'workflow-studio-plan',
     valid: problems.length === 0,
     changed: files.length > 0,
     problems,
-    warnings: problems.length ? [] : [...candidate.warnings(), ...obligationWarnings],
-    summary: candidate.summary,
+    warnings: problems.length ? [] : [...candidate.warnings(), ...obligationWarnings, ...refused],
+    summary: [...candidate.summary, ...(problems.length ? [] : (checked?.repairs ?? []).map((entry) => entry.text))],
+    ...(checked?.repairs?.length && !problems.length ? { repairs: checked.repairs } : {}),
     files: files.map((file) => ({
       path: file.path,
       action: file.before == null ? 'create' : file.after == null ? 'delete' : 'update',
@@ -3311,6 +3334,13 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   if (!write) return plan;
   if (!plan.valid) {
     throw new SingularityFlowError(`Workflow Studio changes were not applied: ${problems[0].message}`, { code: 'STUDIO_CHANGES_INVALID', details: { problems } });
+  }
+  if (refused.length && proposing) {
+    const { problemLines } = await import('./workflow-autofix.mjs');
+    const listed = refused.map((entry) => entry.problem);
+    throw new SingularityFlowError(`Workflow Studio changes were not proposed: approval would refuse ${listed.length === 1 ? 'a problem' : `${listed.length} problems`} they add. Nothing was written or proposed.\n${problemLines(listed)}`, {
+      code: 'STUDIO_WORKFLOW_PROBLEMS', details: { problems: listed, nextAction: { label: 'Change each in Workflow Studio, then propose again',
+        workflowStudio: 'In VS Code, open Workflow Studio (Singularity Flow: Workflow Studio) and make the change there.', command: 'singularity-flow workflow studio apply --change-set <FILE> --dry-run' } } });
   }
   // A configuration proposal checkout may differ from the read-only authority mirror. Prove
   // every Constitution destination safe before any candidate file is written there too.

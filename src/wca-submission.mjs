@@ -337,6 +337,10 @@ export async function createWorkflowDraftReviewProposal(root, options = {}, { ba
       if (current.preview.planSha256 !== captured.preview.planSha256) {
         fail('The exact submission plan changed; review the newer package.', 'WCA_PREVIEW_STALE');
       }
+      // The one check every way of making a workflow runs (src/workflow-autofix.mjs): these reviewed bytes cannot
+      // be added to, so what approval would refuse is refused here, before anything is proposed.
+      await (await import('./workflow-autofix.mjs')).refuseAddedProblems(scratch, current.files.map((file) => ({ path: file.path,
+        content: Buffer.from(file.contentBase64, 'base64').toString('utf8') })), { label: `Workflow package ${captured.preview.source.draftId}` });
       for (const file of current.files) await writeCandidateFile(scratch, file.path,
         Buffer.from(file.contentBase64, 'base64'), current.assetPolicy);
       await writeCandidateFile(scratch, retainedPath, Buffer.from(canonicalJson(retained)), current.assetPolicy);

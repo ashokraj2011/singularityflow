@@ -97,7 +97,7 @@ import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
-import { installWorkflow, simulateWorkflow, simulationText, workflowDiff } from './workflow-catalog.mjs';
+import { installWorkflowChecked, simulateWorkflow, simulationText, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
@@ -3817,7 +3817,7 @@ export async function applyImportChangeSet(root, changeSet, options, { subject, 
   }
   // The previewed bytes are staged in this checkout; a proposal is built in a clone that has none.
   const imports = await resolveChangeSetImports(root, changeSet);
-  const mutate = (target) => planStudioChangeSet(target, changeSet, { write: true, imports });
+  const mutate = (target) => planStudioChangeSet(target, changeSet, { write: true, imports, proposing: optionBoolean(options, 'propose') });
   if (optionBoolean(options, 'propose')) {
     return authorProposedOrLocalConfiguration(root, {
       operation: 'studio', subject, message, mutate,
@@ -5430,7 +5430,7 @@ async function workflowCommand(positionals, options) {
         message: `[configuration] workflow studio: ${(changeSet.changes ?? []).length} change(s) to ${subject}`,
         expectedAuthority: expectedConfigurationAuthority(options),
         intent: { kind: 'studio-change-set', operations: changeSet.changes ?? [] },
-        mutate: (target) => planStudioChangeSet(target, changeSet, { write: true, imports })
+        mutate: (target) => planStudioChangeSet(target, changeSet, { write: true, imports, proposing })
       });
     }, false);
     if (json) return console.log(JSON.stringify(result, null, 2));
@@ -5776,8 +5776,11 @@ async function workflowCommand(positionals, options) {
   // `upgrade` are what it was called, kept working because repositories and scripts use them.
   if (['install', 'add', 'upgrade'].includes(subcommand)) {
     const id = requirePositional(positionals, 2, 'workflow type');
-    const result = await installWorkflow(root, id, { replace: optionBoolean(options, 'replace'), dryRun: optionBoolean(options, 'dry-run') });
+    // The one check every way of making a workflow runs (src/workflow-autofix.mjs), before anything is written.
+    const result = await installWorkflowChecked(root, id, { replace: optionBoolean(options, 'replace'), dryRun: optionBoolean(options, 'dry-run') });
     console.log(`${result.dryRun ? 'Would update' : 'Updated'} workflow '${id}':`); result.files.forEach((file) => console.log(`  ${file}`));
+    for (const repair of result.repairs ?? []) console.log(`  ${repair.text}`);
+    for (const problem of result.problems ?? []) console.log(`  Approval would refuse: ${problem.title}${problem.fix ? `\n    Fix: ${problem.fix}` : ''}`);
     if (!result.dryRun) console.log('Changes are validated but uncommitted. Review them, then publish through the VS Code extension or commit them through your normal configuration-review path.');
     return;
   }
@@ -8576,10 +8579,13 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
         // A whole-file save is still a typed intent: this path, these exact bytes, from that base.
         intent: { kind: 'configuration-file', operations: [{ op: 'file.save', path: requestedPath,
           sha256: `sha256:${createHash('sha256').update(content).digest('hex')}`, expectedSha256: saveOptions.expectedSha256 ?? null }] },
-        mutate: (target) => saveConfigurationFile(target, requestedPath, content, saveOptions)
+        // The one check every way of making a workflow runs (src/workflow-autofix.mjs), on the configuration it lands on.
+        mutate: async (target) => (await import('./workflow-autofix.mjs')).checkedConfigurationSave(target, requestedPath, content,
+          () => saveConfigurationFile(target, requestedPath, content, saveOptions))
       }, { backgroundSync: optionBoolean(options, 'background-sync') });
     } else {
-      result = await saveConfigurationFile(root, requestedPath, content, saveOptions);
+      result = await (await import('./workflow-autofix.mjs')).checkedConfigurationSave(root, requestedPath, content,
+        () => saveConfigurationFile(root, requestedPath, content, saveOptions));
     }
   }
   else if (subcommand === 'read') {

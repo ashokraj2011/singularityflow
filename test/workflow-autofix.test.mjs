@@ -19,10 +19,12 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { initializeDefinition } from '../src/config.mjs';
-import { checkCandidate } from '../src/workflow-autofix.mjs';
+import { checkCandidate, checkedConfigurationSave, refuseAddedProblems } from '../src/workflow-autofix.mjs';
 import { createdWithoutProblems, validateWorkflows, workflowProblems } from '../src/workflow-validation.mjs';
 import { defineWorkflow } from '../src/workflow-authoring.mjs';
+import { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
 import { applyWorkflowImport, copyWorkflow, exportWorkflowBundle, planWorkflowCopy, planWorkflowImport, readWorkflowBundle } from '../src/workflow-transfer.mjs';
+import { installWorkflowChecked } from '../src/workflow-catalog.mjs';
 import { importPlanText } from '../src/workflow-transfer-resolution.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -243,6 +245,40 @@ test('workflow create adds what its clause and planning step\'s template lacks i
   assert.equal(await readFile(path.join(root, 'singularity/templates/feature/requirements.md'), 'utf8'), requirements);
 });
 
+test('Workflow Studio shows what it adds in the preview, writes it with the change, and refuses a problem it cannot fix when proposed', async (t) => {
+  const root = await ownDemoSteps(t);
+  const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [
+    { op: 'workflow.create', id: 'qa-flow', label: 'QA flow', phases: QA_FLOW.phases },
+    { op: 'workflow.update', id: 'qa-flow', plannedClaims: { clausePhases: QA_FLOW.plannedClaims.clausePhases, owners: QA_FLOW.plannedClaims.owners } }] };
+  const preview = await planStudioChangeSet(root, changeSet);
+  assert.equal(preview.valid, true, JSON.stringify(preview.problems));
+  assert.deepEqual(preview.repairs.map((entry) => entry.path), [INTAKE_PATH]);
+  assert.ok(preview.summary.includes(preview.repairs[0].text));
+  assert.ok(preview.files.some((file) => file.path === INTAKE_PATH && file.action === 'update'));
+  assert.ok(!preview.warnings.some((entry) => entry.code === 'STUDIO_WORKFLOW_PROBLEM'), JSON.stringify(preview.warnings));
+  assert.equal(await readFile(path.join(root, INTAKE_PATH), 'utf8'), INTAKE, 'a preview writes nothing');
+  await planStudioChangeSet(root, changeSet, { write: true });
+  assert.equal(sha(await readFile(path.join(root, INTAKE_PATH), 'utf8')), preview.repairs[0].after, 'what is written is what the preview showed');
+  assert.equal((await workflowProblems(root, ['qa-flow'])).size, 0);
+
+  // Planning in a packaged workflow's step whose template has no table: SFlow does not change that template, so
+  // the preview names the problem and its fix, and writing it is refused.
+  const broken = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [
+    { op: 'workflow.create', id: 'thin-plan', label: 'Thin plan', phases: ['requirements', 'implementation'] },
+    { op: 'workflow.update', id: 'thin-plan', plannedClaims: { clausePhases: ['requirements'], owners: { implementation: 'requirements' } } }] };
+  const shown = await planStudioChangeSet(root, broken);
+  assert.equal(shown.valid, true, JSON.stringify(shown.problems));
+  assert.ok(shown.warnings.some((entry) => entry.code === 'STUDIO_WORKFLOW_PROBLEM' && /^Approval would refuse thin-plan: The template of Requirements has no planned-claims table/u.test(entry.message)
+    && /belongs to a packaged workflow/u.test(entry.message)), JSON.stringify(shown.warnings));
+  await assert.rejects(planStudioChangeSet(root, broken, { write: true, proposing: true }), (error) => {
+    assert.equal(error.code, 'STUDIO_WORKFLOW_PROBLEMS');
+    assert.match(error.message, /^Workflow Studio changes were not proposed: approval would refuse \d+ problems they add\. Nothing was written or proposed\.\n- thin-plan: /u);
+    assert.ok(error.details.problems.some((entry) => entry.code === 'CHECK_TEMPLATE_PLANNED_TABLE'));
+    return true;
+  });
+  assert.equal(YAML.parse(await readFile(path.join(root, WORKFLOW), 'utf8')).workTypes['thin-plan'], undefined, 'nothing was written');
+});
+
 test('workflow copy and duplicate repair the template their new workflow needs, and the plan names it', async (t) => {
   const root = await configuration(t);
   await addIncidentWorkflow(root);
@@ -262,4 +298,52 @@ test('workflow copy and duplicate repair the template their new workflow needs, 
   assert.equal(duplicate.status, 'ready', JSON.stringify(duplicate.problems ?? duplicate.conflicts));
   assert.equal(duplicate.repairs.length, 1);
   assert.deepEqual(duplicate.repairs[0].codes, ['CHECK_TEMPLATE_CLAUSE_ANCHORS', 'CHECK_TEMPLATE_PLANNED_TABLE']);
+});
+
+test('workflow install, a whole workflow.yml save and a confirmed workflow package each run the same check', async (t) => {
+  // Install: a repository whose own copy of the packaged intake template lacks the anchors and table. A packaged
+  // workflow's template is not SFlow's to add to, so the install is refused with its fix, and --replace takes the packaged one.
+  const root = await configuration(t);
+  await editDefinition(root, (definition) => { delete definition.workTypes['demo-web-e2e-testing']; });
+  const intake = 'singularity/templates/demo-web-e2e-testing/intake.md';
+  await writeFile(path.join(root, intake), INTAKE);
+  const configured = await readFile(path.join(root, WORKFLOW), 'utf8');
+  const dry = await installWorkflowChecked(root, 'demo-web-e2e-testing', { dryRun: true });
+  assert.deepEqual([dry.repairs, dry.problems.map((entry) => entry.code).sort()], [[], ['CHECK_TEMPLATE_CLAUSE_ANCHORS', 'CHECK_TEMPLATE_PLANNED_TABLE']]);
+  await assert.rejects(installWorkflowChecked(root, 'demo-web-e2e-testing'), (error) => {
+    assert.equal(error.code, 'WORKFLOW_INSTALL_PROBLEMS');
+    assert.equal(error.details.nextAction.command, 'singularity-flow workflow install demo-web-e2e-testing --replace');
+    return true;
+  });
+  assert.deepEqual([await readFile(path.join(root, WORKFLOW), 'utf8'), await readFile(path.join(root, intake), 'utf8')], [configured, INTAKE], 'nothing is left written');
+  const installed = await installWorkflowChecked(root, 'demo-web-e2e-testing', { replace: true });
+  assert.deepEqual(installed.repairs ?? [], []);
+  assert.equal((await workflowProblems(root, ['demo-web-e2e-testing'])).size, 0);
+
+  // A whole-file save of workflow.yml (Configuration Center, `configuration save`).
+  const saved = await configuration(t);
+  await mkdir(path.dirname(path.join(saved, TEMPLATE_PATH)), { recursive: true });
+  await writeFile(path.join(saved, TEMPLATE_PATH), INTAKE);
+  const text = YAML.parse(await readFile(path.join(saved, WORKFLOW), 'utf8'));
+  text.workTypes[ID] = { ...structuredClone(text.workTypes['demo-web-e2e-testing']), label: 'QA web', templateOverrides: { 'demo-web-intake': TEMPLATE } };
+  const content = YAML.stringify(text);
+  const result = await checkedConfigurationSave(saved, WORKFLOW, content, async () => { await writeFile(path.join(saved, WORKFLOW), content); return { saved: true }; });
+  assert.deepEqual(result.repairs.map((entry) => entry.path), [TEMPLATE_PATH]);
+  assert.equal((await workflowProblems(saved, [ID])).size, 0);
+  const broken = YAML.parse(content);
+  broken.workTypes['code-only'] = { label: 'Code only', phases: ['implementation'] };
+  const brokenText = YAML.stringify(broken);
+  await assert.rejects(checkedConfigurationSave(saved, WORKFLOW, brokenText, async () => { await writeFile(path.join(saved, WORKFLOW), brokenText); return {}; }),
+    (error) => error.code === 'CONFIGURATION_SAVE_WORKFLOW_PROBLEMS');
+  assert.equal(await readFile(path.join(saved, WORKFLOW), 'utf8'), content, 'the save is put back');
+
+  // A workflow package whose exact files a person confirmed cannot be added to: the problem is refused before proposing.
+  const confirmed = await configuration(t);
+  await mkdir(path.dirname(path.join(confirmed, TEMPLATE_PATH)), { recursive: true });
+  await writeFile(path.join(confirmed, TEMPLATE_PATH), INTAKE);
+  await assert.rejects(refuseAddedProblems(confirmed, [{ path: WORKFLOW, content }], { label: 'Workflow package d-1' }), (error) => {
+    assert.equal(error.code, 'WORKFLOW_PACKAGE_PROBLEMS');
+    assert.deepEqual(error.details.problems.map((entry) => entry.code).sort(), ['CHECK_TEMPLATE_CLAUSE_ANCHORS', 'CHECK_TEMPLATE_PLANNED_TABLE']);
+    return true;
+  });
 });

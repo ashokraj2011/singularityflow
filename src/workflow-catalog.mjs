@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { BUILD_INFO } from './build-info.mjs';
-import { cp, mkdir, readFile, readdir } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { parseAgentDependencies } from './agents.mjs';
 import {
@@ -287,6 +287,43 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
     for (const file of skills) await writeText(path.join(root, file.path), file.text);
   }
   return { id, dryRun, replace, files: changedFiles };
+}
+
+/**
+ * `workflow install` with the one check every way of making a workflow runs (src/workflow-autofix.mjs): the
+ * installed workflow is judged as approval will judge it, a step's template that lacks only placeholders gets
+ * them, and any other problem it would bring is refused with its fix and nothing is left written. A dry run
+ * makes the same check on a copy and says what it would add or refuse.
+ */
+export async function installWorkflowChecked(root, id, { replace = false, dryRun = false } = {}) {
+  const autofix = await import('./workflow-autofix.mjs');
+  const listed = await installWorkflow(root, id, { replace, dryRun: true });
+  if (dryRun) {
+    const checked = await autofix.withConfigurationCopy(root, async (copy) => {
+      const before = await autofix.problemsBefore(copy, [id]);
+      await installWorkflow(copy, id, { replace });
+      return autofix.repairCheckout(copy, [id], { before });
+    });
+    return { ...listed, files: [...new Set([...listed.files, ...checked.repairs.map((entry) => entry.path)])], repairs: checked.repairs, problems: checked.problems };
+  }
+  const saved = new Map();
+  for (const file of listed.files) saved.set(file, await readFile(path.join(root, file)).catch(() => null));
+  const before = await autofix.problemsBefore(root, [id]);
+  const result = await installWorkflow(root, id, { replace });
+  const outcome = await autofix.repairCheckout(root, [id], { before });
+  if (outcome.problems.length) {
+    await outcome.restore();
+    for (const [file, bytes] of saved) {
+      if (bytes == null) await rm(path.join(root, file), { force: true });
+      else await writeFile(path.join(root, file), bytes);
+    }
+    throw new SingularityFlowError(`Workflow ${id} was not installed: approval would refuse ${outcome.problems.length === 1 ? 'a problem' : `${outcome.problems.length} problems`} it brings here. Nothing was left written.\n${autofix.problemLines(outcome.problems)}`, {
+      code: 'WORKFLOW_INSTALL_PROBLEMS', details: { workflow: id, problems: outcome.problems,
+        // A packaged workflow's own templates are taken whole with --replace; SFlow adds nothing to them.
+        nextAction: replace ? { label: 'Fix each problem here, then install it again', command: `singularity-flow workflow install ${id} --replace --dry-run` }
+          : { label: 'Take the packaged workflow whole, its templates too', command: `singularity-flow workflow install ${id} --replace` } } });
+  }
+  return { ...result, files: [...new Set([...result.files, ...outcome.repairs.map((entry) => entry.path)])], repairs: outcome.repairs };
 }
 
 export async function workflowDiff(root, id) {

@@ -1137,6 +1137,10 @@ function owedItem(workflow, context, entry) {
     // The screenshot shows another screen: the person captures the right one again before signing it off.
     : !notYet && entry.capture?.status === 'taken' && entry.capture.again ? [{ id: 'capture', label: 'Take the screenshot again, of the screen it is about',
       command: entry.capture.again, words: 'SFlow opens what was published again; you bring up the screen and capture it, replacing this screenshot.' }] : [];
+  // A Story that adopted application review: its live review is the other way to satisfy it [owner, 2026-11-18].
+  const appReview = notYet && entry.capture?.appReview ? [{ id: 'review', label: 'Or accept it in the application review',
+    command: entry.capture.appReview.command,
+    words: `Accepting its visual dimension in the live review satisfies ${clauseName(workflow, entry.clauseId)}: ${entry.capture.appReview.copilot} in Copilot, ${entry.capture.appReview.vscode} in VS Code, or this command in your terminal.` }] : [];
   const item = stepItem(workflow, context, {
     kind: 'owed-decision', title: witness ? `Sign off ${clauseName(workflow, entry.clauseId)} (${entry.method})` : `Decide scope item ${entry.id}`,
     why: witness ? witnessWhy(workflow, entry)
@@ -1150,7 +1154,7 @@ function owedItem(workflow, context, entry) {
       ...(notYet ? { available: false } : witness ? { humanReview: { kind: 'witness', clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
         files: entry.files, owners: entry.owners, contextBinding: entry.contextBinding } } : {}) },
     ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
-      words: 'Only a person records it; an agent never answers it.' }] : []), ...risk],
+      words: 'Only a person records it; an agent never answers it.' }] : []), ...risk, ...appReview],
     // Whose delivery publishes its evidence and what it is: a sign-off nobody can give yet says when it can [owner, 2026-11-16].
     details: witness ? { clause: entry.clauseId, slot: entry.slot, contextBinding: entry.contextBinding, owners: entry.owners ?? [], files: entry.files ?? [], method: entry.method ?? null,
       ...(entry.capture ? { capture: { status: entry.capture.status, file: entry.capture.file, ...(entry.capture.reason ? { reason: entry.capture.reason } : {}),

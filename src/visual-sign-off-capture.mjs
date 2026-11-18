@@ -92,15 +92,31 @@ export function signOffFile({ root, config }, workflow, { clauseId, slot, target
   const riskCommand = (row?.actions ?? []).find((entry) => entry.kind === 'accept-risk')?.command ?? null;
   const build = signOffBuild(root, workflow);
   const head = `  ${clauseId} ${slot} (visual: the plan names no file) — `;
-  const risk = riskCommand ? { riskCommand } : {};
+  const review = applicationReviewRoute(workflow);
+  const risk = { ...(riskCommand ? { riskCommand } : {}), ...(review ? { appReview: review } : {}) };
   const capture = build.source
     ? { status: 'needed', workId, file, command, ...(target ? { target } : {}), ...risk, build: { source: build.source, words: build.words }, viewport: signOffViewport(workflow),
-      lines: [`${head}a person takes its screenshot on the Decide card (/sf-decide ${workId}, Take the screenshot) or in their own terminal, bringing up the screen it is about, then looks at it and signs it off:`, `    ${command}`] }
+      lines: [`${head}a person takes its screenshot on the Decide card (/sf-decide ${workId}, Take the screenshot) or in their own terminal, bringing up the screen it is about, then looks at it and signs it off:`, `    ${command}`, ...reviewLine(review)] }
     : { status: 'unavailable', workId, file, reason: build.reason, ...risk,
       lines: [`${head}SFlow cannot take its screenshot: ${build.reason}. Save one as ${file}, then sign it off: /sf-decide ${workId}`,
-        ...(riskCommand ? [`    Or accept it as a dated risk: ${riskCommand}`] : [])] };
+        ...(riskCommand ? [`    Or accept it as a dated risk: ${riskCommand}`] : []), ...reviewLine(review)] };
   return { files: [], capture };
 }
+
+/**
+ * The other way a Story that adopted application review satisfies a visual sign-off: its live review, whose accepted
+ * visual dimension witnesses the criterion's visual slots (applicationReviewSlotResults) [owner, 2026-11-18]. Null for a
+ * Story without it, with it off, with a declared surface that has no screens, or under signed person presence, which the
+ * local review adapter cannot sign (ARA_AUTHORITY_ADAPTER_UNAVAILABLE).
+ */
+export function applicationReviewRoute(workflow) {
+  const policy = workflow?.resolution?.applicationReview;
+  if (!policy || policy.mode === 'off' || NON_WEB.has(policy.surface)) return null;
+  if (workflow.resolution.presence && workflow.resolution.presence.status !== 'off') return null;
+  return { copilot: '/sf-app-review', command: `singularity-flow app-review start --work-id ${workflow.workItem.id} --json`, vscode: 'Singularity Flow: Review Application' };
+}
+
+const reviewLine = (review) => (review ? [`    Or accept it in the application review: ${review.copilot}, or ${review.command}`] : []);
 
 /** The person's own command that opens the app for them to bring up and capture the screen a visual sign-off is about. */
 export const screenshotCommand = (workId, clauseId, slot) => `singularity-flow decision screenshot --work-id ${workId} --criterion ${clauseId} --slot ${slot}`;

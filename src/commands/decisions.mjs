@@ -388,6 +388,21 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       say('');
       for (const line of itemLines(item, index, { numbered: true })) say(line);
       if (!item.decidedBy.allowed) continue;
+      // A visual sign-off's screenshot is the person's own step, and they are here: asked, then taken and signed off
+      // by the caller (decisions-screenshot.mjs) [owner, 2026-11-18]. Never a check: it waits for them at a browser.
+      const shot = checkOf(item)?.kind === 'screenshot' ? checkOf(item) : null;
+      const signable = item.details?.capture?.status === 'taken'
+        && item.options.some((option) => option.action?.humanReview && option.available !== false && option.decidedBy?.allowed);
+      if (shot || signable) {
+        const yes = /^(?:y|yes)$/iu.test(await ask(shot ? '   Take the screenshot now? It opens your app in a browser [y/N]: '
+          : '   Look at the screenshot and sign it off now? [y/N]: '));
+        if (yes) {
+          reader.close();
+          return { screenshot: { item: item.id, subject: item.subject ?? null, take: Boolean(shot) } };
+        }
+        if (shot) say(`   Take it later yourself: ${shot.command}`);
+        continue;
+      }
       // Only the person's own steps: nothing to choose here, so each command is shown, not asked.
       if (item.options.every((option) => option.recordable === false)) {
         for (const option of item.options.filter((entry) => entry.action?.command)) say(`   Run it yourself: ${option.action.command}`);
@@ -795,7 +810,7 @@ async function recordJustAQuestion(root, options, workId) {
 async function record(root, options, workId, io) {
   if (optionString(options, 'version-consent')) return recordVersionConsent(root, options, workId);
   if (optionString(options, 'just-a-question')) return recordJustAQuestion(root, options, workId);
-  const { config, workflow } = await storyContext(root, workId, { record: true, fetch: optionBoolean(options, 'fetch') });
+  let { config, workflow } = await storyContext(root, workId, { record: true, fetch: optionBoolean(options, 'fetch') });
   if (workflow.status !== 'in_progress') {
     refused(`Story ${workflow.workItem.id} is ${workflow.status}; decisions are recorded while it is in progress.`, 'DECISIONS_STORY_CLOSED');
   }
@@ -824,6 +839,19 @@ async function record(root, options, workId, io) {
       return;
     }
     prompt = await promptDecisionAnswers(packet, io);
+    // A visual sign-off's screenshot, taken here with the person at the browser, then signed off; the list is asked again.
+    // Only this person's terminal reaches it (input and output are a TTY); a chat turn is refused `decisions record`.
+    for (let round = 0; prompt?.screenshot && round < 5; round += 1) {
+      const { screenshotWalkthrough } = await import('./decisions-screenshot.mjs');
+      const id = workflow.workItem.id;
+      const reread = async () => {
+        ({ config, workflow } = await storyContext(root, id, { record: true, fetch: false }));
+        return readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() });
+      };
+      await screenshotWalkthrough(root, { workId: id, packet, request: prompt.screenshot, reread, io });
+      packet = await reread();
+      prompt = await promptDecisionAnswers(packet, io);
+    }
     // "Check first": SFlow runs the check, with the time the person asked for, and asks the list again once.
     if (prompt?.check) {
       const { LONGEST_SECONDS } = await import('../decision-probes.mjs');

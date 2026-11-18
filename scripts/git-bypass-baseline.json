@@ -90,6 +90,13 @@
       },
       "digest": "b355093fc77e25d230041555ca6a0618c0c40def0d3d721a5d054cd91438a632"
     },
+    "src/commands/decisions-screenshot.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "8479254ca2b7a2fc15626a0f246ee243501c0bbfa8a1d8338b5b4660245b7cec"
+    },
     "src/story-policy-anchor.mjs": {
       "counts": {
         "command-run": 2

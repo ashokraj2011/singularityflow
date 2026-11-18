@@ -275,6 +275,8 @@ export function packetText(packet) {
   }
   // What nobody can answer yet, one line each, never a question of its own.
   if (later.length) lines.push(...later.map((line) => `Later: ${line}`), '');
+  // Nothing open is this person's to act on now: why, and what its approval waits for, as both cards say it [owner, 2026-11-18].
+  if (packet.plain?.nothingToRecord) lines.push(packet.plain.nothingToRecord, '');
   if (settled.length) {
     lines.push('Settled for you:', '');
     for (const [index, item] of settled.entries()) lines.push(...itemLines(item, index), '');

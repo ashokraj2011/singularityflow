@@ -82,6 +82,16 @@ async function inspect(packet, file) {
   if (opener) await executeFile(opener, [absolute], { timeout: 5000 }).catch(() => undefined);
 }
 
+/**
+ * The person's own capture of the screen a visual sign-off is about (`decision screenshot`): SFlow builds what was
+ * published and opens it in its own browser, and waits for the person to click "Capture this screen". Run by this
+ * card outside the chat, never by a turn: the build gets 15 minutes, the person 10.
+ */
+async function takeScreenshot(packet, check) {
+  return (await runFlow(['decision', 'screenshot', '--work-id', packet.workId, '--criterion', check.criterion, '--slot', check.slot, '--json'],
+    { timeout: 30 * 60 * 1000 })).data;
+}
+
 // With `probe`, SFlow first runs the checks an answer depends on, for at most that many seconds; the read waits for them.
 const readList = async (workId, { probe = null } = {}) => (await runFlow(['decisions', ...(workId ? [workId] : []),
   ...(probe ? ['--probe', '--probe-wait', String(probe)] : []), '--json'], probe ? { timeout: (probe + 120) * 1000 } : {})).data;
@@ -103,7 +113,7 @@ const decide = (workId, { askedInChat = false } = {}) => runCard({
   question: recordJustAQuestion,
   ask: (form) => session.ui.elicitation(form),
   show: (text) => session.log(text),
-  record: recordCard, witness: recordWitness, inspect
+  record: recordCard, witness: recordWitness, inspect, screenshot: takeScreenshot
 });
 
 session = await joinSession({

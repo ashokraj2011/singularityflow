@@ -44,7 +44,8 @@ test('each kind of row offers what it really is: a choice, the sign-off, a step 
   assert.match(html, /This one stays in your terminal\.[\s\S]*singularity-flow recover PAY-1 --json[\s\S]*data-terminal="route"/u);
   assert.doesNotMatch(html.slice(html.indexOf('data-other="d6"')), /data-choice/u, 'no control on what is not theirs');
   assert.match(html, /The Leads decide this; ask them\.[\s\S]*\/sf-decide PAY-1/u);
-  assert.equal(decideHtml(packet({ items: [packet().items[5]] })).includes('data-review disabled'), true, 'nothing to record, nothing to press');
+  // Nothing to record: no "Review and record" at all, which did nothing when clicked [owner, 2026-11-18].
+  assert.equal(decideHtml(packet({ items: [packet().items[5]] })).includes('data-review'), false, 'nothing to record, nothing to press');
 });
 
 test('one answer is offered only where two rows share it, and never one that needs a date', () => {

@@ -100,8 +100,11 @@ export async function repository(t, { extraCommands = [], implementCommands = tr
   return { base, root, env, must, sflow, sflowJson, run };
 }
 
-/** A quick-fix Story at its implement step, on a branch published to a local bare remote. */
-export async function startQuickFix(repo, { retainedScreenshot = null } = {}) {
+/**
+ * A quick-fix Story at its implement step, on a branch published to a local bare remote. `visualCriterion` gives
+ * AC-001 a primary visual contract slot whose plan names no screenshot file (the code row alone).
+ */
+export async function startQuickFix(repo, { retainedScreenshot = null, visualCriterion = false } = {}) {
   const { root, sflow, must } = repo;
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(repo.base, 'remote.git')], repo.base);
   must('git', ['remote', 'add', 'origin', path.join(repo.base, 'remote.git')]);
@@ -120,7 +123,10 @@ export async function startQuickFix(repo, { retainedScreenshot = null } = {}) {
       '## Verification contracts', '',
       '| Criterion | Slot | Method | Witness | Role | Required assurance |', '|---|---|---|---|---|---|',
       '| `QF-1:AC-001` | screen | visual | `Value display` | primary | source-bound |', ''
-    ] : []), '',
+    ] : []),
+    ...(visualCriterion ? ['', '## Verification contracts', '',
+      '| Criterion | Slot | Method | Witness | Role | Required assurance |', '|---|---|---|---|---|---|',
+      '| `QF-1:AC-001` | screen | visual | `Value display at desktop viewport` | primary | source-bound |', ''] : []), '',
     '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n'));
   sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   sflow('submit', 'intake');

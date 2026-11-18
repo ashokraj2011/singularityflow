@@ -80,18 +80,29 @@ export async function serveReviewBuild(files) {
   return { origin, instance, manifest, digest: reviewDigest(manifest), close: () => { server.close(); server.closeAllConnections(); } };
 }
 
-/** Build only declared before-launch steps, from checked source copies; never run ambient dev/HMR. */
-export async function prepareStaticReview(root, config, workflow, session, { headless = false } = {}) {
-  const policy = session.policy;
-  if (!policy.preview) araFail('ARA_APP_SETUP_REQUIRED', 'Adopt a static output directory and declared application entry before starting a verified web preview.');
+/**
+ * A declared application entry's static build, as the adapter runs it: its before-launch steps, working directory and
+ * environment. Refused for what this adapter cannot bind (dependencies, secret environments, inherited appends).
+ */
+export async function declaredStaticBuild(root, workflow, entryId) {
   const { resolveCapabilityApplication } = await import('./capability-application-context.mjs');
   const context = await resolveCapabilityApplication(root, { capabilityId: workflow.resolution?.capability?.id ?? null });
   const { selectStartEntry, applicationCommandSha256 } = await import('./application-run.mjs');
-  const entry = selectStartEntry(context, policy.preview.entry);
+  const entry = selectStartEntry(context, entryId);
   if (entry.dependsOn?.length || entry.environments?.length) araFail('ARA_RUNTIME_PROFILE_UNSUPPORTED', 'This static adapter does not yet bind external/backend dependencies or secret environments. Use a qualified adapter; observations remain available.');
   const { resolveStartCommand } = await import('./run-configurations.mjs');
   const command = resolveStartCommand(entry);
   if (Object.keys(command.appendEnv ?? {}).length) araFail('ARA_RUNTIME_PROFILE_UNSUPPORTED', 'Inherited environment appends require a qualified runtime adapter.');
+  return { steps: command.beforeLaunch ?? [], workingDirectory: entry.workingDirectory ?? '.', env: command.env ?? {}, commandDigest: applicationCommandSha256(context, entry) };
+}
+
+/**
+ * Copy the application's checked source into an owned materialization, run `build.steps` there and read the static
+ * output: the one build both application review's preview and a visual sign-off's own screenshot use
+ * (visual-sign-off-capture.mjs). `deadline` (epoch milliseconds) bounds every step; a failed build keeps its
+ * materialization for diagnosis and runs no replacement command.
+ */
+export async function buildStaticOutput(root, config, workflow, build, { outputDirectory, deadline = null, label = 'The declared preview build' } = {}) {
   const snapshot = await applicationReviewSnapshot(root, config, workflow, { retainBytes: true });
   const materialization = path.join(reviewLocalRoot(root), 'materializations', randomUUID());
   await mkdir(materialization, { recursive: true, mode: 0o700 });
@@ -102,21 +113,32 @@ export async function prepareStaticReview(root, config, workflow, session, { hea
     if (item.executable && process.platform !== 'win32') await chmod(target, 0o700);
   }
   const { runQualityCommand, withoutHostSurfaceVariables } = await import('./quality-command-runner.mjs');
-  for (const step of command.beforeLaunch ?? []) {
-    const cwd = (await secureRepositoryPath(materialization, step.workingDirectory ?? entry.workingDirectory ?? '.', { label: 'Review build directory', mustExist: true, type: 'directory' })).absolute;
+  for (const step of build.steps) {
+    const left = deadline === null ? null : deadline - Date.now();
+    if (left !== null && left < 1000) araFail('ARA_BUILD_FAILED', `${label} ran out of time before ${step.argv.join(' ')}. Nothing was recorded; ask again with more time.`, { timedOut: true });
+    const cwd = (await secureRepositoryPath(materialization, step.workingDirectory ?? build.workingDirectory ?? '.', { label: 'Review build directory', mustExist: true, type: 'directory' })).absolute;
     const { environment: buildEnvironment } = await (await gateTestEnvironmentModule()).withProjectNodeVersion(withoutHostSurfaceVariables(process.env), { cwd, root: materialization });
-    const result = await runQualityCommand(step.argv[0], step.argv.slice(1), { cwd, env: { ...buildEnvironment, ...command.env }, timeoutMs: step.timeoutMs,
+    const timeoutMs = left === null ? step.timeoutMs : Math.min(step.timeoutMs ?? left, left);
+    const result = await runQualityCommand(step.argv[0], step.argv.slice(1), { cwd, env: { ...buildEnvironment, ...build.env }, timeoutMs,
       maxBuffer: 2 * 1024 * 1024 });
     if (result.status !== 0 && result.exitCode !== 0) {
-      const entries = redactionEntries(Object.entries({ ...process.env, ...command.env }).filter(([name]) => /secret|password|token|api.?key/iu.test(name)).map(([name, value]) => ({ name, value })));
+      const entries = redactionEntries(Object.entries({ ...process.env, ...build.env }).filter(([name]) => /secret|password|token|api.?key/iu.test(name)).map(([name, value]) => ({ name, value })));
       const diagnostic = redactDiagnosticText(redactText(result.stderr || result.stdout || result.error?.message || 'No process output was returned.', entries), { multiline: true }).slice(-2000);
-      araFail('ARA_BUILD_FAILED', `The declared preview build failed (exit ${result.exitCode ?? result.status ?? 'unavailable'}). ${diagnostic} Its owned snapshot is retained for recovery; no replacement command ran.`,
+      araFail('ARA_BUILD_FAILED', `${label} failed (exit ${result.exitCode ?? result.status ?? 'unavailable'}${result.timedOut ? ', out of time' : ''}). ${diagnostic} Its owned snapshot is retained for recovery; no replacement command ran.`,
         { exitCode: result.exitCode ?? result.status, signal: result.signal ?? null, timedOut: result.timedOut ?? false });
     }
   }
   if ((await applicationReviewSnapshot(root, config, workflow)).digest !== snapshot.digest) araFail('ARA_REVIEW_STALE', 'Source changed while the preview was being built.');
-  const output = await secureRepositoryPath(materialization, policy.preview.outputDirectory, { label: 'Static preview output', mustExist: true, type: 'directory' });
-  const files = await outputFiles(output.absolute);
+  const output = await secureRepositoryPath(materialization, outputDirectory, { label: 'Static preview output', mustExist: true, type: 'directory' });
+  return { snapshot, materialization, files: await outputFiles(output.absolute) };
+}
+
+/** Build only declared before-launch steps, from checked source copies; never run ambient dev/HMR. */
+export async function prepareStaticReview(root, config, workflow, session, { headless = false } = {}) {
+  const policy = session.policy;
+  if (!policy.preview) araFail('ARA_APP_SETUP_REQUIRED', 'Adopt a static output directory and declared application entry before starting a verified web preview.');
+  const build = await declaredStaticBuild(root, workflow, policy.preview.entry);
+  const { snapshot, materialization, files } = await buildStaticOutput(root, config, workflow, build, { outputDirectory: policy.preview.outputDirectory });
   const served = await serveReviewBuild(files);
   // Check each served byte against its built manifest, in addition to the owned instance identity.
   for (const item of served.manifest) {
@@ -142,11 +164,84 @@ export async function prepareStaticReview(root, config, workflow, session, { hea
     await evaluateReviewPage(page, () => document.fonts.ready);
     return { page, browser, served, blockedOrigins,
       binding: { adapter: 'static-web', checkout: localCheckoutIdentity(root), instance: served.instance, origin: served.origin,
-        buildManifest: served.manifest, buildDigest: served.digest, sourceDigest: snapshot.digest, commandDigest: applicationCommandSha256(context, entry),
+        buildManifest: served.manifest, buildDigest: served.digest, sourceDigest: snapshot.digest, commandDigest: build.commandDigest,
         toolchain: { node: process.versions.node, platform: process.platform, architecture: process.arch, playwright: ARA_BROWSER_VERSION, chromium: browser.version() },
         profile: { viewport: policy.capture.viewport, locale: 'en-US', timezoneId: 'UTC', deviceScaleFactor: 1, serviceWorkers: 'blocked', externalServices: 'unsupported' } },
       close: async () => { await browser.close(); served.close(); await rm(materialization, { recursive: true, force: true }); } };
   } catch (error) { await browser?.close(); served.close(); throw error; }
+}
+
+// The bar SFlow puts over the application while a person brings up the screen a criterion is about: fixed, above
+// everything, in a closed shadow root and put back if the page removes it, on every page and after every navigation.
+const CAPTURE_BAR = ({ label, button }) => {
+  if (window.top !== window) return;
+  const mount = () => {
+    if (!document.documentElement || document.querySelector('sflow-capture-bar')) return;
+    const host = document.createElement('sflow-capture-bar');
+    host.setAttribute('style', 'all:initial;position:fixed;z-index:2147483647;left:0;right:0;bottom:0;display:block');
+    const shadow = host.attachShadow({ mode: 'closed' });
+    shadow.innerHTML = '<style>div{font:13px system-ui,sans-serif;background:#122332;color:#fff;padding:8px 12px;display:flex;gap:12px;align-items:center;justify-content:space-between}'
+      + 'button{font:600 13px system-ui,sans-serif;padding:7px 14px;border:0;border-radius:4px;background:#1f7a46;color:#fff;cursor:pointer}</style><div><span></span><button type="button"></button></div>';
+    shadow.querySelector('span').textContent = label;
+    const control = shadow.querySelector('button');
+    control.textContent = button;
+    control.addEventListener('click', () => { control.disabled = true; control.textContent = 'Capturing…'; window.sflowCaptureScreen(); });
+    document.documentElement.appendChild(host);
+  };
+  const keep = () => { mount(); new MutationObserver(mount).observe(document.documentElement, { childList: true, subtree: true }); };
+  if (document.documentElement) keep(); else document.addEventListener('readystatechange', keep, { once: true });
+};
+
+/**
+ * The screen a person brought up, captured when they say so [owner, 2026-11-18]: a built static output served on a
+ * loopback port and opened in the pinned browser, headed, with the SFlow bar naming the criterion and what the plan says
+ * to show. The person navigates to that screen and clicks the bar's button; SFlow hides the bar, takes the screenshot of
+ * what is on screen, and closes the browser. Only the served build is reachable. Refuses ARA_CAPTURE_NOT_TAKEN when the
+ * browser is closed or `deadline` passes first, nothing taken. `drive(page)` clicks for a test, headless.
+ */
+export async function personCapturedScreenshot(files, { viewport, deadline, label, button, headless = false, drive = null }) {
+  const served = await serveReviewBuild(files);
+  const left = () => Math.max(1000, deadline - Date.now());
+  let browser;
+  let timer;
+  try {
+    browser = await reviewBrowser({ headless, timeoutMs: 30000 });
+    const context = await browser.newContext({ viewport, locale: 'en-US', timezoneId: 'UTC', deviceScaleFactor: 1, serviceWorkers: 'block' });
+    await context.route('**/*', route => {
+      const url = new URL(route.request().url());
+      return url.origin === served.origin || ['data:', 'blob:'].includes(url.protocol) ? route.continue() : route.abort();
+    });
+    await context.routeWebSocket('**/*', socket => socket.close());
+    let chosen;
+    const picked = new Promise(resolve => { chosen = resolve; });
+    await context.exposeBinding('sflowCaptureScreen', ({ page }) => chosen(page));
+    await context.addInitScript(CAPTURE_BAR, { label, button });
+    const page = await context.newPage();
+    page.on('dialog', async dialog => { await dialog.dismiss().catch(() => {}); });
+    await page.goto(served.origin, { waitUntil: 'networkidle', timeout: 30000 });
+    const ended = new Promise((resolve) => {
+      browser.on('disconnected', () => resolve('closed'));
+      context.on('close', () => resolve('closed'));
+      page.on('close', () => { if (!context.pages().some(open => !open.isClosed())) resolve('closed'); });
+      timer = setTimeout(() => resolve('timeout'), left());
+    });
+    if (drive) await drive(page);
+    const outcome = await Promise.race([picked, ended]);
+    if (outcome === 'closed' || outcome === 'timeout') {
+      araFail('ARA_CAPTURE_NOT_TAKEN', outcome === 'closed' ? 'The browser was closed before a screen was captured, so nothing was taken.'
+        : 'Nobody captured a screen before the time ran out, so nothing was taken.', { reason: outcome === 'closed' ? 'closed' : 'nobody-captured' });
+    }
+    const shown = outcome;
+    await shown.evaluate(() => { for (const bar of document.querySelectorAll('sflow-capture-bar')) bar.style.setProperty('display', 'none', 'important'); });
+    await evaluateReviewPage(shown, () => document.fonts.ready, Math.min(10000, left()));
+    const bytes = await shown.screenshot({ type: 'png', animations: 'disabled', timeout: left() });
+    if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) araFail('ARA_CAPTURE_FAILED', 'The browser did not return a PNG image.');
+    return { bytes, browser: browser.version(), screen: { title: await shown.title(), path: new URL(shown.url()).pathname + new URL(shown.url()).hash } };
+  } finally {
+    clearTimeout(timer);
+    await browser?.close().catch(() => {});
+    served.close();
+  }
 }
 
 export async function reviewedPageFingerprint(preview) {

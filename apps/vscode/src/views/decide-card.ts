@@ -18,7 +18,7 @@ import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, 
   justAQuestionArgv, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { approvalRows, checkNames, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
+import { approvalRows, checkNames, checkOf, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
   guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
 
 // How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
@@ -103,7 +103,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     const reread = async () => { packet = await readList(client, workId).catch(() => packet); };
     // What an answer depends on, SFlow checks itself, read-only and bounded, and the rows recommend from it [owner, 2026-11-16].
     const check = async (seconds: number, { asked = false } = {}) => {
-      const names = checkNames(packet);
+      const names = checkNames(packet, { asked });
       if (!names.length || busy) return;
       busy = true;
       render(null, `Checking: ${names.join('; ')} (up to ${seconds >= 120 ? `${Math.round(seconds / 60)} minutes` : `${seconds} seconds`}; nothing is recorded).`);
@@ -112,8 +112,26 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       // Closed while it checked: nothing to show it on.
       if (settled) return;
       panel.reveal();
-      // The row itself says so when the first check ran out of time; only a check the person asked for is reported.
-      render(null, asked && checkNames(packet).length ? 'The check did not finish in time; nothing was recorded.' : null);
+      // The row itself says so when the first check ran out of time; only a check the person asked for is reported,
+      // and one that failed in its own words (a screenshot whose build failed).
+      const failed = decideRows(packet).map((item) => checkOf(item)?.failed).find(Boolean);
+      render(null, asked && checkNames(packet, { asked }).length ? failed ? `${failed} Nothing was recorded.` : 'The check did not finish in time; nothing was recorded.' : null);
+    };
+    // Runs `decision screenshot`: SFlow opens what was published in its own browser, the person brings up the screen and
+    // captures it, then the list is read again and its sign-off asks them to look at the screenshot.
+    const screenshot = async (shot: { criterion?: string; slot?: string }) => {
+      if (busy || !shot.criterion || !shot.slot) return;
+      busy = true;
+      render(null, 'SFlow is opening what was published in its own browser: bring up the screen the criterion is about, then click "Capture this screen" on SFlow\'s bar.');
+      let failed: string | null = null;
+      try {
+        await client.run(['decision', 'screenshot', '--work-id', workId, '--criterion', shot.criterion, '--slot', shot.slot, '--json'], undefined, { priority: 'interactive' });
+      } catch (error) { failed = `No screenshot was taken: ${(error as Error).message}`; }
+      await reread();
+      busy = false;
+      if (settled) return;
+      panel.reveal();
+      render(failed, failed ? null : 'The screenshot is taken: look at it and sign it off below.');
     };
     const optionOf = (message: InboundMessage) => decideRows(packet).find((item) => item.id === stringField(message, 'item'))
       ?.options.find((option) => option.id === stringField(message, 'option'));
@@ -127,7 +145,14 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     const router = registerMessageRouter('singularityFlow.decide', {
       'decide.cancel': () => finish(notNow()),
       // "Check first", chosen on a row: what the person typed stays on the page.
-      'decide.check': async (message) => { draft = decideDraftFrom(message); await check(CHECK_FIRST_SECONDS, { asked: true }); },
+      'decide.check': async (message) => {
+        draft = decideDraftFrom(message);
+        // A visual sign-off's screenshot is the person's own capture at SFlow's browser, never a check [owner, 2026-11-18].
+        const row = decideRows(packet).find((item) => item.id === stringField(message, 'item'));
+        const shot = row ? checkOf(row) : null;
+        if (shot?.kind === 'screenshot') return screenshot(shot);
+        await check(CHECK_FIRST_SECONDS, { asked: true });
+      },
       'decide.open': async (message) => {
         const file = stringField(message, 'path');
         // A row offered beside the list opens its file too: a convergence answer someone may change names the file it is about [SCS:REQ-034].

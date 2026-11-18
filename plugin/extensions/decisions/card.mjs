@@ -73,7 +73,8 @@ export const cardRows = (packet) => {
 export const settledRows = (packet) => cardRows(packet).filter((item) => item.settled === true);
 /** The step's approval: it starts from this card too, and /sf-approve shows its documents [owner, 2026-11-13]. */
 export const approvalRows = (packet) => packet.items.filter((item) => item.kind === 'approval');
-const decidable = (packet) => cardRows(packet).filter((item) => item.decidedBy?.allowed && item.options.some(choosable));
+// A row is asked when it has a choice to record, or a check SFlow runs when asked: a sign-off's screenshot is taken first.
+const decidable = (packet) => cardRows(packet).filter((item) => item.decidedBy?.allowed && (item.options.some(choosable) || Boolean(checkOf(item))));
 const changeable = (item) => CHANGEABLE_KINDS.includes(item.kind);
 /** The items the card asks now, as questions: open, offered and the approval, never what waits for later or was settled. */
 const askedRows = (packet) => [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)].filter((item) => !laterOf(item));
@@ -498,8 +499,12 @@ async function askRows(packet, ask) {
   return { answers };
 }
 
-/** The items whose answer waits on a check SFlow runs itself, in words: "run the tests on Node 22". */
-const checkNames = (packet) => cardRows(packet).filter((item) => checkOf(item) && item.decidedBy?.allowed).map((item) => checkOf(item).label.replace(/^Check first: /u, ''));
+/**
+ * The items whose answer waits on a check SFlow runs itself before it asks, in words: "run the tests on Node 22". One
+ * that runs only when the person asks for it (SFlow's screenshot builds the app) is offered on its row instead.
+ */
+const checkNames = (packet) => cardRows(packet).filter((item) => checkOf(item) && !checkOf(item).onRequest && item.decidedBy?.allowed)
+  .map((item) => checkOf(item).label.replace(/^Check first: /u, ''));
 
 /**
  * The whole conversation with one person. `ask(form)` answers `{ action, content }`, `show(text)` prints,
@@ -542,7 +547,7 @@ async function askVersionOpening(packet, { ask, show, consent, question = null }
   return { started: true, words: result?.words ?? null, next: result?.next ?? null };
 }
 
-export async function runCard({ ask, show, read, record, witness, inspect, consent = null, question = null, askedInChat = false }) {
+export async function runCard({ ask, show, read, record, witness, inspect, screenshot = null, consent = null, question = null, askedInChat = false }) {
   let packet = await read();
   const opening = await askVersionOpening(packet, { ask, show, consent, question });
   if (opening?.started && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-opening'], remaining: [],
@@ -563,6 +568,11 @@ export async function runCard({ ask, show, read, record, witness, inspect, conse
     packet = await read({ probe: CHECK_SECONDS }).catch(() => packet);
   }
   await show(decisionsTable(packet));
+  // Nothing on the list is this person's to act on now: said, with why and what it holds, never an empty form [owner, 2026-11-18].
+  if (!answered && packet.plain?.nothingToRecord && !cardRows(packet).flatMap(reviews).length) {
+    await show(packet.plain.nothingToRecord);
+    return { status: 'nothing-recordable', recorded: [], remaining: openRows(packet).map((item) => itemName(item)), message: packet.plain.nothingToRecord };
+  }
   const recorded = answered ? ['version-question'] : [];
   // What was decided, in its own words: this is what the agent reports back, and a record's ID does not say it.
   const decided = answered ? [answered.replace(/\.$/u, '')] : [];
@@ -576,9 +586,19 @@ export async function runCard({ ask, show, read, record, witness, inspect, conse
   let asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
   // "Check first": SFlow runs it with the time the person chose to give it, then asks again once with what it found.
   for (let round = 0; asked.check && round < 2; round += 1) {
-    if (round === 1) return { status: 'cancelled', recorded, remaining: [], message: 'The check gave no answer in time; nothing was recorded.' };
-    await show(`Checking: ${checkOf(asked.check).label.replace(/^Check first: /u, '')} (up to ${CHECK_FIRST_SECONDS / 60} minutes; nothing is recorded).`);
-    packet = await read({ probe: CHECK_FIRST_SECONDS });
+    // A check that failed says why, in its own words (a screenshot whose build failed), not that it ran out of time.
+    if (round === 1) return { status: 'cancelled', recorded, remaining: [], message: checkOf(asked.check)?.failed ? `${checkOf(asked.check).failed} Nothing was recorded.` : 'The check gave no answer in time; nothing was recorded.' };
+    const shot = checkOf(asked.check);
+    if (shot.kind === 'screenshot') {
+      // The person's own capture at SFlow's browser (`decision screenshot`), never a check SFlow runs [owner, 2026-11-18].
+      if (!screenshot) return { status: 'needs-terminal', recorded, remaining: [], command: shot.command, message: `Take the screenshot in your own terminal: ${shot.command}` };
+      await show(`${shot.does}`);
+      try { await screenshot(packet, shot); } catch (error) { await show(`No screenshot was taken: ${error.message}`); }
+      packet = await read();
+    } else {
+      await show(`Checking: ${shot.label.replace(/^Check first: /u, '')} (up to ${CHECK_FIRST_SECONDS / 60} minutes; nothing is recorded).`);
+      packet = await read({ probe: CHECK_FIRST_SECONDS });
+    }
     await show(decisionsTable(packet));
     asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
   }

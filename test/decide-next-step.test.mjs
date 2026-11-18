@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { agentAct } from '../src/agent-output.mjs';
 import { decisionPacket } from '../src/decision-list.mjs';
 import { withPlainWords } from '../src/decision-plain.mjs';
 import { sourceReviewContinuation } from '../src/source-review-continuation.mjs';
@@ -76,6 +77,11 @@ test('the incident: nothing waits on the person, so the list ends with the plann
   const page = decisionListHtml(buildDecisionListView(packet));
   assert.ok(text(page).includes(NEXT));
   assert.match(page, /data-action="copy-next"/u);
+  // A /sf-decide turn: the Story's next step, never "ask the person to pick" over a list nothing on is theirs.
+  const act = agentAct(packet);
+  assert.equal(act.state, 'next');
+  assert.deepEqual([act.do.copilot, act.do.shell], ['/sf-code implementation', 'singularity-flow phase rollover implementation --json']);
+  assert.match(act.said, /Nothing here waits on the person now: show each Waiting line, then the Story goes on with its next step\.$/u);
 });
 
 test('something that waits on the person keeps the list as it was: no next step is added over it', async () => {

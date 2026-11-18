@@ -242,11 +242,14 @@ test('decisions, readiness, nextsteps and every editor surface report the same o
   };
   let { listed, readiness, next, snapshot } = read();
   assert.deepEqual(listed.items.map((item) => item.kind), ['intent-amendment', 'approval']);
-  assert.equal(listed.next.kind, 'intent-amendment');
+  // The decisions screen never names itself as its next step: the amendment is decided on the Decide card [owner, 2026-11-18].
+  assert.equal(listed.next.kind, 'decide-card');
+  const first = listed.items.find((item) => item.id === listed.next.item);
+  assert.equal(first.kind, 'intent-amendment');
   const expected = { list: 2, inbox: 2, badge: 2, journey: 2 };
   assert.deepEqual([listed.open, readiness.pending?.open, next.pending?.open], [2, 2, 2], 'decisions, readiness and nextsteps');
   assert.deepEqual(surfaces.counts(snapshot), expected, 'the editor surfaces');
-  assert.equal(snapshot.submissionReadiness.pending.next.title, listed.next.title);
+  assert.equal(snapshot.submissionReadiness.pending.next.title, first.title);
 
   // Rejecting the amendment leaves the approval as the one open item, everywhere.
   cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'reject', '--confirm', 'AMD-001', '--reason', 'Value 1 stays as approved.');

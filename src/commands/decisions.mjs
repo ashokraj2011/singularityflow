@@ -134,15 +134,39 @@ export async function storyNextFrom(now, workflow = null) {
     ...(guidance?.modelFreeCommand ? { modelFreeCommand: guidance.modelFreeCommand } : {}) };
 }
 
-/** The packet with the Story's next step beside it: `storyNext`, and `next` too where the list had only "see nextsteps". */
+/**
+ * The Decide card as the list's next step [owner, 2026-11-18, office laptop: inside /sf-decide the reply ended
+ * "Next — Resolve the remaining decisions: /sf-decide <WORK-ID>"]. Never the command the person is already in: what
+ * is left is answered on the card, named as such, by each host's way to it: Copilot CLI's /decide, VS Code's Command
+ * Palette entry, and the terminal's own walkthrough.
+ */
+export function decideCardNext(workId, item = null) {
+  return { kind: 'decide-card', ...(item ? { item } : {}), title: 'Open the Decide card', command: `singularity-flow decisions record ${workId}`,
+    copilotCommand: `/decide ${workId}`, modelFreeCommand: VSCODE_DECIDE_CARD };
+}
+
+/** Whether a route is the list itself for this Story: /sf-decide, or `decisions` with nothing more to do. */
+export function routesToList(route, workId) {
+  const copilot = String(route?.copilotCommand ?? '').trim().split(/\s+/u);
+  const shell = String(route?.command ?? '').trim().split(/\s+/u);
+  return (copilot[0] === '/sf-decide' && copilot.length <= 2 && (copilot.length === 1 || copilot[1] === workId))
+    || (!route?.copilotCommand && shell[0] === 'singularity-flow' && shell[1] === 'decisions' && shell.length <= 3 && (shell.length === 2 || shell[2] === workId));
+}
+
+/**
+ * The packet as a decisions screen ends it: with the Story's next step beside it (`storyNext`, and `next` too where the
+ * list had only "see nextsteps" or itself), and never with itself as its next step: the Decide card instead.
+ */
 export function withStoryNext(packet, storyNext) {
-  if (!storyNext) return packet;
+  const loops = routesToList(packet.next, packet.workId);
+  // With nothing here for this person and no next step read, no next step at all: never the list itself.
+  if (!storyNext) return loops ? { ...packet, next: waitsOnPerson(packet) ? decideCardNext(packet.workId, packet.next.item ?? null) : null } : packet;
   // The list's own pointer when it has nothing to start: "see the next steps", or the list itself.
-  const generic = !packet.next || packet.next.copilotCommand === `/sf-next ${packet.workId}` || /^singularity-flow decisions\b/u.test(packet.next.command ?? '');
+  const generic = !packet.next || loops || packet.next.copilotCommand === `/sf-next ${packet.workId}` || /^singularity-flow decisions\b/u.test(packet.next.command ?? '');
   return { ...packet, storyNext, ...(generic ? { next: storyNext } : {}) };
 }
 
-/** "Next: …" with its routes, as every surface ends a list nothing on waits on this person. */
+/** "Next: …" with its routes, as every surface ends a list: the Story's next step, or the Decide card. */
 export function storyNextLines(storyNext) {
   return storyNext ? [`Next: ${storyNext.title}`, ...formatCommandRouteLines({ command: storyNext.command, copilotCommand: storyNext.copilotCommand,
     modelFreeCommand: storyNext.modelFreeCommand ?? null }, { indent: '  ' })] : [];
@@ -341,7 +365,7 @@ export function packetText(packet) {
     // Always the last line: what happens once the person answers [owner, 2026-11-18].
     if (packet.plain?.afterAnswer) lines.push(`Next: ${packet.plain.afterAnswer}`);
   // The next step's own model-free route when it has one (@sflow /approve for the approval), never "not available" beside it.
-  } else if (packet.next?.kind === 'story-next') lines.push(...storyNextLines(packet.next));
+  } else if (['story-next', 'decide-card'].includes(packet.next?.kind)) lines.push(...storyNextLines(packet.next));
   else if (packet.next) lines.push('Next:', ...formatCommandRouteLines({ ...packet.next, modelFreeCommand: packet.next.modelFreeCommand ?? modelFreeCommandForCommand(packet.next.command) }));
   // Only what was settled for the person: its Undo is on the Decide card, never "not available" [owner, 2026-11-13].
   else if (settled.length) {
@@ -1001,13 +1025,16 @@ async function record(root, options, workId, io) {
       for (const entry of drafted) console.log(`Drafted ${entry.item} at ${entry.path}; nothing was recorded. ${entry.next.words}\n  ${entry.next.command}`);
       if (after) console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
       if (after?.storyNext) console.log(storyNextLines(after.storyNext).join('\n'));
+      // Something here still waits on them: the Decide card, never this list again [owner, 2026-11-18].
+      else if (after?.items.length && waitsOnPerson(after)) console.log(storyNextLines(decideCardNext(workflow.workItem.id)).join('\n'));
       else if (after && !after.items.length && after.next?.command) console.log(`Next: ${after.next.title}\n  ${after.next.copilotCommand ?? after.next.command}`);
       if (summaryUpdate) console.log(summaryUpdate.words);
     }
     // With nothing left on the list, the Story's own next step: never an answer with nothing to do (owner, 2026-11-10).
     const next = after?.storyNext ? [{ id: 'story-next', label: after.storyNext.title, command: after.storyNext.command, skill: after.storyNext.copilotCommand ?? null, rank: 'NOW', kind: 'workflow' }]
-      : after?.items.length ? [{ id: 'decision-list', label: after.headline, command: `singularity-flow decisions ${workflow.workItem.id}`,
-        skill: '/sf-decide', rank: 'NOW', kind: 'workflow' }]
+      // What is left is answered on the Decide card: never /sf-decide from a /sf-decide turn [owner, 2026-11-18].
+      : after?.items.length ? [{ id: 'decide-card', label: `${after.headline} ${decideCardNext(workflow.workItem.id).title}.`,
+        command: decideCardNext(workflow.workItem.id).command, skill: null, rank: 'NOW', kind: 'workflow' }]
       : after?.next?.command ? [{ id: 'story-next', label: after.next.title, command: after.next.command, skill: after.next.skill ?? null, rank: 'NOW', kind: 'workflow' }] : [];
     emitCommandResult(commandResult({
       operation: { id: 'decisions.record', classification: 'mutation' },

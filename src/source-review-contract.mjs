@@ -169,7 +169,7 @@ export function sourceReviewCitationGuide(input) {
     ...(input.kind === 'code' ? {
       checks: [
         '(a) Plan: each delivered clause is implemented where its plan row says (cite file:line in implementation); review every changed path no plan row names as supporting or out-of-scope.',
-        '(b) Tests: each delivered clause has its own planned test that ran and passed (context.code.passedTests); cite its file:line and say whether it proves the behaviour.',
+        '(b) Tests: each delivered clause has its own planned test that ran and passed (context.code.passedTests); cite its file:line and say whether it proves the behaviour. SFlow\'s own runs of this version, with the Node each ran on, are context.testRuns: they stand over any test result the summary states, which it may have written before them.',
         '(c) Quality and security: acknowledge every context.code.quality result ID in qualityReviewed; raise a blocking quality finding for one that must be fixed.',
         '(d) Readability and design: your judgement, proportionate. Advisory by default; blocking only for a real maintainability defect, named in defect.'
       ],

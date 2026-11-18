@@ -160,6 +160,17 @@ function changeableLines(packet) {
     ...rows.map((item) => `- ${line(itemName(item))}: ${bare(plainWords(item).why ?? item.why)}.`)] : [];
 }
 
+/**
+ * The Story's own next step when nothing here waits on this person, from the planner (`decisions` adds `storyNext`):
+ * every screen ends with a next action [owner, 2026-11-18]. '' when the list carries none.
+ */
+export function nextWords(packet) {
+  const next = packet?.storyNext;
+  if (!next) return '';
+  return `Next: ${line(next.title)}: ${next.copilotCommand ?? next.command}${next.copilotCommand && next.command ? ` (or in your terminal: ${next.command})` : ''}.`;
+}
+const withNext = (message, packet) => [message, nextWords(packet)].filter(Boolean).join(' ');
+
 /** The card: every open item in plain words, then what waits for later, what was settled, and the approval's evidence. */
 export function decisionsTable(packet) {
   const asked = askedRows(packet).filter((item) => !changeable(item));
@@ -169,7 +180,7 @@ export function decisionsTable(packet) {
     ...asked.flatMap((item, index) => itemBlock(item, packet, asked.length > 1 ? index + 1 : null)),
     ...changeableLines(packet),
     ...(later.length ? ['', ...later.map((entry) => `Later: ${line(entry)}`)] : []),
-    ...settledLines(packet), ...evidenceLines(packet)].join('\n');
+    ...settledLines(packet), ...evidenceLines(packet), ...(packet.storyNext ? ['', `**${nextWords(packet)}**`] : [])].join('\n');
 }
 
 /**
@@ -560,7 +571,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
   if (answered && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-question'], remaining: [],
     message: answered, ...(opening.next ? { next: opening.next } : {}) };
   // A chat that asked carries on when nothing waits: only a person who typed /decide sees a review nothing waits on.
-  if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
+  if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: withNext(packet.headline, packet), recorded: [], remaining: [],
+    ...(packet.storyNext ? { next: packet.storyNext } : {}) };
   // What an answer depends on, SFlow checks before it asks, read-only and bounded [owner, 2026-11-16].
   if (checkNames(packet).length) {
     await show(`Checking first: ${checkNames(packet).join('; ')} (up to ${CHECK_SECONDS} seconds; nothing is recorded).`);
@@ -571,7 +583,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
   // Nothing on the list is this person's to act on now: said, with why and what it holds, never an empty form [owner, 2026-11-18].
   if (!answered && packet.plain?.nothingToRecord && !cardRows(packet).flatMap(reviews).length) {
     await show(packet.plain.nothingToRecord);
-    return { status: 'nothing-recordable', recorded: [], remaining: openRows(packet).map((item) => itemName(item)), message: packet.plain.nothingToRecord };
+    return { status: 'nothing-recordable', recorded: [], remaining: openRows(packet).map((item) => itemName(item)), message: withNext(packet.plain.nothingToRecord, packet),
+      ...(packet.storyNext ? { next: packet.storyNext } : {}) };
   }
   const recorded = answered ? ['version-question'] : [];
   // What was decided, in its own words: this is what the agent reports back, and a record's ID does not say it.
@@ -652,8 +665,9 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
     }
   }
   const remaining = openRows(packet).map((item) => itemName(item));
+  // The list as it stands after what was recorded: with nothing left that waits on this person, the Story's next step.
   return { status: recorded.length ? 'recorded' : drafted.length ? 'drafted' : 'cancelled', recorded, decided, ...(drafted.length ? { drafted } : {}), remaining,
-    ...(summaryUpdate ? { summaryUpdate } : {}),
-    message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}`
-      + `${drafted.length ? ` ${drafted.join(' ')}` : ''}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}${summaryUpdate ? ` ${summaryUpdate}` : ''}` };
+    ...(summaryUpdate ? { summaryUpdate } : {}), ...(packet.storyNext ? { next: packet.storyNext } : {}),
+    message: withNext(`${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}`
+      + `${drafted.length ? ` ${drafted.join(' ')}` : ''}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}${summaryUpdate ? ` ${summaryUpdate}` : ''}`, packet) };
 }

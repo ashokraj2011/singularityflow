@@ -118,6 +118,8 @@ export interface DecisionPacket {
   settled?: DecisionItemPacket[];
   packetSha256: string;
   next?: { item: string; kind: string; title: string; command: string; copilotCommand: string | null } | null;
+  /** The Story's own next step when nothing here waits on this person, from the planner (`decisions`) [owner, 2026-11-18]. */
+  storyNext?: StoryNext | null;
   record?: { form?: string; recommended?: string | null; interactive?: string; share?: string };
   unavailable?: Array<{ phase?: string; reason?: string }>;
   approvalEvidence?: ApprovalEvidencePacket | null;
@@ -204,6 +206,14 @@ export interface DecisionListOutcome {
   summaryUpdate?: string;
 }
 
+export interface StoryNext { kind: string; title: string; command: string | null; copilotCommand: string | null; modelFreeCommand?: string }
+
+/** "Next: …" in one line, as every surface ends a list nothing on waits on this person: '' when there is none. */
+export function nextWords(next: StoryNext | null | undefined): string {
+  if (!next) return '';
+  return `Next: ${next.title}: ${next.copilotCommand ?? next.command}${next.copilotCommand && next.command ? ` (or in your terminal: ${next.command})` : ''}.`;
+}
+
 export interface DecisionListView {
   available: boolean;
   workId: string | null; phase: string | null; phaseLabel: string | null;
@@ -216,6 +226,7 @@ export interface DecisionListView {
   checking: boolean;
   /** Nothing open is this person's to act on now: why, and what its approval waits for [owner, 2026-11-18]. */
   nothingToRecord?: string | null;
+  storyNext?: StoryNext | null;
   unavailable: string[];
   chosen: number;
   notice: string | null; error: string | null;
@@ -346,6 +357,7 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
     nothingToDecide: packet.items.length === 0,
     items, later, checking: items.some((item) => item.check !== null && item.allowed),
     nothingToRecord: packet.plain?.nothingToRecord ?? null,
+    storyNext: packet.storyNext ?? null,
     unavailable: (packet.unavailable ?? []).map((entry) => `${entry.phase ?? 'A step'}'s report could not be read (${entry.reason ?? 'unreadable'}).`),
     chosen: items.filter((item) => item.chosen).length,
     notice, error, outcome, busy,

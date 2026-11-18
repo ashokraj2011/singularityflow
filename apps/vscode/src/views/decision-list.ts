@@ -86,6 +86,11 @@ export class DecisionListPanel implements vscode.Disposable {
     'decisions.review': (message) => this.guard(() => this.review(message.choices, stringField(message, 'digest'))),
     'decisions.witness': (message) => this.guard(() => this.witness(stringField(message, 'item'), stringField(message, 'option'))),
     'decisions.copy': (message) => this.copy(stringField(message, 'item'), stringField(message, 'option')),
+    // The Story's own next step, copied for the person's terminal [owner, 2026-11-18].
+    'decisions.next': async () => {
+      const command = this.packet?.storyNext?.command;
+      if (command) { await vscode.env.clipboard.writeText(command); void vscode.window.setStatusBarMessage('$(clippy) Copied.', 3_000); }
+    },
     'decisions.open': (message) => this.open(stringField(message, 'item'), stringField(message, 'option')),
     // The approval starts here too: its row opens the approval page with its documents [owner, 2026-11-13].
     'decisions.approval': () => { void vscode.commands.executeCommand('singularityFlow.openApprovals'); }

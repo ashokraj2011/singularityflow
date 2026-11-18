@@ -6,6 +6,7 @@
  */
 import { brandLockup, escape, icon } from './webview.ts';
 import type { DecisionItemRow, DecisionListView, DecisionOptionRow } from './decision-list-model.ts';
+import { nextWords } from './decision-list-model.ts';
 
 function needsHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
   const chosen = item.chosen?.option === option.id ? item.chosen : null;
@@ -134,6 +135,8 @@ export function decisionListHtml(view: DecisionListView): string {
       <button type="submit" data-action="review" disabled>${icon('approval')}Review choices</button></div>`
     // Nothing here is theirs to record: the page says why on itself, never a review that does nothing [owner, 2026-11-18].
     : view.nothingToRecord ? `<div class="notice warning" role="status">${escape(view.nothingToRecord)}</div>` : ''}
+    ${view.storyNext ? `<div class="notice ok dl-next" role="status"><strong>${escape(nextWords(view.storyNext))}</strong>${view.storyNext.command
+      ? ` <button type="button" class="compact-action secondary" data-action="copy-next">Copy the command</button>` : ''}</div>` : ''}
   </form>`;
 }
 
@@ -233,6 +236,7 @@ export const DECISION_LIST_SCRIPT = `
     if (open) { api.postMessage({ type: 'decisions.open', item: open.dataset.openItem, option: open.dataset.openOption }); return; }
     const approval = event.target.closest('[data-approval-open]');
     if (approval) { api.postMessage({ type: 'decisions.approval', item: approval.dataset.approvalOpen }); return; }
+    if (event.target.closest('[data-action="copy-next"]')) { api.postMessage({ type: 'decisions.next' }); return; }
     const check = event.target.closest('[data-check-item]');
     if (check) { api.postMessage({ type: 'decisions.check', item: check.dataset.checkItem }); return; }
     const copy = event.target.closest('[data-copy-item]');

@@ -15,7 +15,7 @@ import { collectReviewConfirmation } from './review-confirmation.ts';
 import { createTerminalIn } from '../terminal-start.ts';
 import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
-  justAQuestionArgv, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
+  justAQuestionArgv, nextWords, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
 import { approvalRows, checkNames, checkOf, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
@@ -70,7 +70,9 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
   // A chat that asked carries on when nothing waits: only a person who opened this page sees a review nothing waits on,
   // or the approval, whose row opens its page [owner, 2026-11-13].
   const waiting = () => (askedInChat ? openRows(shown()) : [...decideRows(shown()), ...approvalRows(shown())]);
-  if (!waiting().length && !versionOpeningOf(packet)) return { status: 'nothing-to-decide', message: packet.headline, next: packet.next ?? null };
+  // Nothing waits on this person: the Story's own next step ends it [owner, 2026-11-18].
+  if (!waiting().length && !versionOpeningOf(packet)) return { status: 'nothing-to-decide', message: [packet.headline, nextWords(packet.storyNext)].filter(Boolean).join(' '),
+    next: packet.storyNext ?? packet.next ?? null };
   const panel = vscode.window.createWebviewPanel('singularityFlow.decide', `Decide · ${workId}`, vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
   open = panel;
@@ -232,6 +234,14 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           render(outcome.message);
         }
       },
+      // The Story's own next step, typed into a terminal in the Story's checkout; the person presses Enter.
+      'decide.next': () => {
+        const command = packet.storyNext?.command;
+        if (!command) return;
+        const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
+        terminal.show(false);
+        terminal.sendText(command, false);
+      },
       'decide.route': () => {
         if (!route) return;
         const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
@@ -249,7 +259,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           if (result.status === 'recorded' && result.record) recorded = [...recorded, result.record];
           await reread();
           busy = false; panel.reveal();
-          if (!openRows(packet).length) return finish({ status: 'recorded', recorded, remaining: [], message: `${recorded.length} recorded. All decided.`, next: packet.next ?? null });
+          if (!openRows(packet).length) return finish({ status: 'recorded', recorded, remaining: [], message: [`${recorded.length} recorded. All decided.`, nextWords(packet.storyNext)].filter(Boolean).join(' '),
+            next: packet.storyNext ?? packet.next ?? null });
           render(null, result.message ?? null);
         } catch (error) { busy = false; panel.reveal(); render((error as Error).message); }
       },
@@ -284,8 +295,11 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
             panel.reveal();
             return render(null, `${outcome.message} ${outcome.drafted.join(' ')}`);
           }
-          finish({ status: 'recorded', recorded: all, decided, remaining: outcome.remaining,
-            message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : all.length ? `${all.length} recorded.` : outcome.message}${outcome.remaining.length ? ` Still open: ${outcome.remaining.join('; ')}.` : ' All decided.'}` });
+          // The list after it: with nothing left that waits on this person, its last words are the Story's next step.
+          await reread();
+          finish({ status: 'recorded', recorded: all, decided, remaining: outcome.remaining, ...(packet.storyNext ? { next: packet.storyNext } : {}),
+            message: [`${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : all.length ? `${all.length} recorded.` : outcome.message}${outcome.remaining.length ? ` Still open: ${outcome.remaining.join('; ')}.` : ' All decided.'}`,
+              nextWords(packet.storyNext)].filter(Boolean).join(' ') });
         } catch (error) {
           const failure = error as Error & { result?: unknown };
           const { outcome, packet: fresh } = decisionRecordOutcome(null, { message: failure.message, result: failure.result });

@@ -10,7 +10,7 @@
  */
 import { escape } from './webview.ts';
 import type { InboundMessage } from './messages.ts';
-import { checkOf, laterOf, optionRow, plainWords, versionOpeningOf, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
+import { checkOf, laterOf, nextWords, optionRow, plainWords, versionOpeningOf, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
 
 export { checkOf, laterOf, plainWords };
 
@@ -278,6 +278,8 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
       <tbody>${settled.map((item) => rowHtml(item, draft)).join('')}</tbody></table></div></section>` : ''}
     ${approvalHtml(packet)}
     ${evidenceHtml(packet)}
+    ${packet.storyNext ? `<div class="dc-own dc-next" role="status"><strong>${escape(nextWords(packet.storyNext))}</strong>${packet.storyNext.command
+      ? `<button type="button" class="secondary" data-next>Put it in a terminal</button>` : ''}</div>` : ''}
     <footer><button type="button" class="secondary" data-cancel>Not now</button>
       ${yours ? `<button type="button" data-review${busy ? ' disabled' : ''}>Review and record</button>`
     // Nothing here is theirs to record: the card says why on itself, never a button that does nothing [owner, 2026-11-18].
@@ -444,6 +446,7 @@ document.addEventListener('click', (event) => {
   // A waiting next version: the answer with the digest of the proposal this page showed.
   const version = event.target.closest('[data-version]');
   if (version) return vscode.postMessage({ type: 'decide.version', answer: version.dataset.version, digest: version.dataset.digest });
+  if (event.target.closest('[data-next]')) return vscode.postMessage({ type: 'decide.next' });
   const check = event.target.closest('[data-check]');
   if (check) return vscode.postMessage({ type: 'decide.check', item: check.dataset.check, rows: answers() });
   if (event.target.closest('[data-approval]')) return vscode.postMessage({ type: 'decide.approval' });

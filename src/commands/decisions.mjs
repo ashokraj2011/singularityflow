@@ -100,6 +100,53 @@ export async function readDecisionPacket(root, config, workflow, { phaseId = nul
   return (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId, at, card });
 }
 
+/** Whether anything on the list waits on this person now: a question they answer, or the approval they may give. */
+export function waitsOnPerson(packet) {
+  return [...(packet.items ?? []), ...(packet.offered ?? [])].some((item) => !item.settled && item.decidedBy?.allowed && item.plain?.question
+    && (item.kind !== 'approval' || item.details?.ready !== false));
+}
+
+/**
+ * The Story's own next step when nothing on the list waits on this person now, from the deterministic planner
+ * (`nextsteps`' "now", its label and its Copilot, Shell and VS Code forms) [owner, 2026-11-18: "why no next action
+ * here"]. Every screen ends with a next action: the list said "Nothing waits on you now." with no way on. Null when
+ * something here waits on them, when the planner's next step is this list itself, or when it cannot be read.
+ */
+export async function storyNextOf(root, workId, packet, { opening = null } = {}) {
+  if (opening || waitsOnPerson(packet)) return null;
+  try {
+    const [{ loadAcceptedStoryExecution }, { resolveStorySnapshot }] = await Promise.all([import('../accepted-story-execution.mjs'), import('./nextsteps.mjs')]);
+    const accepted = await loadAcceptedStoryExecution(root, workId);
+    return storyNextFrom((await resolveStorySnapshot(root, accepted)).actions?.find((entry) => entry.timing === 'now'), accepted.workflow);
+  } catch { return null; }
+}
+
+/** The planner's "now" action as the list's next step: its plain label and routes; null for none, or for the list itself. */
+export async function storyNextFrom(now, workflow = null) {
+  if (!now) return null;
+  const [{ nextActionLabel }, { safeCommandGuidance }] = await Promise.all([import('../nextsteps.mjs'), import('../safe-command-guidance.mjs')]);
+  const guidance = safeCommandGuidance(now);
+  const copilotCommand = guidance?.copilotCommand ?? now.copilotCommand ?? null;
+  if (!guidance?.command && !copilotCommand) return null;
+  // The list itself is no next step from the list.
+  if (/^\/sf-decide\b/u.test(copilotCommand ?? '') || /^singularity-flow decisions\b/u.test(guidance?.command ?? '')) return null;
+  return { kind: 'story-next', title: nextActionLabel(now, workflow), command: guidance?.command ?? null, copilotCommand,
+    ...(guidance?.modelFreeCommand ? { modelFreeCommand: guidance.modelFreeCommand } : {}) };
+}
+
+/** The packet with the Story's next step beside it: `storyNext`, and `next` too where the list had only "see nextsteps". */
+export function withStoryNext(packet, storyNext) {
+  if (!storyNext) return packet;
+  const generic = !packet.next || packet.next.command === `singularity-flow nextsteps ${packet.workId} --json` || /^singularity-flow decisions\b/u.test(packet.next.command ?? '');
+  return { ...packet, storyNext, ...(generic ? { next: storyNext } : {}) };
+}
+
+/** "Next: …" with its routes, as every surface ends a list nothing on waits on this person. */
+export function storyNextLines(storyNext) {
+  return storyNext ? [`Next: ${storyNext.title}`, ...formatCommandRouteLines({ command: storyNext.command, copilotCommand: storyNext.copilotCommand,
+    modelFreeCommand: storyNext.modelFreeCommand ?? null }, { indent: '  ' })] : [];
+}
+
 /**
  * The list after SFlow ran the checks its items' answers depend on (decision-probes.mjs), within `seconds`, read
  * again when any ran [owner, 2026-11-16]: the card recommends from what they found. The checks record nothing.
@@ -264,7 +311,7 @@ export function packetText(packet) {
   const opening = packet.versionOpening;
   if (opening) lines.push('', opening.question, 'Answer it in your own terminal, which asks you, or on the Decide card:',
     ...formatCommandRouteLines({ command: opening.terminal ?? null, copilotCommand: packet.record?.share ?? null, modelFreeCommand: VSCODE_DECISIONS_CARD }));
-  if (!packet.items.length && !packet.offered?.length && !packet.settled?.length) return `${lines.join('\n')}\n`;
+  if (!packet.items.length && !packet.offered?.length && !packet.settled?.length) return `${[...lines, ...(packet.storyNext ? ['', ...storyNextLines(packet.storyNext)] : [])].join('\n')}\n`;
   lines.push('');
   const settled = settledItems(packet);
   const later = [];
@@ -290,7 +337,8 @@ export function packetText(packet) {
     if (packet.record.recommended) lines.push('Or record the recommended choices:', ...formatCommandRouteLines({ command: packet.record.recommended, copilotCommand: packet.record.copilotCommand }));
     if (packet.inApproval) lines.push('Or answer them in the approval, in one commit:', ...formatCommandRouteLines(packet.inApproval));
   // The next step's own model-free route when it has one (@sflow /approve for the approval), never "not available" beside it.
-  } else if (packet.next) lines.push('Next:', ...formatCommandRouteLines({ ...packet.next, modelFreeCommand: packet.next.modelFreeCommand ?? modelFreeCommandForCommand(packet.next.command) }));
+  } else if (packet.next?.kind === 'story-next') lines.push(...storyNextLines(packet.next));
+  else if (packet.next) lines.push('Next:', ...formatCommandRouteLines({ ...packet.next, modelFreeCommand: packet.next.modelFreeCommand ?? modelFreeCommandForCommand(packet.next.command) }));
   // Only what was settled for the person: its Undo is on the Decide card, never "not available" [owner, 2026-11-13].
   else if (settled.length) {
     lines.push('Undo one on the Decide card:', ...formatCommandRouteLines({ copilotCommand: packet.record.share, modelFreeCommand: VSCODE_DECISIONS_CARD,
@@ -927,7 +975,9 @@ async function record(root, options, workId, io) {
           details: { recorded, remaining, failed: { item: outcome.failed.item, kind: outcome.failed.kind, code: error.code ?? null, message: error.message },
             cause: error.details ?? null, nextAction: { command: list, skill: '/sf-decide', label: 'List what remains to decide.' } } });
     }
-    const after = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
+    const read = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
+    // Nothing left that waits on this person: the Story's own next step, never an answer with nothing to do [owner, 2026-11-18].
+    const after = read ? withStoryNext(read, await storyNextOf(root, workflow.workItem.id, read)) : null;
     // A pin or plan amendment that changed the open code step after its summary was written: its author updates the
     // summary in this same turn, before prepublish refuses it [owner, 2026-11-13].
     const summaryUpdate = recorded.some((entry) => ['plan-amendment', 'node-pin'].includes(entry.kind))
@@ -946,12 +996,14 @@ async function record(root, options, workId, io) {
       for (const entry of unchanged) console.log(`Nothing changed for ${entry.item}, ${entry.words}.`);
       for (const entry of drafted) console.log(`Drafted ${entry.item} at ${entry.path}; nothing was recorded. ${entry.next.words}\n  ${entry.next.command}`);
       if (after) console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
-      if (after && !after.items.length && after.next?.command) console.log(`Next: ${after.next.title}\n  ${after.next.copilotCommand ?? after.next.command}`);
+      if (after?.storyNext) console.log(storyNextLines(after.storyNext).join('\n'));
+      else if (after && !after.items.length && after.next?.command) console.log(`Next: ${after.next.title}\n  ${after.next.copilotCommand ?? after.next.command}`);
       if (summaryUpdate) console.log(summaryUpdate.words);
     }
     // With nothing left on the list, the Story's own next step: never an answer with nothing to do (owner, 2026-11-10).
-    const next = after?.items.length ? [{ id: 'decision-list', label: after.headline, command: `singularity-flow decisions ${workflow.workItem.id}`,
-      skill: '/sf-decide', rank: 'NOW', kind: 'workflow' }]
+    const next = after?.storyNext ? [{ id: 'story-next', label: after.storyNext.title, command: after.storyNext.command, skill: after.storyNext.copilotCommand ?? null, rank: 'NOW', kind: 'workflow' }]
+      : after?.items.length ? [{ id: 'decision-list', label: after.headline, command: `singularity-flow decisions ${workflow.workItem.id}`,
+        skill: '/sf-decide', rank: 'NOW', kind: 'workflow' }]
       : after?.next?.command ? [{ id: 'story-next', label: after.next.title, command: after.next.command, skill: after.next.skill ?? null, rank: 'NOW', kind: 'workflow' }] : [];
     emitCommandResult(commandResult({
       operation: { id: 'decisions.record', classification: 'mutation' },
@@ -961,7 +1013,8 @@ async function record(root, options, workId, io) {
       effects: effects({ stateChanged: recorded.length > 0, filesChanged: true, publicationCreated: recorded.length > 0 }),
       next: next.map((entry) => action(entry)),
       data: { recorded, decided, ...(drafted.length ? { drafted } : {}), ...(unchanged.length ? { unchanged } : {}), ...(summaryUpdate ? { summaryUpdate, agentInstruction: summaryUpdate.words } : {}), refused: plan.refused,
-        remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null, packetSha256: after?.packetSha256 ?? null }
+        remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null, packetSha256: after?.packetSha256 ?? null,
+        ...(after?.storyNext ? { storyNext: after.storyNext } : {}) }
     }), { json: optionBoolean(options, 'json'), postState: workflow });
   } finally {
     prompt?.close();
@@ -1001,8 +1054,10 @@ async function show(root, options, workId) {
   // The version question is asked here too, so the headline counts it: never "Nothing waits on you now." above it.
   const plain = opening && packet.plain ? { ...packet.plain, headline: (await import('../decision-plain.mjs')).plainHeadline(
     [...packet.items, ...(packet.offered ?? [])].filter((item) => !item.settled && item.plain?.question).length + 1) } : packet.plain;
-  const shown = { ...packet, ...(plain ? { plain } : {}), ...(route ? { inApproval: route } : {}), ...(evidence ? { approvalEvidence: evidence } : {}),
+  const listed = { ...packet, ...(plain ? { plain } : {}), ...(route ? { inApproval: route } : {}), ...(evidence ? { approvalEvidence: evidence } : {}),
     ...(opening ? { versionOpening: opening } : {}) };
+  // Nothing here waits on this person: the list ends with the Story's own next step [owner, 2026-11-18].
+  const shown = withStoryNext(listed, await storyNextOf(root, workflow.workItem.id, listed, { opening }));
   if (!optionBoolean(options, 'json')) process.stdout.write(packetText(shown));
   return emitShow(shown, options, workflow);
 }

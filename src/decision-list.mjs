@@ -1064,9 +1064,13 @@ function screenshotCheck(workflow, entry) {
   const owners = listWords((entry.owners ?? []).map((id) => stepName(workflow, id)));
   const { width, height } = capture.viewport ?? {};
   const name = clauseName(workflow, entry.clauseId);
+  // Every size the criterion names, from the one screen the person brings up [owner, 2026-11-18].
+  const sizes = (capture.viewports ?? []).map((size) => `${size.width}×${size.height}`).join(' and ');
+  const sized = capture.viewports?.length > 1 ? ` SFlow captures that screen at ${sizes}, side by side in one screenshot.` : '';
+  const opens = `SFlow builds what ${owners} published (${capture.build.words}) and opens it at ${width}×${height}. Bring up the screen${capture.target ? ` (${capture.target})` : ''} and click "Capture this screen for ${name}".`;
   return { kind: 'screenshot', status: capture.failed ? 'failed' : 'unknown', onRequest: true, criterion: entry.clauseId, slot: entry.slot,
     label: screenshotLabel(capture), command: capture.command,
-    does: `SFlow builds what ${owners} published (${capture.build.words}) and opens it at ${width}×${height}. Bring up the screen${capture.target ? ` (${capture.target})` : ''} and click "Capture this screen for ${name}".`,
+    does: `${opens}${sized}`,
     ...(capture.failed ? { failed: `The last screenshot failed: ${capture.failed}` } : {}) };
 }
 
@@ -2086,15 +2090,19 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // What to do next: the first item that holds the approval; with none, the approval itself; before
   // submission, what stops the step, then whatever is left.
   // An item nobody can take yet is never the next thing to do.
-  const takenNow = (item) => item.options.some((entry) => entry.available !== false);
+  // A sign-off whose screenshot the person takes now, on the card or in their terminal, is something to do now.
+  const shoots = (item) => item.check?.kind === 'screenshot' && typeof item.check.command === 'string';
+  const takenNow = (item) => item.options.some((entry) => entry.available !== false) || shoots(item);
   const first = items.find((item) => item.holdsApproval) ?? (awaiting ? items.at(-1) : items.find(stopsStep) ?? items.find(takenNow) ?? items[0]);
   // A sign-off and any choice this list records are answered on a host's card, which /sf-decide opens: no
   // route read as "no verified equivalent". A host with no card asks with `card: false`, where /sf-decide
   // would only show them again: a command no skill runs (a witness, an obligation risk), a choice a
   // /sf-decide turn may not record (an accepted test command), or a hold's route with its own skill.
-  const theirsAlone = (item) => Boolean(item.routeSkill) || item.options.length > 0 && item.options.every((entry) => (entry.available === false || entry.recordable === false
+  // The card takes a sign-off's screenshot ("Take the screenshot"), so it is never theirs alone where there is a card: a route
+  // said "Copilot: no verified equivalent" for it while /sf-decide was exactly that route (owner, 2026-11-18).
+  const theirsAlone = (item) => !(card && shoots(item)) && (Boolean(item.routeSkill) || item.options.length > 0 && item.options.every((entry) => (entry.available === false || entry.recordable === false
     ? entry.available === false || typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command) && !(card && entry.action.humanReview)
-    : !card && !DECISION_LIST_CHAT_OPTIONS.includes(entry.id) && !entry.chat));
+    : !card && !DECISION_LIST_CHAT_OPTIONS.includes(entry.id) && !entry.chat)));
   const listRoute = decisions.length && decisions.every(theirsAlone) ? null : `/sf-decide ${workId}`;
   return {
     schemaVersion: 1, resultType: 'sflow-decisions', revision: DECISION_LIST_REVISION,
@@ -2112,7 +2120,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
       command: `singularity-flow nextsteps ${workId} --json`, copilotCommand: `/sf-next ${workId}` }
       : first ? ((command) => ({ item: first.id, kind: first.kind, title: first.title, command,
         copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : first.routeSkill ? `${first.routeSkill} ${workId}` : listRoute,
-        ...(modelFreeCommandForCommand(command) ? { modelFreeCommand: modelFreeCommandForCommand(command) } : {}) }))(first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`) : null,
+        ...(modelFreeCommandForCommand(command) ? { modelFreeCommand: modelFreeCommandForCommand(command) } : {}) }))(shoots(first) && first.options[0]?.available === false ? first.check.command
+        : first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`) : null,
     packetSha256: digest,
     record: {
       // In a person's own terminal it shows the summary and asks them to confirm; `packetSha256` is the digest a script passes as --confirm.

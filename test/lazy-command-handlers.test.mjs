@@ -802,7 +802,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // is SFlow's output, not a change to review (lifecycle-worktree.mjs +195), and `decision screenshot` is a person's own
     // step (person-step-catalog.mjs +215, command-registry.mjs +14). The build, server and browser stay lazy
     // (visual-sign-off-screenshot.mjs, application-review-preview.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_759_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,759,900 (measured 9,759,897 for submit.mjs, +58 over 9,759,839) [owner, 2026-11-18]: a visual sign-off's screenshot
+    // is a Decide card step, so its Copilot route is /sf-decide, never "no verified equivalent" (model-free-commands.mjs),
+    // and an approved amendment's refusal says the steps it reopened are submitted again (source-review-policy.mjs).
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_759_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1222,7 +1226,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,292,400 (measured 4,292,397, +229): `decision screenshot`, where a person brings up the screen a visual sign-off is
   // about at SFlow's browser, is their own step (person-step-catalog.mjs +215, command-registry.mjs +14) [owner, 2026-11-18].
   // No new eager file.
-  assert.ok(current.bytes <= 4_292_400, `session current loads ${current.bytes} source bytes`);
+  // 4,292,500 (measured 4,292,455, +58): a visual sign-off's screenshot routes to /sf-decide (model-free-commands.mjs),
+  // and an amendment's refusal is in plain words (source-review-policy.mjs) [owner, 2026-11-18]. No new eager file.
+  assert.ok(current.bytes <= 4_292_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

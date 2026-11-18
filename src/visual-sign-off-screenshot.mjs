@@ -12,7 +12,7 @@ import { witnessContextBinding } from './verification/witness-records.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { codePublicationRoute, storyNextCommand } from './action-command-map.mjs';
 import { decisionListRoute } from './upstream-routes.mjs';
-import { currentSignOffCapture, failureNote, noCaptureRoute, signOffBuild, signOffCapturePath, signOffViewport } from './visual-sign-off-capture.mjs';
+import { currentSignOffCapture, failureNote, noCaptureRoute, signOffBuild, signOffCapturePath, signOffViewports, sizeWords } from './visual-sign-off-capture.mjs';
 
 function refused(message, code, details = {}) {
   return new SingularityFlowError(message, { code, details });
@@ -47,6 +47,36 @@ export async function takeSignOffCapture(root, { workId, clauseId, slot, wait = 
   }
 }
 
+/** PNG screenshots side by side, top-aligned, with a light gap between them: one image of every size. */
+export async function sideBySide(images, { gap = 24 } = {}) {
+  const { decodePngRgba8, encodePngRgba8 } = await import('./png-rgba8.mjs');
+  const decoded = images.map((bytes) => decodePngRgba8(bytes));
+  const width = decoded.reduce((sum, image) => sum + image.width, 0) + gap * (decoded.length - 1);
+  const height = Math.max(...decoded.map((image) => image.height));
+  const data = Buffer.alloc(width * height * 4).fill(Buffer.from([0xee, 0xee, 0xee, 0xff]));
+  let left = 0;
+  for (const image of decoded) {
+    for (let y = 0; y < image.height; y += 1) image.data.copy(data, (y * width + left) * 4, y * image.width * 4, (y + 1) * image.width * 4);
+    left += image.width + gap;
+  }
+  return encodePngRgba8({ width, height, data });
+}
+
+// What a build or a test run writes, never application code, even when Git tracks it.
+const TOOL_OUTPUT = new Set(['test-results', 'playwright-report', 'blob-report', 'coverage', '.nyc_output', 'node_modules', 'dist', 'build', 'out', '.next', '.nuxt',
+  '.svelte-kit', '.turbo', '.cache', '.parcel-cache', '.vite', 'storybook-static', '.sflow', 'target', 'vendor']);
+
+/**
+ * The tracked application files this checkout changed and nobody published, oldest-first as Git lists them: never a
+ * tool's output (TOOL_OUTPUT), never anything untracked or ignored, which the screenshot's build does not read.
+ */
+export async function unpublishedApplicationFiles(root, config, workflow) {
+  const [{ workingTreeChangedPaths }, { applicationPathContext, isApplicationChangePath }] = await Promise.all([import('./git.mjs'), import('./application-paths.mjs')]);
+  const context = applicationPathContext(config, workflow);
+  return workingTreeChangedPaths(root, 'HEAD').filter((entry) => !entry.split('/').some((segment) => TOOL_OUTPUT.has(segment))
+    && isApplicationChangePath(entry, context));
+}
+
 async function capture(root, config, workflow, { clauseId, slot, binding, wait, again, browser }) {
   const workId = workflow.workItem.id;
   const { owedDecisions } = await import('./owed-decisions.mjs');
@@ -69,41 +99,45 @@ async function capture(root, config, workflow, { clauseId, slot, binding, wait, 
     throw refused(`SFlow cannot take this screenshot: ${build.reason}. ${noCaptureRoute(workflow, { file, riskCommand: witness.capture?.riskCommand ?? null })}`,
       'VISUAL_SIGN_OFF_BUILD_UNAVAILABLE', { file });
   }
-  // Only published code: a screenshot of edits nobody published would be signed off as the step's. What a step
-  // publishes is committed, so this checkout's uncommitted or new application files are what nobody published.
+  // Only published code: a screenshot of edits nobody published would be signed off as the step's. SFlow builds Git's own
+  // files only, so nothing untracked here is built (a test run's test-results/.last-run.json held a real approval: owner,
+  // 2026-11-18); a tracked application file changed and not committed is what nobody published, named.
   const owner = workflow.phases[published.at(-1)];
-  const [{ workingTreeChangedPaths, untrackedFiles }, { applicationPathContext, isApplicationChangePath }] = await Promise.all([import('./git.mjs'), import('./application-paths.mjs')]);
-  const context = applicationPathContext(config, workflow);
-  const changed = [...new Set([...workingTreeChangedPaths(root, 'HEAD'), ...untrackedFiles(root)])].filter((entry) => isApplicationChangePath(entry, context));
+  const changed = await unpublishedApplicationFiles(root, config, workflow);
   if (changed.length) {
     // The step's own publication, as the map names it [OSA:REQ-021].
     const publish = codePublicationRoute(workflow, owner);
-    throw refused(`This checkout has code nobody published (${changed.slice(0, 3).join(', ')}${changed.length > 3 ? `, and ${changed.length - 3} more` : ''}), and SFlow screenshots only what was published. `
-      + `Publish it with ${owner.id} (${publish.command}), or set it aside, then take the screenshot again. Nothing was taken.`,
+    throw refused(`This checkout changed ${changed.length === 1 ? 'an application file' : 'application files'} nobody published (${changed.slice(0, 3).join(', ')}${changed.length > 3 ? `, and ${changed.length - 3} more` : ''}), and SFlow screenshots only what was published. `
+      + `Publish ${changed.length === 1 ? 'it' : 'them'} with ${owner.id} (${publish.command}), or set ${changed.length === 1 ? 'it' : 'them'} aside, then take the screenshot again. Nothing was taken.`,
     'VISUAL_SIGN_OFF_CODE_CHANGED', { paths: changed.slice(0, 20), nextAction: publish });
   }
   const preview = await import('./application-review-preview.mjs');
   const steps = build.source === 'declared' ? await preview.declaredStaticBuild(root, workflow, build.entry)
     : { steps: build.steps, workingDirectory: '.', env: {} };
   const built = await preview.buildStaticOutput(root, config, workflow, steps, { outputDirectory: build.outputDirectory, deadline: Date.now() + BUILD_SECONDS * 1000,
-    label: build.source === 'inferred' ? 'The inferred build (npm ci, then npm run build)' : 'The declared preview build' });
+    label: build.source === 'inferred' ? 'The inferred build (npm ci, then npm run build)' : 'The declared preview build', trackedOnly: true });
   try {
     if (!built.files.has('index.html')) {
       throw refused(`The build wrote no ${build.outputDirectory}/index.html, so there is no page to screenshot. ${noCaptureRoute(workflow, { file, riskCommand: witness.capture?.riskCommand ?? null })}`,
         'VISUAL_SIGN_OFF_BUILD_UNAVAILABLE', { file });
     }
-    const viewport = signOffViewport(workflow);
+    // Every size the criterion names: the browser opens at the first, and the bar says which SFlow captures.
+    const viewports = signOffViewports(workflow, witness.capture?.target);
+    const [viewport] = viewports;
     const name = clauseId.slice(clauseId.lastIndexOf(':') + 1);
     // What the plan says the screen shows, on the bar the person reads while they bring it up.
     const shows = witness.capture?.target ? `: ${witness.capture.target}` : '';
-    const shot = await preview.personCapturedScreenshot(built.files, { viewport, deadline: Date.now() + wait * 1000, ...browser,
-      label: `SFlow · ${name}${shows}. Bring this screen up, then capture it.`, button: `Capture this screen for ${name}` });
+    const sized = viewports.length > 1 ? ` SFlow captures it at ${sizeWords(viewports)}.` : '';
+    const shot = await preview.personCapturedScreenshot(built.files, { viewport, sizes: viewports.slice(1), deadline: Date.now() + wait * 1000, ...browser,
+      label: `SFlow · ${name}${shows}. Bring this screen up, then capture it.${sized}`, button: `Capture this screen for ${name}` });
+    // One file the sign-off shows, every size side by side, so one witness record binds them all.
+    const bytes = shot.shots?.length > 1 ? await sideBySide(shot.shots.map((entry) => entry.bytes)) : shot.bytes;
     // Written once SFlow has every byte: the sign-off binds this exact file.
     const { secureRepositoryPath, writeAtomic } = await import('./util.mjs');
     const target = await secureRepositoryPath(root, file, { label: 'Visual sign-off screenshot' });
     await mkdir(path.dirname(target.absolute), { recursive: true });
-    await writeAtomic(target.absolute, shot.bytes);
-    return { file, reused: false, build: { source: build.source, words: build.words }, viewport, browser: shot.browser, screen: shot.screen };
+    await writeAtomic(target.absolute, bytes);
+    return { file, reused: false, build: { source: build.source, words: build.words }, viewport, ...(viewports.length > 1 ? { viewports } : {}), browser: shot.browser, screen: shot.screen };
   } finally {
     await rm(built.materialization, { recursive: true, force: true }).catch(() => {});
   }

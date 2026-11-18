@@ -102,8 +102,8 @@ export async function declaredStaticBuild(root, workflow, entryId) {
  * (visual-sign-off-capture.mjs). `deadline` (epoch milliseconds) bounds every step; a failed build keeps its
  * materialization for diagnosis and runs no replacement command.
  */
-export async function buildStaticOutput(root, config, workflow, build, { outputDirectory, deadline = null, label = 'The declared preview build' } = {}) {
-  const snapshot = await applicationReviewSnapshot(root, config, workflow, { retainBytes: true });
+export async function buildStaticOutput(root, config, workflow, build, { outputDirectory, deadline = null, label = 'The declared preview build', trackedOnly = false } = {}) {
+  const snapshot = await applicationReviewSnapshot(root, config, workflow, { retainBytes: true, trackedOnly });
   const materialization = path.join(reviewLocalRoot(root), 'materializations', randomUUID());
   await mkdir(materialization, { recursive: true, mode: 0o700 });
   for (const item of snapshot.manifest) {
@@ -128,7 +128,7 @@ export async function buildStaticOutput(root, config, workflow, build, { outputD
         { exitCode: result.exitCode ?? result.status, signal: result.signal ?? null, timedOut: result.timedOut ?? false });
     }
   }
-  if ((await applicationReviewSnapshot(root, config, workflow)).digest !== snapshot.digest) araFail('ARA_REVIEW_STALE', 'Source changed while the preview was being built.');
+  if ((await applicationReviewSnapshot(root, config, workflow, { trackedOnly })).digest !== snapshot.digest) araFail('ARA_REVIEW_STALE', 'Source changed while the preview was being built.');
   const output = await secureRepositoryPath(materialization, outputDirectory, { label: 'Static preview output', mustExist: true, type: 'directory' });
   return { snapshot, materialization, files: await outputFiles(output.absolute) };
 }
@@ -199,7 +199,7 @@ const CAPTURE_BAR = ({ label, button }) => {
  * what is on screen, and closes the browser. Only the served build is reachable. Refuses ARA_CAPTURE_NOT_TAKEN when the
  * browser is closed or `deadline` passes first, nothing taken. `drive(page)` clicks for a test, headless.
  */
-export async function personCapturedScreenshot(files, { viewport, deadline, label, button, headless = false, drive = null }) {
+export async function personCapturedScreenshot(files, { viewport, sizes = [], deadline, label, button, headless = false, drive = null }) {
   const served = await serveReviewBuild(files);
   const left = () => Math.max(1000, deadline - Date.now());
   let browser;
@@ -236,7 +236,15 @@ export async function personCapturedScreenshot(files, { viewport, deadline, labe
     await evaluateReviewPage(shown, () => document.fonts.ready, Math.min(10000, left()));
     const bytes = await shown.screenshot({ type: 'png', animations: 'disabled', timeout: left() });
     if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) araFail('ARA_CAPTURE_FAILED', 'The browser did not return a PNG image.');
-    return { bytes, browser: browser.version(), screen: { title: await shown.title(), path: new URL(shown.url()).pathname + new URL(shown.url()).hash } };
+    // The same screen at each further size the criterion names: resized in place, laid out again, then captured [owner, 2026-11-18].
+    const more = [];
+    for (const size of sizes) {
+      await shown.setViewportSize({ width: size.width, height: size.height });
+      await evaluateReviewPage(shown, () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))), Math.min(10000, left()));
+      await evaluateReviewPage(shown, () => document.fonts.ready, Math.min(10000, left()));
+      more.push({ viewport: { width: size.width, height: size.height }, bytes: await shown.screenshot({ type: 'png', animations: 'disabled', timeout: left() }) });
+    }
+    return { bytes, shots: [{ viewport, bytes }, ...more], browser: browser.version(), screen: { title: await shown.title(), path: new URL(shown.url()).pathname + new URL(shown.url()).hash } };
   } finally {
     clearTimeout(timer);
     await browser?.close().catch(() => {});

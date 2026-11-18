@@ -6,6 +6,7 @@
  * test/test-machine-state.test.mjs fails when src/ gains a home-directory default no entry redirects.
  */
 export const MACHINE_STATE_LOCATIONS = Object.freeze({
+  SINGULARITY_FLOW_UI_ROOT: 'browser',
   SINGULARITY_FLOW_WORKSPACE_REGISTRY: 'workspaces.json',
   SINGULARITY_FLOW_ACTIVE_WORKSPACE: 'active-workspace.json',
   // The Story index (src/story-index.mjs) follows the workspace registry when this is unset.

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "8bbd9ed082f50ec6707d565e82e012f4d082e19e",
-  "topicCount": 93,
-  "contentSha256": "99fb5adf54044dbdf91fa6bd9d4d04491876e6bead56ba887b0eb1e8d71e8de1",
+  "sourceCommit": "7707febde34e8d9ba1c6c64d33768aaf91e458d9",
+  "topicCount": 94,
+  "contentSha256": "ee595dd6e3be1acc55f2de707b640a92cd1eb671a3be6cbcd1bcec1aaf89a236",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -92,6 +92,14 @@
       "sha256": "92b05d70a50b9b69ea91b3cb342b7be3e38f1442a7db39446ecefe322ea1ad3b",
       "routingSha256": "5e13fc1070186507fd232923db25b8e09b8e47b869690d71ee880dc9b95eed1f",
       "file": "auto-mode.md"
+    },
+    {
+      "id": "browser-workspace",
+      "title": "Open the local SFlow browser workspace",
+      "version": 1,
+      "sha256": "4be7a1dae53e0b01428a4b6cfda121788d8df9de74f596dbe1c903765563adfd",
+      "routingSha256": "c404995713f61fe745855cadec6de921aaa9f34edb890c114efb0c26189883d1",
+      "file": "browser-workspace.md"
     },
     {
       "id": "capability-management",

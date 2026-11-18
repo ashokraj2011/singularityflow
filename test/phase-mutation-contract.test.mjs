@@ -1753,6 +1753,7 @@ function skillBodyCommands(body) {
 }
 /** Commands a skill names but hands to the person, offers as another skill's route, or only describes. */
 const NOT_RUN_BY_THIS_TURN = Object.freeze({
+  'sflow-ui': [[/^ui open$/u, 'offered only for the person’s native terminal; browser person-view grants never enter a model turn']],
   'sflow-advise': [[/^workspace reinitialize\b/u, 'advisory only: offers /sf-admin reinitialize and never runs it']],
   'sflow-build-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal']],
   'sflow-fix-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal'],

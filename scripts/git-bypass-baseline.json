@@ -1937,6 +1937,13 @@
         "shell-process": 1
       },
       "digest": "992b824ad3c240b1a8cea0e79df58ff0d444517873f0c645ee7c3cd78e9f8240"
+    },
+    "src/local-ui/operations.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "48047ccccacc186c6ae89fb9e33c45e91a9450d5f72a8fe7bebb91c479b7987f"
     }
   }
 }

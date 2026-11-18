@@ -8,6 +8,7 @@ import { COMMAND_REGISTRY } from '../command-registry.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
+  'ui',
   'adhoc', 'agent', 'appeal', 'approvals', 'approve', 'authority-store', 'auto', 'candidate',
   'change', 'check', 'clarification', 'comprehension', 'constitution', 'context', 'converge', 'copilot', 'decision', 'delivery', 'device', 'import', 'imports', 'marketplace',
   'env', 'evidence', 'execution-unit', 'explain', 'fault', 'fix', 'goal', 'governance', 'help-metrics', 'implement',

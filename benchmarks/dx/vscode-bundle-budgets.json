@@ -3,6 +3,7 @@
   "kind": "sflow-vscode-bundle-budgets",
   "totalJavaScriptBytes": { "maximum": 28900000 },
   "entries": {
+    "browser-workspace-runtime.cjs": { "maximumBytes": 8192, "maximumModules": 2 },
     "extension.cjs": { "maximumBytes": 1446000, "maximumModules": 155 },
     "gateway-context-runtime.cjs": { "maximumBytes": 8192, "maximumModules": 4 },
     "gateway-runtime.cjs": { "maximumBytes": 7730000, "maximumModules": 887,

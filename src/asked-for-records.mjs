@@ -105,20 +105,27 @@ export async function copyAskedFor(root, config, workflow, phase, { actor, agent
 }
 
 /**
- * The ways an instruction is accounted for [SCS:REQ-042]: the plan covers it, it is a departure, or it was a question,
- * answered with nothing to change (owner, 2026-11-18). A question is a record like the other two, never a decision: the
- * approver reads it and can send the step back when it was really a change. Nothing guesses it from the words.
+ * The ways an instruction is accounted for [SCS:REQ-042]: the plan covers it, it is a departure, it was a question,
+ * answered with nothing to change (owner, 2026-11-18), or the person said it was not a request (`note`, on the Decide
+ * card). A question or a note is a record like the other two, never a decision: the approver reads it and can send the
+ * step back when it was really a change. Words that plainly ask nothing (asked-for.mjs typedKind) wait for none.
  */
-export const INSTRUCTION_ACCOUNTS = Object.freeze(['within-plan', 'departure', 'question']);
+export const INSTRUCTION_ACCOUNTS = Object.freeze(['within-plan', 'departure', 'question', 'note']);
 
 /** An account as people read it. */
 export const accountWords = (account) => (!account ? 'not accounted for yet'
   : account.as === 'plain-chat' ? 'a plain chat whose turn changed nothing, so nothing to account for'
+    : account.as === 'note' ? (account.answeredBy ? 'the person said it was not a request: kept as a note, nothing to change'
+      : 'a note, not a request for a change: kept, nothing to account for')
     : account.as === 'question' ? `accounted for as a question: answered, nothing to change${account.answeredBy?.surface ? ' (the person said so when asked to start a new version)' : ''}`
       : account.as === 'departure' ? `accounted for as departure ${account.departure}` : `within the plan: ${account.clauses.join(', ')}`);
 
 // A plain chat's prompt whose turn changed nothing waits for no account [PCR:REQ-012]; no one recorded this one.
 const NOTHING_CHANGED = Object.freeze({ as: 'plain-chat', clauses: Object.freeze([]), departure: null });
+// Nor do words that ask for nothing, a status note or what a terminal printed (owner, 2026-11-18); no one recorded this one either.
+const A_NOTE = Object.freeze({ as: 'note', clauses: Object.freeze([]), departure: null });
+/** The account an instruction has without anyone recording one: none when it waits for one. */
+const implicitAccount = (entry) => (needsAccount(entry) ? null : entry.plainChat === true && entry.changed !== true ? NOTHING_CHANGED : A_NOTE);
 
 /**
  * Each of a step's recorded instructions with its latest account, or null for one not accounted for;
@@ -128,7 +135,7 @@ export function instructionAccounting(workflow, phaseId, { upTo = null } = {}) {
   const accounts = (workflow?.instructionAccounts ?? []).filter((entry) => entry.phase === phaseId);
   return recordedAskedFor(workflow, phaseId).filter((entry) => upTo == null || Number(entry.generation) <= Number(upTo))
     .map((entry) => ({ ...entry, account: accounts.findLast((account) => Number(account.instruction) === Number(entry.instruction))
-      ?? (needsAccount(entry) ? null : NOTHING_CHANGED) }));
+      ?? implicitAccount(entry) }));
 }
 
 function refused(message, code, details = undefined) {
@@ -259,6 +266,36 @@ export async function answerAsQuestion(root, config, workflow, phase, { actor, a
 }
 
 /**
+ * The person's "That was not a request" on the Decide card for words they typed that SFlow could not tell were a
+ * request (owner, 2026-11-18): kept as a note, in one Story commit, so nothing waits for them and no version opens for
+ * them. Whatever the step's state: it changes nothing published, and the approver reads it beside the step.
+ */
+export async function accountAsNote(root, config, workflow, { phase: phaseId, instruction }, { actor, agent = null, surface = 'decisions-card' }) {
+  const entry = instructionAccounting(workflow, phaseId).find((candidate) => Number(candidate.instruction) === Number(instruction));
+  if (workflow.status !== 'in_progress' || typedFocusOff(workflow) || !entry || entry.account) {
+    refused(`Nothing typed in ${workflow.phases?.[phaseId]?.label ?? phaseId} as instruction ${instruction} waits to be accounted for, so nothing was recorded.`, 'INSTRUCTION_NOT_FOUND',
+      { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'See what waits on the decisions list.' } });
+  }
+  const [{ actorKey, assertNoPendingPublication, transactStory }] = await Promise.all([import('./state-stores.mjs')]);
+  const at = nowIso();
+  const { value } = await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: null, actor, agent, authorityGroup: null,
+    payload: { action: 'instruction-account', instruction: Number(instruction) }
+  }, `[${workflow.workItem.id}][asked-for] ${phaseId}: instruction ${instruction} was not a request`, async (aggregate) => {
+    await assertNoPendingPublication(root, config, aggregate, 'keep typed words as a note');
+    aggregate.instructionAccounts ??= [];
+    const record = { id: `IAC-${String(aggregate.instructionAccounts.length + 1).padStart(3, '0')}`, phase: phaseId, instruction: Number(instruction),
+      generation: Number(entry.generation), as: 'note', clauses: [], departure: null, author: { producer: 'person', actor: actorKey(actor), agent },
+      answeredBy: { surface }, at };
+    aggregate.instructionAccounts.push(record);
+    aggregate.history.push({ at, actor: record.author.actor, agent, event: 'instruction_accounted', phase: phaseId,
+      detail: `Instruction ${instruction} of ${phaseId}: ${accountWords(record)}.` });
+    return record;
+  }, { exactWorkItemPaths: [] });
+  return value;
+}
+
+/**
  * The boundary an instruction is accounted for by [SCS:REQ-042]: the step's approval, or, for a step nobody approves,
  * its submission, which completes it. Before, the words said "approved" for both, and a step with no approval
  * completed with its instructions never accounted for (daily run, 2026-11-17).
@@ -300,7 +337,7 @@ export async function assertInstructionsAccounted(root, config, workflow, phase,
   throw new SingularityFlowError(`${phase.label ?? phase.id} waits until ${open.length === 1 ? 'one instruction' : `${open.length} instructions`} the person typed ${open.length === 1 ? 'is' : 'are'} accounted for, before it is ${boundary ?? (submitted ? 'approved' : accountedBy(phase))}: ${open.map(instructionWords).join('; ')}. Its author does it in /sf-code${submitted ? ', once its approvers return it' : ''}.`, {
     code: 'INSTRUCTIONS_UNACCOUNTED', details: { phase: phase.id, instructions: open.map((entry) => ({ instruction: entry.instruction, generation: entry.generation })),
       nextAction: route ? { command: route.command, skill: route.skill, label: route.detail }
-        : { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'See each instruction on the decisions table; its author accounts for it in /sf-code.' } } });
+        : { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'See each instruction on the decisions table.' } } });
 }
 
 /**
@@ -316,7 +353,7 @@ export async function askedForSummary(root, workflow, phase) {
   const generation = pending.generation;
   const accounted = instructionAccounting(workflow, phase.id);
   const shown = [...accounted.filter((entry) => Number(entry.generation) === Number(generation) || (code && !entry.account)),
-    ...pending.entries.map((entry) => ({ ...entry, account: needsAccount(entry) ? null : NOTHING_CHANGED }))];
+    ...pending.entries.map((entry) => ({ ...entry, account: implicitAccount(entry) }))];
   if (!shown.length) return null;
   const unaccounted = code ? shown.filter((entry) => !entry.account).map((entry) => entry.instruction) : [];
   const quoted = shown.map((entry) => `${instructionWords(entry)}${code ? `: ${accountWords(entry.account)}` : ''}`).join('; ');

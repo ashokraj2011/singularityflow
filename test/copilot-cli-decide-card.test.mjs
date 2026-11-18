@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { choicesFromRows, detailForm, valuesFromForm, sharedReasonForm, answersOnCurrentList, cardRows, CHANGE, confirmForm, decisionsTable, EACH, firstForm, LEAVE, NOT_NOW, RECORD, rowForms, runCard, sharedAnswers, SIGN, witnessAnswers, witnessForm } from '../plugin/extensions/decisions/card.mjs';
+import { choicesFromRows, detailForm, valuesFromForm, sharedReasonForm, answersOnCurrentList, cardRows, CHANGE, confirmForm, decisionsTable, EACH, firstForm, LEAVE, NOT_NOW, RECORD, rowForms, runCard, sharedAnswers, CONFIRMED_ON_CARD, witnessAnswers, witnessForm } from '../plugin/extensions/decisions/card.mjs';
 
 const allowed = { allowed: true, words: 'You may decide this.', groups: ['planners'] };
 const choice = (id, label, needs = { reason: { default: '', minimum: 20, maximum: 500 } }) => ({ id, label, recommended: false, effects: [{ kind: 'plan-amendment' }], needs, decidedBy: allowed });
@@ -161,16 +161,16 @@ test('a refused form is asked again with the problem on top and every answer kep
 test('a sign-off that is refused comes back the same way, and stops the same way', async () => {
   const signed = packet({ items: [{ id: 'd1', kind: 'evidence-obligation', title: 'Check the screenshot', why: 'A person looks.', decidedBy: allowed, options: [{ id: 'witness-1', label: 'I checked', recordable: false, effects: [], needs: {}, decidedBy: allowed,
     action: { command: 'singularity-flow decision witness', humanReview: { kind: 'witness', clauseId: 'PAY-1:AC-001', slot: 'screen', method: 'visual', files: ['shot.png'], owners: [], contextBinding: 'sha256:abc' } } }] }] });
-  const answer = (reason) => accept({ choice: 'I looked at it', 'states-the-outcome': 'Yes', 'matches-the-criterion': 'Yes', 'current-for-this-change': 'Yes', reason });
-  const { seen, ui } = person([answer('short'), answer('short'), answer('short')], [signed]);
+  // A No needs what is wrong: one asked without it comes back with that problem, three times at most [owner, 2026-11-18].
+  const answer = accept({ answer: 'No (say what\'s wrong)', note: '' });
+  const { seen, ui } = person([answer, answer, answer], [signed]);
   const result = await runCard(ui);
   assert.equal(result.status, 'refused');
-  assert.match(result.message, /Describe what you inspected in 10 to 1000 characters/u);
+  assert.match(result.message, /Say what is wrong with it \(10 to 1000 characters\)/u);
   assert.equal(seen.witnessed.length, 0);
-  assert.match(seen.asked[1].message, /^Describe what you inspected in 10 to 1000 characters\./u);
-  assert.equal(seen.asked[1].requestedSchema.properties.reason.default, 'short');
-  assert.equal(seen.asked[1].requestedSchema.properties['states-the-outcome'].default, 'Yes');
-  assert.equal(witnessForm(signed.items[0].options[0].action.humanReview).requestedSchema.properties.reason.title, 'What did you inspect? In your own words (10 to 1000 characters)');
+  assert.match(seen.asked[1].message, /^Say what is wrong with it \(10 to 1000 characters\)\./u);
+  assert.equal(seen.asked[1].requestedSchema.properties.answer.default, 'No (say what\'s wrong)');
+  assert.equal(witnessForm(signed.items[0].options[0].action.humanReview).requestedSchema.properties.answer.title, 'Does this screenshot show what AC-001 asks for?');
 });
 
 test('one answer for all records each row with that reason, once the person confirmed the exact list', async () => {
@@ -228,21 +228,22 @@ test('what comes back says what was decided, one to a decision, so no agent can 
   assert.ok(result.message.startsWith(`1 decision recorded. ${words}.`), result.message);
 });
 
-test('a sign-off is one form, the same three questions, recorded only on its own confirmation', async () => {
+test('a sign-off is one question with the file open beside it, and Yes records the three checks together [owner, 2026-11-18]', async () => {
   const signed = packet({ items: [{ id: 'd1', kind: 'evidence-obligation', title: 'Check the screenshot', why: 'A person looks.', decidedBy: allowed, options: [{ id: 'witness-1', label: 'I checked', recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: 'singularity-flow decision witness', humanReview: review } }] }] });
   const form = witnessForm(review);
-  assert.deepEqual(Object.keys(form.requestedSchema.properties), ['choice', 'states-the-outcome', 'matches-the-criterion', 'current-for-this-change', 'reason']);
-  assert.match(witnessAnswers(review, { 'states-the-outcome': 'Yes', 'matches-the-criterion': 'Yes', 'current-for-this-change': 'Yes', reason: 'short' }).problem, /10 to 1000/u);
-  const yes = { choice: 'I looked at it', 'states-the-outcome': 'Yes', 'matches-the-criterion': 'No', 'current-for-this-change': 'Yes', reason: 'The total shows on the screenshot.' };
-  const { seen, ui } = person([accept(yes), accept({ confirm: SIGN })], [signed, signed, packet({ items: [packet().items.at(-1)] })]);
+  assert.deepEqual(Object.keys(form.requestedSchema.properties), ['answer', 'note']);
+  assert.deepEqual(form.requestedSchema.required, ['answer']);
+  assert.match(witnessAnswers(review, { answer: 'Yes', note: 'short' }).problem, /10 to 1000/u, 'a note, when given, is a real one');
+  const { seen, ui } = person([accept({ answer: 'Yes' })], [signed, signed, packet({ items: [packet().items.at(-1)] })]);
   const result = await runCard(ui);
   assert.deepEqual(seen.looked, ['shot.png'], 'the file is put in front of the person first');
-  assert.deepEqual(seen.witnessed[0].answer.answers, [['states-the-outcome', true], ['matches-the-criterion', false], ['current-for-this-change', true]]);
+  assert.deepEqual(seen.witnessed[0].answer.answers, [['states-the-outcome', true], ['matches-the-criterion', true], ['current-for-this-change', true]]);
+  assert.equal(seen.witnessed[0].answer.reason, CONFIRMED_ON_CARD);
   assert.deepEqual(result.recorded, ['WIT-001']);
-  assert.equal(result.message, '1 decision recorded. Signed off PAY-1:AC-001 · visual. All decided.');
-  const declined = person([accept({ ...yes, choice: NOT_NOW })], [signed]);
-  assert.equal((await runCard(declined.ui)).status, 'cancelled');
-  assert.equal(declined.seen.witnessed.length, 0);
+  assert.equal(seen.asked.length, 1, 'nothing to confirm after the answer');
+  const unsure = person([accept({ answer: 'Not sure' })], [signed]);
+  assert.equal((await runCard(unsure.ui)).status, 'cancelled');
+  assert.equal(unsure.seen.witnessed.length, 0);
 });
 
 test('a list with nothing to decide opens no form', async () => {
@@ -441,7 +442,7 @@ test('nobody types a path: several files are a choice, none is never asked, and 
   const several = { ...review, files: ['src/a.jsx', 'src/b.css'] };
   const form = witnessForm(several);
   assert.deepEqual(form.requestedSchema.properties.file.enum, ['src/a.jsx', 'src/b.css'], 'the person picks one of the files');
-  const answered = { 'states-the-outcome': 'Yes', 'matches-the-criterion': 'Yes', 'current-for-this-change': 'Yes', reason: 'The layout reflows at the narrow viewport.' };
+  const answered = { answer: 'Yes', note: 'The layout reflows at the narrow viewport.' };
   assert.match(witnessAnswers(several, { ...answered, file: 'i h' }).problem, /Pick the file you looked at: src\/a\.jsx, src\/b\.css/u);
   assert.equal(witnessAnswers(several, { ...answered, file: 'src/b.css' }).file, 'src/b.css');
 
@@ -457,8 +458,8 @@ test('nobody types a path: several files are a choice, none is never asked, and 
 
   // The first sign-off fails to record; the second is still asked and recorded, and the failure is said.
   const two = packet({ items: [item('inspection', ['src/a.jsx']), item('inspection-2', ['src/b.css'])] });
-  const yes = { choice: 'I looked at it', ...answered };
-  const { seen, ui } = person([accept(yes), accept({ confirm: SIGN }), accept(yes), accept({ confirm: SIGN })], [two, two, two, two]);
+  const yes = { ...answered };
+  const { seen, ui } = person([accept(yes), accept(yes)], [two, two, two, two]);
   let calls = 0;
   ui.witness = async (read, current, answer) => {
     calls += 1;

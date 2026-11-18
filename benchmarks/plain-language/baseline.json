@@ -14,8 +14,8 @@
   "count-without-name": 27,
   "draft-for-version": 6,
   "generic-route": 6356,
-  "jargon": 1345,
-  "length": 674
+  "jargon": 1361,
+  "length": 672
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -2110,9 +2110,10 @@
   },
   "apps/vscode/src/views/bootstrap-panel.ts": {
    "16cd86e62b12": "count-without-name",
+   "374ee937b554": "jargon:revalidate",
    "5951701dabef": "jargon:retained",
    "74096c76307f": "length",
-   "7ace95c9102b": "length",
+   "7ace95c9102b": "jargon:revalidate length",
    "94a1d972a58b": "length",
    "cea6bfd85d9d": "length",
    "ea3c4d01fb12": "length",
@@ -2472,6 +2473,7 @@
   },
   "apps/vscode/src/views/submission-presentation.ts": {
    "18c1cfee75a5": "jargon:generation",
+   "42cb659480f1": "jargon:with-your-yes",
    "4726379435d9": "jargon:generation jargon:published-generation",
    "dfce1962a0df": "jargon:generation jargon:published-generation"
   },
@@ -2621,7 +2623,7 @@
    "5daffdd02437": "jargon:retained length",
    "69c6b4897659": "length",
    "69f3bcdd5cd0": "length",
-   "73ff55c0723c": "length",
+   "73ff55c0723c": "jargon:revalidate length",
    "755bbca6b3ad": "jargon:retained",
    "7739ddcd77b5": "length",
    "7c10904db2e3": "jargon:retained",
@@ -2785,9 +2787,6 @@
    "3b58f357225a": "jargon:sidecar",
    "82bd112b1185": "jargon:sidecar"
   },
-  "src/asked-for-records.mjs": {
-   "a81fef87aa30": "length"
-  },
   "src/assisted-convergence.mjs": {
    "cfa89a1bfedb": "jargon:provenance"
   },
@@ -2857,7 +2856,8 @@
    "782f293ea64d": "jargon:generation"
   },
   "src/auto/auto-plan.mjs": {
-   "a1555677613b": "jargon:deterministic"
+   "a1555677613b": "jargon:deterministic",
+   "f4b16cb459e3": "jargon:revalidate"
   },
   "src/auto/auto-policy.mjs": {
    "98249853efda": "jargon:rail"
@@ -3303,7 +3303,6 @@
   },
   "src/decision-advice.mjs": {
    "240fa5f35a06": "jargon:generation",
-   "468fb74aa76f": "jargon:generation",
    "cc716f60431d": "jargon:generation"
   },
   "src/decision-list.mjs": {
@@ -3316,7 +3315,6 @@
    "5b8c62931200": "jargon:retained",
    "5f636880ecff": "length",
    "750f54a7fdb5": "length",
-   "8353bd0285a8": "jargon:generation length",
    "85f6a7860157": "length",
    "88f579f282cc": "jargon:retained",
    "9a6b3c180f5f": "jargon:generation",
@@ -3414,6 +3412,9 @@
   "src/evidence-reuse.mjs": {
    "9632126c391a": "length",
    "cc4460a4a675": "jargon:generation length"
+  },
+  "src/evidence/terminal.mjs": {
+   "faa9b571395d": "jargon:revalidate"
   },
   "src/factory-reset.mjs": {
    "1e3b6ff0f90f": "length",
@@ -3593,6 +3594,7 @@
    "fa7be16a43c4": "jargon:hydrate"
   },
   "src/initiative-config.mjs": {
+   "5eef8b4b539f": "jargon:revalidate",
    "99e10fedaaac": "jargon:retained",
    "ab5ce4e673d9": "length"
   },
@@ -3715,7 +3717,7 @@
    "c4e102a2d98e": "jargon:lifecycle-event"
   },
   "src/lifecycle-worktree.mjs": {
-   "8eb4b76c1996": "length"
+   "8eb4b76c1996": "jargon:revalidate length"
   },
   "src/local-mode/jcs.mjs": {
    "25305b6d0d8a": "jargon:canonical"
@@ -3782,6 +3784,7 @@
    "57916992d00a": "length",
    "5f20b12faf69": "count-without-name length",
    "751ee23db718": "jargon:staging",
+   "85f3cc28a62c": "jargon:revalidate",
    "89b3f1f18714": "length",
    "8c65a2e83c22": "jargon:transport",
    "8d38908e1205": "jargon:retained",
@@ -3904,7 +3907,7 @@
   },
   "src/phase-resolution.mjs": {
    "09187b26bac6": "jargon:retained",
-   "0eb7b96cad0b": "jargon:successor",
+   "0eb7b96cad0b": "jargon:revalidate jargon:successor",
    "1046df2c9ce8": "jargon:generation",
    "1eee7c8bbca7": "length",
    "1efb14654d4a": "length",
@@ -3937,6 +3940,9 @@
   },
   "src/plugin.mjs": {
    "99e10fedaaac": "3× jargon:retained"
+  },
+  "src/prepared-document-successor.mjs": {
+   "6568849ba5f3": "jargon:with-your-yes"
   },
   "src/private-sidecar.mjs": {
    "1669fd0940dd": "4× jargon:sidecar"
@@ -4075,6 +4081,7 @@
    "c6a749d00720": "length",
    "c8fbdeed9c7f": "jargon:generation",
    "c9e42db37dc4": "jargon:digest length",
+   "ca0da45570a7": "jargon:with-your-yes",
    "cbc4df654dc3": "jargon:transport",
    "cd73a48c8018": "length",
    "d81f7e448280": "jargon:retained",
@@ -4327,6 +4334,7 @@
    "4d3746a9b4c6": "jargon:deterministic jargon:digest length",
    "50e221cbaae2": "jargon:staging",
    "52e56912ee95": "length",
+   "565e159db8c8": "jargon:revalidate",
    "5b28dbba488c": "length",
    "68684548f925": "jargon:generation length",
    "6aac88952d7f": "jargon:packet",
@@ -4341,6 +4349,7 @@
    "7a4a3b1a6fb9": "jargon:retained",
    "85f74d096306": "jargon:generation",
    "92d0432be855": "jargon:generation",
+   "95c2543b5dad": "jargon:with-your-yes",
    "95ed924e72d3": "jargon:packet",
    "97e43927d966": "jargon:retained length",
    "98ebd48517d9": "length",
@@ -4383,7 +4392,8 @@
    "f7fe2e9eab4c": "jargon:generation",
    "f82a3902d086": "jargon:generation",
    "f88b89f02a94": "jargon:binding",
-   "fca592d469e4": "jargon:retained"
+   "fca592d469e4": "jargon:retained",
+   "fe96d01c3b5c": "jargon:with-your-yes"
   },
   "src/step-actions.mjs": {
    "d18787c5eec4": "jargon:generation"
@@ -4462,6 +4472,7 @@
    "b5bdb803e5d7": "2× jargon:successor"
   },
   "src/submission-readiness.mjs": {
+   "04c21d788130": "jargon:with-your-yes",
    "abdaa39bf72b": "draft-for-version",
    "bcd90242e010": "count-without-name"
   },
@@ -4540,7 +4551,7 @@
   },
   "src/visual-coverage.mjs": {
    "07f84f8068a0": "length",
-   "51a88ce9b801": "length",
+   "51a88ce9b801": "jargon:with-your-yes length",
    "e7cd1bfc25e5": "jargon:generation"
   },
   "src/visual-native-capture.mjs": {
@@ -4593,6 +4604,9 @@
    "535e76062869": "length",
    "a6f37e70f122": "length",
    "fb3caebc8393": "length"
+  },
+  "src/workspace-context.mjs": {
+   "a42c241d222b": "jargon:revalidate"
   },
   "src/workspace-impact.mjs": {
    "14cbddf89e16": "jargon:staging",

@@ -97,7 +97,12 @@ export const JARGON = Object.freeze([
   ['payload', /\bpayloads?\b/iu, 'say what it holds'],
   ['hydrate', /\b(?:de)?hydrat(?:e|ed|es|ing|ion)\b/iu, 'say "fetch" or "fill in"'],
   ['idempotent', /\bidempoten(?:t|cy)\b/iu, 'say "safe to run again"'],
-  ['oracle', /\boracles?\b/iu, 'say "check"']
+  ['oracle', /\boracles?\b/iu, 'say "check"'],
+  // Words the decision list used that a person read as engine talk (owner, 2026-11-18, office laptop).
+  ['revalidate', /\brevalidat(?:e|es|ed|ing|ion)\b/iu, 'say what happens: "is checked again", "can be submitted again"'],
+  ['accounting', /\baccounting by\b|\baccounted for by its author\b|\bits author accounts for\b/iu, 'say who does what: "the agent writing Implementation says how it handles it"'],
+  ['hold approval', /\bholds? (?:its |the |\w+ )?approval\b/iu, 'say "needed before <step> is approved" or "needed when <step> is submitted for approval"'],
+  ['with your yes', /\b(?:only )?(?:with|on) (?:your|the person's) yes\b/iu, 'say "only if you say yes"']
 ].map(([term, pattern, instead]) => Object.freeze({ term, pattern, instead })));
 
 /**

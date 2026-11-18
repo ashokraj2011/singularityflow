@@ -86,6 +86,11 @@ export class DecisionListPanel implements vscode.Disposable {
     'decisions.review': (message) => this.guard(() => this.review(message.choices, stringField(message, 'digest'))),
     'decisions.witness': (message) => this.guard(() => this.witness(stringField(message, 'item'), stringField(message, 'option'))),
     'decisions.copy': (message) => this.copy(stringField(message, 'item'), stringField(message, 'option')),
+    // The Story's own next step, copied for the person's terminal [owner, 2026-11-18].
+    'decisions.next': async () => {
+      const command = this.packet?.storyNext?.command;
+      if (command) { await vscode.env.clipboard.writeText(command); void vscode.window.setStatusBarMessage('$(clippy) Copied.', 3_000); }
+    },
     'decisions.open': (message) => this.open(stringField(message, 'item'), stringField(message, 'option')),
     // The approval starts here too: its row opens the approval page with its documents [owner, 2026-11-13].
     'decisions.approval': () => { void vscode.commands.executeCommand('singularityFlow.openApprovals'); }
@@ -307,12 +312,12 @@ export async function reviewWitness(client: SingularityFlowClient, target: Witne
       },
       digest: async (repository, file) => `sha256:${createHash('sha256').update(await readFile(await reviewedPath(repository, file))).digest('hex')}`,
       inspect: async (repository, file) => { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(await reviewedPath(repository, file))); },
-      answer: async question => (await vscode.window.showQuickPick([{ label: 'Yes', answer: true }, { label: 'No', answer: false }],
-        { title: 'Human evidence review', placeHolder: question, ignoreFocusOut: true }))?.answer,
-      reason: async () => vscode.window.showInputBox({ title: 'What did you inspect?', prompt: 'Describe your observation of this evidence, in your own words.',
-        ignoreFocusOut: true, validateInput: value => value.trim().length >= 10 && value.trim().length <= 1000 ? null : 'Enter 10 to 1000 characters.' }),
-      confirm: detail => collectReviewConfirmation({ title: 'Record human evidence review', summary: 'Review your file, answers and reason. This records a witness, not phase approval.',
-        detail, confirmLabel: 'Record my review' }),
+      // The one question, then the note: required for No, optional for Yes [owner, 2026-11-18].
+      answer: async (question, answers) => (await vscode.window.showQuickPick([{ label: answers.yes, answer: 'yes' as const }, { label: answers.no, answer: 'no' as const },
+        { label: answers.unsure, answer: 'unsure' as const }], { title: question, placeHolder: question, ignoreFocusOut: true }))?.answer,
+      note: async (required) => vscode.window.showInputBox({ title: required ? 'What is wrong with it?' : 'A note, if you want one', ignoreFocusOut: true,
+        prompt: required ? 'Say what is wrong, in your own words.' : 'Optional: leave it empty to record your yes.',
+        validateInput: value => (!value.trim() && !required) || (value.trim().length >= 10 && value.trim().length <= 1000) ? null : 'Enter 10 to 1000 characters.' }),
       record: (repository, argv) => client.forkForRepository(repository).run(argv)
     });
     if (result.status !== 'recorded') return result;
@@ -321,6 +326,7 @@ export async function reviewWitness(client: SingularityFlowClient, target: Witne
     const data = (result.result as { data?: { record?: { id?: string; outcome?: string; clauseId?: string }; commit?: string } })?.data;
     if (!data?.record?.id) throw new Error('The witness command returned no verifiable record ID. Refresh Decisions before retrying.');
     return { status: 'recorded', ...(refreshWarning ? { refreshWarning } : {}), record: data?.record?.id, outcome: data?.record?.outcome,
-      criterion: data?.record?.clauseId, commit: data?.commit, message: 'The human witness review was recorded. Refresh Decisions for remaining items; no phase approval was performed.' };
+      criterion: data?.record?.clauseId, commit: data?.commit,
+      message: data?.record?.outcome === 'met' ? 'Signed off. The list below shows what remains.' : 'Recorded as not showing it, with what is wrong. The list below shows what remains.' };
   } finally { reviewing = false; }
 }

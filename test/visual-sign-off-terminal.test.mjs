@@ -1,7 +1,7 @@
 /**
  * Two follow-ups to the visual sign-off [owner, 2026-11-18]. (A) In the person's own terminal walkthrough
  * (`decisions record`, interactive) the person is there: the screenshot is asked as their step ("Take the screenshot
- * now?"), taken at SFlow's browser, and then signed off with the card's three questions; it never showed up as a check
+ * now?"), taken at SFlow's browser, and then signed off with the card's one question; it never showed up as a check
  * that "did not finish in time". (B) A Story that adopted application review names its live review as the other way to
  * satisfy the sign-off.
  */
@@ -15,9 +15,8 @@ import { PassThrough, Readable } from 'node:stream';
 import { decisionPacket } from '../src/decision-list.mjs';
 import { withPlainWords } from '../src/decision-plain.mjs';
 import { promptDecisionAnswers } from '../src/commands/decisions.mjs';
-import { screenshotWalkthrough, WITNESS_QUESTIONS } from '../src/commands/decisions-screenshot.mjs';
+import { screenshotWalkthrough } from '../src/commands/decisions-screenshot.mjs';
 import { applicationReviewRoute, signOffFile } from '../src/visual-sign-off-capture.mjs';
-import { WITNESS_QUESTIONS as CARD_QUESTIONS } from '../plugin/extensions/decisions/card.mjs';
 import { decisionsTable } from '../plugin/extensions/decisions/card.mjs';
 
 const AT = '2026-11-18T16:40:00.000Z';
@@ -64,8 +63,7 @@ test('(A) the terminal walkthrough asks the person to take the screenshot, never
   assert.match(sign.said(), /Look at the screenshot and sign it off now\? \[y\/N\]: /u);
 });
 
-test('(A) taken at the browser, then signed off with the card\'s three questions; r takes it again; a closed browser takes nothing', async () => {
-  assert.deepEqual(WITNESS_QUESTIONS, CARD_QUESTIONS, 'the same questions as the Copilot CLI card');
+test('(A) taken at the browser, then signed off with the card\'s one question; r takes it again; a closed browser takes nothing', async () => {
   const before = packetOf(owed({ capture: NEEDED }));
   const after = packetOf(owed({ files: [FILE], available: true, command: 'singularity-flow decision witness', capture: TAKEN }));
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-visual-terminal-'));
@@ -77,7 +75,7 @@ test('(A) taken at the browser, then signed off with the card\'s three questions
   const deps = { take: async (input) => { takes.push(input); }, record: async (args) => { records.push(args); return { data: { record: { id: 'WIT-001', outcome: 'met' } } }; },
     open: async (file) => { opened.push(file); } };
   try {
-    const walk = io(['r', 'y', 'y', 'y', 'y', 'The grapher workspace shows the laid-out graph.', 'y']);
+    const walk = io(['r', 'y', 'The grapher workspace shows the laid-out graph.']);
     const outcome = await screenshotWalkthrough(root, { workId: W, packet: before, request: { item: signOff(before).id, subject: `sign-off:${W}:AC-002`, take: true },
       reread: async () => shown, io: walk.io, deps });
     assert.deepEqual(outcome, { status: 'recorded', record: 'WIT-001' });
@@ -85,7 +83,7 @@ test('(A) taken at the browser, then signed off with the card\'s three questions
       'taken, then taken again (--replace) when the person said r');
     assert.deepEqual(opened, [absolute, absolute]);
     assert.match(walk.said(), /Opening your app in SFlow's browser: bring up the screen AC-002 is about, then click "Capture this screen" on SFlow's bar \(up to 10 minutes; closing the browser takes nothing\)\./u);
-    assert.match(walk.said(), /Is this the screen AC-002 is about\? y = sign it off, r = take it again, n = not now \[n\]: /u);
+    assert.match(walk.said(), /Does this screenshot show what AC-002 asks for\? y = yes, n = no \(say what's wrong\), s = not sure, r = take it again \[s\]: /u);
     const args = records[0];
     assert.deepEqual(args.slice(0, 8), ['decision', 'witness', '--work-id', W, '--criterion', `${W}:AC-002`, '--slot', 'graph-layout']);
     assert.ok(args.includes('--expected-context-sha256') && args.includes(`sha256:${'c'.repeat(64)}`));

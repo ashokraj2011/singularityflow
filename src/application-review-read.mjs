@@ -30,11 +30,12 @@ export function compactReviewResults(results) {
 }
 
 /** The owner's application partition, including relevant configuration and every actual source byte. */
-export async function applicationReviewSnapshot(root, config, workflow, { retainBytes = false } = {}) {
+export async function applicationReviewSnapshot(root, config, workflow, { retainBytes = false, trackedOnly = false } = {}) {
   const tracked = trackedPathListing(root);
   if (!tracked.complete) araFail('ARA_SNAPSHOT_INCOMPLETE', 'The source inventory exceeded its bound; no partial snapshot was admitted.');
   const context = applicationPathContext(config, workflow);
-  const paths = [...new Set([...tracked.paths, ...untrackedFiles(root)])].filter(file => isApplicationChangePath(file, context)).sort();
+  // `trackedOnly`: Git's files alone, so nothing untracked here (a test run's output, a scratch file) is built [owner, 2026-11-18].
+  const paths = [...new Set([...tracked.paths, ...(trackedOnly ? [] : untrackedFiles(root))])].filter(file => isApplicationChangePath(file, context)).sort();
   if (paths.length > 50000) araFail('ARA_SNAPSHOT_INCOMPLETE', 'The review snapshot supports at most 50,000 source files.');
   const manifest = [];
   const contents = new Map();

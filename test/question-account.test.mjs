@@ -32,7 +32,7 @@ const denied = (decision) => (decision.permissionDecision ?? decision.hookSpecif
 const reasonOf = (decision) => decision.permissionDecisionReason ?? decision.hookSpecificOutput?.permissionDecisionReason ?? '';
 
 test('a question is the third account: in plain words beside the other two, and a reply of "No, it was just a question" is its own answer', () => {
-  assert.deepEqual(INSTRUCTION_ACCOUNTS, ['within-plan', 'departure', 'question']);
+  assert.deepEqual(INSTRUCTION_ACCOUNTS, ['within-plan', 'departure', 'question', 'note']);
   assert.equal(accountWords({ as: 'question', clauses: [], departure: null }), 'accounted for as a question: answered, nothing to change');
   assert.equal(accountWords({ as: 'question', clauses: [], departure: null, answeredBy: { surface: 'decisions-card' } }),
     'accounted for as a question: answered, nothing to change (the person said so when asked to start a new version)');

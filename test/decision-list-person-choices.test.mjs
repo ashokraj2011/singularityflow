@@ -93,7 +93,7 @@ test('a responsibility the end leaves out is a choice with its own reason, and h
   assert.equal(item.holdsApproval, false);
   assert.deepEqual(item.options[0].effects, [{ kind: 'applicability', responsibility: 'verify', groups: ['product'] }]);
   assert.equal(item.options[0].chat.command, 'singularity-flow decision applicability W-1 --fetch --responsibility verify --reason "<REASON>"');
-  assert.match(packet.headline, /1 open decision: it holds the Story's end/u);
+  assert.match(packet.headline, /1 open decision: it is needed before the Story ends/u);
 });
 
 test('each route is a choice, a step the decision lets a person name is too, and a route is written last', () => {

@@ -95,7 +95,8 @@ export function signOffFile({ root, config }, workflow, { clauseId, slot, target
   const review = applicationReviewRoute(workflow);
   const risk = { ...(riskCommand ? { riskCommand } : {}), ...(review ? { appReview: review } : {}) };
   const capture = build.source
-    ? { status: 'needed', workId, file, command, ...(target ? { target } : {}), ...risk, build: { source: build.source, words: build.words }, viewport: signOffViewport(workflow),
+    ? { status: 'needed', workId, file, command, ...(target ? { target } : {}), ...risk, build: { source: build.source, words: build.words }, viewport: signOffViewports(workflow, target)[0],
+      ...(signOffViewports(workflow, target).length > 1 ? { viewports: signOffViewports(workflow, target) } : {}),
       lines: [`${head}a person takes its screenshot on the Decide card (/sf-decide ${workId}, Take the screenshot) or in their own terminal, bringing up the screen it is about, then looks at it and signs it off:`, `    ${command}`, ...reviewLine(review)] }
     : { status: 'unavailable', workId, file, reason: build.reason, ...risk,
       lines: [`${head}SFlow cannot take its screenshot: ${build.reason}. Save one as ${file}, then sign it off: /sf-decide ${workId}`,
@@ -164,6 +165,34 @@ export function signOffBuild(root, workflow) {
   return { source: 'inferred', ...INFERRED_BUILD, steps: INFERRED_BUILD.steps.map((step) => ({ argv: [...step.argv] })),
     words: 'npm ci --no-audit --no-fund, then npm run build (inferred: package.json builds with vite build; output dist)' };
 }
+
+/** A phone-sized screen, for a criterion that names a narrow or mobile view. */
+export const NARROW_VIEWPORT = Object.freeze({ width: 390, height: 844 });
+const TABLET_VIEWPORT = Object.freeze({ width: 768, height: 1024 });
+
+/**
+ * Every screen size a sign-off's screenshot shows, the first the one the browser opens at [owner, 2026-11-18: the target
+ * "Grapher mode at desktop and narrow viewports" got one 1280×800 screenshot, and one screenshot cannot show both]: the
+ * Story's pinned visual profiles when it pins more than one, else the sizes the plan's target names (desktop, tablet,
+ * narrow or mobile), else the one capture viewport. SFlow captures the screen the person brought up at each, side by side.
+ */
+export function signOffViewports(workflow, target = null) {
+  const profiles = (workflow?.resolution?.verification?.profiles ?? []).filter((profile) => Number.isInteger(profile?.width) && Number.isInteger(profile?.height));
+  if (profiles.length > 1) return profiles.slice(0, 4).map((profile) => ({ name: profile.label ?? profile.id, width: profile.width, height: profile.height }));
+  const text = String(target ?? '');
+  const narrow = /\b(?:narrow|mobile|phone|small[- ]screen)\b/iu.test(text);
+  const tablet = /\btablet\b/iu.test(text);
+  const wide = /\b(?:desktop|wide|large[- ]screen|laptop)\b/iu.test(text);
+  const base = { name: 'desktop', ...signOffViewport(workflow) };
+  if (!narrow && !tablet) return [base];
+  return [...(wide ? [base] : []), ...(tablet ? [{ name: 'tablet', ...TABLET_VIEWPORT }] : []), ...(narrow ? [{ name: 'narrow', ...NARROW_VIEWPORT }] : [])];
+}
+
+/** "1280×800 and 390×844": the sizes a screenshot shows, as people read them. */
+export const sizeWords = (viewports) => {
+  const sizes = viewports.map(({ width, height }) => `${width}×${height}`);
+  return sizes.length > 1 ? `${sizes.slice(0, -1).join(', ')} and ${sizes.at(-1)}` : sizes[0] ?? '';
+};
 
 /** The viewport the screenshot is taken at: the Story's application-review capture viewport, else 1280×800. */
 export function signOffViewport(workflow) {

@@ -160,6 +160,17 @@ function changeableLines(packet) {
     ...rows.map((item) => `- ${line(itemName(item))}: ${bare(plainWords(item).why ?? item.why)}.`)] : [];
 }
 
+/**
+ * The Story's own next step when nothing here waits on this person, from the planner (`decisions` adds `storyNext`):
+ * every screen ends with a next action [owner, 2026-11-18]. '' when the list carries none.
+ */
+export function nextWords(packet) {
+  const next = packet?.storyNext;
+  if (!next) return '';
+  return `Next: ${line(next.title)}: ${next.copilotCommand ?? next.command}${next.copilotCommand && next.command ? ` (or in your terminal: ${next.command})` : ''}.`;
+}
+const withNext = (message, packet) => [message, nextWords(packet)].filter(Boolean).join(' ');
+
 /** The card: every open item in plain words, then what waits for later, what was settled, and the approval's evidence. */
 export function decisionsTable(packet) {
   const asked = askedRows(packet).filter((item) => !changeable(item));
@@ -168,8 +179,10 @@ export function decisionsTable(packet) {
   return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${line(headline)} Nothing is recorded until you confirm.`,
     ...asked.flatMap((item, index) => itemBlock(item, packet, asked.length > 1 ? index + 1 : null)),
     ...changeableLines(packet),
-    ...(later.length ? ['', ...later.map((entry) => `Later: ${line(entry)}`)] : []),
-    ...settledLines(packet), ...evidenceLines(packet)].join('\n');
+    ...(later.length ? ['', ...later.map((entry) => `Waiting: ${line(entry)}`)] : []),
+    ...settledLines(packet), ...evidenceLines(packet),
+    // Always the last line: the Story's next step, or what happens once the person answers [owner, 2026-11-18].
+    ...(packet.storyNext ? ['', `**${nextWords(packet)}**`] : packet.plain?.afterAnswer ? ['', `**Next: ${line(packet.plain.afterAnswer)}**`] : [])].join('\n');
 }
 
 /**
@@ -398,37 +411,63 @@ export function answersOnCurrentList(packet, answers) {
   });
 }
 
-export const WITNESS_QUESTIONS = Object.freeze([
-  ['states-the-outcome', 'Does this file show the acceptance criterion\'s observable outcome?'],
-  ['matches-the-criterion', 'Does the evidence match the acceptance criterion as written?'],
-  ['current-for-this-change', 'Is this evidence current for this change?']
-]);
+/*
+ * A sign-off asked as one question [owner, 2026-11-18]: "Does this screenshot show what AC-002 asks for?" with Yes,
+ * No (say what's wrong) or Not sure; the file opens beside it, and answering is the looking. The same words and the
+ * same records as src/sign-off-question.mjs, which this card cannot import (a test holds the two equal): Yes confirms
+ * all three checks, with the note or CONFIRMED_ON_CARD as its reason; No denies the first two, its note required;
+ * Not sure records nothing.
+ */
+export const SIGN_OFF_ANSWERS = Object.freeze({ yes: 'Yes', no: 'No (say what\'s wrong)', unsure: 'Not sure' });
+export const CONFIRMED_ON_CARD = 'Confirmed on the decision card: it shows what the criterion asks for.';
+const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|svg)$/iu;
+const shortName = (clauseId) => String(clauseId ?? '').slice(String(clauseId ?? '').lastIndexOf(':') + 1);
+/** A slot's name as people say it: "layout-structure" is "the layout structure". */
+const slotWords = (slot) => (/^[a-z0-9]+(?:-[a-z0-9]+)+$/u.test(String(slot ?? '')) ? `the ${String(slot).replaceAll('-', ' ')}` : null);
 
-/** One sign-off, one form: the same three questions as VS Code's review, and the person's own words. */
-export function witnessForm(review) {
-  return { message: [`Sign off ${review.clauseId} · ${review.slot} (${review.method}).`, ...(review.clauseText ? [`The approved criterion: ${review.clauseText}`] : []),
-    ...(review.files.length === 1 ? [`Look at ${review.files[0]} first.`] : [])].join('\n'),
-  requestedSchema: { type: 'object', required: ['choice', ...WITNESS_QUESTIONS.map(([id]) => id)], properties: {
-    choice: { type: 'string', title: 'Did you look at it?', enum: ['I looked at it', NOT_NOW] },
+export function signOffQuestion(review, file = review?.files?.[0] ?? null) {
+  const subject = review?.method === 'visual' || IMAGE_FILE.test(String(file ?? '')) ? 'this screenshot' : file;
+  return `Does ${subject} show what ${shortName(review?.clauseId)} asks for?`;
+}
+export const unsureWords = (workId) => `Nothing was recorded. Ask someone who knows that screen, or take the screenshot again; it stays on the Decide card (/sf-decide ${workId}).`;
+export function signOffAnswers(answer, note = '') {
+  const text = String(note ?? '').trim();
+  if (answer === 'unsure') return { unsure: true };
+  if (answer === 'no' && !text) return { problem: 'Say what is wrong with it (10 to 1000 characters).' };
+  if (text && (text.length < 10 || text.length > 1000)) return { problem: 'Keep the note to 10 to 1000 characters.' };
+  if (answer === 'yes') return { reason: text || CONFIRMED_ON_CARD, answers: [['states-the-outcome', true], ['matches-the-criterion', true], ['current-for-this-change', true]] };
+  if (answer === 'no') return { reason: text, answers: [['states-the-outcome', false], ['matches-the-criterion', false], ['current-for-this-change', true]] };
+  return { problem: `Answer ${SIGN_OFF_ANSWERS.yes}, ${SIGN_OFF_ANSWERS.no} or ${SIGN_OFF_ANSWERS.unsure}.` };
+}
+
+/** What a sign-off decides and why, in one line: the item's own words when the list gives them. */
+function signOffWhat(review, item = null) {
+  if (item?.plain?.why) return item.plain.why;
+  const named = slotWords(review.slot);
+  const check = review.method === 'visual' ? 'tests can\'t check how it looks' : 'tests can\'t check this file';
+  return `Sign off ${shortName(review.clauseId)}${named ? `, ${named}` : ''}: ${check}, so a person confirms it.`;
+}
+
+/** One sign-off, one question: what is decided and why, the criterion, then Yes, No (say what's wrong) or Not sure. */
+export function witnessForm(review, item = null) {
+  return { message: [signOffWhat(review, item), ...(review.clauseText ? [`${shortName(review.clauseId)}: ${review.clauseText}`] : []),
+    ...(review.files.length === 1 ? ['It is open beside this question.'] : [])].join('\n'),
+  requestedSchema: { type: 'object', required: ['answer'], properties: {
+    answer: { type: 'string', title: signOffQuestion(review), enum: [SIGN_OFF_ANSWERS.yes, SIGN_OFF_ANSWERS.no, SIGN_OFF_ANSWERS.unsure] },
     // Several files: the person picks the one they looked at; nobody is asked to type a path [PHR:REQ-006].
     ...(review.files.length === 1 ? {} : { file: { type: 'string', title: 'Which file did you look at?', enum: [...review.files] } }),
-    ...Object.fromEntries(WITNESS_QUESTIONS.map(([id, question]) => [id, { type: 'string', title: question, enum: ['Yes', 'No'] }])),
-    reason: textField('What did you inspect? In your own words', { minimum: 10, maximum: 1000 }) } } };
+    note: { type: 'string', title: 'What is wrong (needed for No; for Yes, optional)', maxLength: 1000 } } } };
 }
 
 export function witnessAnswers(review, content) {
-  const reason = String(content?.reason ?? '').trim();
   const file = review.files.length === 1 ? review.files[0] : String(content?.file ?? '').trim();
   if (!review.files.includes(file)) return { problem: `Pick the file you looked at: ${review.files.join(', ')}.` };
-  if (reason.length < 10 || reason.length > 1000) return { problem: 'Describe what you inspected in 10 to 1000 characters.' };
-  for (const [id] of WITNESS_QUESTIONS) if (!['Yes', 'No'].includes(content?.[id])) return { problem: 'Answer each question yes or no.' };
-  return { problem: null, file, reason, answers: WITNESS_QUESTIONS.map(([id]) => [id, content[id] === 'Yes']) };
-}
-
-export function witnessConfirm(review, { file, reason, answers }) {
-  return { message: [`Record this review of ${review.clauseId} · ${review.slot}, under your name. It is a witness, not the step's approval.`, `File: ${file}`,
-    ...answers.map(([id, yes]) => `${id}: ${yes ? 'yes' : 'no'}`), `Your reason: ${reason}`].join('\n'),
-  requestedSchema: { type: 'object', required: ['confirm'], properties: { confirm: { type: 'string', title: 'I reviewed this exact change', enum: [SIGN, NOT_NOW] } } } };
+  const answer = Object.entries(SIGN_OFF_ANSWERS).find(([, word]) => word === content?.answer)?.[0];
+  if (!answer) return { problem: `Answer ${SIGN_OFF_ANSWERS.yes}, ${SIGN_OFF_ANSWERS.no} or ${SIGN_OFF_ANSWERS.unsure}.` };
+  const given = signOffAnswers(answer, content?.note);
+  if (given.unsure) return { problem: null, unsure: true };
+  if (given.problem) return { problem: given.problem };
+  return { problem: null, file, reason: given.reason, answers: given.answers };
 }
 
 /** A pending review on the current list, or null: the binding it records against is always this read's. */
@@ -560,7 +599,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
   if (answered && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-question'], remaining: [],
     message: answered, ...(opening.next ? { next: opening.next } : {}) };
   // A chat that asked carries on when nothing waits: only a person who typed /decide sees a review nothing waits on.
-  if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
+  if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: withNext(packet.headline, packet), recorded: [], remaining: [],
+    ...(packet.storyNext ? { next: packet.storyNext } : {}) };
   // What an answer depends on, SFlow checks before it asks, read-only and bounded [owner, 2026-11-16].
   if (checkNames(packet).length) {
     await show(`Checking first: ${checkNames(packet).join('; ')} (up to ${CHECK_SECONDS} seconds; nothing is recorded).`);
@@ -571,7 +611,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
   // Nothing on the list is this person's to act on now: said, with why and what it holds, never an empty form [owner, 2026-11-18].
   if (!answered && packet.plain?.nothingToRecord && !cardRows(packet).flatMap(reviews).length) {
     await show(packet.plain.nothingToRecord);
-    return { status: 'nothing-recordable', recorded: [], remaining: openRows(packet).map((item) => itemName(item)), message: packet.plain.nothingToRecord };
+    return { status: 'nothing-recordable', recorded: [], remaining: openRows(packet).map((item) => itemName(item)), message: withNext(packet.plain.nothingToRecord, packet),
+      ...(packet.storyNext ? { next: packet.storyNext } : {}) };
   }
   const recorded = answered ? ['version-question'] : [];
   // What was decided, in its own words: this is what the agent reports back, and a record's ID does not say it.
@@ -633,27 +674,28 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
     const current = reviewOn(packet, key);
     if (!current) continue;
     if (current.files.length === 1) await inspect?.(packet, current.files[0]);
-    const answer = await askUntilRight(ask, witnessForm(current), (content) => (content.choice === NOT_NOW ? { notNow: true } : witnessAnswers(current, content)));
+    const item = cardRows(packet).find((row) => row.options.some((option) => option.action?.humanReview?.clauseId === current.clauseId
+      && option.action.humanReview.slot === current.slot)) ?? null;
+    const answer = await askUntilRight(ask, witnessForm(current, item), (content) => witnessAnswers(current, content));
     if (answer.refused) return { status: 'refused', recorded, remaining: [], message: refusedWords(answer.refused) };
-    if (answer.cancelled || answer.notNow) continue;
-    const sign = await ask(witnessConfirm(current, answer));
-    if (sign?.action === 'accept' && sign.content?.confirm === SIGN) {
-      // One sign-off that cannot be recorded never loses the decisions and sign-offs already recorded.
-      try {
-        const result = await witness(packet, current, answer);
-        if (result?.record?.id) {
-          recorded.push(result.record.id);
-          decided.push(`Signed off ${current.clauseId} · ${current.slot}`);
-        }
-      } catch (error) {
-        await show(`The sign-off of ${current.clauseId} · ${current.slot} was not recorded: ${error.message}`);
+    if (answer.cancelled) continue;
+    if (answer.unsure) { await show(unsureWords(packet.workId)); continue; }
+    // One sign-off that cannot be recorded never loses the decisions and sign-offs already recorded.
+    try {
+      const result = await witness(packet, current, answer);
+      if (result?.record?.id) {
+        recorded.push(result.record.id);
+        decided.push(`${shortName(current.clauseId)} ${result.record.outcome === 'met' ? 'signed off' : 'not signed off: what is wrong is recorded'}`);
       }
-      packet = await read();
+    } catch (error) {
+      await show(`The sign-off of ${shortName(current.clauseId)} was not recorded: ${error.message}`);
     }
+    packet = await read();
   }
   const remaining = openRows(packet).map((item) => itemName(item));
+  // The list as it stands after what was recorded: with nothing left that waits on this person, the Story's next step.
   return { status: recorded.length ? 'recorded' : drafted.length ? 'drafted' : 'cancelled', recorded, decided, ...(drafted.length ? { drafted } : {}), remaining,
-    ...(summaryUpdate ? { summaryUpdate } : {}),
-    message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}`
-      + `${drafted.length ? ` ${drafted.join(' ')}` : ''}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}${summaryUpdate ? ` ${summaryUpdate}` : ''}` };
+    ...(summaryUpdate ? { summaryUpdate } : {}), ...(packet.storyNext ? { next: packet.storyNext } : {}),
+    message: withNext(`${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}`
+      + `${drafted.length ? ` ${drafted.join(' ')}` : ''}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}${summaryUpdate ? ` ${summaryUpdate}` : ''}`, packet) };
 }

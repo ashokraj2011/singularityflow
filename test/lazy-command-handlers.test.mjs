@@ -806,6 +806,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // review's findings about tests or evidence only carries the published source (owner, 2026-11-18, Story new-ash-graph):
     // the gate's call into review-test-correction.mjs, loaded by its path, and the carried rows (delivery-evidence.mjs
     // +1,104) and the receipt's field (state.mjs +99). The rule and its review read stay lazy. No new eager file.
+    // 9,759,900 (measured 9,759,897 for submit.mjs, +58 over 9,759,839) [owner, 2026-11-18]: a visual sign-off's screenshot
+    // is a Decide card step, so its Copilot route is /sf-decide, never "no verified equivalent" (model-free-commands.mjs),
+    // and an approved amendment's refusal says the steps it reopened are submitted again (source-review-policy.mjs).
+    // No new eager file.
+    // 9,761,100 (measured 9,761,073 for submit.mjs, start.mjs 9,759,536, 2026-11-18): both rises above merged with the
+    // local-service fixes on one landing; they overlap, so together they add +33 over the first. No new eager file.
     assert.ok(closure.bytes <= 9_761_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1232,6 +1238,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,293,500 (measured 4,293,456, +1,061): a version opened to fix its review's findings about tests or evidence only carries
   // the published source (delivery-evidence.mjs, the gate's call into review-test-correction.mjs, loaded by its path)
   // [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
+  // 4,292,500 (measured 4,292,455, +58): a visual sign-off's screenshot routes to /sf-decide (model-free-commands.mjs),
+  // and an amendment's refusal is in plain words (source-review-policy.mjs) [owner, 2026-11-18]. No new eager file.
+  // 4,293,500 (measured 4,293,489, 2026-11-18): both rises above merged with the local-service fixes on one landing; they
+  // overlap, so together they add +33 over the first. No new eager file.
   assert.ok(current.bytes <= 4_293_500, `session current loads ${current.bytes} source bytes`);
 });
 

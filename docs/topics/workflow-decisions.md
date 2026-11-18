@@ -25,7 +25,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 19
+version: 21
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -53,11 +53,28 @@ two-clause table and a matching source-item provenance; an unrelated section iss
 
 ## How the decisions card asks
 
-Every host shows each open item the same way, in plain words: what is asked, as a question; why, in one
-sentence; and `Recommended: …`, then its options with the recommended one first. With exactly one open
-item the card asks that question directly; with several, its first form names each one. An item nobody
-can answer yet, such as a sign-off of a screenshot no step has published, is one `Later:` line, never a
-question. Each thing SFlow settled for you is one line ending "Undo if wrong."
+Every host shows each open item the same way, in plain words: what is asked, as a question; what is
+decided and why, in one sentence; and `Recommended: …`, then its options with the recommended one first.
+With exactly one open item the card asks that question directly; with several, its first form names each
+one. Only what you can act on now is asked: an item nobody can answer yet, such as a sign-off of a
+screenshot no step has published, and an item someone else decides are one `Waiting:` line each, naming
+who or what. Each thing SFlow settled for you is one line ending "Undo if wrong." The list always ends with
+`Next:`: what happens once you answer, or, when nothing waits on you, the Story's next step from
+`singularity-flow nextsteps`, with its Copilot, Shell and VS Code routes. It never names the list itself:
+when what is left is answered only on the Decide card, `Next:` is "Open the Decide card" (Copilot CLI
+`/decide <WORK-ID>`, VS Code "Singularity Flow: Decide Everything This Step Waits On", or
+`singularity-flow decisions record <WORK-ID>` in your terminal), never `/sf-decide` again.
+
+Words you type in a step are a request only when they ask for a change or an addition. A status note ("I
+have done npm login"), an acknowledgement or what a terminal printed is kept as a note: it holds nothing
+and never asks for a new version. Words SFlow cannot tell apart wait like a request, and the item offers
+"That was not a request": one click keeps them as a note.
+
+A sign-off is one question with the file open beside it: "Does this screenshot show what AC-002 asks for?"
+(for another file, "Does <file> show what AC-002 asks for?"), answered Yes, No (say what's wrong) or Not
+sure. Yes records the sign-off, bound to the file's exact bytes; a note is optional, and without one it
+reads "Confirmed on the decision card: it shows what the criterion asks for." No records that it does not
+show it, with your note on what is wrong. Not sure records nothing. The terminal walkthrough asks the same.
 
 Every item recommends. Where the right answer depends on a check SFlow can run itself, it runs that check
 before it asks: read-only, recording nothing as evidence, at most 60 seconds, and only once for the same

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6bd38a01b64229507c5664a89f937c4e23cb8195",
+  "sourceCommit": "b01746bd7d88fc447dfc8c981498275db3dbf374",
   "topicCount": 94,
-  "contentSha256": "dca5ea8dc11084b3b7d9ae67dd892aaab2d9d75c5245b02849b0a74d95676d80",
+  "contentSha256": "d662bf77ccbef69cd637f48526807679e5660b574e09701fd6fdd4f1bc82cde8",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -57,7 +57,7 @@
       "id": "approvals",
       "title": "Approvals",
       "version": 29,
-      "sha256": "cd90ef3a7771e4b29c5063d34f31e051919514ae087bca35d87c761c2d3a4612",
+      "sha256": "452656f2da6038311d103d4753830838c6f932e69e4c715184a0859163fbd0d7",
       "routingSha256": "85a95a3a36e07139ed38692e07cbb4cace9e5c4581d595e45769611fc93f6698",
       "file": "approvals.md"
     },
@@ -680,8 +680,8 @@
     {
       "id": "visual-verification",
       "title": "Visual verification for mobile",
-      "version": 9,
-      "sha256": "424a3912036c82c89c3737055d3b480061f602526a0a5b14a7b21636a37e0268",
+      "version": 10,
+      "sha256": "2410455a40d3932651a20129a01fa4e5ce514111ad138393fe36278db02c13fb",
       "routingSha256": "2e2011faa98461dbf16f975ee882a4539944aba6dfb1ed908f47f4b825aaf423",
       "file": "visual-verification.md"
     },
@@ -720,8 +720,8 @@
     {
       "id": "workflow-decisions",
       "title": "Decisions, branches and loops in Story workflows",
-      "version": 19,
-      "sha256": "5bbf5f11e481e9951a4e4f474205f14550662f315517af82ee1333498756bd14",
+      "version": 21,
+      "sha256": "5ad459cfe32433d58273cc086a3d633d66a3272035bbcc7a5bd333cff78056b8",
       "routingSha256": "07bf0e965ef3a5d13d8a1ca2a5f090175c96f7ed9af50c614743485c8a65aa9b",
       "file": "workflow-decisions.md"
     },

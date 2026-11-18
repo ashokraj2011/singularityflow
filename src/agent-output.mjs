@@ -656,12 +656,20 @@ export function agentAct(result) {
         said: `Show ${at}preview.summary. The person records it by running ${at}preview.record.command in their own terminal; never run it or change its digest.` };
     // Nothing on the list can be taken yet: say why, and go on with the Story, which is what makes it possible.
     if (list.next?.notYet) return withRoute({ state: 'next', do: null, said: oneLine(`${list.next.title}: ${list.next.notYet} Nothing here can be recorded yet.`) }, { command: list.next.command, copilotCommand: list.next.copilotCommand });
+    // Nothing left here a chat can ask (a yes or no, a sign-off's own review, an approval): the Decide card is next, named
+    // as such, never /sf-decide from inside it (owner, 2026-11-18: "Next — Resolve the remaining decisions: /sf-decide").
+    const chatAsks = (item) => item.chatYesNo === true || (item.kind === 'approval' && item.decidedBy?.allowed && item.details?.ready !== false)
+      || item.options?.some((entry) => entry.action?.humanReview);
+    if (list.items?.length && list.next?.kind === 'decide-card' && ![...list.items, ...(list.offered ?? [])].some(chatAsks)) return { state: 'confirm-in-terminal',
+      do: { reason: list.next.title, copilot: list.next.copilotCommand, shell: list.next.command, vscode: list.next.modelFreeCommand }, read: [`${at}items`],
+      said: oneLine(`${list.plain?.headline ?? list.headline} What is left is answered on the Decide card, not in this chat: show each item's plain words, then end with "Next: ${list.next.title}" and do's routes. Never give /sf-decide again, and never run do.shell.`) };
+    // Nothing left to decide, or nothing here waits on this person: the Story's next step, never an ending with nothing
+    // to do (owner, 2026-11-10 and 2026-11-18). `decisions` names it only when nothing on the list is theirs now.
+    if (list.next?.kind === 'story-next' && list.next.command) return withRoute({ state: 'next', do: null,
+      said: oneLine(`${list.plain?.headline ?? list.headline} ${list.items?.length ? 'Nothing here waits on the person now: show each Waiting line, then' : 'Nothing is left to decide here;'} the Story goes on with its next step.`) },
+    { command: list.next.command, copilotCommand: list.next.copilotCommand, reason: list.next.title });
     if (list.items?.length) return { state: 'ask-person', do: null, read: [`${at}items`, `${at}record`],
       said: 'Show each item\'s title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them. action.humanReview opens native #sflowWitnessReview with workId, criterion and slot only; the person supplies its checklist and reason there. If that tool is unavailable, give the exact human Shell command; do not send a witness back to /sf-decide. Recorded plan accounting is separate from pending visual sign-off.' };
-    // Nothing left to decide: the Story's next step, never an ending with nothing to do (owner, 2026-11-10).
-    if (list.next?.kind === 'story-next' && list.next.command) return withRoute({ state: 'next', do: null,
-      said: oneLine(`${list.headline} Nothing is left to decide here; the Story goes on with its next step.`) },
-    { command: list.next.command, copilotCommand: list.next.copilotCommand, reason: list.next.title });
     return { state: 'read', do: null, said: oneLine(list.headline) };
   }
   const action = genericAction(result);

@@ -1,8 +1,8 @@
 /**
  * A visual sign-off in the person's own terminal walkthrough (`decisions record`, interactive) [owner, 2026-11-18]: the
  * person is there, so "Take the screenshot now?" takes it with them at SFlow's browser (takeSignOffCapture, its full
- * wait: nobody capturing or a closed browser takes nothing), then asks the sign-off's three questions and their reason
- * as the Copilot CLI card does, and records it with `decision witness`. "r" takes it again (`--replace`). Loaded only
+ * wait: nobody capturing or a closed browser takes nothing), then asks the sign-off's one question as the Copilot CLI
+ * card does (sign-off-question.mjs) and records it with `decision witness`. "r" takes it again (`--replace`). Loaded only
  * when the person says yes; never from a card's check or a probe, and never from a chat turn, which is refused
  * `decisions record` and has no terminal to answer in.
  */
@@ -14,13 +14,8 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { lineReader } from './decisions.mjs';
+import { signOffAnswers, signOffQuestion, unsureWords } from '../sign-off-question.mjs';
 
-// The same three questions as the Copilot CLI card's and VS Code's review.
-export const WITNESS_QUESTIONS = Object.freeze([
-  ['states-the-outcome', 'Does this file show the acceptance criterion\'s observable outcome?'],
-  ['matches-the-criterion', 'Does the evidence match the acceptance criterion as written?'],
-  ['current-for-this-change', 'Is this evidence current for this change?']
-]);
 const WAIT_WORDS = 'up to 10 minutes; closing the browser takes nothing';
 
 /** Runs this same CLI in the Story's own checkout, as the cards run it, and answers its JSON result; a refusal throws with its own words. */
@@ -80,26 +75,18 @@ export async function screenshotWalkthrough(root, { workId, packet, request, rer
       say(`   Look at ${absolute}`);
       await (deps.open ?? openFile)(absolute);
       const name = review.clauseId.slice(review.clauseId.lastIndexOf(':') + 1);
-      const answer = String(await ask(`   Is this the screen ${name} is about? y = sign it off, r = take it again, n = not now [n]: `) ?? '').toLowerCase();
-      if (answer === 'r') { again = true; continue; }
-      if (answer !== 'y' && answer !== 'yes') { say(`   Nothing was recorded. Sign it off later on the Decide card (/sf-decide ${workId}).`); return { status: 'not-now' }; }
-      const answers = [];
-      for (const [id, question] of WITNESS_QUESTIONS) {
-        const reply = await ask(`   ${question} [y/n]: `);
-        if (reply === null) { say('   Input ended; nothing was recorded.'); return { status: 'ended' }; }
-        answers.push([id, /^(?:y|yes)$/iu.test(reply)]);
+      // One question, the file open beside it [owner, 2026-11-18]; r takes the screenshot again.
+      const reply = String(await ask(`   ${signOffQuestion(review, file)} y = yes, n = no (say what's wrong), s = not sure, r = take it again [s]: `) ?? '').toLowerCase();
+      if (reply === 'r') { again = true; continue; }
+      const answer = /^(?:y|yes)$/u.test(reply) ? 'yes' : /^(?:n|no)$/u.test(reply) ? 'no' : 'unsure';
+      if (answer === 'unsure') { say(`   ${unsureWords(workId)}`); return { status: 'not-sure' }; }
+      let given = signOffAnswers(answer, await ask(answer === 'no' ? '   What is wrong with it? (10 to 1000 characters): ' : '   A note, if you want one (Enter to skip): '));
+      for (let tries = 0; given.problem && tries < 2; tries += 1) {
+        say(`   ${given.problem}`);
+        given = signOffAnswers(answer, await ask(answer === 'no' ? '   What is wrong with it? ' : '   A note, or Enter to skip: '));
       }
-      let reason = '';
-      for (let tries = 0; tries < 3 && (reason.length < 10 || reason.length > 1000); tries += 1) {
-        reason = String(await ask('   What did you look at? In your own words (10 to 1000 characters): ') ?? '').trim();
-      }
-      if (reason.length < 10 || reason.length > 1000) { say('   Nothing was recorded: say what you looked at in 10 to 1000 characters.'); return { status: 'no-reason' }; }
-      say(`   File: ${file}`);
-      for (const [id, yes] of answers) say(`   ${id}: ${yes ? 'yes' : 'no'}`);
-      if (!/^(?:y|yes)$/iu.test(String(await ask(`   Record this review of ${name} under your name? It is a witness, not the step's approval. [y/N]: `) ?? ''))) {
-        say('   Nothing was recorded.');
-        return { status: 'not-now' };
-      }
+      if (given.problem) { say(`   Nothing was recorded: ${given.problem}`); return { status: 'no-reason' }; }
+      const { reason, answers } = given;
       const digest = `sha256:${createHash('sha256').update(await readFile(absolute)).digest('hex')}`;
       const args = ['decision', 'witness', '--work-id', workId, '--criterion', review.clauseId, '--slot', review.slot, '--file', file, '--reason', reason,
         '--expected-context-sha256', review.contextBinding, '--expected-file-sha256', digest, ...answers.flatMap(([id, yes]) => [yes ? '--confirm' : '--deny', id]), '--json'];

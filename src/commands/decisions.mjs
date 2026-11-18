@@ -645,7 +645,12 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
   if (effect.kind === 'intent-amendment-acknowledge') {
     const { acknowledgeApprovedIntentAmendment } = await import('./story.mjs');
     const { acknowledgement } = await acknowledgeApprovedIntentAmendment(root, config, workflow, effect.amendment, { channel });
-    return { id: acknowledgement.id, acknowledged: true, words: `${acknowledgement.id} is acknowledged; the steps it reopened can be revalidated` };
+    return { id: acknowledgement.id, acknowledged: true, words: `${acknowledgement.id} is acknowledged; the steps it reopened can be submitted again` };
+  }
+  if (effect.kind === 'asked-for-note') {
+    // "That was not a request": the person's words kept as a note, so nothing waits for them [owner, 2026-11-18].
+    const { accountAsNote } = await import('../asked-for-records.mjs');
+    return accountAsNote(root, config, workflow, { phase: effect.phase, instruction: effect.instruction }, { actor, agent, surface: channel });
   }
   if (effect.kind === 'intent-amendment-draft') {
     // The draft command's own function, at the Story's own draft path: never one carried in the list.
@@ -734,6 +739,7 @@ function recordId(kind, record) {
   if (kind === 'intent-amendment-decision') return `${record?.id} ${record?.reached === false ? 'approval recorded' : record?.decision}`;
   if (kind === 'intent-amendment-refresh') return `${record?.id} refreshed as ${record?.refreshedAs}`;
   if (kind === 'intent-amendment-acknowledge') return `${record?.id} acknowledged`;
+  if (kind === 'asked-for-note') return `${record?.id}: instruction ${record?.instruction} kept as a note`;
   if (kind === 'amendment-revalidation') return `${record?.phase} ${record?.outcome} after ${record?.amendment}${record?.link ? ` (${record.link})` : ''}`;
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
   if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;

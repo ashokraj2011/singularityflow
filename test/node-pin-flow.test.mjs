@@ -72,7 +72,7 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   assert.ok(offered, 'listed before any run');
   assert.equal(offered.details.stage, 'early');
   assert.equal(offered.holdsApproval, false);
-  assert.match(early.headline, /has 1 open decision: it holds nothing yet\./u, 'it stops nothing');
+  assert.match(early.headline, /has 1 open decision: it is not needed yet\./u, 'it stops nothing');
   assert.equal(offered.options.length, 1, 'one choice');
   assert.equal(offered.options[0].id, 'pin-node');
   assert.match(offered.options[0].label, /^Pin Node 22$/u);

@@ -271,11 +271,12 @@ async function convergenceFacts(root, config, workflow, phase, unavailable) {
 async function askedForFacts(root, workflow, phase) {
   if (!(workflow.askedFor ?? []).some((entry) => entry.phase === phase.id)) return null;
   const source = (name) => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', name)).href);
-  const [{ phaseRequiresCodeDelivery }, { accountableStep, instructionAccounting }, { typedFocusOff }, { openScopeAppeal }, { stepDecisionOf }] = await Promise.all([
+  const [{ phaseRequiresCodeDelivery }, { accountableStep, instructionAccounting }, { typedFocusOff, typedKind }, { openScopeAppeal }, { stepDecisionOf }] = await Promise.all([
     // From the CLI source, as the departures are: the VS Code bundles load it only for a Story that has one.
     import('./code-delivery-policy.mjs'), source('asked-for-records.mjs'), source('asked-for.mjs'), source('phase-finding-policy.mjs'), source('step-decision.mjs')]);
   if (!phaseRequiresCodeDelivery(phase) || typedFocusOff(workflow)) return null;
-  const entries = instructionAccounting(workflow, phase.id).filter((entry) => !entry.account);
+  // Each with what its words are: one SFlow cannot tell is a request is the person's to call a note, with one click.
+  const entries = instructionAccounting(workflow, phase.id).filter((entry) => !entry.account).map((entry) => ({ ...entry, typed: typedKind(entry.text) }));
   if (!entries.length) return null;
   // Written or published, and not submitted: its author accounts for it in this step, with no new version (accountableStep).
   const open = accountableStep(workflow, phase, { openScopeAppeal, decision: stepDecisionOf(workflow, phase) });

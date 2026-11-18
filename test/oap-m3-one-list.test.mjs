@@ -132,7 +132,7 @@ test('the list holds every pending kind in one order, and the approval last, nam
   assert.deepEqual(packet.next, { item: 'd1', kind: 'story-publication', title: `Publish ${WORK}'s retained commit`, command: `singularity-flow sync ${WORK}`,
     copilotCommand: `/sf-decide ${WORK}` });
   // Each item says what it holds, from the same holds the approval reads, and the headline counts them [decision map, finding 1].
-  assert.match(packet.headline, /^Planning can't be approved yet: 3 decisions needed\. The other 5: 1 holds the next step; 1 holds the steps it reopens; 2 hold the Story's end; 1 holds nothing yet\./u);
+  assert.match(packet.headline, /^Planning can't be approved yet: 3 decisions needed\. The other 5: 1 is needed before the next step; 1 is needed before the steps it reopened are submitted again; 2 are needed before the Story ends; 1 is not needed yet\./u);
   assert.deepEqual(packet.items.filter((item) => !item.machine && item.kind !== 'approval').map((item) => [item.kind, item.holds]), [
     ['routing-decision', 'story'], ['intent-amendment', 'later-step'], ['intent-amendment', 'approval'], ['forward-amendment', 'story-end'],
     ['appeal', 'nothing'], ['owed-decision', 'story-end'], ['approval-hold', 'approval'], ['test-run-risk', 'approval']]);

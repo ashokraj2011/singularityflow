@@ -126,7 +126,7 @@ test('a step whose amendment waits refuses prepare, publish and submit until it 
     [second.id, [`${WORK}:AC-001`, `${WORK}:REQ-001`]]);
   assert.match(refused('prepare', 'implementation', '--json'), /"code": "INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED"/u);
   const unacknowledged = refused('prepare', 'implementation');
-  assert.match(unacknowledged, /A person acknowledges it before downstream revalidation, on the decisions card \(\/sf-decide IAC-PAUSE-1\)/u);
+  assert.match(unacknowledged, /A person acknowledges it before the steps it reopened are submitted again, on the decisions card \(\/sf-decide IAC-PAUSE-1\)/u);
   assert.doesNotMatch(unacknowledged, /sf-recover|singularity-flow recover /u, 'nothing is repaired or recovered');
   cli('story', 'intent-amendment', 'acknowledge', second.id);
   assert.match(cli('prepare', 'implementation').stdout, /implementation is ready to author/u);

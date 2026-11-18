@@ -105,11 +105,43 @@ async function writeLedger(file, ledger) {
   } finally { await rm(temporary, { force: true }).catch(() => {}); }
 }
 
+// A change or an addition, asked for: a clause that starts with one of these verbs, after any polite or wanting frame.
+const CHANGE_VERBS = 'add|adjust|align|allow|apply|avoid|build|bump|cache|center|change|clean|convert|correct|cover|create|delete|disable|display|document|downgrade|drop|enable|ensure'
+  + '|expose|extract|filter|fix|format|generate|guard|handle|hide|implement|improve|include|increase|decrease|introduce|keep|limit|load|log|make|merge|migrate|mock|move|paginate'
+  + '|put|raise|reduce|refactor|remove|rename|render|reorder|replace|restore|return|reuse|revert|rewrite|rework|save|send|set|show|simplify|skip|sort|split|store|style|support'
+  + '|switch|translate|tweak|undo|update|upgrade|use|validate|wire|wrap|write';
+const FRAME = /^(?:(?:please|pls|kindly|also|now|and|then|so|but|just|ok(?:ay)?|instead|go ahead and|make sure (?:to|you)|can you|could you|would you|will you|you (?:should|must|need to)|(?:i|we) (?:want|need|would like|'d like)(?: you)? to|let'?s|let us)[\s,]+)*/iu;
+const CHANGE_START = new RegExp(`^(?:(?:don'?t|do not|never|stop)\\s+\\S|(?:${CHANGE_VERBS})\\b)`, 'iu');
+const CHANGE_MODAL = /\b(?:should|must|needs? to|has to|have to|ought to)\s+(?:not\s+)?(?:be|have|show|use|say|return|work|display|look|appear|include|accept|reject|handle|support|stay|match|read|go|point|open|close|run|call|live)\b|\binstead of\b/iu;
+// A status note: what the person did or saw, or a bare acknowledgement.
+const STATUS = /^(?:(?:i|we)(?:'ve|'d| have| had)?\s+(?:just\s+|already\s+|now\s+|also\s+)?(?:run|read|set up)\b|(?:(?:i|we)(?:'ve|'d| have| had)?\s+)?(?:just\s+|already\s+|now\s+|also\s+)?(?:done|did|finished|completed|ran|re-?ran|logged|installed|reinstalled|configured|fixed|tried|updated|restarted|started|pushed|pulled|merged|committed|signed|verified|checked|tested|cleared|rebuilt|authenticated|created|added|deleted|removed|changed|saved|approved|reviewed|seen|looked|got)\b|(?:it|that|this|everything|all)(?:'s| is| was| has been| looks)\s+(?:now\s+)?(?:done|fixed|working|installed|set up|configured|ready|running|passing|green|merged|pushed|fine|good|ok)\b|(?:(?:ok(?:ay)?|done|thanks|thank you|thx|great|cool|got it|sounds good|fine|yes|yep|no|nope|sure|works)\b[\s,.!]*)+$)/iu;
+// A line a terminal printed: a prompt, a tool's own prefix, a log level, a stack frame, a URL, a path, a count or a rule.
+const OUTPUT_LINE = /^\s*(?:[$%#>❯➜λ]\s|(?:npm|yarn|pnpm)\s+(?:err!|warn|notice|info|http|error|verb)(?=[\s:]|$)|(?:error|warn(?:ing)?|info|debug|notice|fatal|trace|err!)(?::|\]|!)|\[(?:error|warn(?:ing)?|info|debug)\]|at\s+\S.*:\d+(?::\d+)?\)?\s*$|[✓✔✗✖×•ℹ⚠→▶]\s|\d{1,4}[:\-/.]\d{1,2}[:\-/.]\d|https?:\/\/\S+\s*$|(?:[~.]|[A-Za-z]:)?\/[\w.-]+\/\S*:\d+|(?:added|removed|changed|audited) \d+ packages?\b|(?:up to date|logged in on|signed in as|done in \d|press enter)\b|(?:pass|fail|ok|not ok)\s+\S+\.(?:test|spec)\.|node:internal|[-=+*_]{3,}|\s{4,}\S|\u001b\[)/iu;
+
+/**
+ * What typed words are [owner, 2026-11-18, office laptop: "I have done npm login" and pasted terminal output were
+ * held as requests]: `request`, a change or an addition asked for; `note`, a status note ("I have done npm login"), an
+ * acknowledgement or what a terminal printed; `unsure`, anything else (a question, an instruction that changes nothing
+ * plainly). Only a request or an unsure one waits for an account; an unsure one the person can call "not a request" with
+ * one click on the Decide card. Words only, never a model's reading.
+ */
+export function typedKind(text) {
+  const lines = String(text ?? '').split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return 'note';
+  const printed = lines.filter((line) => OUTPUT_LINE.test(line));
+  const said = lines.filter((line) => !OUTPUT_LINE.test(line));
+  const clauses = said.flatMap((line) => line.split(/[.!?;:]+(?:\s|$)|,\s+(?:and\s+|then\s+|but\s+|so\s+)?|\s+(?:and then|and|then|but|so)\s+/u)).map((clause) => clause.trim()).filter(Boolean);
+  if (clauses.some((clause) => CHANGE_START.test(clause.replace(FRAME, '')) || CHANGE_MODAL.test(clause))) return 'request';
+  // Mostly what a terminal printed, or only status notes: nothing is asked.
+  if (printed.length && printed.length >= said.length) return 'note';
+  return clauses.length && clauses.every((clause) => STATUS.test(clause)) ? 'note' : 'unsure';
+}
+
 /**
  * Whether an entry waits to be accounted for in a code step [SCS:REQ-042]: what was typed after /sf-code or
- * /sf-phase always does; a plain chat's prompt [PCR:REQ-012] only once its turn changed something.
+ * /sf-phase does, unless it is a note (typedKind); a plain chat's prompt [PCR:REQ-012] only once its turn changed something.
  */
-export const needsAccount = (entry) => entry?.plainChat !== true || entry.changed === true;
+export const needsAccount = (entry) => (entry?.plainChat !== true || entry.changed === true) && typedKind(entry?.text) !== 'note';
 
 /**
  * Whether two typed instructions say the same thing: the same words, however they were spaced. A plain chat's prompt

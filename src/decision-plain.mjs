@@ -120,7 +120,7 @@ function question(workflow, item) {
     case 'scope-completeness':
       return 'Record that you reviewed the scope for completeness?';
     case 'asked-for':
-      return `Has what was asked been accounted for: ${clip(String(details.text ?? title), 120)}?`;
+      return `Was "${clip(String(details.text ?? title).replace(/\s+/gu, ' ').trim(), 80)}" a request for a change?`;
     case 'routing-decision':
       return `Where does the Story go next: ${clip(title.replace(/^Choose where .*? goes after [^:]+:\s*/u, ''), 120)}?`;
     case 'intent-amendment':
@@ -220,6 +220,11 @@ function signOffWhy(workflow, item) {
 
 /** The "Waiting:" line of an item that is not this person's: who decides it, else why nobody here can. */
 function waitingLine(workflow, item) {
+  // What the person typed waits for the step's own agent: who, in plain words, and whether a new version opens for it.
+  if (item.kind === 'asked-for') {
+    const step = stepName(workflow, item.details?.phase ?? workflow?.currentPhase);
+    return `"${clip(String(item.details?.text ?? '').replace(/\s+/gu, ' ').trim(), 60)}": ${step}'s agent says how it handles it while writing it.`;
+  }
   const labels = item.decidedBy?.labels ?? [];
   const asked = bare(question(workflow, item));
   if (labels.length) return `${asked}: waiting on ${listWords(labels)}.`;

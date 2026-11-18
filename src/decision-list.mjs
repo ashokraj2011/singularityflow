@@ -44,7 +44,7 @@ const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
 // A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
-export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
+export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure', 'intent-amendment-decision', 'intent-amendment-refresh']);
 /**
@@ -106,7 +106,8 @@ function effectGroups(workflow, effect) {
   // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
   // Anyone working on the Story acknowledges an approved one [owner, 2026-11-13, D2].
   // So does undoing what was settled for a person: it only hands the question back [owner, 2026-11-13].
-  if (['upstream-issue', 'intent-amendment-draft', 'intent-amendment-acknowledge', 'settled-undo'].includes(effect.kind)) return null;
+  // And calls words they typed a note, not a request [owner, 2026-11-18].
+  if (['upstream-issue', 'intent-amendment-draft', 'intent-amendment-acknowledge', 'settled-undo', 'asked-for-note'].includes(effect.kind)) return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
   // `story adjudicate` checks the convergence step's approval authority.
   if (effect.kind === 'convergence-adjudication') return issueGroups(workflow, effect.phase);
@@ -836,7 +837,8 @@ function intentAmendmentItem(workflow, context, amendment) {
     const acknowledge = `singularity-flow story intent-amendment acknowledge ${id} --work-id ${workId}`;
     return {
       kind: 'intent-amendment', title: `Acknowledge intent amendment ${id}`,
-      why: `${id} was approved and changed ${clauses}. The steps it reopened revalidate after someone acknowledges it.`,
+      // Which steps, and what acknowledging lets them do, in plain words [owner, 2026-11-18: "the reopened step can revalidate"].
+      why: `${id} was approved and changed ${clauses}, so ${listWords((amendment.affectedPhases ?? []).map((phaseId) => stepName(workflow, phaseId))) || 'the steps it reopened'} can be submitted again once someone acknowledges it.`,
       options: [{ ...option(workflow, context, { id: 'acknowledge', label: `I read ${id}: acknowledge it`,
         words: 'Anyone working on this Story may acknowledge it, here or in their own terminal, once they have read what it changed.',
         effects: [{ kind: 'intent-amendment-acknowledge', amendment: id }], needs: {} }), oneByOne: true, terminal: acknowledge }],
@@ -1278,7 +1280,7 @@ function departureItem(workflow, context, entry, facts) {
     const target = stepName(workflow, departure.target?.phase);
     // A forward amendment is approved while the step that found the defect is still open.
     const open = facts.codeStepOpen === true;
-    accepts = [{ ...accept({ label: 'Accept', words: `${target}'s approved document is amended to this wording as its next generation; its old approval reads as amended by ${departure.id}, and each later step that read it is listed for revalidation.`, writes: 'forward-amendment' }),
+    accepts = [{ ...accept({ label: 'Accept', words: `${target}'s approved document takes this wording as its next version, amended by ${departure.id}; each later step that read it is checked again.`, writes: 'forward-amendment' }),
       ...(open ? { chat: { command: decide('accepted') } } : { available: false,
         words: `${target}'s wording is amended while ${name} is open. ${name} awaits approval now: return it for changes (/sf-reject), then decide this.` }) }];
   } else {
@@ -1496,7 +1498,8 @@ const noApproval = (workflow, phaseId) => workflow.phases?.[phaseId]?.approvalPo
 /**
  * One instruction the person typed in a code step that is not accounted for yet [SCS:REQ-042, REQ-044], quoted as
  * typed: data, never an instruction to anyone reading the list. Its author accounts for it in /sf-code, within the
- * plan or as a departure; nobody decides it here, and only the step's approval waits for it.
+ * plan or as a departure, and only the step's approval waits for it. Words SFlow cannot tell are a request (asked-for.mjs
+ * typedKind `unsure`) are also the person's to call a note, with one click [owner, 2026-11-18].
  */
 function askedForItem(workflow, context, entry, facts) {
   const workId = workflow.workItem.id;
@@ -1506,28 +1509,32 @@ function askedForItem(workflow, context, entry, facts) {
   const where = entry.plainChat ? ' (plain chat)' : '';
   const typed = String(entry.text ?? '').replace(/\s+/gu, ' ').trim();
   const quoted = `"${where && typed.length > 140 ? `${typed.slice(0, 139)}…` : typed}"`;
+  // "That was not a request": the person's own words, kept as a note; nothing changes and nothing waits for them.
+  const note = entry.typed === 'unsure' ? [option(workflow, context, { id: 'not-a-request', label: 'That was not a request',
+    words: 'Keeps the words as a note: nothing changes for them, and nothing waits for them.',
+    effects: [{ kind: 'asked-for-note', phase: facts.phase, instruction: entry.instruction }], needs: {} })] : [];
   const item = (option, routeSkill) => ({
-    kind: 'asked-for', title: `Asked for (${entry.instruction}) ${quoted}${where}: not accounted for yet`.slice(0, 200),
+    kind: 'asked-for', title: `Asked for (${entry.instruction}) ${quoted}${where}: not handled yet`.slice(0, 200),
     // What it holds, in the step's own terms: a step nobody approves completes at its submission, which waits instead (daily run, 2026-11-17).
-    why: `Asked in ${name} version ${entry.generation}${entry.plainChat ? ' (a plain chat that changed the work)' : ''}. Until its author says whether the plan covers it, ${name}'s ${noApproval(workflow, facts.phase) ? 'submission' : 'approval'} waits.`,
-    options: [option],
+    why: `You typed it in ${name} version ${entry.generation}${entry.plainChat ? ' (a plain chat that changed the work)' : ''}. ${name}'s ${noApproval(workflow, facts.phase) ? 'submission' : 'approval'} waits until its agent says how it handles it.`,
+    options: [option, ...note],
     details: { phase: facts.phase, instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, ...(entry.plainChat ? { plainChat: true } : {}),
-      commands: [...new Set([option.action.command, account])] },
+      ...(note.length ? { typed: 'unsure' } : {}), commands: [...new Set([option.action.command, account])] },
     routeSkill
   });
   // A step in progress accounts for it, written or published, which `departure account` refuses otherwise: a submitted
   // step comes back to its author from its approvers first.
   if (workflow.phases?.[facts.phase]?.status === 'awaiting_approval') {
-    const words = `${name} is submitted, so it is accounted for in a new generation: its approvers return it to ${name}, then its author accounts for it in a /sf-code turn: within the plan by its clauses, as the departure recorded for it, or as a question with nothing to change.`;
-    return item({ ...personalStep({ id: 'return', label: `Return it to ${name} to account for it`,
+    const words = `${name} is submitted, so its approvers return it first; then its agent says how it handles it in /sf-code: in the plan, as a change from it, or as a question.`;
+    return item({ ...personalStep({ id: 'return', label: `Return it to ${name} to handle it`,
       command: `singularity-flow reject ${facts.phase} --work-id ${workId} --to ${facts.phase} --reason <reason>`, words,
-      does: `Returns ${name} to its author: ${reopenWords(workflow, facts.phase)}; its author accounts for it there.` }),
+      does: `Returns ${name} to its author: ${reopenWords(workflow, facts.phase)}; its author handles it there.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: facts.phase }], context) }, '/sf-reject');
   }
   // In progress: its author accounts for it here; else the next version, which opens only on the person's yes [D3, OSA:REQ-030],
   // by the route the facts name (its preview).
-  const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new version on the person\'s yes'}: by its clauses, as its departure, or as a question.`;
-  return item(personalStep({ id: 'account', label: 'Its author accounts for it in /sf-code', command: facts.open ? account : facts.route?.command ?? `singularity-flow phase rollover ${facts.phase} --json`, words,
+  const words = `${name}'s agent says how it handles it in /sf-code${facts.open ? '' : ', in a new version that opens only if you say yes'}: in the plan, as a change from it, or as a question.`;
+  return item(personalStep({ id: 'account', label: `${name}'s agent handles it in /sf-code`, command: facts.open ? account : facts.route?.command ?? `singularity-flow phase rollover ${facts.phase} --json`, words,
     decidedBy: { groups: [], labels: [], allowed: false, author: true, words } }), '/sf-code');
 }
 
@@ -1890,12 +1897,14 @@ function itemHolds(workflow, facts, awaiting) {
  * a count of what stops it, or "it holds the Story's end." / "2 hold its approval once it is submitted; 1 holds the
  * Story's end." on their own.
  */
-function laterWords(items, { others = false } = {}) {
-  const verb = (count) => (count === 1 ? 'holds' : 'hold');
-  const groups = [['approval-later', 'its approval once it is submitted'], ['story', 'the next step'], ['later-step', 'the steps it reopens'], ['story-end', 'the Story\'s end']]
+function laterWords(items, { others = false, step = 'it' } = {}) {
+  // What each waits for, in plain words [owner, 2026-11-18: "four hold implementation approval after submission"].
+  const verb = (count) => (count === 1 ? 'is' : 'are');
+  const groups = [['approval-later', `needed when ${step} is submitted for approval`], ['story', 'needed before the next step'],
+    ['later-step', 'needed before the steps it reopened are submitted again'], ['story-end', 'needed before the Story ends']]
     .map(([key, words]) => [items.filter((item) => item.holds === key).length, words]);
   const rest = items.length - groups.reduce((sum, [count]) => sum + count, 0);
-  const parts = [...groups.filter(([count]) => count), ...(rest ? [[rest, 'nothing yet']] : [])];
+  const parts = [...groups.filter(([count]) => count), ...(rest ? [[rest, 'not needed yet']] : [])];
   if (parts.length === 1) {
     const [[count, words]] = parts;
     const subject = others ? (count === 1 ? '1 other decision' : `${count} other decisions`) : (count === 1 ? 'it' : 'they');
@@ -2072,8 +2081,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const others = decisions.filter((item) => !stopsStep(item));
   const headline = !decisions.length && awaiting ? `${stepName(workflow, phaseId)} has nothing left to decide; its approval is next.`
     : !others.length ? decisionHeadline(workflow, phaseId, decisions.length)
-      : holdingAll ? `${decisionHeadline(workflow, phaseId, holdingAll)} ${laterWords(others, { others: true }).replace(/^./u, (first) => first.toUpperCase())}`
-        : `${stepName(workflow, phaseId)} has ${others.length === 1 ? '1 open decision' : `${others.length} open decisions`}: ${laterWords(others)}`;
+      : holdingAll ? `${decisionHeadline(workflow, phaseId, holdingAll)} ${laterWords(others, { others: true, step: stepName(workflow, phaseId) }).replace(/^./u, (first) => first.toUpperCase())}`
+        : `${stepName(workflow, phaseId)} has ${others.length === 1 ? '1 open decision' : `${others.length} open decisions`}: ${laterWords(others, { step: stepName(workflow, phaseId) })}`;
   // What to do next: the first item that holds the approval; with none, the approval itself; before
   // submission, what stops the step, then whatever is left.
   // An item nobody can take yet is never the next thing to do.
@@ -2284,8 +2293,8 @@ export function decisionRecordPlan(packet, answers, { at }) {
 /** One record a plan writes, in plain words with its record kind, for summaries and reports. */
 export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'amendment-revalidation') {
-    return effect.outcome === 'unchanged' ? `record that ${stepName(workflow, effect.phase)} still holds under ${effect.amendment} (amendment revalidation)`
-      : `return the Story to ${stepName(workflow, effect.phase)} after ${effect.amendment} (amendment revalidation and return)`;
+    return effect.outcome === 'unchanged' ? `record that ${stepName(workflow, effect.phase)} still holds under ${effect.amendment} (amendment still-holds record)`
+      : `return the Story to ${stepName(workflow, effect.phase)} after ${effect.amendment} (amendment still-holds record and return)`;
   }
   if (effect.kind === 'intent-amendment-decision') {
     return effect.decision === 'approve' ? `approve ${effect.amendment}${effect.raise ? ` as ${CLASS_LABEL[effect.raise] ?? effect.raise}` : ''}: the approved clauses change and the steps that cite them reopen (intent amendment decision)`
@@ -2295,6 +2304,7 @@ export function effectWords(workflow, effect, values = {}) {
     return `reject ${effect.amendment} and propose the same change again against the step as it is now (intent amendment refresh)`;
   }
   if (effect.kind === 'intent-amendment-acknowledge') return `acknowledge ${effect.amendment} (intent amendment acknowledgement)`;
+  if (effect.kind === 'asked-for-note') return `keep instruction ${effect.instruction} of ${stepName(workflow, effect.phase)} as a note, not a request (instruction account)`;
   if (effect.kind === 'settled-undo') return `undo ${effect.settled}, so it is a question for a person again (undo of a settled decision)`;
   if (effect.kind === 'intent-amendment-draft') {
     return `draft ${stepName(workflow, effect.phase)}'s scope with a slot for ${listWords((effect.clauses ?? []).map((clause) => clauseName(workflow, clause)))}`

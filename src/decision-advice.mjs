@@ -110,7 +110,7 @@ export function optionDoes(workflow, item, entry) {
       if (effect.writes === 'plan-amendment' && effect.changes?.length) {
         return `${listWords(effect.changes.map((change) => planChangeWords(workflow, change))).replace(/^./u, (first) => first.toUpperCase())}; the change stays and no step is reset.`;
       }
-      if (effect.writes === 'forward-amendment') return 'The earlier step\'s approved document is amended to this wording as its next generation; each later step that read it is listed to revalidate.';
+      if (effect.writes === 'forward-amendment') return 'The earlier step\'s approved document is amended to this wording as its next version; each later step that read it is listed to be checked again.';
       if (effect.writes === 'departure-acceptance') return 'The fix stays and the plan is unchanged; the findings it fixes await proof once the step is approved.';
       return 'The change stays, and the plan records it; no step is reset.';
     }
@@ -122,7 +122,7 @@ export function optionDoes(workflow, item, entry) {
     case 'intent-amendment-refresh':
       return 'Rejects this proposal and proposes the same change again against the step as it is now; the scope\'s approvers decide that one.';
     case 'intent-amendment-acknowledge':
-      return 'Records that you read it; the steps it reopened can then revalidate.';
+      return 'Records that you read it; the steps it reopened can then be submitted again.';
     case 'amendment-revalidation':
       return effect.outcome === 'unchanged' ? `${stepName(workflow, effect.phase)}'s approval stands, bound to the amended document; nothing runs again.`
         : `Returns the Story to ${stepName(workflow, effect.phase)}: ${reopenWords(workflow, effect.phase)}.`;
@@ -286,7 +286,8 @@ export function itemRecommendation(workflow, item) {
     case 'scope-completeness':
       return lean('record it only after you looked for what is missing, ambiguous or unmeasurable; nothing waits on it.');
     case 'asked-for':
-      return only ? rec(item, only.id, `What the person typed must be accounted for before the step's ${workflow?.phases?.[details.phase]?.approvalPolicy?.mode === 'none' ? 'submission, which completes it' : 'approval'}; only its author can.`) : lean('its author accounts for it.');
+      if (details.typed === 'unsure') return lean('say it was not a request if it asked for no change; otherwise the agent writing the step handles it.');
+      return only ? rec(item, only.id, `What you typed is handled before the step's ${workflow?.phases?.[details.phase]?.approvalPolicy?.mode === 'none' ? 'submission, which completes it' : 'approval'}; only the agent writing it can say how.`) : lean('the agent writing the step handles it.');
     case 'routing-decision': {
       const routes = options.filter((entry) => /^choose-/u.test(entry.id));
       if (details.reason === 'limit') return lean('move on as it is unless another round would clearly help: all its rounds are used.');
@@ -294,7 +295,7 @@ export function itemRecommendation(workflow, item) {
       return lean(`choose the route the Story's state fits: ${listWords(routes.map((entry) => `"${entry.label}"`))}.`);
     }
     case 'intent-amendment': {
-      if (details.status === 'approved') return rec(item, 'acknowledge', 'It is approved already; acknowledging it lets the steps it reopened revalidate.');
+      if (details.status === 'approved') return rec(item, 'acknowledge', 'It is approved already; once you acknowledge it, the steps it reopened can be submitted again.');
       if (marked?.id === 'refresh') return rec(item, 'refresh', 'The Story moved on after it was proposed, so it cannot be approved as it is; refreshing proposes the same change against the step as it is now.');
       return lean('approve it only if the approved clauses should change as shown; approving reopens the steps that cite them.');
     }

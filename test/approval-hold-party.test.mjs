@@ -193,7 +193,7 @@ test('holding, heldBy, the headline and next describe one situation (the real bi
   assert.equal(packet.open, 3);
   assert.equal(packet.next.item, 'd2', 'next is what holds the approval, not the first item');
   // The headline says what the others hold, the same holds the approval reads [decision map, finding 1].
-  assert.equal(packet.headline, "Implementation can't be approved yet: 1 decision needed. 1 other decision holds the Story's end.");
+  assert.equal(packet.headline, "Implementation can't be approved yet: 1 decision needed. 1 other decision is needed before the Story ends.");
   assert.deepEqual([d1.holds, d1.holdsWords, d1.answer.where], ['story-end', 'Holds the Story\'s end, not this step.', 'card']);
   assert.deepEqual([d2.holds, d2.holdsWords], ['approval', 'Holds this step\'s approval.']);
   // The whole message, and a title that does not end on a colon with the path cut off.
@@ -202,7 +202,7 @@ test('holding, heldBy, the headline and next describe one situation (the real bi
   // Nothing holds it: the approval is next, and the owed sign-off stays listed.
   const clear = decisionPacket(workflow, { phaseId: 'implementation', pending: { owed: [owed] }, approvalCheck: { holds: [] } }, { authorities: AUTHORITIES, actor: ME, at: AT });
   assert.deepEqual([clear.next.kind, clear.holding, clear.open], ['approval', 0, 2]);
-  assert.equal(clear.headline, "Implementation has 1 open decision: it holds the Story's end.");
+  assert.equal(clear.headline, "Implementation has 1 open decision: it is needed before the Story ends.");
 });
 
 test('open scope statements and the sign-offs a step answers for hold its approval themselves, with no second item beside them [decision map, finding 1]', () => {
@@ -216,7 +216,7 @@ test('open scope statements and the sign-offs a step answers for hold its approv
   assert.deepEqual(packet.items.map((item) => [item.kind, item.details?.clause ?? null, item.holdsApproval, item.holds ?? null]), [
     ['owed-decision', 'W-1:AC-001', true, 'approval'], ['owed-decision', 'W-1:AC-002', false, 'story-end'], ['approval', null, false, null]]);
   assert.deepEqual(packet.items.at(-1).details.heldBy, ['d1'], 'the approval names the sign-off itself, not a hold that routes back to this list');
-  assert.equal(packet.headline, "Implementation can't be approved yet: 1 decision needed. 1 other decision holds the Story's end.");
+  assert.equal(packet.headline, "Implementation can't be approved yet: 1 decision needed. 1 other decision is needed before the Story ends.");
 
   // The last step that defines the scope: its open statements hold it.
   const scope = refusal('SCOPE_ITEMS_UNRESOLVED', { scopePhase: 'implementation' });
@@ -239,12 +239,12 @@ test('a step still open is not told a sign-off stops its approval', () => {
   const owed = { kind: 'witness', clauseId: 'W-1:AC-001', slot: 'visual', method: 'visual', files: ['shots/home.png'], owners: ['implementation'], command: 'singularity-flow decision witness --work-id W-1' };
   const open = (extra) => decisionPacket(workflow, { phaseId: 'implementation', pending: { owed: [owed] }, ...extra }, { authorities: AUTHORITIES, actor: ME, at: AT });
   const only = open({});
-  assert.equal(only.headline, "Implementation has 1 open decision: it holds the Story's end.");
+  assert.equal(only.headline, "Implementation has 1 open decision: it is needed before the Story ends.");
   assert.deepEqual([only.holding, only.next.kind], [0, 'owed-decision']);
   // A test-run risk does stop it, at submission: that still reads as needed first, and comes first.
   const risk = { phase: 'implementation', commandId: 'unit', status: 'blocked' };
   const stopped = open({ testRisks: [risk] });
-  assert.equal(stopped.headline, "Implementation needs 1 decision before it can be approved. 1 other decision holds the Story's end.");
+  assert.equal(stopped.headline, "Implementation needs 1 decision before it can be approved. 1 other decision is needed before the Story ends.");
   assert.deepEqual(stopped.items.map((item) => [item.kind, item.holds]), [['test-run-risk', 'this-step'], ['owed-decision', 'story-end']].sort((a, b) =>
     stopped.items.findIndex((item) => item.kind === a[0]) - stopped.items.findIndex((item) => item.kind === b[0])));
   assert.equal(stopped.next.kind, 'test-run-risk');

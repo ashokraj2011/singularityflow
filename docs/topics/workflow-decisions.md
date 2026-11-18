@@ -25,7 +25,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 20
+version: 21
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -60,7 +60,15 @@ one. Only what you can act on now is asked: an item nobody can answer yet, such 
 screenshot no step has published, and an item someone else decides are one `Waiting:` line each, naming
 who or what. Each thing SFlow settled for you is one line ending "Undo if wrong." The list always ends with
 `Next:`: what happens once you answer, or, when nothing waits on you, the Story's next step from
-`singularity-flow nextsteps`, with its Copilot, Shell and VS Code routes.
+`singularity-flow nextsteps`, with its Copilot, Shell and VS Code routes. It never names the list itself:
+when what is left is answered only on the Decide card, `Next:` is "Open the Decide card" (Copilot CLI
+`/decide <WORK-ID>`, VS Code "Singularity Flow: Decide Everything This Step Waits On", or
+`singularity-flow decisions record <WORK-ID>` in your terminal), never `/sf-decide` again.
+
+Words you type in a step are a request only when they ask for a change or an addition. A status note ("I
+have done npm login"), an acknowledgement or what a terminal printed is kept as a note: it holds nothing
+and never asks for a new version. Words SFlow cannot tell apart wait like a request, and the item offers
+"That was not a request": one click keeps them as a note.
 
 A sign-off is one question with the file open beside it: "Does this screenshot show what AC-002 asks for?"
 (for another file, "Does <file> show what AC-002 asks for?"), answered Yes, No (say what's wrong) or Not

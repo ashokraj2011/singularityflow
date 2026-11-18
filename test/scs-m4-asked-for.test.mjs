@@ -273,7 +273,7 @@ test('SCS REQ-042: an instruction left unaccounted holds the code step\'s approv
   packet = listed();
   item = packet.items.find((entry) => entry.kind === 'asked-for');
   assert.ok(item, JSON.stringify(packet.items.map((entry) => entry.kind)));
-  assert.equal(item.title, 'Asked for (2) "add a log line when it changes": not accounted for yet');
+  assert.equal(item.title, 'Asked for (2) "add a log line when it changes": not handled yet');
   assert.equal(item.holdsApproval, true);
   assert.deepEqual(packet.items.find((entry) => entry.kind === 'approval').details.heldBy, [item.id]);
   const refused = repo.run(process.execPath, [cli, ...approveArgs]);
@@ -385,7 +385,7 @@ test('SCS REQ-042: a step nobody approves waits at its submission, which complet
   const item = listed().items.find((entry) => entry.kind === 'asked-for');
   assert.ok(item, JSON.stringify(listed().items.map((entry) => entry.kind)));
   assert.deepEqual([item.holds, item.holdsWords], ['step-completion', 'Holds this step\'s submission, which completes it: the step needs no approval.']);
-  assert.equal(item.why, 'Asked in Implement version 1. Until its author says whether the plan covers it, Implement\'s submission waits.');
+  assert.equal(item.why, 'You typed it in Implement version 1. Implement\'s submission waits until its agent says how it handles it.');
   assert.equal(item.options[0].action.command, 'singularity-flow departure account --work-id QF-1 --instruction 1 --clauses <CLAUSES>');
   // No mixed signals: next steps, phase show and submission readiness lead with the author's account, never submit.
   const next = repo.sflowJson('nextsteps', 'QF-1');

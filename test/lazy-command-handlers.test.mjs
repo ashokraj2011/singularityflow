@@ -802,7 +802,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // is SFlow's output, not a change to review (lifecycle-worktree.mjs +195), and `decision screenshot` is a person's own
     // step (person-step-catalog.mjs +215, command-registry.mjs +14). The build, server and browser stay lazy
     // (visual-sign-off-screenshot.mjs, application-review-preview.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_759_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,761,100 (measured 9,761,040 for submit.mjs, +1,203 over 9,759,837; start.mjs 9,759,503): a version opened to fix its
+    // review's findings about tests or evidence only carries the published source (owner, 2026-11-18, Story new-ash-graph):
+    // the gate's call into review-test-correction.mjs, loaded by its path, and the carried rows (delivery-evidence.mjs
+    // +1,104) and the receipt's field (state.mjs +99). The rule and its review read stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_761_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1222,7 +1226,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,292,400 (measured 4,292,397, +229): `decision screenshot`, where a person brings up the screen a visual sign-off is
   // about at SFlow's browser, is their own step (person-step-catalog.mjs +215, command-registry.mjs +14) [owner, 2026-11-18].
   // No new eager file.
-  assert.ok(current.bytes <= 4_292_400, `session current loads ${current.bytes} source bytes`);
+  // 4,293,500 (measured 4,293,456, +1,061): a version opened to fix its review's findings about tests or evidence only carries
+  // the published source (delivery-evidence.mjs, the gate's call into review-test-correction.mjs, loaded by its path)
+  // [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
+  assert.ok(current.bytes <= 4_293_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

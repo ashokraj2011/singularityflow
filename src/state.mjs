@@ -4106,6 +4106,9 @@ export async function publishGeneration(root, config, workflow, {
       ...(deliveryPreflight.testingRepair ? {
         testingRepair: structuredClone(deliveryPreflight.testingRepair)
       } : {}),
+      ...(deliveryPreflight.reviewCorrection ? {
+        reviewCorrection: structuredClone(deliveryPreflight.reviewCorrection)
+      } : {}),
       traceability: {
         required: deliveryPreflight.acceptanceCriteria.required,
         bound: deliveryPreflight.acceptanceCriteria.tagged,

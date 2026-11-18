@@ -199,7 +199,7 @@ function testOnlyDeliveryRoute(workflow, phase, { unchanged, testOnly }) {
       : `${request.id} did not reopen generation ${generation}`;
   return Object.freeze({
     kind: 'return-required', changeRequestId: request?.id ?? null, command: null, skill: null,
-    guidance: `A test-only change carries generation ${generation}'s unchanged source only in a generation that a reviewer's rejection (reject <step> --to ${phase.id}) or a confirmed review repair returned to ${phase.id}; ${why}. `
+    guidance: `A test-only change carries generation ${generation}'s unchanged source only in a generation that a reviewer's rejection (reject <step> --to ${phase.id}) or a confirmed review repair returned to ${phase.id}, or that was opened to fix review findings about tests only; ${why}. `
       + 'Change the planned product source the correction needs, with its clause comments, and publish again.'
   });
 }
@@ -1460,8 +1460,11 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const returnRequest = !confirmedRepair && reworkReturnRequest(workflow, phase);
   const reworkRepair = !confirmedRepair && !changedSourcePaths.length && testOnlyChange && Boolean(returnRequest);
   const testOnlyRepair = confirmedRepair || reworkRepair;
-  const earlierReturn = !intentRevalidation && !testOnlyRepair && !applicationEntries.length ? earlierReturnRequest(workflow, phase) : null;
-  const reusableSourceCandidates = intentRevalidation || testOnlyRepair || documentationOnlyCorrection || earlierReturn
+  // So does a version opened to fix its review's test or evidence findings (review-test-correction.mjs).
+  const reviewCorrection = !intentRevalidation && !testOnlyRepair && !changedSourcePaths.length && phase.versionOpening?.reason === 'review-corrections'
+    ? await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'review-test-correction.mjs')).href)).testOnlyReviewCorrection(root, config, workflow, phase) : null;
+  const earlierReturn = !intentRevalidation && !testOnlyRepair && !reviewCorrection && !applicationEntries.length ? earlierReturnRequest(workflow, phase) : null;
+  const reusableSourceCandidates = intentRevalidation || testOnlyRepair || documentationOnlyCorrection || earlierReturn || reviewCorrection
     ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) =>
       !changedEndpointPaths.has(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate))
     : [];
@@ -1477,11 +1480,14 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const reportAll = (problems, findings) => problems.forEach((problem, index) => report(problem, findings[index]));
   // What this step owes comes from its allocated obligations [E2G-010]: existing behaviour changes
   // nothing, and test-only, document, configuration and removal work need no new product source.
-  const fulfillment = await fulfillmentEvidence(root, obligations, changedPaths, deletedPaths);
+  // A version carrying the published source keeps its document and configuration rows delivered.
+  const carriedRows = reviewCorrection ? (phase.deliveryEvidence?.paths ?? []).filter((entry) => ['document', 'configuration'].includes(entry?.kind)
+    && entry.exists !== false && !changedEndpointPaths.has(entry.path)).map((entry) => entry.path) : [];
+  const fulfillment = await fulfillmentEvidence(root, obligations, [...changedPaths, ...carriedRows], deletedPaths);
   const changeRequired = !obligations || obligations.some((obligation) => !['existing', 'evidence'].includes(obligation.fulfillment));
   const sourceRequired = !obligations || obligations.some(changesProductSource);
 
-  const unchangedGeneration = !applicationEntries.length && !intentRevalidation && !withdrawnRepair && !earlierReturn && changeRequired;
+  const unchangedGeneration = !applicationEntries.length && !intentRevalidation && !withdrawnRepair && !earlierReturn && !reviewCorrection && changeRequired;
   if (unchangedGeneration) {
     report('no application source or test paths changed during the work interval', { code: 'code.delivery.generation-unchanged' });
   }
@@ -1567,7 +1573,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   if (undeliveredTags.length) {
     report(`required clause comments are only in planned source this generation does not deliver: ${undeliveredTags
       .map(({ clauseId, unchangedTags }) => `@clause:${clauseId} at ${unchangedTags.map((tag) => `${tag.path}:${tag.line}`).join(', ')}`).join('; ')}`
-      + '. A clause comment counts in planned source the generation changes, or in the previous generation\'s unchanged source when a reviewer\'s return asked only for tests',
+      + '. A clause comment counts in planned source the generation changes, or in the previous generation\'s unchanged source when a reviewer\'s return or the review asked only for tests',
     { code: 'code.delivery.source-clause-tag-undelivered', value: undeliveredTags.map((missing) => missing.clauseId) });
   }
   // An API criterion's tests assert status, schema and body [CQF:REQ-036]; the check loads only for one.
@@ -1714,6 +1720,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     } : null,
     intentRevalidation: intentRevalidation ? phase.intentAmendmentRevalidation.id : null,
     ...(earlierReturn ? { earlierReturn: { changeRequestId: earlierReturn.id, targetPhase: earlierReturn.targetPhase, priorGeneration: Number(phase.generation) } } : {}),
+    ...(reviewCorrection ? { reviewCorrection: { ...reviewCorrection, reusedSourcePaths: reusableSourcePaths } } : {}),
     testingRepair: confirmedRepair ? {
       changeRequestId: repairRequest.id,
       priorGeneration: repair.codeGeneration,

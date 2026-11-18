@@ -94,6 +94,8 @@ const COMMANDS = Object.freeze({
     'singularity-flow spec author publish SPEC-CHK-004 --reviewed', 'singularity-flow spec author discard SPEC-CHK-004'],
   'spec-slice-change': ['singularity-flow spec attach PMC-1 --drop SPEC-CHK-004:REQ-001 --reason "Delivered by another Story."'],
   'spec-split-publication': ['singularity-flow spec split SPEC-CHK-004@1 --publish'],
+  'person-specification-view': ['singularity-flow spec author show SPEC-CHK-004 --local --for-person --json', 'singularity-flow spec author status SPEC-CHK-004 --quick --for-person'],
+  'browser-workspace': ['singularity-flow ui open', 'singularity-flow ui open --no-open --json', 'singularity-flow ui serve --idle-minutes 5', 'singularity-flow ui stop --drain --json'],
   // A "still holds" row's yes or no is a /sf-decide turn's own, held to the person's answer [owner, 2026-11-14]; for no Story named, it is not.
   'upstream-issue-decision': ['singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Already handled."',
     'singularity-flow upstream-issue decide UPI-002 --work-id PMC-1 --outcome dismiss --reason "It was already handled by the plan."',
@@ -140,7 +142,8 @@ const COMMANDS = Object.freeze({
   preview: ['singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --dry-run', 'singularity-flow epic complete E-1 --dry-run --json', 'singularity-flow program approve PRG-1', 'singularity-flow decision show PMC-1',
     'singularity-flow decisions PMC-1 --json', 'singularity-flow appeal risk-prepare --work-id PMC-1 --phase custom-step --reason "Preview the risk."', `singularity-flow appeal evidence-accept --work-id PMC-1 --phase custom-step --review-ui --confirm ${digest}`,
     'singularity-flow story test-policy accept-risk PMC-1 --phase custom-step', 'singularity-flow apm install acme/review-pack --dry-run', 'singularity-flow choices begin approve PMC-1 --json',
-    'singularity-flow departure list --json', 'singularity-flow departure show DEP-001 --json']
+    'singularity-flow departure list --json', 'singularity-flow departure show DEP-001 --json', 'singularity-flow ui status --json',
+    'singularity-flow spec author show SPEC-CHK-004 --local --json']
 });
 
 const SPECIAL_TURNS = Object.freeze(['(plain prompt)', '(paused)', '(no turn)']);

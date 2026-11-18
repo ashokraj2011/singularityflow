@@ -320,6 +320,21 @@ test('PCR: a plain chat never edits SFlow\'s Copilot hooks, whatever policy.plai
   }
 });
 
+test('PCR: a plain chat never opens the browser workspace or reads a specification --for-person, under any policy or outside SFlow; ui status stays free', async (t) => {
+  // A plain chat ran `ui open --no-open --json`, held the one-use link and redeemed it itself [review of the local service, 2026-11-18].
+  for (const options of [{}, { policy: 'allow' }, { sflow: false }]) {
+    const repo = await clone(t, options);
+    await repo.prompt('person', 'open the browser workspace for me');
+    for (const command of ['singularity-flow ui open --no-open --json', 'singularity-flow ui', 'singularity-flow ui serve', 'singularity-flow ui stop --drain',
+      'singularity-flow spec author show SPEC-CHK-004 --local --for-person --json']) {
+      const decision = await repo.call('person', 'bash', { command });
+      assert.ok(refused(decision), `${JSON.stringify(options)}: ${command}`);
+      assert.match(reason(decision), /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: (?:opening, serving or stopping the SFlow browser workspace|--for-person shows)/u, command);
+    }
+    assert.ok(!refused(await repo.call('person', 'bash', { command: 'singularity-flow ui status --json' })), `${JSON.stringify(options)}: status is anyone's`);
+  }
+});
+
 test('PCR REQ-013: the capability that owns the changed path decides; the map is read only where it can say something', async (t) => {
   const repo = await clone(t);
   assert.equal(await plainChatEditsPolicy(repo.root, 'src/retry.js'), 'record', 'no map names it: the default, with no map read');

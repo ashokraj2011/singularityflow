@@ -1015,6 +1015,12 @@ test('every step only a person takes in their own terminal is refused in every t
       'singularity-flow spec author discard SPEC-CHK-004'],
     'spec-slice-change': ['singularity-flow spec attach PMC-1 --drop SPEC-CHK-004:REQ-001 --reason "Delivered by another Story."'],
     'spec-split-publication': ['singularity-flow spec split SPEC-CHK-004@1 --publish'],
+    // A specification's secret-shaped values, shown only on the person's own page [review of the local service, 2026-11-18].
+    'person-specification-view': ['singularity-flow spec author show SPEC-CHK-004 --local --for-person --json',
+      'singularity-flow spec author status SPEC-CHK-004 --quick --for-person'],
+    // The browser workspace's grant and its service are the person's own; `ui status` stays anyone's.
+    'browser-workspace': ['singularity-flow ui open', 'singularity-flow ui open --no-open --json', 'singularity-flow ui serve --idle-minutes 5',
+      'singularity-flow ui stop --drain --json'],
     // A "still holds" row's `revalidate` is a /sf-decide turn's own, held to the person's answer [owner, 2026-11-14]: not listed here.
     'upstream-amendment-decision': ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "The amendment is right." --confirm FAM-001'],
     'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],
@@ -1067,7 +1073,9 @@ test('every step only a person takes in their own terminal is refused in every t
     'singularity-flow apm publish reviewer --marketplace ../acme-catalog --dry-run',
     'singularity-flow apm marketplace init --name acme-catalog --owner acme --dry-run',
     'singularity-flow apm policy init --marketplace acme/acme-catalog --dry-run',
-    'singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "Preview the amendment."']) {
+    'singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "Preview the amendment."',
+    // The service's status and a specification's withheld answer are anyone's.
+    'singularity-flow ui status --json', 'singularity-flow spec author show SPEC-CHK-004 --local --json']) {
     assert.equal(ownTerminalStep(command), null, command);
   }
   const allowed = [];

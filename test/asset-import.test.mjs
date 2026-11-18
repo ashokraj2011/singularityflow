@@ -16,6 +16,7 @@ import {
 import { fetchRemoteBytes, isPublicRemoteAddress } from '../src/remote-fetch.mjs';
 import { agentStatus, lockAgent, prepareRemoteOutputs, syncAgent } from '../src/agents.mjs';
 import { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -98,7 +99,7 @@ test('references, kinds and content checks refuse what could never be used', () 
   assert.equal(suggestImportKind('# {{work.id}} plan'), 'template');
   assert.equal(suggestImportKind('# Checklist\n- one'), 'skill');
   assert.throws(() => inspectImportContent('skill', '<!DOCTYPE html><html></html>'), { code: 'IMPORT_NOT_MARKDOWN' });
-  assert.throws(() => inspectImportContent('skill', 'token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB"'), { code: 'IMPORT_SECRET_DETECTED' });
+  assert.throws(() => inspectImportContent('skill', invented('to', 'ken = "gh', 'p_0123456789abcdefghijklmnopqrstuvwxyzAB"')), { code: 'IMPORT_SECRET_DETECTED' });
   assert.throws(() => inspectImportContent('template', '# {{secret}}'), { code: 'IMPORT_TEMPLATE_INVALID' });
   assert.equal(inspectImportContent('agent', '---\nname: real-name\ndescription: x\n---\nBody', { id: 'other-name' }).id, 'other-name');
   const agent = inspectImportContent('agent', '---\nname: helper\ndescription: Helps.\nmetadata:\n  sflow-default-for: "design"\n---\nBody');

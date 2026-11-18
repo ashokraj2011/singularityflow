@@ -1,7 +1,7 @@
-# Repository brief: pricing-rules at 3edeffbc47c6 (for intake, focused on this Story)
+# Repository brief: pricing-rules at 2fe21b6922a0 (for intake, focused on this Story)
 
 ## What exists
-- pricing-rules: 1 code files in javascript (1 files); 0 entry points, 4 rules in code, 0 tests. (commit 3edeffbc47c6)
+- pricing-rules: 1 code files in javascript (1 files); 0 entry points, 4 rules in code, 0 tests. (commit 2fe21b6922a0)
 
 ## Rules that apply
 - loyal-customer-discount: when `customer.years >= 3` and `order.total > 100` → decides `discount = 0.1`. Documented, enforced. (discounts.yml:2; README.md › Business rules)

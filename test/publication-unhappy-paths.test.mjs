@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { invented } from './helpers/invented-secrets.mjs';
 
 // A waiting Story commit that could never be published froze the Story: sync repeated one refusal
 // and cancel waited on it (2026-10-28). Each case here is one way that happened.
@@ -293,10 +294,10 @@ test('a publish another machine holds names its owner and the reviewed release, 
   await refuse(false);
   const { subjectLockPath } = await import('../src/subject-lock.mjs');
   const lock = subjectLockPath(root, { kind: 'story', id });
-  const lockToken = '5d1e7c3a-2b4f-4e6a-9c8d-7f6e5d4c3b2a';
+  const lockToken = invented('5d1e7c3a-2b4f-4e6a', '-9c8d-7f6e5d4c3b2a');
   await mkdir(lock, { recursive: true });
   await writeFile(path.join(lock, 'owner.json'), `${JSON.stringify({ schemaVersion: 1, subject: { kind: 'story', id }, pid: 4242,
-    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: 'elsewhere', lockToken,
+    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: invented('else', 'where'), lockToken,
     acquiredAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-01T03:00:00.000Z' })}\n`);
   const release = `singularity-flow lock release story ${id} --confirm ${lockToken}`;
   const held = flow(root, ['submit', 'intake', '--json'], { fail: true });

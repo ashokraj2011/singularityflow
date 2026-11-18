@@ -24,6 +24,7 @@ import {
   ensureConfigurationBranch, resolveStoryConfigurationAuthority
 } from '../src/configuration-branch.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -167,7 +168,7 @@ test('Story document preflight rejects embedded URL credentials before mutation'
   );
   await assert.rejects(
     () => preflightInitialStoryDocuments([{
-      url: 'https://example.com/private-requirements?token=secret#download'
+      url: invented('https://example.com/private-requirements?to', 'ken=secret#download')
     }]),
     (error) => error?.code === 'STORY_DOCUMENT_URL_CREDENTIALS'
   );

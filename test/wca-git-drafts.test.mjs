@@ -13,6 +13,7 @@ import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(30_000) });
@@ -207,7 +208,7 @@ test('Git DraftStore retains semantic no-op without another content revision, su
   await assert.rejects(f.stores[0].appendRevision({ draftId: 'WFD-ABC123', expectedHead: noop.head, epoch: 1, operationId: 'secret-path', patch: { assets: [{ path: `skills/${unsafe}/SKILL.md`, content: '# safe content' }] } }), code('WCA_DRAFT_CONTENT_BLOCKED'));
   await assert.rejects(f.stores[0].appendRevision({ draftId: 'WFD-ABC123', expectedHead: noop.head, epoch: 1, operationId: unsafe, patch: {} }), code('WCA_DRAFT_CONTENT_BLOCKED'));
   await assert.rejects(f.stores[0].appendRevision({ draftId: 'WFD-ABC123', expectedHead: noop.head, epoch: 1, operationId: 'secret-save', patch: { payload: { source: unsafe } } }), code('WCA_DRAFT_CONTENT_BLOCKED'));
-  await assert.rejects(f.stores[0].appendRevision({ draftId: 'WFD-ABC123', expectedHead: noop.head, epoch: 1, operationId: 'token-save', patch: { payload: { confirmationToken: 'opaque-token' } } }), code('WCA_DRAFT_CONTENT_BLOCKED'));
+  await assert.rejects(f.stores[0].appendRevision({ draftId: 'WFD-ABC123', expectedHead: noop.head, epoch: 1, operationId: 'token-save', patch: { payload: { confirmationToken: invented('opaque', '-token') } } }), code('WCA_DRAFT_CONTENT_BLOCKED'));
   await assert.rejects(f.stores[0].appendRevision({ draftId: 'WFD-ABC123', expectedHead: noop.head, epoch: 1, operationId: 'huge-save', patch: { payload: { source: 'x'.repeat(WCA_GIT_DRAFT_LIMITS.payloadBytes) } } }), code('WCA_DRAFT_LIMIT'));
   await assert.rejects(f.stores[0].list({ limit: 65 }), code('WCA_DRAFT_INVALID'));
   assert.equal((await f.stores[0].operationStatus({ operationId: 'secret-save' })).status, 'not-found');

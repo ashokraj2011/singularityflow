@@ -19,6 +19,7 @@ import {
   currentSchemaVersion, familyForStoredPath, migrationRegistrySnapshot
 } from '../src/schema-migrations.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const H = (character) => `sha256:${character.repeat(64)}`;
 const NOW = '2026-09-17T00:00:00.000Z';
@@ -134,8 +135,8 @@ test('REV record readers reject tampering, unknown fields, unsafe feedback, and 
   assert.throws(() => buildRevisionFeedback({
     feedbackId: 'REVFB-PAY-142-004', subject,
     author: { kind: 'configured-local', id: 'developer@example.com', name: 'Developer' },
-    text: 'token=ghp_abcdefghijklmnopqrstuvwxyz1234567890', bytes: 44, // sflow-allow-secret: invented token asserting REV feedback refusal
-    feedbackSha256: feedbackSha256('token=ghp_abcdefghijklmnopqrstuvwxyz1234567890'), // sflow-allow-secret: repeated invented token binds the refused bytes
+    text: invented('to', 'ken=gh', 'p_abcdefghijklmnopqrstuvwxyz1234567890'), bytes: 44, // sflow-allow-secret: invented token asserting REV feedback refusal
+    feedbackSha256: feedbackSha256(invented('to', 'ken=gh', 'p_abcdefghijklmnopqrstuvwxyz1234567890')), // sflow-allow-secret: repeated invented token binds the refused bytes
     capturedAt: NOW, producer
   }), { code: 'REV_RECORD_INVALID' });
   assert.throws(() => buildRevisionAttemptRestoration({

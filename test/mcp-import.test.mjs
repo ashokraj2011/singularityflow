@@ -15,6 +15,7 @@ import { mcpImportOnly, mcpServersForContext, mcpSourceAllowed, normalizeMcpServ
 import { previewImport, readStagedImport } from '../src/asset-import.mjs';
 import { agentStatus, lockAgent, syncAgent } from '../src/agents.mjs';
 import { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -73,7 +74,7 @@ test('the governed policy says what may be imported; a sources-only server is ne
   assert.deepEqual(parseMcpReference('mcp:docs/resource/docs%3A%2F%2Ftemplates%2Fdecision-record'), {
     kind: 'mcp', server: 'docs', method: 'resource', name: 'docs://templates/decision-record', display: 'mcp:docs/resource/docs%3A%2F%2Ftemplates%2Fdecision-record'
   });
-  assert.throws(() => normalizeMcpArguments({ token: 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB' }), { code: 'MCP_ARGUMENTS_INVALID' });
+  assert.throws(() => normalizeMcpArguments({ token: invented('gh', 'p_0123456789abcdefg', 'hijklmnopqrstuvwxyzAB') }), { code: 'MCP_ARGUMENTS_INVALID' });
 });
 
 test('nothing is started without consent, and only what the policy allows is read', async () => {

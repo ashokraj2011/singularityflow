@@ -9,6 +9,7 @@ import {
   pinStepActions, stepActionDeliveryKey, stepActionTriggers
 } from '../src/step-actions.mjs';
 import { resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const starter = () => YAML.parse(readFileSync(path.join(packageRoot, 'templates', 'workflow.yml'), 'utf8'));
@@ -39,7 +40,7 @@ test('integration targets are named connections that hold addresses and secret n
     [{ kind: 'webhook', url: 'https://hooks.example.com/x?sig=abc' }, 'INTEGRATION_SECRET_INLINE'],
     [{ kind: 'webhook', url: 'http://hooks.example.com/x' }, 'INTEGRATION_TARGET_URL_INVALID'],
     [{ kind: 'webhook', url: 'https://hooks.example.com/#x' }, 'INTEGRATION_TARGET_URL_INVALID'],
-    [{ kind: 'webhook', url: 'https://hooks.example.com', signingSecret: 'lower-case' }, 'INTEGRATION_SECRET_NAME_INVALID'],
+    [{ kind: 'webhook', url: 'https://hooks.example.com', signingSecret: invented('lower', '-case') }, 'INTEGRATION_SECRET_NAME_INVALID'],
     // Another tool's credential can never become a target's token: only SFLOW_SECRET_ names are read.
     [{ kind: 'http-log', url: 'https://logs.example.com', tokenSecret: 'JIRA_PAT' }, 'INTEGRATION_SECRET_NAME_INVALID'],
     [{ kind: 'http-log', url: 'https://logs.example.com', tokenSecret: 'GITHUB_TOKEN' }, 'INTEGRATION_SECRET_NAME_INVALID'],

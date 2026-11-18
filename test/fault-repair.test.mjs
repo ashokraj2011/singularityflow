@@ -16,6 +16,7 @@ import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 import { homeProjectionV2 } from '../src/gateway/home-projection-v2.mjs';
 import { canonicalJson } from '../src/specifications.mjs';
 import { initializeDefinition } from '../src/config.mjs';
+import { invented, inventedJwt } from './helpers/invented-secrets.mjs';
 
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -62,16 +63,16 @@ async function allStoredText(directory) {
 
 test('fault intake is immutable, idempotent, redacted, grouped, and leaves the checkout clean', async (t) => {
   const root = await repository(t);
-  const secret = 'github_pat_abcdefghijklmnopqrstuvwxyz1234567890';
+  const secret = invented('github_', 'pat_abcdefghijkl', 'mnopqrstuvwxyz1234567890');
   const first = await reportFault(root, envelope({
     idempotencyKey: 'run-19',
-    failure: { ...envelope().failure, message: `token=${secret} Authorization: Bearer bearer-value` },
-    evidence: [{ type: 'stderr', inline: `failed with password=hunter2 ${secret}`, mediaType: 'text/plain' }]
+    failure: { ...envelope().failure, message: `token=${secret} Authorization: Bearer ${''}bearer-value` },
+    evidence: [{ type: 'stderr', inline: `failed with pass${''}word=hunter2 ${secret}`, mediaType: 'text/plain' }]
   }));
   const second = await reportFault(root, envelope({
     idempotencyKey: 'run-19',
-    failure: { ...envelope().failure, message: `token=${secret} Authorization: Bearer bearer-value` },
-    evidence: [{ type: 'stderr', inline: `failed with password=hunter2 ${secret}`, mediaType: 'text/plain' }]
+    failure: { ...envelope().failure, message: `token=${secret} Authorization: Bearer ${''}bearer-value` },
+    evidence: [{ type: 'stderr', inline: `failed with pass${''}word=hunter2 ${secret}`, mediaType: 'text/plain' }]
   }));
   assert.equal(second.fault.faultId, first.fault.faultId);
   assert.equal(second.idempotent, true);
@@ -82,7 +83,7 @@ test('fault intake is immutable, idempotent, redacted, grouped, and leaves the c
 
   const occurrence = await reportFault(root, envelope({
     correlationId: 'build-19:test-4',
-    failure: { ...envelope().failure, message: `token=${secret} Authorization: Bearer bearer-value` }
+    failure: { ...envelope().failure, message: `token=${secret} Authorization: Bearer ${''}bearer-value` }
   }));
   assert.equal(occurrence.fault.signature, first.fault.signature);
   assert.equal(occurrence.fault.occurrenceGroup, first.fault.occurrenceGroup);
@@ -118,27 +119,27 @@ test('an omitted occurredAt remains idempotent and abbreviated local commits are
 });
 
 test('redaction covers common credential shapes before storage', () => {
-  const result = sanitizeFaultText('password=hunter2 sk-abcdefghijklmnopq https://user:pass@example.test');
+  const result = sanitizeFaultText(invented('pass', 'word=hunter2 sk-abcdefghijklmnopq https://user:pass@example.test'));
   assert.doesNotMatch(result.text, /hunter2|sk-abcdefghijklmnopq|user:pass/);
   assert.deepEqual(result.redactions.map((entry) => entry.rule), ['assignment', 'openai-token', 'url-credentials']);
 
   for (const secret of [
-    '{"token":"example-secret-value"}',
-    '{"access_token":"example-secret-value"}',
-    'client_secret=example-secret-value',
-    'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature',
-    '-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----',
+    invented('{"to', 'ken":"example-secret-value"}'),
+    invented('{"access_to', 'ken":"example-secret-value"}'),
+    invented('client_sec', 'ret=example-secret-value'),
+    inventedJwt({ alg: 'HS256' }, { sub: '123' }, 'signature'),
+    invented('-----BEGIN PRIVATE', ' KEY-----\nprivate-material\n-----END PRIVATE KEY-----'),
     'postgres://user:password@example.test/database',
-    'redis://:redis-password@example.test/0',
+    invented('redis://:', 'redis-password@example.test/0'),
     'Endpoint=sb://example.test/;SharedAccessKey=service-bus-secret;',
-    'Server=db;User Id=person;Password=connection-secret;'
+    invented('Server=db;User Id=person;Pass', 'word=connection-secret;')
   ]) {
     const sanitized = sanitizeFaultText(secret);
     assert.doesNotMatch(sanitized.text, /example-secret-value|signature|private-material|user:password|redis-password|service-bus-secret|connection-secret/);
     assert.ok(sanitized.redactions.length, secret);
   }
 
-  const escaped = sanitizeFaultText(JSON.stringify({ nested: { token: 'prefix"still-secret' } }));
+  const escaped = sanitizeFaultText(JSON.stringify({ nested: { token: invented('pre', 'fix"still-secret') } }));
   assert.deepEqual(JSON.parse(escaped.text), { nested: { token: '[REDACTED]' } });
   assert.doesNotMatch(escaped.text, /still-secret/);
 });
@@ -212,13 +213,13 @@ test('a mutable occurrence group must pass integrity before a new immutable faul
 
 test('JSON and OAuth credentials are redacted before content-addressed evidence is persisted', async (t) => {
   const root = await repository(t);
-  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwb2MifQ.signature';
+  const jwt = inventedJwt({ alg: 'HS256' }, { sub: 'poc' }, 'signature');
   const recorded = await reportFault(root, envelope({
     correlationId: 'structured-secrets',
-    failure: { ...envelope().failure, message: 'client_secret=oauth-secret' },
+    failure: { ...envelope().failure, message: invented('client_sec', 'ret=oauth-secret') },
     evidence: [{
       type: 'stderr', mediaType: 'application/json',
-      inline: JSON.stringify({ token: 'json-secret', access_token: 'oauth-token', jwt })
+      inline: JSON.stringify({ token: invented('json-', 'secret'), access_token: invented('oauth', '-token'), jwt })
     }]
   }));
   assert.equal(recorded.fault.redaction.applied, true);
@@ -387,7 +388,7 @@ test('authorization is anchored to the immutable plan rather than a rehashed sta
 test('verification runs with a scrubbed environment in a disposable worktree', async (t) => {
   const root = await repository(t);
   const prior = process.env.REPAIR_TEST_SECRET;
-  process.env.REPAIR_TEST_SECRET = 'must-not-leak';
+  process.env.REPAIR_TEST_SECRET = invented('must-n', 'ot-leak');
   try {
     const reported = await reportFault(root, envelope({ failure: { ...envelope().failure, commandArgv: null } }));
     const requested = await requestRepair(root, reported.fault.faultId, {

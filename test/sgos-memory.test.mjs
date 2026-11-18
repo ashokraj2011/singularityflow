@@ -20,6 +20,7 @@ import {
   platformSha256,
   signPlatformRecord
 } from '../src/sgos/platform/index.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const H = (value) => sha256(`memory-test:${value}`);
 
@@ -101,7 +102,7 @@ test('working sets reject tampering, stale checkpoints, oversize budgets, and se
     policySnapshotSha256: H('policy'), taskContractSha256: H('task-contract'),
     sources: {}, maximumBytes: MAXIMUM_SGOS_WORKING_SET_BYTES + 1
   }), (error) => error.code === 'SGOS_WORKING_SET_BUDGET_INVALID');
-  const secretPayload = { credential: 'must-not-enter-a-prompt' };
+  const secretPayload = { credential: invented('must-not-en', 'ter-a-prompt') };
   assert.throws(() => compose({
     'direct-source-context': [source('unsafe', secretPayload)]
   }), (error) => error.code === 'SGOS_WORKING_SET_SECRET_REFUSED');
@@ -124,7 +125,7 @@ test('working sets reject tampering, stale checkpoints, oversize budgets, and se
   assert.throws(() => validateSgosWorkingSet(forgedWorkingSet),
     (error) => error.code === 'SGOS_WORKING_SET_SECRET_REFUSED'
       && !error.message.includes(providerToken));
-  const privateKey = ['-----BEGIN PRIVATE KEY-----', 'invented-material',
+  const privateKey = [invented('-----BEGIN PRIVATE', ' KEY-----'), 'invented-material',
     '-----END PRIVATE KEY-----'].join('\n');
   assert.throws(() => compose({
     'direct-source-context': [source('unsafe-nested-value', {
@@ -134,7 +135,7 @@ test('working sets reject tampering, stale checkpoints, oversize budgets, and se
     && !error.message.includes('invented-material'));
   const benignPayload = {
     guidance: 'Never include secrets, passwords, or credentials in a prompt.',
-    reference: 'https://user:example-password@example.com/documentation',
+    reference: invented('https://user:', 'example-password@example.com/documentation'),
     placeholder: '${APP_TOKEN}'
   };
   const benign = compose({

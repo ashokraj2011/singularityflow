@@ -12,6 +12,7 @@ import { phaseResolutionProjection } from '../src/phase-resolution.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { agentAct } from '../src/agent-output.mjs';
 import { requiredTestFailureExamples, requiredTestExecutionForRefusal } from '../src/test-execution-diagnostics.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const fixture = (phaseId = 'custom-delivery') => {
   const phase = { id: phaseId, status: 'in_progress', generationPolicy: { task: 'code' },
@@ -23,7 +24,7 @@ const failed = (code = 'CODE_TEST_FAILED') => Object.assign(new Error('Test fail
     commandId: 'unit', provenance: 'configured', argv: ['npm', 'test', '--token', 'private-token'],
     cwd: '/repo', resultPath: '/repo/results/unit.json', status: 'failed', exitCode: 1,
     report: { status: 'observed', tests: { discovered: 34, passed: 16, failed: 18, skipped: 0 },
-      failureExamples: ['TypeError: localStorage is undefined\n at /repo/src/App.test.jsx:28', 'token=private-secret'],
+      failureExamples: ['TypeError: localStorage is undefined\n at /repo/src/App.test.jsx:28', invented('to', 'ken=private-secret')],
       sha256: 'a'.repeat(64) }, failure: { kind: 'failed-tests' }
   }
 } });
@@ -115,7 +116,7 @@ test('legacy prompt overlay is applied once and failure examples are bounded and
   assert.equal(withRepairContinuationProtocol(overlaid), overlaid);
   assert.equal(withRepairContinuationProtocol(null), null);
   const error = failed();
-  error.details.requiredTestExecution.report.failureExamples = Array.from({ length: 30 }, (_, i) => `failure ${i} token=private-value ${'x'.repeat(5000)}`);
+  error.details.requiredTestExecution.report.failureExamples = Array.from({ length: 30 }, (_, i) => `failure ${i} to${''}ken=private-value ${'x'.repeat(5000)}`);
   const report = requiredTestExecutionForRefusal(error).report;
   assert.equal(report.failureExamples.length, 3);
   assert.ok(report.failureExamples.every(example => example.length <= 612));
@@ -138,7 +139,7 @@ test('a real failed run retains its cause before report restoration, then a runt
 const fixed = process.env.BROWSER_STORAGE_READY === '1';
 writeFileSync('result.json', JSON.stringify({ numTotalTests: 1, numPassedTests: fixed ? 1 : 0, numFailedTests: fixed ? 0 : 1, numPendingTests: 0,
   testResults: [{ assertionResults: [{ title: 'browser storage', fullName: 'app browser storage', ancestorTitles: ['app'], status: fixed ? 'passed' : 'failed',
-    failureMessages: fixed ? [] : ['TypeError: localStorage is undefined\\n at /repo/src/test/setup.js:3 token=private-runtime-secret'] }] }] }));
+    failureMessages: fixed ? [] : ['TypeError: localStorage is undefined\\n at /repo/src/test/setup.js:3 to${''}ken=private-runtime-secret'] }] }] }));
 process.exitCode = fixed ? 0 : 1;
 `;
   await writeFile(path.join(root, 'runner.mjs'), runner);

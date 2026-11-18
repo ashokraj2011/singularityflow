@@ -13,6 +13,7 @@ import { renderActiveStoryEvidence } from '../src/evidence-context.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
 import { confirmNextVersion } from './helpers/next-version-consent.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -518,7 +519,7 @@ neverCommit:
 
   const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-environment-documents-'));
   const environmentFile = path.join(uploads, '.env.qa');
-  await writeFile(environmentFile, 'API_TOKEN=not-printed\n');
+  await writeFile(environmentFile, invented('API_TO', 'KEN=not-printed\n'));
   const localRefusal = flow(root, ['documents', 'upload', environmentFile, '--name', 'QA environment'], { allowFailure: true });
   assert.notEqual(localRefusal.status, 0);
   assert.match(localRefusal.stderr, /ENVIRONMENT_LOCAL_CONTENT_REFUSED|matches .*\.env\*/);

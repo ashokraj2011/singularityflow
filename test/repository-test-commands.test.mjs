@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { initializeDefinition, loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { canonicalJson } from '../src/records.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 // One suite, two levels and two targets [RTC:REQ-001, RTC:REQ-011].
 const command = (id, level, extra = {}) => ({
@@ -194,7 +195,7 @@ test('[PHR:REQ-007] item 8: a test whose env or argv names a deployed host is no
     'http://$HOST:3000', 'https://${BASE_HOST}/app', 'ftp://files.example.com']) {
     assert.deepEqual(literalDeployedHosts({ env: { BASE_URL: url } }), [], url);
   }
-  assert.deepEqual(literalDeployedHosts({ argv: ['npx', 'playwright', 'test', '--base-url=https://bot:pw@QA.Example.com:8443/app?token=abc#top'] }),
+  assert.deepEqual(literalDeployedHosts({ argv: ['npx', 'playwright', 'test', invented('--base-url=https://bot:pw@QA.Example.com:8443/app?to', 'ken=abc#top')] }),
     ['qa.example.com:8443']);
   assert.deepEqual(literalDeployedHosts({ command: 'BASE_URL=https://staging.example.com npx playwright test' }), ['staging.example.com']);
   assert.deepEqual(literalDeployedHosts({ env: { RELAY: 'wss://relay.example.com/socket' } }), ['relay.example.com']);

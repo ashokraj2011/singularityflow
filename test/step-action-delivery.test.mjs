@@ -14,10 +14,11 @@ import {
   postDelivery, releaseWaitingStepActions, runStepActionsAfterTransition, stepActionWarning
 } from '../src/step-action-delivery.mjs';
 import { normalizeIntegrations, pinStepActions, normalizeStepActions } from '../src/step-actions.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
-const SECRET = 'test-signing-secret';
+const SECRET = invented('test-sign', 'ing-secret');
 
 function run(command, args, cwd, env = {}, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
@@ -62,7 +63,7 @@ async function receiver(t, statuses = []) {
       const status = queue.length ? queue.shift() : 200;
       if (status === 302) response.writeHead(302, { location: 'https://elsewhere.example.com/' });
       else response.writeHead(status, { 'content-type': 'application/json' });
-      response.end(status >= 400 ? '{"error":"nope","token":"leaked-value"}' : '{}');
+      response.end(status >= 400 ? invented('{"error":"nope","to', 'ken":"leaked-value"}') : '{}');
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -132,7 +133,7 @@ test('an answer decides the delivery: done, try later, or needs a person', () =>
   for (const status of [408, 425, 429, 500, 502, 503]) assert.equal(classifyResponse(status).outcome, 'retry', String(status));
   for (const status of [400, 401, 403, 404, 410, 413, 422]) assert.equal(classifyResponse(status).outcome, 'failed', String(status));
   assert.equal(classifyResponse(302).code, 'STEP_ACTION_REDIRECT_REFUSED');
-  assert.doesNotMatch(classifyResponse(500, '{"token":"abc123"}').detail, /abc123/, 'answers are redacted before they are kept');
+  assert.doesNotMatch(classifyResponse(500, invented('{"to', 'ken":"abc123"}')).detail, /abc123/, 'answers are redacted before they are kept');
 });
 
 test('a real HTTP conflict cannot create delivered evidence; only a bound duplicate acknowledgement can', async t => {

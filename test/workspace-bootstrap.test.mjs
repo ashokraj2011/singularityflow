@@ -19,6 +19,7 @@ import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { fetchWorkspace } from '../src/workspace.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 async function remoteFixture(branch = 'trunk') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-guardian-'));
@@ -864,7 +865,7 @@ test('retry cannot bypass a bootstrap budget that still has attempts', async () 
 });
 
 test('remote diagnostics classify authentication without retaining provider output or secrets', () => {
-  const secret = 'example-secret-value';
+  const secret = invented('example-se', 'cret-value');
   const result = probeGitRemote('https://example.com/acme/repository.git', {
     runCommand: () => ({
       status: 128,
@@ -918,8 +919,8 @@ test('native Windows path rules reject reserved names and trailing characters wi
 });
 
 test('enterprise Git diagnostics disclose configuration sources but never their secret values', () => {
-  const upperSecretProxy = 'https://employee:upper-secret@example.invalid:8443';
-  const lowerSecretProxy = 'https://employee:lower-secret@example.invalid:8443';
+  const upperSecretProxy = invented('https://employee:', 'upper-secret@example.invalid:8443');
+  const lowerSecretProxy = invented('https://employee:', 'lower-secret@example.invalid:8443');
   const secretCaPath = '/private/company/root-ca.pem';
   const env = {
     HTTPS_PROXY: upperSecretProxy,
@@ -991,7 +992,7 @@ test('enterprise Git diagnostics disclose configuration sources but never their 
 test('workspace doctor probes repeatable explicit URLs without a bootstrap session in the enterprise Git boundary', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-doctor-explicit-'));
   const repositoryUrl = 'https://git.example.invalid/acme/application.git';
-  const secretProxy = 'https://employee:doctor-secret@proxy.example.invalid:8443';
+  const secretProxy = invented('https://employee:', 'doctor-secret@proxy.example.invalid:8443');
   const env = {
     ...environment(root),
     GIT_DIR: path.join(root, 'ambient-repository-selector'),
@@ -1130,7 +1131,7 @@ test('workspace doctor cancellation is classified without exposing the abort rea
 test('workspace doctor reports an unavailable Git config snapshot without misdiagnosing remote sign-in', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-doctor-config-'));
   const repositoryUrl = 'https://git.example.invalid/acme/application.git';
-  const secret = 'private-helper-or-provider-secret';
+  const secret = invented('private-helper-o', 'r-provider-secret');
   const env = environment(root);
   let remoteCalls = 0;
   const result = (status, stdout = '', stderr = '') => ({

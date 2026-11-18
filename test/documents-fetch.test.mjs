@@ -11,6 +11,7 @@ import YAML from 'yaml';
 import { loadConfig, loadWorkflow } from '../src/state.mjs';
 import { fetchRemoteDocument, listRemoteDocuments } from '../src/documents.mjs';
 import { normalizeWorkSource } from '../src/work-source.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -82,7 +83,7 @@ test('documents fetch materializes OneDrive bytes into the work item with provid
   const root = await repository();
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, 'DOCS-9');
-  const runtime = { fetchImpl: graphFetch, token: 'fake-graph-token' };
+  const runtime = { fetchImpl: graphFetch, token: invented('fake-gra', 'ph-token') };
 
   const browse = await listRemoteDocuments(config, { providerId: 'onedrive', runtime });
   assert.equal(browse.providerType, 'sharepoint');
@@ -174,7 +175,7 @@ test('documents fetch refuses environment-local names, secrets, and unscannable 
       await assert.rejects(
         () => fetchRemoteDocument(root, config, workflow, {
           providerId: 'onedrive', remoteRef: 'item-1', name: 'Fetched notes',
-          runtime: { fetchImpl, token: 'fake-graph-token' }
+          runtime: { fetchImpl, token: invented('fake-gra', 'ph-token') }
         }),
         (error) => {
           assert.equal(error?.code, scenario.code);

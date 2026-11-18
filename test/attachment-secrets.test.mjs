@@ -15,11 +15,12 @@ import { proseValueFindings } from '../src/config-values.mjs';
 import { scanEntries, scannablePath, scanText } from '../src/secrets.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { docx, zip } from './helpers/office-fixtures.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
 const actor = 'Attachment Tester', actorEmail = 'attachments@example.invalid';
-const KEY = 'AKIAQX7MP2VL9ST4KR8W', PASSWORD = 'Xq7mP2vL9sT4kR8wZb3N';
+const KEY = invented('AK', 'IAQX7MP2VL9ST4KR8W'), PASSWORD = invented('Xq7mP2vL9s', 'T4kR8wZb3N');
 const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: actor, SINGULARITY_FLOW_NO_MODEL: '1',
   SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }) };
 const run = (cwd, command, args) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(120_000), maxBuffer: 1 << 26 });

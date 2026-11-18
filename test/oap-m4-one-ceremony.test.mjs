@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { specification, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
 import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-terminal.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const WORK = 'HEX-4001';
 // The real CLI, with the decision list reading planning as the Story's last step (see the helper).
@@ -214,7 +215,7 @@ test('VS Code answers the approver\'s decisions in the approval form, and the CL
   for (const wrong of [{ item: 'd9', option: 'dismiss' }, { item: 'd1', option: 'return' }]) {
     assert.equal(page.validateApprovalReviewSubmission(request, { confirmation: 'planning', decisions: [], witnessDecisions: [], inApprovalDecisions: [wrong] }).value, null);
   }
-  const argv = page.storyApprovalArguments({ workId: WORK, phaseId: 'planning', receiptToken: '11111111-1111-4111-8111-111111111111',
+  const argv = page.storyApprovalArguments({ workId: WORK, phaseId: 'planning', receiptToken: invented('11111111-1111-4111', '-8111-111111111111'),
     checklist: [], witnessDecisions: [], inApprovalDecisions: checked.value.inApprovalDecisions, decisionsDigest: inApproval.digest });
   const { options } = parseArgs([...argv]);
   assert.deepEqual([options.choose].flat(), ['d1=accept-risk']);

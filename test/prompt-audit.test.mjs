@@ -11,6 +11,7 @@ import {
   clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, recordPromptAudit,
   renderPromptAudit, repairPromptAudits, setPromptAudit, setPromptAuditRetention, scrubPrompt
 } from '../src/prompt-audit.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 const promptAuditMachineState = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-audit-machine-'));
@@ -352,7 +353,7 @@ test('structured prompt view joins exact invocation tools, tokens, timing, and o
 test('recognized credentials are removed before a prompt reaches the workspace log', async () => {
   const root = await repository();
   const status = await setPromptAudit(root, true);
-  const secret = 'Bearer abcdefghijklmnopqrstuvwxyz';
+  const secret = invented('Bearer ', 'abcdefghijklmnopqrstuvwxyz');
   const record = await recordPromptAudit(root, {
     agent: 'architect', phase: 'design', prompt: `Use context, not ${secret}`
   });
@@ -369,12 +370,12 @@ test('common provider, cloud, URL, assignment, and private-key credentials are s
   const values = [
     `OPENAI_API_KEY=sk-${'a'.repeat(48)}`,
     `AWS_ACCESS_KEY_ID=AKIA${'A'.repeat(16)}`,
-    'https://user:synthetic-password@example.invalid/path',
-    'client_secret=synthetic-client-secret-value',
+    invented('https://user:', 'synthetic-password@example.invalid/path'),
+    invented('client_sec', 'ret=synthetic-client-secret-value'),
     '"apiKey": "synthetic json secret"',
     '--password short-secret',
     '<password>xml-secret</password>',
-    '-----BEGIN PRIVATE KEY-----\nSYNTHETIC-CONTENT\n-----END PRIVATE KEY-----'
+    invented('-----BEGIN PRIVATE', ' KEY-----\nSYNTHETIC-CONTENT\n-----END PRIVATE KEY-----')
   ];
   for (const secret of values) {
     const result = scrubPrompt(`before ${secret} after`);

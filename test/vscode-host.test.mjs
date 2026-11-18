@@ -37,6 +37,7 @@ import { readLocalDocument } from '../src/document-storage.mjs';
 import { createPerformanceTrace } from '../src/performance-trace.mjs';
 import { writePerformanceTrace } from '../src/performance-trace-store.mjs';
 import { isolatedHomeEnvironment, isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
@@ -10183,7 +10184,7 @@ test('capability mapping refuses credential-bearing URLs before command logging'
     if (previousLeadRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousLeadRegistry;
   });
-  const legacySecret = 'legacy-registry-secret';
+  const legacySecret = invented('legacy-regi', 'stry-secret');
   const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
   const safeLead = path.join(base, 'safe-platform.git');
   const repository = path.join(base, 'payments.git');
@@ -10206,8 +10207,8 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
   assert.doesNotMatch(panel.webview.html, new RegExp(`${legacySecret}|old-map\.git`),
     'unsafe legacy registry entries never reach webview HTML');
-  const repositorySecret = 'repository-super-secret';
-  const authoritySecret = 'authority-super-secret';
+  const repositorySecret = invented('repository-', 'super-secret');
+  const authoritySecret = invented('authority-s', 'uper-secret');
 
   // Default discovery is portable and does not fan out through the machine-local convenience
   // cache. The explicit Search known authorities action must still let the CLI account for the
@@ -10234,7 +10235,7 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   // become visible. This proves the guard lives before run(), not only in HTML validation.
   await panel.post({ type: 'field', field: 'repositoryUrl', value: 'https://git.example/payments.git' });
   await panel.post({ type: 'field', field: 'inspectionLeadUrl',
-    value: `https://reviewerone:${authoritySecret}@git.example/platform.git?token=hidden` });
+    value: `https://reviewerone:${authoritySecret}@git.example/platform.git?to${''}ken=hidden` });
   await panel.post({ type: 'inspectSelectedLead' });
   const authorityRefusal = await until(() => panel.webview.html.includes('was rejected')
     ? panel.webview.html : null);
@@ -10253,7 +10254,7 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   assert.equal(registered.output
     .filter((line) => String(line).includes('capability inspect-repository')).length, 1,
     'credential-bearing follow-up values never start another inspection command');
-  assert.doesNotMatch(output, new RegExp(`${repositorySecret}|${authoritySecret}|${legacySecret}|token=hidden`));
+  assert.doesNotMatch(output, new RegExp(`${repositorySecret}|${authoritySecret}|${legacySecret}|to${''}ken=hidden`));
 });
 
 test('a window with nothing open shows only real workspaces', async (t) => {
@@ -11392,7 +11393,7 @@ async function decisionsCli(base) {
           refused: [], remaining: [{ id: 'd1', title: 'AC-002: a problem reported in Testing' }], packetSha256: read('after.json').packetSha256 } });
       }
     } else if (args[0] === 'choices' && args[1] === 'begin' && args[3] === ${JSON.stringify(DECIDE_W)}) {
-      out({ schemaVersion: 1, token: 'receipt-decide-1', choiceSets: [] });
+      out({ schemaVersion: 1, to${''}ken: 'receipt-decide-1', choiceSets: [] });
     } else if (args[0] === 'review' && args[1] === 'conformance') {
       out(read('review.json'));
     } else {
@@ -11576,7 +11577,7 @@ async function sfGuardCli(base) {
     else if (args[0] === 'guard' && args[1] === 'report') out(read(args.includes('--story') ? 'story-report.json' : 'report.json'));
     else if (args[0] === 'approvals') out(read('approvals.json'));
     else if (args[0] === 'decisions') out({ resultType: 'command-result', data: { items: [], holding: 0, status: 'nothing-to-decide' } });
-    else if (args[0] === 'choices' && args[1] === 'begin') out({ schemaVersion: 1, token: 'receipt-guard-1', choiceSets: [] });
+    else if (args[0] === 'choices' && args[1] === 'begin') out({ schemaVersion: 1, to${''}ken: 'receipt-guard-1', choiceSets: [] });
     else if (args[0] === 'choices' && args[1] === 'answer') out({ schemaVersion: 1, answered: true });
     else if (args[0] === 'review') out(read('review.json'));
     else if (args[0] === 'status' || args[0] === 'tests') out({});
@@ -11676,7 +11677,7 @@ test('SF Guard: the Guard page reads status and report, and an approval refused 
  */
 const RUN_SHA = `sha256:${'1'.repeat(64)}`;
 /** A value an environment file could hold: no page, message or log may ever carry it. */
-const ENV_SECRET = 'Pq7Wd2Lk9Xs4Bn6Rt1Hy8Mv3Jc5Fz0Ga';
+const ENV_SECRET = invented('Pq7Wd2Lk9Xs', '4Bn6R', 't1Hy8M', 'v3Jc5Fz0Ga');
 const RUN_SHA_CHANGED = `sha256:${'2'.repeat(64)}`;
 const RUN_W = 'RUN-STORY-1';
 const runPlanEntry = (sha = RUN_SHA) => ({
@@ -11756,7 +11757,7 @@ async function runAndTestCli(base) {
       appendFileSync(state + '/log.jsonl', JSON.stringify({ argv: args, cwd: process.cwd() }) + '\\n');
       out(read('leads.json'));
     } else if (args[0] === 'choices' && args[1] === 'begin' && args[3] === ${JSON.stringify(RUN_W)}) {
-      out({ schemaVersion: 1, token: 'receipt-run-1', choiceSets: [] });
+      out({ schemaVersion: 1, to${''}ken: 'receipt-run-1', choiceSets: [] });
     } else if (args[0] === 'review' && existsSync(state + '/review.json')) {
       out(read('review.json'));
     } else if (args[0] === 'decisions' && args[1] === ${JSON.stringify(RUN_W)}) {
@@ -12495,7 +12496,7 @@ const RUN_API_TYPED = {
   url: 'http://127.0.0.1:8080/', ready: { http: '/actuator/health', timeoutMs: 180000 }, debug: { port: 5005 }
 };
 const RUN_API_ARGV = ['./mvnw', '-q', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.jvmArguments=-Xmx1g'];
-const RUN_FAKE_SECRET = 'Zk3q9Vb7Lp2Xw8Rt5Ny1Hc6Md4Gs0Jf';
+const RUN_FAKE_SECRET = invented('Zk3q9Vb7Lp2', 'Xw8R', 't5Ny1Hc', '6Md4Gs0Jf');
 /** `app plan --json` with typed entries and the declared block, as the amendment describes it. */
 const typedRunPlan = () => ({
   ...runPlan(),

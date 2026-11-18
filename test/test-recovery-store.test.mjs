@@ -9,6 +9,7 @@ import { sealTrpRecord } from '../src/test-recovery-policy.mjs';
 import { createTrpFixture } from './test-recovery-policy.fixture.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import { authorizeTrpRecord, TRP_TERMINAL_AVAILABLE } from './test-recovery-terminal.fixture.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const git = (root, ...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' } }).trim();
 async function workspace(t) {
@@ -91,7 +92,7 @@ test('risk consumption requires exact review and live terminal witness, even for
   const { root } = await workspace(t); const fixture = createTrpFixture();
   const decision = sealTrpRecord({ ...fixture.decision, issuer: { principal: 'reviewer@example.com', channel: 'terminal' }, transitions: ['publish', 'submit'] });
   const review = trpAuthorityReview(decision, fixture.policy);
-  const args = { record: decision, policy: fixture.policy, pinnedAuthorities, delegation, review, token: '00000000-0000-4000-8000-000000000000' };
+  const args = { record: decision, policy: fixture.policy, pinnedAuthorities, delegation, review, token: invented('00000000-0000-4000', '-8000-000000000000') };
   await assert.rejects(consumeTrpAuthority(root, args), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
   await assert.rejects(consumeTrpAuthority(root, { ...args, review: { ...review, plan: { ...review.plan, planHash: fixture.hash('changed') } } }), { code: 'TRP_REVIEW_STALE' });
   await assert.rejects(consumeTrpAuthority(root, { ...args, delegation: { ...delegation, minimumAssurance: 'signed-human' } }), { code: 'TRP_AUTHORITY_REQUIRED' });

@@ -82,7 +82,7 @@ test('Apple-toolchain failures are platform-specific and never expose raw stderr
       launches += 1;
       assert.equal(executable, '/usr/bin/git');
       assert.deepEqual(args, ['rev-parse', '--git-common-dir']);
-      return { status: 69, stdout: '', stderr: `${license}\npassword=never-show` };
+      return { status: 69, stdout: '', stderr: `${license}\npass${''}word=never-show` };
     }
   }), (error) => error.code === 'GIT_DEVELOPER_TOOLS_UNAVAILABLE'
     && error.message === APPLE_GIT_UNAVAILABLE_MESSAGE && error.details.requiresXcode === false
@@ -118,7 +118,7 @@ test('enterprise configuration preserves fail-closed policy while naming optiona
   assert.throws(() => enterpriseGitEnvironment({ ...process.env }, {
     runCommand(_command, args) {
       scopes.push(args.includes('--system') ? 'system' : 'global');
-      return { status: 69, stdout: '', stderr: `${license}\npassword=never-show` };
+      return { status: 69, stdout: '', stderr: `${license}\npass${''}word=never-show` };
     }
   }), (error) => error.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'
     && error.details.reason === 'developer-tools-unavailable'

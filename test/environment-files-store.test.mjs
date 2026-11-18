@@ -8,6 +8,7 @@ import {
 } from '../src/environment-files.mjs';
 import { writeMutablePrivateSidecar } from '../src/private-sidecar.mjs';
 import { git, repository, withMachineState, writeFiles } from './helpers/environment-files-fixture.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const SPRING = 'services/api/src/main/resources/application-dev.yml';
 const TEMPLATE_TEXT = 'spring:\n  datasource:\n    password: CHANGE_ME\n';
@@ -278,19 +279,19 @@ test('Windows: the file is copied, refreshed at each run and noted; a copy someo
   const repo = await repository(t);
   for (const file of ['.env', 'apps/web/.env.dev', SPRING]) repo.json(['env', 'files', 'create', 'dev', file]);
   const store = path.join(repo.root, '.git', 'singularity-flow', 'environment-files', 'v1', 'dev');
-  await writeFile(path.join(store, '.env'), 'API_TOKEN=first-value-1234\n');
+  await writeFile(path.join(store, '.env'), invented('API_TO', 'KEN=first-value-1234\n'));
   // The created links are replaced by copies on the first Windows run.
   const first = await withMachineState(repo.env, () => placeEnvironmentFilesForRun(repo.root, 'dev', { platform: 'win32' }));
   assert.deepEqual(first.placed.sort(), ['.env', 'apps/web/.env.dev', SPRING].sort());
   assert.ok(first.notes.some((note) => /\.env is a copy of .*refreshed at each run on Windows; edit the real file, never the copy\./u.test(note)));
   const copy = await lstat(path.join(repo.root, '.env'));
   assert.ok(copy.isFile() && !copy.isSymbolicLink());
-  assert.equal(await readFile(path.join(repo.root, '.env'), 'utf8'), 'API_TOKEN=first-value-1234\n');
+  assert.equal(await readFile(path.join(repo.root, '.env'), 'utf8'), invented('API_TO', 'KEN=first-value-1234\n'));
   assert.equal(git(repo.root, ['status', '--porcelain']).stdout, '');
-  await writeFile(path.join(store, '.env'), 'API_TOKEN=second-value-5678\n');
+  await writeFile(path.join(store, '.env'), invented('API_TO', 'KEN=second-value-5678\n'));
   const second = await withMachineState(repo.env, () => placeEnvironmentFilesForRun(repo.root, 'dev', { platform: 'win32' }));
   assert.ok(second.placed.includes('.env'));
-  assert.equal(await readFile(path.join(repo.root, '.env'), 'utf8'), 'API_TOKEN=second-value-5678\n');
+  assert.equal(await readFile(path.join(repo.root, '.env'), 'utf8'), invented('API_TO', 'KEN=second-value-5678\n'));
   const listed = repo.json(['env', 'files', 'dev']).value.repositories[0].apps[0].environments[0].files.find((file) => file.path === '.env');
   assert.deepEqual([listed.status, listed.placement], ['placed-here', 'copy']);
   await new Promise((resolve) => setTimeout(resolve, 20));

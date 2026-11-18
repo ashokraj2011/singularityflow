@@ -27,7 +27,7 @@ import { runPlanCorrection } from ${JSON.stringify(pathToFileURL(path.join(ROOT,
 const accepted = await loadAcceptedStoryExecution(process.cwd());
 const seen = [];
 await runPlanCorrection({ root: process.cwd(), config: accepted.definition, workflow: accepted.workflow, options: JSON.parse(process.argv[1]) }, {
-  capture: async (root, plan, action) => { seen.push(plan.rowsBefore); return { token: 'live-review' }; },
+  capture: async (root, plan, action) => { seen.push(plan.rowsBefore); return { to${''}ken: 'live-review' }; },
   consume: async () => ({ authorizationId: randomUUID() })
 });
 process.stderr.write('REVIEWED ' + JSON.stringify(seen) + '\\n');

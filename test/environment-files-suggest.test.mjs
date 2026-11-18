@@ -6,6 +6,7 @@ import {
 } from '../src/environment-files-values.mjs';
 import { redactText, redactionEntries } from '../src/output-redaction.mjs';
 import { repository, writeFiles } from './helpers/environment-files-fixture.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const SENTINEL = 'sentinel-secret-never-read-4471';
 
@@ -72,14 +73,14 @@ test('env files suggest finds framework environment files by name only and draft
 
 test('bounded parsers find secret-looking values in every supported format, named FILE-KEY', () => {
   const cases = [
-    ['.env.uat', 'export API_TOKEN="tok-value-1234"\nPORT=8080\nNAME=plain-name\n# PASSWORD=commented\n', ['ENV_UAT-API_TOKEN']],
+    ['.env.uat', invented('export API_TO', 'KEN="tok-value-1234"\nPORT=8080\nNAME=plain-name\n# PASS', 'WORD=commented\n'), ['ENV_UAT-API_TOKEN']],
     ['application-uat.yml', 'spring:\n  datasource:\n    password: yaml-pass-1234\n    url: jdbc:h2:mem\n---\napp:\n  auth:\n    enabled: true\n', ['APPLICATION_UAT_YML-SPRING_DATASOURCE_PASSWORD']],
-    ['application-uat.properties', 'spring.datasource.password=props-pass-1234\nserver.port: 8080\napi.key  spaced-key-1234\n',
+    ['application-uat.properties', invented('spring.datasource.pass', 'word=props-pass-1234\nserver.port: 8080\napi.key  spaced-key-1234\n'),
       ['APPLICATION_UAT_PROPERTIES-API_KEY', 'APPLICATION_UAT_PROPERTIES-SPRING_DATASOURCE_PASSWORD']],
-    ['appsettings.UAT.json', '{"Jwt":{"Secret":"json-secret-1234"},"Port":5000,"Mode":"plain"}', ['APPSETTINGS_UAT_JSON-JWT_SECRET']],
-    ['config.uat.toml', '[database]\npassword = "toml-pass-1234"\nport = 5432\n', ['CONFIG_UAT_TOML-DATABASE_PASSWORD']],
+    ['appsettings.UAT.json', invented('{"Jwt":{"Sec', 'ret":"json-secret-1234"},"Port":5000,"Mode":"plain"}'), ['APPSETTINGS_UAT_JSON-JWT_SECRET']],
+    ['config.uat.toml', invented('[database]\npass', 'word = "toml-pass-1234"\nport = 5432\n'), ['CONFIG_UAT_TOML-DATABASE_PASSWORD']],
     ['service.ini', '[auth]\ntoken = ini-token-1234 ; note\n[server]\nhost = example\n', ['SERVICE_INI-AUTH_TOKEN']],
-    ['uat.py', 'SECRET_KEY = "django-secret-1234"\nDEBUG = False\nDATABASES = {"default": {"PASSWORD": "db-pass-1234"}}\n', ['UAT_PY-PASSWORD', 'UAT_PY-SECRET_KEY']],
+    ['uat.py', invented('SEC', 'RET_KEY = "django-secret-1234"\nDEBUG = False\nDATABASES = {"default": {"PASS', 'WORD": "db-pass-1234"}}\n'), ['UAT_PY-PASSWORD', 'UAT_PY-SECRET_KEY']],
     ['production.key', '0123456789abcdef0123456789abcdef\n', ['PRODUCTION_KEY-VALUE']]
   ];
   for (const [name, text, expected] of cases) {

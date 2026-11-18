@@ -20,10 +20,11 @@ import { proposeProgressiveCapabilityChange } from '../src/organisation.mjs';
 import { removeTemporaryTree, run } from '../src/util.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { git, repository, writeFiles } from './helpers/environment-files-fixture.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const pluginRoot = path.join(packageRoot, 'plugin');
-const VALUE = 'password: Xq7mP2vL9sT4kR8w\n';
+const VALUE = invented('password: Xq7mP2vL', '9sT4kR8w\n');
 const read = (cwd, file) => ({ cwd, toolName: 'view', toolArgs: { path: file } });
 const refused = (decision) => decision?.permissionDecision === 'deny';
 

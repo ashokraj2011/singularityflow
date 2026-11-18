@@ -36,6 +36,7 @@ import { recordSha256 } from '../src/records.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { run } from '../src/util.mjs';
 import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 // Successful onboarding remembers a lead by default. Keep every test in this file away from
 // the operator's machine-local registry, including cases without an explicit per-test override.
@@ -229,7 +230,7 @@ test('repeat onboarding preview reuses exact-ref metadata while refresh and new 
     assert.equal(cacheBytes.includes(fixture.remote), false,
       'the cache identifies the credential-free repository by fingerprint');
     await assert.rejects(
-      inspectRepositoryOnboarding('https://cache-user:cache-secret@internal.invalid/team/app.git', options),
+      inspectRepositoryOnboarding(invented('https://cache-user:', 'cache-secret@internal.invalid/team/app.git'), options),
       /credential|user.?info|secret|token/iu
     );
     assert.equal((await readFile(cacheFile, 'utf8')).includes('cache-secret'), false,

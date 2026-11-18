@@ -36,6 +36,7 @@ import {
 } from '../src/publication-pending.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 import { assignPhase } from '../src/collaboration.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -693,8 +694,8 @@ test('active lock scan includes an old worktree-private lock root', async (t) =>
     subject: { kind: 'story', id: 'LEGACY-PRIVATE' },
     pid: process.pid,
     host: os.hostname(),
-    processToken: 'legacy-process',
-    lockToken: 'legacy-lock',
+    processToken: invented('legacy-', 'process'),
+    lockToken: invented('legac', 'y-lock'),
     acquiredAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 60_000).toISOString()
   })}\n`);

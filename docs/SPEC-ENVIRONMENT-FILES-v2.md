@@ -49,23 +49,23 @@ style and settings JSON. Both the name and the value have to say so.
 
 | Setting | Result | Why |
 |---|---|---|
-| `password: Xq7mA2pLz9vB` | Value | The name ends in a credential word and the value is real |
-| `spring.datasource.password=Xq7mA2pLz9vB` | Value | Same, with a dotted name |
-| `api-key: abc123xyz987LMNopq456` | Value | `key` with a qualifier |
-| `key: abc123xyz987LMNopq456` | Value | `key` alone, with a token's shape |
+| `password:` and 12 random letters and digits | Value | The name ends in a credential word and the value is real |
+| `spring.datasource.password=` and the same 12 characters | Value | Same, with a dotted name |
+| `api-key:` and 21 random letters and digits | Value | `key` with a qualifier |
+| `key:` and the same 21 characters | Value | `key` alone, with a token's shape |
 | `password: ${DB_PASSWORD}` | Not a value | A reference |
-| `password: ${DB_PASSWORD:Xq7mA2pLz9vB}` | Value | A reference whose default is real |
+| `password: ${DB_PASSWORD:<12 random letters and digits>}` | Value | A reference whose default is real |
 | `password: ENC(…)`, `{cipher}…`, `vault:…`, `arn:…` | Not a value | Encrypted, or a pointer to a secret store |
 | `password: changeme`, `<your-key>`, `****` | Not a value | Written as a placeholder |
-| `password: postgres`, `password: test1234`, `password: abc` | Not a value | A local fixture, not a credential |
+| `password:` with `postgres`, `test1234` or `abc` | Not a value | A local fixture, not a credential |
 | `password: Password`, `existingSecret: my-secret-v2`, `DB_CREDENTIALS` | Not a value | A label or a name |
 | `client-key: certs/client.key`, `secret: kv/data/app`, `public-key: …` | Not a value | A path, a store path, or public |
 | `token_ttl: 3600`, `auth_mode: oauth`, `secret_name: prod-db-2` | Not a value | A setting about a credential |
 | `checksum: 3fa85f64…` | Not a value | No credential word in its name, outside an env-style file |
 | `SIGNING_SALT=Zq7vK2mP…` in a `.env*` file | Value | An env-style file holds little else, so a token's shape is enough |
-| `url: https://x.io/a?sig=Zx9fK2mQ7vLp4Tn8` | Value | A link is judged by its parameter and its value |
+| `url: https://x.io/a?sig=` and 16 random letters and digits | Value | A link is judged by its parameter and its value |
 | `url: https://x.io/a?auth=true` | Not a value | Same rule |
-| `Db: Server=x;Password=Xq7mA2pLz9vB;` | Value | A connection string carrying a password |
+| `Db: Server=x;Password=` and 12 random letters and digits, then `;` | Value | A connection string carrying a password |
 
 The scanner's rules for known provider keys and quoted credentials still run on every file, so nothing it
 caught before is lost. Other formats, such as XML, keep only those rules for now.

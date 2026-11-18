@@ -12,10 +12,11 @@ import { matchEnvironmentLocalPath } from '../src/environment-declaration.mjs';
 import { excludeAlwaysLocalNames } from '../src/git.mjs';
 import { ALWAYS_LOCAL_EXCLUDE_COMMENT, ALWAYS_LOCAL_EXCLUDES, alwaysLocalName, configShapedPath } from '../src/local-config-policy.mjs';
 import { scanEntries, secretRefusal } from '../src/secrets.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
 const VALUE = 'Xq7mA2pLz9vB';
-const TOKEN = 'abc123xyz987LMNopq456';
+const TOKEN = invented('abc123xyz9', '8', '7LMNopq456');
 
 async function repository(t, files = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-local-config-')));
@@ -75,15 +76,15 @@ test('a setting holds a value when its name and its value both say so', () => {
   for (const [name, value] of [
     ['password', VALUE], ['spring.datasource.password', VALUE], ['DB_PASSWORD', VALUE], ['api-key', TOKEN], ['apiKey', TOKEN], ['client_secret', TOKEN],
     ['internal.api.key', TOKEN], ['key', TOKEN], ['token', TOKEN], ['password', `\${DB_PASSWORD:${VALUE}}`], ['Db', `Server=x;Password=${VALUE};`],
-    ['url', 'https://x.io/a?sig=Zx9fK2mQ7vLp4Tn8'], ['password', 'Welcome1'], ['DB_PASS', VALUE], ['spring.mail.pass', VALUE], ['DBPassword', VALUE], ['JWTSecret', VALUE],
-    ['dbpassword', VALUE], ['password_prod', VALUE], ['password2', VALUE], ['password', '$ecr3tP4ss'], ['api-key', '3fa85f64-5717-4562-b3fc-2c963f66afa6'], ['redis', 'redis://:Xq7mA2pLz9vB@cache.x.io'],
+    ['url', invented('https://x.io/a?sig=Zx9fK2mQ', '7vLp4Tn8')], ['password', invented('Wel', 'come1')], ['DB_PASS', VALUE], ['spring.mail.pass', VALUE], ['DBPassword', VALUE], ['JWTSecret', VALUE],
+    ['dbpassword', VALUE], ['password_prod', VALUE], ['password2', VALUE], ['password', invented('$ecr3t', 'P4ss')], ['api-key', invented('3fa85f64-5717-4562-', 'b3fc-2c963f66afa6')], ['redis', invented('redis://:', 'Xq7mA2pLz9vB@cache.x.io')],
     ['storage', `DefaultEndpointsProtocol=https;AccountKey=${TOKEN};`], ['Authorization', `Basic ${TOKEN}`], ['auth', TOKEN], ['password', `\${DB_PASSWORD:-${VALUE}}`]
   ]) assert.equal(settingHoldsSecret(name, value), true, `${name}: ${value}`);
   for (const [name, value] of [
     ['password', '${DB_PASSWORD}'], ['password', '${DB_PASSWORD:}'], ['password', 'ENC(abc123XYZ)'], ['password', '{cipher}abc123XYZ'], ['password', 'vault:secret/data/x'],
     ['client_secret', 'arn:aws:secretsmanager:eu:1:secret:x'], ['password', 'changeme'], ['password', 'CHANGE_ME'], ['password', '<your-key>'], ['password', '****'],
     ['password', 'postgres'], ['password', 'test1234'], ['password', 'true'], ['token', ''], ['token_ttl', '3600'], ['auth_mode', 'oauth'], ['secret_name', 'prod-db-2'], ['secret', 'prod-db-2'],
-    ['checksum', '3fa85f645717a4562b3fc2c963f66afa6'], ['token-uri', 'https://x.io/oauth/token'], ['url', 'https://x.io/a?auth=true'], ['url', 'https://x.example.com/a?sig=Zx9fK2mQ7vLp4Tn8'],
+    ['checksum', '3fa85f645717a4562b3fc2c963f66afa6'], ['token-uri', 'https://x.io/oauth/token'], ['url', 'https://x.io/a?auth=true'], ['url', invented('https://x.example.com/a?sig=Zx9fK2mQ', '7vLp4Tn8')],
     ['token-provider', 'com.example.security.TokenProviderImpl'], ['password', 'correct horse battery staple'], ['server.port', '8080'], ['name', TOKEN],
     ['password', 'Password'], ['login.password', 'Password'], ['key', 'build-cache-v2-linux-x64-22'], ['secretName', 'my-app-tls-certificate-v2'], ['existingSecret', 'my-secret-v2'], ['existingSecret', 'DB_CREDENTIALS'],
     ['password-encoder', 'BCryptPasswordEncoder'], ['client-key', 'certs/client.key'], ['secret', 'kv/data/app'], ['public-key', TOKEN], ['password', '${POSTGRES_PASSWORD:-postgres}'],
@@ -323,7 +324,7 @@ test('Git stops offering an always-local file, once, and the team\'s .gitignore 
 
 test('Copilot is refused an always-local file with no setup, and a real value until it is moved out', async (t) => {
   const repo = await repository(t, { '.env': `API_KEY=${TOKEN}\n`, '.env.example': 'API_KEY=\n', 'apps/web/.env': `API_KEY=${TOKEN}\n`, 'application.yml': `server:\n  port: 8080\npassword: ${VALUE}\n`, 'clean.yml': 'password: \${DB_PASSWORD}\n',
-    'waived.yml': `password: ${VALUE} # sflow-allow-secret: a local fixture\n`, 'crlf.yml': `password: ${VALUE}\r\n`, 'compose.yml': 'url: postgres://postgres:postgres@db/app\n', 'src/App.java': 'class App {}\n' });
+    'waived.yml': `password: ${VALUE} # sflow-allow-secret: a local fixture\n`, 'crlf.yml': `password: ${VALUE}\r\n`, 'compose.yml': invented('url: postgres://postgres:', 'postgres@db/app\n'), 'src/App.java': 'class App {}\n' });
   await symlink('.env', path.join(repo.root, 'notes.txt'));
   assert.match((await read(repo.root, '.env')).permissionDecisionReason, /^ENVIRONMENT_FILE_PRIVATE/u);
   assert.match((await read(repo.root, 'notes.txt')).permissionDecisionReason, /^ENVIRONMENT_FILE_PRIVATE/u, 'through a link');
@@ -400,7 +401,7 @@ test('a person\'s .env in a Story\'s checkout is never a change to review, and s
   const exclude = path.resolve(root, git('rev-parse', '--git-common-dir'), 'info', 'exclude');
   const listed = new Set([ALWAYS_LOCAL_EXCLUDE_COMMENT, ...ALWAYS_LOCAL_EXCLUDES]);
   await writeFile(exclude, (await readFile(exclude, 'utf8')).split('\n').filter((line) => !listed.has(line)).join('\n'));
-  await writeFile(path.join(root, '.env'), 'API_KEY=Xq7mA2pLz9vB4xT\n');
+  await writeFile(path.join(root, '.env'), invented('API', '_KEY=Xq7mA2pLz9vB4xT\n'));
   assert.match(git('status', '--short'), /\.env/u);
   const entry = cli('phase', 'enter', '--compose', '--for-agent', '--json').stdout;
   assert.doesNotMatch(entry, /PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED/u);

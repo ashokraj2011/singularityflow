@@ -9,9 +9,10 @@ import YAML from 'yaml';
 
 import { buildRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
-const SECRET = 'typed-fixture-secret-9c41';
+const SECRET = invented('typed-fixtur', 'e-secret-9c41');
 const SERVER = `import http from 'node:http';
 import { writeFileSync } from 'node:fs';
 const [port, ...rest] = process.argv.slice(2);
@@ -241,7 +242,7 @@ test('app config preview checks a whole block from a file and resolves it per en
     { id: 'api', name: 'Api', type: 'spring-boot', mainClass: 'com.example.api.ApiApplication', activeProfiles: ['dev'], workingDirectory: 'services/api',
       environments: ['dev', 'qa'], perEnvironment: { qa: { activeProfiles: ['qa'] } }, url: 'http://127.0.0.1:8080/', ready: { http: '/actuator/health' } },
     { id: 'jobs', type: 'spring-boot', environments: ['dev', 'qa'], perEnvironment: { qa: { vmOptions: '-Xmx2g' } }, url: 'http://127.0.0.1:8090/', ready: { http: '/' } },
-    { id: 'web', type: 'npm', script: 'dev', env: { DB_PASSWORD: 'hunter2' }, url: 'http://127.0.0.1:5173/', ready: { http: '/' } },
+    { id: 'web', type: 'npm', script: 'dev', env: { DB_PASSWORD: invented('hun', 'ter2') }, url: 'http://127.0.0.1:5173/', ready: { http: '/' } },
     { id: 'report', argv: ['node', 'report.mjs'], url: 'http://127.0.0.1:9000/', ready: { log: 'ready' } }
   ] } }));
   const before = git(root, 'status', '--porcelain');

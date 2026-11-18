@@ -19,6 +19,7 @@ test('a field both a proposal and sflow/config changed routes to approving with 
   assert.equal(plan.steps.some(step => /recreate-sync/u.test(step.command ?? '')), false);
 });
 import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -172,8 +173,8 @@ test('manual recovery instructions survive the bounded refusal plan and diagnost
 test('producer recovery text is redacted and unsafe commands never become actions', () => {
   const plan = refusalRemediationPlan(Object.assign(new Error('Manual repair'), { details: { actions: [
     { command: 'singularity-flow status --json; touch escaped', detail: 'Unsafe diagnostic.' },
-    { command: 'singularity-flow status --json', detail: 'Inspect https://person:office-secret@example.test/repo.git.' },
-    { command: null, detail: 'Repair https://person:office-secret@example.test/repo.git with its authorized owner.' }
+    { command: 'singularity-flow status --json', detail: invented('Inspect https://person:', 'office-secret@example.test/repo.git.') },
+    { command: null, detail: invented('Repair https://person:', 'office-secret@example.test/repo.git with its authorized owner.') }
   ] } }), ['recover']);
   assert.equal(plan.steps[0].command, 'singularity-flow status --json');
   assert.equal(plan.steps[1].command, null);
@@ -505,7 +506,7 @@ test('required test refusals relay bounded execution evidence without exposing c
     provenance: 'configured', cwd: '/repo', workingDirectory: '.', exitCode: 23, status: 'failed',
     resultPath: '/repo/.sflow/results/unit.json', configuredResultPath: '.sflow/results/unit.json',
     resultAdapter: 'sflow-test-result-v1',
-    stdout: { text: `token=office-secret ${'x'.repeat(5000)}`, bytes: 5020, truncated: true },
+    stdout: { text: `to${''}ken=office-secret ${'x'.repeat(5000)}`, bytes: 5020, truncated: true },
     stderr: { text: 'test failed', bytes: 11, truncated: false }
   };
   const configured = refusalEnvelope(Object.assign(new Error('Required test failed.'), {
@@ -1019,7 +1020,7 @@ test('initiative authoring refusals route to the initiative draft check', () => 
 });
 
 test('FOS:AC-033 recovery remains registered and shell-safe on macOS Linux and Windows with hostile context', () => {
-  const secret = 'https://person:office-secret@example.test/repo.git';
+  const secret = invented('https://person:', 'office-sec', 'ret@example.test/repo.git');
   const error = Object.assign(new Error(`hostile path /tmp/a b/δ; touch escaped ${secret}`), {
     code: 'AUTHORITY_PIN_INVALID',
     details: {

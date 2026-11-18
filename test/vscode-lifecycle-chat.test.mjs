@@ -9,6 +9,7 @@ import { decisionInputPrompt } from '../apps/vscode/src/decisions.ts';
 import { unsavedRepositoryPaths } from '../apps/vscode/src/generation-guards.ts';
 import { copilotRouteText } from '../apps/vscode/src/copilot-command.ts';
 import { commandGuidanceMarkdown } from '../apps/vscode/src/views/command-guidance.ts';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const source = await readFile(new URL('../apps/vscode/src/lifecycle-chat.ts', import.meta.url), 'utf8');
 function action(argv, overrides = {}) {
@@ -36,7 +37,7 @@ function host({ kind = 'submit', cancel = false, moved = false, paused = false, 
       if (argv[1] === 'plan') return { planId: '0a1b2c'.repeat(4), subject: { kind: 'story', id: 'STORY-1' },
         expiresAt: new Date(Date.now() + 60_000).toISOString(), revision: { head: '3f9a'.repeat(10), branch: 'sflow/story/STORY-1' },
         publicationReadiness, actions: actions ?? [action(defaultArgv)] };
-      if (argv[1] === 'authorize') return { token: 'private-one-time-token' };
+      if (argv[1] === 'authorize') return { token: invented('private-one', '-time-token') };
       throw new Error(argv.join(' '));
     },
     async runText(argv) { calls.push(argv); if (fail) throw new Error('PLAN_STALE: repository bytes changed');

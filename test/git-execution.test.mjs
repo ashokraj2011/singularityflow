@@ -15,6 +15,7 @@ import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { signalProcessTree } from '../src/util.mjs';
 import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
 import { frozenRemoteTransport } from '../src/git-remote-diagnostics.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 test('one remote session reuses an exact observation and parses the advertised authority', () => {
   const calls = [];
@@ -299,7 +300,7 @@ test('a cancelled first waiter does not cancel a shared remote observation for a
   const remote = 'https://git.example.test/team/shared.git';
   const first = session.observeAsync(remote, { signal: controller.signal, timeoutMs: 500 });
   const second = session.observeAsync(remote, { timeoutMs: 500 });
-  controller.abort({ credential: 'must-not-escape' });
+  controller.abort({ credential: invented('must-no', 't-escape') });
   const cancelled = await first;
   assert.equal(cancelled.failure.code, 'REMOTE_OPERATION_ABORTED');
   assert.equal(JSON.stringify(cancelled).includes('must-not-escape'), false);
@@ -1446,7 +1447,7 @@ test('asynchronous remote execution propagates cancellation and terminates the c
 
 test('pre-aborted remote execution never discloses the caller-owned abort reason', async () => {
   const controller = new AbortController();
-  controller.abort({ credential: 'secret-material-must-not-escape' });
+  controller.abort({ credential: invented('secret-material', '-must-not-escape') });
   let spawned = false;
   const result = await runRemoteGitAsync(['fetch', 'origin'], {
     timeoutMs: 5_000,

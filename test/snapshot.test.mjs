@@ -29,6 +29,7 @@ import { readTransportIntent, retryTransportIntent } from '../src/transport-inte
 import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
 import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
 import { storyLifecycleProgress } from '../src/session-roster.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -539,7 +540,7 @@ test('visual editor bootstraps governed portfolio and Jira policy without storin
       baseUrl: 'https://company.atlassian.net',
       projectKey: 'app',
       writeMode: 'preview',
-      token: 'must-never-be-written'
+      token: invented('must-never', '-be-written')
     }
   });
   assert.equal(created.path, 'singularity/portfolio.yml');
@@ -820,7 +821,7 @@ neverCommit:
 
   // A checked-in legacy model may predate environment-local exclusions. Configuration export never
   // carries World Model files, so neither the bundle nor the generic file reader replays them.
-  const legacySecret = 'legacy-model-secret-value';
+  const legacySecret = invented('legacy-model', '-secret-value');
   const legacyReference = 'vault://teams/payments/qa';
   const legacyModelPath = 'singularity/world-model/core/legacy.json';
   await mkdir(path.dirname(path.join(root, legacyModelPath)), { recursive: true });

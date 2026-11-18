@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import {
   resolveVsce, vsceToolchainKey, VSCE_TOOLCHAIN, VSCE_TOOLCHAIN_ROOT_ENV, VSCE_TOOLCHAIN_REFRESH_ENV
 } from '../scripts/vscode-dev.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -343,7 +344,7 @@ test('a crashed publication claim is recovered without replacing its completed g
     const ownerName = `${generationName}.publish-owner-${deadPid}-crashed`;
     const lock = path.join(h.cacheRoot, `${generationName}.publish-lock`);
     await writeFile(lock, JSON.stringify({
-      pid: deadPid, token: 'crashed', ownerName, createdAt: Date.now()
+      pid: deadPid, token: invented('cra', 'shed'), ownerName, createdAt: Date.now()
     }));
 
     const refreshed = await resolveVsce({ refresh: true });

@@ -17,6 +17,7 @@ import { REPOSITORY_QUERIES, repositoryQuery } from '../src/gateway/planners/rep
 import { validateArguments } from '../src/gateway/argument-schemas.mjs';
 import { validateSflowResult } from '../src/gateway/result.mjs';
 import { run } from '../src/util.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const binding = {
   workspaceId: null, repository: 'checkout-service', branch: 'main', subjectKind: null, subjectId: null,
@@ -38,7 +39,7 @@ async function repository(t) {
   git(root, 'config', 'user.name', 'Dev');
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src', 'checkout.mjs'), 'export function validate(address) {\n  return address.postal;\n}\n');
-  await writeFile(path.join(root, '.env'), 'API_TOKEN=postal-secret-value\n');
+  await writeFile(path.join(root, '.env'), invented('API_TO', 'KEN=postal-secret-value\n'));
   await symlink(path.join(outside, 'private.txt'), path.join(root, 'escape.txt'));
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'checkout validation');

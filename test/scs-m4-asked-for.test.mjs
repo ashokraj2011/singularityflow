@@ -15,9 +15,10 @@ import YAML from 'yaml';
 import { ASKED_FOR, askedForGeneration, localAskedFor, noteAskedFor, noteTypedTurn, subagentPayload, typedArguments, typedInstruction } from '../src/asked-for.mjs';
 import { captureMutationTurn } from '../src/copilot-mutation-guard.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 // Built, never written whole, so no scanner reads this file as holding a token.
-const TOKEN = ['ghp', 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'].join('_');
+const TOKEN = ['ghp', invented('A1b2C3d4E5f6', 'G7h8I9j0K1l2', 'M3n4O5p6Q7r8')].join('_');
 
 test('SCS REQ-040: the words after /sf-code or /sf-phase, redacted, at most 2,000 characters; nothing for a subagent, another skill or a step word', async () => {
   assert.equal(typedArguments('/sf-code make the timeout 10s'), 'make the timeout 10s');

@@ -26,6 +26,7 @@ import { promptSecret, readPromptLog } from '../src/plain-chat-prompts.mjs';
 import { removeTemporaryTree, run } from '../src/util.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { repository as envRepository } from './helpers/environment-files-fixture.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 // Made up for these tests: the shapes of credentials, never real ones.
@@ -173,7 +174,7 @@ test('PCR REQ-002: a plain chat\'s prompts have their own 20 a generation, so qu
 test('PCR REQ-003: what looks like a secret is found by its kind, never its value, and prose is not', async () => {
   assert.equal(await promptSecret(`push with ${TOKEN}`), 'GitHub token');
   assert.equal(await promptSecret(`the key is ${ACCESS_KEY}`), 'AWS access key ID');
-  assert.equal(await promptSecret('-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n'), 'private key');
+  assert.equal(await promptSecret(invented('-----BEGIN OPENSSH PRIVATE', ' KEY-----\nabc\n')), 'private key');
   assert.equal(await promptSecret(`token ghp_${'A'.repeat(24)}`), 'access token', 'the redactor\'s shorter token shape');
   for (const prose of ['make the timeout 10s', 'use Bearer authentication everywhere', 'why does token: expired fail?', 'password = "changeme"']) {
     assert.equal(await promptSecret(prose), null, prose);

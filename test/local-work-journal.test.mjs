@@ -12,6 +12,7 @@ import {
   readJournalSettings, updateJournalSettings
 } from '../src/local-work-journal.mjs';
 import { run } from '../src/util.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -36,7 +37,7 @@ test('journal events are bounded, integrity checked, deduplicated and local only
   const input = {
     workspaceId: 'workspace-one', repositoryId: 'payments', workId: 'WRK-19',
     kind: 'test-result', summaryCode: 'journal.test-result', at: '2026-08-19T08:00:00.000Z',
-    facts: { outcome: 'passed', count: 7, token: 'must-not-be-stored', command: 'must-not-be-stored' }
+    facts: { outcome: 'passed', count: 7, token: invented('must-not-', 'be-stored'), command: 'must-not-be-stored' }
   };
   const first = await appendJournalEvent(input, { env });
   const duplicate = await appendJournalEvent(input, { env });

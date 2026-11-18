@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const source = (name) => pathToFileURL(path.join(import.meta.dirname, '..', 'src', name)).href;
 // One process of a session: install the store, ask Git, report what came from where.
@@ -45,7 +46,7 @@ async function session(t) {
     ['show', `${head}:a.txt`], ['rev-parse', '--verify', `${head}^{tree}`]];
   const ask = (asked = questions, env = {}) => {
     const result = spawnSync(process.execPath, [driver, JSON.stringify(asked), root], {
-      encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_GIT_FACT_STORE: store, SINGULARITY_FLOW_GIT_FACT_CACHE: '', GIT_TEST_TOKEN: 'secret-token-value', ...env }
+      encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_GIT_FACT_STORE: store, SINGULARITY_FLOW_GIT_FACT_CACHE: '', GIT_TEST_TOKEN: invented('secret-to', 'ken-value'), ...env }
     });
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);

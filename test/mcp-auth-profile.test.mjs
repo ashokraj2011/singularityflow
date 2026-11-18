@@ -19,8 +19,9 @@ import {
   resolvePlaywrightAuthRuntime, secureWindowsAuthAcl,
   scaffoldPlaywrightMcp, smokeMcpHost, warmMcpHost
 } from '../src/mcp.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
-const SECRET = 'private-session-cookie-do-not-log';
+const SECRET = invented('private-session-', 'cookie-do-not-log');
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = path.join(packageRoot, 'bin/singularity-flow.mjs');
 

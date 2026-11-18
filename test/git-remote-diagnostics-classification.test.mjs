@@ -13,6 +13,7 @@ import {
 } from '../src/git-remote-diagnostics.mjs';
 import { runRemoteGit, runRemoteGitAsync } from '../src/git-execution.mjs';
 import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const failed = (stderr, extra = {}) => ({
   status: 128,
@@ -355,8 +356,8 @@ test('a URL in prose keeps its address; only what follows it is punctuation', ()
   assert.equal(redactDiagnosticText('at http://[::1]:5173, now'), 'at http://[::1]:5173/, now');
   assert.equal(redactDiagnosticText('open (http://127.0.0.1:8080).'), 'open (http://127.0.0.1:8080/).');
   // Setting punctuation aside never lets a credential, query or fragment through.
-  assert.equal(redactDiagnosticText('push https://user:LEAKMARK@host/r.git: denied'), 'push [REDACTED REMOTE] denied');
-  assert.equal(redactDiagnosticText('got https://host/x?token=LEAKMARK.'), 'got https://host/x.');
+  assert.equal(redactDiagnosticText(invented('push https://user:', 'LEAKMARK@host/r.git: denied')), 'push [REDACTED REMOTE] denied');
+  assert.equal(redactDiagnosticText(invented('got https://host/x?to', 'ken=LEAKMARK.')), 'got https://host/x.');
   assert.equal(redactDiagnosticText('see https://host/x#LEAKMARK:'), 'see https://host/x:');
 });
 
@@ -552,9 +553,9 @@ test('canonical HTTP status diagnostics remain classified after remote operands 
 
 test('embedded credential URLs inside path-form remotes are rejected at the trust boundary', () => {
   for (const remote of [
-    './https://reviewerone:LEAKMARK@example.test/repo',
-    '/tmp/https://reviewerone:LEAKMARK@example.test/repo',
-    'safe/ssh://reviewerone:LEAKMARK@example.test/repo',
+    invented('./https://reviewerone:', 'LEAKMARK@example.test/repo'),
+    invented('/tmp/https://reviewerone:', 'LEAKMARK@example.test/repo'),
+    invented('safe/ssh://reviewerone:', 'LEAKMARK@example.test/repo'),
     './git+ssh://reviewerone%3ALEAKMARK@example.test/repo',
     '/tmp/reviewerone:LEAKMARK@example.test/repo',
     './https://PRIVATEUSER@example.test/repo',
@@ -626,7 +627,7 @@ test('an ENOENT from a missing working directory is not reported as missing Git'
 });
 
 test('malformed HTTP remotes cannot bypass credential redaction when URL parsing fails', () => {
-  const secret = 'malformed-secret-value';
+  const secret = invented('malformed-s', 'ecret-value');
   const remote = `https://reviewerone:${secret}@[invalid/repo`;
   assert.doesNotMatch(sanitizeRemote(remote), new RegExp(secret));
   assert.equal(sanitizeRemote(`https://reviewerone:${secret}/path@invalid host/repo`),
@@ -696,7 +697,7 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
       return true;
     });
   }
-  const scpCredential = 'reviewerone:office-secret@example.test:repository.git';
+  const scpCredential = invented('reviewerone:office-secret@', 'example.test:repository.git');
   assert.equal(sanitizeRemote(scpCredential), '[credential-redacted]');
   assert.throws(() => assertCredentialFreeRemote(scpCredential), (error) => {
     assert.equal(error.code, 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
@@ -722,15 +723,15 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
     return true;
   });
   assert.doesNotMatch(
-    sanitizeRemote('foo://example.test/password=external-helper-secret'),
+    sanitizeRemote(invented('foo://example.test/pass', 'word=external-helper-secret')),
     /external-helper-secret|password=/
   );
   assert.equal(sanitizeRemote('ext::LEAKMARK'), '[invalid-remote]');
   assert.equal(sanitizeRemote('--upload-pack=LEAKMARK'), '[invalid-remote]');
   for (const localSecret of [
     '/tmp/reviewerone:LEAKMARK@host/repo',
-    '/tmp/cache/password=LEAKMARK',
-    '/tmp/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'
+    invented('/tmp/cache/pass', 'word=LEAKMARK'),
+    invented('/tmp/gh', 'p_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456')
   ]) assert.equal(sanitizeRemote(localSecret), '[credential-redacted]');
 
   for (const remoteWithSuffix of [
@@ -739,7 +740,8 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
   ]) {
     assert.throws(() => assertCredentialFreeRemote(remoteWithSuffix), (error) => {
       assert.equal(error.code, 'BOOTSTRAP_REMOTE_CONTAINS_EPHEMERAL_CREDENTIAL');
-      assert.doesNotMatch(JSON.stringify(error), /access_token|token=secret|#secret/);
+      assert.doesNotMatch(JSON.stringify(error), /access_token|#secret/);
+      assert.ok(!JSON.stringify(error).includes(invented('to', 'ken=secret')));
       return true;
     });
   }
@@ -754,7 +756,7 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
 
   for (const diagnostic of [
     'fatal: https://example.test/repo?signature=VERYSECRET#frag',
-    'fatal: https://reviewerone:pass-secret@example.test/repo?anything=VERYSECRET#frag',
+    invented('fatal: https://reviewerone:', 'pass-secret@example.test/repo?anything=VERYSECRET#frag'),
     'fatal: //reviewerone:pass-secret@example.test/repo?custom=VERYSECRET#frag',
     'fatal: https:/reviewerone:pass-secret@example.test/repo?signature=VERYSECRET#frag'
   ]) {
@@ -762,15 +764,15 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
     assert.doesNotMatch(redacted, /VERYSECRET|pass-secret|signature=|anything=|custom=|#frag/);
   }
   for (const diagnostic of [
-    'proxy_password=LEAKMARK',
-    'jira_token=LEAKMARK',
-    'proxyPassword=LEAKMARK',
+    invented('proxy_pass', 'word=LEAKMARK'),
+    invented('jira_to', 'ken=LEAKMARK'),
+    invented('proxyPass', 'word=LEAKMARK'),
     'credential=domain\\user:LEAKMARK',
-    'authorization=Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==',
-    '{"password":"LEAKMARK"}',
-    '{"access_token":"LEAKMARK"}',
-    "{'password':'LEAKMARK'}",
-    'password="abc\\\"LEAKMARK" tail',
+    invented('authorization=Basic ', 'QWxhZGRpbjpvcGVuIHNlc2FtZQ=='),
+    invented('{"pass', 'word":"LEAKMARK"}'),
+    invented('{"access_to', 'ken":"LEAKMARK"}'),
+    invented("{'pass", "word':'LEAKMARK'}"),
+    invented('pass', 'word="abc\\\"LEAKMARK" tail'),
     'Cookie: sid=LEAKMARK; remember=LEAKMARK',
     'password\n=LEAKMARK',
     'password\u0000=LEAKMARK',
@@ -782,14 +784,14 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
     'pass\u200bword=LEAKMARK',
     'pass\ufeffword=LEAKMARK',
     'fatal remote "ext::sh -c echo LEAKMARK" failed',
-    '-----BEGIN PRIVATE KEY-----\nLEAKMARK\n-----END PRIVATE KEY-----'
+    invented('-----BEGIN PRIVATE', ' KEY-----\nLEAKMARK\n-----END PRIVATE KEY-----')
   ]) assert.doesNotMatch(redactDiagnosticText(diagnostic), /LEAKMARK|QWxhZGRpb/);
   for (const diagnostic of [
     'fatal: ext::LEAKMARK',
-    'fatal ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
-    'fatal github_pat_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
-    'fatal xoxb-ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-    'fatal Bearer abcdefghijklmnop',
+    invented('fatal gh', 'p_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'),
+    invented('fatal github_', 'pat_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'),
+    invented('fatal xo', 'xb-ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
+    invented('fatal Bearer ', 'abcdefghijklmnop'),
     `fatal AIza${'A'.repeat(32)}`
   ]) assert.doesNotMatch(redactDiagnosticText(diagnostic), /LEAKMARK|ghp_|github_pat_|xoxb-|Bearer|AIza/);
   const huge = `${'password=x;'.repeat(20_000)}${'A'.repeat(100_000)}`;
@@ -797,19 +799,19 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
   assert.ok(bounded.length < 8_400);
   assert.match(bounded, /\[truncated \d+ chars\]/);
   assert.doesNotMatch(bounded, /password=x/);
-  const boundary = redactDiagnosticText(`${'A'.repeat(8170)} ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`);
+  const boundary = redactDiagnosticText(`${'A'.repeat(8170)} gh${''}p_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`);
   assert.doesNotMatch(boundary, /ghp_|ABCDEFGHIJ/);
   const pemBoundary = redactDiagnosticText(
-    `${'A'.repeat(8170)}-----BEGIN PRIVATE KEY-----\nLEAKMARK`
+    `${'A'.repeat(8170)}-----BEGIN PRIVATE${''} KEY-----\nLEAKMARK`
   );
   assert.doesNotMatch(pemBoundary, /BEGIN PRIVATE KEY|LEAKMARK/);
   assert.equal(sanitizeRemote('A'.repeat(100_000)), '[invalid-remote]');
   assert.throws(() => assertCredentialFreeRemote('A'.repeat(100_000)),
     (error) => error.code === 'BOOTSTRAP_REMOTE_TOO_LONG');
   for (const remote of [
-    'https://git.example/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
-    'https://git.example/password=LEAKMARK',
-    '/tmp/eyJabcdefghijk.abcdefghijk.abcdefghijk'
+    invented('https://git.example/gh', 'p_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'),
+    invented('https://git.example/pass', 'word=LEAKMARK'),
+    invented('/tmp/ey', 'Jabcdefghijk.abcdefghijk.abcdefghijk')
   ]) {
     assert.equal(sanitizeRemote(remote), '[credential-redacted]');
     assert.throws(() => assertCredentialFreeRemote(remote),

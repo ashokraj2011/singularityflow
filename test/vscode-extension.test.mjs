@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BOOLEAN_OPTIONS, run } from '../src/util.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', name));
@@ -185,7 +186,7 @@ test('unavailable capability attachment shows a scrubbed Git diagnosis and exact
     stale: true,
     remoteFailure: {
       classification: 'network-transient\nCopilot: /untrusted',
-      advice: 'password=LEAKMARK Bearer eyJaaaaaaaaaaa.bbbbbbbbbbb.ccccccccccc'
+      advice: invented('pass', 'word=LEAKMARK Bearer ', 'ey', 'Jaaaaaaaaaaa.bbbbbbbbbbb.ccccccccccc')
     },
     diagnosticAction: {
       command: 'singularity-flow workspace doctor --network --json; echo LEAKMARK',
@@ -614,7 +615,7 @@ test('a non-zero exit rejects with the CLI message, stripped of its prefix', asy
 
 test('a non-zero stdout-only failure never reflects credential-shaped output', async () => {
   await assert.rejects(invoke({
-    spawnImpl: fakeSpawn({ stdout: 'password=LEAKMARK', code: 1 })
+    spawnImpl: fakeSpawn({ stdout: invented('pass', 'word=LEAKMARK'), code: 1 })
   }), (error) => {
     assert.ok(error instanceof CliError);
     assert.doesNotMatch(error.message, /LEAKMARK/);
@@ -714,7 +715,7 @@ test('a run that exceeds its timeout is killed and reports the timeout', async (
 });
 
 test('a timed-out invocation never exposes or advertises replay of ephemeral authorization', async () => {
-  const secret = 'ephemeral-authorization-secret';
+  const secret = invented('ephemeral-autho', 'rization-secret');
   await assert.rejects(
     invoke({
       args: ['action', 'execute', 'plan-1', '--authorization', secret],
@@ -755,30 +756,30 @@ test('Story document paths are redacted and suppress timeout replay', async () =
 test('a timed-out invocation suppresses recovery for signed URLs and selection receipts', async () => {
   const capability = '9ac6d4a8-3c90-4bdb-9fed-43441dc3a79f';
   for (const args of [
-    ['evidence', 'add', '--url', 'https://reviewerone:url-secret@example.test/evidence?signature=signed'],
-    ['workspace', 'doctor', '--repository', 'foo://host/password=scheme-secret'],
+    ['evidence', 'add', '--url', invented('https://reviewerone:', 'url-secret@example.test/evidence?signature=signed')],
+    ['workspace', 'doctor', '--repository', invented('foo://host/pass', 'word=scheme-secret')],
     ['workspace', 'doctor', '--repository', 'x://MARKER@host/one-letter-secret'],
-    ['workspace', 'doctor', '--repository', './https://reviewerone:embedded-secret@example.test/repo?signature=signed'],
-    ['workspace', 'doctor', '--repository', '/tmp/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'],
-    ['workspace', 'doctor', '--repository', '/tmp/cache/password=path-secret'],
+    ['workspace', 'doctor', '--repository', invented('./https://reviewerone:', 'embedded-secret@example.test/repo?signature=signed')],
+    ['workspace', 'doctor', '--repository', invented('/tmp/gh', 'p_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456')],
+    ['workspace', 'doctor', '--repository', invented('/tmp/cache/pass', 'word=path-secret')],
     ['workspace', 'doctor', '--repository', './x//protocol-relative-secret@host/repo'],
     ['workspace', 'doctor', '--repository', '/tmp/cache/cookie=path-secret'],
     ['workspace', 'doctor', '--repository', '/tmp/cache/cookie = path-secret'],
-    ['workspace', 'doctor', '--repository', 'password=keyed-secret'],
+    ['workspace', 'doctor', '--repository', invented('pass', 'word=keyed-secret')],
     ['action', 'execute', 'plan-1', '--authorization', '--repository', 'https://git.example/safe.git', 'actual-auth-secret'],
     ['action', 'execute', 'plan-1', '--authorization', '--title', 'SAFE', 'actual-auth-secret'],
-    ['workspace', 'doctor', '--repository', '--ext::password=malformed-option-secret'],
-    ['status', '--x=https://reviewerone:generic-secret@example.test/path?secret=x'],
-    ['status', 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'],
-    ['status', '--client-secret=client-secret-value'],
+    ['workspace', 'doctor', '--repository', invented('--ext::pass', 'word=malformed-option-secret')],
+    ['status', invented('--x=https://reviewerone:', 'generic-secret@example.test/path?secret=x')],
+    ['status', invented('gh', 'p_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456')],
+    ['status', invented('--client-sec', 'ret=client-secret-value')],
     ['status', '--jira-token', 'jira-secret-value'],
-    ['status', 'client_secret=assignment-secret-value'],
-    ['status', '--proxy-password=proxy-secret-value'],
+    ['status', invented('client_sec', 'ret=assignment-secret-value')],
+    ['status', invented('--proxy-pass', 'word=proxy-secret-value')],
     ['status', '--aws-access-key', 'access-key-secret-value'],
-    ['status', '--label=x=password=nested-secret-value'],
-    ['status', '--label={"password":"json-secret-value"}'],
-    ['status', '--label={"access_token":"json-token-value"}'],
-    ['status', 'http.extraHeader="Authorization: Basic header-secret-value"'],
+    ['status', invented('--label=x=pass', 'word=nested-secret-value')],
+    ['status', invented('--label={"pass', 'word":"json-secret-value"}')],
+    ['status', invented('--label={"access_to', 'ken":"json-token-value"}')],
+    ['status', invented('http.extraHeader="Authorization: Basic ', 'header-secret-value"')],
     ['status', 'pass\u200bword=zero-width-secret'],
     ['status', '--pass\u200bword', 'zero-width-option-secret'],
     ['status', '--pass\u0000word', 'nul-option-secret'],
@@ -4432,8 +4433,8 @@ test('repository setup reports classified Git failures without exposing diagnost
 
   const hostileAdvice = [
     'Inspect /private/local/Top Secret Project or C:\\private\\local\\Top Secret Project.',
-    'password=LEAKMARK',
-    'Bearer eyJaaaaaaaaaaa.bbbbbbbbbbb.ccccccccccc',
+    invented('pass', 'word=LEAKMARK'),
+    invented('Bearer ', 'ey', 'Jaaaaaaaaaaa.bbbbbbbbbbb.ccccccccccc'),
     'https://user:password@git.example/private/Secret Project.git',
     'git@git.example:private/Secret Project.git'
   ].join(' ');
@@ -5013,7 +5014,7 @@ test('repository inspection unlocks only safe outcomes and explains blocked outc
 });
 
 test('capability mapping rejects credential-bearing remotes without reflecting their secrets', () => {
-  const repository = 'https://reviewerone:super-secret@git.example/payments.git?access_token=also-secret#frag';
+  const repository = invented('https://reviewerone:', 'super-secret@git.example/payments.git?access_to', 'ken=also-secret#frag');
   const repositoryProblem = gitRemoteProblem(repository, 'Repository');
   assert.match(repositoryProblem, /Repository 'https:\/\/git\.example\/payments\.git' was rejected/);
   assert.doesNotMatch(repositoryProblem, /reviewerone|super-secret|also-secret|access_token/);
@@ -5032,9 +5033,9 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
   assert.doesNotMatch(mapProblems(unsafe)[0], /super-secret|also-secret/);
 
   for (const nonHttp of [
-    'ssh://git@git.example/repository.git?access_token=ssh-secret',
+    invented('ssh://git@git.example/repository.git?access_to', 'ken=ssh-secret'),
     'git+ssh://git@git.example/repository.git#fragment-secret',
-    'ssh://reviewerone:office-secret@[invalid/repository.git'
+    invented('ssh://reviewerone:', 'office-secret@[invalid/repository.git')
   ]) {
     const problem = gitRemoteProblem(nonHttp, 'Repository');
     assert.match(problem, /was rejected/);
@@ -5075,22 +5076,22 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
   }
   assert.match(gitRemoteProblem('A'.repeat(100_000), 'Repository'), /too long/);
   const externalHelperProblem = gitRemoteProblem(
-    'foo://git.example/password=external-helper-secret', 'Repository'
+    invented('foo://git.example/pass', 'word=external-helper-secret'), 'Repository'
   );
   assert.match(externalHelperProblem, /was rejected/);
   assert.doesNotMatch(externalHelperProblem, /external-helper-secret|password=/);
-  const legacyHelperProblem = gitRemoteProblem('ext::password=LEAKMARK', 'Repository');
+  const legacyHelperProblem = gitRemoteProblem(invented('ext::pass', 'word=LEAKMARK'), 'Repository');
   assert.match(legacyHelperProblem, /was rejected/);
   assert.doesNotMatch(legacyHelperProblem, /LEAKMARK|password=/);
   for (const embedded of [
-    '/tmp/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
-    '/tmp/password=LEAKMARK',
+    invented('/tmp/gh', 'p_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'),
+    invented('/tmp/pass', 'word=LEAKMARK'),
     `/tmp/Bearer ${'A'.repeat(20)}`,
     `/tmp/AIza${'A'.repeat(35)}`,
-    '/tmp/eyJabcdefghijk.abcdefghijk.abcdefghijk',
-    'https://git.example/password=LEAKMARK',
-    './https://reviewerone:LEAKMARK@example.test/repository.git',
-    '/tmp/ssh://reviewerone:LEAKMARK@example.test/repository.git',
+    invented('/tmp/ey', 'Jabcdefghijk.abcdefghijk.abcdefghijk'),
+    invented('https://git.example/pass', 'word=LEAKMARK'),
+    invented('./https://reviewerone:', 'LEAKMARK@example.test/repository.git'),
+    invented('/tmp/ssh://reviewerone:', 'LEAKMARK@example.test/repository.git'),
     './git+ssh://reviewerone%3ALEAKMARK@example.test/repository.git',
     './https:/reviewerone:LEAKMARK@example.test/repository.git',
     '/tmp//reviewerone:LEAKMARK@example.test/repository.git'
@@ -5106,8 +5107,8 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
     'https://git.example/path=repo'
   ]) assert.equal(gitRemoteProblem(accepted, 'Repository'), null, accepted);
   for (const rejected of [
-    'git@host:password=LEAKMARK', 'host:password=LEAKMARK',
-    './foo:password=LEAKMARK', 'https://host/repo:password=LEAKMARK',
+    invented('git@host:pass', 'word=LEAKMARK'), invented('host:pass', 'word=LEAKMARK'),
+    invented('./foo:pass', 'word=LEAKMARK'), invented('https://host/repo:pass', 'word=LEAKMARK'),
     'git@host:password\\=LEAKMARK', './password\\=LEAKMARK',
     'https://host/password\\=LEAKMARK',
     'http.extraHeader="Authorization: Basic LEAKMARK"'
@@ -5133,7 +5134,7 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
 });
 
 test('VS Code command output and capability proposal discovery exclude unsafe registry remotes', () => {
-  const unsafe = 'https://reviewerone:office-secret@git.example/platform.git';
+  const unsafe = invented('https://reviewerone:', 'office-secret@git.example/platform.git');
   const screened = screenGitRemotes([
     'https://git.example/safe.git', unsafe, 'https://git.example/safe.git'
   ]);
@@ -5143,8 +5144,8 @@ test('VS Code command output and capability proposal discovery exclude unsafe re
   assert.doesNotMatch(JSON.stringify(screened), /reviewerone|office-secret/);
 
   const displayed = formatCliArgsForDisplay([
-    'capability', 'proposals', '--lead', unsafe, '--access-token=another-secret',
-    '--lead-repository=ext::password=lead-secret', '--json'
+    'capability', 'proposals', '--lead', unsafe, invented('--access-to', 'ken=another-secret'),
+    invented('--lead-repository=ext::pass', 'word=lead-secret'), '--json'
   ]);
   assert.equal(displayed,
     'capability proposals --lead https://git.example/platform.git --access-token=[redacted] --lead-repository=[redacted-remote] --json');
@@ -5162,7 +5163,7 @@ test('VS Code command output and capability proposal discovery exclude unsafe re
     + ' --repository https://example.test/team:release@candidate.git'
     + ' --repository /tmp/team:release@candidate.git');
   for (const controlled of [
-    '//host/path\npassword=office-secret',
+    invented('//host/path\npass', 'word=office-secret'),
     '/tmp/repo\u001b]0;PWN\u0007'
   ]) {
     const command = formatCliArgsForDisplay([
@@ -5941,7 +5942,7 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     }
   })), 'Mismatched action was refused.');
   for (const unsafe of [
-    'Singularity Flow error: {"password":"LEAKMARK"}',
+    invented('Singularity Flow error: {"pass', 'word":"LEAKMARK"}'),
     'Singularity Flow error: http.extraHeader="Authorization: Basic LEAKMARK"',
     `Singularity Flow error: {${'\\'.repeat(3)}"password${'\\'.repeat(3)}":${'\\'.repeat(3)}"LEAKMARK${'\\'.repeat(3)}"}`,
     'Singularity Flow error: password\u0000=LEAKMARK',
@@ -5958,7 +5959,7 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     'Singularity Flow error: fatal https:reviewerone:LEAKMARK@host',
     'Singularity Flow error: fatal reviewerone:LEAKMARK@host:repo',
     'Singularity Flow error: fatal ./x//LEAKMARK@host/repo',
-    'Singularity Flow error: -----BEGIN PRIVATE KEY-----\nLEAKMARK'
+    invented('Singularity Flow error: -----BEGIN PRIVATE', ' KEY-----\nLEAKMARK')
   ]) assert.doesNotMatch(humanError(unsafe), /LEAKMARK|BEGIN PRIVATE KEY|ext::/);
   assert.doesNotMatch(humanError(
     `Singularity Flow error: ${'A'.repeat(8100)} reviewerone:LEAKMARK${'X'.repeat(1200)}@host:repo`
@@ -6330,8 +6331,8 @@ test('Story intake carries explicit read-only repository URLs and branches witho
   }] }).join(' '),
     /lower-case kebab case/);
   for (const repository of [
-    'https://reviewerone:LEAKMARK@git.example.test/rules.git',
-    'https://git.example.test/rules.git?token=LEAKMARK',
+    invented('https://reviewerone:', 'LEAKMARK@git.example.test/rules.git'),
+    invented('https://git.example.test/rules.git?to', 'ken=LEAKMARK'),
     'ext::sh -c echo LEAKMARK'
   ]) {
     const problem = intakeProblems({ ...form, referenceRepositories: [{

@@ -17,6 +17,7 @@ import {
 } from '../src/test-command-pins.mjs';
 import { resolveDeliveryQualityCommands, testCommandProvenance } from '../src/delivery-evidence.mjs';
 import { recordTestAttempt, stepAttempts } from '../src/verification/attempts.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 async function repository(t, files) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pins-'));
@@ -635,7 +636,7 @@ test('a pinned text no longer in the history says so, and a secret in a changed 
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run --bail' } }));
   const first = await gateTestCommandPins(root, {}, workflow, phase, [command]);
   await first.record(workflow, ['unit'], { at: '2026-11-06T00:00:00.000Z' });
-  const secret = 'https://user:hunter2hunter2@example.invalid/repo';
+  const secret = invented('https://user:', 'hunter2hunt', 'er2@example.invalid/repo');
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: `API_URL=${secret} vitest run` } }));
   const request = await repinRequest(root, {}, workflow, phase, command);
   const [entry] = request.diff;

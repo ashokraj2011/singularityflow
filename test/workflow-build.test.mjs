@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { classifyCommand, scanGuidanceText } from '../src/guidance-scan.mjs';
 import { textCandidate } from '../src/team-import/formats.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -56,7 +57,7 @@ const TEAM = {
   'requests/payments.http': ['### Capture', 'POST https://api.example.com/payments/capture', 'Content-Type: application/json', ''].join('\n'),
   '.vscode/mcp.json': JSON.stringify({ servers: { jira: { url: 'https://mcp.example.com/jira' }, files: { command: 'npx', args: ['files-server'] } } }, null, 2),
   'scripts/deploy.sh': ['#!/bin/sh', 'curl -X PUT https://deploy.example.com/releases/$VERSION', ''].join('\n'),
-  'config/tokens.env': 'TOKEN=not-really\n',
+  'config/tokens.env': invented('TO', 'KEN=not-really\n'),
   'notes/leaked.md': `Ask the release captain. Old key ${fakeKey}\n`
 };
 

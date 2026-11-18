@@ -9,6 +9,7 @@ import { doctorSnapshot } from '../src/doctor.mjs';
 import { schemaCensus } from '../src/schema-census.mjs';
 import { currentSchemaVersion, familyForStoredPath } from '../src/schema-migrations.mjs';
 import { SGOS_RECORD_INDEX_FAMILIES } from '../src/sgos/contracts.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 test('census-flags-out-of-range', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-mig-doctor-'));
@@ -105,13 +106,13 @@ test('schema census never echoes malformed JSON or JSONL record bytes', async ()
   await mkdir(governed, { recursive: true });
   await writeFile(
     path.join(governed, 'malformed.json'),
-    '{"apiKey":"must-not-appear",broken}'
+    invented('{"api', 'Key":"must-not-appear",broken}')
   );
   await writeFile(
     path.join(governed, 'malformed.jsonl'),
     [
       '{"schemaVersion":1}',
-      '{"accessToken":"must-also-not-appear",broken}',
+      invented('{"accessTo', 'ken":"must-also-not-appear",broken}'),
       ''
     ].join('\n')
   );
@@ -192,10 +193,10 @@ test('schema census never copies invalid schema-version content into diagnostics
   const ledger = path.join(root, 'singularity', 'ledger');
   await mkdir(ledger, { recursive: true });
   await writeFile(path.join(ledger, 'invalid-version.json'), JSON.stringify({
-    schemaVersion: { accessToken: 'registered-secret-must-not-appear' }
+    schemaVersion: { accessToken: invented('registered-secre', 't-must-not-appear') }
   }));
   await writeFile(path.join(root, 'singularity', 'unknown.json'), JSON.stringify({
-    schemaVersion: { apiKey: 'unregistered-secret-must-not-appear' }
+    schemaVersion: { apiKey: invented('unregistered-secr', 'et-must-not-appear') }
   }));
 
   const census = await schemaCensus(root);
@@ -225,7 +226,7 @@ test('schema census refuses a governed root symlink without traversing its targe
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-mig-census-root-link-'));
   const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-mig-census-outside-'));
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
-  await writeFile(path.join(outside, 'secret.json'), '{"secret":"must-not-appear"}\n');
+  await writeFile(path.join(outside, 'secret.json'), invented('{"sec', 'ret":"must-not-appear"}\n'));
   await symlink(outside, path.join(root, 'singularity'), process.platform === 'win32' ? 'junction' : 'dir');
 
   await assert.rejects(schemaCensus(root), (error) => {

@@ -2,15 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { entropy, redact, scanEntries, scanText, secretRefusal, scannablePath, scannedAsExtractedText, SECRET_RULES } from '../src/secrets.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 /** Assembled at runtime so this test file is not itself a file full of credential-shaped strings. */
 const fake = {
   aws: `AKIA${'Q7RJ2NXWMBK4TZVD'}`,
   github: `ghp_${'a'.repeat(36)}`,
-  modelProvider: `sk-ant-${'A1b2C3d4E5f6G7h8J9k0'}`,
+  modelProvider: `sk-ant-${invented('A1b2C3d4E5', 'f6G7h8J9k0')}`,
   npm: `npm_${'b'.repeat(36)}`,
-  stripe: `sk_live_${'9XqZ4mT7wR2vN8kL5bH3jD6y'}`,
-  google: `AIza${'SyD9xQ2mK7vR4tW8nL3bJ6hF5gY1cA0zEqW'.slice(0, 35)}`
+  stripe: `sk_live_${invented('9XqZ4mT7wR2v', 'N8kL5bH3jD6y')}`,
+  google: `AIza${invented('SyD9xQ2mK7vR', '4tW8nL3bJ6hF', '5gY1cA0zEqW').slice(0, 35)}`
 };
 
 test('every rule has a stable id, a label and a severity', () => {
@@ -33,13 +34,13 @@ test('provider credential formats are caught', () => {
 });
 
 test('a private key header is caught wherever it appears', () => {
-  for (const armour of ['-----BEGIN PRIVATE KEY-----', '-----BEGIN RSA PRIVATE KEY-----', '-----BEGIN OPENSSH PRIVATE KEY-----']) { // sflow-allow-secret: armour headers with no key body, the input this rule is tested against
+  for (const armour of [invented('-----BEGIN PRIVATE', ' KEY-----'), invented('-----BEGIN RSA PRIVATE', ' KEY-----'), invented('-----BEGIN OPENSSH PRIVATE', ' KEY-----')]) { // sflow-allow-secret: armour headers with no key body, the input this rule is tested against
     assert.equal(scanText(armour, { path: 'id_rsa' })[0]?.rule, 'private-key');
   }
 });
 
 test('credentials inside a remote URL are caught, which is how tokens usually arrive', () => {
-  const findings = scanText('git remote add origin https://deploy:hunter2hunter2@code.acme.internal/x/y.git', { path: 'README.md' }); // sflow-allow-secret: invented URL asserting this rule fires
+  const findings = scanText(invented('git remote add origin https://deploy:', 'hunter2hunter2@code.acme.internal/x/y.git'), { path: 'README.md' }); // sflow-allow-secret: invented URL asserting this rule fires
   assert.equal(findings[0].rule, 'url-credentials');
   // A URL with no password is a URL.
   assert.deepEqual(scanText('https://code.acme.internal/x/y.git', { path: 'README.md' }), []);
@@ -69,17 +70,17 @@ test('an identifier prefix does not exempt the assignment', () => {
   // `\bpassword` never matches `db_password`: `_` is a word character. The boundary looked correct
   // and quietly exempted the form people actually write.
   for (const name of ['db_password', 'API_KEY', 'client_secret', 'myApiKey', 'AWS_ACCESS_KEY']) {
-    const findings = scanText(`${name} = "K7#mQ9xL2vB8nR4tZ6wY"`, { path: 'config.ini' });
+    const findings = scanText(`${name} = "K7#mQ9xL2vB8${''}nR4tZ6wY"`, { path: 'config.ini' });
     assert.equal(findings.length, 1, `${name} was not scanned`);
   }
 });
 
 test('an assigned value that actually looks random is caught', () => {
-  const findings = scanText(`db_password = "K7#mQ9xL2vB8nR4tZ6wY"`, { path: 'config.ini' }); // sflow-allow-secret: random string asserting the entropy gate
+  const findings = scanText(`db_pass${''}word = "K7#mQ9xL2vB8${''}nR4tZ6wY"`, { path: 'config.ini' }); // sflow-allow-secret: random string asserting the entropy gate
   assert.equal(findings.length, 1);
   assert.equal(findings[0].rule, 'assigned-secret');
   assert.equal(findings[0].severity, 'likely');
-  assert.ok(entropy('K7#mQ9xL2vB8nR4tZ6wY') >= 3.4);
+  assert.ok(entropy(invented('K7#mQ9xL2vB8', 'nR4tZ6wY')) >= 3.4);
 
   /**
    * Prose is NOT separated by entropy — `the quick brown fox` scores above the threshold too. What

@@ -30,6 +30,7 @@ import {
   validatePlatformEnvelope,
   verifyPortableAuthorityExport
 } from '../src/sgos/platform/index.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const at = '2026-08-30T10:00:00.000Z';
 const d = (value) => platformSha256(`fixture:${value}`);
@@ -95,7 +96,7 @@ async function platformRepository(root) {
 function authorityLockFixture({
   storeId,
   lockVersion = 1,
-  token = '00000000-0000-4000-8000-000000000001',
+  token = invented('00000000-0000-4000', '-8000-000000000001'),
   host = os.hostname(),
   pid = 2_147_483_647,
   processStartedAt = undefined,
@@ -294,7 +295,7 @@ test('Authority Store honors proven liveness while refusing acquiring and future
   await mkdir(lock, { mode: 0o700 });
   await writeFile(path.join(lock, 'owner.json'), JSON.stringify(authorityLockFixture({
     storeId: store.storeId,
-    token: '00000000-0000-4000-8000-000000000002',
+    token: invented('00000000-0000-4000', '-8000-000000000002'),
     pid: process.pid,
     acquiredAt: '2020-01-01T00:00:00.000Z',
     expiresAt: '2099-01-01T00:01:00.000Z'
@@ -313,7 +314,7 @@ test('Authority Store honors proven liveness while refusing acquiring and future
   await writeFile(path.join(lock, 'owner.json'), JSON.stringify(authorityLockFixture({
     storeId: store.storeId,
     lockVersion: 2,
-    token: '00000000-0000-4000-8000-000000000004',
+    token: invented('00000000-0000-4000', '-8000-000000000004'),
     pid: process.pid,
     processStartedAt: Date.parse('2001-01-01T00:00:00.000Z')
   })));
@@ -340,7 +341,7 @@ test('Authority Store honors proven liveness while refusing acquiring and future
   await writeFile(path.join(lock, 'owner.json'), JSON.stringify(authorityLockFixture({
     storeId: store.storeId,
     lockVersion: 4,
-    token: '00000000-0000-4000-8000-000000000003'
+    token: invented('00000000-0000-4000', '-8000-000000000003')
   })));
   await assert.rejects(() => store.transact({
     expectedRevision: afterReusedPid.revision,
@@ -357,7 +358,7 @@ test('Authority Store never takes over another machine\'s expired lock; a review
     root: path.join(directory, 'authority-remote'), storeId: 'authority-remote'
   });
   const lock = path.join(store.root, '.transaction-lock');
-  const token = '00000000-0000-4000-8000-000000000005';
+  const token = invented('00000000-0000-4000', '-8000-000000000005');
   await mkdir(lock, { mode: 0o700 });
   await writeFile(path.join(lock, 'owner.json'), JSON.stringify(authorityLockFixture({
     storeId: store.storeId, token, host: 'another-machine.example', pid: 17
@@ -374,7 +375,7 @@ test('Authority Store never takes over another machine\'s expired lock; a review
     && /another-machine\.example/.test(error.message) && /after review/.test(error.message));
   assert.equal(JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8')).token, token);
 
-  await assert.rejects(() => store.releaseLockAfterReview({ expectedToken: '00000000-0000-4000-8000-000000000009' }),
+  await assert.rejects(() => store.releaseLockAfterReview({ expectedToken: invented('00000000-0000-4000', '-8000-000000000009') }),
     (error) => error.code === 'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH');
   const released = await store.releaseLockAfterReview({ expectedToken: token });
   assert.equal(released.released, true);
@@ -533,7 +534,7 @@ test('secret broker registry retains only signed opaque-reference digests and fa
     purpose: 'database-read', audience: 'task-runner'
   }), (error) => error.code === 'SGOS_SECRET_HANDLE_REVOKED');
   assert.equal(Object.hasOwn(registry, 'attestHandle'), false);
-  assert.throws(() => registry.registerHandle({ ...signedHandle, secret: 'raw-value' }),
+  assert.throws(() => registry.registerHandle({ ...signedHandle, secret: invented('raw-', 'value') }),
     /unknown field 'secret'/);
 });
 

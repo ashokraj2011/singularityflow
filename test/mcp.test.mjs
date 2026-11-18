@@ -37,6 +37,7 @@ import { secureWindowsAuthAcl } from '../src/mcp-auth-profile.mjs';
 import {
   defaultNetworkProbe, inspectMcpPhaseReadiness, rpcSmoke, verifyPlaywrightOfflineStart
 } from '../src/mcp-readiness.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const configured = () => normalizeMcpServers({
   playwright: {
@@ -983,8 +984,8 @@ test('MCP host inventory discovers workspace and user files without reading secr
   const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-mcp-home-'));
   await mkdir(path.join(root, '.vscode'), { recursive: true });
   await mkdir(path.join(home, '.copilot'), { recursive: true });
-  await writeFile(path.join(root, '.vscode/mcp.json'), JSON.stringify({ servers: { playwright: { command: 'npx', env: { SECRET: 'do-not-return' } } } }));
-  await writeFile(path.join(home, '.copilot/mcp-config.json'), JSON.stringify({ mcpServers: { corporate: { url: 'https://example.invalid', token: 'do-not-return' } } }));
+  await writeFile(path.join(root, '.vscode/mcp.json'), JSON.stringify({ servers: { playwright: { command: 'npx', env: { SECRET: invented('do-not', '-return') } } } }));
+  await writeFile(path.join(home, '.copilot/mcp-config.json'), JSON.stringify({ mcpServers: { corporate: { url: 'https://example.invalid', token: invented('do-not', '-return') } } }));
   const inventory = await mcpHostInventory(root, { home });
   assert.deepEqual(inventory.map((row) => row.name).sort(), ['corporate', 'playwright']);
   assert.equal(JSON.stringify(inventory).includes('do-not-return'), false);

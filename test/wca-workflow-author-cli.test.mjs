@@ -12,6 +12,7 @@ import { resolveOperation } from '../src/command-registry.mjs';
 import { parseArgs } from '../src/util.mjs';
 import { readWorkflowAuthorInput, validateWorkflowAuthorRequest,
   WORKFLOW_AUTHOR_INPUT_MAX_BYTES } from '../src/commands/workflow-author.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const ID = 'WFD-CLIDRAFT1';
@@ -80,7 +81,7 @@ test('draft input rejects malformed, duplicated, oversized, unsafe transport sha
     '{"payload":{"sentinel-private-content":1},"payload":{}}',
     '{"payload":{"a":1,"a":2}}', '{"payload":{"a":1,"\\u0061":2}}',
     '{"payload":{},"actor":"human"}', '{"payload":{},"confirmed":true}',
-    '{"payload":{},"authorizationToken":"not-a-capability"}', '[]', '{}',
+    invented('{"payload":{},"authorizationTo', 'ken":"not-a-capability"}'), '[]', '{}',
     '{"payload":[],"assets":[]}', '{"payload":{},"assets":[{"path":"a","file":"/home/private"}]}',
     '{"payload":{},"assets":[{"path":"a","content":"\\ud800"}]}',
     JSON.stringify({ payload: { text: 'x'.repeat(256 * 1024) } }),

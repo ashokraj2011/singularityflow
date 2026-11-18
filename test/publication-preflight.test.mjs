@@ -48,6 +48,7 @@ import {
   saveWorkflow, scanArtifacts, submitPhase
 } from '../src/state.mjs';
 import { confirmCode } from '../src/confirm-code.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const ACTOR = { name: 'Template Author', email: 'author@example.invalid', login: null };
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -2063,7 +2064,7 @@ test('failed required test execution reports bounded diagnostics before publicat
     '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
   await writeFile(path.join(context.root, 'test-runner.mjs'), [
     "process.stdout.write(`PUBLISH-STDOUT:${'x'.repeat(5000)}:TAIL\\n`);",
-    "process.stderr.write('PUBLISH-STDERR token=hidden-output-secret\\n');",
+    invented("process.stderr.write('PUBLISH-STDERR to", "ken=hidden-output-secret\\n');"),
     'process.exit(23);', ''
   ].join('\n'));
 
@@ -2264,7 +2265,7 @@ test('a runner symlink swap cannot overwrite an external sentinel during report 
   const external = await mkdtemp(path.join(os.tmpdir(), 'sflow-report-sentinel-'));
   t.after(() => rm(external, { recursive: true, force: true }));
   const sentinel = path.join(external, 'sentinel.json');
-  await writeFile(sentinel, '{"secret":"untouched"}\n');
+  await writeFile(sentinel, invented('{"sec', 'ret":"untouched"}\n'));
   const context = await codeFixture('report-symlink-swap', {
     configuredResult: { adapter: 'sflow-test-result-v1', path: resultPath,
       minimumDiscovered: 1 }
@@ -2291,7 +2292,7 @@ test('a runner symlink swap cannot overwrite an external sentinel during report 
   assert.equal(await readFile(path.join(context.root, proofPath), 'utf8'), 'true',
     'the runner must execute the actual symlink swap, not merely fail before it');
   assert.equal(await readFile(path.join(context.root, resultPath), 'utf8'), previousBytes);
-  assert.equal(await readFile(sentinel, 'utf8'), '{"secret":"untouched"}\n');
+  assert.equal(await readFile(sentinel, 'utf8'), invented('{"sec', 'ret":"untouched"}\n'));
   assert.equal(context.phase.generation, 0);
 });
 
@@ -2376,7 +2377,7 @@ test('JUnit failure diagnostics retain testcase identity while redacting token t
     '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
   await writeFile(path.join(context.root, 'test-runner.mjs'), [
     "import { writeFileSync } from 'node:fs';",
-    "writeFileSync('.sflow/results/python-tests.xml', '<testsuite tests=\"1\" failures=\"1\"><testcase classname=\"pkg.RuleTest\" name=\"rejects token=hidden-secret\"><failure message=\"assertion\"/></testcase></testsuite>\\n');",
+    invented("writeFileSync('.sflow/results/python-tests.xml', '<testsuite tests=\"1\" failures=\"1\"><testcase classname=\"pkg.RuleTest\" name=\"rejects to", "ken=hidden-secret\"><failure message=\"assertion\"/></testcase></testsuite>\\n');"),
     ''
   ].join('\n'));
 

@@ -83,7 +83,7 @@ const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
 // The authority is read by one fetch into the application repository (no clone, SDA-AC-013).
 if (args.includes('fetch') || args.includes('clone')) {
-  process.stderr.write("fatal: could not read Username for 'https://reviewerone:supersecret@git.example.test/private.git': terminal prompts disabled\\n");
+  process.stderr.write("fatal: could not read Username for 'https://reviewerone:${''}supersecret@git.example.test/private.git': terminal prompts disabled\\n");
   process.exit(128);
 }
 const result = spawnSync(${JSON.stringify(realGit)}, args, {

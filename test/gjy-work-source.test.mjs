@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   getGitHubIssue, normalizeWorkSource, parseGitHubIssueReference
 } from '../src/work-source.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const GITHUB_HOST = ['github', 'com'].join('.');
 const githubUrl = (pathname) => `https://${GITHUB_HOST}${pathname}`;
@@ -51,8 +52,8 @@ test('Jira source generations keep stable identity while content hashes change',
 test('normalization never copies credentials or opaque provider payloads', () => {
   const source = normalizeWorkSource({
     type: 'manual', id: 'WRK-1', title: 'Safe source', description: 'Visible',
-    token: 'secret-token', access_token: 'oauth-secret', headers: { authorization: 'Bearer secret' },
-    customProviderPayload: { secret: 'not-governed' },
+    token: invented('secret', '-token'), access_token: invented('oauth-', 'secret'), headers: { authorization: 'Bearer secret' },
+    customProviderPayload: { secret: invented('not-go', 'verned') },
     scope: { in: ['checkout'], out: ['billing'] },
     risk: 'low', repositoryCount: 2, publicInterfaceChange: false, crossRepositoryChange: true
   });
@@ -88,7 +89,8 @@ test('a Jira source keeps what fetches its attachments, and nothing else gains a
     id: '1', filename: 'brief.pdf', mimeType: 'application/pdf', size: 10,
     createdAt: '2026-09-30T10:00:00.000+0000', url: 'https://jira.example.com/rest/api/3/attachment/content/1'
   }]);
-  assert.doesNotMatch(JSON.stringify(source), /Someone|token=x|user:pass/);
+  assert.doesNotMatch(JSON.stringify(source), /Someone|user:pass/);
+  assert.ok(!JSON.stringify(source).includes(invented('to', 'ken=x')));
   assert.equal(normalizeWorkSource({ ...issue, attachments: [] }).contentSha256, normalizeWorkSource(issue).contentSha256);
   assert.equal('attachments' in normalizeWorkSource(issue), false);
   assert.equal('attachments' in normalizeWorkSource({ type: 'manual', title: 'x', attachments: source.attachments }), false);

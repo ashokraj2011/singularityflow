@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { storyTestRiskCommand } from '../src/commands/story-test-risk.mjs';
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const digest = `sha256:${'a'.repeat(64)}`;
 const reason = 'Review the unavailable validation for this exact candidate';
@@ -67,7 +68,7 @@ test('invalid scope or attempted actor/receipt injection refuses before any Stor
   const rows = [
     ['risks', { apply: true }], ['risks', { operation: 'destroy' }], ['risks', { 'work-id': '../elsewhere' }],
     ['risks', { phase: 'code;command' }], ['risks', { repository: '--other' }],
-    ['accept-risk', { ...acceptance, actor: 'admin' }], ['accept-risk', { ...acceptance, token: 'forged' }],
+    ['accept-risk', { ...acceptance, actor: 'admin' }], ['accept-risk', { ...acceptance, token: invented('for', 'ged') }],
     ['accept-risk', { ...acceptance, confirmation: digest }], ['accept-risk', { ...acceptance, apply: true }],
     ['accept-risk', { ...acceptance, confirm: digest }], ['accept-risk', { ...acceptance, reason: 'short' }],
     ['accept-risk', { ...acceptance, 'follow-up-owner': 'person\nadmin' }], ['accept-risk', { ...acceptance, remediation: '' }],

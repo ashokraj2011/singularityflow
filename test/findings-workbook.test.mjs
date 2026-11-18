@@ -13,6 +13,7 @@ import { readCsv } from '../src/findings/workbook/csv.mjs';
 import { matchHeaders, normalizeRow, repositoryKey, repositoryMatches, sheetFeed, templateSheets } from '../src/findings/register/format.mjs';
 import { readFindingsConfig, sourceColumns } from '../src/findings/register/config.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 // CQF M6 piece 1: the findings workbook format, its bounded reader and the template writer.
 // Every fixture is made up: example-org repositories, invented IDs.
@@ -189,7 +190,7 @@ test('a CSV file reads with quotes, line breaks and a semicolon separator; a col
     'security:',
     '  sources:',
     '    - { id: security-team, type: upload, columns: { title: Headline, dueAt: SLA, nonsense: X } }',
-    '    - { id: leaky, type: link, url: "https://user:pa55word@tlm.example.test/x.csv" }',
+    invented('    - { id: leaky, type: link, url: "https://user:', 'pa55word@tlm.example.test/x.csv" }'),
     '  stories: { maximumFindings: 99 }'
   ].join('\n'));
   const config = await readFindingsConfig(directory);

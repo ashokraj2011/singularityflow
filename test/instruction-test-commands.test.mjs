@@ -23,6 +23,7 @@ import { completeWrittenTestCommand, DIRECT_RUNNER_REPORTERS, parseCommandLine }
 import { canonicalJson } from '../src/records.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -61,7 +62,7 @@ test('a test command\'s env is literal, refuses reserved and secret names, merge
   assert.equal(Object.hasOwn(normalizeExternalCommand({ ...command, env: {} }), 'env'), false, 'no variables, no key');
   for (const [env, code] of [[{ NODE_ENV: 'test' }, 'QUALITY_COMMAND_ENV_INVALID'], [{ PATH: '/bin' }, 'QUALITY_COMMAND_ENV_INVALID'],
     [{ base_url: 'x' }, 'QUALITY_COMMAND_ENV_INVALID'], [{ X: 'a\nb' }, 'QUALITY_COMMAND_ENV_INVALID'], [['BASE_URL'], 'QUALITY_COMMAND_ENV_INVALID'],
-    [{ API_TOKEN: 'abc123' }, 'QUALITY_COMMAND_ENV_SECRET']]) {
+    [{ API_TOKEN: invented('abc', '123') }, 'QUALITY_COMMAND_ENV_SECRET']]) {
     assert.throws(() => normalizeExternalCommand({ ...command, env }), (error) => error.code === code && !error.message.includes('abc123'), JSON.stringify(env));
   }
   // The compatibility rule `env` follows: a key the validator does not know is ignored, never refused.
@@ -185,7 +186,7 @@ test('test commands in AGENTS.md, copilot-instructions, a CI workflow and a Make
     'web/package.json': JSON.stringify({ name: 'web', private: true, scripts: { 'test:unit': 'vitest run' }, devDependencies: { vitest: '2.1.0' } }),
     'svc/pyproject.toml': '[project]\nname = "svc"\n',
     'AGENTS.md': ['# Working here', '', 'Run `BASE_URL=http://localhost:3000 npx playwright test --project=chromium` before you push.', '',
-      'The unit tests need the service token:', '', '```sh', 'API_TOKEN=abc123 npm test', '```', ''].join('\n'),
+      'The unit tests need the service token:', '', '```sh', invented('API_TO', 'KEN=abc123 npm test'), '```', ''].join('\n'),
     '.github/copilot-instructions.md': ['# Copilot', '', 'Run the web unit tests:', '', '```bash', 'cd web && CI=true npm run test:unit', '```', ''].join('\n'),
     '.github/workflows/ci.yml': ['name: ci', 'on: push', 'jobs:', '  api:', '    runs-on: ubuntu-latest', '    steps:',
       '      - uses: actions/checkout@v4', '      - run: mvn -pl api test', ''].join('\n'),
@@ -239,10 +240,10 @@ test('test commands in AGENTS.md, copilot-instructions, a CI workflow and a Make
   assert.match(full.data.confirmCommand, / --env BASE_URL=http:\/\/localhost:3000 --confirm sha256:/u);
   // A secret-looking value given in full is refused, and never repeated.
   const refused = run(process.execPath, [cli, '--no-model', 'capability', 'test-setup', '--step', 'implementation', '--id', 'x', '--argv', '["npm","test"]',
-    '--working-directory', '.', '--affected-root', '.', '--adapter', 'jest-json', '--report', 'r.json', '--env', 'SERVICE=ghp_abcdefghijklmnopqrstuvwxyz0123456789', '--json'], { allowFailure: true });
+    '--working-directory', '.', '--affected-root', '.', '--adapter', 'jest-json', '--report', 'r.json', '--env', invented('SERVICE=gh', 'p_abcdefghijklmnopqrstuvwxyz0123456789'), '--json'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
   assert.equal(JSON.parse(refused.stdout).error.code, 'QUALITY_COMMAND_ENV_SECRET');
-  assert.doesNotMatch(refused.stdout, /ghp_abcdefghijklmnopqrstuvwxyz0123456789/u);
+  assert.ok(!refused.stdout.includes(invented('gh', 'p_abcdefghijklmnopqrstuvwxyz0123456789')));
 });
 
 test('a test command proposed from AGENTS.md is activated and publishes on a Story, run with its env [TCE:REQ-063]', slowLane({ timeout: 600_000 }), async (t) => {

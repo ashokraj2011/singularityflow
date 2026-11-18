@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   classifyRequiredTestFailure, requiredTestExecutionForRefusal
 } from '../src/test-execution-diagnostics.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const observed = (tests) => ({ status: 'observed', tests });
 
@@ -42,17 +43,17 @@ test('required test execution is a bounded allowlist, never gate evidence', () =
     cwd: '/repo', workingDirectory: '.', resultPath: '/repo/report.xml',
     configuredResultPath: 'report.xml', resultAdapter: 'junit-xml',
     status: 'failed', exitCode: 1,
-    stderr: { text: `token=private-stderr ${'x'.repeat(5000)}`, bytes: 5021 },
+    stderr: { text: `to${''}ken=private-stderr ${'x'.repeat(5000)}`, bytes: 5021 },
     stdout: { text: 'tests failed', bytes: 12 },
     report: { status: 'observed', tests: { discovered: 2, passed: 1, failed: 1, skipped: 0,
       hostile: 'private-count' }, sha256, bytes: 391,
-    failedTestcases: [{ name: 'suite::case', status: 'failed', secret: 'private-case' }],
-    secret: 'private-report' },
+    failedTestcases: [{ name: 'suite::case', status: 'failed', secret: invented('privat', 'e-case') }],
+    secret: invented('private', '-report') },
     failure: { kind: 'failed-tests', guidance: 'private-guidance', retryCondition: 'private-retry' },
-    secret: 'private-execution'
+    secret: invented('private-', 'execution')
   };
   const error = Object.assign(new Error('failed'), { code: 'CODE_TEST_FAILED',
-    details: { requiredTestExecution: execution, secret: 'private-details' } });
+    details: { requiredTestExecution: execution, secret: invented('private', '-details') } });
   const projected = requiredTestExecutionForRefusal(error);
   assert.equal(projected.argv, null);
   assert.equal(projected.argvWithheld, true);

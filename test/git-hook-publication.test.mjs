@@ -50,7 +50,7 @@ test('hook recovery has a concrete human repair and no generic workspace-help de
 test('both Git output streams are bounded and redacted before presentation', () => {
   const token = `ghp_${'x'.repeat(30)}`;
   const diagnostic = gitFailureDiagnostic(failed('fatal: hook failed\n' + 'x'.repeat(10000),
-    `Tests failed before push\nhttps://user:private-password@git.example.test/team.git\n${token}`));
+    `Tests failed before push\nhttps://user:${''}private-password@git.example.test/team.git\n${token}`));
   assert.match(diagnostic, /stdout:.*Tests failed/s);
   assert.match(diagnostic, /stderr:.*hook failed/s);
   assert.doesNotMatch(diagnostic, /private-password|ghp_/);

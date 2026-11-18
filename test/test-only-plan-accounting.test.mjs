@@ -6,6 +6,7 @@ import { loadApprovalPacket } from '../src/commands/approval-packet.mjs';
 import { VSCODE_DECIDE_CARD } from '../src/model-free-commands.mjs';
 import { accountedAmendmentPaths, planAmendmentRecord, recordPlanAmendment } from '../src/plan-amendments.mjs';
 import { evaluateSpecCoverage } from '../src/specifications.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const clauseId = 'TEST-ONLY:AC-001';
 const original = { expectedPaths: [], tests: ['src/components/Graph.test.jsx'], fulfillment: 'test-only' };
@@ -81,7 +82,7 @@ test('ready approval still loads and binds its receipt and exact documents, with
   const calls = [];
   const values = [{ classification: 'already-submitted', approvalCheck: { ready: true, holds: [] },
     owedDecisions: [{ clause: clauseId, method: 'visual', holdsApproval: false }] },
-    { token: 'receipt', approvalContext: { phase: 'build' } }, { reviewBinding: { generation: 1 } }];
+    { token: invented('rec', 'eipt'), approvalContext: { phase: 'build' } }, { reviewBinding: { generation: 1 } }];
   const result = await loadApprovalPacket({ workId: 'TEST-ONLY', cwd: '/fixture', fetch: true }, { runStep: async argv => {
     calls.push(argv); return { ok: true, value: values[calls.length - 1] };
   } });

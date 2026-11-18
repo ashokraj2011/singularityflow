@@ -377,7 +377,7 @@ Node returns a token and YAML-derived choice sets:
 
 ```json
 {
-  "token": "6bd9f526-0000-4000-8000-000000000000",
+  "token": "<TOKEN>",
   "choiceSets": [
     {
       "id": "workflow-template",

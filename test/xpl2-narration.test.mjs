@@ -18,6 +18,7 @@ import {
 import { withOperationContext } from '../src/operation-context.mjs';
 import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
 import { cliJson, comprehensionSlice, createXpl2Fixture, isolatedHome } from './helpers/xpl2-fixture.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const CANARY = 'PROSE-CANARY';
 
@@ -143,7 +144,7 @@ function adversarialCases(input) {
     ['commentary with an ANSI escape is withheld', commentary(`${String.fromCharCode(27)}[31mred`), withheld('commentary-control-characters')],
     ['commentary with a bidirectional override is withheld', commentary(`abc${String.fromCharCode(0x202e)}def`), withheld('commentary-control-characters')],
     ['commentary with a cloud key is withheld', commentary(`key ${'AKIA'}${'ABCDEFGHIJKLMNOP'}`), withheld('commentary-secret-shaped')],
-    ['commentary with a GitHub token is withheld', commentary(`token ghp_${'a1B2c3D4e5F6g7H8i9J0k1L2m3'}`), withheld('commentary-secret-shaped')],
+    ['commentary with a GitHub token is withheld', commentary(`token ghp_${invented('a1B2c3D4e5F6g', '7H8i9J0k1L2m3')}`), withheld('commentary-secret-shaped')],
     ['commentary with a JWT is withheld', commentary(`jwt eyJ${'hbGciOiJIUzI1'}.eyJ${'zdWIiOiIxMjM0'}.${'SflKxwRJSMeKKF2QT4f'}`), withheld('commentary-secret-shaped')],
     ['commentary with a private key is withheld', commentary(`-----BEGIN ${'RSA PRIVATE'} KEY----- abc`), withheld('commentary-secret-shaped')],
     ['commentary with URL credentials is withheld', commentary('fetch https://user:pw@host.test/x'), withheld('commentary-secret-shaped')],

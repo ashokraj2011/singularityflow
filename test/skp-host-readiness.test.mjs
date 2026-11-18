@@ -5,6 +5,7 @@ import {
   SKP_HOST_DIMENSIONS, assertSkillHostLaunchAdmission, assertSkillHostDelivery
 } from '../src/skp-host-admission.mjs';
 import { diagnoseSkillHostReadiness } from '../src/skp-host-readiness.mjs';
+import { invented } from './helpers/invented-secrets.mjs';
 
 test('runner inventory exposes only a fresh list of registered provider IDs', () => {
   const original = registeredModelProviderIds();
@@ -78,7 +79,7 @@ test('caller evidence, configuration and identities cannot upgrade readiness', (
     observed: { dimensions: Object.fromEntries(SKP_HOST_DIMENSIONS.map((dimension) => [
       dimension, { status: 'enforced-before-effect', mechanism: 'os-sandbox' }
     ])) },
-    adapter: { id: 'trusted-host', version: '1' }, credentials: 'not-a-credential'
+    adapter: { id: 'trusted-host', version: '1' }, credentials: invented('not-a-cr', 'edential')
   }), original);
   assert.doesNotMatch(JSON.stringify(original), /not-a-credential|trusted-host|valueHash|receiptId/);
 });

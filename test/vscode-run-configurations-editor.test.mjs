@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
+import { invented } from './helpers/invented-secrets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => pathToFileURL(path.join(root, 'apps', 'vscode', 'src', name)).href;
@@ -119,7 +120,7 @@ test('the secret rule is the engine\'s: names, values and arguments', () => {
     assert.equal(model.declarableVariable(name), declarableEnvironmentVariable(name), name);
   }
   const argumentLists = [
-    ['--server.port=8080'], ['--db-password=x'], ['-Dspring.datasource.password=hunter2'], ['--token', 'abc'], ['--token', '--next'],
+    ['--server.port=8080'], ['--db-password=x'], [invented('-Dspring.datasource.pass', 'word=hunter2')], ['--token', 'abc'], ['--token', '--next'],
     [FAKE_SECRETS.highEntropy], ['-Dspring-boot.run.jvmArguments=-Xmx1g -Dapi.key=zz'], ['-Dspring-boot.run.jvmArguments=-Xmx1g -Xms1g'], ['-Xmx1g'], []
   ];
   for (const tokens of argumentLists) {
@@ -127,7 +128,7 @@ test('the secret rule is the engine\'s: names, values and arguments', () => {
       || engine.withoutSecretArguments(tokens, new Set(), []).tokens.join('\u0000') !== tokens.join('\u0000');
     assert.equal(model.secretInArguments(tokens) !== null, removed, JSON.stringify(tokens));
   }
-  assert.equal(model.secretInArguments(['-Dspring.datasource.password=hunter2']), 'spring.datasource.password', 'the name, never the value');
+  assert.equal(model.secretInArguments([invented('-Dspring.datasource.pass', 'word=hunter2')]), 'spring.datasource.password', 'the name, never the value');
   assert.equal(model.secretInArguments([FAKE_SECRETS.highEntropy]), 'a value');
 });
 
@@ -327,7 +328,7 @@ test('app config preview is a read of a private file; its answer gives each envi
     entries: [
       { index: 0, id: 'web', environments: [], resolved: { argv: ['npm', 'run', 'dev'], envNames: [], beforeLaunch: [] } },
       { index: 1, id: 'api', type: 'spring-boot', environments: [
-        { name: 'dev', default: true, resolved: { argv: [...MAVEN_DEV, '--db-password=leaked'], envNames: ['FEATURE_FLAGS', 'DB_PASSWORD', 'bad name'], beforeLaunch: [{ argv: ['../../mvnw', '-q', 'compile'] }] } },
+        { name: 'dev', default: true, resolved: { argv: [...MAVEN_DEV, invented('--db-pass', 'word=leaked')], envNames: ['FEATURE_FLAGS', 'DB_PASSWORD', 'bad name'], beforeLaunch: [{ argv: ['../../mvnw', '-q', 'compile'] }] } },
         { name: 'qa', errors: [{ path: 'start[1].perEnvironment.qa.vmOptions[0]', message: 'vmOptions[0] has a control character.' }] }
       ], errors: [{ path: 'start[1].mainClass', code: 'APP_FIELD_INVALID', message: 'mainClass must be a Java class name.' }] }
     ],

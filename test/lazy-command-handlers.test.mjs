@@ -925,7 +925,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // `--set-aside` as the person's mutation (command-registry.mjs). No new eager file.
   // 871,150 (measured 871,104, +15): `--as-question` is a boolean option the parser knows (util.mjs BOOLEAN_OPTIONS), for the
   // third account of what a person typed (owner, 2026-11-18). No new eager file.
-  assert.ok(root.bytes <= 871_150, `root dispatch loads ${root.bytes} source bytes`);
+  // 871,600 (measured 871,573, +469): a refused command derives the live Copilot turns again, as a successful one does, so a
+  // test failure recorded mid-turn never ends the turn as stale; both paths share one helper (cli-entry.mjs refreshTurns)
+  // [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
+  assert.ok(root.bytes <= 871_600, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

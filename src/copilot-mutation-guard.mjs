@@ -276,6 +276,10 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   for (const file of [...(opening?.files ?? []), ...taskStage.files]) {
     gitIdentity.stamps.push({ file, sha256: digest(await readFile(file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) });
   }
+  // Which stamps are the task record, and the grant it gave: a refusal that records a stage the grant does not change (a
+  // person's wait, a repair within its budget) keeps this turn's grant (taskGrant below).
+  gitIdentity.taskFiles = [...taskStage.files];
+  gitIdentity.taskGrant = taskGrant(taskStage.task);
   // Issued staging is scoped to the exact phase/generation. Never use a wildcard private path.
   const samePhase = previous?.contract?.phaseId === contract.phaseId && previous.contract.generation === contract.generation;
   // The step's own staging files follow from the pinned contract, so every turn bound to this step
@@ -1696,14 +1700,48 @@ function bootstrapAllowed(call, record) {
   return Boolean(safe) && families.includes(parseCli(safe.argv).positionals[0]) && shellAllowed(call, 'kernel-only', record);
 }
 
+/** What a task stage leaves an authoring grant: writes, or none (a spent repair budget). Waits keep it [readGuardTaskOutcome]. */
+function taskGrant(task) {
+  return task?.outcome === 'repair-required' && Number(task.repairs?.used) >= Number(task.repairs?.budget) ? 'spent' : 'open';
+}
+
+/**
+ * When only the step's task record changed since the turn was derived, and the stage it now holds leaves the same grant,
+ * the turn stands, its stamps renewed: a refused test run recorded a person's wait mid-turn, the CLI exited before
+ * deriving the turn again, and the next tool call stopped the turn as stale (Story new-ash-graph, CODE_TEST_FAILED).
+ * Reads files only, never Git; any other change still needs the turn derived again.
+ */
+async function renewedTaskStamps(payload, value, changed) {
+  const taskFiles = value.binding.taskFiles ?? [];
+  if (!changed.length || !taskFiles.length || changed.some(stamp => !taskFiles.includes(stamp.file))) return null;
+  const workflow = readRecord('story-workflow', await readFile(value.binding.workflowFile)).record;
+  const phase = workflow.phases?.[workflow.currentPhase];
+  if (phase?.id !== value.contract.phaseId) return null;
+  const { task } = await (await import('./workflow-task-outcome.mjs')).readGuardTaskOutcome(value.contract.repositoryRoot, workflow, phase);
+  if (taskGrant(task) !== (value.binding.taskGrant ?? 'open')) return null;
+  const renewed = await Promise.all(value.binding.stamps.map(async stamp => (taskFiles.includes(stamp.file)
+    ? { ...stamp, sha256: digest(await readFile(stamp.file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) } : stamp)));
+  await updateTurnRecord(recordFile(payload), value, current => (current.turnId === value.turnId
+    ? { ...current, binding: { ...current.binding, stamps: renewed } } : null)).catch(() => {});
+  // The record as written (its integrity renewed); one another process wrote meanwhile is judged by its own stamps next time.
+  const written = await boundedRecord(recordFile(payload)).catch(() => null);
+  return written?.turnId === value.turnId && JSON.stringify(written.binding?.stamps) === JSON.stringify(renewed)
+    ? written : { ...value, binding: { ...value.binding, stamps: renewed } };
+}
+
 async function currentContract(payload, record, { reclassifyOutputs = true } = {}) {
-  const value = await boundedRecord(recordFile(payload));
+  let value = await boundedRecord(recordFile(payload));
   if (record.corrupt || !value.contract || value.turnId !== record.turnId || value.sessionId !== record.sessionId
       || !Number.isFinite(record.recordedAt) || Date.now() < record.recordedAt
       || turnExpired(record)) throw new Error('Missing or expired contract');
   if (digest(await readFile(value.binding.workflowFile)) !== value.binding.workflowSha256) throw new Error('Phase changed; refresh contract');
+  const changed = [];
   for (const stamp of value.binding.stamps) {
-    if (digest(await readFile(stamp.file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) !== stamp.sha256) throw new Error('Checkout identity changed; refresh contract');
+    if (digest(await readFile(stamp.file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) !== stamp.sha256) changed.push(stamp);
+  }
+  if (changed.length) {
+    value = await renewedTaskStamps(payload, value, changed).catch(() => null);
+    if (!value) throw new Error('Checkout identity changed; refresh contract');
   }
   // Background refresh and CLI issuance may overlap. A stale read/modify/write of the turn
   // record must not revoke an exact grant. Independent issuer receipts survive that race;
@@ -2784,7 +2822,7 @@ async function bindingCurrent(value) {
   } catch { return false; }
 }
 
-export async function refreshMutationContracts(root, accepted = null, { decisionEnded = false, advanceBaseline = false } = {}) {
+export async function refreshMutationContracts(root, accepted = null, { decisionEnded = false, advanceBaseline = false, refused = false } = {}) {
   if (readCopilotMode().paused || !root) return;
   // A command classed as a read can still commit to the Story (a plain prepublish keeps what the person asked for;
   // commitAndPublish notes it): the commit is SFlow's own, never a change made outside it (Copilot CLI live probe,
@@ -2823,7 +2861,8 @@ export async function refreshMutationContracts(root, accepted = null, { decision
       // one of the turn's own shell commands runs it never does, so that command's changes are still detected.
       const ranHere = current.pendingShell?.kind === 'kernel';
       // A confirmation runs once: after its command changed this checkout, its turn has nothing left to run.
-      if (advanceBaseline && ranHere && next.contract.turnMode === 'confirm') next.decisionEnded = true;
+      // A refused confirmation changed nothing it was for: it may run again.
+      if (advanceBaseline && ranHere && next.contract.turnMode === 'confirm' && !refused) next.decisionEnded = true;
       if (current.baseline && advanceBaseline && current.pendingShell?.kind !== 'shell') next.baseline = await shellSnapshot(root, next.contract);
       return next;
     });

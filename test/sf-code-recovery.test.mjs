@@ -3,6 +3,8 @@
  * replays one stop of Story new-ash-graph's real /sf-code run, shaped like that Story:
  *   F: version 2, opened on the person's yes to fix version 1's review finding about its tests, was refused as having no
  *      product source and sent to an appeal, a read-only preflight and the doctor, round and round.
+ *   C: a refused test run recorded where the step stopped, the CLI exited without deriving the turn again, and the next
+ *      tool call ended the turn as stale (PHASE_MUTATION_CONTRACT_STALE): /sf-decide and /sf-code again, about 66 minutes.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -160,4 +162,70 @@ test('F: only a version SFlow opened for the review\'s test or evidence findings
   const evidence = await storyAfterReview(t, [{ id: 'evidence-shot', severity: 'blocking', check: 'plan', clauseId: 'SFC-GRAPH:AC-002',
     sourceId: 'evidence:shot', attestation: 'The screenshot shows the empty plot.', message: 'The screenshot does not show the circle.' }]);
   assert.equal((await evaluateCodeDeliveryPreflight(evidence.root, evidence.config, evidence.workflow, evidence.phase)).reviewCorrection.findingIds[0], 'evidence-shot');
+});
+
+/**
+ * A code step `implement` with version 2 open and being written in a Copilot turn of /sf-code, as the guard reads it: a real
+ * Git checkout, the turn records in a machine folder of its own (the shape of test/osa-stage5.test.mjs's Story).
+ */
+async function codeTurnStory(t) {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-sfc-turn-')));
+  const root = path.join(directory, 'repository');
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(directory, 'machine', 'mode.json');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous;
+    await rm(directory, { recursive: true, force: true });
+  });
+  const git = (...args) => { const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout; };
+  git('init', '-q'); git('config', 'user.name', 'SFC Turn'); git('config', 'user.email', 'sfc-turn@example.test');
+  await writeFile(path.join(root, 'src', 'App.jsx'), 'export const App = () => null;\n');
+  const implement = { id: 'implement', label: 'Implement', status: 'in_progress', generation: 1, writeScope: 'source-and-artifact',
+    generationPolicy: { requirement: 'required', task: 'code', defaultProducer: 'governed-agent', allowedProducers: ['governed-agent'] },
+    requiredArtifact: { path: 'artifacts/implement/summary.md', kind: 'implementation-summary' }, repairBudget: { maxAttempts: 2 },
+    generationIntent: { id: 'GI-2', status: 'open', generation: 2 },
+    generationPublications: [{ generation: 1, record: { path: `singularity/work-items/${W}/publications/implement-1.json`, sha256: `sha256:${'c'.repeat(64)}` } }] };
+  const workflow = { schemaVersion: 13, workItem: { id: W }, status: 'in_progress', currentPhase: 'implement',
+    phaseOrder: ['design', 'implement'], history: [{ at: '2026-11-18T11:00:00.000Z', event: 'phase_approved', phase: 'design' }],
+    phases: { design: { id: 'design', status: 'approved', generation: 1, writeScope: 'artifact-only', generationPolicy: { requirement: 'required', task: 'document' } },
+      implement }, resolution: {} };
+  const definition = { workItemRoot: 'singularity/work-items', governance: { protectedPaths: ['policy'] } };
+  await acceptOpening(root, workflow, implement);
+  const workflowFile = path.join(root, ITEM, 'workflow.json');
+  await mkdir(path.dirname(workflowFile), { recursive: true });
+  await writeFile(workflowFile, JSON.stringify(workflow));
+  git('add', '.'); git('commit', '-qm', 'fixture');
+  const accepted = { definition, workflow };
+  const enter = async (skill, sessionId = 'sfc-turn') => {
+    const payload = { cwd: root, sessionId, prompt: skill };
+    await recordRepositoryBoundaryTurn(payload, { now: Date.now(), captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => root, load: async () => accepted }) });
+    return payload;
+  };
+  const write = (turn) => mutationToolGuard({ ...turn, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } });
+  const stopAt = (outcome, code, extra = {}) => observeWorkflowTask(root, workflow, implement, { state: 'blocked', ...extra,
+    blockedCode: outcomeCode(outcome, code, workflow) });
+  return { root, workflow, implement, enter, write, stopAt };
+}
+
+test('C: a refused test run that records where the step stopped never cuts the code turn off', async (t) => {
+  const f = await codeTurnStory(t);
+  const turn = await f.enter('/sf-code');
+  assert.deepEqual(await f.write(turn), {}, 'version 2 is written in this turn');
+  // Its publication refused with CODE_TEST_FAILED and recorded the step's stop (a person's Node choice on new-ash-graph); the
+  // CLI exited before deriving the turn again.
+  const publish = { ...turn, toolName: 'bash', toolArgs: { command: 'singularity-flow phase prepublish implement --for-agent --json --publish-if-ready' } };
+  assert.deepEqual(await mutationToolGuard(publish), {}, 'the gate is the turn\'s own command');
+  await f.stopAt('waiting-person', 'CODE_TEST_FAILED');
+  const after = await mutationPostToolGuard(publish);
+  assert.doesNotMatch(String(after.additionalContext ?? after.permissionDecisionReason ?? ''), /PHASE_MUTATION_CONTRACT_STALE/u);
+  assert.deepEqual(after, {}, 'the refused command does not end the turn');
+  assert.deepEqual(await f.write(turn), {}, 'the agent repairs what it can in the same turn while the person decides');
+  // A repair within its budget is the turn's own too; a spent one still stops its writes, as every view says.
+  await f.stopAt('repair-required', 'CODE_TEST_FAILED', { repairConsumed: 1 });
+  assert.deepEqual(await f.write(turn), {});
+  await f.stopAt('repair-required', 'CODE_TEST_FAILED', { repairConsumed: 2 });
+  assert.equal((await f.write(turn)).permissionDecision, 'deny');
 });

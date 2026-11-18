@@ -81,7 +81,8 @@ export const UPGRADE_CONTRACT = Object.freeze({
   VERSION_CONSENT_UNVERIFIED: stepVersion('A yes to the next version that did not reach SFlow on this machine'),
   VERSION_CONSENT_WRONG_TARGET: stepVersion('A yes given for another proposal than the next version as it is now'),
   VERSION_OPENING_CONFLICT: stepVersion('Another checkout changed the shared branch before this opening of the next version'),
-  VERSION_OPENING_NOT_SHARED: stepVersion('An opening commit of the next version that is no longer on the branch')
+  VERSION_OPENING_NOT_SHARED: stepVersion('An opening commit of the next version that is no longer on the branch'),
+  VERSION_QUESTION_NOT_TYPED: stepVersion('"Just a question" for a next version proposed for something the person did not type')
 });
 
 /** Transition refusals raised by a sequence gate rather than a code. */

@@ -89,7 +89,7 @@ function displayBoundedRedactionInput(source: string): string {
 export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'heartbeat', 'purge', 'skip-tests', 'commentary', 'changes',
   'any', 'defer', 'reopen', 'revise', 'allow-partial-dependency',
-  'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local',
+  'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local', 'as-question',
   'accept', 'accept-bundled-conflicts', 'accept-partial', 'decline', 'accept-test-risk', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'adopt-without-ancestry', 'all', 'allow-dirty', 'allow-model', 'allow-synced-folder', 'apply', 'assigned-to-me', 'ast',
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'commit-reviewed', 'concat',
   'confirm-evidence', 'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'design-review', 'dev', 'dry-run', 'evidence', 'no-index', 'not-applicable',

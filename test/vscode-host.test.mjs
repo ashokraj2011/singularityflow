@@ -11326,9 +11326,14 @@ test('Git URL maintenance cancellation also stops bounded local fallback discove
 const DECIDE_W = 'DECIDE-1';
 const DECIDE_DIGEST = `sha256:${'8'.repeat(64)}`;
 const DECIDE_FRESH = `sha256:${'9'.repeat(64)}`;
+// The card takes only a date after today (decision-list-model.ts), so the fixture's dates are counted from today: a fixed
+// default of 2026-11-18 was refused from that day on, and nothing reached the preview.
+const dayFromToday = (days) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+const DECIDE_EXPIRES = Object.freeze({ default: dayFromToday(7), latest: dayFromToday(59) });
+const DECIDE_RISK_UNTIL = dayFromToday(13);
 function decisionPacketFixture(digest, { itemIds = ['d1', 'd2'] } = {}) {
   const reason = (text) => ({ default: text, minimum: 20, maximum: 1000 });
-  const expires = { default: '2026-11-18', latest: '2027-01-16' };
+  const expires = DECIDE_EXPIRES;
   const yours = { groups: ['engineering-reviewers'], labels: ['Engineering reviewers'], allowed: true, words: 'You may decide this (Engineering reviewers).' };
   const quality = { groups: ['quality-reviewers'], labels: ['Quality reviewers'], allowed: false, words: 'The Quality reviewers decide this.', share: `/sf-decide ${DECIDE_W}` };
   const items = {
@@ -11417,9 +11422,9 @@ test('the Decisions page lists each item, previews the choices, confirms them an
   await cli.write('after.json', decisionPacketFixture(`sha256:${'a'.repeat(64)}`, { itemIds: ['d2'] }));
   await cli.write('mode.json', 'stale');
   await cli.write('preview.json', {
-    steps: [{ item: 'd1', option: 'accept-risk', label: 'Accept the gap as a risk until a date', values: { expires: '2026-12-01' } }],
-    refused: [], summary: ['d1. AC-001 is partial in the Code checking report: Accept the gap as a risk until a date. Records: accept it as a risk until 2026-12-01 (decision on UPI-002).'],
-    record: { command: `singularity-flow decisions record ${DECIDE_W} --choose d1=accept-risk --expires d1=2026-12-01 --confirm ${DECIDE_DIGEST}`, recordInChat: true }
+    steps: [{ item: 'd1', option: 'accept-risk', label: 'Accept the gap as a risk until a date', values: { expires: DECIDE_RISK_UNTIL } }],
+    refused: [], summary: [`d1. AC-001 is partial in the Code checking report: Accept the gap as a risk until a date. Records: accept it as a risk until ${DECIDE_RISK_UNTIL} (decision on UPI-002).`],
+    record: { command: `singularity-flow decisions record ${DECIDE_W} --choose d1=accept-risk --expires d1=${DECIDE_RISK_UNTIL} --confirm ${DECIDE_DIGEST}`, recordInChat: true }
   });
 
   await registered.commands.get('singularityFlow.decisions')({ workId: DECIDE_W });
@@ -11438,23 +11443,23 @@ test('the Decisions page lists each item, previews the choices, confirms them an
 
   // The person chooses, reviews and confirms; the list changed meanwhile, so nothing is recorded.
   const choose = () => page.post({ type: 'decisions.review', digest: page.webview.html.match(/data-digest="([^"]+)"/)[1],
-    choices: [{ item: 'd1', option: 'accept-risk', expires: '2026-12-01',
+    choices: [{ item: 'd1', option: 'accept-risk', expires: DECIDE_RISK_UNTIL,
       reason: 'Accepted as a risk until the date: AC-001 is partial as the report says.' }] });
   registered.reviewConfirmationManual = true;
   let reviewing = choose();
   let confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
   assert.equal(confirmation.title, `Record 1 decision for ${DECIDE_W}`);
-  assert.match(confirmation.webview.html, /Records: accept it as a risk until 2026-12-01 \(decision on UPI-002\)\./);
+  assert.ok(confirmation.webview.html.includes(`Records: accept it as a risk until ${DECIDE_RISK_UNTIL} (decision on UPI-002).`));
   assert.ok(confirmation.webview.html.includes(`--confirm ${DECIDE_DIGEST}`), 'the exact digest command is on the page');
   assert.match(confirmation.webview.html, /<input type="checkbox" data-acknowledged>/, 'an acknowledgement; the digest is never typed');
-  assert.deepEqual((await cli.log()).at(-1).argv, ['decisions', DECIDE_W, '--choose', 'd1=accept-risk', '--expires', 'd1=2026-12-01', '--json'],
+  assert.deepEqual((await cli.log()).at(-1).argv, ['decisions', DECIDE_W, '--choose', 'd1=accept-risk', '--expires', `d1=${DECIDE_RISK_UNTIL}`, '--json'],
     'the preview carries the changed date and leaves the unchanged default reason out');
   await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
   await reviewing;
   await until(() => page.webview.html.includes('data-outcome="stale"'));
   const stale = (await cli.log()).at(-1);
   assert.deepEqual(stale.argv, ['decisions', 'record', DECIDE_W, '--answers', stale.answersFile, '--json']);
-  assert.deepEqual(stale.answers, { choose: { d1: 'accept-risk' }, reason: {}, expires: { d1: '2026-12-01' }, cause: {}, confirm: DECIDE_DIGEST });
+  assert.deepEqual(stale.answers, { choose: { d1: 'accept-risk' }, reason: {}, expires: { d1: DECIDE_RISK_UNTIL }, cause: {}, confirm: DECIDE_DIGEST });
   assert.equal(stale.mode, '600', 'the answers file is readable only by the person');
   assert.equal(existsSync(path.dirname(stale.answersFile)), false, 'the private folder is removed after the command');
   assert.match(page.webview.html, /The decision list changed since you reviewed it, so nothing was recorded\./);

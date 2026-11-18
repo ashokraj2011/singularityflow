@@ -71,8 +71,11 @@ async function compatible(directory, build) {
     if (owner ? owner.state !== 'dead' : alive(descriptor.pid)) throw error;
     return null;
   }
-  insist(status.build?.fingerprint === build.fingerprint && status.build.executable === build.executable,
-    'UI_BUILD_MISMATCH', 'Another SFlow build owns this local workspace. Stop or drain it with its installed CLI before opening this build.', 409);
+  // The same files at another path are another engine: the service would run that tree's CLI, and an editor
+  // would load that tree's bridge. Only a service from this very engine is reused.
+  insist(status.build?.fingerprint === build.fingerprint && status.build.executable === build.executable
+    && status.build.engineRoot === build.engineRoot,
+  'UI_BUILD_MISMATCH', 'Another SFlow build owns this local workspace. Stop or drain it with its installed CLI before opening this build.', 409);
   insist(!status.draining, 'UI_SERVICE_DRAINING', 'The local workspace is draining. Reopen after current work finishes.', 409);
   return descriptor;
 }
@@ -82,7 +85,7 @@ export async function ensureService({ directory = serviceDirectory(), idle = 10,
   idleMinutes(idle); await privateDirectory(directory);
   const build = await buildIdentity();
   let found = await compatible(directory, build);
-  if (found) return { descriptor: found, reused: true };
+  if (found) return { descriptor: found, reused: true, build };
   // Reuse the existing nonce/inode-fenced lease and PID-start liveness owner. An ad-hoc mkdir
   // claim leaves a permanent dead end if the launcher dies before writing its owner record.
   const { acquireFileLeaseWithin, heldFileLeaseRoute } = await import('../file-lease.mjs');
@@ -94,10 +97,10 @@ export async function ensureService({ directory = serviceDirectory(), idle = 10,
   }
   try {
     found = await compatible(directory, build);
-    if (found) return { descriptor: found, reused: true };
+    if (found) return { descriptor: found, reused: true, build };
     if (foreground) {
       const service = await (await import('./server.mjs')).startService({ directory, idle, build });
-      return { descriptor: service.descriptor, reused: false, service };
+      return { descriptor: service.descriptor, reused: false, service, build };
     }
     const child = forkBackground(fileURLToPath(new URL('./server.mjs', import.meta.url)), [], {
       cwd: path.dirname(directory), env: { ...process.env,
@@ -121,21 +124,33 @@ export async function ensureService({ directory = serviceDirectory(), idle = 10,
       // A launcher's death between fork and readiness may leave another verified server owning
       // the instance lease. Reuse its handshake; never start a second accepting instance.
       const other = await compatible(directory, build);
-      if (other) return { descriptor: other, reused: true };
+      if (other) return { descriptor: other, reused: true, build };
       throw error;
     } finally { if (child.connected) child.disconnect(); child.unref(); }
     found = await compatible(directory, build);
     insist(found, 'UI_STARTUP_FAILED', 'The local workspace did not publish its verified discovery record.');
-    return { descriptor: found, reused: false };
+    return { descriptor: found, reused: false, build };
   } finally { await lease.release(); }
 }
-export async function openWorkspace({ root = process.cwd(), clientId = randomUUID(), resume = null, ...options } = {}) {
+/**
+ * `launch` asks for a private page holding the one-use link (the service removes it once the link is used or
+ * expires), for a launcher that opens a browser: the link itself never becomes a process argument.
+ */
+export async function openWorkspace({ root = process.cwd(), clientId = randomUUID(), resume = null, launch = false, ...options } = {}) {
   insist(!process.env.SSH_CONNECTION && !process.env.SSH_CLIENT && !process.env.SSH_TTY,
     'UI_REMOTE_UNQUALIFIED', 'Remote browser forwarding is not qualified. Use the existing SFlow CLI or remote VS Code panels.');
-  const { descriptor, reused } = await ensureService(options);
-  const result = await control(descriptor, 'bootstrap', { root: await realpath(root), clientId, environment: { ...process.env }, ...(resume ? { resume } : {}) });
-  return { ...result, reused, discoveryFile: path.join(options.directory ?? serviceDirectory(), 'instance.json'),
-    bridgeModule: path.join(result.build.engineRoot, 'src', 'local-ui', 'bridge-client.mjs') };
+  const directory = options.directory ?? serviceDirectory();
+  const { descriptor, reused, build } = await ensureService({ ...options, directory });
+  const result = await control(descriptor, 'bootstrap', { root: await realpath(root), clientId, environment: { ...process.env },
+    ...(resume ? { resume } : {}), ...(launch ? { launcher: true } : {}) });
+  if (launch) {
+    insist(typeof result.launcher === 'string' && /^launch-[a-f0-9]{32}\.html$/u.test(path.basename(result.launcher))
+      && await realpath(path.dirname(result.launcher)).catch(() => null) === await realpath(directory),
+    'UI_LAUNCHER_INVALID', 'The local workspace did not issue its private opening page. Run ui open --no-open --json and open the link yourself.', 502);
+  }
+  // This engine's own bridge, never a path the service reports: compatible() reuses only a service from this engine.
+  return { ...result, reused, discoveryFile: path.join(directory, 'instance.json'),
+    bridgeModule: path.join(build.engineRoot, 'src', 'local-ui', 'bridge-client.mjs') };
 }
 export async function stopService({ directory = serviceDirectory(), drain = false } = {}) {
   const descriptor = await readPrivate(path.join(directory, 'instance.json'));

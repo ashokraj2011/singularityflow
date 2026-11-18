@@ -433,7 +433,9 @@ async function boot() {
     await navigate();
     setInterval(async () => {
       if (document.hidden) return;
-      try { const events = await api(`/api/events?after=${state.eventSequence}`); state.eventSequence = events.sequence; setConnected('Connected locally'); }
+      // Polling is not activity for the service's idle stop, unless this tab holds writing not yet saved.
+      const working = state.dirty || state.saving || state.creating || Boolean(state.pendingSave || state.pendingCreation || state.pendingFork);
+      try { const events = await api(`/api/events?after=${state.eventSequence}${working ? '&working=1' : ''}`); state.eventSequence = events.sequence; setConnected('Connected locally'); }
       catch { setConnected('Reconnect needed'); }
     }, 10_000);
   } catch (error) {

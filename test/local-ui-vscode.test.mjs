@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Module, { createRequire } from 'node:module';
-import { mkdtemp, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -52,7 +52,7 @@ test('VS Code launches the independent browser once, without a folder switch; Co
   const clientId = randomUUID(), selected = await realpath(base);
   let grant = { ...await control(service.descriptor, 'bootstrap', { root: selected, clientId }),
     discoveryFile: path.join(connectionDirectory, 'instance.json'), bridgeModule: path.join(root, 'src/local-ui/bridge-client.mjs') };
-  const client = { repository: selected, location: { cli: path.join(base, 'custom-native-cli.mjs') }, run: async args => { assert.deepEqual(args, ['ui', 'open', '--no-open', '--json']); return grant; } };
+  const client = { repository: selected, location: { cli: cliPath }, run: async args => { assert.deepEqual(args, ['ui', 'open', '--no-open', '--json']); return grant; } };
   const mocked = host(), logs = [], open = await launcher(mocked.api);
   await open(client, { subscriptions: disposables }, { appendLine: line => logs.push(line) });
   assert.deepEqual(mocked.opened, [grant.url]);
@@ -86,6 +86,17 @@ test('VS Code launches the independent browser once, without a folder switch; Co
   assert.equal(mocked.commands[0][1].isPartialQuery, true, 'the person chooses Send');
   assert.match(mocked.commands[0][1].query, /^\/sf-spec-author SPEC-TEST /u);
   assert.equal(logs.length, 0);
+  // A reply naming another engine, and a bridge inside it, is never loaded into the editor: only this window's own engine is.
+  const foreign = path.join(base, 'foreign-engine');
+  await mkdir(path.join(foreign, 'src', 'local-ui'), { recursive: true });
+  await writeFile(path.join(foreign, 'src', 'local-ui', 'bridge-client.mjs'), 'globalThis.__foreignBridgeLoaded = true;\nexport async function connectEditorBridge() { return { dispose() {} }; }\n');
+  const foreignGrant = { ...await control(service.descriptor, 'bootstrap', { root: selected, clientId: randomUUID() }),
+    discoveryFile: path.join(connectionDirectory, 'instance.json'), bridgeModule: path.join(foreign, 'src', 'local-ui', 'bridge-client.mjs') };
+  foreignGrant.build = { ...foreignGrant.build, engineRoot: foreign };
+  grant = foreignGrant;
+  await open(client, { subscriptions: disposables }, { appendLine: line => logs.push(line) });
+  assert.equal(globalThis.__foreignBridgeLoaded, undefined, 'no module from another engine runs in the editor');
+  assert.match(logs.at(-1), /another SFlow engine/u);
 });
 test('unqualified remote hosts and non-loopback launch replies cannot open a browser', async () => {
   const remote = host({ remote: 'ssh-remote' }), openRemote = await launcher(remote.api);

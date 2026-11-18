@@ -41,9 +41,10 @@ export function idleMinutes(value = 10) {
 /** Native-only process scope; never accepted from browser operations or returned to the browser. */
 export function nativeEnvironment(value = process.env) {
   insist(value && typeof value === 'object' && !Array.isArray(value), 'UI_NATIVE_SCOPE_INVALID', 'The native client environment is invalid.');
-  const entries = Object.entries(value).filter(([, item]) => item !== undefined);
-  insist(entries.length <= 512 && entries.every(([key, item]) => /^[A-Za-z_][A-Za-z0-9_]*$/u.test(key)
-    && typeof item === 'string' && item.length <= 65536 && !item.includes('\0'))
+  // A shell can export names no child looks up by name (a bash function's `BASH_FUNC_name%%`): those are left
+  // out rather than refusing the person's launch. Values keep their limits.
+  const entries = Object.entries(value).filter(([key, item]) => item !== undefined && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(key));
+  insist(entries.length <= 512 && entries.every(([, item]) => typeof item === 'string' && item.length <= 65536 && !item.includes('\0'))
     && JSON.stringify(entries).length <= 512 * 1024, 'UI_NATIVE_SCOPE_INVALID', 'The native client environment exceeds its scope limits.');
   return Object.freeze(Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b))));
 }

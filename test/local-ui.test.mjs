@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, rm, writeFile, readFile, readdir, chmod, utimes } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, readdir, chmod, utimes, stat, access } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest, createServer as httpServer } from 'node:http';
@@ -17,7 +17,8 @@ import { argvAllowed } from '../src/copilot-mutation-guard.mjs';
 import { serviceDirectory, cliPath } from '../src/local-ui/private-state.mjs';
 import { nativeNonce, requestProof, sealInput } from '../src/local-ui/native-auth.mjs';
 import { withUiRecovery } from '../src/local-ui/cli-recovery.mjs';
-import { UiError } from '../src/local-ui/contracts.mjs';
+import { UiError, nativeEnvironment } from '../src/local-ui/contracts.mjs';
+import { browserLaunch } from '../src/local-ui/cli.mjs';
 
 async function fixture(t) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-ui-'));
@@ -331,6 +332,7 @@ test('a native CLI launcher exits while the service keeps running; status and st
   assert.equal(child.status, 0, child.stderr + child.stdout);
   const opened = JSON.parse(child.stdout);
   cleanup(() => stopService({ directory: serviceDirectory(), drain: true }));
+  assert.equal(opened.launcher, undefined, '--no-open returns the link itself and writes no opening page');
   assert.equal((await serviceStatus()).instance, opened.instance, 'independent process survived its launch command');
   const status = spawnSync(process.execPath, [cliPath, 'ui', 'status', '--json'], { cwd: path.dirname(root), env: process.env, encoding: 'utf8', timeout: 10_000 });
   assert.equal(status.status, 0, status.stderr + status.stdout);
@@ -397,6 +399,126 @@ test('the editor bridge is exact-window scoped and acknowledges handoff, never m
   assert.equal(result.value.state, 'delivered'); assert.equal(result.value.modelExecution, 'not-observed');
   await control(service.descriptor, 'bridge/close', { bridgeId: registered.bridgeId });
   assert.equal((await browser.api('/api/session')).value.capabilities.copilot, false);
+});
+
+const gone = file => access(file).then(() => false, () => true);
+
+test('a native launcher opens a private page, never the one-use link; the page goes once the link is used or expires with the service', async t => {
+  const { root, directory, cleanup } = await fixture(t);
+  const opened = await openWorkspace({ directory, root, launch: true });
+  cleanup(() => stopService({ directory, drain: true }));
+  const [, args] = browserLaunch(opened);
+  assert.deepEqual(args, [opened.launcher]);
+  assert.ok(!args.some(arg => arg.includes('#ticket=') || arg.includes(new URL(opened.url).hash.slice(8))), 'no process argument carries the link');
+  assert.equal(path.dirname(opened.launcher), directory);
+  assert.equal((await stat(opened.launcher)).mode & 0o777, 0o600);
+  assert.ok((await readFile(opened.launcher, 'utf8')).includes(JSON.stringify(opened.url)));
+  const ticket = new URLSearchParams(new URL(opened.url).hash.slice(1)).get('ticket');
+  const origin = new URL(opened.url).origin;
+  const redeemed = await fetch(`${origin}/api/session`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ ticket }) });
+  assert.equal(redeemed.status, 200); await redeemed.json();
+  assert.ok(await gone(opened.launcher), 'a used link takes its page with it');
+  const second = path.join(path.dirname(directory), 'second-service');
+  const service = await startService({ directory: second });
+  const unused = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID(), launcher: true });
+  assert.ok(!await gone(unused.launcher));
+  await service.close();
+  assert.ok(await gone(unused.launcher), 'an unused link\'s page goes with the service');
+});
+
+test('only a service from this very engine is reused; the bridge is this engine\'s own', async t => {
+  const { root, directory, base, cleanup } = await fixture(t);
+  const own = await buildIdentity();
+  // The same fingerprinted files at another path: before, it was reused and its bridge path was trusted.
+  const foreign = await startService({ directory, build: { ...own, engineRoot: path.join(base, 'another-engine') } });
+  cleanup(() => foreign.close());
+  await assert.rejects(ensureService({ directory }), { code: 'UI_BUILD_MISMATCH' });
+  await assert.rejects(openWorkspace({ directory, root }), { code: 'UI_BUILD_MISMATCH' });
+  await foreign.close();
+  const opened = await openWorkspace({ directory, root });
+  cleanup(() => stopService({ directory, drain: true }));
+  assert.equal(opened.bridgeModule, path.join(own.engineRoot, 'src', 'local-ui', 'bridge-client.mjs'));
+});
+
+test('receipts keep a write\'s identifiers only and never a read; a write whose child stopped without an answer is unknown', async t => {
+  const { root, directory, cleanup } = await fixture(t);
+  const wording = 'Wording the person wrote, kept by its owner only';
+  const service = await startService({ directory, execute: async ({ operation, input }) => {
+    if (input.specId === 'SPEC-STOPPED') throw Object.assign(new UiError('UI_OPERATION_FAILED', 'The child stopped.'), { outcomeUnknown: true });
+    return operation === 'spec.read' ? { value: { specId: input.specId, sequence: 2, spec: wording } }
+      : { value: { resultType: 'sflow-spec-author', action: 'edit', specId: input.specId, sequence: 2, operationId: 'lws-x', draft: { spec: wording } } };
+  } });
+  cleanup(() => service.close());
+  const browser = await connect(service, root);
+  const saved = await invoke(browser, 'spec.save', { specId: 'SPEC-A', sequence: 1, content: wording });
+  assert.equal(saved.result.value.draft.spec, wording, 'the running service still answers the tab in full');
+  const read = await invoke(browser, 'spec.read', { specId: 'SPEC-A' });
+  assert.equal(read.result.value.spec, wording);
+  const files = await readdir(path.join(directory, 'requests'));
+  assert.deepEqual(files, [`${saved.invocationId}.json`], 'a read is never written down');
+  const kept = JSON.parse(await readFile(path.join(directory, 'requests', files[0]), 'utf8'));
+  assert.deepEqual(kept.result.value, { resultType: 'sflow-spec-author', action: 'edit', specId: 'SPEC-A', sequence: 2, operationId: 'lws-x' });
+  assert.ok(!JSON.stringify(kept).includes(wording));
+  assert.equal((await invoke(browser, 'spec.save', { specId: 'SPEC-STOPPED', sequence: 1, content: wording })).state, 'unknown');
+  assert.equal((await invoke(browser, 'spec.read', { specId: 'SPEC-STOPPED' })).state, 'failed', 'a read is simply asked again');
+});
+
+test('canonical children: killed, exiting without an answer, or printing credentials are unknown and redacted', async t => {
+  const { root } = await fixture(t);
+  const credential = inventedValue('ghp_', 'LOCALUITESTFAKE', 'Q'.repeat(21));
+  const remote = `https://person:${credential}@git.example.test/shop.git`;
+  const preload = code => ({ ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=data:text/javascript,${encodeURIComponent(code)}`.trim() });
+  const progress = [];
+  await assert.rejects(runCanonical(root, ['about'], { machine: true, onProgress: item => progress.push(item.message),
+    environment: preload(`process.stderr.write(${JSON.stringify(`fatal: could not read ${remote}\n`)}, () => process.kill(process.pid, 9));`) }), error => {
+    assert.equal(error.outcomeUnknown, true); assert.equal(error.details.signal, 'SIGKILL');
+    assert.ok(!JSON.stringify([error.message, error.details]).includes(credential), JSON.stringify(error.details));
+    return true;
+  });
+  assert.ok(progress.length > 0 && !progress.join('').includes(credential), 'progress events are redacted');
+  await assert.rejects(runCanonical(root, ['about'], { machine: true, environment: preload('process.exit(3);') }), error => {
+    assert.equal(error.outcomeUnknown, true); assert.equal(error.details.exitCode, 3); return true;
+  });
+});
+
+test('browser values are single option words and links are http(s): a title cannot name another checkout', async t => {
+  const { root, base, directory, cleanup } = await fixture(t);
+  for (const url of ['file:///etc/hosts', 'javascript:alert(1)', '--file=/etc/hosts', 'not a link']) {
+    assert.throws(() => operationShape('spec.source.link', { specId: 'SPEC-A', url }), { code: 'UI_REQUEST_INVALID' }, url);
+  }
+  assert.equal(operationShape('spec.source.link', { specId: 'SPEC-A', url: 'https://docs.example.test/brief' }).mutation, true);
+  const service = await startService({ directory }); cleanup(() => service.close());
+  const browser = await connect(service, root);
+  const title = `--context-root=${path.join(base, 'elsewhere')}`;
+  const created = await invoke(browser, 'spec.create', { title, kind: 'business', intent: '--' });
+  assert.equal(created.state, 'succeeded', JSON.stringify(created));
+  assert.equal((await invoke(browser, 'spec.read', { specId: created.result.value.specId })).result.value.title, title);
+});
+
+test('startup removes stale temporary files, aged and read receipts; a tab\'s status poll is not activity; odd environment names are left out', async t => {
+  const { root, directory, cleanup } = await fixture(t);
+  await mkdir(path.join(directory, 'requests'), { recursive: true, mode: 0o700 }); await chmod(directory, 0o700);
+  for (const folder of ['save-AbC123', 'upload-xYz789']) { await mkdir(path.join(directory, folder)); await writeFile(path.join(directory, folder, 'wording.md'), 'left by a crash'); }
+  const page = path.join(directory, `launch-${'a'.repeat(32)}.html`); await writeFile(page, 'stale', { mode: 0o600 });
+  const old = new Date(Date.now() - 8 * 24 * 60 * 60_000).toISOString(), recent = new Date().toISOString();
+  const receipts = { aged: { mutation: true, state: 'unknown', acceptedAt: old, completedAt: old }, read: { mutation: false, state: 'succeeded', acceptedAt: recent, completedAt: recent },
+    kept: { mutation: true, state: 'unknown', acceptedAt: recent, completedAt: recent } };
+  const ids = {};
+  for (const [name, receipt] of Object.entries(receipts)) {
+    ids[name] = randomUUID();
+    await writePrivate(path.join(directory, 'requests', `${ids[name]}.json`), { invocationId: ids[name], operation: 'spec.save', clientId: 'c', root, ...receipt });
+  }
+  const service = await startService({ directory, execute: async () => ({ value: {} }) }); cleanup(() => service.close());
+  assert.deepEqual((await readdir(directory)).filter(name => /^(?:save|upload|launch)-/u.test(name)), []);
+  assert.deepEqual(await readdir(path.join(directory, 'requests')), [`${ids.kept}.json`]);
+  const browser = await connect(service, root);
+  const before = service.status().lastActivityAt;
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal((await browser.api('/api/events?after=0')).status, 200);
+  assert.equal(service.status().lastActivityAt, before, 'an open tab polling is not work');
+  assert.equal((await browser.api('/api/events?after=0&working=1')).status, 200);
+  assert.notEqual(service.status().lastActivityAt, before, 'a tab holding unsaved writing is');
+  assert.deepEqual(nativeEnvironment({ PATH: '/usr/bin', 'BASH_FUNC_module%%': '() {  :; }' }), { PATH: '/usr/bin' });
 });
 
 test('actual browser creates, edits, previews, saves and reloads a draft without retaining prose in browser storage', async t => {

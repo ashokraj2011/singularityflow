@@ -1,12 +1,13 @@
 /** VS Code is a scoped launcher/bridge. The independent service remains owned by SFlow. */
 import * as vscode from 'vscode';
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { SingularityFlowClient } from './cli/client.ts';
 import { copilotPrompt, validSpecId } from './views/spec-studio-model.ts';
 
 interface BrowserLaunch {
-  url: string; instance: string; clientId: string; discoveryFile: string; bridgeModule: string;
+  url: string; instance: string; clientId: string; discoveryFile: string;
   build: { fingerprint: string; engineRoot: string };
 }
 interface Handoff { type: string; root: string; specId?: string; menu?: string }
@@ -38,11 +39,13 @@ export async function openBrowserWorkspace(client: SingularityFlowClient, contex
     throw new Error('SFlow did not return a valid local browser bootstrap URL.');
   }
   try {
-    if (typeof launch.bridgeModule !== 'string' || !path.isAbsolute(launch.bridgeModule)
-      || path.relative(launch.build.engineRoot, launch.bridgeModule) !== path.join('src', 'local-ui', 'bridge-client.mjs')) {
-      throw new Error('The CLI did not issue a bridge module belonging to its verified package. Reopen with matching installed builds.');
+    // This window's own selected engine supplies the bridge, never a path a reply names: the service must be that
+    // engine's (the CLI reuses no other), and the editor loads only code from the package it already runs.
+    const engine = await realpath(path.resolve(path.dirname(client.location.cli), '..'));
+    if (typeof launch.build?.engineRoot !== 'string' || await realpath(launch.build.engineRoot).catch(() => null) !== engine) {
+      throw new Error('The local workspace runs another SFlow engine than this window. Reopen with matching installed builds.');
     }
-    const module = await import(pathToFileURL(launch.bridgeModule).href) as BridgeModule;
+    const module = await import(pathToFileURL(path.join(engine, 'src', 'local-ui', 'bridge-client.mjs')).href) as BridgeModule;
     const bridge = await module.connectEditorBridge({ instance: launch.instance, build: launch.build.fingerprint,
       root: repository, clientId: launch.clientId, discoveryFile: launch.discoveryFile, copilot: copilotAvailable(),
       onRequest: async request => {

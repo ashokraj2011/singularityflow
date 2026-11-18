@@ -57,9 +57,14 @@ caller's existing CLI invoker instead of importing all CLI presentation code aga
 ## Lifecycle and failure behavior
 
 Only the native launcher can grant a checkout context. Browser input never supplies a shell,
-arbitrary argv, module name or arbitrary file read path. Cookies authenticate the browser; a
-separate tab handle and CSRF token isolate tabs. One-use tickets live in fragments and are removed
-before asynchronous work. Native credentials and discovery are user-owned private files. Host,
+arbitrary argv, module name or arbitrary file read path; each browser value reaches the CLI as one
+`--name=value` word after the explicit `--context-root=`, so no value ends the options or names another
+checkout, and a source link must be http(s). Cookies authenticate the browser; a separate tab handle and
+CSRF token isolate tabs. One-use tickets live in fragments and are removed before asynchronous work. A
+launcher that opens the browser opens a private 0600 page in the state folder that forwards to the link,
+never the link as a process argument; the service removes the page once the link is used or expires.
+`ui open|serve|stop` and `spec author … --for-person` are the person's own steps, refused in every chat,
+plain chats included; `ui status` is not. Native credentials and discovery are user-owned private files. Host,
 Origin, content type, body size, connection, session, worker and queue limits are enforced.
 
 Native control uses HMAC proofs in both directions, replay-bound nonces and AES-GCM sealed inputs.
@@ -67,20 +72,28 @@ A foreign listener on a reused port learns neither a bearer credential nor clien
 JSON controls are limited to 256 KiB; sealed native environments to 1 MiB; wording to 1 MiB; local
 file uploads to 5 MiB; canonical replies to 8 MiB. Wording/uploads use typed binary content routes,
 not oversized JSON controls. Activity lists project summaries rather than old artifact bodies.
+Canonical stderr, stdout, original errors and progress are redacted (`redactDiagnosticText`) before the
+browser sees or a receipt keeps them. Only a service from the launching engine (same path, build
+fingerprint and runtime) is reused; the editor loads its bridge from its own selected engine.
 
 Admitted writes are recorded before dispatch. Simultaneous requests with the same ID are admitted
-once; changed input is a conflict. Restart preserves interrupted requests as unknown. A timeout is
+once; changed input is a conflict. Restart preserves interrupted requests as unknown, and a write whose
+canonical child was stopped by a signal, had no exit code or gave no JSON answer is unknown, not failed. A timeout is
 not a DNS diagnosis or proof of non-execution. A disconnected browser does not kill its admitted
 operation. Busy stop refuses; drain finishes admitted work. The service survives its launching
-CLI/editor process and stops after its configured idle period when work is quiescent.
+CLI/editor process and stops after its configured idle period when work is quiescent; a tab's status
+poll is not activity unless the tab holds unsaved writing.
 Admission includes the time spent recording a request; drain cannot release ownership during that
 write. Native lifecycle refusals retain typed deadlines/errors and render service-specific recovery.
 
-Completed read receipts are bounded to 64. The newest 128 completed write results are retained in
-full; older results become identity-preserving tombstones that refuse re-enqueue. Completed records
-older than seven days are removed at startup. Unknown outcomes are preserved. The transport journal
-has an 8,192-record safety ceiling; reaching it refuses new browser work and directs inspection of
-canonical operations, without deleting workspaces, recovery, source or originals. It is not a
+Read results stay in the service's memory, at most 64, and are never written down. On disk a write
+receipt keeps its identity, input binding, outcome and only the identifiers of its result (specification
+ID, sequence, operation ID); the newest 128 completed write results are held in full in memory, and older
+ones become identity-preserving tombstones that refuse re-enqueue. Records, unknown outcomes included,
+are removed at startup seven days after they settled, before the journal is counted; leftover save and
+upload folders and opening pages are removed then too. The transport journal has an 8,192-record safety
+ceiling; reaching it refuses new browser work and directs inspection of canonical operations, without
+deleting workspaces, recovery, source or originals. It is not a
 second business-state store. Existing canonical operation IDs and records remain authoritative.
 
 ## Qualification and remaining rollout

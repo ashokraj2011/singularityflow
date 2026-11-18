@@ -1,7 +1,7 @@
 /** SFlow-owned loopback host. No cwd changes, console interception, Git or workflow policy here. */
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
-import { readFile, readdir, realpath, stat, unlink } from 'node:fs/promises';
+import { readFile, readdir, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROTOCOL, MAX_BODY, MAX_CONTENT, MAX_NATIVE_BODY, MAX_REPLY, MAX_PENDING, MAX_RUNNING, TICKET_MS, SESSION_MS, UiError, insist, record, text, identifier, idleMinutes, nativeEnvironment, environmentScope, errorData } from './contracts.mjs';
@@ -19,6 +19,17 @@ const terminal = new Set(['succeeded', 'failed', 'unknown', 'expired']);
 const RETENTION_MS = 7 * 24 * 60 * 60_000;
 const MAX_RECORDS = 8192;
 const MAX_RECORD_BYTES = MAX_REPLY * 2 + 64 * 1024;
+/**
+ * The page a native launcher opens instead of the link: a one-use link in a process's arguments is readable by
+ * another local user for as long as that process runs. Only this user reads the private folder it is written to.
+ */
+const launcherPage = link => {
+  const attribute = link.replace(/[&<>"']/gu, character => `&#${character.charCodeAt(0)};`);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">`
+    + `<meta http-equiv="refresh" content="0;url=${attribute}"><title>Opening SFlow</title></head>`
+    + `<body><p>Opening SFlow… <a href="${attribute}">Continue</a></p><script>location.replace(${JSON.stringify(link)});</script></body></html>\n`;
+};
+const removeLauncher = grant => grant?.launcher ? unlink(grant.launcher).catch(() => {}) : Promise.resolve();
 
 async function contentBytes(req, limit) {
   insist(req.headers['content-length'] == null || Number(req.headers['content-length']) <= limit, 'UI_REQUEST_TOO_LARGE', 'The request exceeds its content limit.', 413);
@@ -87,32 +98,60 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
   let closeResolve;
   const done = new Promise(resolve => { closeResolve = resolve; });
 
+  // Only this instance (it holds the instance lease) uses these: a crash left them behind, with wording,
+  // uploaded bytes or a one-use link in them. Remove them before accepting anything.
+  for (const name of await readdir(directory)) {
+    if (/^(?:save|upload)-[A-Za-z0-9]{6}$/u.test(name) || /^launch-[a-f0-9]{32}\.html$/u.test(name)) {
+      await rm(path.join(directory, name), { recursive: true, force: true });
+    }
+  }
   // A transport crash does not decide whether a canonical mutation happened. Preserve its ID.
   const names = (await readdir(requestsDir)).filter(name => /^[a-f0-9-]{36}\.json$/u.test(name));
-  insist(names.length <= MAX_RECORDS, 'UI_JOURNAL_CAPACITY', 'The browser request journal needs inspection. Canonical SFlow operations and all work were preserved.');
+  const kept = [];
   for (const name of names) {
     const receipt = await readPrivate(path.join(requestsDir, name), { maxBytes: MAX_RECORD_BYTES });
     if (!receipt) continue;
-    if (receipt.state !== 'unknown' && terminal.has(receipt.state) && Date.parse(receipt.completedAt) < Date.now() - RETENTION_MS) {
+    // Reads are never journaled; an older build's read receipt has nothing to recover. Every outcome, an unknown
+    // one included, ages out RETENTION_MS after it was settled; the canonical store keeps what happened.
+    const settledAt = Date.parse(receipt.completedAt ?? receipt.acceptedAt);
+    if (!receipt.mutation || (terminal.has(receipt.state) && !(settledAt >= Date.now() - RETENTION_MS))) {
       await unlink(path.join(requestsDir, name)); continue;
     }
+    kept.push([name, receipt]);
+  }
+  // Counted after cleanup: aged-out records never keep a service from starting.
+  insist(kept.length <= MAX_RECORDS, 'UI_JOURNAL_CAPACITY', 'The browser request journal needs inspection. Canonical SFlow operations and all work were preserved.');
+  for (const [name, receipt] of kept) {
     if (!terminal.has(receipt.state)) {
-      receipt.state = 'unknown'; receipt.error = { code: 'UI_OUTCOME_UNKNOWN', message: 'The service restarted before observing completion. Inspect the original operation; do not repeat a write automatically.' };
+      receipt.state = 'unknown'; receipt.completedAt = new Date().toISOString();
+      receipt.error = { code: 'UI_OUTCOME_UNKNOWN', message: 'The service restarted before observing completion. Inspect the original operation; do not repeat a write automatically.' };
       await writePrivate(path.join(requestsDir, name), receipt);
     }
     jobs.set(receipt.invocationId, receipt);
   }
+  /**
+   * What a receipt keeps on disk: a write's identity, input binding and outcome, its result reduced to the
+   * identifiers a lost reply is checked by. Answers themselves (specification wording, Story listings) stay
+   * in this process's memory; a read is never written down.
+   */
+  const durable = receipt => {
+    const { result, ...rest } = receipt;
+    const value = result?.value && typeof result.value === 'object' ? result.value : {};
+    const identifiers = Object.fromEntries(['resultType', 'action', 'specId', 'sequence', 'operationId']
+      .filter(key => ['string', 'number'].includes(typeof value[key])).map(key => [key, value[key]]));
+    return { ...rest, ...(result ? { result: { value: identifiers, transport: result.transport } } : {}) };
+  };
   const persist = receipt => {
-    insist(Buffer.byteLength(JSON.stringify(receipt)) <= MAX_RECORD_BYTES, 'UI_RECEIPT_TOO_LARGE', 'The transport receipt exceeds its retention limit. Inspect the canonical operation.');
-    return writePrivate(path.join(requestsDir, `${receipt.invocationId}.json`), receipt);
+    if (!receipt.mutation) return Promise.resolve();
+    const record = durable(receipt);
+    insist(Buffer.byteLength(JSON.stringify(record)) <= MAX_RECORD_BYTES, 'UI_RECEIPT_TOO_LARGE', 'The transport receipt exceeds its retention limit. Inspect the canonical operation.');
+    return writePrivate(path.join(requestsDir, `${receipt.invocationId}.json`), record);
   };
   async function prune() {
     const completed = [...jobs.values()].filter(job => ['succeeded', 'failed'].includes(job.state))
       .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
     const reads = completed.filter(job => !job.mutation);
-    for (const job of reads.slice(64)) {
-      jobs.delete(job.invocationId); await unlink(path.join(requestsDir, `${job.invocationId}.json`)).catch(() => {});
-    }
+    for (const job of reads.slice(64)) jobs.delete(job.invocationId);
     // Compact old write results, retaining identity/input binding so they can never be re-enqueued.
     for (const job of completed.filter(job => job.mutation).slice(128)) {
       delete job.result; job.state = 'expired';
@@ -135,7 +174,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
     return { ...summary, ...(result?.value?.specId ? { result: { value: { specId: result.value.specId } } } : {}),
       ...(error ? { error: { code: error.code, message: error.message } } : {}) };
   };
-  const status = () => ({ protocol: PROTOCOL, instance, build: identity, pid: process.pid, origin, draining,
+  const status = () => ({ protocol: PROTOCOL, instance, build: identity, pid: process.pid, origin, draining, lastActivityAt: new Date(lastActivity).toISOString(),
     running, queued: queue.length, admitting: admissions.size, sessions: sessions.size, idleMinutes: minutes,
     recent: [...jobs.values()].filter(job => job.mutation).sort((a, b) => b.acceptedAt.localeCompare(a.acceptedAt)).slice(0, 64)
       .map(job => ({ invocationId: job.invocationId, operation: job.operation, state: job.state,
@@ -148,6 +187,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
   async function finishShutdown() {
     if (closed || running || queue.length || admissions.size) return;
     closed = true; clearInterval(maintenance);
+    await Promise.all([...tickets.values()].map(removeLauncher)); tickets.clear();
     disposeReadWorkers();
     server.closeIdleConnections();
     server.close(async () => {
@@ -186,7 +226,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           }
           Object.assign(job.receipt, { state: 'succeeded', result });
         } catch (error) {
-          const unknown = job.receipt.mutation && ['UI_OPERATION_TIMEOUT', 'UI_WAIT_CANCELLED', 'UI_REPLY_TOO_LARGE', 'UI_RESULT_INVALID'].includes(error.code);
+          // A deadline, a cut reply, or a child that stopped without SFlow's own answer leaves a write's effect unknown.
+          const unknown = job.receipt.mutation && (error.outcomeUnknown === true
+            || ['UI_OPERATION_TIMEOUT', 'UI_WAIT_CANCELLED', 'UI_REPLY_TOO_LARGE', 'UI_RESULT_INVALID'].includes(error.code));
           Object.assign(job.receipt, { state: unknown ? 'unknown' : 'failed', error: errorData(error) });
         }
         job.receipt.completedAt = new Date().toISOString();
@@ -211,11 +253,12 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
   function browserCookie(req) {
     return String(req.headers.cookie ?? '').split(';').map(part => part.trim()).find(part => part.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
   }
-  function sessionFor(req) {
+  function sessionFor(req, { activity = true } = {}) {
     const token = browserCookie(req), session = sessions.get(req.headers['x-sflow-tab']);
     insist(token && session && equal(session.browser, digest(token)) && Date.now() < session.expiresAt,
       'UI_SESSION_EXPIRED', 'Reopen SFlow from the CLI or VS Code to reconnect.', 401);
-    session.expiresAt = Date.now() + SESSION_MS; touch();
+    session.expiresAt = Date.now() + SESSION_MS;
+    if (activity) touch();
     return session;
   }
   function selected(session, id) {
@@ -259,7 +302,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         insist(req.method === 'POST', 'UI_METHOD_DENIED', 'Unsupported method.', 405);
         const input = openInput(credential, wireInput, JSON.stringify([instance, nonce, time, req.method, route]));
         if (route === '/control/bootstrap') {
-          record(input, ['root', 'clientId', 'resume', 'environment']);
+          record(input, ['root', 'clientId', 'resume', 'environment', 'launcher']);
           insist(!draining, 'UI_SERVICE_DRAINING', 'The local workspace is finishing existing work.', 409);
           insist(tickets.size < 128 && sessions.size < 64, 'UI_CLIENT_LIMIT', 'Too many browser clients. Close unused tabs and retry.', 429);
           const previous = input.resume ? jobs.get(identifier(input.resume, 'Invocation ID')) : null;
@@ -269,9 +312,16 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             'The native environment changed. Open a new browser client and inspect the original canonical draft/history using your current credentials; the old write will not be repeated.', 409);
           const context = await contextFor(previous?.root ?? input.root);
           contexts.set(context.id, context);
-          const ticket = randomKey();
-          tickets.set(digest(ticket), { context, environment, environmentHash, clientId: previous?.clientId ?? text(input.clientId, 'Client ID', 128), expiresAt: Date.now() + TICKET_MS });
-          return send(res, 200, { url: `${origin}/#ticket=${ticket}`, instance, build: identity, clientId: previous?.clientId ?? input.clientId });
+          const ticket = randomKey(), link = `${origin}/#ticket=${ticket}`;
+          const clientId = previous?.clientId ?? text(input.clientId, 'Client ID', 128);
+          // Asked for by a launcher that opens a browser: the link goes into a private page, never a process's arguments.
+          let launcher = null;
+          if (input.launcher === true) {
+            launcher = path.join(directory, `launch-${randomBytes(16).toString('hex')}.html`);
+            await writeFile(launcher, launcherPage(link), { flag: 'wx', mode: 0o600 });
+          }
+          tickets.set(digest(ticket), { context, environment, environmentHash, clientId, launcher, expiresAt: Date.now() + TICKET_MS });
+          return send(res, 200, { url: link, instance, build: identity, clientId, ...(launcher ? { launcher } : {}) });
         }
         if (route === '/control/bridge/register') {
           record(input, ['clientId', 'root', 'copilot', 'build']);
@@ -311,7 +361,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
       if (route === '/api/session' && req.method === 'POST') {
         insist(req.headers.origin === origin, 'UI_ORIGIN_REQUIRED', 'A same-origin browser request is required.', 403);
         const input = record(await body(req), ['ticket']); text(input.ticket, 'Ticket', 128);
-        const key = digest(input.ticket), grant = tickets.get(key); tickets.delete(key);
+        const key = digest(input.ticket), grant = tickets.get(key); tickets.delete(key); await removeLauncher(grant);
         insist(grant && Date.now() < grant.expiresAt, 'UI_TICKET_EXPIRED', 'This link expired or was already used. Open a new link from SFlow.', 401);
         insist(sessions.size < 64, 'UI_CLIENT_LIMIT', 'Too many browser clients. Disconnect an unused tab from About, or wait for its lease to expire.', 429);
         // Cookies are shared by tabs. A separate tab handle binds each context to the same
@@ -327,7 +377,10 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         touch(); return send(res, 200, { tabId, csrf: session.csrf, context: grant.context, build: identity, capabilities: capabilitiesFor(session) });
       }
       if (route.startsWith('/api/')) {
-        const session = sessionFor(req);
+        // A visible tab's status poll is not work: an open tab alone never keeps the service from its idle stop.
+        // A tab holding unsaved writing says so (`working=1`), and that person is still working.
+        const poll = route === '/api/events' && req.method === 'GET' && url.searchParams.get('working') !== '1';
+        const session = sessionFor(req, { activity: !poll });
         if (route.startsWith('/api/content/') && req.method === 'GET') {
           const resource = resources.get(route.slice('/api/content/'.length));
           insist(resource && resource.clientId === session.clientId && resource.root === selected(session, session.contextId).root
@@ -464,7 +517,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         handoff.message = 'The matching editor disconnected. Inspect Copilot before retrying; no execution was observed.';
       }
     }
-    for (const [key, ticket] of tickets) if (ticket.expiresAt < now) { tickets.delete(key); contexts.delete(ticket.context.id); }
+    for (const [key, ticket] of tickets) if (ticket.expiresAt < now) { tickets.delete(key); contexts.delete(ticket.context.id); void removeLauncher(ticket); }
     for (const [key, session] of sessions) if (session.expiresAt < now) {
       sessions.delete(key); for (const id of session.contexts) contexts.delete(id);
     }

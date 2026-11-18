@@ -6,6 +6,14 @@ import { UiError, idleMinutes } from './contracts.mjs';
 import { spawnBackground } from '../background-process.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
+/**
+ * How a native launcher opens the browser: with the private page the service wrote, never the link. A one-use
+ * link in a process's arguments is readable by another local user while that process (or the browser it starts) runs.
+ */
+export function browserLaunch(result) {
+  return [process.platform === 'darwin' ? '/usr/bin/open' : 'xdg-open', [result.launcher]];
+}
+
 export async function run(argv, parsed = {}) {
   try { return await runLifecycle(parsed); }
   catch (error) { throw await (await import('./cli-recovery.mjs')).withUiRecovery(error, argv); }
@@ -27,10 +35,11 @@ async function runLifecycle({ positionals = ['ui'], options = {} } = {}) {
   if (action === 'status') result = await serviceStatus();
   if (action === 'stop') result = await stopService({ drain: optionBoolean(options, 'drain') });
   if (action === 'open') {
-    result = await openWorkspace({ root: process.cwd(), idle, resume: optionString(options, 'resume-request') ?? null });
-    if (options.open !== false) {
-      const command = process.platform === 'darwin' ? '/usr/bin/open' : 'xdg-open';
-      spawnBackground(command, [result.url], { cwd: process.cwd() });
+    const launch = options.open !== false;
+    result = await openWorkspace({ root: process.cwd(), idle, resume: optionString(options, 'resume-request') ?? null, launch });
+    if (launch) {
+      const [command, args] = browserLaunch(result);
+      spawnBackground(command, args, { cwd: path.dirname(result.launcher) });
       result.browserLaunch = 'requested';
     }
   }

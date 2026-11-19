@@ -180,8 +180,12 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   // without offering the next step. The prepublish fields after it describe the draft before publication.
   assert.deepEqual(Object.keys(published).slice(0, 2), ['act', 'publishIfReady']);
   assert.match(published.publishIfReady.next.instruction, /Say to run it in a new chat: it needs nothing from this one\./u, 'a /sf-submit route starts fresh');
-  assert.deepEqual(published.act.do, { reason: published.publishIfReady.next.reason, copilot: '/sf-submit',
-    shell: 'singularity-flow submit intake --work-id READY-1', vscode: '@sflow /submit intake --work-id READY-1' });
+  // It owes no review, so the turn that wrote it submits it now, by /sf-submit's own entry: no separate /sf-submit turn
+  // (owner, 2026-11-19, ceremony cut 2). The step's next action stays its submission, for a person or another chat.
+  const inTurn = 'singularity-flow status READY-1 --submission-readiness --for-agent --json --submit-if-ready';
+  assert.deepEqual(published.publishIfReady.next.inTurn, { command: inTurn, skill: '/sf-submit', reason: 'Submit the published version now, in the turn that wrote it.' });
+  assert.equal(published.act.state, 'submit');
+  assert.deepEqual(published.act.do, { reason: 'Submit the published version now, in the turn that wrote it.', copilot: '/sf-submit', shell: inTurn, vscode: null });
   assert.match(published.publishIfReady.next.instruction, /^Published\. End the reply with this next action/u);
   assert.deepEqual(published.publishIfReady.next.commandGuidance, { copilotCommand: '/sf-submit',
     command: 'singularity-flow submit intake --work-id READY-1', modelFreeCommand: '@sflow /submit intake --work-id READY-1' });

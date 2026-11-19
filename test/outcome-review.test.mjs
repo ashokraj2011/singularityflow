@@ -84,7 +84,7 @@ test('outcome is an optional read: it names no next action and changes nothing',
   assert.match(refused.stderr, /outcome does not accept --row/u);
 });
 
-test('the validation question is available for legacy and custom code deliveries without enabling acceptance policy', () => {
+test('the validation choices are available for legacy and custom code deliveries without enabling acceptance policy', () => {
   for (const id of ['implementation', 'repair-api', 'custom-angular', 'future-step']) {
     const phase = { id, generation: 2, status: 'in_progress', generationPolicy: { task: 'code' } };
     const workflow = { workItem: { id: 'TRY-1' }, phaseOrder: [id], currentPhase: id, phases: { [id]: phase } };
@@ -99,7 +99,11 @@ test('the validation question is available for legacy and custom code deliveries
     assert.equal(guide.choices.find(choice => choice.id === 'configure').route.copilotCommand, '/sf-run-app');
     assert.ok(!guide.choices.some(choice => /^(start|open):/.test(choice.id)), 'no guessed start command or web screen');
     assert.ok(guide.choices.some(choice => choice.id === 'continue'), 'setup is not a new gate');
-    assert.match(guide.instruction, /Ask this question now/);
+    // One optional line of choices, never a question to ask: it records nothing (owner, 2026-11-19, ceremony cut 8).
+    assert.equal(guide.asked, 'optional');
+    assert.match(guide.line, /^Check (?:version 2|TRY-1) yourself \(optional\): .* · Continue workflow\.$/u);
+    assert.match(guide.instruction, /^Show `line` once as optional choices; it is not a question to ask\./u);
+    assert.doesNotMatch(guide.instruction, /Ask this question now/u);
     assert.equal(guide.recordsAcceptance, false);
     assert.deepEqual(workflow, before);
   }

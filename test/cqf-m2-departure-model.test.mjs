@@ -251,7 +251,8 @@ test('a wording departure on a submitted code step offers its filled return, and
   { authorities, actor: { email: 'person@example.invalid' }, at: '2026-11-19T08:00:00.000Z' });
   const item = packet.items.find((entry) => entry.kind === 'departure');
   assert.deepEqual(item.options.map((option) => [option.id, option.available !== false]), [['accept', false], ['return', true], ['reject', true]]);
-  const back = 'singularity-flow reject code --work-id W-1 --to code --reason "<REASON>"';
+  // The shared return route, the same command every SFlow return names; only the reason is the person's.
+  const back = 'singularity-flow reject code --work-id W-1 --fetch --to code --reason <reason>';
   assert.equal(item.options[1].action.command, back, 'nothing for the person to compose but the reason');
   assert.ok(item.options[0].words.includes(back));
   assert.equal(item.chatYesNo, false);

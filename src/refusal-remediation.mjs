@@ -2165,7 +2165,13 @@ function decisionFamilyPlan(plan, error, argv) {
     return Object.freeze({ ...plan, steps: Object.freeze(deduplicate([retry, ...kept.filter((entry) => !genericStep(entry)), ...own, card])) });
   }
   // No way out named (only help, doctor and the planner): the card leads, with the refusal's own filled commands after it.
-  return Object.freeze({ ...plan, steps: Object.freeze(deduplicate(argv[0] === 'decisions' ? [...own, card, ...rest] : [retry, card, ...own, ...rest])) });
+  if (argv[0] === 'decisions') {
+    // Recording the card's list leads with the refusal's own commands, wherever the plan holds them; the card follows (loop 2).
+    const named = new Set(explicitCommands(error).map((entry) => entry.command).filter(Boolean));
+    return Object.freeze({ ...plan, steps: Object.freeze(deduplicate([...rest.filter((entry) => named.has(entry.command)), ...own, card,
+      ...rest.filter((entry) => !named.has(entry.command))])) });
+  }
+  return Object.freeze({ ...plan, steps: Object.freeze(deduplicate([retry, card, ...own, ...rest])) });
 }
 
 function remediationPlanFor(error, argv = []) {

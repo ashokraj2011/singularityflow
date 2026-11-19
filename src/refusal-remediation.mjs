@@ -315,8 +315,9 @@ function storyBaseSteps(argv, error) {
       branch === details.defaultBranch ? `Start from ${branch}, the usual branch.` : `Start from ${branch}.`, retriedCommand(argv, ['--from-branch', branch]), 'remediation'));
   const workId = argv[0] === 'start' ? safeWorkId(argv[1]) : safeWorkId(details.workId);
   // No branch named at all (not "none published"): the same start in the person's own terminal, which lists them and asks.
-  const ask = !steps.length && !Array.isArray(details.branches) && workId ? step('start-and-choose-branch',
-    'Start it in your own terminal: it lists the branches and asks which one.', argv[0] === 'start' ? retriedCommand(argv) : `singularity-flow start ${workId}`, 'remediation') : null;
+  const ask = !steps.length && !Array.isArray(details.branches) && workId ? afterChange(step('start-and-choose-branch',
+    'Start it in your own terminal: it lists the branches and asks which one.', argv[0] === 'start' ? retriedCommand(argv) : `singularity-flow start ${workId}`, 'remediation'),
+    'the base branch the person chooses from the list it shows') : null;
   return [...steps, ask, workId ? step('resume-existing-story', `If ${workId} already exists on the remote, resume it instead.`, `singularity-flow resume ${workId} --fetch`, 'remediation') : null];
 }
 
@@ -874,8 +875,8 @@ function clarificationAuthoritySteps(argv, error) {
     : [step('answer-in-own-clone', `${who}${phase ? ' The step\'s clarification status lists each question still open.' : ''}`, null, 'remediation')];
   return [
     ...answers,
-    phase ? step('import-answers', `Then this checkout records the answers that bind this step${workId ? ` of ${workId}` : ''}, checking who sent each.`,
-      `singularity-flow clarification import ${phase}`, 'remediation') : null,
+    phase ? afterChange(step('import-answers', `Then this checkout records the answers that bind this step${workId ? ` of ${workId}` : ''}, checking who sent each.`,
+      `singularity-flow clarification import ${phase}`, 'remediation'), 'the answers the deciders send from their own clones') : null,
     phase ? step('inspect-clarification-checkpoint', 'See which questions still need an answer.',
       `singularity-flow clarification status ${phase} --json`, 'diagnostic') : null
   ].filter(Boolean);

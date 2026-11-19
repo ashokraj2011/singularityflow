@@ -339,7 +339,8 @@ test('no refusal plan\'s first command step, nor its retry, is the refused comma
   const held = refusalRemediationPlan(Object.assign(new Error('held'), { code: 'TEST_RUN_STILL_RUNNING', details }), ['phase', 'prepublish', 'build', '--work-id', 'W-1']);
   assert.deepEqual([held.steps[0].id, held.steps[0].wait, held.steps[0].command], ['list-held-run', true, 'singularity-flow tests held --work-id W-1 --phase build']);
   assert.equal(held.steps[1].changes, 'the held run has ended');
-  const choose = refusalRemediationPlan(Object.assign(new Error('refused'), { code: 'DECISION_REASON_REQUIRED', details }), ['decision', 'choose', 'W-1', '--choice', 'O1']);
+  // A refusal that names no way out of its own (the catch-all details above name recover, which a plan keeps) [landing 2026-11-19].
+  const choose = refusalRemediationPlan(Object.assign(new Error('refused'), { code: 'DECISION_REASON_REQUIRED', details: { workId: 'W-1', phase: 'build' } }), ['decision', 'choose', 'W-1', '--choice', 'O1']);
   const card = choose.steps.find((entry) => entry.id === 'open-decision-list');
   assert.deepEqual([card.copilotCommand, card.command, card.skill], ['/decide W-1', 'singularity-flow decisions W-1', null]);
   assert.equal(choose.steps.some((entry) => /^\/sf-decide\b/u.test(entry.copilotCommand ?? '')), false);

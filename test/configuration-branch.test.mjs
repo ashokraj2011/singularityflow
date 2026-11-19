@@ -472,7 +472,8 @@ test('configuration bootstrap preserves an imported multi-capability map and ref
       (error) => error?.code === 'CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED'
         && error.details?.requestedCapabilityId === 'settlements'
         && error.details?.importedCapabilityIds?.join(',') === 'payments,platform'
-        && /capability map/.test(error.details?.nextAction?.command ?? '')
+        // The refusal names the lead; its recovery plan builds the filled `capability map <id> --lead <url>` [owner, 2026-11-19].
+        && typeof error.details?.lead === 'string' && !error.details?.nextAction
     );
     assert.notEqual(run('git', [
       'show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`

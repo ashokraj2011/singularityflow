@@ -244,7 +244,8 @@ test('approved on the card: the amendment is installed and attributed to the car
   // the acknowledgement's route, the card and the list ask only the acknowledgement, and the kernel's route is the card.
   const prepare = () => story.run(process.execPath, [CLI, '--no-model', 'prepare', 'planning', '--json'], { allowFailure: true });
   const rollover = (...extra) => story.run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'planning', ...extra, '--json'], { allowFailure: true });
-  const cardRoute = [`singularity-flow decisions ${WORK}`, `/sf-decide ${WORK}`];
+  // The card itself, never the list's /sf-decide: thrown inside /sf-decide, that sent the person round (loop 13, 2026-11-19).
+  const cardRoute = [`singularity-flow decisions record ${WORK}`, `/decide ${WORK}`];
   for (const [what, refused] of [['the preview', rollover()], ['the confirmation', rollover('--confirm', PROPOSAL)], ['prepare', prepare()]]) {
     assert.notEqual(refused.status, 0, what);
     assert.equal(refusal(refused).code, 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED', `${what}: ${refused.stdout}${refused.stderr}`);

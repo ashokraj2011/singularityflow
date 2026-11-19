@@ -95,6 +95,23 @@ function step(id, label, command = null, kind = 'diagnostic', skill = null) {
   });
 }
 
+/**
+ * A step that runs the refused command again names what changed first in `changes`: a refusal's way on is never the
+ * same command, or its skill, unchanged [owner, 2026-11-19, ceremony review "no loops"; test/dead-end-routes.test.mjs].
+ */
+const afterChange = (entry, changes) => (entry ? Object.freeze({ ...entry, changes }) : entry);
+
+/**
+ * The Decide card as a plan's step, never /sf-decide: a decision is mostly refused inside /sf-decide, where that route sent
+ * the person round to the chat they were in [owner, 2026-11-19, loop 1]. Copilot CLI opens it with /decide, VS Code with its
+ * Command Palette entry (#sflowDecide in its chat), and the Shell line asks in the person's own terminal.
+ */
+function decideCardPlanStep(id, label, workId) {
+  const opened = step(id, label, `singularity-flow decisions${workId ? ` record ${workId}` : ''}`, 'remediation');
+  return opened.command ? Object.freeze({ ...opened, skill: null, copilotCommand: workId ? `/decide ${workId}` : null }) : opened;
+}
+const DECISION_LIST_READ = /^singularity-flow decisions ([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?: --phase [A-Za-z0-9][A-Za-z0-9._-]*)?$/u;
+
 const ANCESTRY_ROUTED = new Set(['SKP_AMENDMENT_ANCESTRY_REWRITTEN', 'SKP_AMENDMENT_ANCESTRY_LIMIT', 'SKP_AMENDMENT_ANCESTRY_UPGRADE_REQUIRED']);
 function ancestrySteps(error) {
   return [...explicitCommands(error).map((command, index) => step(`ancestry-route-${index + 1}`,
@@ -368,9 +385,9 @@ function requiredTestFailureSteps(argv, error) {
       `singularity-flow decisions ${context.workId}`, 'remediation', '/sf-decide'),
     tryNode(pin.version)] : []),
     // What clears a failed test is repairing it here and running the same gate, so that comes before any read.
-    step('repair-required-test',
+    afterChange(step('repair-required-test',
       failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
-      prepublishAgain(context?.phaseId), 'remediation', ownRepairSkill),
+      prepublishAgain(context?.phaseId), 'remediation', ownRepairSkill), 'the code, once the failing test is repaired'),
     testRunRiskStep(error),
     ...(!pin && other && context?.workId ? [tryNode(other.version)] : []),
     baseComparisonStep(argv, error, context),
@@ -390,10 +407,12 @@ function heldTestRunSteps(argv, error) {
   const context = phaseRemediationContext(argv, error);
   const listed = error?.details?.nextAction?.command
     ?? (context?.workId && context.phaseId ? `singularity-flow tests held --work-id ${context.workId} --phase ${context.phaseId}` : null);
+  // A wait first: the read that shows the held run. Its same check again came first, and ran into the same hold (loop 12).
   // A submission's own command is the one to run again; it is the person's or agent's own line, named in the words.
-  return [argv[0] !== 'submit' && step('run-again-once-ended', 'Once that process has ended, run the same command again: it starts nothing while the last run may still be going.',
-    prepublishAgain(context?.phaseId), 'remediation'),
-    step('list-held-run', 'See which process holds the last run. If it is not the run, a person sets it aside in their own terminal with what this lists.', listed, 'diagnostic')].filter(Boolean);
+  const wait = step('list-held-run', 'Wait: the last run of this command may still be going. This shows which process holds it; if it is not the run, a person sets it aside in their own terminal with what this lists.', listed, 'diagnostic');
+  return [listed ? Object.freeze({ ...wait, wait: true }) : null,
+    argv[0] !== 'submit' && afterChange(step('run-again-once-ended', 'Once that process has ended, run the same command again: it starts nothing while the last run may still be going.',
+      prepublishAgain(context?.phaseId), 'remediation'), 'the held run has ended')].filter(Boolean);
 }
 
 /**
@@ -1619,9 +1638,9 @@ const KNOWN = Object.freeze({
   // Findings on changed lines [CQF:REQ-043]: fixed in the code in this turn, then the same check again.
   CODE_QUALITY_FINDINGS: (_argv, error) => {
     const phase = lowerKebab(error?.details?.phase);
-    return [step('repair-quality-findings',
+    return [afterChange(step('repair-quality-findings',
       'Fix each finding in details.qualityFindings.findings at its file and line, in the code, without a suppression comment; then run the same check once.',
-      phase ? `singularity-flow phase prepublish ${phase} --for-agent --json --publish-if-ready` : null, 'remediation', '/sf-code')];
+      phase ? `singularity-flow phase prepublish ${phase} --for-agent --json --publish-if-ready` : null, 'remediation', '/sf-code'), 'the code, once each finding is fixed')];
   },
   CODE_TEST_ZERO_DISCOVERED: (argv, error) => requiredTestFailureSteps(argv, error),
   CODE_TEST_TIMEOUT: (argv, error) => requiredTestFailureSteps(argv, error),
@@ -1692,10 +1711,12 @@ const KNOWN = Object.freeze({
       ? `singularity-flow initiative phase draft-check ${subject.phase} --json`
       : `singularity-flow phase prepublish ${subject.phase} --json`;
     const correctionSkill = subject.kind === 'story' ? error?.details?.retry?.skill ?? null : null;
+    // The refused check was this same read: correcting the draft is the change before it runs again.
+    const inspect = step('inspect-authored-draft',
+      `Inspect '${subject.phase}' authoring and known phase-scoped recovery blockers without changing repository or lifecycle state.`,
+      command, 'diagnostic', correctionSkill);
     return [
-      step('inspect-authored-draft',
-        `Inspect '${subject.phase}' authoring and known phase-scoped recovery blockers without changing repository or lifecycle state.`,
-        command, 'diagnostic', correctionSkill),
+      ['prepublish', 'draft-check'].includes(phaseOperation(argv)) ? afterChange(inspect, 'the draft, once its author has corrected every finding') : inspect,
       step('correct-authored-draft',
         'Have the current author correct every reported finding in this phase, then rerun the same read-only prepublish check. Do not delete markers blindly, invent missing facts, invoke another model, publish, submit, or approve from recovery guidance.',
         null, 'remediation')
@@ -1730,7 +1751,7 @@ const KNOWN = Object.freeze({
     const label = 'Without an interactive terminal, the person approving reviews the summary above and runs the same command with --yes added. An agent never adds it for them.';
     // The person's own terminal step: a Copilot route back to /sf-approve re-entered the turn that refused.
     const own = yes && step('approve-with-yes', label, yes, 'remediation');
-    return [own?.command ? Object.freeze({ ...own, skill: null, copilotCommand: null }) : own
+    return [own?.command ? Object.freeze({ ...own, skill: null, copilotCommand: null, changes: '--yes, added by the person approving after reading the review' }) : own
       ?? step('approve-with-yes', label, null, 'remediation')];
   },
   ...Object.fromEntries(APPROVAL_IDENTITY_CODES.map((code) => [code, approvalIdentitySteps])),
@@ -2130,16 +2151,21 @@ function decisionFamilyPlan(plan, error, argv) {
   const code = String(error?.code ?? '');
   if (!decisionWrite(argv) && !(DECISION_FAMILY_CODE.test(code) && !authorsOwnCommand(argv))) return null;
   const workId = decisionFamilyWorkId(error, argv);
-  const card = step('open-decision-list', `Open the Decide card${workId ? ` for ${workId}` : ''}: it holds every choice this Story waits on, each filled in, with who decides it.`,
-    `singularity-flow decisions${workId ? ` ${workId}` : ''}`, 'remediation', '/sf-decide');
-  if (!card.command) return null;
-  const own = explicitCommands(error).filter((entry) => !composedCommand(entry.command)).map((entry, index) => step(`producer-${index + 1}`,
+  const opened = decideCardPlanStep('open-decision-list',
+    `Open the Decide card${workId ? ` for ${workId}` : ''}: it holds every choice this Story waits on, each filled in, with who decides it.`, workId);
+  if (!opened.command) return null;
+  // Recording the list refused: the same record, now in the person's own terminal, which shows the summary and asks.
+  const card = argv[0] === 'decisions' && argv[1] === 'record'
+    ? afterChange(opened, 'run by the person in their own terminal, which shows the summary and asks them to confirm') : opened;
+  // The list itself is the card's to show: "Review the current decision list" with /sf-decide was the chat it came from.
+  const own = explicitCommands(error).filter((entry) => !composedCommand(entry.command) && !DECISION_LIST_READ.test(entry.command)).map((entry, index) => step(`producer-${index + 1}`,
     entry.label ?? 'Follow the recovery action supplied by the refusing operation.', entry.command, 'remediation', entry.skill));
   const rest = plan.steps.filter((entry) => !GENERIC_STEP_IDS.has(entry.id) && !composedCommand(entry.command)
-    && !(entry.id === 'open-decision-list' && entry.command === card.command));
+    && entry.id !== 'open-decision-list');
   // A decision the card does not record (a person's own terminal step) keeps its own filled retry first [PHR:REQ-006].
   const same = modelFreeCommandForArgv(argv) ? null : explicitCommands(error).find((entry) => entry.argv?.[0] === argv[0] && entry.argv?.[1] === argv[1]);
-  const retry = same ? step('producer-retry', same.label ?? 'Follow the recovery action supplied by the refusing operation.', same.command, 'remediation', same.skill) : null;
+  const retry = same ? afterChange(step('producer-retry', same.label ?? 'Follow the recovery action supplied by the refusing operation.', same.command, 'remediation', same.skill),
+    'every value filled in by the refusal, for the person\'s own terminal') : null;
   // Recording the card's own list leads with its own way out; the card follows, never the same route first.
   return Object.freeze({ ...plan, steps: Object.freeze(deduplicate(argv[0] === 'decisions' ? [...own, card, ...rest] : [retry, card, ...own, ...rest])) });
 }
@@ -2890,13 +2916,18 @@ function ownerStepRemediationPlan(error, argv, code) {
   const commands = strategy ? explicitCommands(error) : [];
   if (!commands.length) return null;
   const base = phaseRemediationContext(argv, error);
-  const context = base ? Object.freeze({ ...base, strategy, turn: 'current-turn', recoveryCommand: commands[0].command,
-    retryCommand: null, retrySkill: null }) : null;
   // A return of this same step to its author is the repair a code step's own output needs once it is submitted.
   const returnsHere = (command) => base?.phaseId && command.command.startsWith(`singularity-flow reject ${base.phaseId} `);
-  const steps = commands.map((command, index) => step(index === 0 ? 'repair-in-step' : `repair-in-step-${index + 1}`,
-    command.label ?? (returnsHere(command) ? `Return ${base.phaseId} to its own author, who repairs it in a new generation of this same step.`
-      : index === 0 ? 'Repair it in this step.' : 'Or this way, in this step.'), command.command, 'remediation', command.skill));
+  // A person decides on the Decide card itself: the list's /sf-decide was the chat a decision is refused in (loop 13).
+  const steps = commands.map((command, index) => {
+    const id = index === 0 ? 'repair-in-step' : `repair-in-step-${index + 1}`;
+    const label = command.label ?? (returnsHere(command) ? `Return ${base.phaseId} to its own author, who repairs it in a new generation of this same step.`
+      : index === 0 ? 'Repair it in this step.' : 'Or this way, in this step.');
+    const list = DECISION_LIST_READ.exec(command.command ?? '');
+    return list ? decideCardPlanStep(id, label, list[1]) : step(id, label, command.command, 'remediation', command.skill);
+  });
+  const context = base ? Object.freeze({ ...base, strategy, turn: 'current-turn', recoveryCommand: steps[0]?.command ?? commands[0].command,
+    retryCommand: null, retrySkill: null }) : null;
   return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked',

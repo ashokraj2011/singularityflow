@@ -1143,23 +1143,25 @@ test('a refused decision leads with the Decide card, then its own filled command
     { label: 'Reject it, with your reason.', command: 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"' }] }),
   ['decision', 'departure', 'PAY-1', '--departure', 'DEP-002', '--as', 'accepted', '--reason', 'A reason.']);
   assert.deepEqual(plan.steps.map((entry) => [entry.id, entry.command]), [
-    ['open-decision-list', 'singularity-flow decisions PAY-1'],
+    ['open-decision-list', 'singularity-flow decisions record PAY-1'],
     ['producer-1', 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as accepted --clause PAY-1:AC-001 --reason "<REASON>"'],
     ['producer-2', 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"']]);
-  assert.equal(plan.steps[0].copilotCommand, '/sf-decide PAY-1');
+  // The card itself: /sf-decide was the chat a decision is refused in, so its route sent the person round [owner, 2026-11-19, loop 1].
+  assert.deepEqual([plan.steps[0].copilotCommand, plan.steps[0].skill], ['/decide PAY-1', null]);
   assert.match(renderRefusalPlan(plan), /1\. Open the Decide card for PAY-1: it holds every choice this Story waits on, each filled in/u);
   // A code of the family from another command, with only a blank-holding route of its own: the card, and nothing to compose.
   const blank = refusalRemediationPlan(refused('PLAN_AMENDMENT_INVALID', { workId: 'PAY-1', recoveryCommands: ['singularity-flow decision plan PAY-1 --add-location <clause>=a.js --reason <why>'] }), ['approve', 'code']);
-  assert.equal(blank.steps[0].command, 'singularity-flow decisions PAY-1');
+  assert.equal(blank.steps[0].command, 'singularity-flow decisions record PAY-1');
   assert.equal(blank.steps.some((entry) => /<clause>/u.test(entry.command ?? '')), false);
   assert.equal(blank.steps.some((entry) => ['command-help', 'diagnose-repository', 'recommended-next'].includes(entry.id)), false);
   // `decisions record` is a decision too, its own way out first and the card after it; `decisions` that only reads the list
   // keeps its own plan.
-  assert.ok(refusalRemediationPlan(refused('WORKSPACE_NOT_FOUND'), ['decisions', 'record', 'PAY-1', '--answers', 'a.json']).steps.some((entry) => entry.command === 'singularity-flow decisions PAY-1'));
+  const record = refusalRemediationPlan(refused('WORKSPACE_NOT_FOUND'), ['decisions', 'record', 'PAY-1', '--answers', 'a.json']).steps.find((entry) => entry.id === 'open-decision-list');
+  assert.deepEqual([record.command, record.changes], ['singularity-flow decisions record PAY-1', 'run by the person in their own terminal, which shows the summary and asks them to confirm']);
   // A decision the card does not record keeps its own filled retry first [PHR:REQ-006].
   const visual = refusalRemediationPlan(refused('DECISION_INPUT_INVALID', { recoveryCommand: 'singularity-flow decision visual-risk PAY-1 --comparison visual-x --expires 2099-01-01 --reason "<REASON>"' }),
     ['decision', 'visual-risk', 'PAY-1', '--comparison', 'visual-x', '--expires', '2000-01-01', '--reason', 'x']);
-  assert.deepEqual(visual.steps.slice(0, 2).map((entry) => entry.command), ['singularity-flow decision visual-risk PAY-1 --comparison visual-x --expires 2099-01-01 --reason "<REASON>"', 'singularity-flow decisions PAY-1']);
+  assert.deepEqual(visual.steps.slice(0, 2).map((entry) => entry.command), ['singularity-flow decision visual-risk PAY-1 --comparison visual-x --expires 2099-01-01 --reason "<REASON>"', 'singularity-flow decisions record PAY-1']);
   assert.notEqual(refusalRemediationPlan(refused('WORKSPACE_NOT_FOUND'), ['decisions', 'PAY-1']).steps[0].id, 'open-decision-list');
   // The model's own departure record is its step, not the card's.
   assert.notEqual(refusalRemediationPlan(refused('DEPARTURE_UNCHANGED'), ['departure', 'record', '--kind', 'path']).steps[0].id, 'open-decision-list');

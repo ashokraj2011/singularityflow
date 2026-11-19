@@ -41,7 +41,8 @@ async function candidates(folder, suffix) {
 /** The newest .tgz and .vsix in `folder` that are one SFlow build: { cli, vsix } rows with name, path, size and version. */
 export async function selectLocalPair(folder, { inspectCli = inspectNpmTarballBuildSources,
   inspectExtension = inspectVsixBuildSources } = {}) {
-  const [tarballs, extensions] = await Promise.all([candidates(folder, '.tgz'), candidates(folder, '.vsix')]);
+  // One after the other, so an empty folder always names the .tgz first.
+  const tarballs = await candidates(folder, '.tgz'), extensions = await candidates(folder, '.vsix');
   // One of each: the pair check that follows reports any mismatch in the same words as a download.
   if (tarballs.length === 1 && extensions.length === 1) return { cli: tarballs[0], vsix: extensions[0] };
   const seen = new Map(), problems = [];

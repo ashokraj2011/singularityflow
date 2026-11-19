@@ -43,6 +43,7 @@ test('a link or a folder is one argument; the saved source keeps the other kind 
   assert.throws(() => localFolder('relative', 'darwin'), /full path/);
   assert.deepEqual(parseOptions(['--local-folder', '/data/sflow']), { localFolder: '/data/sflow' });
   assert.deepEqual(parseOptions(['/data/sflow', '--check-only']), { localFolder: '/data/sflow', checkOnly: true });
+  assert.deepEqual(parseOptions(['--hold', '--reinstall-copilot']), { hold: true, reinstallCopilot: true });
   assert.throws(() => parseOptions(['--source', 'https://contoso.sharepoint.com/:f:/x', '--local-folder', '/data']), /only once/);
 
   const directory = await area(t);

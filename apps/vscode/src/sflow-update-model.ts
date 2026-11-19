@@ -92,7 +92,9 @@ export function updaterArguments({ script, source, resultFile, currentCli, launc
     '--result', resultFile,
     ...(currentCli ? ['--current-cli', currentCli] : []),
     ...(launcher ? ['--code', launcher] : []),
-    ...(extensionsDirectory ? ['--code-extensions-dir', extensionsDirectory] : [])
+    ...(extensionsDirectory ? ['--code-extensions-dir', extensionsDirectory] : []),
+    // The terminal stays open on its last line, so every step can still be read after the end screen.
+    '--hold'
   ];
 }
 

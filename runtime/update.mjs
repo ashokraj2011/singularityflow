@@ -47,6 +47,7 @@ export function parseOptions(argv, { platform = process.platform, cwd = process.
     } else if (arg === '--check-only') options.checkOnly = true;
     else if (arg === '--reinstall') options.reinstall = true;
     else if (arg === '--reinstall-copilot') options.reinstallCopilot = true;
+    else if (arg === '--hold') options.hold = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else if (!arg.startsWith('-') && options.source === undefined && options.localFolder === undefined) setSource(arg);
     else fail('Unknown argument: ' + arg + '. Use --help.');
@@ -170,11 +171,20 @@ export async function updateCommand(argv, { reinstall = false, interactive = pro
 }
 
 export async function main({ reinstall = false } = {}) {
-  try { await updateCommand(process.argv.slice(2), { reinstall }); }
+  const argv = process.argv.slice(2);
+  try { await updateCommand(argv, { reinstall }); }
   catch (error) {
     console.error('SFlow update failed: ' + error.message);
     if (error.sourceProblem) console.error('To use another link: singularity-flow update --source \'LINK\' (or --local-folder FOLDER).');
     process.exitCode = 1;
+  }
+  // VS Code's terminal closes when its process ends; --hold keeps every step readable until the person closes it.
+  if (argv.includes('--hold') && process.stdin.isTTY) {
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try { await prompt.question('\nPress Enter to close this terminal. '); } finally { prompt.close(); }
+    // The result file already told VS Code how the update ended; a non-zero exit here would only add
+    // VS Code's own "terminal process terminated with exit code 1" toast on top of SFlow's end screen.
+    process.exitCode = 0;
   }
 }
 if (await isMainModule(import.meta.url)) await main();

@@ -58,9 +58,9 @@ test('the menu runs the updater its own VSIX ships, and the VSIX ships every fil
     launcher: '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code', extensionsDirectory: null }), [
     '/run/updater/runtime/update.mjs', '--source', 'https://contoso.sharepoint.com/:f:/s/t/A', '--reinstall-copilot', '--result', '/run/result.json',
     '--current-cli', '/opt/homebrew/lib/node_modules/singularity-flow/bin/singularity-flow.mjs',
-    '--code', '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code']);
+    '--code', '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code', '--hold']);
   assert.deepEqual(updaterArguments({ script: 'u', source: { mode: 'local-folder', localFolder: 'D:\\Downloads' }, resultFile: 'r', currentCli: null,
-    launcher: null, extensionsDirectory: 'D:\\ext' }), ['u', '--local-folder', 'D:\\Downloads', '--reinstall-copilot', '--result', 'r', '--code-extensions-dir', 'D:\\ext']);
+    launcher: null, extensionsDirectory: 'D:\\ext' }), ['u', '--local-folder', 'D:\\Downloads', '--reinstall-copilot', '--result', 'r', '--code-extensions-dir', 'D:\\ext', '--hold']);
 });
 
 test('one confirmation names the source, what is installed, and every step; end screens always offer a next action', () => {

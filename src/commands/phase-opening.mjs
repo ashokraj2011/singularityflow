@@ -152,8 +152,7 @@ export async function askAtTerminal(question) {
  */
 export async function openSuccessor(root, config, workflow, phase, { proposal, digest, question, open, typed = false, operationId = null, fault = null, settled = null }) {
   // Only the first opening of version 1 needs no yes [§7.2]; every successor does, the author's own correction too
-  // (owner, 2026-11-17) [D3, OSA:REQ-030]. The one exception: the review's findings on a version only the reviewer has
-  // seen, settled for the person with an undo (owner, 2026-11-19; review-findings-opening.mjs).
+  // (owner, 2026-11-17) [D3, OSA:REQ-030], but for review findings only the reviewer saw (owner, 2026-11-19).
   const owed = proposal.consent !== 'not-required' && !(settled?.kind === 'review-corrections' && proposal.reason === 'review-corrections');
   const found = owed ? await consentFor(root, workflow, { proposal, digest, question, typed }) : { principal: await principalHere(root), receipt: null };
   if (owed && !found.receipt) {

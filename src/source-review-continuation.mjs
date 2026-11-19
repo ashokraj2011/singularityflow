@@ -10,15 +10,9 @@ import { sourceReviewRequired } from './source-review-policy.mjs';
 import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
 import { inTurnSubmitCommand, reviewFindingsOpenCommand } from './action-command-map.mjs';
 
-/**
- * Whether only the reviewer has seen the published version its review asks to correct (owner, 2026-11-19, cut 10): the
- * review asks for corrections, nobody answered or disposed of it, no approval or return names that version, and no person
- * undid an earlier automatic start of this step. Its next version then starts on its own, with an undo
- * (review-findings-opening.mjs, which checks again with the person's typed words and changed files).
- */
+/** Only the reviewer has seen the version its retained review asks to correct (owner, 2026-11-19): review-findings-opening.mjs. */
 export function reviewerAloneSaw(workflow, phase, review) {
   const version = Number(phase?.generation ?? 0);
-  // A retained report is what the reviewer saw; a status with none is no review to act on.
   if (!(version >= 1) || phase.status !== 'in_progress' || workflow?.currentPhase !== phase.id || !reviewAsksForCorrection(review) || !review.reportSha256) return false;
   if (review.generation !== undefined && Number(review.generation) !== version) return false;
   if ((review.decisions ?? []).length || (review.carriedDecisions ?? []).length || (review.pendingDispositions ?? []).length) return false;
@@ -103,8 +97,8 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
       const code = phaseRequiresCodeDelivery(phase);
       if (operation === 'open-version' && inputs.consent === 'required') {
         // A published step's next version opens in its own work command, which asks the person, then fixes it in the same
-        // turn [D3, OSA:REQ-030]; /sf-recover found nothing to recover for unchanged bytes (owner, 2026-11-16). For a review's
-        // findings on a version only the reviewer has seen, it starts on its own, with an undo (owner, 2026-11-19).
+        // turn [D3, OSA:REQ-030]; /sf-recover found nothing to recover for unchanged bytes (owner, 2026-11-16), or starts it
+        // on its own when only the reviewer saw this one (owner, 2026-11-19).
         const skill = code ? '/sf-code' : String(author).replace(/^\/sflow-/u, '/sf-');
         const settles = Boolean(fix) && reviewerAloneSaw(workflow, phase, review);
         actions = [action(skill, settles ? reviewFindingsOpenCommand(phase.id) : `singularity-flow phase rollover ${phase.id} --json`,
@@ -146,8 +140,7 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     }
   }
   const presentation = continuationPresentation(actions[0]);
-  // A ready version is submitted by the turn that wrote it and started its reviewer: /sf-submit's own entry, run there once,
-  // so no separate /sf-submit turn follows (owner, 2026-11-19). A review turn of its own still ends on `presentation`.
+  // A ready version is submitted in the turn that wrote it, never a /sf-submit turn of its own (owner, 2026-11-19).
   const inTurn = classification === 'submission-required' && actions[0]?.skill
     ? { command: inTurnSubmitCommand(workflow.workItem.id), skill: actions[0].skill, reason: 'Submit the ready version now, in the turn that wrote it.' } : null;
   return { classification, publishedGeneration: Number(phase.generation ?? 0), targetGeneration: generation,

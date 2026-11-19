@@ -4,8 +4,7 @@ import { contextBoundaryPresentation } from './context-policy.mjs';
 /** One decision receipt, not a new-phase execution instruction. Full evidence remains retained. */
 export function approvalAgentResult(result) {
   const contextBoundary = contextBoundaryPresentation(result.data?.contextBoundary);
-  // The chat is kept (contextPolicy keep, shipped since 2026-11-19): the next step's own command, in this same chat, which
-  // VS Code puts in the chat input for one Enter. No /clear between steps.
+  // A kept chat (shipped 2026-11-19): the next step's own command, in the same chat.
   const handoff = result.data?.contextBoundary;
   const nextStep = !contextBoundary && handoff?.mode === 'keep' && !handoff.complete && typeof handoff.commands?.[0] === 'string' ? handoff.commands[0] : null;
   return { schemaVersion: 1, resultType: 'sflow-approval-agent-result',

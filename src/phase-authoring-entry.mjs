@@ -58,7 +58,6 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
     const opened = versionNumbers(versionFactsOf(workflow, phase));
     const legacy = opened.ok && opened.writing > 1 && versionFactsOf(workflow, phase).opening?.record === 'legacy';
     if (opened.ok && (!deterministic || phaseRequiresCodeDelivery(phase)) && (legacy || (opened.writing === null && opened.published >= 1))) {
-      // A review's findings on a version only the reviewer has seen: started on its own, never asked (owner, 2026-11-19).
       const settles = !legacy && review ? sourceReviewContinuation(workflow, phase, review) : null;
       if (settles?.nextCommand === reviewFindingsOpenCommand(phase.id)) return { status: 'retained-generation', reason: 'review-findings-settle', actions: settles.actions };
       const route = legacy ? copilotAction({ command: actionCommandLine('open-version', 'preview', { step: phase.id }) }) : sourceReviewContinuation(workflow, phase).actions[0];
@@ -73,8 +72,7 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
       && continuation.nextCommand === actionCommandLine('open-version', 'preview', { step: phase.id })) {
     return successorAsk(workflow, phase, { route: continuation.actions[0], reason: 'review-corrections', findings: reviewCorrection(review, phase.generation)?.findings ?? [] });
   }
-  // Only the reviewer has seen the version its review asks to correct: the next version starts on its own, with an undo,
-  // and this same turn fixes the findings; nobody is asked (owner, 2026-11-19).
+  // Only the reviewer saw the version: its next starts on its own (owner, 2026-11-19).
   if (continuation?.classification === 'successor-publication-required' && continuation.nextCommand === reviewFindingsOpenCommand(phase.id)) {
     return { status: 'retained-generation', reason: 'review-findings-settle', actions: continuation.actions };
   }

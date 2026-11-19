@@ -35,12 +35,7 @@ function turnExpired(record) {
   return Number.isFinite(record?.recordedAt) && Date.now() - turnWindowStart(record) > MAX_AGE;
 }
 
-/**
- * A turn past its window whose Story and checkout are exactly as its contract bound them (the workflow record and every
- * identity stamp unchanged) continues in the same chat once its agent reads the skill's entry again: its window starts
- * again then, noted beside the turn as a renewal (owner, 2026-11-19). The person typing the same command again changed
- * nothing but the clock. Anything changed keeps it expired, and the person invokes the skill again.
- */
+/** A turn past its window whose contract's workflow and stamps are unchanged goes on once its entry is read again (owner, 2026-11-19). */
 async function unchangedRenewal(payload, record) {
   try {
     const value = await boundedRecord(recordFile(payload));
@@ -2652,8 +2647,7 @@ async function shellSnapshot(root, contract) {
 
 export async function mutationPostToolGuard(payload = {}) {
   let record = await turn(payload);
-  // An expired turn's agent read the skill's entry again: when nothing changed since its contract, the same chat goes on
-  // (owner, 2026-11-19). Only an SFlow read the expired turn still admits renews it; an edit or a mutation never does.
+  // An expired turn's SFlow read, with nothing changed since its contract, renews it (owner, 2026-11-19); never an edit.
   if (record && !record.corrupt && turnExpired(record)) {
     const value = await boundedRecord(recordFile(payload)).catch(() => null);
     const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };

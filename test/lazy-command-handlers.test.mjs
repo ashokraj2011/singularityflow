@@ -824,7 +824,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // checklist, never a blocker (owner, 2026-11-18, Story new-ash-graph). No new eager file.
     // 9,762,550 (measured 9,762,505 for submit.mjs, start.mjs 9,760,968, 2026-11-19): the sf-code recovery above merged with
     // the local-service fixes and the Decide screens on one landing (+5 over its own measure). No new eager file.
-    assert.ok(closure.bytes <= 9_762_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,766,150 (measured 9,766,102 for submit.mjs, +3,597; start.mjs 9,763,918, 2026-11-19): the ceremony cuts' wiring
+    // (owner, 2026-11-19): a ready version's in-turn submission and the review's findings started on their own when only the
+    // reviewer saw the version (source-review-continuation.mjs reviewerAloneSaw, agent-output.mjs acts, action-command-map.mjs
+    // forms, phase-authoring-entry.mjs), the kept chat's next step after an approval (approval-agent-result.mjs) and the
+    // unchanged-turn renewal (copilot-mutation-guard.mjs). The settled opening itself stays lazy (review-findings-opening.mjs,
+    // 7.9 KB). No new eager file.
+    assert.ok(closure.bytes <= 9_766_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

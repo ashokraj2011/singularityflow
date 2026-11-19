@@ -152,9 +152,8 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
         nextAction: await legalNext(root, workflow, phase, config) });
   }
   // Only the first opening of version 1 omits the person's yes [§7.2]; every other needs its exact, sealed receipt, the
-  // author's own correction too (owner, 2026-11-17) [D3, OSA:REQ-030]. One named exception (owner, 2026-11-19): a version
-  // whose review asked for corrections, when only the reviewer has seen it, opens settled with an undo on the decisions
-  // card (review-findings-opening.mjs). It is recorded as that settlement, never as the person's consent.
+  // author's own correction too (owner, 2026-11-17) [D3, OSA:REQ-030]; but a review's findings on a version only the reviewer
+  // saw open settled, with an undo, never as consent (owner, 2026-11-19; review-findings-opening.mjs).
   const reviewSettled = settled?.kind === 'review-corrections' && proposal.reason === 'review-corrections' && typeof settled.id === 'string' && !receipt;
   const problem = reviewSettled ? null : proposal.consent !== 'not-required' || receipt ? consentProblem(commonDir, receipt, { digest, proposal, principal }) : null;
   // A yes that opens nothing (another person's, expired, declined, for another proposal, or none) is asked again: the

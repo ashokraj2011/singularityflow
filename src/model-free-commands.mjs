@@ -98,7 +98,7 @@ export function commandRouteRows(guidance = {}) {
   // A confirmation a person types by its short code reads the same in their terminal: the code, never the digest (confirm-code.mjs).
   const code = typeof guidance.copilotCommand === 'string' ? guidance.copilotCommand.match(/^\/sf-confirm ([0-9A-Z]{4}-[0-9A-Z]{4})$/u)?.[1] : null;
   return [
-    { label: 'Copilot', command: guidance.copilotCommand, unavailable: 'no verified equivalent' },
+    { label: /^\/decide /u.test(guidance.copilotCommand) ? 'Copilot CLI' : 'Copilot', command: guidance.copilotCommand, unavailable: 'no verified equivalent' },
     { label: 'Shell', command: code && guidance.command ? `singularity-flow confirm ${code}` : guidance.command, unavailable: 'not available for this action' },
     // A decisions route given without its model-free field still names the Decide card.
     { label: 'VS Code (model-free)', command: guidance.modelFreeCommand ?? (modelFreeCommandForCommand(guidance.command) === VSCODE_DECIDE_CARD ? VSCODE_DECIDE_CARD : null),

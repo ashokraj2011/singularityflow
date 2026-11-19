@@ -72,3 +72,10 @@ test('another Story\'s list, or a route with more to it, is not the list itself'
   assert.equal(routesToList({ command: `singularity-flow decisions ${W}` }, W), true);
   assert.equal(routesToList({ copilotCommand: '/sf-decide' }, W), true);
 });
+
+test('the Decide card\'s /decide is named as Copilot CLI\'s own, with VS Code\'s Command Palette entry beside it', async () => {
+  // [owner, 2026-11-19, loop 8] /decide exists only in Copilot CLI; VS Code's chat has no such command.
+  const { formatCommandRouteLines } = await import('../src/model-free-commands.mjs');
+  assert.deepEqual(formatCommandRouteLines(decideCardNext(W)), [`- Copilot CLI: /decide ${W}`, `- Shell: singularity-flow decisions record ${W}`, `- VS Code (model-free): ${VSCODE_DECIDE_CARD}`]);
+  assert.equal(formatCommandRouteLines({ command: `singularity-flow decisions ${W}`, copilotCommand: `/sf-decide ${W}` })[0], `- Copilot: /sf-decide ${W}`);
+});

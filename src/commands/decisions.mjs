@@ -970,7 +970,8 @@ async function record(root, options, workId, io) {
         ? `Recording needs the confirmation of the list it was chosen from. Review the summary, then run: ${preview.record.command}`
         : `These decisions are recorded in a person's own terminal, which shows the summary and asks them to confirm: ${preview.record?.command ?? packet.record.form}`,
         'DECISIONS_CONFIRMATION_REQUIRED', { summary: preview.summary, record: preview.record, packetSha256: packet.packetSha256,
-          nextAction: { command: `singularity-flow decisions ${packet.workId}`, skill: '/sf-decide', label: 'Review the decision list and the summary of your choices.' } });
+          // The exact record command, confirmed, never the list again [owner, 2026-11-19, loop 2].
+          nextAction: { command: preview.record?.command ?? packet.record.form, label: 'Record these choices with the summary confirmed.' } });
     }
     if (!DIGEST.test(confirm)) refused('--confirm takes the list\'s digest from its preview (`--json`, packetSha256). In your own terminal, leave --confirm out: it shows the summary and asks you to confirm.', 'DECISIONS_OPTIONS_INVALID', { packetSha256: packet.packetSha256 });
     if (!plan.steps.length) {
@@ -1002,14 +1003,15 @@ async function record(root, options, workId, io) {
       plan.steps.find((step) => step.item === entry.item)?.values ?? {}) }));
     if (outcome.failed) {
       const error = outcome.failed.error;
-      const list = `singularity-flow decisions ${workflow.workItem.id}`;
+      // The item that stopped is not offered here again: the person's own terminal asks it with its words [owner, 2026-11-19, loop 2].
+      const own = `singularity-flow decisions record ${workflow.workItem.id}`;
       throw new SingularityFlowError(
         `${recorded.length ? `Recorded ${recorded.map((entry) => `${entry.item}: ${entry.record}`).join(', ')}; then ` : ''}`
           + `${outcome.failed.item} stopped: ${error.message} Not recorded: ${remaining.map((entry) => `${entry.item}: ${entry.words}`).join('; ')}. `
-          + `List what remains with: ${list}`,
+          + `Do not choose ${outcome.failed.item} here again; decide it in your own terminal: ${own}`,
         { code: recorded.length ? 'DECISIONS_PARTLY_RECORDED' : error.code ?? 'DECISIONS_RECORD_FAILED',
-          details: { recorded, remaining, failed: { item: outcome.failed.item, kind: outcome.failed.kind, code: error.code ?? null, message: error.message },
-            cause: error.details ?? null, nextAction: { command: list, skill: '/sf-decide', label: 'List what remains to decide.' } } });
+          details: { recorded, remaining, failed: { item: outcome.failed.item, kind: outcome.failed.kind, code: error.code ?? null, message: error.message, recordable: false },
+            cause: error.details ?? null, nextAction: { command: own, label: `Decide ${outcome.failed.item} in your own terminal.` } } });
     }
     const read = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
     // Nothing left that waits on this person: the Story's own next step, never an answer with nothing to do [owner, 2026-11-18].

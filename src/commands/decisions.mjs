@@ -47,6 +47,7 @@ import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowErro
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card', 'probe', 'probe-wait']);
 const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch', 'version-consent', 'just-a-question', 'expect']);
 const UNDO_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'settled', 'reason', 'fetch']);
+const LEARN_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'all']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
 export const DECISIONS_USAGE = [
@@ -57,6 +58,7 @@ export const DECISIONS_USAGE = [
   '       singularity-flow decisions record [WORK-ID] --answers FILE',
   '       singularity-flow decisions record [WORK-ID]   (interactive terminal)',
   '       singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT]   (what was settled for you becomes your question again)',
+  '       singularity-flow decisions learn [WORK-ID] [--all] [--json]   (read only: how often answers followed the recommendation)',
   'Lists what people must decide before the step can move, in plain words with choices, and records the',
   'choices with one confirmation. Each choice is checked against the deciding person\'s approval group and',
   'written as the same records its own command writes. Options with a recommendation are shown first.',
@@ -540,8 +542,11 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
         }
       }
       if (option.needs.reason) {
-        // With no suggested wording, only the person's own reason answers it.
-        const value = await ask(`   Reason${option.needs.reason.default ? ` [${option.needs.reason.default}]` : ''}: `);
+        // With no suggested wording, only the person's own reason answers it. The recommended choice needs none: Enter keeps
+        // the recommendation's own [C10, 2026-11-19].
+        const need = option.needs.reason;
+        const value = await ask(need.minimum === 0 && need.recommended ? '   Reason (optional; Enter follows the recommendation): '
+          : `   Reason${need.default ? ` [${need.default}]` : ''}: `);
         if (value) values.reason[item.id] = value;
       }
     }
@@ -985,7 +990,13 @@ async function record(root, options, workId, io) {
     const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
     // An answers file is what VS Code's and Copilot CLI's decisions cards write; the terminal asks or takes flags.
     const channel = optionString(options, 'answers') ? 'decisions-card' : 'terminal';
-    const outcome = await runDecisionPlan(plan, (effect, step, produced) => applyEffect(root, config, workflow, effect, step, produced, { actor, agent, channel }));
+    // Each answer's advice record goes into the same commit as the decision it describes: the write of its last effect [Q13].
+    const { withAdvice } = await import('../advice-outcomes.mjs');
+    const surface = channel === 'decisions-card' ? 'card' : 'terminal';
+    const outcome = await runDecisionPlan(plan, (effect, step, produced, batch = null) => {
+      const write = () => applyEffect(root, config, workflow, effect, step, produced, { actor, agent, channel });
+      return batch || effect === step.effects.at(-1) ? withAdvice((batch ?? [step]).map((entry) => entry.advice), { surface }, write) : write();
+    });
     // The person's answer on the card restarts the window of the Copilot turn that opened it [owner, 2026-11-16].
     if (channel === 'decisions-card') await import('../copilot-mutation-guard.mjs').then((guard) => guard.renewTurnAfterCardAnswer(root, workflow.workItem.id)).catch(() => {});
     const isDraft = (entry) => entry.kind === 'intent-amendment-draft';
@@ -1136,18 +1147,54 @@ async function undo(root, options, workId) {
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
+/**
+ * `decisions learn`: how often each kind of answer followed SFlow's recommendation, and how often one was taken back, from
+ * this Story's records, or with --all every Story the machine's Story index holds for this repository [owner,
+ * 2026-11-19, Q13]. Read only: it writes nothing, not even the index. What it lists is a candidate; retiring a question
+ * stays a code change the owner approves.
+ */
+async function learn(root, options, workId) {
+  const { adviceLearning, adviceLearningLines } = await import('../advice-outcomes.mjs');
+  const workflows = [];
+  if (optionBoolean(options, 'all')) {
+    const [{ readStoryIndex, checkoutGitFacts }, { readFile: read }] = await Promise.all([import('../story-index.mjs'), import('node:fs/promises')]);
+    const here = await checkoutGitFacts(root);
+    const entries = (await readStoryIndex()).entries;
+    const keys = new Set(entries.filter((entry) => here && entry.commonDir === here.commonDir).map((entry) => entry.repository.key));
+    const seen = new Set();
+    for (const entry of entries.filter((item) => item.role !== 'secondary' && (keys.has(item.repository.key) || (here && item.commonDir === here.commonDir)))) {
+      if (seen.has(entry.workId)) continue;
+      const state = await read(path.join(entry.checkoutPath, ...entry.workflowPath.split('/')), 'utf8').then(JSON.parse).catch(() => null);
+      if (state?.workItem?.id === entry.workId) { seen.add(entry.workId); workflows.push(state); }
+    }
+  }
+  if (!workflows.length || workId) {
+    const { workflow } = await storyContext(root, workId, { record: false });
+    if (!workflows.some((entry) => entry.workItem?.id === workflow.workItem.id)) workflows.push(workflow);
+  }
+  const report = adviceLearning(workflows);
+  if (!optionBoolean(options, 'json')) console.log(adviceLearningLines(report).join('\n'));
+  emitCommandResult(commandResult({
+    operation: { id: 'decisions.learn', classification: 'read' },
+    subject: { kind: 'story', id: workflows[0]?.workItem?.id ?? workId ?? 'unknown' },
+    outcome: succeeded('decisions.learn.read', { stories: String(report.stories), candidates: String(report.toSettle.length) }),
+    effects: noEffects(), data: report
+  }), { json: optionBoolean(options, 'json') });
+}
+
 export async function run(argv, { positionals = argv, options = {}, io = { input: processInput, output: processOutput } } = {}) {
-  const mode = ['record', 'undo'].includes(positionals[1]) ? positionals[1] : 'show';
+  const mode = ['record', 'undo', 'learn'].includes(positionals[1]) ? positionals[1] : 'show';
   if (options.help === true) return console.log(DECISIONS_USAGE);
-  const allowed = new Set(mode === 'record' ? RECORD_OPTIONS : mode === 'undo' ? UNDO_OPTIONS : SHOW_OPTIONS);
+  const allowed = new Set(mode === 'record' ? RECORD_OPTIONS : mode === 'undo' ? UNDO_OPTIONS : mode === 'learn' ? LEARN_OPTIONS : SHOW_OPTIONS);
   for (const key of Object.keys(options)) {
     if (!allowed.has(key)) refused(`Unsupported decisions ${mode === 'show' ? '' : `${mode} `}option --${key}.`, 'DECISIONS_OPTIONS_INVALID');
   }
   const idIndex = mode === 'show' ? 1 : 2;
-  if (positionals.length > idIndex + 1) refused('Name at most one Story: singularity-flow decisions [record|undo] [WORK-ID].', 'DECISIONS_OPTIONS_INVALID');
+  if (positionals.length > idIndex + 1) refused('Name at most one Story: singularity-flow decisions [record|undo|learn] [WORK-ID].', 'DECISIONS_OPTIONS_INVALID');
   const workId = positionals[idIndex] ?? optionString(options, 'work-id') ?? null;
   const { repoRoot } = await import('../git.mjs');
   const root = repoRoot();
   if (mode === 'undo') return undo(root, options, workId);
+  if (mode === 'learn') return learn(root, options, workId);
   return mode === 'record' ? record(root, options, workId, io) : show(root, options, workId);
 }

@@ -110,6 +110,26 @@ test('a covered file and a test command the repository declares are settled, eac
   assert.ok(card.settled.some((entry) => entry.details.settledId === covered.id));
   assert.equal(JSON.stringify(card.items).includes('src/value.d.ts'), false, 'the covered file is no question');
 
+  // The person keeps the recommended answer on the card with nothing typed: no reason is asked, the record says it followed
+  // the recommendation, and whether it matched is written in the decision's own commit [owner, 2026-11-19, C10, Q13].
+  const row = card.items.find((entry) => entry.kind === 'departure');
+  assert.equal(row.recommended.option, 'accept');
+  const keep = path.join(repo.base, 'keep-answers.json');
+  await writeFile(keep, JSON.stringify({ choose: { [row.id]: 'accept' }, confirm: card.packetSha256 }));
+  const kept = sflowJson('decisions', 'record', 'QF-1', '--answers', keep);
+  assert.equal(kept.status, 0, JSON.stringify(kept.value));
+  const decided = await workflowOf(root);
+  assert.match(decided.planAmendments.at(-1).reason, /^Followed SFlow's recommendation: /u);
+  assert.deepEqual(decided.adviceOutcomes.map((entry) => [entry.kind, entry.subject, entry.matched, entry.reason, entry.surface, entry.record]),
+    [['departure', departed[0].id, true, 'recommendation', 'card', decided.planAmendments.at(-1).id]]);
+  const committed = JSON.parse(repo.must('git', ['show', 'HEAD:singularity/work-items/QF-1/workflow.json']));
+  assert.deepEqual([committed.planAmendments.at(-1).id, committed.adviceOutcomes.length], [decided.planAmendments.at(-1).id, 1], 'one commit holds both');
+  assert.equal(JSON.parse(repo.must('git', ['show', 'HEAD~1:singularity/work-items/QF-1/workflow.json'])).adviceOutcomes, undefined);
+  const learnedResult = sflowJson('decisions', 'learn', 'QF-1');
+  assert.equal(learnedResult.status, 0, JSON.stringify(learnedResult.value).slice(0, 1500));
+  const learned = learnedResult.value.data;
+  assert.deepEqual(learned.rows.map((entry) => [entry.kind, entry.option, entry.answers, entry.matched]), [['departure', 'accept', 1, 1]]);
+
   // Undone, the next prepublish records it as a departure a person decides, and settles it no more.
   assert.equal(sflowJson('decisions', 'undo', 'QF-1', '--settled', covered.id).status, 0);
   sflowJson('phase', 'prepublish', 'implement', '--for-agent');

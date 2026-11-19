@@ -53,9 +53,11 @@ test('a "still holds" row is a yes or no in chat: yes still holds, no redoes it,
   assert.equal(row.chatYesNo, true);
   assert.deepEqual({ yes: row.yesNo.yes, no: row.yesNo.no, route: row.yesNo.route }, { yes: 'still-holds', no: 'return-step', route: '/sf-decide D-1' });
   // The question names the recommended answer and why, in one line.
-  // It says how long a reason the command takes, from the option's own need [owner, 2026-11-14].
-  assert.equal(row.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: yes. Fix design\'s document names neither AC-001 nor any path it expects. Say why in at least 20 characters.');
-  assert.equal(row.options.find((entry) => entry.id === 'still-holds').needs.reason.minimum, 20);
+  // It says how long a reason the command takes, from the option's own need [owner, 2026-11-14], and only for the side that
+  // takes one: the recommended answer needs none [owner, 2026-11-19, C10].
+  assert.equal(row.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: yes. Fix design\'s document names neither AC-001 nor any path it expects. A no says why in at least 20 characters.');
+  assert.equal(row.options.find((entry) => entry.id === 'still-holds').needs.reason.minimum, 0);
+  assert.equal(row.options.find((entry) => entry.id === 'return-step').needs.reason.minimum, 20);
   assert.doesNotMatch(row.yesNo.question, /\n/u);
   const command = (id) => row.options.find((entry) => entry.id === id).chat.command;
   assert.equal(command('still-holds'), 'singularity-flow upstream-issue revalidate fix-design --work-id D-1 --amendment AMD-001 --outcome unchanged --reason "<REASON>"');
@@ -66,7 +68,7 @@ test('a "still holds" row is a yes or no in chat: yes still holds, no redoes it,
   assert.deepEqual(decisionChatSteps(packet, [{ item: row.id, option: 'still-holds', values: {} }]), [], 'no reason, nothing to run');
   // Its document names a path the changed clause expects: redo it, and the question says so.
   const redo = rowOf(packetOf(story(), { recommend: 'return', namedPaths: ['src/value.mjs'] }));
-  assert.equal(redo.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: no, redo it. Fix design\'s document names src/value.mjs, which AC-001 expects. Say why in at least 20 characters.');
+  assert.equal(redo.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: no, redo it. Fix design\'s document names src/value.mjs, which AC-001 expects. A yes says why in at least 20 characters.');
   // A step whose name does not say its ID is named by both, so the answer binding reads which row a reply is for.
   const renamed = story();
   renamed.phases['fix-design'].label = 'Design notes';
@@ -151,7 +153,10 @@ test('a chat reason is held to the length its own command takes, as the list ask
   const at = (reason) => revalidateAfterForwardAmendment('/nonexistent', {}, story(), { amendmentId: 'AMD-001', phaseId: 'fix-design', outcome: 'unchanged', reason, actor: OTHER, at: AT });
   await assert.rejects(at('x'.repeat(19)), { code: 'FORWARD_AMENDMENT_INVALID' });
   await assert.rejects(at('x'.repeat(20)), { code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED' });
-  // The list asks each yes or no for the same minimum its command takes.
+  // The list asks each yes or no for the same minimum its command takes, except the recommended answer, which takes none and
+  // records the recommendation's own reason, longer than that minimum [owner, 2026-11-19, C10].
   const row = rowOf(packetOf(story()));
-  assert.ok(row.options.every((entry) => entry.needs.reason.minimum === REASON_RULES['upstream-issue revalidate'].reason[0]));
+  assert.ok(row.options.every((entry) => (entry.id === row.recommended.option ? entry.needs.reason.minimum === 0
+    && entry.needs.reason.default.length >= REASON_RULES['upstream-issue revalidate'].reason[0]
+    : entry.needs.reason.minimum === REASON_RULES['upstream-issue revalidate'].reason[0])));
 });

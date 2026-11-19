@@ -412,6 +412,11 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Undid ${slot(s.settled)}; it is a question for a person again.`,
     preserves: false
   },
+  'decisions.learn.read': {
+    // Read only: how often answers followed SFlow's recommendation [owner, 2026-11-19, Q13].
+    headline: (s) => `Read the answers of ${slot(s.stories, '0')} Story record(s); ${slot(s.candidates, '0')} kind(s) could be settled, which only a code change does.`,
+    preserves: true
+  },
   'upstream-issue.decide.succeeded': {
     headline: (s) => `Decided ${slot(s.issue)}: ${slot(s.outcome)}.`,
     preserves: false

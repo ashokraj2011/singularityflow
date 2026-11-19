@@ -969,7 +969,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // the operating system's input idle time is read through the registered process owner (platform-process.mjs +1,388).
   // The stamp itself (machine-activity.mjs) loads lazily. No new eager file.
   // 873,300 (measured 873,289 on landing-5, 2026-11-19): the update command and the idle stamp together (+72 and +1,601 above).
-  assert.ok(root.bytes <= 873_300, `root dispatch loads ${root.bytes} source bytes`);
+  // 873,438 (measured 873,438, +149, 2026-11-19): `decisions learn` registered as a read (command-registry.mjs), the
+  // read-only report of how often answers followed the recommendation [owner, 2026-11-19, Q13]. No new eager file.
+  assert.ok(root.bytes <= 873_438, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1288,7 +1290,9 @@ test('the common session projection does not import attach, state stores or publ
   // registered process owner (platform-process.mjs osIdleMilliseconds), so Git work SFlow starts by itself waits for an idle
   // laptop [owner, 2026-11-19]. No new eager file.
   // 4,295,200 (measured 4,295,190 on landing-5, 2026-11-19): the update command, the idle reader and the secret-scanner rewording together.
-  assert.ok(current.bytes <= 4_295_200, `session current loads ${current.bytes} source bytes`);
+  // 4,295,339 (measured 4,295,339, +149, 2026-11-19): `decisions learn` registered as a read (command-registry.mjs) [owner,
+  // 2026-11-19, Q13]. No new eager file.
+  assert.ok(current.bytes <= 4_295_339, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

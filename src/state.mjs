@@ -666,10 +666,15 @@ export function governedStateChange(root, config, workflow, commit) {
   };
 }
 
-/** Whether a state change touches no top-level key but `keys`. */
+/**
+ * Whether a state change touches no top-level key but `keys`. The advice record (advice-outcomes.mjs) may grow beside any
+ * decision: it is written in the decision's own commit, only appends, and decides nothing [owner, 2026-11-19, Q13].
+ */
 export function stateChangesOnly({ before, after }, keys) {
+  const adviceAppends = () => Array.isArray(after.adviceOutcomes ?? []) && recordSha256((after.adviceOutcomes ?? []).slice(0, (before.adviceOutcomes ?? []).length))
+    === recordSha256(before.adviceOutcomes ?? []);
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].every((key) =>
-    keys.includes(key) || recordSha256(before[key] ?? null) === recordSha256(after[key] ?? null));
+    keys.includes(key) || recordSha256(before[key] ?? null) === recordSha256(after[key] ?? null) || (key === 'adviceOutcomes' && adviceAppends()));
 }
 
 /**

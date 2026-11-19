@@ -2335,9 +2335,13 @@ export function decisionRecordPlan(packet, answers, { at }) {
       continue;
     }
     const values = {};
+    const typed = String(answers.reason.get(item.id) ?? '').trim();
     if (selected.needs.reason) {
-      const reason = String(answers.reason.get(item.id) ?? selected.needs.reason.default).trim();
       const { minimum, maximum } = selected.needs.reason;
+      // A reason that may be left out takes the option's own when left blank, as a card sends it: only the recommended choice
+      // has one [C10, 2026-11-19]. Any other blank stays blank, so a card's empty field never records SFlow's sentence.
+      const reason = minimum === 0 ? (typed || String(selected.needs.reason.default ?? '').trim())
+        : String(answers.reason.get(item.id) ?? selected.needs.reason.default).trim();
       if (reason.length < minimum || reason.length > maximum) {
         refused(`The reason for ${item.id} must be ${minimum} to ${maximum} characters.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
       }
@@ -2361,7 +2365,9 @@ export function decisionRecordPlan(packet, answers, { at }) {
     if (selected.needs.clause) values.clause = namedClauses(item, answers.clause?.get(item.id), selected.needs.clause.known ?? []);
     if (selected.needs.article) values.article = checkedArticles(item, answers.article?.get(item.id), selected.needs.article);
     steps.push({ item: item.id, title: item.title, option: chosen, label: selected.label, values,
-      effects: selected.effects.map((effect) => ({ ...effect })) });
+      effects: selected.effects.map((effect) => ({ ...effect })),
+      // Whether the answer followed SFlow's recommendation, written with the decision [owner, 2026-11-19, Q13].
+      ...(item.kind === 'settled' ? {} : { advice: adviceOf(item, selected, { typed: Boolean(typed) && Boolean(selected.needs.reason), phase: packet.phase ?? null }) }) });
   }
   // A decision on an intent amendment is its own run and its own commit [owner, 2026-11-13]: never mixed with another choice.
   const alone = steps.find((step) => step.effects.some((effect) => ALONE_EFFECTS.includes(effect.kind)));
@@ -2372,6 +2378,26 @@ export function decisionRecordPlan(packet, answers, { at }) {
   // A route moves the Story on, so everything else on this list is written first.
   const routes = (step) => step.effects.some((effect) => effect.kind === 'routing' || (effect.kind === 'amendment-revalidation' && effect.outcome === 'return'));
   return { steps: [...steps.filter((step) => !routes(step)), ...steps.filter(routes)], refused: refusedItems };
+}
+
+/** What an item was about, as the advice record names it: its departure, issue, file or row; null when nothing names it. */
+function adviceSubject(item) {
+  const details = item.details ?? {};
+  return details.departure ?? details.issue ?? (details.amendment && details.phase ? `${details.amendment} ${details.phase}` : null)
+    ?? item.subject ?? (details.path ? `file:${details.path}` : null) ?? details.clause ?? details.criterion ?? details.request ?? null;
+}
+
+/**
+ * One answer against the item's recommendation, as the advice record keeps it [owner, 2026-11-19, Q13]: no free text, no
+ * file contents, no actor (the decision's own record keeps those). `matched` is null when no single option was recommended.
+ */
+export function adviceOf(item, selected, { typed = false, phase = null } = {}) {
+  const recommended = item.recommended ?? null;
+  const option = recommended?.option ?? null;
+  return { kind: item.kind, subject: adviceSubject(item), phase: item.details?.phase ?? phase,
+    recommended: { form: recommended?.form ?? (option ? 'option' : recommended ? 'lean' : 'none'), option },
+    chosen: { option: selected.id, outcome: selected.outcome ?? null }, matched: option ? option === selected.id : null,
+    reason: !selected.needs?.reason ? 'none' : typed ? 'typed' : selected.needs.reason.recommended ? 'recommendation' : 'default' };
 }
 
 /** One record a plan writes, in plain words with its record kind, for summaries and reports. */
@@ -2433,7 +2459,8 @@ export function effectWords(workflow, effect, values = {}) {
 }
 
 /**
- * Write a plan's effects in order through `apply(effect, step, produced)`, which records one effect
+ * Write a plan's effects in order through `apply(effect, step, produced, batch)`, which records one effect (`batch`: the
+ * steps one write records together, when there are several)
  * with its existing function and returns the record. A failure stops there: the result says exactly
  * which records were written and which remain, so nothing is guessed and a rerun lists only what
  * remains.
@@ -2452,7 +2479,7 @@ export async function runDecisionPlan(plan, apply) {
         : first.kind === 'convergence-adjudication' ? { kind: first.kind, phase: first.phase, expect: first.expect, answers: batch.flatMap(adjudicationAnswersOf) }
           : { kind: 'plan-amendment', changes: batch.map((step) => step.effects[0].change) };
       try {
-        const record = await apply(effect, batch[0], {});
+        const record = await apply(effect, batch[0], {}, batch);
         recorded.push(...batch.map((step) => ({ item: step.item, kind: effect.kind, record })));
       } catch (error) {
         return { recorded, failed: { item: batch[0].item, kind: effect.kind, error }, remaining: [...batch.map((step) => ({ item: step.item, kind: effect.kind, effect: step.effects[0] })), ...after(batchIndex)] };

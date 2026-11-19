@@ -267,8 +267,10 @@ test('under SF Guard no row offers chat, and every host says it is recorded in t
   }
   // Without SF Guard each yes or no names its row and the reason it takes, as the answer binding reads it.
   const departure = open.items.find((item) => item.kind === 'departure');
-  assert.equal(departure.yesNo.question, 'DEP-001: package-lock.json changed. Accept? Say why in at least 20 characters.');
-  assert.equal(open.items.find((item) => item.details?.responsibility).yesNo.question, 'Say why scope does not apply. It does not apply to this Story? Say why in at least 20 characters.');
+  // The recommended answer needs no reason; the question says so, and which side takes one [owner, 2026-11-19, C10].
+  assert.equal(departure.yesNo.question, 'DEP-001: package-lock.json changed. Accept? Recommended: yes. It is a supporting file the change needs; accepting lists it in the plan, and no step is reset. A no says why in at least 20 characters.');
+  // Saying a responsibility does not apply is an exception: recommended or not, it keeps the person's reason.
+  assert.equal(open.items.find((item) => item.details?.responsibility).yesNo.question, 'Say why scope does not apply. It does not apply to this Story? Recommended: yes. The workflow says why: This workflow takes its scope from the Epic. Record it if that holds for this Story. Say why in at least 20 characters.');
 });
 
 test('every host shows the recommendation and what each choice does; the approval opens its page from the card', async () => {

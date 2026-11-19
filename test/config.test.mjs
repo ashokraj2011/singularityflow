@@ -92,12 +92,17 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
     mode: 'required', maxQuestions: 5, topics: ['problem', 'outcome', 'users', 'scope', 'constraints'],
     markers: { mode: 'off' }
   });
-  assert.equal(feature.phases.find((item) => item.id === 'requirements').clarification.mode, 'required');
-  assert.equal(feature.phases.find((item) => item.id === 'design').clarification.mode, 'required');
-  assert.equal(feature.phases.find((item) => item.id === 'implementation-spec').clarification.mode, 'required');
-  assert.equal(bugfix.phases.find((item) => item.id === 'reproduction').clarification.mode, 'required');
+  // Clarification is required only at a Story's intake; later steps ask only what is truly unclear [owner, 2026-11-19].
+  assert.equal(feature.phases.find((item) => item.id === 'requirements').clarification.mode, 'when-needed');
+  assert.equal(feature.phases.find((item) => item.id === 'design').clarification.mode, 'when-needed');
+  assert.equal(feature.phases.find((item) => item.id === 'implementation-spec').clarification.mode, 'when-needed');
+  assert.equal(bugfix.phases.find((item) => item.id === 'reproduction').clarification.mode, 'when-needed');
   assert.equal(figmaMobile.phases.find((item) => item.id === 'design-intake').clarification.mode, 'required');
-  assert.equal(figmaMobile.phases.find((item) => item.id === 'mobile-spec').clarification.mode, 'required');
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'mobile-spec').clarification.mode, 'when-needed');
+  for (const type of [feature, bugfix, figmaMobile]) {
+    assert.deepEqual(type.phases.slice(1).filter((item) => item.clarification.mode === 'required').map((item) => item.id), [],
+      'only the first step of a shipped type requires clarification');
+  }
   assert.deepEqual(bugfix.phases.find((item) => item.id === 'verification').inputs.map((item) => item.phase), ['fix-spec', 'implementation']);
   assert.deepEqual(figmaMobile.phases.map((item) => item.id), ['design-intake', 'design-inventory', 'component-mapping', 'mobile-spec', 'implementation', 'visual-verification', 'conformance']);
   assert.deepEqual(figmaMobile.documents.allowedPhases, ['design-intake', 'design-inventory']);

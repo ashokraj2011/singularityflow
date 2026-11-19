@@ -181,8 +181,8 @@ ownership without changing prior publications or claiming that visual acceptance
 `clarification.checkpoint` is presented before large recovery/context bodies. `derive-questions`
 permits questions from the pinned evidence while artifact authoring remains blocked. Load the
 returned composed context once, derive specific material ambiguities, and ask the human; never
-ask the human to supply the questions or unspecified “clarification answers.” In required mode,
-if there is no material ambiguity, ask for confirmation of a concise interpretation. A menu
+ask the human to supply the questions or unspecified “clarification answers.” Required mode (a
+Story's intake) asks what the request leaves open, never a confirmation of what is already stated. A menu
 selection promising an answer is not an answer. Record actual replies through the returned
 `responseStagingPath` and response-file command; do not invent answers or edit records.
 

@@ -19,7 +19,7 @@ import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { presenceRequires } from './presence/counted.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
-import { clausesTakingPaths, leftOutWords, rowTakesPaths } from './plan-row-fit.mjs';
+import { clausesTakingPaths, leftOutWords, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
@@ -1313,12 +1313,17 @@ function departureItem(workflow, context, entry, facts) {
       words: `${name} is submitted, so the wording is amended once its approvers return it; then ${departure.id} is decided here.`,
       does: `Returns ${name} to its author: ${reopenWords(workflow, departure.phase)}; then ${departure.id} can be accepted.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: departure.phase }], context) }] : [])];
+  } else if (['plan-row', 'test'].includes(departure.kind)) {
+    // A plan row or test change is kept here, on the card or in /sf-decide, with the exact rows shown, by an approver of
+    // the plan; it records the plan row correction it names [owner, 2026-11-19]. A person's own terminal still works.
+    const change = rowChangeWords(departure.change);
+    accepts = [{ ...accept({ label: 'Accept', words: `The plan changes exactly so: ${change}. A plan row correction records it with your reason; nothing else in the plan changes, and no step is reset.`,
+      writes: 'plan-row-correction' }), oneByOne: true, chat: { command: decide('accepted') },
+    ...(facts.acceptance?.[departure.id] ? { terminal: facts.acceptance[departure.id] } : {}) }];
   } else {
     const own = facts.acceptance?.[departure.id];
-    accepts = [{ ...personalStep({ id: 'accept', label: departure.kind === 'clause' ? `Accept: change ${listWords(departure.clauses ?? [])}` : 'Accept this plan row change',
-      command: own, words: departure.kind === 'clause'
-        ? `An intent amendment changes the approved clauses; the scope's approvers decide it in their own terminal, and the steps that cite them reopen${facts.reopens?.[departure.id]?.length ? `: ${listWords(facts.reopens[departure.id].map((id) => stepName(workflow, id)))}` : ''}.`
-        : 'A plan row correction is reviewed in your own terminal with your reason; nothing else in the plan changes.',
+    accepts = [{ ...personalStep({ id: 'accept', label: `Accept: change ${listWords(departure.clauses ?? [])}`,
+      command: own, words: `An intent amendment changes the approved clauses; the scope's approvers decide it in their own terminal, and the steps that cite them reopen${facts.reopens?.[departure.id]?.length ? `: ${listWords(facts.reopens[departure.id].map((id) => stepName(workflow, id)))}` : ''}.`,
       decidedBy: stepDecidedBy(workflow, context, groups, 'You decide it in your own terminal.') }), oneByOne: true }];
   }
   const restore = departure.kind === 'finding' ? `The model takes the fix out of ${files} in this generation, and ${listWords(departure.findings ?? [])} ${(departure.findings ?? []).length === 1 ? 'is' : 'are'} open again in the findings register.`

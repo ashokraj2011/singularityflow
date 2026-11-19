@@ -30,6 +30,19 @@ test('a planned test change is accepted by a plan row correction that asks for i
   assert.equal(departureStatus(workflow, departure).status, 'accepted');
 });
 
+test('a plan row correction kept among the plan amendments, where the correction command writes it, accepts its departure', () => {
+  // The office laptop's departures stayed open after their correction: the acceptance read a list nothing writes [owner, 2026-11-19].
+  const workflow = story();
+  const departure = recordDeparture(workflow, { kind: 'plan-row', phase: 'code', generation: 1, change: { op: 'set-fulfillment', clauseId: 'W-1:AC-001', fulfillment: 'test-only' },
+    clauses: ['W-1:AC-001'], reason: 'The page objects only support the end-to-end checks.', at: AT });
+  workflow.planAmendments = [{ id: 'PAM-001', kind: undefined, changes: [], at: LATER },
+    { id: 'PRC-001', kind: 'plan-row-correction', at: LATER, reviewAssurance: 'person-decision-answer',
+      operations: [{ op: 'set-fulfillment', clauseId: 'W-1:AC-001', fulfillment: 'test-only', previousClaimSha256: 'c'.repeat(64) }] }];
+  assert.deepEqual([departureAcceptance(workflow, departure).kind, departureAcceptance(workflow, departure).id], ['plan-row-correction', 'PRC-001']);
+  workflow.planAmendments[1].operations[0].fulfillment = 'modified';
+  assert.equal(departureAcceptance(workflow, departure), null, 'another value is another change');
+});
+
 test('wording is accepted when the forward amendment proposed from it is approved, and a clause when its intent amendment is', () => {
   const workflow = story();
   const wording = recordDeparture(workflow, { kind: 'wording', phase: 'code', generation: 1, target: { phase: 'design', generation: 1 }, reason: 'The design said callers never keep a copy.', at: AT });

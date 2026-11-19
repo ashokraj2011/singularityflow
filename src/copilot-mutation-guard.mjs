@@ -804,7 +804,7 @@ export function argvAllowed(argv, mode, value) {
     && options['work-id'] === value.contract.workId;
   if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
     && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
-    && !planRowCorrectionStep(positionals, options)
+    // A plan row correction too, held to the person's own answer to the question that showed its rows [owner, 2026-11-19].
     && (!positionals[2] || positionals[2] === value.contract.workId)
     && (!options['work-id'] || options['work-id'] === value.contract.workId);
   if (mode === 'session-only') return ['session', 'agent', 'resume'].includes(positionals[0])
@@ -2481,7 +2481,7 @@ async function mutationToolDecision(payload, record) {
         if (clarificationAnswerCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a clarification answer from another clone is the approver\'s own word, committed under their Git identity, in their own terminal (singularity-flow clarification answer <step> --question "<QUESTION>" --answer "<ANSWER>"); the author\'s checkout then runs singularity-flow clarification import <step>. Show the user the command and stop; do not retry it', [], own());
         if (planRowCorrectionCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan\'s rows is the word of a person who approves that plan, after reviewing the exact rows in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the command and stop; do not retry it', [], own());
+          `PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan's rows is the word of a person who approves that plan: they keep it on the Decide card or answer it in /sf-decide ${contract.workId ?? '<WORK-ID>'}, each showing the exact rows, or run it in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the route and stop; do not retry it`, [], own());
         if (liveTerminalReviewCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this decision is recorded only after the person reviews its exact card in their own terminal and types the confirmation there; no turn runs or answers it. Show the user the command and stop; do not retry it', [], own());
         if (signOffCall(call, value)) {

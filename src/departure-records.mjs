@@ -462,9 +462,30 @@ export async function commitDepartureDecision(root, config, workflow, { departur
     const decided = await acceptWordingDeparture(root, config, workflow, { departure, reason, actor, agent });
     return { decision: 'accepted', record: decided, departures: [departure.id] };
   }
+  // A plan row or test change: a person's Keep on the Decide card, or their own bound answer in /sf-decide, records the plan
+  // row correction it names, exactly, under the plan's approval group [owner, 2026-11-19]. One at a time: each is its own record.
+  if (writes === 'plan-row-correction') {
+    if (chosen.length > 1) departureRefusal(`Accept one plan row change at a time: each is its own correction. Accept ${chosen.map((entry) => entry.id).join(', then ')}.`);
+    const [departure] = chosen;
+    const { recordAnsweredPlanCorrection } = await import('./commands/plan-correction.mjs');
+    const record = await recordAnsweredPlanCorrection(root, config, workflow, correctionOptions(departure, reason), { actor, agent });
+    return { decision: 'accepted', record, departures: [departure.id] };
+  }
   const [departure] = chosen;
-  departureRefusal(`${departure.id} is accepted by its own record, ${writes === 'intent-amendment' ? 'an intent amendment the scope\'s approvers decide' : 'a plan row correction an approver of the plan reviews'}, in a person's own terminal: ${acceptanceCommand(workflow, departure)}`,
+  departureRefusal(`${departure.id} is accepted by its own record, an intent amendment the scope's approvers decide, in a person's own terminal: ${acceptanceCommand(workflow, departure)}`,
     'DEPARTURE_OWN_TERMINAL', { departure: departure.id, command: acceptanceCommand(workflow, departure) });
+}
+
+const CORRECTION_FLAG = Object.freeze({ 'add-test': (change) => `${change.clauseId}=${change.test}`, 'replace-test': (change) => `${change.clauseId}=${change.from}:${change.to}`,
+  'set-fulfillment': (change) => `${change.clauseId}=${change.fulfillment}`, 'remove-location': (change) => `${change.clauseId}=${change.path}`,
+  'replace-location': (change) => `${change.clauseId}=${change.from}:${change.to}`, 'add-row': (change) => change.clauseId });
+
+/** The `decision plan` options a row or test departure's exact change is, with the person's reason. */
+export function correctionOptions(departure, reason) {
+  const change = departure.change ?? {};
+  const value = CORRECTION_FLAG[change.op];
+  if (!value) departureRefusal(`${departure.id} names no plan row change a correction can make.`);
+  return { [change.op]: value(change), reason };
 }
 
 const shellWord = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${String(value).replaceAll("'", `'"'"'`)}'`);
@@ -480,9 +501,7 @@ export function acceptanceCommand(workflow, departure) {
     return `singularity-flow story intent-amendment propose --work-id ${workId} --file ${shellWord(departure.proposal.path)} --departure ${departure.id} --reason "<REASON>"`;
   }
   const change = departure.change ?? {};
-  const flag = { 'add-test': `--add-test ${shellWord(`${change.clauseId}=${change.test}`)}`, 'replace-test': `--replace-test ${shellWord(`${change.clauseId}=${change.from}:${change.to}`)}`,
-    'set-fulfillment': `--set-fulfillment ${shellWord(`${change.clauseId}=${change.fulfillment}`)}`, 'remove-location': `--remove-location ${shellWord(`${change.clauseId}=${change.path}`)}`,
-    'replace-location': `--replace-location ${shellWord(`${change.clauseId}=${change.from}:${change.to}`)}`, 'add-row': `--add-row ${shellWord(change.clauseId)}` }[change.op] ?? '';
+  const flag = CORRECTION_FLAG[change.op] ? `--${change.op} ${shellWord(CORRECTION_FLAG[change.op](change))}` : '';
   return `singularity-flow decision plan ${workId} --fetch ${flag} --reason "<REASON>"`;
 }
 

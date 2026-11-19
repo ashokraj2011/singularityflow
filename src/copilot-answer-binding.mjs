@@ -19,7 +19,7 @@ import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { ANSWER_BOUND_STEPS, ANSWER_BOUND_TURNS } from './person-step-catalog.mjs';
+import { ANSWER_BOUND_STEPS, ANSWER_BOUND_TURNS, PLAN_CORRECTION_FLAGS } from './person-step-catalog.mjs';
 
 export { ANSWER_BOUND_TURNS };
 const WORD_FLAGS = Object.freeze(['reason', 'supporting-reason', 'article-reason', 'cause']);
@@ -184,8 +184,9 @@ function yesNoCommand([command, sub, third], options, version = null) {
   }
   if (command === 'decision' && sub === 'departure') {
     const records = { accepted: 'yes', rejected: 'no' }[options.as];
+    // The card asks "Keep this change (DEP-002): …?": Keep is its yes [owner, 2026-11-19].
     return records ? { records, row: `departure ${text('departure')[0]}`, names: text('departure'), ids: /\bdep \d{3,}\b/u,
-      yes: ['accept'], no: ['reject'], typed: { yes: /\bd\d{1,3}=accept[\w-]*/u, no: /\bd\d{1,3}=reject\b/u } } : null;
+      yes: ['accept', 'keep', 'keep it'], no: ['reject'], typed: { yes: /\bd\d{1,3}=accept[\w-]*/u, no: /\bd\d{1,3}=reject\b/u } } : null;
   }
   if (command === 'decision' && sub === 'applicability') return { records: 'yes', only: true, row: `applicability ${text('responsibility')[0]}`, names: text('responsibility'), yes: [], no: [] };
   // Proposing an intent amendment from chat, under SPEC-CIC switch 3 [CIC:REQ-015, owner decision 3]: only on the person's own
@@ -203,6 +204,14 @@ function yesNoCommand([command, sub, third], options, version = null) {
     const question = asQuestion(options);
     return { records: question ? 'question' : 'yes', proposal: true, successor: true, version, row: `${question ? 'question' : 'rollover'} ${third}`, names: [], ids: NEVER,
       yes: ['start it'], no: ["don't start", 'do not start'], typed: { yes: NEVER, no: NEVER }, terminal: `singularity-flow phase rollover ${third ?? '<step>'}` };
+  }
+  // A plan row correction [owner, 2026-11-19]: only on the person's own yes to a question that showed its exact rows, each
+  // clause and what it becomes, in this turn; never another yes, and no question records nothing.
+  const corrections = PLAN_CORRECTION_FLAGS.flatMap((flag) => text(flag));
+  if (command === 'decision' && sub === 'plan' && corrections.length) {
+    const names = [...new Set(corrections.flatMap((entry) => entry.split(/[=:,]/u)).map((word) => word.trim()).filter(Boolean)
+      .map((word) => (/^[A-Za-z0-9._-]+:[A-Za-z]{2,4}-\d{3}$/u.test(word) ? word.split(':').at(-1) : word)))];
+    return { records: 'yes', only: true, required: true, row: `plan correction ${names.join(' ')}`, names, yes: ['keep', 'keep it'], no: [] };
   }
   if (command === 'decision' && sub === 'plan' && (options['add-location'] !== undefined || options['add-supporting'] !== undefined)) {
     const paths = [...text('add-location').map((entry) => entry.slice(entry.indexOf('=') + 1)), ...text('add-supporting').map((entry) => entry.split('=')[0])].sort();
@@ -265,6 +274,8 @@ function yesNoAnswer(ledger, yesNo) {
   // A one-choice item reads only a question that names it, never one about an amendment or a departure.
   const mine = replies.filter((entry) => names(entry) && !(yesNo.only && /\b(?:fam|amd|dep) \d{3,}\b/u.test(named(entry.reply.asked))));
   if (mine.length) return mine.at(-1);
+  // A row that must be shown before it is kept (a plan row correction) stands on no other answer.
+  if (yesNo.required) return { problem: 'none' };
   if (yesNo.only) return null;
   const free = replies.filter((entry) => !yesNo.ids.test(named(entry.reply.asked)));
   const last = free.at(-1);
@@ -285,6 +296,9 @@ function yesNoProblem(ledger, yesNo, { localChat = false } = {}) {
   // VS Code's own chat may never hand this hook the answer: asking again would meet this refusal again.
   if (found.problem === 'none' && localChat && !ledger.delivered) {
     return `${REFUSAL} This chat's answers do not reach SFlow, so a yes or no for this row cannot be recorded here; do not ask again in this chat. The person answers it on the decisions card (sflowDecide or sflow_decide with the Story ID) or in their own terminal (singularity-flow decisions record <WORK-ID>); go on to the next item.`;
+  }
+  if (found.problem === 'none' && yesNo.required) {
+    return `${REFUSAL} A plan row correction is kept only on the person's own answer to a question that shows its exact rows (${yesNo.names.join(', ')}), and none in this turn did. Ask them once, naming each clause and what it becomes (Keep, Not now), with your question tool (ask_user; in VS Code, vscode_askQuestions), then run it with their words. ${ROUTES}`;
   }
   if (found.problem === 'none') {
     return `${REFUSAL} This command records a yes or no for one row, and the person gave none for it in this turn. Ask them that row's yes-or-no question (Yes, No, Not now) with your question tool (ask_user; in VS Code, vscode_askQuestions), then run the command of the answer they chose with their words. ${ROUTES}`;

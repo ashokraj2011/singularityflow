@@ -113,6 +113,8 @@ export function optionDoes(workflow, item, entry) {
         return `${listWords(effect.changes.map((change) => planChangeWords(workflow, change))).replace(/^./u, (first) => first.toUpperCase())}; the change stays and no step is reset.${leftOut}`;
       }
       if (effect.writes === 'forward-amendment') return 'The earlier step\'s approved document is amended to this wording as its next version; each later step that read it is listed to be checked again.';
+      // The exact rows, as the card shows them before a person keeps them [owner, 2026-11-19].
+      if (effect.writes === 'plan-row-correction') return `${firstSentence(entry.words)} No step is reset.`;
       if (effect.writes === 'departure-acceptance') return 'The fix stays and the plan is unchanged; the findings it fixes await proof once the step is approved.';
       return 'The change stays, and the plan records it; no step is reset.';
     }

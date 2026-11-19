@@ -96,7 +96,7 @@ test('the terminal table asks once to accept every file departure with one reaso
   assert.doesNotMatch(shown, /1\. DEP-001/u, 'a row accepted with the others is not asked again');
 });
 
-test('on the list a file departure is one of "Accept all", and a planned test change is decided on its own row, in its own terminal', async () => {
+test('on the list a file departure is one of "Accept all", and a planned test change is kept on its own row, on the card or in chat', async () => {
   const { decisionPacket, effectWords } = await import('../src/decision-list.mjs');
   const workflow = { workItem: { id: 'W-1' }, status: 'in_progress', currentPhase: 'code', phaseOrder: ['plan', 'code'],
     phases: { plan: { id: 'plan', label: 'Plan', status: 'approved', generation: 1, approvalPolicy: { authorities: ['planners'] } },
@@ -114,8 +114,15 @@ test('on the list a file departure is one of "Accept all", and a planned test ch
   assert.deepEqual(fileRow.options.map((option) => [option.id, Boolean(option.oneByOne)]), [['accept', false], ['reject', false]]);
   assert.deepEqual(fileRow.options[0].effects[0].changes, [{ kind: 'add-location', clauseId: 'W-1:REQ-001', path: 'src/a.mjs' }]);
   assert.match(fileRow.options[0].chat.command, /^singularity-flow decision departure W-1 --fetch --departure DEP-001 --as accepted --reason "<REASON>"$/u);
-  assert.deepEqual(testRow.options.map((option) => [option.id, Boolean(option.oneByOne), option.recordable !== false]), [['accept', true, false], ['reject', true, true]]);
-  assert.match(testRow.options[0].action.command, /--add-test W-1:REQ-001=t\.mjs/u, 'a plan row correction is its own terminal step');
+  // [owner, 2026-11-19] A person's Keep on the Decide card, or their answer in /sf-decide, records the plan row correction
+  // (it was their own terminal step); the exact change is shown, and their own terminal still works.
+  assert.deepEqual(testRow.options.map((option) => [option.id, Boolean(option.oneByOne), option.recordable !== false]), [['accept', true, true], ['reject', true, true]]);
+  assert.deepEqual(testRow.options[0].effects[0], { kind: 'departure', departure: 'DEP-002', departureKind: 'test', decision: 'accept', groups: ['planners'], writes: 'plan-row-correction' });
+  assert.match(testRow.options[0].words, /^The plan changes exactly so: t\.mjs is added to W-1:REQ-001's tests\./u);
+  assert.match(testRow.options[0].does, /t\.mjs is added to W-1:REQ-001's tests\. No step is reset\./u);
+  assert.equal(testRow.options[0].chat.command, 'singularity-flow decision departure W-1 --fetch --departure DEP-002 --as accepted --reason "<REASON>"');
+  assert.match(testRow.options[0].terminal, /--add-test W-1:REQ-001=t\.mjs/u, 'their own terminal still works');
+  assert.match(testRow.title, /DEP-002: a planned test changes: t\.mjs is added to W-1:REQ-001's tests/u);
   assert.match(effectWords(workflow, testRow.options[1].effects[0]), /the approved document stays as it was/u);
   assert.match(effectWords(workflow, fileRow.options[1].effects[0]), /the model restores what it changed/u);
 });

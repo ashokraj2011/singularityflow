@@ -36,7 +36,8 @@ export function departureAcceptance(workflow, departure) {
       .filter((entry) => entry.decision === 'accepted' && (entry.departures ?? []).includes(departure.id)).at(-1);
     return accepted ? { kind: 'departure-acceptance', id: accepted.id, at: accepted.at, hashes: accepted.hashes ?? {} } : null;
   }
-  const correction = countedRecords(workflow, workflow?.planRowCorrections)
+  // A correction is kept among the plan's amendments (plan-row-corrections.mjs).
+  const correction = [...countedRecords(workflow, workflow?.planRowCorrections), ...countedRecords(workflow, workflow?.planAmendments).filter((entry) => entry.kind === 'plan-row-correction')]
     .filter((entry) => String(entry.at) >= String(departure.at) && (entry.operations ?? []).some((operation) => sameOperation(operation, departure.change))).at(-1);
   return correction ? { kind: 'plan-row-correction', id: correction.id, at: correction.at, hashes: null } : null;
 }

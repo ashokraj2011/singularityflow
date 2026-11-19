@@ -20,6 +20,7 @@
  * Pure: hashes arrive from the caller (departure-records.mjs).
  */
 import { departureCandidatePaths } from './plan-amendments.mjs';
+import { rowChangeWords } from './plan-row-fit.mjs';
 import { countedRecords, isWithdrawn } from './presence/counted.mjs';
 import { departureAcceptance, departureRejection } from './departure-acceptance.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
@@ -196,13 +197,15 @@ export function rejectedDeparturePaths(workflow, phaseId) {
 }
 
 /** One departure as a person reads it in a row: what changed and what it departs from. */
+export { rowChangeWords };
+
 export function departureWords(departure) {
   const files = (departure.paths ?? []).join(', ');
   const clauses = (departure.clauses ?? []).length ? ` under ${departure.clauses.join(', ')}` : '';
   if (departure.kind === 'path') return `${files} changed and no row of the plan names it${clauses ? `; it serves ${departure.clauses.join(', ')}` : ''}`;
   if (departure.kind === 'supporting') return `${files} changed as a supporting change (${departure.class ?? 'unclassified'})`;
-  if (departure.kind === 'test') return `a planned test changes: ${departure.change?.op} ${departure.change?.test ?? departure.change?.to ?? ''}${clauses}`.trim();
-  if (departure.kind === 'plan-row') return `a plan row changes: ${departure.change?.op}${departure.change?.clauseId ? ` on ${departure.change.clauseId}` : ''}`;
+  if (departure.kind === 'test') return `a planned test changes: ${rowChangeWords(departure.change)}`;
+  if (departure.kind === 'plan-row') return `a plan row changes: ${rowChangeWords(departure.change)}`;
   if (departure.kind === 'clause') return `the approved clause${(departure.clauses ?? []).length === 1 ? '' : 's'} ${(departure.clauses ?? []).join(', ') || 'of the scope'} change in ${departure.target?.phase}`;
   if (departure.kind === 'finding') return `${files} ${(departure.paths ?? []).length === 1 ? 'carries' : 'carry'} the fix for ${(departure.findings ?? []).join(', ')} from the findings register`;
   return `${departure.target?.phase}'s approved wording changes${clauses}`;

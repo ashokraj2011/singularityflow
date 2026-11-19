@@ -70,3 +70,20 @@ export function explainedAmendmentRefusal(error, { workId, plan = {}, changes = 
     : error.message;
   return new SingularityFlowError(message, { code: error.code, details: { ...error.details, path: file, rows, recoveryCommands: routes } });
 }
+
+/**
+ * A plan row change in plain words, with its exact rows, as every host shows it before a person keeps it: on the card,
+ * and in chat as the question's text [owner, 2026-11-19].
+ */
+export function rowChangeWords(change = {}) {
+  const row = change.clauseId ?? 'a row';
+  switch (change.op) {
+    case 'set-fulfillment': return `${row} becomes ${change.fulfillment}`;
+    case 'add-row': return `a row is added for ${row}`;
+    case 'remove-location': return `${change.path} is taken out of ${row}'s row`;
+    case 'replace-location': return `${row}'s row names ${change.to} instead of ${change.from}`;
+    case 'add-test': return `${change.test} is added to ${row}'s tests`;
+    case 'replace-test': return `${row}'s test ${change.from} becomes ${change.to}`;
+    default: return `${row}'s row changes (${change.op ?? 'unknown'})`;
+  }
+}

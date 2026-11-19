@@ -304,3 +304,28 @@ test('a row that only checks tests is left out of accepting a file, said so, and
   assert.deepEqual((await state(repo)).planAmendments.at(-1).changes, [{ kind: 'add-location', clauseId: 'QF-1:AC-001', path: 'index.html' }]);
   assert.deepEqual(repo.sflowJson('departure', 'list', '--open').value.data.departures, []);
 });
+
+test('a plan row change is kept on the card or with the person\'s answer in chat, and its correction accepts the departure', async (t) => {
+  // [owner, 2026-11-19] It was the plan approver's own terminal step: answered Keep five times in chat, nothing was recorded.
+  const repo = await draft(t);
+  const recorded = repo.sflowJson('departure', 'record', '--kind', 'plan-row', '--clause', 'QF-1:AC-001', '--row-op', 'set-fulfillment', '--fulfillment', 'new',
+    '--reason', 'The value module is new code, not a change to an existing one.');
+  assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
+  const item = repo.sflowJson('decisions', 'QF-1').value.data.items.find((entry) => entry.details?.departure === 'DEP-001');
+  assert.match(item.title, /DEP-001: a plan row changes: QF-1:AC-001 becomes new/u, 'the exact row is shown before it is kept');
+  const accept = item.options.find((option) => option.id === 'accept');
+  assert.notEqual(accept.recordable, false);
+  assert.equal(accept.chat.command, 'singularity-flow decision departure QF-1 --fetch --departure DEP-001 --as accepted --reason "<REASON>"');
+  // The chat's command, with the person's own reason: no terminal review needed, the plan's approval group still checked.
+  const kept = repo.run(process.execPath, [cli, '--no-model', 'decision', 'departure', 'QF-1', '--departure', 'DEP-001', '--as', 'accepted',
+    '--reason', 'The value module is new code, so the row says new.']);
+  assert.equal(kept.status, 0, kept.stdout + kept.stderr);
+  const correction = (await state(repo)).planAmendments.at(-1);
+  assert.deepEqual([correction.kind, correction.reviewAssurance, correction.authorizationId], ['plan-row-correction', 'person-decision-answer', null]);
+  assert.equal(correction.operations[0].fulfillment, 'new');
+  assert.equal(repo.sflowJson('departure', 'show', 'DEP-001').value.data.departure.status, 'accepted');
+  // decision plan's own correction records the same way where no terminal reviews it.
+  const again = repo.run(process.execPath, [cli, '--no-model', 'decision', 'plan', 'QF-1', '--set-fulfillment', 'QF-1:AC-001=modified', '--reason', 'Back to modified: the module existed before.']);
+  assert.equal(again.status, 0, again.stdout + again.stderr);
+  assert.equal((await state(repo)).planAmendments.at(-1).operations[0].fulfillment, 'modified');
+});

@@ -77,3 +77,24 @@ test('a host\'s own flags beside an answer are never read as the person\'s yes o
   assert.deepEqual(answerOfQuestion({ tool_response: JSON.stringify({ 'Start version 2?': { answer: 'yes', skipped: true } }) }), { canned: false, texts: [] });
   assert.equal(sideOf(answerOfQuestion({ tool_response: JSON.stringify({ confirm: true }) }), rows), 'yes');
 });
+
+test('a plan row correction from chat stands only on the person\'s Keep to a question that showed its exact rows', async (t) => {
+  // [owner, 2026-11-19] Kept on the Decide card or in /sf-decide; never on another yes, and never asked twice.
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'sflow-answer-correction-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const command = { positionals: ['decision', 'plan', 'W-1'], options: { 'set-fulfillment': 'W-1:AC-001=test-only', reason: 'The page objects only support the tests.' } };
+  const turn = async (name, message, answer) => {
+    const file = path.join(folder, `${name}.mutation.json`);
+    const record = { turnId: `turn-${name}` };
+    await startAnswerLedger(file, record, '');
+    if (message) {
+      await noteQuestionAnswered(file, record, { toolName: 'ask_user', turnId: record.turnId,
+        toolArgs: { message, requestedSchema: { properties: { answer: { type: 'string', enum: ['Keep', 'Not now'] }, reason: { type: 'string' } } } },
+        toolResult: { resultType: 'success', textResultForLlm: `User responded: answer=${answer}, reason=The page objects only support the tests.` } });
+    }
+    return unboundAnswerReason(file, record, command.options, { positionals: command.positionals });
+  };
+  assert.equal(await turn('shown', 'Keep this plan change: AC-001 becomes test-only?', 'Keep'), null);
+  assert.match(await turn('unshown', 'Keep this change?', 'Keep'), /kept only on the person's own answer to a question that shows its exact rows \(AC-001, test-only\)/u);
+  assert.match(await turn('none', null, null), /PHASE_MUTATION_ANSWER_UNBOUND/u);
+});

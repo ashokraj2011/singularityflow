@@ -51,14 +51,15 @@ export const PlanRowCorrectionSchema = z.strictObject({
   // A row an intent amendment carries is signed in its approver's decision on that amendment, not in a
   // decision plan terminal review, and is in force once the amendment is approved [PHR:REQ-008].
   authorizationId: z.string().uuid().nullable(),
-  reviewAssurance: z.enum(['live-terminal-exact-plan-review', 'intent-amendment-decision']),
+  // Or kept by a person on the Decide card or in /sf-decide, with no terminal review [owner, 2026-11-19].
+  reviewAssurance: z.enum(['live-terminal-exact-plan-review', 'intent-amendment-decision', 'person-decision-answer']),
   intentAmendment: z.string().regex(/^AMD-\d{3,}$/u).optional(),
   at: z.string().datetime(), upstreamIssue: z.string().regex(/^UPI-\d{3,}$/u).nullable(),
   // SF Guard: the person's presence signature, or the exception it went ahead under (person-records.mjs).
   presence: z.record(z.string(), z.unknown()).optional(),
 }).refine((value) => (value.reviewAssurance === 'intent-amendment-decision'
   ? Boolean(value.intentAmendment) && value.authorizationId === null
-  : !value.intentAmendment && value.authorizationId !== null && value.operations.every((operation) => operation.op !== 'keep-row')),
+  : !value.intentAmendment && (value.authorizationId === null) === (value.reviewAssurance === 'person-decision-answer') && value.operations.every((operation) => operation.op !== 'keep-row')),
 { message: 'a correction is reviewed in a terminal, or carried by an intent amendment, which alone keeps a row as it is' });
 
 /**
@@ -209,7 +210,7 @@ export function planCorrectionAuthorities(workflow, ownerPhase) {
  */
 export function recordPlanRowCorrection(workflow, {
   ownerRecord, ownerMapSha256, operations = [], activeClauseIds = [], normalizeRow, validate = () => {},
-  reason, actor, authorityGroup, identityAssurance = null, authorizationId, at, upstreamIssue = null, intentAmendment = null
+  reason, actor, authorityGroup, identityAssurance = null, authorizationId, at, upstreamIssue = null, intentAmendment = null, answered = false
 }) {
   if (!ownerRecord || ownerRecord.kind !== 'planned') refused('A plan correction needs the approved plan it corrects.');
   if (!operations.length || operations.length > MAX_OPERATIONS) {
@@ -281,7 +282,7 @@ export function recordPlanRowCorrection(workflow, {
     operations: recorded, reason: text, actor, authorityGroup, identityAssurance,
     // The rows an intent amendment carries are checked here exactly as decision plan's (amendment-plan-corrections.mjs).
     ...(intentAmendment ? { authorizationId: null, reviewAssurance: 'intent-amendment-decision', intentAmendment }
-      : { authorizationId, reviewAssurance: 'live-terminal-exact-plan-review' }),
+      : { authorizationId, reviewAssurance: answered ? 'person-decision-answer' : 'live-terminal-exact-plan-review' }),
     at, upstreamIssue
   };
   const checked = PlanRowCorrectionSchema.safeParse(correction);

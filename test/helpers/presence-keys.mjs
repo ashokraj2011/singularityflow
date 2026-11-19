@@ -2,7 +2,7 @@
 // sk-ecdsa-sha2-nistp256@openssh.com SSHSIG signatures (PROTOCOL.u2f), which is exactly what Apple's
 // security-key provider returns, so the verifier is exercised on the true format. Production never
 // signs this way: src/presence/signer.mjs only drives /usr/bin/ssh-keygen with the Secure Enclave.
-import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
 
 import { keyFingerprint, presenceSignatureFormat, PRESENCE_NAMESPACE, SK_ECDSA_KEY_TYPE } from '../../src/presence/sshsig.mjs';
 
@@ -15,9 +15,13 @@ function mpint(bytes) {
   return sshString(value[0] & 0x80 ? Buffer.concat([Buffer.from([0]), value]) : value);
 }
 
-/** A security-key P-256 key: its OpenSSH public line, fingerprint, and a signer with chosen flags. */
-export function softwarePresenceKey({ application = 'ssh:', comment = 'test-presence-key' } = {}) {
-  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+/**
+ * A security-key P-256 key: its OpenSSH public line, fingerprint, and a signer with chosen flags. `privateJwk` makes
+ * the same key again (a child process signing for its parent, test/helpers/sf-guard-host-child.mjs); `jwk` is it.
+ */
+export function softwarePresenceKey({ application = 'ssh:', comment = 'test-presence-key', privateJwk = null } = {}) {
+  const privateKey = privateJwk ? createPrivateKey({ key: privateJwk, format: 'jwk' }) : generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
+  const publicKey = createPublicKey(privateKey);
   const jwk = publicKey.export({ format: 'jwk' });
   const point = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]);
   const blob = Buffer.concat([sshString(SK_ECDSA_KEY_TYPE), sshString('nistp256'), sshString(point), sshString(application)]);
@@ -37,7 +41,7 @@ export function softwarePresenceKey({ application = 'ssh:', comment = 'test-pres
       .toString('base64').match(/.{1,70}/gu).join('\n');
     return `${ARMOR_BEGIN}\n${body}\n${ARMOR_END}\n`;
   };
-  return { line, comment, keyId: keyFingerprint(blob), sign: signer };
+  return { line, comment, keyId: keyFingerprint(blob), sign: signer, jwk: privateKey.export({ format: 'jwk' }) };
 }
 
 /** The `sc_auth list-ctk-identities -t ssh` listing a Mac would print for these identities. */

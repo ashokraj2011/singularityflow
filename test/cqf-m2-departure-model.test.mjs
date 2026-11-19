@@ -119,3 +119,116 @@ test('on the list a file departure is one of "Accept all", and a planned test ch
   assert.match(effectWords(workflow, testRow.options[1].effects[0]), /the approved document stays as it was/u);
   assert.match(effectWords(workflow, fileRow.options[1].effects[0]), /the model restores what it changed/u);
 });
+
+// A row that only checks tests takes no file that is not a test, so no screen offers to add one there [owner, 2026-11-19].
+const testOnlyCase = async ({ paths = ['src/pages/form-page.ts', 'src/pages/form-page-contract.ts'], clauses, rows }) => {
+  const { decisionPacket } = await import('../src/decision-list.mjs');
+  const workflow = { workItem: { id: 'W-1' }, status: 'in_progress', currentPhase: 'code', phaseOrder: ['plan', 'code'],
+    phases: { plan: { id: 'plan', label: 'Plan', status: 'approved', generation: 1, approvalPolicy: { authorities: ['planners'] } },
+      code: { id: 'code', label: 'Code', status: 'awaiting_approval', generation: 1, approvalPolicy: { authorities: ['engineers'], minimum: 1 } } },
+    resolution: { plannedClaims: { owners: { code: 'plan' } } } };
+  const authorities = { planners: { label: 'Planners', allowAnyGitIdentity: true }, engineers: { label: 'Engineers', allowAnyGitIdentity: true } };
+  const departure = { id: 'DEP-001', kind: 'path', phase: 'code', paths, clauses, reason: 'The page objects the end-to-end checks drive.', recordedBy: 'agent' };
+  const planRows = rows.map(([id, testOnly]) => ({ clauseId: `W-1:${id}`, ...(testOnly ? { testOnly: true } : {}) }));
+  const packet = decisionPacket(workflow, { phaseId: 'code', pending: {}, departures: { phase: 'code', planRows, codeStepOpen: false,
+    entries: [{ departure, status: 'open', groups: ['planners'], words: departure.id, acceptAll: true }], acceptance: {}, reopens: {}, tests: {} } },
+  { authorities, actor: { email: 'person@example.invalid' }, at: '2026-11-19T08:00:00.000Z' });
+  return packet.items.find((item) => item.kind === 'departure');
+};
+
+test('Accept adds the files only to the named rows that can take them, and says which row only checks tests', async () => {
+  const item = await testOnlyCase({ clauses: ['W-1:AC-001', 'W-1:AC-002', 'W-1:AC-005'], rows: [['AC-001'], ['AC-002', true], ['AC-005']] });
+  const accept = item.options.find((option) => option.id === 'accept');
+  assert.deepEqual(item.options.map((option) => option.id), ['accept', 'reject']);
+  assert.deepEqual([...new Set(accept.effects[0].changes.map((change) => change.clauseId))], ['W-1:AC-001', 'W-1:AC-005']);
+  assert.equal(accept.effects[0].changes.length, 4, 'each file under each row that can take it');
+  assert.match(accept.words, /part of AC-001 and AC-005's delivery/u);
+  assert.match(accept.words, /AC-002 only checks tests, so these files are not added to it\./u);
+  assert.match(accept.does, /AC-002 only checks tests, so these files are not added to it\./u, 'the card shows what Accept does, left-out row included');
+  assert.match(accept.chat.command, /--as accepted --reason "<REASON>"$/u, 'the command takes the same rows by itself');
+  assert.deepEqual(item.details.testOnly.clauses, ['W-1:AC-002']);
+  assert.match(item.recommended.why, /names AC-001 and AC-005 as what it serves/u);
+});
+
+test('when every named row only checks tests, Accept is offered under each other row that can take the files', async () => {
+  const item = await testOnlyCase({ clauses: ['W-1:AC-002'], rows: [['AC-001'], ['AC-002', true], ['AC-003', true], ['AC-004']] });
+  assert.deepEqual(item.options.map((option) => option.id), ['accept-w-1-ac-001', 'accept-w-1-ac-004', 'reject']);
+  const [first] = item.options;
+  assert.deepEqual(first.effects[0].changes.map((change) => change.clauseId), ['W-1:AC-001', 'W-1:AC-001']);
+  assert.match(first.words, /AC-002 only checks tests, so these files are not added to it\./u);
+  assert.match(first.chat.command, /--as accepted --clause W-1:AC-001 --reason "<REASON>"$/u);
+  assert.ok(item.options.every((option) => option.available !== false));
+});
+
+test('when no row of the plan can take the files, Accept is shown as not available with why, and only Reject is a choice', async () => {
+  const item = await testOnlyCase({ clauses: ['W-1:AC-002'], rows: [['AC-002', true], ['AC-003', true]] });
+  const [accept, reject] = item.options;
+  assert.deepEqual(item.options.map((option) => [option.id, option.available !== false, option.recordable !== false]), [['accept', false, false], ['reject', true, true]]);
+  assert.equal(accept.chat, undefined, 'no chat offers it');
+  assert.match(item.why, /^AC-002 only checks tests, so these files cannot be added to it, and no other row of the plan can take them\. /u);
+  assert.match(accept.does, /Reject it, and the model restores them; to keep them, the scope changes first .*intent amendment/u);
+  assert.ok(reject.chat.command.includes('--as rejected'));
+  assert.equal(item.recommended.option, null, 'nothing that cannot be done is recommended');
+  assert.match(item.recommended.why, /reject it to undo the change/u);
+  // A departure that names no row, in a plan whose every row only checks tests, says so the same way.
+  const unnamed = await testOnlyCase({ clauses: [], rows: [['AC-002', true]] });
+  assert.match(unnamed.why, /^Every row of the plan only checks tests, so no row can take /u);
+  assert.equal(unnamed.options[0].available, false);
+});
+
+test('a test file in a tests folder is still added to a row that only checks tests, and a plan with none is as before', async () => {
+  const tests = await testOnlyCase({ paths: ['tests/pages/form-helpers.ts'], clauses: ['W-1:AC-001', 'W-1:AC-002'], rows: [['AC-001'], ['AC-002', true]] });
+  const accept = tests.options.find((option) => option.id === 'accept');
+  assert.deepEqual(accept.effects[0].changes.map((change) => change.clauseId), ['W-1:AC-001', 'W-1:AC-002']);
+  assert.doesNotMatch(accept.words, /only checks tests/u);
+  assert.equal(tests.details.testOnly, undefined);
+  const plain = await testOnlyCase({ clauses: ['W-1:AC-001', 'W-1:AC-005'], rows: [['AC-001'], ['AC-005']] });
+  assert.equal(plain.options.find((option) => option.id === 'accept').words, 'src/pages/form-page.ts and src/pages/form-page-contract.ts becomes part of AC-001 and AC-005\'s delivery: a plan amendment names it, and no step is reset.');
+});
+
+test('the command accepts a file under the named rows that can take it, and refuses with complete commands when none can', async () => {
+  const { departureAmendmentChanges } = await import('../src/departure-records.mjs');
+  const rows = [{ clauseId: 'W-1:AC-001' }, { clauseId: 'W-1:AC-002', testOnly: true }, { clauseId: 'W-1:AC-005' }];
+  const departure = { id: 'DEP-001', kind: 'path', paths: ['src/pages/form-page.ts'], clauses: ['W-1:AC-001', 'W-1:AC-002', 'W-1:AC-005'] };
+  const mixed = departureAmendmentChanges(departure, { rows, workId: 'W-1', reason: 'x' });
+  assert.deepEqual(mixed.changes.map((change) => change.clauseId), ['W-1:AC-001', 'W-1:AC-005']);
+  assert.equal(mixed.leftOut, 'AC-002 only checks tests, so src/pages/form-page.ts was not added to it.');
+  assert.equal(departureAmendmentChanges({ ...departure, clauses: ['W-1:AC-001'] }, { rows, workId: 'W-1', reason: 'x' }).leftOut, null, 'nothing left out, nothing said');
+  // A short clause ID finds its row as decision plan reads it.
+  assert.deepEqual(departureAmendmentChanges({ ...departure, clauses: ['AC-002', 'AC-005'] }, { rows, workId: 'W-1', reason: 'x' }).changes.map((change) => change.clauseId), ['AC-005']);
+  let refusal = null;
+  try { departureAmendmentChanges({ ...departure, clauses: ['W-1:AC-002'] }, { rows, workId: 'W-1', reason: 'x' }); } catch (error) { refusal = error; }
+  assert.equal(refusal?.code, 'DEPARTURE_CLAUSE_REQUIRED');
+  assert.match(refusal.message, /^DEP-001 cannot be accepted under AC-002: it only checks tests, so src\/pages\/form-page\.ts cannot be added to it\./u);
+  assert.deepEqual(refusal.details.commands, [
+    'singularity-flow decision departure W-1 --fetch --departure DEP-001 --as accepted --clause W-1:AC-001 --reason "<REASON>"',
+    'singularity-flow decision departure W-1 --fetch --departure DEP-001 --as accepted --clause W-1:AC-005 --reason "<REASON>"',
+    'singularity-flow decision departure W-1 --fetch --departure DEP-001 --as rejected --reason "<REASON>"']);
+  for (const command of refusal.details.commands) assert.ok(refusal.message.includes(`\n  ${command}`), command);
+  assert.doesNotMatch(refusal.message, /<CLAUSE>/u);
+  // A row named by --clause that only checks tests is refused the same way.
+  assert.throws(() => departureAmendmentChanges({ ...departure, clauses: [] }, { clause: 'W-1:AC-002', rows, workId: 'W-1', reason: 'x' }), { code: 'DEPARTURE_CLAUSE_REQUIRED' });
+  // No row can take it: the reject command, and what keeping it needs.
+  assert.throws(() => departureAmendmentChanges({ ...departure, clauses: ['W-1:AC-002'] }, { rows: [rows[1]], workId: 'W-1', reason: 'x' }), (error) => error.code === 'DEPARTURE_NO_PLAN_ROW'
+    && error.details.commands.length === 1 && error.message.includes('\n  singularity-flow decision departure W-1 --fetch --departure DEP-001 --as rejected --reason "<REASON>"')
+    && /No other row of the plan can take it\. Reject it, and the model restores it:/u.test(error.message) && /an intent amendment/u.test(error.message));
+  // A test file joins a row that only checks tests.
+  assert.deepEqual(departureAmendmentChanges({ ...departure, paths: ['tests/pages/form-helpers.ts'] }, { rows, workId: 'W-1', reason: 'x' }).changes.map((change) => change.clauseId),
+    ['W-1:AC-001', 'W-1:AC-002', 'W-1:AC-005']);
+});
+
+test('a row whose only choice left is Reject builds, and is not asked as a yes or no in chat', async () => {
+  const { decisionPacket } = await import('../src/decision-list.mjs');
+  const workflow = { workItem: { id: 'W-1' }, status: 'in_progress', currentPhase: 'code', phaseOrder: ['design', 'code'],
+    phases: { design: { id: 'design', label: 'Design', status: 'approved', generation: 1, approvalPolicy: { authorities: ['designers'] } },
+      code: { id: 'code', label: 'Code', status: 'awaiting_approval', generation: 1, approvalPolicy: { authorities: ['engineers'], minimum: 1 } } } };
+  const authorities = { designers: { label: 'Designers', allowAnyGitIdentity: true }, engineers: { label: 'Engineers', allowAnyGitIdentity: true } };
+  // Wording is amended only while the code step is open; once it awaits approval, Accept is not available.
+  const departure = { id: 'DEP-001', kind: 'wording', phase: 'code', paths: [], clauses: [], target: { phase: 'design' }, reason: 'The design said callers never keep a copy.', recordedBy: 'agent' };
+  const packet = decisionPacket(workflow, { phaseId: 'code', pending: {}, departures: { phase: 'code', planRows: [], codeStepOpen: false,
+    entries: [{ departure, status: 'open', groups: ['designers'], words: departure.id, acceptAll: true }], acceptance: {}, reopens: {}, tests: {} } },
+  { authorities, actor: { email: 'person@example.invalid' }, at: '2026-11-19T08:00:00.000Z' });
+  const item = packet.items.find((entry) => entry.kind === 'departure');
+  assert.deepEqual(item.options.map((option) => [option.id, option.available !== false]), [['accept', false], ['reject', true]]);
+  assert.equal(item.chatYesNo, false);
+});

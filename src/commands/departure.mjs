@@ -179,6 +179,8 @@ export async function decisionDepartureCommand(positionals, options) {
     reason: optionString(options, 'reason') ?? '', clause: optionString(options, 'clause') ?? null }, { actor: actionActor(root), agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`${result.departures.join(', ')} ${result.decision}${result.record?.id ? ` (${result.record.id})` : ''}.${result.decision === 'rejected' ? ' The model restores each file in the open generation; prepublish checks it is back.' : ''}`);
+    // A named row that only checks tests was left out: said, so the person knows where the files went.
+    for (const line of result.leftOut ?? []) console.log(line);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.departure', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },

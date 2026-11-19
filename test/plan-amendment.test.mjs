@@ -56,6 +56,21 @@ test('a plan amendment adds a location to an existing row or a supporting change
   assert.deepEqual(coverage.supportingChangedPaths, ['package.json']);
 });
 
+test('a row that only checks tests refuses a file that is not a test and names the rows that can take it; a test file joins it', () => {
+  let refusal = null;
+  try { amend(story(), [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'src/pages/form-page.ts' }]); } catch (error) { refusal = error; }
+  assert.equal(refusal?.code, 'PLAN_AMENDMENT_INVALID', 'the code stays');
+  assert.equal(refusal.message, `${W}:AC-002 only checks tests (its row is test-only), so only a test or test-support file can be added to it, and src/pages/form-page.ts is not one. `
+    + `Add it to a row that can take it instead: ${W}:AC-001.`);
+  assert.deepEqual(refusal.details.rows, [`${W}:AC-001`]);
+  const tests = { [`${W}:AC-002`]: plan[`${W}:AC-002`], [`${W}:AC-003`]: { ...plan[`${W}:AC-002`] } };
+  assert.throws(() => amend(story(), [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'src/pages/form-page.ts' }], { plan: tests }),
+    (error) => error.code === 'PLAN_AMENDMENT_INVALID' && /No other row of the plan can take it: every row only checks tests\.$/u.test(error.message) && error.details.rows.length === 0);
+  const workflow = story();
+  assert.deepEqual(amend(workflow, [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'tests/pages/form-helpers.ts' }]).changes,
+    [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'tests/pages/form-helpers.ts' }]);
+});
+
 test('a repository-wide coverage exclusion is refused, so no path escapes accounting', () => {
   assert.throws(() => normalizeSpecPolicy({ excludes: ['vendor'] }), (error) => error.code === 'SPEC_EXCLUDES_RETIRED' && /decision plan/.test(error.message));
   assert.deepEqual(normalizeSpecPolicy({ excludes: [] }).excludes, ['singularity', '.github/agents', '.git', 'node_modules']);

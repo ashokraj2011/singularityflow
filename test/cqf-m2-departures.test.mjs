@@ -235,3 +235,72 @@ test('the agent\'s publication records a left-out file itself when no prepublish
   assert.deepEqual(recorded.departures.map((entry) => [entry.id, entry.paths, entry.recordedBy]), [['DEP-001', ['index.html'], 'sflow']]);
   assert.ok(recorded.phases.implement.deliveryEvidence.sourcePaths.includes('index.html'));
 });
+
+test('a row that only checks tests is left out of accepting a file, said so, and a departure naming only such a row is refused with the commands that work', async (t) => {
+  const repo = await repository(t, { implementCommands: false });
+  const { root, sflow, must } = repo;
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.phases.implement.approval = { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake'] };
+  await writeFile(configPath, YAML.stringify(config));
+  must('git', ['add', 'singularity/workflow.yml']);
+  must('git', ['commit', '-m', 'Require a human implementation review in this fixture']);
+  // startQuickFix's Story, with a second clause whose row only checks tests [owner, 2026-11-19].
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(repo.base, 'remote.git')], repo.base);
+  must('git', ['remote', 'add', 'origin', path.join(repo.base, 'remote.git')]);
+  must('git', ['push', '-q', '-u', 'origin', 'main']);
+  sflow('start', 'QF-1', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Change the value', '--description', 'Return 2.');
+  sflow('prepare', 'intake');
+  await writeFile(path.join(root, 'singularity/work-items/QF-1/artifacts/intake/intake.md'), [
+    '# QF-1 — Quick fix scope and plan', '', '## Problem and fix', '', 'The value must be 2; change the exported constant.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', '| [QF-1:AC-001] | The exported value equals 2. |',
+    '| [QF-1:AC-002] | The value test keeps passing. |', '',
+    '## Planned implementation evidence', '',
+    '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
+    '| `QF-1:AC-001` | `src/value.mjs` | `test/value.test.mjs` | modified | The test reads 2. |',
+    '| `QF-1:AC-002` | - | `test/value.test.mjs` | test-only | The test keeps passing. |', '',
+    '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n'));
+  sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  sflow('submit', 'intake');
+  sflow('approve', 'intake', '--yes');
+  sflow('resume', 'QF-1');
+  sflow('prepare', 'implement');
+  await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 return the approved value\nexport const value = 2;\n');
+  await writeFile(path.join(root, 'test/value.test.mjs'), ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", '// @ac:QF-1:AC-001 @ac:QF-1:AC-002', "test('returns two', () => assert.equal(value, 2));", ''].join('\n'));
+  await writeFile(path.join(root, 'index.html'), '<title>Calendar</title>\n');
+  await writeFile(path.join(root, 'about.html'), '<title>About the calendar</title>\n');
+  sflow('prepare', 'implement');
+  const record = (file, ...clauses) => repo.sflowJson('departure', 'record', '--kind', 'path', '--path', file, ...clauses.flatMap((id) => ['--clause', id]),
+    '--reason', 'The change needed this page to show the value.');
+  assert.equal(record('about.html', 'QF-1:AC-001', 'QF-1:AC-002').status, 0);
+  assert.equal(record('index.html', 'QF-1:AC-002').status, 0);
+
+  // The table offers only what can be recorded: AC-001 alone for DEP-001, and Accept under AC-001 for DEP-002.
+  const packet = repo.sflowJson('decisions', 'QF-1').value.data;
+  const [mixed, only] = packet.items.filter((entry) => entry.kind === 'departure');
+  assert.deepEqual(mixed.options.find((option) => option.id === 'accept').effects[0].changes, [{ kind: 'add-location', clauseId: 'QF-1:AC-001', path: 'about.html' }]);
+  assert.match(mixed.options.find((option) => option.id === 'accept').does, /AC-002 only checks tests, so this file is not added to it\./u);
+  assert.deepEqual(only.options.map((option) => option.id), ['accept-qf-1-ac-001', 'reject']);
+
+  // In the terminal, a departure naming only that row is refused with commands that run as they are.
+  const reason = 'The entry page shows the approved value with this code.';
+  const refused = repo.run(process.execPath, [cli, '--no-model', 'decision', 'departure', 'QF-1', '--departure', 'DEP-002', '--as', 'accepted', '--reason', reason]);
+  assert.notEqual(refused.status, 0);
+  const said = refused.stdout + refused.stderr;
+  assert.match(said, /DEP-002 cannot be accepted under AC-002: it only checks tests, so index\.html cannot be added to it\./u);
+  assert.ok(said.includes('singularity-flow decision departure QF-1 --fetch --departure DEP-002 --as accepted --clause QF-1:AC-001 --reason "<REASON>"'), said);
+  assert.ok(said.includes('singularity-flow decision departure QF-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"'), said);
+  assert.doesNotMatch(said, /<CLAUSE>/u);
+  assert.equal((await state(repo)).planAmendments, undefined, 'nothing recorded');
+
+  // Accepting the mixed one adds the file to AC-001 only, and says AC-002 was left out.
+  const accepted = repo.run(process.execPath, [cli, '--no-model', 'decision', 'departure', 'QF-1', '--departure', 'DEP-001', '--as', 'accepted', '--reason', 'The about page ships with the calendar it describes.']);
+  assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
+  assert.match(accepted.stdout, /AC-002 only checks tests, so about\.html was not added to it\./u);
+  assert.deepEqual((await state(repo)).planAmendments.at(-1).changes, [{ kind: 'add-location', clauseId: 'QF-1:AC-001', path: 'about.html' }]);
+  // The command the refusal gave works with the person's reason in it.
+  repo.sflow('decision', 'departure', 'QF-1', '--fetch', '--departure', 'DEP-002', '--as', 'accepted', '--clause', 'QF-1:AC-001', '--reason', reason);
+  assert.deepEqual((await state(repo)).planAmendments.at(-1).changes, [{ kind: 'add-location', clauseId: 'QF-1:AC-001', path: 'index.html' }]);
+  assert.deepEqual(repo.sflowJson('departure', 'list', '--open').value.data.departures, []);
+});

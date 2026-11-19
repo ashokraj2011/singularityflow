@@ -18,7 +18,7 @@
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { presenceRequires } from './presence/counted.mjs';
-import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
+import { clausesTakingPaths, MAX_PLAN_AMENDMENT_CHANGES, planAuthorities, rowTakesPaths } from './plan-amendments.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
@@ -1263,16 +1263,33 @@ function departureItem(workflow, context, entry, facts) {
   const accept = ({ id = 'accept', label, words, changes = null, writes }) => ({ ...option(workflow, context, { id, label, words,
     effects: [effect('accept', { writes, ...(changes ? { changes } : {}) })], needs: reason }), ...(one ? { oneByOne: true } : {}) });
   let accepts = [];
-  if (departure.kind === 'path' && departure.clauses?.length) {
-    const changes = departure.paths.flatMap((file) => departure.clauses.map((clauseId) => ({ kind: 'add-location', clauseId, path: file })));
-    accepts = [{ ...accept({ label: 'Accept', words: `${files} becomes part of ${listWords(departure.clauses.map((id) => clauseName(workflow, id)))}'s delivery: a plan amendment names it, and no step is reset.`, changes, writes: 'plan-amendment' }),
+  // A row that only checks tests takes no file that is not a test: accepting there would be refused, so it is never
+  // offered; the named rows that can take the files are, and the words say which was left out and why [owner, 2026-11-19].
+  const fit = departure.kind === 'path' ? clausesTakingPaths(departure.clauses, facts.planRows ?? [], departure.paths ?? []) : { takes: [], testOnly: [] };
+  const many = (departure.paths ?? []).length !== 1;
+  const them = many ? 'them' : 'it';
+  const testOnly = fit.testOnly.length ? `${listWords(fit.testOnly.map((id) => clauseName(workflow, id)))} only ${fit.testOnly.length === 1 ? 'checks' : 'check'} tests, so ${many ? 'these files' : 'this file'}` : '';
+  const toIt = fit.testOnly.length === 1 ? 'it' : 'them';
+  const leftOut = testOnly ? `${testOnly} ${many ? 'are' : 'is'} not added to ${toIt}.` : '';
+  const also = leftOut ? ` ${leftOut}` : '';
+  let noRow = '';
+  if (departure.kind === 'path' && fit.takes.length) {
+    const changes = departure.paths.flatMap((file) => fit.takes.map((clauseId) => ({ kind: 'add-location', clauseId, path: file })));
+    accepts = [{ ...accept({ label: 'Accept', words: `${files} becomes part of ${listWords(fit.takes.map((id) => clauseName(workflow, id)))}'s delivery: a plan amendment names it, and no step is reset.${also}`, changes, writes: 'plan-amendment' }),
       chat: { command: decide('accepted') } }];
   } else if (departure.kind === 'path') {
-    accepts = (facts.planRows ?? []).filter((row) => !row.testOnly || departure.paths.every(isTestAutomationPath)).map((row) => ({ ...accept({
+    accepts = (facts.planRows ?? []).filter((row) => rowTakesPaths(row, departure.paths)).slice(0, 40).map((row) => ({ ...accept({
       id: `accept-${rowSlug(row.clauseId)}`.slice(0, 64), label: `Accept under ${clauseName(workflow, row.clauseId)}${row.result ? `: ${row.result}` : ''}`,
-      words: `${files} becomes part of ${clauseName(workflow, row.clauseId)}'s delivery: a plan amendment names it, and no step is reset.`,
+      words: `${files} becomes part of ${clauseName(workflow, row.clauseId)}'s delivery: a plan amendment names it, and no step is reset.${also}`,
       changes: departure.paths.map((file) => ({ kind: 'add-location', clauseId: row.clauseId, path: file })), writes: 'plan-amendment' }),
     chat: { command: decide('accepted', ` --clause ${row.clauseId}`) } }));
+    if (!accepts.length) {
+      // No row can take them: said plainly, with what is left, and never a choice that would be refused.
+      noRow = testOnly ? `${testOnly} cannot be added to ${toIt}, and no other row of the plan can take ${them}.`
+        : (facts.planRows ?? []).length ? `Every row of the plan only checks tests, so no row can take ${files}.` : `The plan has no row to add ${files} to.`;
+      const words = `${noRow} Reject it, and the model restores ${them}; to keep ${them}, the scope changes first so a clause covers ${them}: an intent amendment, which the scope's approvers decide (/sf-amend drafts it).`;
+      accepts = [{ ...accept({ label: 'Accept', words, writes: 'plan-amendment' }), available: false, recordable: false, does: words }];
+    }
   } else if (departure.kind === 'supporting') {
     accepts = [{ ...accept({ label: 'Accept', words: `${files} is listed in the plan as a supporting change (${departure.class}) with your reason.`,
       changes: departure.paths.map((file) => ({ kind: 'add-supporting', path: file, class: departure.class })), writes: 'plan-amendment' }), chat: { command: decide('accepted') } }];
@@ -1314,10 +1331,11 @@ function departureItem(workflow, context, entry, facts) {
     kind: 'departure', title: (departure.kind === 'path' && departure.paths?.length
       ? `Say where ${files} ${departure.paths.length === 1 ? 'belongs' : 'belong'} (${departure.id})` : `${departure.id}: ${words}`).slice(0, 200),
     ...(departure.kind === 'path' && departure.paths?.length === 1 ? { subject: `file:${departure.paths[0]}` } : {}),
-    why: `${fixes.length ? `It fixes ${listWords(fixes)} from the findings register. ` : ''}${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests}${asked.length ? ` Asked for: ${asked.join('; ')}.` : ''} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`,
+    // No row can take the files: first, so a form that keeps only the opening sentence says why there is no Accept.
+    why: `${noRow ? `${noRow} ` : ''}${fixes.length ? `It fixes ${listWords(fixes)} from the findings register. ` : ''}${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests}${asked.length ? ` Asked for: ${asked.join('; ')}.` : ''} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`,
     options: [...accepts, reject],
     details: { departure: departure.id, departureKind: departure.kind, status, ...(departure.paths?.length === 1 ? { path: departure.paths[0] } : { paths: departure.paths }),
-      clauses: departure.clauses ?? [], acceptAll: !one, ...(departure.findings?.length ? { findings: departure.findings } : {}), ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
+      clauses: departure.clauses ?? [], ...(leftOut ? { testOnly: { clauses: fit.testOnly, words: leftOut } } : {}), acceptAll: !one, ...(departure.findings?.length ? { findings: departure.findings } : {}), ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
       commands: [`singularity-flow departure show ${departure.id} --work-id ${workId}`] }
   };
 }

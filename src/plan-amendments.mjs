@@ -30,11 +30,42 @@ export function planAuthorities(workflow) {
   return [...groups].sort();
 }
 
-/** The plan's rows, as a person chooses among them to account for a path. */
-export function planRowsOf(planned) {
-  return Object.entries(planned).slice(0, 40).map(([clauseId, claim]) => ({ clauseId,
+/** The plan's rows, as a person chooses among them to account for a path; `limit` rows, 40 unless asked for more. */
+export function planRowsOf(planned, { limit = 40 } = {}) {
+  return Object.entries(planned).slice(0, limit).map(([clauseId, claim]) => ({ clauseId,
     ...(claim.observableResult ? { result: String(claim.observableResult).slice(0, 120) } : {}),
     ...(claim.fulfillment === 'test-only' ? { testOnly: true } : {}) }));
+}
+
+/**
+ * Whether a plan row can take these files as part of its delivery, as recordPlanAmendment checks it: a row that
+ * only checks tests (test-only) takes a test or test-support file and nothing else. `row` is a planned claim or
+ * one of planRowsOf's rows; a row nobody knows is left to the plan's own check.
+ */
+export function rowTakesPaths(row, paths) {
+  const testOnly = row?.testOnly === true || row?.fulfillment === 'test-only';
+  return !testOnly || (paths ?? []).every(isTestAutomationPath);
+}
+
+/** The row a clause names: its own ID, or the one row whose full ID ends with a short one (AC-001), as decision plan reads it. */
+function rowNamed(rows, clauseId) {
+  const id = String(clauseId ?? '').toUpperCase();
+  const exact = rows.find((row) => String(row.clauseId).toUpperCase() === id);
+  if (exact || id.includes(':')) return exact ?? null;
+  const ending = rows.filter((row) => String(row.clauseId).includes(':') && String(row.clauseId).toUpperCase().split(':').at(-1) === id);
+  return ending.length === 1 ? ending[0] : null;
+}
+
+/**
+ * The clauses a file departure names, split by whether their plan row can take its files [owner, 2026-11-19]:
+ * `takes` can, `testOnly` only checks tests and the files are not all tests, so accepting there would be refused.
+ * `rows` are planRowsOf's rows.
+ */
+export function clausesTakingPaths(clauses, rows, paths) {
+  const takes = [];
+  const testOnly = [];
+  for (const clauseId of clauses ?? []) (rowTakesPaths(rowNamed(rows ?? [], clauseId), paths) ? takes : testOnly).push(clauseId);
+  return { takes, testOnly };
 }
 
 function exactPath(value, label) {
@@ -65,8 +96,12 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
         throw new SingularityFlowError(`The plan has no row for ${clauseId}; a plan amendment adds to an existing row. Its rows: ${Object.keys(plan).slice(0, 12).join(', ') || 'none'}.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId, rows: Object.keys(plan) } });
       }
       const candidate = exactPath(change.path, `The location for ${clauseId}`);
-      if (claim.fulfillment === 'test-only' && !isTestAutomationPath(candidate)) {
-        throw new SingularityFlowError(`${clauseId} is test-only; only an exact test or test-support path can be accounted for without changing its delivery contract.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId } });
+      if (!rowTakesPaths(claim, [candidate])) {
+        // The rows that can take it, so the refusal is never a dead end [owner, 2026-11-19].
+        const rows = Object.entries(plan).filter(([id, row]) => id !== clauseId && rowTakesPaths(row, [candidate])).map(([id]) => id);
+        throw new SingularityFlowError(`${clauseId} only checks tests (its row is test-only), so only a test or test-support file can be added to it, and ${candidate} is not one. ${rows.length
+          ? `Add it to a row that can take it instead: ${rows.slice(0, 12).join(', ')}${rows.length > 12 ? ', …' : ''}.`
+          : 'No other row of the plan can take it: every row only checks tests.'}`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId, path: candidate, rows } });
       }
       if ((claim.expectedPaths ?? []).includes(candidate)) {
         throw new SingularityFlowError(`${candidate} is already an expected path of ${clauseId}.`, { code: 'PLAN_AMENDMENT_INVALID' });

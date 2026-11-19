@@ -259,7 +259,8 @@ test('the first route of each known refusal is classified, and the read-only one
   const readOnly = new Set();
   for (const code of KNOWN_REFUSAL_CODES) {
     const plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details }), ['phase', 'prepublish', 'build', '--work-id', 'W-1']);
-    const first = plan.steps.find((entry) => entry.command || entry.skill);
+    // A wait (a held test run's read of what holds it) is not the way through: the step after it is [loop 12, 2026-11-19].
+    const first = plan.steps.find((entry) => (entry.command || entry.skill) && !entry.wait);
     const effect = first ? routeEffect({ command: first.command ?? null, skill: first.skill ?? null }, isRead) : 'none';
     if (effect === 'read-only' || effect === 'none') readOnly.add(code);
   }

@@ -104,10 +104,10 @@ const afterChange = (entry, changes) => (entry ? Object.freeze({ ...entry, chang
 /**
  * The Decide card as a plan's step, never /sf-decide: a decision is mostly refused inside /sf-decide, where that route sent
  * the person round to the chat they were in [owner, 2026-11-19, loop 1]. Copilot CLI opens it with /decide, VS Code with its
- * Command Palette entry (#sflowDecide in its chat), and the Shell line asks in the person's own terminal.
+ * Command Palette entry (#sflowDecide in its chat), and the Shell line lists the same items, each with its own command.
  */
 function decideCardPlanStep(id, label, workId) {
-  const opened = step(id, label, `singularity-flow decisions${workId ? ` record ${workId}` : ''}`, 'remediation');
+  const opened = step(id, label, `singularity-flow decisions${workId ? ` ${workId}` : ''}`, 'remediation');
   return opened.command ? Object.freeze({ ...opened, skill: null, copilotCommand: workId ? `/decide ${workId}` : null }) : opened;
 }
 const DECISION_LIST_READ = /^singularity-flow decisions ([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?: --phase [A-Za-z0-9][A-Za-z0-9._-]*)?$/u;
@@ -2151,12 +2151,9 @@ function decisionFamilyPlan(plan, error, argv) {
   const code = String(error?.code ?? '');
   if (!decisionWrite(argv) && !(DECISION_FAMILY_CODE.test(code) && !authorsOwnCommand(argv))) return null;
   const workId = decisionFamilyWorkId(error, argv);
-  const opened = decideCardPlanStep('open-decision-list',
+  const card = decideCardPlanStep('open-decision-list',
     `Open the Decide card${workId ? ` for ${workId}` : ''}: it holds every choice this Story waits on, each filled in, with who decides it.`, workId);
-  if (!opened.command) return null;
-  // Recording the list refused: the same record, now in the person's own terminal, which shows the summary and asks.
-  const card = argv[0] === 'decisions' && argv[1] === 'record'
-    ? afterChange(opened, 'run by the person in their own terminal, which shows the summary and asks them to confirm') : opened;
+  if (!card.command) return null;
   // The list itself is the card's to show: "Review the current decision list" with /sf-decide was the chat it came from.
   const own = explicitCommands(error).filter((entry) => !composedCommand(entry.command) && !DECISION_LIST_READ.test(entry.command)).map((entry, index) => step(`producer-${index + 1}`,
     entry.label ?? 'Follow the recovery action supplied by the refusing operation.', entry.command, 'remediation', entry.skill));

@@ -331,9 +331,13 @@ export function turnSkills(skill, turnMode = null) {
   return [...new Set([own, ...(['work-command', 'delegate'].includes(WRITING_ALIASES[own.slice(4)]?.kind) ? WORK_COMMANDS : [])])];
 }
 
-/** Whether a route sends the person to one of these skills, by its Copilot command or its skill. */
+/**
+ * Whether a route sends the person to one of these skills: by its Copilot command, or by its skill when it has none. A
+ * skill beside another Copilot command only owns the command (a /sf-confirm code for /sf-code's rollover, say).
+ */
 export function routesToSkill(route, skills) {
-  return [route?.copilotCommand, route?.skill, route?.commandGuidance?.copilotCommand, route?.commandGuidance?.skill]
+  const sends = (guidance) => (typeof guidance?.copilotCommand === 'string' ? guidance.copilotCommand : guidance?.skill);
+  return [sends(route), sends(route?.commandGuidance)]
     .some((value) => typeof value === 'string' && value.startsWith('/') && skills.includes(slashSkill(value)));
 }
 

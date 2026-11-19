@@ -233,6 +233,7 @@ test('a turn previews the author\'s own correction, never opens it without the p
     const refused = await guard(prompt, 'singularity-flow decisions undo PMC-1 --settled STL-001');
     assert.equal(refused.permissionDecision, 'deny', prompt);
     assert.match(refused.permissionDecisionReason, /undoing a settled decision hands its question back to the person, so only they undo it, on the decisions card \(\/sf-decide PMC-1 opens it\)/u, prompt);
-    assert.equal(refused.next[0].copilotCommand, '/sf-decide PMC-1', prompt);
+    // Inside /sf-decide the card itself, never /sf-decide again [owner, 2026-11-19, loop 1].
+    assert.equal(refused.next[0].copilotCommand, prompt.startsWith('/sf-decide') ? '/decide PMC-1' : '/sf-decide PMC-1', prompt);
   }
 });

@@ -341,7 +341,7 @@ test('no refusal plan\'s first command step, nor its retry, is the refused comma
   assert.equal(held.steps[1].changes, 'the held run has ended');
   const choose = refusalRemediationPlan(Object.assign(new Error('refused'), { code: 'DECISION_REASON_REQUIRED', details }), ['decision', 'choose', 'W-1', '--choice', 'O1']);
   const card = choose.steps.find((entry) => entry.id === 'open-decision-list');
-  assert.deepEqual([card.copilotCommand, card.command, card.skill], ['/decide W-1', 'singularity-flow decisions record W-1', null]);
+  assert.deepEqual([card.copilotCommand, card.command, card.skill], ['/decide W-1', 'singularity-flow decisions W-1', null]);
   assert.equal(choose.steps.some((entry) => /^\/sf-decide\b/u.test(entry.copilotCommand ?? '')), false);
 });
 

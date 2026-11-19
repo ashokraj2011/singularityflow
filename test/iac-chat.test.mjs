@@ -156,7 +156,8 @@ test('D3: the engine refuses begin, prepare, publish and submit of the paused st
   try { assertIntentAmendmentNotPausing(workflow, 'build'); } catch (caught) { error = caught; }
   const plan = refusalRemediationPlan(error, ['submit', 'build']);
   // The reject route is a person's own terminal step whose Copilot route is the same card (paid run, 2026-11-14).
-  assert.deepEqual(plan.steps.map((step) => [step.copilotCommand ?? null, step.command]), [['/sf-decide IAC-1', 'singularity-flow decisions IAC-1'],
+  // The card itself first, never the list's /sf-decide: a refusal thrown inside /sf-decide sent the person round (loop 13).
+  assert.deepEqual(plan.steps.map((step) => [step.copilotCommand ?? null, step.command]), [['/decide IAC-1', 'singularity-flow decisions IAC-1'],
     ['/sf-decide IAC-1', 'singularity-flow story intent-amendment decide AMD-001 --decision reject --confirm AMD-001 --work-id IAC-1']]);
   assert.match(plan.retry.label, /once the person has decided/u);
   assert.doesNotMatch(renderRefusalPlan(plan), /sf-recover|singularity-flow recover /u);

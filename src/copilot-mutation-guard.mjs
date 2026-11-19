@@ -261,7 +261,8 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const taskStage = mode === 'authoring' ? await (await import('./workflow-task-outcome.mjs')).readGuardTaskOutcome(root, workflow, phase)
     .catch(() => ({ task: null, files: [] })) : { task: null, files: [] };
   const gitIdentity = await identity(root);
-  const derive = (changeRequested) => deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence, opening, task: taskStage.task, changeRequested });
+  const derive = (changeRequested) => deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence, opening, task: taskStage.task, changeRequested,
+    skill: record.skill });
   let contract = derive(false);
   // A change the person typed for the published step's next version, from their local record, read once per turn record: the
   // grant then asks its version question as the entry does, never "submit" [daily run 2026-11-17].
@@ -1422,7 +1423,7 @@ function personDecisionReason(owners) {
 }
 
 /** A refusal of a person's own step: what it is, and the person's exact command as its one route. */
-function personStepRefusal({ id, argv, owners }) {
+function personStepRefusal({ id, argv, owners }, turn = null) {
   if (id === 'authorship-claim' || id === 'record-authorship') {
     const phase = parseCli(argv).positionals[2];
     // The agent's own record: the same command with its authorship, never a person's.
@@ -1431,8 +1432,7 @@ function personStepRefusal({ id, argv, owners }) {
     const routes = [safeCommandGuidance({ argv: own }), safeCommandGuidance({ argv })].filter(Boolean)
       .map((route, index) => (index ? { ...route, skill: null, copilotCommand: null } : route));
     const reason = id === 'authorship-claim' ? AUTHORSHIP_CLAIM_DENIAL : RECORD_AUTHORSHIP_DENIAL;
-    return { permissionDecision: 'deny', next: routes, permissionDecisionReason: `${reason}.${routes.length
-      ? `\n\n${routes.map(route => formatCommandRouteLines(route).join('\n')).join('\n\n')}` : ''}` };
+    return mutationDenial(null, reason, [], { routes, alone: true, turn, workId: workIdOfArgv(argv) });
   }
   const decision = Object.hasOwn(PERSON_DECISION_DENIALS, id);
   // The person confirms an approval or return by typing the step in their own terminal, not with --yes.
@@ -1447,8 +1447,15 @@ function personStepRefusal({ id, argv, owners }) {
   const said = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
     : PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
   const reason = card?.copilotCommand.includes(' ') ? said.replace('/sf-decide <WORK-ID>', card.copilotCommand) : said;
-  return { permissionDecision: 'deny', next: routes,
-    permissionDecisionReason: `${reason}.${routes.length ? `\n\n${routes.map(route => formatCommandRouteLines(route).join('\n')).join('\n\n')}` : ''}` };
+  // In the chat it names, a route to that chat's own command becomes the card or the person's line (mutationDenial).
+  return mutationDenial(null, reason, [], { routes, alone: true, turn, workId: workIdOfArgv(argv) });
+}
+
+/** The Story a person's step names: `--work-id`, or the Story ID a decision command takes first. */
+function workIdOfArgv(argv) {
+  const { positionals, options } = parseCli(argv ?? []);
+  if (typeof options['work-id'] === 'string') return options['work-id'];
+  return ['decision', 'decisions'].includes(positionals[0]) ? positionals[['record', 'undo'].includes(positionals[1]) || positionals[0] === 'decision' ? 2 : 1] ?? null : null;
 }
 
 /** The person's own step one normalized tool call runs, or null. */
@@ -1556,7 +1563,7 @@ function turnPersonDecisionDenial(payload, record) {
     const step = personStepOfCall(call, payload.cwd);
     if (step && (['test-environment', 'authorship-claim'].includes(step.id)
       || ((PERSON_DECISION_IDS.has(step.id) || step.id === 'record-authorship') && !step.owners.includes(skill)))) {
-      return personStepRefusal(step);
+      return personStepRefusal(step, record.skill);
     }
   }
   return null;
@@ -2066,7 +2073,7 @@ async function answerBoundDenial(payload, record) {
     const { positionals, options } = parseCli(argv);
     const proposed = await successorProposal(payload, options.confirm);
     const preview = [safeCommandGuidance({ argv: ['phase', 'rollover', positionals[2] ?? '<step>', '--json'] })].filter(Boolean);
-    if (!proposed.record) return { ...mutationDenial(null, `PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. This confirmation names no version previewed on this machine, so the person's yes cannot be bound to it. Run the preview (singularity-flow phase rollover ${positionals[2] ?? '<step>'} --json), ask the person its question, and run the confirmation it returns.`, [], { routes: preview, alone: true }), recoverable: true };
+    if (!proposed.record) return { ...mutationDenial(null, `PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. This confirmation names no version previewed on this machine, so the person's yes cannot be bound to it. Run the preview (singularity-flow phase rollover ${positionals[2] ?? '<step>'} --json), ask the person its question, and run the confirmation it returns.`, [], { routes: preview, alone: true, turn: record.skill }), recoverable: true };
     // "No, it was just a question" (`--as-question`) stands only on the person's own reply to this version question in this
     // turn, never on a yes kept from the card, and keeps no yes: it opens nothing (owner, 2026-11-18).
     const binding = await answerBinding();
@@ -2077,7 +2084,7 @@ async function answerBoundDenial(payload, record) {
     if (!question && (await consent.readGrant(proposed.commonDir, proposed.record.digest).catch(() => null))?.surface === 'decisions-card') continue;
     const version = proposed.record.proposal.version;
     const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals, version }).catch(() => null);
-    if (reason) return { ...mutationDenial(null, reason, [], { routes: [safeCommandGuidance({ argv })].filter(Boolean), alone: true }), recoverable: true };
+    if (reason) return { ...mutationDenial(null, reason, [], { routes: [safeCommandGuidance({ argv })].filter(Boolean), alone: true, turn: record.skill }), recoverable: true };
     if (question) continue;
     const reply = await binding.successorReply(file, record, version, positionals[2] ?? null).catch(() => null);
     await consent.grantConsent(proposed.commonDir, { record: proposed.record, surface: 'question-tool',
@@ -2100,11 +2107,11 @@ async function answerBoundDenial(payload, record) {
     // The person's own answer is the way through, on the card or in their terminal; the words say the same. A proposal's
     // is the preview they say yes to, in this same turn.
     if (reason) {
-      const workId = record.contract?.workId ?? contract?.workId ?? null;
+      const workId = record.contract?.workId ?? contract?.workId ?? workIdOfArgv(step.argv);
       const routes = [safeCommandGuidance(step.id === 'intent-amendment-proposal'
         ? { argv: ['story', 'intent-amendment', 'preview', ...(workId ? ['--work-id', workId] : []), ...(typeof options.file === 'string' ? ['--file', options.file] : []), '--for-agent', '--json'] }
         : { argv: ['decisions', ...(workId ? [workId] : [])], skill: '/sf-decide' })].filter(Boolean);
-      return { ...mutationDenial(null, reason, [], { routes, alone: true }), recoverable: true };
+      return { ...mutationDenial(null, reason, [], { routes, alone: true, turn: record.skill, workId }), recoverable: true };
     }
   }
   return null;
@@ -2417,7 +2424,7 @@ async function mutationToolDecision(payload, record) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: TARGET_ORIGIN_PIN_DENIAL };
     }
     const release = guarded.find(call => TERMINALS.has(call.name) && lockReleaseCall(call, bootstrap));
-    if (release) return mutationDenial(null, LOCK_RELEASE_DENIAL, [], personRoute(release, bootstrap));
+    if (release) return mutationDenial(null, LOCK_RELEASE_DENIAL, [], { ...personRoute(release, bootstrap), turn: record.skill });
     const hostOnly = guarded.map(call => TERMINALS.has(call.name) && hostOnlyDenial(call, bootstrap)).find(Boolean);
     if (hostOnly) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: hostOnly };
@@ -2434,7 +2441,7 @@ async function mutationToolDecision(payload, record) {
         + '. No file was written; never write another repository file' };
     if (guarded.every(call => DELEGATION.has(call.name) && reviewerDelegation(call))
         && await publishedReviewerStart(payload, record, guarded)) return {};
-    return mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding; expired/corrupt permissions require a new explicit turn; do not discard work');
+    return mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: SFlow could not read this chat\'s permissions. Keep the work and run the read below in this chat: it ties the chat to the Story as it is now', [], { turn: record.skill });
   }
   const contract = value.contract;
   value.skill = record.skill;
@@ -2448,9 +2455,12 @@ async function mutationToolDecision(payload, record) {
     // Real calls here asked a sub-agent to open a page or run a step's route: this turn does it, and this says so.
     // A publication's reviewer in a turn that may not start one (/sf-publish, a kernel-only skill): "do the work here
     // yourself" told the author to review its own step; the review's own fallback is a new chat (agent-text audit, 2026-11-11).
+    // A review chat is the review itself: "a new chat: /sf-review-source" sent it round to itself (2026-11-19, loop 11).
+    if (DELEGATION.has(call.name) && contract.turnMode === 'read-only-review') return mutationDenial(contract,
+      'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this chat is the review itself, so it starts no reviewer as a sub-agent. Do the review here yourself, with the route below');
     if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring' && reviewerDelegation(call)) return mutationDenial(contract,
-      `PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this turn cannot start the reviewer as a sub-agent, and never reviews its own step. End with "Run this in a new chat:" and /sf-review-source${contract.phaseId ? ` ${contract.phaseId}` : ''}`);
-    if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring') return mutationDenial(contract, 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: a sub-agent does not run in this turn. Do the work here yourself with the route below; only this turn holds its contract');
+      `PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this chat cannot start the reviewer as a sub-agent, and never reviews its own step. End with "Run this in a new chat:" and /sf-review-source${contract.phaseId ? ` ${contract.phaseId}` : ''}`);
+    if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring') return mutationDenial(contract, 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: a sub-agent does not run in this chat. Do the work here yourself with the route below; only this chat holds its permissions');
     // The independent reviewer starts only through a qualified Copilot delegation (review-subagent.mjs REVIEW_DISPATCH_MODES);
     // another sub-agent tool is never one, and no other harness stands in for it [OSA:REQ-052, AC-018].
     if (DELEGATION.has(call.name) && reviewerDelegation(call) && !(await import('./review-subagent.mjs')).reviewDispatchMode(call.name)) return mutationDenial(contract,
@@ -2525,7 +2535,7 @@ async function mutationToolDecision(payload, record) {
           const first = firstChainedCommand(call);
           return mutationDenial(contract, CHAINED_OWNED_STEP_DENIAL, [], first ? { routes: [{ ...first, skill: null, copilotCommand: null }] } : own());
         }
-        if (chained && !(PERSON_DECISION_TURNS.has(contract.turnMode) && ['approve', 'reject'].includes(chained.id))) return personStepRefusal(chained);
+        if (chained && !(PERSON_DECISION_TURNS.has(contract.turnMode) && ['approve', 'reject'].includes(chained.id))) return personStepRefusal(chained, record.skill);
         // A /sf-confirm turn runs only the digest the person typed. A command carrying another one was told
         // only "not permitted by the bound turn mode"; name both, so a copying slip is copied again exactly.
         const confirmMismatch = contract.turnMode === 'confirm' && !value.decisionEnded ? await confirmDigestMismatch(call, value) : null;
@@ -2533,7 +2543,7 @@ async function mutationToolDecision(payload, record) {
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'
-            : 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this standalone command is not permitted by the bound turn mode. Preserve work and follow the exact returned action; tool-form repair does not grant authoring or decision authority');
+            : 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this command is not allowed in this chat. Keep the work and follow the exact action below; changing how it is typed does not allow it');
         }
         if (contract.turnMode !== 'authoring' && readsHostSavedOutput(call)) return mutationDenial(contract, HOST_SAVED_OUTPUT_DENIAL);
         // A tool form is corrected in this turn. A review, decision or publish turn's route is its own
@@ -2555,7 +2565,7 @@ async function mutationToolDecision(payload, record) {
           // A person's step (an approval, a return) is refused for what it is, with the person's own line.
           const standalone = verifiedShellForm(call, value);
           const persons = standalone ? personStepOfCall(call, payload.cwd) : null;
-          if (persons) return personStepRefusal(persons);
+          if (persons) return personStepRefusal(persons, record.skill);
           if (standalone) return mutationDenial(contract, ['--help', '-h'].includes(standalone.argv.join(' '))
             ? 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: run `singularity-flow help` (or `singularity-flow help <command>`) instead; this turn does not run the bare --help form'
             : 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this turn does not run this SFlow command. Follow the exact action the last SFlow result returned; nothing needs recovering', [], { routes: [] });
@@ -2662,34 +2672,34 @@ export async function mutationPostToolGuard(payload = {}) {
     const value = await importTeamTurn(payload, record);
     const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
     if (value && terminals.every(call => shellAllowed(call, 'import-team', scope))) return {};
-    return postFinding(mutationDenial(null, 'IMPORT_TEAM_TURN_ENDED: the import-team turn ended or expired; run /sf-import-team again'));
+    return postFinding(chatEndedOrRefused('IMPORT_TEAM', '/sf-import-team', value));
   }
   if (mutationTurnMode(record.skill) === 'build-workflow') {
     const value = await importTeamTurn(payload, record);
     const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
     if (value && terminals.every(call => shellAllowed(call, 'build-workflow', scope))) return {};
-    return postFinding(mutationDenial(null, 'BUILD_WORKFLOW_TURN_ENDED: the build-workflow turn ended or expired; run /sf-build-workflow again'));
+    return postFinding(chatEndedOrRefused('BUILD_WORKFLOW', '/sf-build-workflow', value));
   }
   if (mutationTurnMode(record.skill) === 'fix-workflow') {
     const value = await importTeamTurn(payload, record);
     const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot,
       fixStaging: (value?.fixStaging ?? []).map(file => path.resolve(file)) };
     if (value && terminals.every(call => shellAllowed(call, 'fix-workflow', scope))) return {};
-    return postFinding(mutationDenial(null, 'FIX_WORKFLOW_TURN_ENDED: the fix-workflow turn ended or expired; run /sf-fix-workflow again'));
+    return postFinding(chatEndedOrRefused('FIX_WORKFLOW', '/sf-fix-workflow', value));
   }
   if (mutationTurnMode(record.skill) === 'spec-studio') {
     const value = await importTeamTurn(payload, record);
     const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot,
       specStaging: (value?.specStaging ?? []).map(file => path.resolve(file)) };
     if (value && terminals.every(call => shellAllowed(call, 'spec-studio', scope))) return {};
-    return postFinding(mutationDenial(null, 'SPEC_STUDIO_TURN_ENDED: the spec-author turn ended or expired; run /sf-spec-author again'));
+    return postFinding(chatEndedOrRefused('SPEC_STUDIO', '/sf-spec-author', value));
   }
   if (mutationTurnMode(record.skill) === 'run-and-test') {
     const value = await importTeamTurn(payload, record);
     const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot,
       appDraftStaging: (value?.appDraftStaging ?? []).map(file => path.resolve(file)) };
     if (value && terminals.every(call => shellAllowed(call, 'run-and-test', scope))) return {};
-    return postFinding(mutationDenial(null, 'RUN_AND_TEST_TURN_ENDED: the run-and-test turn ended or expired; run /sf-run-app or /sf-test again'));
+    return postFinding(chatEndedOrRefused('RUN_AND_TEST', `/sf-${skillName(record.skill) || 'run-app'}`, value));
   }
   let value;
   try { value = await currentContract(payload, record); }
@@ -2807,6 +2817,18 @@ export function plainChatChanges(payload, { rootOf = () => null } = {}) {
     }
   }
   return found;
+}
+
+/**
+ * After a command one of the commandless chats ran (/sf-import-team, /sf-build-workflow, …): either its permissions ended or
+ * expired, and that chat's command again is how to go on, or the command was simply not one it runs. "Ended or expired"
+ * for both sent a person to start a chat that had not ended (2026-11-19, loop 17).
+ */
+function chatEndedOrRefused(prefix, skill, value) {
+  if (!value) return mutationDenial(null, `${prefix}_TURN_ENDED: this chat's ${skill} permissions ended or expired, so nothing more runs in it. `
+    + `Run ${skill} again to go on; everything already written stays`, [], { routes: [], alone: true });
+  return mutationDenial(null, `${prefix}_COMMAND_NOT_ALLOWED: ${skill} does not run that command, so this chat stops here. It has already run and `
+    + 'nothing it changed is undone; tell the person which command ran and what it changed. Nothing needs starting again', [], { routes: [], alone: true });
 }
 
 function postFinding(denial) {

@@ -1162,7 +1162,8 @@ test('a refused decision leads with its own filled choices, then the Decide card
     ['producer-1', 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as accepted --clause PAY-1:AC-001 --reason "<REASON>"'],
     ['producer-2', 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"'],
     ['open-decision-list', 'singularity-flow decisions PAY-1']]);
-  assert.equal(plan.steps[2].copilotCommand, '/sf-decide PAY-1');
+  // The card itself: /sf-decide was the chat a decision is refused in, so its route sent the person round [owner, 2026-11-19, loop 1].
+  assert.deepEqual([plan.steps[2].copilotCommand, plan.steps[2].skill], ['/decide PAY-1', null]);
   assert.match(renderRefusalPlan(plan), /1\. Accept it under AC-001, with your reason\./u);
   // A code of the family from another command, with only a blank-holding route of its own: the card, and nothing to compose.
   const blank = refusalRemediationPlan(refused('PLAN_AMENDMENT_INVALID', { workId: 'PAY-1', recoveryCommands: ['singularity-flow decision plan PAY-1 --add-location <clause>=a.js --reason <why>'] }), ['approve', 'code']);
@@ -1171,7 +1172,8 @@ test('a refused decision leads with its own filled choices, then the Decide card
   assert.equal(blank.steps.some((entry) => ['command-help', 'diagnose-repository', 'recommended-next'].includes(entry.id)), false);
   // `decisions record` is a decision too, its own way out first and the card after it; `decisions` that only reads the list
   // keeps its own plan.
-  assert.ok(refusalRemediationPlan(refused('WORKSPACE_NOT_FOUND'), ['decisions', 'record', 'PAY-1', '--answers', 'a.json']).steps.some((entry) => entry.command === 'singularity-flow decisions PAY-1'));
+  assert.ok(refusalRemediationPlan(refused('WORKSPACE_NOT_FOUND'), ['decisions', 'record', 'PAY-1', '--answers', 'a.json']).steps.some((entry) => entry.command === 'singularity-flow decisions PAY-1'
+    && entry.copilotCommand === '/decide PAY-1'));
   // A decision the card does not record keeps its own filled retry first [PHR:REQ-006].
   const visual = refusalRemediationPlan(refused('DECISION_INPUT_INVALID', { recoveryCommand: 'singularity-flow decision visual-risk PAY-1 --comparison visual-x --expires 2099-01-01 --reason "<REASON>"' }),
     ['decision', 'visual-risk', 'PAY-1', '--comparison', 'visual-x', '--expires', '2000-01-01', '--reason', 'x']);

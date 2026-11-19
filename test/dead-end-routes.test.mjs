@@ -305,6 +305,87 @@ test('every known refusal builds a recovery plan whose every command is one the 
   assert.ok(marked.steps.every((entry) => !entry.command || !entry.command.includes('<ID,...>')), 'an unsafe command is never shown');
 });
 
+// No loops [owner, 2026-11-19, ceremony review]: a refusal never routes back to the same command or its skill without a
+// change. Inside /sf-decide a refused decision's first step was /sf-decide again, and a held test run's first step was the
+// same check, which ran into the same hold (loops 1, 12 and 13). A step that runs the refused command again names its
+// change in `changes`; `retry.command` is held to the same rule.
+test('no refusal plan\'s first command step, nor its retry, is the refused command or its skill unchanged', async () => {
+  const { KNOWN_REFUSAL_CODES } = await import('../src/refusal-remediation.mjs');
+  const { skillForCommandLine } = await import('../src/command-skills.mjs');
+  const details = { workId: 'W-1', phase: 'build', phaseId: 'build', currentPhase: 'build', documentId: 'DOC-001', decidableStep: 'plan',
+    issue: 'UPI-001', workType: 'feature', upstreamPhases: ['plan'], producerPhase: 'plan', restorable: true, paths: ['a.txt'],
+    recoveryCommand: 'singularity-flow recover W-1 --json', errors: ['x'], authorities: ['product'], capabilityId: 'web-app',
+    checkoutPath: '/tmp/checkout', storyId: 'W-1', expectedWorkId: 'W-1' };
+  // A command's own words, before its first option; its skill, as `/sf-<name>`.
+  const words = (command) => { const list = String(command ?? '').trim().split(/\s+/u); const end = list.findIndex((word) => word.startsWith('-')); return (end < 0 ? list : list.slice(0, end)).join(' '); };
+  const skillOf = (value) => (value ? `/${String(value).replace(/^\//u, '').split(/\s+/u)[0].replace(/^sflow-/u, 'sf-')}` : null);
+  const loops = [];
+  for (const code of KNOWN_REFUSAL_CODES) {
+    for (const argv of [['phase', 'prepublish', 'build', '--work-id', 'W-1'], ['approve', 'build', '--work-id', 'W-1'], ['start', 'W-1'],
+      ['submit', 'build', '--work-id', 'W-1'], ['phase', 'publish', 'build', '--work-id', 'W-1'], ['decision', 'show', 'W-1'],
+      ['decision', 'choose', 'W-1', '--choice', 'O1', '--reason', 'Simpler.'], ['decision', 'witness', 'W-1', '--criterion', 'W-1:AC-001', '--slot', 'screen'],
+      ['decisions', 'record', 'W-1'], ['decisions', 'undo', 'W-1', '--settled', 'STL-001']]) {
+      const refused = `singularity-flow ${argv.join(' ')}`;
+      const skill = skillOf(skillForCommandLine(refused));
+      const same = (command, routeSkill) => words(command) === words(refused) || (skill && skillOf(routeSkill) === skill);
+      const plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details }), argv);
+      const first = plan.steps.find((entry) => entry.command);
+      if (first && !first.changes && same(first.command, first.skill ?? first.copilotCommand)) loops.push(`${code} (${argv.slice(0, 2).join(' ')}): step ${first.id} ${first.command}`);
+      if (plan.retry?.command && !plan.retry.changes && same(plan.retry.command, plan.retry.skill)) loops.push(`${code} (${argv.slice(0, 2).join(' ')}): retry ${plan.retry.command}`);
+    }
+  }
+  assert.deepEqual(loops, []);
+  // The two that were loops: a held run waits on the read that shows it, and a refused decision opens the card itself.
+  const held = refusalRemediationPlan(Object.assign(new Error('held'), { code: 'TEST_RUN_STILL_RUNNING', details }), ['phase', 'prepublish', 'build', '--work-id', 'W-1']);
+  assert.deepEqual([held.steps[0].id, held.steps[0].wait, held.steps[0].command], ['list-held-run', true, 'singularity-flow tests held --work-id W-1 --phase build']);
+  assert.equal(held.steps[1].changes, 'the held run has ended');
+  const choose = refusalRemediationPlan(Object.assign(new Error('refused'), { code: 'DECISION_REASON_REQUIRED', details }), ['decision', 'choose', 'W-1', '--choice', 'O1']);
+  const card = choose.steps.find((entry) => entry.id === 'open-decision-list');
+  assert.deepEqual([card.copilotCommand, card.command, card.skill], ['/decide W-1', 'singularity-flow decisions W-1', null]);
+  assert.equal(choose.steps.some((entry) => /^\/sf-decide\b/u.test(entry.copilotCommand ?? '')), false);
+});
+
+// The same rule where a refusal is thrown: a command's own refusal never names its own skill as the way on. `decisions
+// record` refused with "Review the current decision list" and /sf-decide, the chat it ran in (loop 1, 2026-11-19).
+// REVIEWED holds the throw sites that name it for a change, by module and count: it never grows.
+test('no command module\'s refusal names that command\'s own skill as its way on', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { createRequire } = await import('node:module');
+  const ts = createRequire(import.meta.url)('typescript');
+  const { COMMAND_REGISTRY, commandDefinition } = await import('../src/command-registry.mjs');
+  const { skillForCommandLine } = await import('../src/command-skills.mjs');
+  const REVIEWED = {};
+  const own = new Map();
+  for (const { name } of COMMAND_REGISTRY) {
+    const file = path.resolve('src', commandDefinition(name).modulePath);
+    const skill = file.endsWith('legacy.mjs') ? null : skillForCommandLine(`singularity-flow ${name}`);
+    if (skill) own.set(file, new Set([...(own.get(file) ?? []), `/${skill.replace(/^\//u, '')}`]));
+  }
+  assert.ok(own.get(path.resolve('src/commands/decisions.mjs'))?.has('/sf-decide'), 'the scan knows /sf-decide is decisions\' own');
+  const found = {};
+  for (const [file, skills] of own) {
+    const text = readFileSync(file, 'utf8');
+    const ast = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const visit = (node) => {
+      // A refusal: the error itself, or the module's own helper that throws it.
+      const callee = ts.isNewExpression(node) || ts.isCallExpression(node) ? node.expression.getText() : null;
+      if (callee === 'SingularityFlowError' || (ts.isCallExpression(node) && /^(?:refused|refuse)$/u.test(callee ?? ''))) {
+        const body = node.getText();
+        for (const skill of skills) {
+          if (new RegExp(`${skill}(?![\\w-])`, 'u').test(body)) {
+            const key = `${path.relative(path.resolve('src'), file)} ${skill}`;
+            found[key] = (found[key] ?? 0) + 1;
+          }
+        }
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(ast);
+  }
+  assert.deepEqual(found, REVIEWED);
+});
+
 // A screenshot's witness was its own step after the last submission (ws-graph AC-001, 2026-10-27). The
 // approver now confirms it with the approval; the separate witness command stays as the other route.
 test('an ending waiting on a witness offers to confirm the evidence with the approval itself, first', () => {

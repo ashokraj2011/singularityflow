@@ -228,7 +228,7 @@ test('prompt submission announces the exact code prerequisite before a denied ed
   // A kernel skill's turn still never authors: its own steps run, and it is never told to stop (a /sf-submit that obeyed
   // "return the configured authoring skill and stop" submitted nothing, 2026-10-26).
   const submit = await recordRepositoryBoundaryTurn({ ...payload, sessionId: 'submit-only', prompt: '/sf-submit' }, { captureMutation: capture });
-  assert.match(submit.additionalContext, /kernel-only.*no direct repository edits/);
+  assert.match(submit.additionalContext, /kernel-only[\s\S]*This chat edits no repository file directly/);
   assert.match(submit.additionalContext, /Never inline an authoring skill/);
   assert.doesNotMatch(submit.additionalContext, /Code authoring ready/, 'a turn that writes no code is not told whether code authoring is ready (office, 2026-11-11)');
   assert.match(submit.additionalContext, /Carry out the invoked skill's steps in this turn\./);
@@ -436,7 +436,9 @@ test('review tool protocol recovers in the same turn; standalone check/stage/ret
     const refusal = await shell(command);
     assert.match(refusal.permissionDecisionReason, /PHASE_MUTATION_TOOL_PROTOCOL/);
     assert.doesNotMatch(refusal.permissionDecisionReason, /PHASE_MUTATION_TURN_READ_ONLY/);
-    assert.match(refusal.permissionDecisionReason, /\/sf-review-source custom-step/);
+    // The review chat's own read, run in it: never /sf-review-source again from inside it [owner, 2026-11-19, loop 1].
+    assert.match(refusal.permissionDecisionReason, /- Copilot: run it in this chat\n- Shell: singularity-flow review-source context custom-step --for-agent --json/u);
+    assert.doesNotMatch(refusal.permissionDecisionReason, /\/sf-review-source custom-step/u);
   }
   // The host's saved copy of a long result is outside the workspace: the refusal names the agent
   // view to run again instead of telling the agent to use a file tool that cannot open it.
@@ -900,7 +902,9 @@ test('no agent turn decides or acknowledges an intent amendment; reading it stay
       assert.match(denied.permissionDecisionReason, command === acknowledge
         ? /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: acknowledging an approved intent amendment is a person's own step, recorded on the decisions card, never by this turn\. Tell them to open it with \/sf-decide PMC-1/u
         : /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, on the decisions card, never by this turn\. Tell them to open it with \/sf-decide PMC-1 \(a stale one is refreshed there\)/u, `${skill}: ${command}`);
-      assert.deepEqual([denied.next[0].copilotCommand, denied.next[0].skill, denied.next[0].command], ['/sf-decide PMC-1', '/sf-decide', command], `${skill}: ${command}`);
+      // Inside /sf-decide the route is the card itself, never /sf-decide again [owner, 2026-11-19, loop 1].
+      assert.deepEqual([denied.next[0].copilotCommand, denied.next[0].skill, denied.next[0].command],
+        skill.startsWith('/sf-decide') ? ['/decide PMC-1', null, command] : ['/sf-decide PMC-1', '/sf-decide', command], `${skill}: ${command}`);
     }
   }
   // Chained, or with no turn at all (a plain prompt): the person's own step, with the same card route.
@@ -1704,6 +1708,27 @@ test('a delegation skill takes the turn of the skill it delegates to, so the del
   }
 });
 
+test('a review chat is the review itself, and a command its chat does not run is said to be that, not an ended chat', async t => {
+  // Loop 11 [owner, 2026-11-19]: a /sf-review-source chat that tried a sub-agent was told to end on "Run this in a new chat:
+  // /sf-review-source", the chat it was already in.
+  const f = await fixture(t);
+  f.workflow.resolution.obligationGraph = { nodes: [{ id: 'custom-step', responsibilities: ['scope'] }] };
+  const review = await f.enter('/sf-review-source', 'review-delegates');
+  for (const toolArgs of [{ agent_type: 'sflow-source-reviewer', prompt: '/sf-review-source custom-step' }, { prompt: 'Review the step.' }]) {
+    const refused = await mutationToolGuard({ ...review, toolName: 'task', toolArgs });
+    assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this chat is the review itself, so it starts no reviewer as a sub-agent\. Do the review here yourself, with the route below/u);
+    assert.doesNotMatch(refused.permissionDecisionReason, /Run this in a new chat|\n- Copilot: \/sf-review-source/u);
+    assert.equal(refused.next.some((route) => /^\/sf-review-source\b/u.test(route.copilotCommand ?? '')), false);
+  }
+  // Loop 17: a command /sf-import-team does not run is that, and nothing needs starting again; "ended or expired" is kept
+  // for a chat whose permissions really ended.
+  const team = await f.enter('/sf-import-team', 'import-team-other-command');
+  const stopped = await mutationPostToolGuard({ ...team, toolName: 'bash', toolArgs: { command: 'npm test', cwd: f.root } });
+  assert.match(stopped.permissionDecisionReason, /^IMPORT_TEAM_COMMAND_NOT_ALLOWED: \/sf-import-team does not run that command, so this chat stops here\. .*Nothing needs starting again\.$/u);
+  assert.doesNotMatch(stopped.permissionDecisionReason, /ended or expired|run \/sf-import-team again/iu);
+  assert.deepEqual(stopped.next, []);
+});
+
 test('a turn that may not start the reviewer says to end on its new-chat route, never to review the step itself', async t => {
   // /sf-publish's publication handed back reviewSubagent; the refusal of its task call said "Do the work here
   // yourself", the opposite of "do not review it yourself" (agent-text audit, 2026-11-11).
@@ -1715,7 +1740,7 @@ test('a turn that may not start the reviewer says to end on its new-chat route, 
     const reviewer = await mutationToolGuard({ ...payload, toolName: 'task',
       toolArgs: { agent_type: 'sflow-source-reviewer', prompt: '/sf-review-source custom-step' } });
     assert.equal(reviewer.permissionDecision, 'deny', skill);
-    assert.match(reviewer.permissionDecisionReason, /PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this turn cannot start the reviewer as a sub-agent, and never reviews its own step\. End with "Run this in a new chat:" and \/sf-review-source/u, skill);
+    assert.match(reviewer.permissionDecisionReason, /PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this chat cannot start the reviewer as a sub-agent, and never reviews its own step\. End with "Run this in a new chat:" and \/sf-review-source/u, skill);
     assert.doesNotMatch(reviewer.permissionDecisionReason, /Do the work here yourself/u, skill);
     // Any other delegation keeps its own refusal.
     const other = await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'Work on the code step.' } });
@@ -3296,7 +3321,9 @@ test('a "still holds" yes or no runs in /sf-decide only with what the person typ
   assert.match(refused.permissionDecisionReason, UNBOUND);
   assert.match(refused.permissionDecisionReason, /the person gave none for it in this turn\. Ask them that row's yes-or-no question \(Yes, No, Not now\)/u);
   assert.equal(refused.recoverable, true);
-  assert.match(refused.next?.[0]?.copilotCommand ?? '', /^\/sf-decide\b/u);
+  // The card itself, from inside /sf-decide: never /sf-decide again [owner, 2026-11-19, loop 1].
+  assert.deepEqual([refused.next?.[0]?.copilotCommand, refused.next?.[0]?.command], ['/decide PMC-1', 'singularity-flow decisions record PMC-1']);
+  assert.match(refused.permissionDecisionReason, /Never send the person to \/sf-decide again: this chat is it\. The Decide card opens here: call #sflowDecide \(VS Code\) or sflow_decide \(Copilot CLI\) with workId PMC-1/u);
   assert.match(refused.next?.[0]?.command ?? '', /^singularity-flow decisions\b/u);
   // The host's auto-reply and a declined question are nobody's answer.
   const canned = await f.enter('/sf-decide PMC-1', 'still-holds-canned');
@@ -3439,7 +3466,7 @@ test('a reason shorter or longer than its command takes is refused before it run
     const refused = await run(payload, command, f.root);
     assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded\. Its --reason has 5 characters, and this command takes 20 to 1000\. Ask the person for a reason of at least 20 characters, then run it again with their words/u, command);
     assert.equal(refused.recoverable, true, 'the turn carries on');
-    assert.match(refused.next?.[0]?.copilotCommand ?? '', /^\/sf-decide\b/u, 'and names its way through');
+    assert.equal(refused.next?.[0]?.copilotCommand, '/decide PMC-1', 'and names its way through: the card, never /sf-decide again');
   }
   const long = 'x'.repeat(501);
   assert.match((await run(payload, `singularity-flow decision plan PMC-1 --fetch --add-supporting src/b.mjs=test-support --supporting-reason "${long}" --reason "A test helper the suite needs."`, f.root)).permissionDecisionReason,

@@ -23,7 +23,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 2. Routing: show `pending.label`, why it waits (`reason`, `round`, `maxRounds`), who decides (`by`), `values` and every option (`id`, `label`, `toLabel`, `reach`, `skipLabels`; with `anyStep`, a step ID or `end`).
 3. Never ask it here: it is chosen on the Decide card (12).
 4. Only an option or step and reason the person typed with this skill: run `singularity-flow decision choose <WORK-ID> --fetch --option <ID> --reason "<REASON>" --expected <pending.key>`, or `--to <STEP>` in place of `--option`.
-5. Report commit, route, skipped steps, authority and phase; show `Next in Copilot: /sf-next`; stop.
+5. Report commit, route, skipped steps, authority and phase; re-read the list; go on from 11, never `/sf-next`.
 6. For each `applicability` entry not `satisfied`, show `responsibility`, `declaredReason` and who decides (`authority`); ask yes or no that it does not apply, and their reason. On yes run `singularity-flow decision applicability <WORK-ID> --fetch --responsibility <RESPONSIBILITY> --reason "<REASON>"`; report the commit; stop.
 7. Scope statements are decided on the Decide card (12), never asked here.
 8. The completeness review too: a review, not proof of correct scope.

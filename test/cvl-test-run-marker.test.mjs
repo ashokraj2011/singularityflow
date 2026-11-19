@@ -178,9 +178,11 @@ test('a held run is its own refusal that names the process, is never counted as 
   assert.doesNotMatch(held.message, /fix the cause|Do not repeat/u);
   const listed = `singularity-flow tests held --work-id ${W} --phase implement`;
   assert.equal(held.details.nextAction.command, listed);
-  // Its own routes: the same command once that process ended, and the list a person reads; never a repair of the step.
+  // Its own routes: a wait on the list a person reads first, then the same command once that process ended; never a repair
+  // of the step, and never the same check first, which ran into the same hold (loop 12) [owner, 2026-11-19].
   const plan = refusalRemediationPlan(held, ['phase', 'prepublish', 'implement']);
-  assert.deepEqual(plan.steps.map((step) => step.command), ['singularity-flow phase prepublish implement --for-agent --json --publish-if-ready', listed]);
+  assert.deepEqual(plan.steps.map((step) => step.command), [listed, 'singularity-flow phase prepublish implement --for-agent --json --publish-if-ready']);
+  assert.deepEqual([plan.steps[0].wait, plan.steps[1].changes], [true, 'the held run has ended']);
   assert.equal(plan.steps.some((step) => /Do not repeat|fix the cause|[Rr]epair/u.test(step.label ?? '')), false);
   // Asked about three times, it is a wait, never "the same finding returned".
   const streaks = await mkdtemp(path.join(os.tmpdir(), 'sflow-cvl-streaks-'));

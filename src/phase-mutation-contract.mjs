@@ -15,7 +15,8 @@ import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { WRITING_ALIASES } from './writing-aliases.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
-import { formatCommandRouteLines } from './model-free-commands.mjs';
+import { formatCommandRouteLines, VSCODE_DECIDE_CARD } from './model-free-commands.mjs';
+import { WORK_COMMANDS } from './command-skills.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
 
 // The kernel's adapter and the host's rendering of its decision live in step-decision.mjs, shared with every surface.
@@ -132,7 +133,7 @@ function caseInsensitiveCheckout(root) {
 }
 
 export function deriveMutationContract({ root = null, definition, workflow, phase = workflow?.phases?.[workflow.currentPhase],
-  turnMode = 'authoring', staging = [], evidence = [], opening = null, sources = {}, task = null, changeRequested = false }) {
+  turnMode = 'authoring', staging = [], evidence = [], opening = null, sources = {}, task = null, changeRequested = false, skill = null }) {
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
@@ -197,7 +198,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
       : decisionRoutes(decision, workflow, phase);
   const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`singularity-flow story intent-amendment status\` and \`singularity-flow story intent-amendment draft\`, stay open.`
     : turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
-    : turnMode !== 'authoring' ? `${turnMode}: no direct repository edits; only explicitly issued staging files and permitted kernel operations.`
+    : turnMode !== 'authoring' ? 'This chat edits no repository file directly: only the exact files its SFlow commands issue, and the SFlow commands it allows.'
       : !editable && decision?.next.inputs.consent === 'required' ? `No edits before the person's yes to version ${decision.next.inputs.version} of ${phase.id}: run the returned preview, ask them its question, and only on their yes open it and do its work in this turn.`
       : !editable ? 'No direct edits: this step is not being written now. Take its returned next action.'
       : deterministic && !code ? 'No direct edits to this deterministic generation. Use the returned kernel action.'
@@ -205,9 +206,11 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
         : deterministic && code ? 'No edits until its code version is open: open it with the returned action. The summary is built by `singularity-flow prepare` from what changed, never edited by hand.'
         : application ? `May edit this phase's artifacts and ${phase.sourceBoundary === 'test-automation' ? 'test-automation' : 'application'} paths within pinned policy; protected and governed state remain kernel-owned.`
           : `May edit this phase's artifacts only.${code ? ' Open a code generation before application edits.' : ' Do not implement application code in this phase.'}`;
+  // The skill this chat was started with: a refusal here never sends the person back to it (mutationDenial).
+  const turnSkill = turnSkills(skill)[0] ?? null;
   return {
     schemaVersion: MUTATION_CONTRACT_VERSION, kind: 'phase-mutation-contract',
-    workId, phaseId: phase?.id ?? null, generation: phase?.generation ?? null, turnMode, summary,
+    workId, phaseId: phase?.id ?? null, generation: phase?.generation ?? null, turnMode, ...(turnSkill ? { turnSkill } : {}), summary,
     // The skill that drafts this step, named in every turn so no turn guesses one (/sf-code for a plan).
     authoringSkill: phase ? directCopilotSkill(generationSkillForPhase(phase, workflow)) : null,
     repositoryRoot,
@@ -306,16 +309,93 @@ export function mutationToolProtocol(contract) {
     mode: contract.turnMode };
 }
 
-export function mutationDenial(contract, reason, paths = [], { routes = null, alone = false } = {}) {
+// ---- A refusal never sends the person back to the chat they are in [owner, 2026-11-19, loop 1] ----------------------------
+// Inside /sf-decide a refused command's route was /sf-decide again: the person typed it, came back here, and went round.
+// The one exception is renewal: the chat's permissions really ended, so the same command again is how to go on.
+
+/** The codes whose route may be the chat's own command: its permissions ended or expired. */
+export const TURN_RENEWAL_CODE = /^(?:PHASE_MUTATION_TURN_EXPIRED|[A-Z][A-Z0-9_]*_TURN_ENDED):/u;
+/** The modes only one skill takes, for a contract derived without the chat's own skill. */
+const ONE_SKILL_MODES = Object.freeze({ 'decision-only': '/sf-decide', 'review-decision-only': '/sf-review-decide',
+  'read-only-review': '/sf-review-source', 'publish-only': '/sf-publish', confirm: '/sf-confirm' });
+const STORY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const slashSkill = (value) => {
+  const word = String(value ?? '').trim().split(/\s+/u)[0].replace(/^\/?(?:sf|sflow)-/u, '');
+  return /^[a-z][a-z0-9-]*$/u.test(word) ? `/sf-${word}` : null;
+};
+
+/** The chat's own skill as `/sf-<name>`, first, then every other name its work goes by (/sf-code and /sf-phase are one). */
+export function turnSkills(skill, turnMode = null) {
+  const own = slashSkill(skill) ?? ONE_SKILL_MODES[turnMode] ?? null;
+  if (!own) return [];
+  return [...new Set([own, ...(['work-command', 'delegate'].includes(WRITING_ALIASES[own.slice(4)]?.kind) ? WORK_COMMANDS : [])])];
+}
+
+/**
+ * Whether a route sends the person to one of these skills: by its Copilot command, or by its skill when it has none. A
+ * skill beside another Copilot command only owns the command (a /sf-confirm code for /sf-code's rollover, say).
+ */
+export function routesToSkill(route, skills) {
+  const sends = (guidance) => (typeof guidance?.copilotCommand === 'string' ? guidance.copilotCommand : guidance?.skill);
+  return [sends(route), sends(route?.commandGuidance)]
+    .some((value) => typeof value === 'string' && value.startsWith('/') && skills.includes(slashSkill(value)));
+}
+
+/** The person's way to the Decide card from inside /sf-decide: the card here, or their own terminal line, all filled in. */
+export function decideCardInThisChat(route, workId) {
+  const { detail: ignored, commandGuidance, modelFreeStatus, ...guidance } = route ?? {};
+  // A read of the list or of a decision is not the person's step: the card's own record command is.
+  const read = !Array.isArray(guidance.argv) || (guidance.argv[0] === 'decision' && guidance.argv[1] === 'show')
+    || (guidance.argv[0] === 'decisions' && !['record', 'undo'].includes(guidance.argv[1]));
+  const base = read ? { ...(safeCommandGuidance({ argv: ['decisions', 'record', workId] }) ?? guidance) } : guidance;
+  const card = { ...base, skill: null, copilotCommand: `/decide ${workId}`, modelFreeCommand: base.modelFreeCommand ?? VSCODE_DECIDE_CARD };
+  return { detail: `Open the Decide card in this chat: call #sflowDecide (VS Code) or sflow_decide (Copilot CLI) with workId ${workId} only; `
+    + 'the person answers there, or runs the Shell line in their own terminal.', ...card,
+  ...(commandGuidance ? { commandGuidance: card } : {}), modelFreeStatus: 'available', decideCard: { vscode: '#sflowDecide', copilotCli: 'sflow_decide', workId } };
+}
+
+/**
+ * A route to the chat's own skill, replaced, in this order: the next real action (the Decide card, in a /sf-decide chat),
+ * the person's exact terminal line, or, for the chat's own route, the same command run here. Never the skill again.
+ */
+function withoutOwnSkill(route, skills, { workId, own }) {
+  if (!routesToSkill(route, skills)) return route;
+  if (skills[0] === '/sf-decide') {
+    const named = String(route?.copilotCommand ?? '').trim().split(/\s+/u)[1];
+    const id = [workId, named].find((value) => STORY_ID.test(value ?? ''));
+    return id ? decideCardInThisChat(route, id) : null;
+  }
+  const none = { skill: null, copilotCommand: null, ...(own ? { inThisChat: true } : {}) };
+  return { ...route, ...none, ...(route.commandGuidance ? { commandGuidance: { ...route.commandGuidance, ...none } } : {}),
+    ...(own ? { detail: 'Run it in this chat; never send the person to start this chat again.' } : {}) };
+}
+
+export function mutationDenial(contract, reason, paths = [], { routes = null, alone = false, turn = null, workId = null } = {}) {
   // Any SFlow command, a read too, rebuilds this turn's binding (cli-entry.mjs), so the way back is a read
   // in this turn; `phase enter` in a new /sf-phase turn sent approval and decision turns elsewhere (2026-10-28).
-  const actions = routes ?? (contract?.next?.length ? contract.next : [route(['session', 'current', '--for-agent', '--json'],
-    'Preserve existing work. Run this read in this turn: it binds the turn to the Story as it is now; a missing selection uses /sf-session.')]);
-  const lines = actions.map(action => formatCommandRouteLines(action).join('\n'));
+  const own = !routes;
+  let actions = routes ?? (contract?.next?.length ? contract.next : [route(['session', 'current', '--for-agent', '--json'],
+    'Preserve existing work. Run this read in this chat: it ties the chat to the Story as it is now; a missing selection uses /sf-session.')]);
   // `alone`: the reason is whole (an answer-bound refusal reads no contract), so no contract summary follows it. A reason that
   // ends its own sentence gets no second period ("which asks them.. No current…", daily run 2026-11-17).
-  const said = `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}`.replace(/\.+$/u, '');
+  let said = `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}`.replace(/\.+$/u, '');
+  const skills = TURN_RENEWAL_CODE.test(reason) ? [] : turnSkills(turn ?? contract?.turnSkill, contract?.turnMode);
+  if (skills.length) {
+    const story = [workId, contract?.workId].find((value) => STORY_ID.test(value ?? '')) ?? null;
+    const replaced = actions.map((action) => withoutOwnSkill(action, skills, { workId: story, own }));
+    const swapped = replaced.some((action, index) => action !== actions[index]);
+    actions = replaced.filter(Boolean);
+    // Words that name this chat's own command are never its way on: they say so, and where the way is.
+    const named = new RegExp(`(?:^|[\\s(\`'"])${skills[0]}(?![\\w-])`, 'u').test(said);
+    if (skills[0] === '/sf-decide' && (named || swapped)) {
+      said += `. Never send the person to /sf-decide again: this chat is it. ${story ? `The Decide card opens here: call #sflowDecide (VS Code) or sflow_decide (Copilot CLI) with workId ${story}`
+        : 'Waiting on the person: they answer on the Decide card (#sflowDecide or sflow_decide with the Story ID) or in their own terminal (singularity-flow decisions record <Story ID>)'}`;
+    } else if (named) said += `. Never send the person to ${skills[0]} again: this chat is it`;
+  }
+  // The chat's own route has no Copilot command to type: this chat runs it.
+  const lines = actions.map(action => formatCommandRouteLines(action).map((line, index) => (index === 0 && action.inThisChat
+    ? '- Copilot: run it in this chat' : line)).join('\n'));
   return { permissionDecision: 'deny', permissionDecisionReason:
-    `${said}.${alone ? '' : ` ${contract?.summary ?? 'No current verified mutation contract.'}`}${lines.length ? `\n\n${lines.join('\n\n')}` : ''}`.trimEnd(),
+    `${said}.${alone ? '' : ` ${contract?.summary ?? 'SFlow holds no current permissions for this chat.'}`}${lines.length ? `\n\n${lines.join('\n\n')}` : ''}`.trimEnd(),
     next: actions };
 }

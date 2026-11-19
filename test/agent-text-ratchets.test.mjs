@@ -358,3 +358,43 @@ test('a skill asks a next version as the engine\'s own "Start version N of …?"
     if (/A change asked for after publication/u.test(text)) assert.match(text, /ask its "Start version N\+1 of …\?"/u, name);
   }
 });
+
+test('no skill routes the person back to itself, unless the sentence names what changed first', async () => {
+  // Inside /sf-decide, "Next in Copilot: /sf-next" and /sf-next's "/sf-decide" sent a person round between the two, and a
+  // refusal's /sf-decide route sent them round inside one (owner, 2026-11-19: "too many confusing loops", loops 1 and 15).
+  // A sentence that names a skill's own command with a routing word, and no "never" or "not", is a route back to itself.
+  // Each one below was reviewed: a rerun after the person changed something first, another form of the command, or words
+  // that describe what was typed. A new one fails until it is the same kind and is added here with its reason.
+  const { readdir, readFile } = await import('node:fs/promises');
+  const REVIEWED = new Set([
+    'sflow-cancel: the person reruns `/sf-cancel` after it.', // after /sf-recover kept the branch's changes
+    'sflow-confirm: description: Run one reviewed SFlow confirmation, by the short code a returned /sf-confirm route carried, once.', // what it runs
+    'sflow-explain: - Nothing after `/sf-explain`: run nothing and ask what to explain.', // what was typed
+    'sflow-pause: An explicit SFlow request only offers `/sf-pause off`;', // another form: it lifts the pause
+    'sflow-ready: rerun `/sf-ready`), record secrets, or edit a Story checkout.', // the end of a "never" list
+    'sflow-ready: rerun `/sf-ready` for a new `planId`,', // a new plan
+    'sflow-recover: Then the person reruns `/sf-recover`.', // after the person's own step
+    'sflow-refresh-branch: Then the person reruns `/sf-refresh-branch`.', // after /sf-recover kept the changes
+    'sflow-session: Forward `/sf-session --refresh` with the same selectors.', // another form: it refreshes
+    'sflow-start: The person commits, ignores, moves or lands them (`/sf-adhoc`), then reruns `/sf-start`.', // after the changes moved
+    'sflow-worldmodel: - **Bare `/sf-worldmodel` is read-only.** With an active Story run `singularity-flow wm brief --phase <current phase> --json` (what that phase prompt carries);' // what was typed
+  ]);
+  const ROUTE = /\b(?:run|runs|rerun|reruns|invoke|invokes|give|gives|show|relay|offer|offers|forward|send|open|use|start|type|types|end with|Next in Copilot)\b/iu;
+  const NOT = /\b(?:never|not|neither|nor|no)\b/iu;
+  const root = new URL('../plugin/skills/', import.meta.url);
+  const loops = [];
+  for (const name of (await readdir(root)).sort()) {
+    let text;
+    try { text = await readFile(new URL(`${name}/SKILL.md`, root), 'utf8'); } catch { continue; }
+    const own = new RegExp(`/${name.replace(/^sflow-/u, 'sf-')}(?![\\w-])`, 'u');
+    for (const sentence of text.split(/(?<=[.;!?])\s+|\n/u).map((entry) => entry.trim())) {
+      if (own.test(sentence) && ROUTE.test(sentence) && !NOT.test(sentence) && !REVIEWED.has(`${name}: ${sentence}`)) loops.push(`${name}: ${sentence.slice(0, 200)}`);
+    }
+  }
+  assert.deepEqual(loops, []);
+  // The two loops themselves are gone: /sf-decide goes on with its own list, and a review chat reviews in itself.
+  const decide = await readFile(new URL('sflow-decide/SKILL.md', root), 'utf8');
+  assert.doesNotMatch(decide, /Next in Copilot: \/sf-next/u);
+  assert.match(decide, /re-read the list; go on from 11, never `\/sf-next`\./u);
+  assert.match(await readFile(new URL('sflow-review-source/SKILL.md', root), 'utf8'), /`status`: read\. Its `\/sf-review-source` route is this chat: review here\./u);
+});

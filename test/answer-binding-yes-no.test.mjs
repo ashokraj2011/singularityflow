@@ -60,10 +60,10 @@ test('a refusal that ends its own sentence gets no second period, and a whole on
   assert.equal(whole.permissionDecisionReason, 'PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. In their own terminal singularity-flow phase rollover implement, which asks them.');
   const summed = mutationDenial({ summary: 'No direct edits.', next: [] }, 'PHASE_MUTATION_TOOL_PROTOCOL: use the file tools.', [], { routes: [] });
   assert.equal(summed.permissionDecisionReason, 'PHASE_MUTATION_TOOL_PROTOCOL: use the file tools. No direct edits.');
-  assert.doesNotMatch(summed.permissionDecisionReason + whole.permissionDecisionReason, /\.\.|No current verified mutation contract/u);
+  assert.doesNotMatch(summed.permissionDecisionReason + whole.permissionDecisionReason, /\.\.|SFlow holds no current permissions/u);
   // A refusal with no contract at all still says so, once.
   assert.equal(mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding', [], { routes: [] }).permissionDecisionReason,
-    'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding. No current verified mutation contract.');
+    'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding. SFlow holds no current permissions for this chat.');
 });
 
 test('a host\'s own flags beside an answer are never read as the person\'s yes or no', () => {

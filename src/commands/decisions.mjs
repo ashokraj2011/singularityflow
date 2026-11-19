@@ -620,7 +620,7 @@ function sameProposal(workflow, effect) {
   const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === effect.amendment);
   if (summary?.status === 'proposed' && summary.proposalSha256 === effect.proposalSha256) return;
   refused(`${effect.amendment} is not the pending proposal this list showed any more, so nothing was recorded. Review the current list and choose again.`,
-    'DECISIONS_PACKET_CHANGED', { amendment: effect.amendment, nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide', label: 'Review the current decision list.' } });
+    'DECISIONS_PACKET_CHANGED', { amendment: effect.amendment, nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'Review the current decision list.' } });
 }
 
 /** Write one effect with the function its own command uses; returns the record it wrote. */
@@ -753,7 +753,7 @@ function recordId(kind, record) {
 }
 
 function changedList(packet, confirm, phaseId) {
-  const nextAction = { command: `singularity-flow decisions ${packet.workId}${phaseId ? ` --phase ${phaseId}` : ''}`, skill: '/sf-decide', label: 'Review the current decision list.' };
+  const nextAction = { command: `singularity-flow decisions ${packet.workId}${phaseId ? ` --phase ${phaseId}` : ''}`, label: 'Review the current decision list.' };
   // A digest copied with a slip is not a changed list: say so, with the exact digest (a person's
   // confirmation stays theirs; nothing is recorded on a near miss) [copied values].
   assertConfirmation(confirm, packet.packetSha256, { code: 'DECISIONS_PACKET_CHANGED', fail: refused,
@@ -823,7 +823,7 @@ async function recordVersionConsent(root, options, workId) {
   const phase = workflow.phases?.[workflow.currentPhase];
   if (!record || record.proposal.workId !== workflow.workItem.id || record.proposal.phase !== phase?.id || record.digest !== expect) {
     refused('This yes is for another proposal than the one waiting now; nothing was recorded. Read the decisions card again.', 'VERSION_CONSENT_WRONG_TARGET',
-      { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' } });
+      { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}` } });
   }
   if (record.proposal.lifecycleRevision !== head(root)) {
     refused(`The Story moved since version ${record.proposal.version} of ${phase.id} was proposed; nothing was recorded. Its work command proposes it again.`,
@@ -873,7 +873,7 @@ async function recordJustAQuestion(root, options, workId) {
   const phase = workflow.phases?.[workflow.currentPhase];
   if (!record || record.proposal.workId !== workflow.workItem.id || record.proposal.phase !== phase?.id || record.digest !== expect) {
     refused('This answer is for another question than the one waiting now; nothing was recorded. Read the decisions card again.', 'VERSION_CONSENT_WRONG_TARGET',
-      { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' } });
+      { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}` } });
   }
   if (record.proposal.lifecycleRevision !== head(root)) {
     refused(`The Story moved since version ${record.proposal.version} of ${phase.id} was proposed; nothing was recorded. Its work command asks again.`,

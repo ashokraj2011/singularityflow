@@ -1597,7 +1597,10 @@ function approvalConfirmationOfCall(call, cwd) {
   if (!text || !/singularity-flow|sflow/iu.test(text)) return null;
   for (const { argv } of shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd)) {
     const { positionals, options } = parseCli(argv);
-    if (positionals[0] === 'choices' && positionals[1] === 'answer' && positionals[3] === 'phase-confirmation') return { token: String(positionals[2] ?? ''), positionals, options };
+    if (positionals[0] === 'choices' && positionals[1] === 'answer' && positionals[3] === 'phase-confirmation') {
+      const receiptId = String(positionals[2] ?? '');
+      return { token: receiptId, positionals, options };
+    }
     if (positionals[0] === 'approve' && typeof options['selection-receipt'] === 'string') return { token: options['selection-receipt'], positionals, options };
   }
   return null;

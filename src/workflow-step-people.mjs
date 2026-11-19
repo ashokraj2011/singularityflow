@@ -222,7 +222,8 @@ export function workflowStepPeople(model, workflow, resolved, { sfGuard = 'off' 
         : `, in the chat with /sf-approve, but only in the approver's own terminal ${ownTerminalWhen.map((entry) => entry.text).join(', or ')}`;
     const unread = policy.mode !== 'none' && sfGuard === 'unknown' ? ' SF Guard\'s policy cannot be read here, so whether approvals are signed is not known.' : '';
     const approvalText = policy.mode === 'none' ? 'Approval: none; it moves on when it is submitted.'
-      : policy.automatic ? `Approval: SFlow approves it when its reviewer says ready, its checks pass and nothing is open for it; otherwise ${count} from ${from}${including} (${self})${place}.${unread}`
+      // Under SF Guard every approval takes a person's signature, so SFlow never approves one by itself (automatic-approval.mjs).
+      : policy.automatic && sfGuard !== 'on' ? `Approval: SFlow approves it when its reviewer says ready, its checks pass and nothing is open for it; otherwise ${count} from ${from}${including} (${self})${place}.${unread}`
       : policy.mode === 'policy' ? `Approval: automatic when the change fits policy ${policy.policy ?? 'quick-fix-low-risk-v1'}${policy.maximumChangedPaths ? ` (at most ${plural(policy.maximumChangedPaths, 'changed path')})` : ''}; otherwise ${count} from ${from}${including} (${self})${place}.${unread}`
         : `Approval: ${count} from ${from}${including} (${self})${place}.${unread}`;
     const approval = {

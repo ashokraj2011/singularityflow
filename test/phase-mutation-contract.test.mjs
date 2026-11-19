@@ -2563,14 +2563,14 @@ test('a /sf-submit command scoped to the checkout runs, and a refused tool form 
 test('a failed decision locks only approval operations, never granting authoring or raw-shell permission', async t => {
   const f = await fixture(t);
   // A chat approves only through the receipt its person's Yes is bound to (owner, 2026-11-19).
-  const token = '44444444-4444-4444-8444-444444444444';
-  await approvalReceipt(f, token);
+  const receiptId = '44444444-4444-4444-8444-444444444444';
+  await approvalReceipt(f, receiptId);
   const payload = await f.enter('/sf-approve');
   await saidYes(payload);
-  const receipt = ` --selection-receipt ${token}`;
+  const receipt = ` --selection-receipt ${receiptId}`;
   const shell = command => ({ ...payload, toolName: 'bash', toolArgs: { command } });
   assert.deepEqual(await mutationToolGuard(shell(`singularity-flow approve custom-step --work-id PMC-1${receipt} --for-agent --json`)), {});
-  assert.deepEqual(await mutationToolGuard(shell(`cd '${f.root}' && 'singularity-flow' 'approve' 'custom-step' '--work-id' 'PMC-1' '--selection-receipt' '${token}' '--for-agent' '--json'`)), {});
+  assert.deepEqual(await mutationToolGuard(shell(`cd '${f.root}' && 'singularity-flow' 'approve' 'custom-step' '--work-id' 'PMC-1' '--selection-receipt' '${receiptId}' '--for-agent' '--json'`)), {});
   // Never without its receipt: nothing would bind the person's Yes to the version reviewed.
   assert.equal((await mutationToolGuard(shell('singularity-flow approve custom-step --work-id PMC-1 --for-agent --json'))).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard(shell(`cd '${path.dirname(f.root)}' && singularity-flow approve custom-step --work-id PMC-1`))).permissionDecision, 'deny');

@@ -829,8 +829,10 @@ function nextFrom(result, { turn }) {
   const onward = returnedRoute(result);
   if (!onward) return null;
   const relayed = onward.source === 'continuation' || onward.state === 'next' || onward.turn === 'new-turn';
-  // A route back to the skill this turn runs is this turn's own work, never relayed (the skills say so).
-  const sameTurn = Boolean(onward.copilot && turn && onward.copilot.split(/\s+/u)[0] === turn);
+  // A route back to the skill this turn runs is this turn's own work, never relayed (the skills say so), unless the result
+  // names it for a new turn: a submission SFlow approved automatically completes the step, and the next step's skill may be
+  // this turn's own (/sf-phase to /sf-phase), entered again after its /clear (approve twice with ceremony turns, landing-6).
+  const sameTurn = Boolean(onward.copilot && turn && onward.turn !== 'new-turn' && onward.copilot.split(/\s+/u)[0] === turn);
   const inTurn = sameTurn || (!relayed && (!onward.copilot || agentRunnable(onward.shell)));
   return { ...onward, inTurn: inTurn && Boolean(onward.shell) };
 }

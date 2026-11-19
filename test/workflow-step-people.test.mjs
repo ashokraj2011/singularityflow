@@ -252,7 +252,8 @@ test('a team\'s custom workflow: questions before the scope, markers nobody can 
   assert.match(validated.stdout, /^ {2}warning {2}Nobody is asked about the scope before Requirements defines it {2}\(singularity\/workflow\.yml:\d+\)$/mu);
   assert.match(validated.stdout, /^ {2}warning {2}Implementation stops for a person's answer before every change {2}\(singularity\/workflow\.yml:\d+\)$/mu);
   assert.match(validated.stdout, /^Who does what, where, in Family requirements flow \(fmly\):$/mu);
-  assert.match(validated.stdout, /^ {5}Approval: one person from Product approvers \(its author may approve it\), in the chat with \/sf-approve/mu);
+  // Approve twice (owner, 2026-11-19): the team's copy of Feature keeps the shipped steps SFlow approves when ready.
+  assert.match(validated.stdout, /^ {5}Approval: SFlow approves it when its reviewer says ready, its checks pass and nothing is open for it; otherwise one person from Product approvers \(its author may approve it\), in the chat with \/sf-approve/mu);
   const checked = flow(root, ['workflow', 'check', 'fmly']);
   assert.match(checked.stdout, /^ {5}Who does what, where:\n {7}Author: Product owner \(an agent\) drafts it, or a person writes it\. It changes no code\.$/mu);
 });

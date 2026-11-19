@@ -7,8 +7,9 @@
  *   B  a code review asks for corrections three times: versions 2 and 3 start on their own (only the reviewer saw each),
  *      the third in a row is the person's "Start version 4?", and version 4 is re-reviewed, submitted in the author's turn
  *      (which then ends) and approved (owner, 2026-11-19);
- *   D  a required test fails for an environment reason (the wrong Node): the decisions card, the pin, the re-publish;
- *   E  a person answers after the 30-minute turn window: the turn renews;
+ *   D  a required test would fail for an environment reason (the wrong Node): SFlow runs it on the installed Node the
+ *      package accepts, settled with an undo, and the step publishes (owner, 2026-11-19, ceremony cut 5; before, the card's pin);
+ *   E  a person answers after the 30-minute turn window (the Node pin, once they undid SFlow's settled Node): the turn renews;
  *   F  a code step returned for rework is written again, republished, its review asks corrections, the person is asked
  *      "Start version 3?", and it goes on to its submission [OSA:AC-013];
  *   G  version 2 open on a step with no review: submit refuses with the route to write it, which is then followed
@@ -89,6 +90,13 @@ test('journey A: a spec-driven Story from its start to its release, every step w
   await check(t, 'the Story reaches its end by its routes alone: every step progresses, nothing loops or dead-ends', {}, () => {
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings, [], report(walk));
+  });
+  // Approve twice with ceremony turns (landing-6): the specification, which SFlow approves when ready, completes at its
+  // in-turn submission. That turn ends there, and the next step is typed in a new turn, never written in it.
+  await check(t, 'a submission SFlow approved automatically ends the author\'s turn, and the next step starts in a new turn', {}, () => {
+    const ended = walk.trail.findIndex((entry) => entry.act === 'end-turn' && /--submit-if-ready/u.test(entry.ran ?? ''));
+    assert.ok(ended >= 0, report(walk));
+    assert.equal(walk.trail[ended + 1]?.typed, true, report(walk));
   });
   await check(t, 'every authored step was reviewed before it was submitted', {}, () => {
     const record = storyRecord(story);
@@ -302,15 +310,16 @@ async function wrongNodeStory(t, W) {
 
 const nodeTest = "\ntest('runs on the Node the package asks for', () => assert.equal(process.env.FAKE_NODE, '22.14.0'));";
 
-test('journey D: a required test fails on the wrong Node, and the decisions card\'s pin lets the step re-publish', { ...posix, ...slowLane({ timeout: 1_200_000 }) }, async (t) => {
+// Ceremony cut 5 (code-env, owner 2026-11-19): a .nvmrc naming a Node not installed here, with an installed one the package
+// accepts, is SFlow's to settle. This Story's tests run on Node 22, settled with an undo on the decisions card, .nvmrc stays,
+// and nobody is asked. Before it, the test failed on the wrong Node and the person pinned 22 on the card (test/node-pin-flow).
+test('journey D: a required test would fail on the wrong Node; SFlow runs it on the installed Node the package accepts, and the step publishes', { ...posix, ...slowLane({ timeout: 1_200_000 }) }, async (t) => {
   const W = 'JRN-D';
   const story = await wrongNodeStory(t, W);
-  const reason = 'Node 18 is not installed here and the package asks for 20 or later.';
-  let card = null;
+  let asked = null;
   const person = cooperativePerson(({ route }) => {
-    if (!/^\/sf-decide\b/u.test(route.copilot ?? '') && !/^singularity-flow decisions\b/u.test(route.shell ?? '')) return null;
-    card = decideCard(story, { reason, choose: (item) => (item.kind === 'node-pin' ? item.options.find((option) => option.id === 'pin-node') : null) });
-    return card ? { command: card.command, retry: false } : null;
+    if (/^\/sf-decide\b/u.test(route.copilot ?? '') || /^singularity-flow decisions\b/u.test(route.shell ?? '')) asked = route;
+    return null;
   });
   const walk = await followRoutes(story, {
     label: 'journey D', start: { copilot: '/sf-code' },
@@ -318,21 +327,21 @@ test('journey D: a required test fails on the wrong Node, and the decisions card
     person, done: ({ record }) => publishedGeneration(record, 'implement') >= 1, maxSteps: 20
   });
   t.diagnostic(formatTrail(walk.trail));
-  await check(t, 'the failed required test routes to the decisions card, and the person\'s pin is recorded there', {}, () => {
-    const failed = walk.trail.findIndex((entry) => entry.code === 'CODE_TEST_FAILED');
-    assert.ok(failed >= 0, `the test never failed on the wrong Node\n${report(walk)}`);
-    assert.ok(card?.items?.length, `the card offered no pin\n${report(walk)}`);
-    assert.ok(walk.trail.slice(failed).some((entry) => /decisions record/u.test(entry.did ?? '')), report(walk));
+  await check(t, 'the required test never fails on the wrong Node, and nobody is asked which Node', {}, () => {
+    assert.equal(walk.trail.some((entry) => entry.code === 'CODE_TEST_FAILED'), false, report(walk));
+    assert.equal(asked, null, `the person was routed to the card: ${JSON.stringify(asked)}\n${report(walk)}`);
   });
-  await check(t, 'the pin is the file a person was offered: .nvmrc names 22', {}, async () => {
-    assert.equal(await readFile(path.join(story.root, '.nvmrc'), 'utf8'), '22\n');
+  await check(t, 'the Node is settled for the person with an undo, and .nvmrc still names 18', {}, async () => {
+    const listed = JSON.parse(story.cli('decisions', W, '--json')).data;
+    assert.ok((listed.settled ?? []).some((entry) => entry.details?.settledKind === 'node-version'), JSON.stringify(listed.settled ?? []));
+    assert.equal((listed.items ?? []).some((item) => item.kind === 'node-pin'), false, JSON.stringify((listed.items ?? []).map((item) => item.kind)));
+    assert.equal(await readFile(path.join(story.root, '.nvmrc'), 'utf8'), '18\n');
   });
-  await check(t, 'the step re-publishes on the pinned Node by its routes: no loop, no stall, no dead end', {}, () => {
+  await check(t, 'the step publishes on the settled Node by its routes: no loop, no stall, no dead end', {}, () => {
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings, [], report(walk));
   });
-  // The failed test's wait is its task's, which every view names: the decisions card (Stage 3, durable outcomes).
-  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the decisions card the failed test routes to too', {}, () => viewsAgree(walk));
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
   settle(t);
 });
 
@@ -343,13 +352,17 @@ test('journey D: a required test fails on the wrong Node, and the decisions card
 test('journey E: the person answers the card after the 30-minute turn window, and the turn that asked goes on', { ...posix, ...slowLane({ timeout: 900_000 }) }, async (t) => {
   const W = 'JRN-E';
   const story = await wrongNodeStory(t, W);
-  // The code step reaches the card as in journey D: written, its required test fails on the wrong Node.
+  // The code step reaches the card. Since ceremony cut 5 (code-env, owner 2026-11-19) SFlow settles the Node itself when the
+  // version opens (journey D), so the person undoes that in their own terminal and the Node pin is theirs on the card again.
+  const settledNode = (s) => (JSON.parse(s.cli('decisions', W, '--json')).data.settled ?? []).find((entry) => entry.details?.settledKind === 'node-version') ?? null;
   const walk = await followRoutes(story, {
-    label: 'journey E, to the card', start: { copilot: '/sf-code' },
+    label: 'journey E, to the open version', start: { copilot: '/sf-code' },
     agent: { author: async ({ story: s, phase }) => phase === 'implement' && (await writeValueCode(s, { value: 2, clauses: [`${W}:AC-001`], extraTest: nodeTest }), true), review: reviewer() },
-    person: () => null, done: ({ trail }) => trail.some((entry) => entry.code === 'CODE_TEST_FAILED'), maxSteps: 8
+    person: () => null, done: ({ story: s }) => settledNode(s) !== null, maxSteps: 8
   });
   assert.equal(walk.reached, true, report(walk));
+  const undone = story.raw(['decisions', 'undo', W, '--settled', settledNode(story).details.settledId, '--json']);
+  assert.equal(undone.status, 0, undone.stdout.slice(-2000));
   const edit = { path: path.join(story.root, 'src/value.mjs') };
 
   // The turn as Copilot's hooks see it: its prompt, the card it opens, the person's answer 34 minutes in, the next edit.

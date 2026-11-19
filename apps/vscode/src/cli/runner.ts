@@ -108,7 +108,10 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   // story advance --submit: convergence goes for approval with no separate confirmation (owner, 2026-11-19).
   'submit',
   // phase opening --reconcile (OSA Stage 2).
-  'reconcile'
+  'reconcile',
+  // phase rollover --review-findings (ceremony cut 10) and a recommended answer with no reason, --recommended (C10),
+  // held to the engine's list (owner, 2026-11-19).
+  'review-findings', 'recommended'
 ]);
 
 const DISPLAY_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;

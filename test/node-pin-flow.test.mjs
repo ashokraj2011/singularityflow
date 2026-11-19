@@ -133,16 +133,16 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   assert.equal(json('tests', 'node', '--work-id', 'QF-1', '--node', '18').value.error.code, 'TESTS_NODE_NOT_INSTALLED');
   assert.equal(json('tests', 'node', '--work-id', 'QF-1', '--node', '../../bin/sh').value.error.code, 'TESTS_COMMAND_INVALID');
 
-  // The reason is theirs: with none, nothing is written.
+  // The recommended answer takes no reason [owner, 2026-11-19, C10, ceremony-decisions]: Node 22 was checked, so Pin Node 22
+  // is the item's one recommended option, and an answer with no reason records the recommendation's own. Before C10 a
+  // blank reason was refused with DECISIONS_ANSWER_INVALID.
   const fresh = json('decisions', 'QF-1').value.data;
-  const id = fresh.items.find((entry) => entry.kind === 'node-pin').id;
-  const blank = json('decisions', 'record', 'QF-1', '--choose', `${id}=pin-node`, '--confirm', fresh.packetSha256);
-  assert.equal(blank.value.error.code, 'DECISIONS_ANSWER_INVALID');
-  await assert.rejects(stat(path.join(root, '.nvmrc')));
+  const offeredNow = fresh.items.find((entry) => entry.kind === 'node-pin');
+  assert.equal(offeredNow.recommended?.option, 'pin-node', JSON.stringify(offeredNow.recommended));
+  const id = offeredNow.id;
 
-  // One action: the file and the amendment, with their reason.
-  const reason = 'The Vitest suite needs Node 22; the code does not change.';
-  const recorded = json('decisions', 'record', 'QF-1', '--choose', `${id}=pin-node`, '--reason', `${id}=${reason}`, '--confirm', fresh.packetSha256);
+  // One action: the file and the amendment, with the recommendation as its reason.
+  const recorded = json('decisions', 'record', 'QF-1', '--choose', `${id}=pin-node`, '--confirm', fresh.packetSha256);
   assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
   assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '22\n');
   const shown = json('decisions', 'QF-1').value.data;

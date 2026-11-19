@@ -64,6 +64,10 @@ test('Classic delivery cannot be weakened by an invalid test-evidence source', a
   assert.throws(() => validateDefinition(invalid), /testEvidenceFrom must name an earlier code-delivery phase/);
   invalid.workTypes['classic-delivery'].phaseOverrides.testing.testEvidenceFrom = 'implementation';
   invalid.workTypes['classic-delivery'].phaseOverrides.testing.writeScope = 'source-and-artifact';
+  // Approve twice (owner, 2026-11-19): the shipped Testing step is approved automatically, which a step that may change
+  // source files refuses first. Both refuse the weakening; the test-evidence rule is checked on its own here.
+  assert.throws(() => validateDefinition(invalid), /cannot be approved automatically: it may change source files/);
+  delete invalid.workTypes['classic-delivery'].phaseOverrides.testing.approval.automatic;
   assert.throws(() => validateDefinition(invalid), /must be artifact-only, non-code/);
 });
 

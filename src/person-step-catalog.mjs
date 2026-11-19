@@ -18,9 +18,8 @@ export const DECISION_LIST_CHAT_OPTIONS = Object.freeze(['accept-risk', 'dismiss
 const CHAT_CHOICE = new RegExp(`^d\\d{1,3}=(?:${DECISION_LIST_CHAT_OPTIONS.join('|')})$`, 'u');
 
 /**
- * `decision plan` flags that correct an approved plan's rows. A correction is recorded only after a
- * person who approves the plan reviews the exact rows in a live terminal, so outside a preview it is
- * their own terminal step; a narrow amendment (`--add-location`) is not.
+ * `decision plan` flags that correct an approved plan's rows: a plan approver keeps the exact rows on the Decide card,
+ * in /sf-decide or in a live terminal [owner, 2026-11-19]; other turns may only preview it (--dry-run).
  */
 export const PLAN_CORRECTION_FLAGS = Object.freeze(['add-row', 'remove-row', 'set-fulfillment', 'add-test', 'remove-test', 'replace-test', 'remove-location', 'replace-location']);
 export function planRowCorrectionStep([command, sub], options) {
@@ -111,8 +110,6 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['spec-split-publication', ([command, sub], options) => command === 'spec' && sub === 'split' && options.publish === true],
   // An approver's answer from their own clone, under their own Git identity (2026-10-28).
   ['clarification-answer', ([command, sub]) => command === 'clarification' && sub === 'answer'],
-  // The /sf-decide turn admitted it, then its live-terminal review refused the agent's shell (2026-10-28).
-  ['plan-correction', planRowCorrectionStep],
   ['live-terminal-review', liveTerminalReviewStep],
   // Approving with --confirm-evidence also records the step's planned screenshots and inspections as
   // witnessed: a sign-off on evidence, like decision witness. A chat approval's receipt never bound

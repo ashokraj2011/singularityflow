@@ -19,7 +19,7 @@ import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { presenceRequires } from './presence/counted.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
+import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
@@ -1213,8 +1213,9 @@ function holdParty(hold, workflow, context) {
   const phaseId = workflow.currentPhase;
   const words = hold.action?.label ?? '';
   const clearedBy = hold.clearedBy ?? {};
-  if (clearedBy.plan || /^singularity-flow decision plan /u.test(hold.action?.command ?? '')) {
-    return stepDecidedBy(workflow, context, planAuthorities(workflow), clearedBy.plan ? words : 'Choose the row it belongs to and give your reason, then run it.');
+  if (clearedBy.plan || clearedBy.planRoute || /^singularity-flow decision plan /u.test(hold.action?.command ?? '')) {
+    const typed = /^singularity-flow decision plan /u.test(hold.action?.command ?? '');
+    return stepDecidedBy(workflow, context, planAuthorities(workflow), clearedBy.plan || !typed ? words : 'Choose the row it belongs to and give your reason, then run it.');
   }
   if (['anyone', 'viewer-terminal'].includes(clearedBy.kind)) return anyone(`${hold.who}. ${words}`.trimEnd());
   if (hold.owner === 'this-checkout') return anyone('These changes are in this checkout, so they are for whoever works in it, not for an approval group.');
@@ -1242,6 +1243,8 @@ function holdItem(workflow, context, kind, hold) {
   };
 }
 
+// A sentence said before an item's own why, which stays as it is.
+const prefixed = (lead, text) => (lead ? `${lead} ${text}` : text);
 const rowSlug = (clauseId) => String(clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-');
 
 /**
@@ -1263,16 +1266,32 @@ function departureItem(workflow, context, entry, facts) {
   const accept = ({ id = 'accept', label, words, changes = null, writes }) => ({ ...option(workflow, context, { id, label, words,
     effects: [effect('accept', { writes, ...(changes ? { changes } : {}) })], needs: reason }), ...(one ? { oneByOne: true } : {}) });
   let accepts = [];
-  if (departure.kind === 'path' && departure.clauses?.length) {
-    const changes = departure.paths.flatMap((file) => departure.clauses.map((clauseId) => ({ kind: 'add-location', clauseId, path: file })));
-    accepts = [{ ...accept({ label: 'Accept', words: `${files} becomes part of ${listWords(departure.clauses.map((id) => clauseName(workflow, id)))}'s delivery: a plan amendment names it, and no step is reset.`, changes, writes: 'plan-amendment' }),
+  // A row that only checks tests takes no file that is not a test: accepting there would be refused, so it is never
+  // offered; the named rows that can take the files are, and the words say which was left out and why [owner, 2026-11-19].
+  const fit = departure.kind === 'path' ? clausesTakingPaths(departure.clauses, facts.planRows ?? [], departure.paths ?? []) : { takes: [], testOnly: [], noRow: [] };
+  const many = (departure.paths ?? []).length !== 1;
+  const them = many ? 'them' : 'it';
+  const said = { name: (id) => clauseName(workflow, id), subject: many ? 'these files' : 'this file', plural: many };
+  const leftOut = leftOutWords(fit, said);
+  const also = leftOut ? ` ${leftOut}` : '';
+  let noRow = '';
+  if (departure.kind === 'path' && fit.takes.length) {
+    const changes = departure.paths.flatMap((file) => fit.takes.map((clauseId) => ({ kind: 'add-location', clauseId, path: file })));
+    accepts = [{ ...accept({ label: 'Accept', words: `${files} becomes part of ${listWords(fit.takes.map((id) => clauseName(workflow, id)))}'s delivery: a plan amendment names it, and no step is reset.${also}`, changes, writes: 'plan-amendment' }),
       chat: { command: decide('accepted') } }];
   } else if (departure.kind === 'path') {
-    accepts = (facts.planRows ?? []).filter((row) => !row.testOnly || departure.paths.every(isTestAutomationPath)).map((row) => ({ ...accept({
+    accepts = (facts.planRows ?? []).filter((row) => rowTakesPaths(row, departure.paths)).slice(0, 40).map((row) => ({ ...accept({
       id: `accept-${rowSlug(row.clauseId)}`.slice(0, 64), label: `Accept under ${clauseName(workflow, row.clauseId)}${row.result ? `: ${row.result}` : ''}`,
-      words: `${files} becomes part of ${clauseName(workflow, row.clauseId)}'s delivery: a plan amendment names it, and no step is reset.`,
+      words: `${files} becomes part of ${clauseName(workflow, row.clauseId)}'s delivery: a plan amendment names it, and no step is reset.${also}`,
       changes: departure.paths.map((file) => ({ kind: 'add-location', clauseId: row.clauseId, path: file })), writes: 'plan-amendment' }),
     chat: { command: decide('accepted', ` --clause ${row.clauseId}`) } }));
+    if (!accepts.length) {
+      // No row can take them: said plainly, with what is left, and never a choice that would be refused.
+      noRow = leftOut ? `${leftOutWords(fit, { ...said, mode: 'cannot' })} No other row of the plan can take ${them}.`
+        : (facts.planRows ?? []).length ? `Every row of the plan only checks tests, so no row can take ${files}.` : `The plan has no row to add ${files} to.`;
+      const words = `${noRow} Reject it, and the model restores ${them}; or change the scope first (/sf-amend), which its approvers decide.`;
+      accepts = [{ ...accept({ label: 'Accept', words, writes: 'plan-amendment' }), available: false, recordable: false, does: words }];
+    }
   } else if (departure.kind === 'supporting') {
     accepts = [{ ...accept({ label: 'Accept', words: `${files} is listed in the plan as a supporting change (${departure.class}) with your reason.`,
       changes: departure.paths.map((file) => ({ kind: 'add-supporting', path: file, class: departure.class })), writes: 'plan-amendment' }), chat: { command: decide('accepted') } }];
@@ -1284,15 +1303,43 @@ function departureItem(workflow, context, entry, facts) {
     const target = stepName(workflow, departure.target?.phase);
     // A forward amendment is approved while the step that found the defect is still open.
     const open = facts.codeStepOpen === true;
+    // Submitted: its approvers return it first, by the filled command, never one the person composes [owner, 2026-11-19].
+    const submitted = !open && workflow.phases?.[departure.phase]?.status === 'awaiting_approval';
+    const back = `singularity-flow reject ${departure.phase} --work-id ${workId} --to ${departure.phase} --reason "<REASON>"`;
     accepts = [{ ...accept({ label: 'Accept', words: `${target}'s approved document takes this wording as its next version, amended by ${departure.id}; each later step that read it is checked again.`, writes: 'forward-amendment' }),
       ...(open ? { chat: { command: decide('accepted') } } : { available: false,
-        words: `${target}'s wording is amended while ${name} is open. ${name} awaits approval now: return it for changes (/sf-reject), then decide this.` }) }];
+        words: `${target}'s wording is amended while ${name} is open. ${name} awaits approval now: ${submitted ? `return it for changes (${back}), then decide this.` : 'return it for changes (/sf-reject), then decide this.'}` }) },
+    ...(submitted ? [{ ...personalStep({ id: 'return', label: `Return ${name} for changes, then accept this`, command: back,
+      words: `${name} is submitted, so the wording is amended once its approvers return it; then ${departure.id} is decided here.`,
+      does: `Returns ${name} to its author: ${reopenWords(workflow, departure.phase)}; then ${departure.id} can be accepted.` }),
+    decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: departure.phase }], context) }] : [])];
+  } else if (['plan-row', 'test'].includes(departure.kind) && rowChangeMissing(departure.change).length) {
+    // Recorded without its value [office laptop, 2026-11-19]: the person chooses it here. What a row becomes is a choice
+    // among the kinds, the one the departure's reason names first; anything else its author records again, or it is rejected.
+    const missing = rowChangeMissing(departure.change);
+    const row = clauseName(workflow, departure.change?.clauseId);
+    if (missing.every((key) => key === 'fulfillment')) {
+      const named = ROW_FULFILLMENTS.find((kind) => new RegExp(`\\b${kind}\\b`, 'iu').test(String(departure.reason ?? '')));
+      accepts = [...(named ? [named] : []), ...ROW_FULFILLMENTS.filter((kind) => kind !== named)].map((kind) => ({ ...accept({ id: `accept-${kind}`,
+        label: `Accept: ${row} becomes ${kind}`, words: `The plan changes exactly so: ${departure.change?.clauseId} becomes ${kind}. A plan row correction records it with your reason; no step is reset.`,
+        writes: 'plan-row-correction' }), ...(kind === named ? { recommended: true } : {}), effects: [effect('accept', { writes: 'plan-row-correction', fulfillment: kind })],
+      oneByOne: true, chat: { command: decide('accepted', ` --fulfillment ${kind}`) },
+      terminal: `singularity-flow decision plan ${workId} --fetch --set-fulfillment ${departure.change?.clauseId}=${kind} --reason "<REASON>"` }));
+    } else {
+      const words = `${departure.id} does not say its ${missing.join(' and ')}, so the change cannot be made as recorded. ${name}'s agent records it again with that named (/sf-code), or reject it.`;
+      accepts = [{ ...accept({ label: 'Accept', words, writes: 'plan-row-correction' }), available: false, recordable: false, does: words }];
+    }
+  } else if (['plan-row', 'test'].includes(departure.kind)) {
+    // A plan row or test change is kept here, on the card or in /sf-decide, with the exact rows shown, by an approver of
+    // the plan; it records the plan row correction it names [owner, 2026-11-19]. A person's own terminal still works.
+    const change = rowChangeWords(departure.change);
+    accepts = [{ ...accept({ label: 'Accept', words: `The plan changes exactly so: ${change}. A plan row correction records it with your reason; nothing else in the plan changes, and no step is reset.`,
+      writes: 'plan-row-correction' }), oneByOne: true, chat: { command: decide('accepted') },
+    ...(facts.acceptance?.[departure.id] ? { terminal: facts.acceptance[departure.id] } : {}) }];
   } else {
     const own = facts.acceptance?.[departure.id];
-    accepts = [{ ...personalStep({ id: 'accept', label: departure.kind === 'clause' ? `Accept: change ${listWords(departure.clauses ?? [])}` : 'Accept this plan row change',
-      command: own, words: departure.kind === 'clause'
-        ? `An intent amendment changes the approved clauses; the scope's approvers decide it in their own terminal, and the steps that cite them reopen${facts.reopens?.[departure.id]?.length ? `: ${listWords(facts.reopens[departure.id].map((id) => stepName(workflow, id)))}` : ''}.`
-        : 'A plan row correction is reviewed in your own terminal with your reason; nothing else in the plan changes.',
+    accepts = [{ ...personalStep({ id: 'accept', label: `Accept: change ${listWords(departure.clauses ?? [])}`,
+      command: own, words: `An intent amendment changes the approved clauses; the scope's approvers decide it in their own terminal, and the steps that cite them reopen${facts.reopens?.[departure.id]?.length ? `: ${listWords(facts.reopens[departure.id].map((id) => stepName(workflow, id)))}` : ''}.`,
       decidedBy: stepDecidedBy(workflow, context, groups, 'You decide it in your own terminal.') }), oneByOne: true }];
   }
   const restore = departure.kind === 'finding' ? `The model takes the fix out of ${files} in this generation, and ${listWords(departure.findings ?? [])} ${(departure.findings ?? []).length === 1 ? 'is' : 'are'} open again in the findings register.`
@@ -1314,10 +1361,11 @@ function departureItem(workflow, context, entry, facts) {
     kind: 'departure', title: (departure.kind === 'path' && departure.paths?.length
       ? `Say where ${files} ${departure.paths.length === 1 ? 'belongs' : 'belong'} (${departure.id})` : `${departure.id}: ${words}`).slice(0, 200),
     ...(departure.kind === 'path' && departure.paths?.length === 1 ? { subject: `file:${departure.paths[0]}` } : {}),
-    why: `${fixes.length ? `It fixes ${listWords(fixes)} from the findings register. ` : ''}${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests}${asked.length ? ` Asked for: ${asked.join('; ')}.` : ''} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`,
+    // No row can take the files: said first, so a form that keeps only the opening sentence says why there is no Accept.
+    why: prefixed(noRow, `${fixes.length ? `It fixes ${listWords(fixes)} from the findings register. ` : ''}${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests}${asked.length ? ` Asked for: ${asked.join('; ')}.` : ''} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`),
     options: [...accepts, reject],
     details: { departure: departure.id, departureKind: departure.kind, status, ...(departure.paths?.length === 1 ? { path: departure.paths[0] } : { paths: departure.paths }),
-      clauses: departure.clauses ?? [], acceptAll: !one, ...(departure.findings?.length ? { findings: departure.findings } : {}), ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
+      clauses: departure.clauses ?? [], ...(leftOut ? { leftOut: { clauses: [...fit.testOnly, ...fit.noRow], words: leftOut } } : {}), acceptAll: !one, ...(departure.findings?.length ? { findings: departure.findings } : {}), ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
       commands: [`singularity-flow departure show ${departure.id} --work-id ${workId}`] }
   };
 }
@@ -1543,6 +1591,23 @@ function askedForItem(workflow, context, entry, facts) {
 }
 
 /**
+ * No row of the plan can take these files and none is a supporting change: said plainly, with what is left, and never a
+ * choice that would be refused [owner, 2026-11-19]. Adding is shown as not available with why; keeping them out of this
+ * Story is whoever works in the checkout's own step, and changing the scope is /sf-amend's.
+ */
+function noPlanRowChoices(workflow, context, hold, files) {
+  const them = files.length === 1 ? 'it' : 'them';
+  const lead = `No row of the plan can take ${listWords(files)}${(hold.planRows ?? []).length ? ': every row only checks tests' : ''}.`;
+  const words = `${lead} ${hold.keepOut ? `Keep ${them} out of this Story (${hold.keepOut}), or change` : 'Change'} the scope first (/sf-amend), which its approvers decide.`;
+  const add = { ...option(workflow, context, { id: 'add-to-row', label: 'Add to a row of the plan', words, effects: [{ kind: 'plan-amendment', changes: [] }], needs: {} }),
+    available: false, recordable: false, does: words };
+  const keepOut = hold.keepOut ? personalStep({ id: 'keep-out', label: `Keep ${them} out of this Story`, command: hold.keepOut,
+    words: `Shows how to take ${listWords(files)} out of this Story into a private copy; nothing is deleted.`,
+    decidedBy: anyone('These changes are in this checkout, so they are for whoever works in it, not for an approval group.') }) : null;
+  return { lead, options: [add, ...(keepOut ? [keepOut] : [])] };
+}
+
+/**
  * A changed path no row of the plan names: which row it belongs to, or that it is a supporting change,
  * is a choice for an approver of the plan. One item per path, each option its row, with no answer
  * chosen and no reason suggested. `chat` is the same write as a /sf-decide turn runs it (with the
@@ -1554,13 +1619,14 @@ function planPathItems(workflow, context, hold) {
   const need = { reason: textNeed('', PLAN_REASON) };
   const setup = testSetupFiles(hold.unclaimedPaths);
   return [...(setup.length ? [testSetupItem(workflow, context, hold, setup, { need })] : []), ...hold.unclaimedPaths.filter((file) => !setup.includes(file)).map((file) => {
-    const rows = (hold.planRows ?? []).filter((row) => !row.testOnly || isTestAutomationPath(file));
+    const rows = (hold.planRows ?? []).filter((row) => rowTakesPaths(row, [file]));
     const supporting = classifySupportingChange(file).class ?? null;
     const flag = (entry) => `singularity-flow decision plan ${workId} --fetch ${entry} --reason "<REASON>"`;
+    const none = !rows.length && !supporting ? noPlanRowChoices(workflow, context, hold, [file]) : null;
     return {
       kind: 'plan-accounting', title: `Say where ${file} belongs`, subject: `file:${file}`,
-      why: `${file} changed and no row of the plan names it, so ${hold.waits ?? 'approval waits'}. Add it to the row it serves${supporting ? `, or list it as a supporting change (${supporting})` : ''}: the code and its tests stay as they are, and no step is reset.${hold.keepOut ? ` If it is not part of this Story, keep it out instead: ${hold.keepOut} shows the private-copy route.` : ''}`,
-      options: [
+      why: prefixed(none?.lead, `${file} changed and no row of the plan names it, so ${hold.waits ?? 'approval waits'}. Add it to the row it serves${supporting ? `, or list it as a supporting change (${supporting})` : ''}: the code and its tests stay as they are, and no step is reset.${hold.keepOut ? ` If it is not part of this Story, keep it out instead: ${hold.keepOut} shows the private-copy route.` : ''}`),
+      options: none ? none.options : [
         ...rows.map((row) => ({ ...option(workflow, context, {
           id: `row-${String(row.clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-')}`.slice(0, 64),
           label: `Add to ${clauseName(workflow, row.clauseId)}${row.result ? `: ${row.result}` : ''}`,
@@ -1595,7 +1661,7 @@ function testSetupItem(workflow, context, hold, files, { need }) {
   };
   const listed = supporting.map((file) => ({ kind: 'add-supporting', path: file, class: classes.get(file) }));
   const reasonNeed = listed.length ? { reason: textNeed('', SUPPORTING_REASON) } : need;
-  const rows = (hold.planRows ?? []).filter((row) => !row.testOnly || located.every(isTestAutomationPath));
+  const rows = (hold.planRows ?? []).filter((row) => rowTakesPaths(row, located));
   const rowOption = (row) => {
     const changes = [...listed, ...located.map((file) => ({ kind: 'add-location', clauseId: row.clauseId, path: file }))];
     return { ...option(workflow, context, {
@@ -1604,10 +1670,11 @@ function testSetupItem(workflow, context, hold, files, { need }) {
       words: `${listWords(located)} ${located.length === 1 ? 'becomes' : 'become'} part of ${clauseName(workflow, row.clauseId)}'s delivery${listed.length ? `, and ${listWords(supporting)} ${supporting.length === 1 ? 'is' : 'are'} listed as supporting with your reason` : ''}.`,
       effects: [{ kind: 'plan-amendment', changes }], needs: reasonNeed }), chat: { command: line(changes) } };
   };
+  const none = located.length && !rows.length ? noPlanRowChoices(workflow, context, hold, located) : null;
   return {
     kind: 'plan-accounting', title: `Say where this test setup belongs: ${listWords(files)}`,
-    why: `${listWords(files)} changed together for how tests run, and no row of the plan names them, so approval waits. They are one change, so you decide once, and each is recorded by name: the code and its tests stay as they are, and no step is reset.`,
-    options: located.length ? rows.map(rowOption) : [{ ...option(workflow, context, {
+    why: prefixed(none?.lead, `${listWords(files)} changed together for how tests run, and no row of the plan names them, so approval waits. They are one change, so you decide once, and each is recorded by name: the code and its tests stay as they are, and no step is reset.`),
+    options: none ? none.options : located.length ? rows.map(rowOption) : [{ ...option(workflow, context, {
       id: 'supporting', label: 'List them as supporting changes',
       words: 'They stay out of every requirement, each listed with your reason.',
       effects: [{ kind: 'plan-amendment', changes: listed }], needs: reasonNeed }), chat: { command: line(listed) } }],

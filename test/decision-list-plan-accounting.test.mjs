@@ -173,3 +173,21 @@ test('a person who answered in chat is not sent to a terminal: each choice with 
   assert.deepEqual(decisionChatSteps(packet, [{ item: source.id, option: 'row-w-1-req-001', values: {} }]), [], 'one still short of an answer is not offered');
   assert.deepEqual(decisionChatSteps(packet, [{ item: 'd9', option: 'none', values: { reason: 'x' } }]), [], 'nor one with no chat command');
 });
+
+test('a file no row of the plan can take says why, with what is left, and offers nothing that would be refused', () => {
+  const workflow = story();
+  workflow.phases.implementation.status = 'in_progress';
+  const keepOut = 'singularity-flow recover W-1 --phase implementation --json';
+  const packet = decisionPacket(workflow, { phaseId: 'implementation', pending: {}, approvalCheck: null,
+    excludedChanges: { unclaimedPaths: ['src/helper.mjs', 'tests/pages/form-tools.js'], planRows: [{ clauseId: 'W-1:AC-002', testOnly: true }],
+      waits: 'publishing this step would leave it out', keepOut } }, { authorities: AUTHORITIES, actor: ME, at: AT });
+  const source = packet.items.find((item) => item.details.path === 'src/helper.mjs');
+  assert.match(source.why, /^No row of the plan can take src\/helper\.mjs: every row only checks tests\. /u);
+  assert.deepEqual(source.options.map((option) => [option.id, option.available !== false, option.recordable !== false]), [['add-to-row', false, false], ['keep-out', true, false]]);
+  assert.equal(source.options[0].does, 'No row of the plan can take src/helper.mjs: every row only checks tests. Keep it out of this Story (singularity-flow recover W-1 --phase implementation --json), or change the scope first (/sf-amend), which its approvers decide.');
+  assert.equal(source.options[1].action.command, keepOut);
+  assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: { [source.id]: 'add-to-row' } }), { at: AT }),
+    { code: 'DECISIONS_OPTION_NOT_RECORDABLE' });
+  // A test file joins a row that only checks tests, as before.
+  assert.deepEqual(packet.items.find((item) => item.details.path === 'tests/pages/form-tools.js').options.map((option) => option.id), ['row-w-1-ac-002']);
+});

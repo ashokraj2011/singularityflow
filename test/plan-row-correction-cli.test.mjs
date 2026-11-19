@@ -28,7 +28,7 @@ const accepted = await loadAcceptedStoryExecution(process.cwd());
 const seen = [];
 await runPlanCorrection({ root: process.cwd(), config: accepted.definition, workflow: accepted.workflow, options: JSON.parse(process.argv[1]) }, {
   capture: async (root, plan, action) => { seen.push(plan.rowsBefore); return { to${''}ken: 'live-review' }; },
-  consume: async () => ({ authorizationId: randomUUID() })
+  consume: async () => ({ authorizationId: randomUUID() }), interactive: true
 });
 process.stderr.write('REVIEWED ' + JSON.stringify(seen) + '\\n');
 `;
@@ -106,10 +106,8 @@ test('a wrong plan path is corrected by the plan approvers and the code step con
   assert.equal(preview.data.ownerPhase, 'intake');
   assert.deepEqual(preview.data.operations.map((operation) => [operation.op, operation.from, operation.to]),
     [['replace-location', 'src/legacy.mjs', 'src/value.mjs']]);
-  // Recording needs a person's live terminal review; a script or agent cannot record it.
-  const unattended = attempt('decision', 'plan', '--replace-location', replace, '--reason', reason, '--json');
-  assert.notEqual(unattended.status, 0);
-  assert.match(unattended.stdout + unattended.stderr, /direct terminal review/u);
+  // [owner, 2026-11-19] Away from a terminal a person's Keep on the Decide card or their bound answer in /sf-decide records
+  // it (test/cqf-m2-departures.test.mjs); in a person's own terminal it is the live review below.
   const mixed = attempt('decision', 'plan', '--replace-location', replace, '--add-location', `${AC}=src/x.mjs`, '--reason', reason);
   assert.match(mixed.stdout + mixed.stderr, /two decisions/u);
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).planAmendments, undefined, 'nothing was recorded');

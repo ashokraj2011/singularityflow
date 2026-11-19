@@ -1044,8 +1044,8 @@ test('every step only a person takes in their own terminal is refused in every t
     // The whole table asks a person at their own terminal; no chat turn answers it, /sf-converge included.
     'adjudication-table': ['singularity-flow story adjudicate --work-id PMC-1', 'singularity-flow story adjudicate'],
     'clarification-answer': ['singularity-flow clarification answer custom-step --question "Is 2 right?" --answer "Yes."'],
-    'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',
-      'singularity-flow decision plan PMC-1 --replace-location PMC-1:AC-001=src/a.mjs:src/b.mjs --reason "The plan named the wrong module."'],
+    // A plan row correction left this list [owner, 2026-11-19]: a person keeps it on the Decide card or with their bound
+    // answer in /sf-decide; test/person-step-golden.test.mjs holds every turn to that.
     // A live-terminal review: a Copilot turn admitted it, then the terminal review refused the agent (2026-10-28).
     'live-terminal-review': [`singularity-flow appeal decide APL-001 --work-id PMC-1 --decision account-scope --reason "Reviewed the exact diff." --confirm ${digest}`,
       `singularity-flow appeal risk-accept --work-id PMC-1 --phase custom-step --reason "Accepted until the lab returns." --expires 2099-01-01 --confirm ${digest}`,

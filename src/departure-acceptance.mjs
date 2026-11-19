@@ -5,9 +5,11 @@
  */
 import { countedRecords, isWithdrawn } from './presence/counted.mjs';
 
-// The same plan row change, whatever the row's digest was when it was asked for.
+// The same plan row change, whatever the row's digest was when it was asked for; a value the departure left blank
+// matches whatever the person chose [office laptop, 2026-11-19].
 const sameOperation = (left, right) => {
-  const strip = ({ previousClaimSha256, ...rest } = {}) => JSON.stringify(Object.keys(rest).sort().map((key) => [key, rest[key]]));
+  const blank = Object.keys(right ?? {}).filter((key) => right[key] === '');
+  const strip = ({ previousClaimSha256, ...rest } = {}) => JSON.stringify(Object.keys(rest).sort().map((key) => [key, blank.includes(key) ? '' : rest[key]]));
   return strip(left) === strip(right);
 };
 
@@ -36,7 +38,8 @@ export function departureAcceptance(workflow, departure) {
       .filter((entry) => entry.decision === 'accepted' && (entry.departures ?? []).includes(departure.id)).at(-1);
     return accepted ? { kind: 'departure-acceptance', id: accepted.id, at: accepted.at, hashes: accepted.hashes ?? {} } : null;
   }
-  const correction = countedRecords(workflow, workflow?.planRowCorrections)
+  // Corrections live among the plan's amendments.
+  const correction = [...countedRecords(workflow, workflow?.planRowCorrections), ...countedRecords(workflow, workflow?.planAmendments).filter((entry) => entry.kind === 'plan-row-correction')]
     .filter((entry) => String(entry.at) >= String(departure.at) && (entry.operations ?? []).some((operation) => sameOperation(operation, departure.change))).at(-1);
   return correction ? { kind: 'plan-row-correction', id: correction.id, at: correction.at, hashes: null } : null;
 }

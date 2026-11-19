@@ -80,10 +80,11 @@ test('every decision the Decide card records has the card as its routes, never "
   // A sign-off: /sf-decide opens the page that takes it, and VS Code's evidence review page is its own.
   const witness = 'singularity-flow decision witness PAY-1 --criterion PAY-1:AC-001 --slot screen --file e.png --confirm states-the-outcome --reason "Looked."';
   assert.deepEqual(routes(witness), ['/sf-decide PAY-1', witness, VSCODE_WITNESS_REVIEW]);
-  // What the card does not record keeps its routes: correcting a plan's rows in a live terminal, raising an issue,
-  // revoking a test command, a finding's risk and an appeal's decision.
-  for (const command of ['singularity-flow decision plan PAY-1 --add-row PAY-1:AC-003 --reason "A new clause needs its row."',
-    'singularity-flow upstream-issue raise --phase fix-design --about AC-001 --problem "The design names the wrong cause."',
+  // A plan row correction is kept on the card too [owner, 2026-11-19]: the card is its VS Code route.
+  assert.equal(routes('singularity-flow decision plan PAY-1 --add-row PAY-1:AC-003 --reason "A new clause needs its row."')[2], VSCODE_DECIDE_CARD);
+  // What the card does not record keeps its routes: raising an issue, revoking a test command, a finding's risk and an
+  // appeal's decision.
+  for (const command of ['singularity-flow upstream-issue raise --phase fix-design --about AC-001 --problem "The design names the wrong cause."',
     'singularity-flow decision test-command PAY-1 --revoke TCD-001 --reason "The repository configures this runner now."',
     'singularity-flow decision finding-risk PAY-1 --phase build --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."',
     'singularity-flow story adjudicate --answers /tmp/answers.json'

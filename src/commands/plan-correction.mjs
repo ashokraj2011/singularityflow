@@ -1,7 +1,8 @@
 /**
  * `decision plan` corrections: someone in the group that approves a plan adds a missing row or
  * test, changes a row's fulfillment, or removes or replaces a wrong path, after reviewing the exact
- * before/after rows in a live terminal. Nothing is reset; every plan reader applies the correction. `[UIF-M1]`
+ * before/after rows in a live terminal, or answering Keep to them on the Decide card or in /sf-decide
+ * [owner, 2026-11-19]. Nothing is reset; every plan reader applies the correction. `[UIF-M1]`
  */
 import path from 'node:path';
 import { head, identity } from '../git.mjs';
@@ -147,8 +148,54 @@ async function preview(root, config, workflow, options) {
       operations: correction.operations, reason: correction.reason, upstreamIssue: correction.upstreamIssue }) };
 }
 
+/** Whether a person reads and answers this terminal: the live review needs one, as captureTerminalActionAuthorization checks. */
+const personAtTerminal = () => process.stdin.isTTY === true && process.stdout.isTTY === true && process.stderr.isTTY === true;
+
+/**
+ * The correction a person answered [owner, 2026-11-19]: their Keep on the Decide card, or their own bound answer in a
+ * /sf-decide turn (the guard holds the command to their words and to the question that showed the exact rows). No
+ * terminal review, so no authorization; the plan's approval group is checked, and the rows are checked again against
+ * the plan as it is when written. Returns the record.
+ */
+export async function recordAnsweredPlanCorrection(root, config, workflow, options, { actor = identity(root), agent = null } = {}) {
+  const id = workflow.workItem.id;
+  if (optionStrings(options, 'add-location').length || optionStrings(options, 'add-supporting').length) {
+    refused('Record a plan correction and a narrow amendment as two decisions.');
+  }
+  const groups = planCorrectionAuthorities(workflow, correctionOwner(workflow, optionString(options, 'owner')).id);
+  if (!groups.length) refused('The plan has no approval group, so nobody can correct it.');
+  const reviewed = await preview(root, config, workflow, options);
+  const { owner, correction } = reviewed;
+  const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
+  const { value } = await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+    actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'plan' }
+  }, `[${id}][plan:correct] ${owner.id} ${correction.operations.length} change(s)`, async (aggregate) => {
+    await assertNoPendingPublication(root, config, aggregate, 'correct the plan');
+    const fresh = await preview(root, config, aggregate, options);
+    if (fresh.previewSha256 !== reviewed.previewSha256) refused('The plan changed while this was answered. Nothing was recorded; read the rows again.');
+    const record = recordPlanRowCorrection(aggregate, {
+      ownerRecord: fresh.ownerRecord, ownerMapSha256: owner.claimMaps.planned.sha256, operations: fresh.operations,
+      activeClauseIds: fresh.clauseIds, normalizeRow: fresh.normalizeRow,
+      validate: (plan) => validatePlannedVerification(plan.claims, plan.verificationContracts ?? [], fresh.clauses, { upheld: fresh.upheld }),
+      reason: correction.reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
+      identityAssurance: authority.identityAssurance ?? null, authorizationId: null, answered: true,
+      at: nowIso(), upstreamIssue: correction.upstreamIssue
+    });
+    aggregate.history.push({ at: record.at, actor: record.actor, agent, event: 'plan_amended', phase: aggregate.currentPhase ?? null,
+      detail: `${record.id} corrects ${owner.id}: ${record.operations.map((operation) => `${operation.op} ${operation.clauseId}`).join('; ')}. ${record.reason}` });
+    return record;
+  }, {
+    exactWorkItemPaths: [],
+    eventFromResult: (record) => ({ actor, agent, authorityGroup: record.authorityGroup, identityAssurance: record.identityAssurance,
+      payload: { decision: 'plan', amendment: record.id, reviewPacketSha256: null } })
+  });
+  return value;
+}
+
 export async function runPlanCorrection({ root, config, workflow, options }, {
-  capture = captureTerminalActionAuthorization, consume = consumeActionAuthorization
+  capture = captureTerminalActionAuthorization, consume = consumeActionAuthorization, interactive = personAtTerminal()
 } = {}) {
   const id = workflow.workItem.id;
   if (optionStrings(options, 'add-location').length || optionStrings(options, 'add-supporting').length) {
@@ -169,6 +216,16 @@ export async function runPlanCorrection({ root, config, workflow, options }, {
     return;
   }
   const actor = identity(root);
+  // No terminal to review it in: the person's own answer on the Decide card or in /sf-decide records it [owner, 2026-11-19].
+  if (!interactive) {
+    const recorded = await recordAnsweredPlanCorrection(root, config, workflow, options, { actor });
+    emitCommandResult(commandResult({
+      operation: { id: 'decision.plan', classification: 'mutation' }, subject: { kind: 'story', id },
+      outcome: succeeded('decision.plan.corrected', { correction: recorded.id, owner: owner.id, operations: String(recorded.operations.length) }),
+      effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: { correction: recorded }
+    }), { json: optionBoolean(options, 'json'), postState: workflow });
+    return;
+  }
   const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
   const actionId = `PRC-${reviewed.previewSha256.slice(0, 24)}`;

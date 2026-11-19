@@ -63,8 +63,13 @@ export async function commitPlanAmendment(root, config, workflow, { changes: giv
     changes, reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance ?? null, at: nowIso(), plan, contentHashes, departures
   });
-  // Checked first: only an exact repository path is ever read.
-  const contentHashes = await amendmentContentHashes(root, decide(structuredClone(workflow)).changes);
+  // Checked first: only an exact repository path is ever read. A refused row comes with the filled command for each
+  // row that can take the file, so it is never a dead end [owner, 2026-11-19].
+  let checked;
+  try { checked = decide(structuredClone(workflow)); } catch (error) {
+    throw (await import('../plan-row-fit.mjs')).explainedAmendmentRefusal(error, { workId: id, plan, changes });
+  }
+  const contentHashes = await amendmentContentHashes(root, checked.changes);
   const { value: amendment, publication } = await transactStory(
     root, config, workflow,
     {

@@ -24,6 +24,7 @@ import {
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { readOnlyAgent } from './phase-actor-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { allPlanRows, clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowTakesPaths } from './plan-row-fit.mjs';
 import { posix, SingularityFlowError, nowIso } from './util.mjs';
 
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -167,6 +168,23 @@ async function targetDocument(root, config, workflow, phaseId) {
 }
 
 const ROW_OPTIONS = Object.freeze(['row-op', 'fulfillment', 'test', 'from', 'to']);
+// Each missing value, as its own flag shows it in the command the step runs again.
+const MISSING_FLAG = Object.freeze({ fulfillment: '--fulfillment <KIND>', test: '--test <TEST-FILE>', from: '--from <FROM>', to: '--to <TO>', path: '--path <FILE>' });
+
+/** Why a row change cannot be recorded, and the same command with only what is missing left open: the step's agent fills it. */
+function incompleteRowChange(kind, change, missing, request) {
+  const given = [`--kind ${kind}`, `--clause ${change.clauseId}`, `--row-op ${change.op}`,
+    ...(change.fulfillment && !missing.includes('fulfillment') ? [`--fulfillment ${shellWord(change.fulfillment)}`] : []),
+    ...(change.test && !missing.includes('test') ? [`--test ${shellWord(change.test)}`] : []),
+    ...(change.from && !missing.includes('from') ? [`--from ${shellWord(change.from)}`] : []),
+    ...(change.to && !missing.includes('to') ? [`--to ${shellWord(change.to)}`] : []),
+    ...(change.path && !missing.includes('path') ? [`--path ${shellWord(change.path)}`] : [])];
+  const what = missing.map((key) => (key === 'fulfillment'
+    ? `what ${change.clauseId} becomes with --fulfillment, one of ${ROW_FULFILLMENTS.join(', ')} (usually modified, new or test-only)`
+    : key === 'path' ? 'the file it takes out of the row with --path' : key === 'test' ? 'the test file with --test' : `--${key}`));
+  return `This ${change.op} departure does not name ${what.join(' or ')}, so nobody could make the change it asks for. Record it again with it: `
+    + `singularity-flow departure record ${[...given, ...missing.map((key) => MISSING_FLAG[key])].join(' ')} --reason ${shellWord(String(request.reason ?? ''))}`;
+}
 
 /**
  * `departure record`: what the model records without asking [owner decision 12], one departure per call.
@@ -205,6 +223,9 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
       ...(op === 'set-fulfillment' ? { fulfillment: String(request.fulfillment ?? '') } : {}),
       ...(op === 'remove-location' ? { path: posix(String(files[0] ?? request.from ?? '')) } : {}),
       ...(['replace-test', 'replace-location'].includes(op) ? { from: posix(String(request.from ?? '')), to: posix(String(request.to ?? '')) } : {}) };
+    // Every value the change needs, or a person later meets a correction nobody can run [office laptop, 2026-11-19].
+    const missing = rowChangeMissing(change);
+    if (missing.length) departureRefusal(incompleteRowChange(kind, change, missing, request), 'DEPARTURE_ROW_CHANGE_INCOMPLETE', { missing, fulfillments: ROW_FULFILLMENTS });
   } else if (ROW_OPTIONS.some((option) => request[option] !== undefined)) {
     departureRefusal(`--${ROW_OPTIONS.find((option) => request[option] !== undefined)} belongs to a plan-row or test departure.`);
   }
@@ -339,17 +360,48 @@ export async function departureAuthorities(workflow, departure) {
   return (await import('./plan-amendments.mjs')).planAuthorities(workflow);
 }
 
+const shortClause = (workId, clauseId) => (String(clauseId).toUpperCase().startsWith(`${String(workId).toUpperCase()}:`) ? String(clauseId).slice(String(workId).length + 1) : String(clauseId));
+
 /**
- * The plan amendment changes accepting a file departure writes: its file under each clause it serves, or
- * as the supporting change it is. `clause` is the row a person chose when the departure named none.
+ * The plan amendment changes accepting a file departure writes, `{ changes, leftOut }`: its file under each clause it
+ * serves, or as the supporting change it is. `clause` is the row a person chose; without one, the clauses the
+ * departure names whose row can take its files. A row that only checks tests takes no file that is not a test, and
+ * a clause the plan has no row for takes nothing, so each is left out and `leftOut` says so; when no named row can
+ * take them, the refusal gives the exact command for each row that can, and the reject command [owner, 2026-11-19].
+ * `rows` are the plan's rows (planRowsOf).
  */
-export function departureAmendmentChanges(departure, { clause = null, reason }) {
+export function departureAmendmentChanges(departure, { clause = null, reason, rows = [], workId }) {
   if (departure.kind === 'supporting') {
-    return departure.paths.map((file) => ({ kind: 'add-supporting', path: file, class: departure.class, reason: String(reason).slice(0, 500) }));
+    return { changes: departure.paths.map((file) => ({ kind: 'add-supporting', path: file, class: departure.class, reason: String(reason).slice(0, 500) })), leftOut: null };
   }
-  const clauses = clause ? [String(clause).toUpperCase()] : departure.clauses ?? [];
-  if (!clauses.length) departureRefusal(`${departure.id} names no clause; choose the row ${departure.paths.join(', ')} serves.`, 'DEPARTURE_CLAUSE_REQUIRED', { departure: departure.id });
-  return departure.paths.flatMap((file) => clauses.map((clauseId) => ({ kind: 'add-location', clauseId, path: file })));
+  const named = clause ? [String(clause).toUpperCase()] : departure.clauses ?? [];
+  const fit = clausesTakingPaths(named, rows, departure.paths);
+  const files = departure.paths.length === 1 ? departure.paths[0] : `${departure.paths.slice(0, -1).join(', ')} and ${departure.paths.at(-1)}`;
+  const said = { name: (id) => shortClause(workId, id), subject: files, plural: departure.paths.length !== 1 };
+  if (!fit.takes.length) {
+    const command = (as, extra = '') => `singularity-flow decision departure ${workId} --fetch --departure ${departure.id} --as ${as}${extra} --reason "<REASON>"`;
+    const others = rows.filter((row) => rowTakesPaths(row, departure.paths)).slice(0, 12);
+    const them = departure.paths.length === 1 ? 'it' : 'them';
+    const lead = fit.testOnly.length || fit.noRow.length ? `${departure.id} cannot be accepted as recorded. ${leftOutWords(fit, { ...said, mode: 'cannot' })}`
+      : `${departure.id} does not say which row of the plan ${files} ${departure.paths.length === 1 ? 'belongs' : 'belong'} to.`;
+    const routes = [...others.map((row) => ({ label: `Accept it under ${shortClause(workId, row.clauseId)}, with your reason.`, command: command('accepted', ` --clause ${row.clauseId}`) })),
+      { label: `Reject it, with your reason: the model restores ${files}.`, command: command('rejected') }];
+    const commands = routes.map((entry) => entry.command);
+    if (!others.length) {
+      departureRefusal(`${lead} No ${fit.testOnly.length || fit.noRow.length ? 'other ' : ''}row of the plan can take ${them}. Reject it, and the model restores ${them}:\n  ${commands.join('\n  ')}\nTo keep ${them}, the scope changes first so a clause covers ${them}: an intent amendment, which the scope's approvers decide (/sf-amend drafts it).`,
+        'DEPARTURE_NO_PLAN_ROW', { departure: departure.id, testOnly: fit.testOnly, noRow: fit.noRow, commands, recoveryCommands: routes });
+    }
+    departureRefusal(`${lead} Accept it under a row that can take ${them}, or reject it, each with your reason:\n  ${commands.join('\n  ')}`,
+      'DEPARTURE_CLAUSE_REQUIRED', { departure: departure.id, testOnly: fit.testOnly, noRow: fit.noRow, rows: others.map((row) => row.clauseId), commands, recoveryCommands: routes });
+  }
+  return { changes: departure.paths.flatMap((file) => fit.takes.map((clauseId) => ({ kind: 'add-location', clauseId, path: file }))),
+    leftOut: leftOutWords(fit, { ...said, mode: 'was' }) || null };
+}
+
+/** The plan's rows, every one, as accepting a file departure chooses among them. */
+async function planRows(root, config, workflow) {
+  const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { workDir }] = await Promise.all([import('./specifications.mjs'), import('./story-paths.mjs')]);
+  return allPlanRows(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []));
 }
 
 /** A departure that may be decided now, by its ID, or a refusal that says why not. */
@@ -368,7 +420,7 @@ function decidable(workflow, readings, id) {
  * which names the departure by its exact change. A fix on the way's acceptance is its own record under the
  * plan's authority, as a rejection is. Rejecting writes one rejection; the model reverts the files.
  */
-export async function commitDepartureDecision(root, config, workflow, { departures: ids, decision, reason, clause = null, changes: chosenChanges = null }, { actor, agent = null }) {
+export async function commitDepartureDecision(root, config, workflow, { departures: ids, decision, reason, clause = null, changes: chosenChanges = null, fulfillment = null }, { actor, agent = null }) {
   if (!['accept', 'reject'].includes(decision)) departureRefusal("A departure is decided with --as accepted or --as rejected.");
   if (!ids?.length) departureRefusal('Name the departure with --departure DEP-NNN.');
   const readings = await departureReadings(root, workflow);
@@ -408,15 +460,20 @@ export async function commitDepartureDecision(root, config, workflow, { departur
   }
   if (writes === 'plan-amendment') {
     const { commitPlanAmendment } = await import('./commands/decision-plan-amendment.mjs');
-    // The rows a person chose on the list, else each departure's own clause or class.
-    const changes = chosenChanges?.length
-      ? chosenChanges.map((change) => (change.kind === 'add-supporting' ? { ...change, reason: String(reason).slice(0, 500) } : change))
-      : chosen.flatMap((entry) => departureAmendmentChanges(entry, { clause, reason }));
+    // The rows a person chose on the list, else each departure's own clause or class: only a row that can take its files.
+    const accepted = chosenChanges?.length
+      ? [{ changes: chosenChanges.map((change) => (change.kind === 'add-supporting' ? { ...change, reason: String(reason).slice(0, 500) } : change)), leftOut: null }]
+      : await (async () => {
+        const rows = chosen.some((entry) => entry.kind === 'path') ? await planRows(root, config, workflow) : [];
+        return chosen.map((entry) => departureAmendmentChanges(entry, { clause, reason, rows, workId: workflow.workItem.id }));
+      })();
+    const changes = accepted.flatMap((entry) => entry.changes);
+    const leftOut = accepted.map((entry) => entry.leftOut).filter(Boolean);
     const covered = new Set(changes.map((change) => change.path));
     const uncovered = chosen.flatMap((entry) => entry.paths).filter((file) => !covered.has(file));
     if (uncovered.length) departureRefusal(`Accepting these departures accounts for every file they change; ${uncovered.join(', ')} ${uncovered.length === 1 ? 'is' : 'are'} not named.`);
     const { amendment } = await commitPlanAmendment(root, config, workflow, { changes, reason, departures: chosen.map((entry) => entry.id) }, { actor, agent });
-    return { decision: 'accepted', record: amendment, departures: chosen.map((entry) => entry.id) };
+    return { decision: 'accepted', record: amendment, departures: chosen.map((entry) => entry.id), ...(leftOut.length ? { leftOut } : {}) };
   }
   if (writes === 'forward-amendment') {
     if (chosen.length > 1) departureRefusal('Accept one wording departure at a time: each is its own forward amendment.');
@@ -425,9 +482,45 @@ export async function commitDepartureDecision(root, config, workflow, { departur
     const decided = await acceptWordingDeparture(root, config, workflow, { departure, reason, actor, agent });
     return { decision: 'accepted', record: decided, departures: [departure.id] };
   }
+  // A plan row or test change: a person's Keep on the Decide card, or their own bound answer in /sf-decide, records the plan
+  // row correction it names, exactly, under the plan's approval group [owner, 2026-11-19]. One at a time: each is its own record.
+  if (writes === 'plan-row-correction') {
+    if (chosen.length > 1) departureRefusal(`Accept one plan row change at a time: each is its own correction. Accept ${chosen.map((entry) => entry.id).join(', then ')}.`);
+    const [departure] = chosen;
+    const { recordAnsweredPlanCorrection } = await import('./commands/plan-correction.mjs');
+    const record = await recordAnsweredPlanCorrection(root, config, workflow, correctionOptions(departure, reason, { fulfillment, workId: workflow.workItem.id }), { actor, agent });
+    return { decision: 'accepted', record, departures: [departure.id] };
+  }
   const [departure] = chosen;
-  departureRefusal(`${departure.id} is accepted by its own record, ${writes === 'intent-amendment' ? 'an intent amendment the scope\'s approvers decide' : 'a plan row correction an approver of the plan reviews'}, in a person's own terminal: ${acceptanceCommand(workflow, departure)}`,
+  departureRefusal(`${departure.id} is accepted by its own record, an intent amendment the scope's approvers decide, in a person's own terminal: ${acceptanceCommand(workflow, departure)}`,
     'DEPARTURE_OWN_TERMINAL', { departure: departure.id, command: acceptanceCommand(workflow, departure) });
+}
+
+const CORRECTION_FLAG = Object.freeze({ 'add-test': (change) => `${change.clauseId}=${change.test}`, 'replace-test': (change) => `${change.clauseId}=${change.from}:${change.to}`,
+  'set-fulfillment': (change) => `${change.clauseId}=${change.fulfillment}`, 'remove-location': (change) => `${change.clauseId}=${change.path}`,
+  'replace-location': (change) => `${change.clauseId}=${change.from}:${change.to}`, 'add-row': (change) => change.clauseId });
+
+/**
+ * The `decision plan` options a row or test departure's exact change is, with the person's reason. A fulfillment change
+ * recorded without its kind takes the one the person chose [office laptop, 2026-11-19]; with none chosen, the refusal
+ * gives one filled command per kind and the reject command, never one with the kind blank.
+ */
+export function correctionOptions(departure, reason, { fulfillment = null, workId = null } = {}) {
+  const change = { ...(departure.change ?? {}) };
+  const value = CORRECTION_FLAG[change.op];
+  if (!value) departureRefusal(`${departure.id} names no plan row change a correction can make.`);
+  const missing = rowChangeMissing(change);
+  if (missing.includes('fulfillment') && fulfillment) {
+    if (!ROW_FULFILLMENTS.includes(fulfillment)) departureRefusal(`${fulfillment} is not a fulfillment; ${change.clauseId} becomes one of ${ROW_FULFILLMENTS.join(', ')}.`, 'DEPARTURE_ROW_CHANGE_INCOMPLETE');
+    change.fulfillment = fulfillment;
+  } else if (missing.length) {
+    const command = (as, extra = '') => `singularity-flow decision departure ${workId} --fetch --departure ${departure.id} --as ${as}${extra} --reason "<REASON>"`;
+    const commands = missing.every((key) => key === 'fulfillment')
+      ? [...ROW_FULFILLMENTS.map((kind) => command('accepted', ` --fulfillment ${kind}`)), command('rejected')] : [command('rejected')];
+    departureRefusal(`${departure.id} does not say ${missing.includes('fulfillment') ? `what ${change.clauseId} becomes` : `its ${missing.join(' and ')}`}, so it is kept with your choice${missing.every((key) => key === 'fulfillment') ? ' of what the row becomes' : ''}, or rejected:\n  ${commands.join('\n  ')}`,
+      'DEPARTURE_ROW_CHANGE_INCOMPLETE', { departure: departure.id, missing, commands, recoveryCommands: commands.map((entry) => ({ command: entry })) });
+  } else if (fulfillment) departureRefusal(`${departure.id} already names what ${change.clauseId} becomes; accept it without --fulfillment.`, 'DEPARTURE_INVALID');
+  return { [change.op]: value(change), reason };
 }
 
 const shellWord = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${String(value).replaceAll("'", `'"'"'`)}'`);
@@ -436,12 +529,16 @@ const shellWord = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : 
 export function acceptanceCommand(workflow, departure) {
   const workId = workflow.workItem.id;
   if (departure.kind === 'clause') {
-    return `singularity-flow story intent-amendment propose --work-id ${workId} --file ${shellWord(departure.proposal?.path ?? '<FILE>')} --departure ${departure.id} --reason "<REASON>"`;
+    // A record with no saved draft starts from one drafted for its clauses: never a file name to make up [owner, 2026-11-19].
+    if (!departure.proposal?.path) {
+      return `singularity-flow story intent-amendment draft --work-id ${workId}${(departure.clauses ?? []).map((id) => ` --clause ${shellWord(id)}`).join('')}`;
+    }
+    return `singularity-flow story intent-amendment propose --work-id ${workId} --file ${shellWord(departure.proposal.path)} --departure ${departure.id} --reason "<REASON>"`;
   }
   const change = departure.change ?? {};
-  const flag = { 'add-test': `--add-test ${shellWord(`${change.clauseId}=${change.test}`)}`, 'replace-test': `--replace-test ${shellWord(`${change.clauseId}=${change.from}:${change.to}`)}`,
-    'set-fulfillment': `--set-fulfillment ${shellWord(`${change.clauseId}=${change.fulfillment}`)}`, 'remove-location': `--remove-location ${shellWord(`${change.clauseId}=${change.path}`)}`,
-    'replace-location': `--replace-location ${shellWord(`${change.clauseId}=${change.from}:${change.to}`)}`, 'add-row': `--add-row ${shellWord(change.clauseId)}` }[change.op] ?? '';
+  // One that leaves its value out is kept on the Decide card, which asks for it: never a command with the value blank.
+  if (rowChangeMissing(change).length) return `singularity-flow decisions ${workId}`;
+  const flag = CORRECTION_FLAG[change.op] ? `--${change.op} ${shellWord(CORRECTION_FLAG[change.op](change))}` : '';
   return `singularity-flow decision plan ${workId} --fetch ${flag} --reason "<REASON>"`;
 }
 

@@ -31,12 +31,11 @@ export function decideCardCopilotCommand(argv) {
   const named = argv.includes('--work-id') ? argv[argv.indexOf('--work-id') + 1] : ['decision', 'decisions'].includes(argv[0]) ? argv[2] : null;
   return `/sf-decide${ID.test(named ?? '') ? ` ${named}` : ''}`;
 }
-// What the card records with no model, as decision-list.mjs EFFECT_ORDER (paid run, 2026-11-14); a plan's row
-// correction is a live terminal review, and a revocation is not on the card.
+// What the card records with no model, as decision-list.mjs EFFECT_ORDER (paid run, 2026-11-14); a revocation is not on
+// the card. A plan's row correction is, kept there with its exact rows shown [owner, 2026-11-19].
 const cardRecords = (t) => decideCardStep(t) || (t[0] === 'upstream-issue' && ['decide', 'revalidate'].includes(t[1]))
   || (t[0] === 'story' && t[1] === 'adjudicate' && /^[A-Za-z]/u.test(t[2] ?? '') && !t.includes('--answers'))
-  || (t[0] === 'decision' && ['choose', 'applicability', 'scope', 'completeness', 'plan', 'departure'].includes(t[1])
-    && !t.some((v) => /^--(?:add-row|remove-row|set-fulfillment|(?:add|remove|replace)-test|(?:remove|replace)-location)\b/u.test(v)));
+  || (t[0] === 'decision' && ['choose', 'applicability', 'scope', 'completeness', 'plan', 'departure'].includes(t[1]));
 /** A sign-off's VS Code route: the review page that shows the evidence and records it. */
 export const VSCODE_WITNESS_REVIEW = 'Command Palette: Singularity Flow: Review Story Evidence and Sign Off';
 
@@ -99,7 +98,7 @@ export function commandRouteRows(guidance = {}) {
   // A confirmation a person types by its short code reads the same in their terminal: the code, never the digest (confirm-code.mjs).
   const code = typeof guidance.copilotCommand === 'string' ? guidance.copilotCommand.match(/^\/sf-confirm ([0-9A-Z]{4}-[0-9A-Z]{4})$/u)?.[1] : null;
   return [
-    { label: 'Copilot', command: guidance.copilotCommand, unavailable: 'no verified equivalent' },
+    { label: /^\/decide /u.test(guidance.copilotCommand) ? 'Copilot CLI' : 'Copilot', command: guidance.copilotCommand, unavailable: 'no verified equivalent' },
     { label: 'Shell', command: code && guidance.command ? `singularity-flow confirm ${code}` : guidance.command, unavailable: 'not available for this action' },
     // A decisions route given without its model-free field still names the Decide card.
     { label: 'VS Code (model-free)', command: guidance.modelFreeCommand ?? (modelFreeCommandForCommand(guidance.command) === VSCODE_DECIDE_CARD ? VSCODE_DECIDE_CARD : null),

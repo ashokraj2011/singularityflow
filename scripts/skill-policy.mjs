@@ -363,6 +363,9 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /The person types every choice and reason; never supply, infer or default one/i,
       // A refusal changes nothing and keeps the turn, held to the same answer (office laptop, 2026-11-19).
       /A refusal keeps this turn: follow its action with the person's same answer/i,
+      // A plan row correction is kept in chat on the person's answer to its exact rows; never asked twice [owner, 2026-11-19].
+      /plan: `--add-location`\/`--add-supporting`, or a kept row correction/,
+      /Ask each question once; if refused, say why/,
       // SPEC-OAP M4: it continues into the approval instead of ending, and carries choices into its one commit.
       /you may approve \(`decidedBy\.allowed`\): do \/sf-approve 1-6 now/,
       /do \/sf-approve 1-6 now with `withApproval\.flags` on its approve command \(one commit\)/,

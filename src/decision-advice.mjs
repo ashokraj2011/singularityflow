@@ -108,9 +108,13 @@ export function optionDoes(workflow, item, entry) {
           : kind === 'finding' ? 'The fix is taken out, and the findings it fixed are open again.' : 'The approved document stays as it was, and the change is undone.';
       }
       if (effect.writes === 'plan-amendment' && effect.changes?.length) {
-        return `${listWords(effect.changes.map((change) => planChangeWords(workflow, change))).replace(/^./u, (first) => first.toUpperCase())}; the change stays and no step is reset.`;
+        // A named row that cannot take the files is left out, and the words say so [owner, 2026-11-19].
+        const leftOut = kind === 'path' && item.details?.leftOut?.words ? ` ${item.details.leftOut.words}` : '';
+        return `${listWords(effect.changes.map((change) => planChangeWords(workflow, change))).replace(/^./u, (first) => first.toUpperCase())}; the change stays and no step is reset.${leftOut}`;
       }
       if (effect.writes === 'forward-amendment') return 'The earlier step\'s approved document is amended to this wording as its next version; each later step that read it is listed to be checked again.';
+      // The exact rows, as the card shows them before a person keeps them [owner, 2026-11-19].
+      if (effect.writes === 'plan-row-correction') return `${firstSentence(entry.words)} No step is reset.`;
       if (effect.writes === 'departure-acceptance') return 'The fix stays and the plan is unchanged; the findings it fixes await proof once the step is approved.';
       return 'The change stays, and the plan records it; no step is reset.';
     }
@@ -266,9 +270,18 @@ export function itemRecommendation(workflow, item) {
       if (details.status === 'reopened') return lean('it changed again after it was accepted: accept it only if the change still belongs in this Story.');
       const accept = options.find((entry) => entry.id === 'accept');
       if (accept && details.departureKind === 'finding') return rec(item, 'accept', 'It fixes findings from the register; rejecting it opens them again.');
+      // A row change recorded without what the row becomes: the kind its own reason names [office laptop, 2026-11-19].
+      if (marked && /^accept-/u.test(marked.id) && ['plan-row', 'test'].includes(details.departureKind)) {
+        return rec(item, marked.id, 'The departure\'s own reason names what the row becomes; choose another if it should become something else.');
+      }
       if (accept && details.departureKind === 'supporting') return rec(item, 'accept', 'It is a supporting file the change needs; accepting lists it in the plan, and no step is reset.');
       if (accept && details.departureKind === 'path' && details.clauses?.length) {
-        return rec(item, 'accept', `The code step names ${listWords(details.clauses.map((id) => clauseName(workflow, id)))} as what it serves; accepting adds it to the plan, and no step is reset.`);
+        const kept = details.clauses.filter((id) => !(details.leftOut?.clauses ?? []).includes(id));
+        return rec(item, 'accept', `The code step names ${listWords(kept.map((id) => clauseName(workflow, id)))} as what it serves; accepting adds it to the plan, and no step is reset.`);
+      }
+      // No row of the plan can take its files: Accept is not offered, and keeping them needs the scope to change first.
+      if (details.departureKind === 'path' && !options.some((entry) => /^accept/u.test(entry.id))) {
+        return lean('reject it to undo the change, unless the scope should change so a row of the plan can take these files.');
       }
       return lean('accept it if the change belongs in this Story; reject it to undo it.');
     }
@@ -346,6 +359,8 @@ export function yesNoOf(workflow, item) {
   if (options.some((entry) => entry.needs?.clause || entry.needs?.article || entry.needs?.expires || entry.needs?.cause)) return null;
   if (options.length === 2 && !options.some((entry) => entry.id === 'reject')) return null;
   const yes = options.find((entry) => entry.id !== 'reject');
+  // Reject alone is no yes or no: the item says why there is nothing to accept (a departure no row of the plan can take).
+  if (!yes) return null;
   const no = options.find((entry) => entry.id === 'reject') ?? null;
   // The question names its row, as the answer binding reads it (a departure's ID, a responsibility, a path), and says how
   // long a reason the command takes [owner, 2026-11-14].

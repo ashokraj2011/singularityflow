@@ -912,6 +912,9 @@ function refusalParty(error, workflow, phase) {
  */
 function holdClearedBy(error, owner, workflow, phase, route) {
   if (/^singularity-flow decision plan /u.test(route?.command ?? '')) return { kind: 'approvers', planRoute: true };
+  // A changed file no row names goes to the Decide card, where an approver of the plan says where it belongs [owner, 2026-11-19].
+  if (error.code === 'SPEC_COVERAGE_INCOMPLETE' && error.details?.coverage?.unclaimedChangedPaths?.length && !error.details?.upstreamDecision?.complete
+    && /^singularity-flow decisions /u.test(route?.command ?? '')) return { kind: 'approvers', planRoute: true };
   if (LISTED_HOLDS.includes(error.code)) return { kind: 'listed' };
   // Whoever is on the Story acknowledges an approved amendment; the list says the same of it.
   if (error.code === 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED') return { kind: 'anyone' };

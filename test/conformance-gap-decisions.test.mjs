@@ -87,7 +87,9 @@ test('the refusal names a decision and three repair routes, never a verdict edit
   assert.equal(first.choices[0].command,
     `singularity-flow upstream-issue raise --phase implementation --about ${W}:REQ-001 --problem "<what the delivered change is missing>" --work-id ${W}`);
   assert.equal(first.choices[1].command, `singularity-flow reject release --work-id ${W} --to implementation --reason <why>`);
-  assert.equal(first.choices[2].command, `singularity-flow decision evidence-reuse ${W} --phase implementation --from-attempt <ATTEMPT-ID> --reason <TEXT>`);
+  // The Decide card names the recorded run, so no attempt ID is left to compose [owner, 2026-11-19].
+  assert.equal(first.choices[2].command, `singularity-flow decisions ${W}`);
+  assert.equal(first.choices[2].skill, '/sf-decide');
   assert.match(first.choices[2].detail, /Accepting existing evidence never certifies a run that was not recorded/u);
   assert.match(first.choices[3].detail, /document step such as release cannot record test runs/u);
   assert.equal(refusal.details.nextAction.command, first.choices[0].command);

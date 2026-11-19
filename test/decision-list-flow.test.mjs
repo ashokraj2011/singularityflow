@@ -263,6 +263,8 @@ test('the release-approval incident is one decision: recorded once, then approva
   const unconfirmed = attemptAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd1=reuse', '--json');
   assert.equal(json(unconfirmed).error.code, 'DECISIONS_CONFIRMATION_REQUIRED');
   assert.equal(json(unconfirmed).error.details.record.command, packet.record.recommended);
+  // Never back to the list it came from (owner, 2026-11-19, loop 2): its route is the record command itself.
+  assert.equal(json(unconfirmed).remediationPlan.steps[0].command, packet.record.recommended);
   // Their terminal shows the summary and asks, binding the list it read.
   assert.doesNotMatch(json(unconfirmed).error.message, /sha256:|[0-9a-f]{12}/u, 'the refusal a person reads names no digest');
   if (TYPED_TERMINAL_AVAILABLE) {

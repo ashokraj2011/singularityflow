@@ -56,6 +56,31 @@ test('a plan amendment adds a location to an existing row or a supporting change
   assert.deepEqual(coverage.supportingChangedPaths, ['package.json']);
 });
 
+test('a row that only checks tests refuses a file that is not a test, said with the rows that can take it; a test file joins it', async () => {
+  // [owner, 2026-11-19] The refusal names the rows and their filled commands (explained where a person runs it, lazily).
+  const { explainedAmendmentRefusal } = await import('../src/plan-row-fit.mjs');
+  const changes = [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'src/pages/form-page.ts' }];
+  let refusal = null;
+  try { amend(story(), changes); } catch (error) { refusal = explainedAmendmentRefusal(error, { workId: W, plan, changes }); }
+  assert.equal(refusal?.code, 'PLAN_AMENDMENT_INVALID', 'the code stays');
+  assert.equal(refusal.message, `${W}:AC-002 only checks tests (test-only): only a test or test-support file can be added to it, and src/pages/form-page.ts is not one. `
+    + `Add it to a row that can take it instead: ${W}:AC-001.`);
+  assert.deepEqual(refusal.details.rows, [`${W}:AC-001`]);
+  assert.deepEqual(refusal.details.recoveryCommands.map((entry) => entry.command), [`singularity-flow decision plan ${W} --fetch --add-location ${W}:AC-001=src/pages/form-page.ts --reason "<REASON>"`]);
+  const tests = { [`${W}:AC-002`]: plan[`${W}:AC-002`], [`${W}:AC-003`]: { ...plan[`${W}:AC-002`] } };
+  try { amend(story(), changes, { plan: tests }); } catch (error) { refusal = explainedAmendmentRefusal(error, { workId: W, plan: tests, changes }); }
+  assert.match(refusal.message, /No other row of the plan can take it: every row only checks tests\.$/u);
+  assert.deepEqual(refusal.details.recoveryCommands, []);
+  // A clause with no row: the rows that can take the file, filled in.
+  const missing = [{ kind: 'add-location', clauseId: `${W}:AC-009`, path: 'src/helper.mjs' }];
+  try { amend(story(), missing); } catch (error) { refusal = explainedAmendmentRefusal(error, { workId: W, plan, changes: missing }); }
+  assert.match(refusal.message, /has no row for/u);
+  assert.equal(refusal.details.recoveryCommands[0].command, `singularity-flow decision plan ${W} --fetch --add-location ${W}:AC-001=src/helper.mjs --reason "<REASON>"`);
+  const workflow = story();
+  assert.deepEqual(amend(workflow, [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'tests/pages/form-helpers.ts' }]).changes,
+    [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'tests/pages/form-helpers.ts' }]);
+});
+
 test('a repository-wide coverage exclusion is refused, so no path escapes accounting', () => {
   assert.throws(() => normalizeSpecPolicy({ excludes: ['vendor'] }), (error) => error.code === 'SPEC_EXCLUDES_RETIRED' && /decision plan/.test(error.message));
   assert.deepEqual(normalizeSpecPolicy({ excludes: [] }).excludes, ['singularity', '.github/agents', '.git', 'node_modules']);

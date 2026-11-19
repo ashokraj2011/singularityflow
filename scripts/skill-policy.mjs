@@ -361,7 +361,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /sflow-turn-boundary: decision-only/i,
       /are the only permitted mutations/i,
       /The person types every choice and reason; never supply, infer or default one/i,
-      /Any refusal ends this turn/i,
+      // A refusal changes nothing and keeps the turn, held to the same answer (office laptop, 2026-11-19).
+      /A refusal keeps this turn: follow its action with the person's same answer/i,
       // SPEC-OAP M4: it continues into the approval instead of ending, and carries choices into its one commit.
       /you may approve \(`decidedBy\.allowed`\): do \/sf-approve 1-6 now/,
       /do \/sf-approve 1-6 now with `withApproval\.flags` on its approve command \(one commit\)/,

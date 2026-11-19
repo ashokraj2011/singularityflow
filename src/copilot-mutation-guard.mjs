@@ -2874,10 +2874,10 @@ export async function refreshMutationContracts(root, accepted = null, { decision
 }
 
 /**
- * Failed decisions end approval-only turns even when accepted-state reloading fails.
+ * Failed approvals end approval-only turns even when accepted-state reloading fails.
  *
- * A failed workflow decision (`decision choose` and its siblings) ends only /sf-decide turns, whose
- * skill says any refusal ends the turn; it never ends an unrelated approval turn.
+ * A refused workflow decision (`decision choose` and its siblings) ends no turn: it changed nothing, and the
+ * /sf-decide turn records the person's answers it holds (cli-entry.mjs). `modes` is kept for callers naming a turn.
  */
 export async function endMutationDecisionTurns(root, { modes = ['approval-only', 'review-decision-only'] } = {}) {
   if (readCopilotMode().paused || !root) return;

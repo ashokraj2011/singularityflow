@@ -744,7 +744,8 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
   assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/);
   assert.deepEqual(await shell('singularity-flow decision show PMC-1 --json'), {}, 'reads stay available');
   assert.deepEqual(await mutationToolGuard(approval), {}, 'a failed decision ended an approval turn');
-  // The CLI boundary ends the turn when a decision command is refused.
+  // A refused decision command leaves the /sf-decide turn open: it changed nothing, and the person's answer in this
+  // turn is still recorded here (office laptop, 2026-11-19: ending it blocked the right command and looped /sf-decide).
   const fresh = await f.enter('/sf-decide PMC-1', 'decider-2');
   await personSaid(fresh, 'The person chose to ship.');
   const freshChoose = () => mutationToolGuard({ ...fresh, toolName: 'bash', toolArgs: { command: choose, cwd: f.root } });
@@ -753,8 +754,12 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
     'decision', 'choose', 'PMC-1', '--option', 'ship', '--reason', 'The person chose to ship.', '--expected', 'k1'],
   { cwd: f.root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.notEqual(refused.status, 0, refused.stdout);
-  assert.match((await freshChoose()).permissionDecisionReason ?? '', /PHASE_MUTATION_DECISION_TURN_ENDED/,
-    `${refused.stdout}\n${refused.stderr}`);
+  assert.deepEqual(await freshChoose(), {}, `the refusal ended the turn:\n${refused.stdout}\n${refused.stderr}`);
+  // Still held to the person's own words: an answer they did not give is refused in the same turn.
+  const other = await mutationToolGuard({ ...fresh, toolName: 'bash', toolArgs: { cwd: f.root,
+    command: 'singularity-flow decision choose PMC-1 --option hold --reason "The agent chose to hold."' } });
+  assert.equal(other.permissionDecision, 'deny', 'an answer the person never gave was recorded after a refusal');
+  assert.doesNotMatch(other.permissionDecisionReason ?? '', /PHASE_MUTATION_DECISION_TURN_ENDED/);
 });
 
 test('a /sf-decide turn records only the decision list\'s upstream-issue options; a reuse or test-run risk is the person\'s own terminal step', async t => {

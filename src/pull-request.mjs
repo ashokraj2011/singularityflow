@@ -53,6 +53,12 @@ export function storyPullRequestBody(workflow, seed = null, {
   lines.push(...(workflow.phaseOrder ?? []).map((phaseId) => {
     const phase = workflow.phases[phaseId];
     const approvals = (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
+    // Approve twice: a step SFlow approved says so, and which person approval showed it [owner, 2026-11-19].
+    if (phase.status === 'approved' && phase.approvalDisposition === 'approved_automatically' && !approvals.length) {
+      const shown = (workflow.phaseOrder ?? []).map((id) => workflow.phases[id]).find((other) => (other?.approvals ?? []).some((item) => !item.invalidatedAt
+        && (item.covers ?? []).some((cover) => cover.phase === phase.id && Number(cover.generation) === Number(phase.generation))));
+      return `- ${phase.label ?? phase.id}: **approved automatically** · version ${phase.generation ?? 0}${shown ? ` · shown with ${shown.label ?? shown.id} v${shown.generation ?? 0}` : ' · after the last person approval; review it here'}`;
+    }
     return `- ${phase.label ?? phase.id}: **${phase.status}** · generation ${phase.generation ?? 0} · ${approvals.length} approval${approvals.length === 1 ? '' : 's'}`;
   }), '');
 

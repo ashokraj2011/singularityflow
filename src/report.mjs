@@ -2,8 +2,8 @@ import { nowIso } from './util.mjs';
 import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
 import { estimatePremiumRequests } from './copilot-activity.mjs';
 
-const DECISION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase_rejected', 'phase-approval-waived']);
-const COMPLETION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase-approval-waived', 'phase_completed_without_approval']);
+const DECISION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase_rejected', 'phase-approval-waived', 'phase-approved-automatically']);
+const COMPLETION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase-approval-waived', 'phase-approved-automatically', 'phase_completed_without_approval']);
 // Recorded about a phase without anyone working on it then: they do not move the work.
 const BOOKKEEPING_EVENTS = new Set(['phase_telemetry_reconciled', 'phase_assigned', 'phase_retained']);
 
@@ -707,7 +707,7 @@ export function deriveReport(workflow, {
     // A deterministic policy waiver is not a human review queue. Older event streams may contain
     // a submission immediately before the waiver, so make the reporting distinction explicit
     // instead of allowing that interval to inflate approval latency.
-    const wait = disposition === 'policy_waived'
+    const wait = disposition === 'policy_waived' || disposition === 'approved_automatically'
       ? { waitingMs: 0, cycles: [], openSubmission: null }
       : measuredWait;
     const window = phaseWindow(phase, events, reportTime);
@@ -743,6 +743,7 @@ export function deriveReport(workflow, {
       status: phase.status,
       approvalDisposition: disposition
         ?? ((phase.approvals ?? []).some((item) => !item.invalidatedAt && item.decision === 'approved') ? 'human_approved' : null),
+      ...(disposition === 'approved_automatically' ? { automaticApproval: { checked: [...(phase.automaticApproval?.checked ?? [])] } } : {}),
       generations: phase.generation ?? 0,
       sentBack,
       elapsedMs: window.elapsedMs,
@@ -898,6 +899,8 @@ function costCell(phase) {
 }
 
 function approvalDispositionLabel(phase) {
+  // Approve twice: what SFlow checked when it approved the step, as history says it [owner, 2026-11-19].
+  if (phase.approvalDisposition === 'approved_automatically') return `approved automatically${phase.automaticApproval?.checked?.length ? `: ${phase.automaticApproval.checked.join('; ')}` : ''}`;
   return ({
     human_approved: 'human approved',
     policy_waived: 'policy waived',

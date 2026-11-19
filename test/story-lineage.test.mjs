@@ -34,6 +34,8 @@ test('spec-driven submission binds downstream briefs to the reviewed generation 
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.phases.specification.clarification = { mode: 'off', markers: { mode: 'off' } };
   config.phases.specification.specificationQuality = { mode: 'off' };
+  // This test is about brief binding: its specification stays a person's approval (approve twice would approve it by itself).
+  delete config.workTypes['spec-driven-standard'].phaseOverrides.specification;
   await writeFile(configPath, YAML.stringify(config));
   git(root, ['add', configPath]);
   git(root, ['commit', '-m', 'Use deterministic brief fixture policy']);

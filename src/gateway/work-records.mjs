@@ -99,7 +99,7 @@ export const MATERIAL_HISTORY_EVENTS = Object.freeze({
     'phase_submitted', 'phase_validation_failed', 'phase_completed_without_approval', 'phase-approval-waived'
   ],
   [LIFECYCLE_EVENT.PHASE_APPROVED]: [
-    'phase_approved', 'phase_self_approved', 'initiative_approved', 'initiative_self_approved', 'epic_intake_completed'
+    'phase_approved', 'phase_self_approved', 'phase-approved-automatically', 'initiative_approved', 'initiative_self_approved', 'epic_intake_completed'
   ],
   [LIFECYCLE_EVENT.PHASE_REJECTED]: ['phase_rejected', 'initiative_rejected'],
   // A proposal holds the approval until a person decides it, so it is news even before then.

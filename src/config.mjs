@@ -33,7 +33,7 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
-import { isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './phase-roles.mjs';
+import { automaticApprovalRefusal, isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './phase-roles.mjs';
 import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
@@ -756,10 +756,12 @@ export function normalizeGenerationPolicy(value = null, phaseId = 'phase') {
 }
 
 function assertConvergenceHumanApproval(policy, label = 'The convergence phase') {
-  if (policy.mode === 'required') return policy;
+  if (policy.mode === 'required' && !policy.automatic) return policy;
+  // Only a person's approval advances out of convergence [SPK:REQ-032]; it is recognised by its kind [E2G-001].
   throw new SingularityFlowError(
-    `${label} approval must require an explicit human decision; approval modes 'none' and 'policy' cannot waive convergence.`,
-    { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED', details: { mode: policy.mode } }
+    policy.automatic ? `${label} is approved by a person, never automatically: only a person's approval moves the Story on from convergence.`
+      : `${label} approval must require an explicit human decision; approval modes 'none' and 'policy' cannot waive convergence.`,
+    { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED', details: { mode: policy.mode, ...(policy.automatic ? { automatic: policy.automatic } : {}) } }
   );
 }
 
@@ -2078,6 +2080,14 @@ export function resolveWorkType(definition, workTypeId) {
     return resolvedPhase;
   });
   phases = withLaterStepTests(phases, chosenRepositoryTests);
+  // Approve twice (owner, 2026-11-19): the plan, a step that may change source files, the design sources and a rework
+  // loop's start are a person's to approve, never automatically (phase-roles.mjs).
+  for (const phase of phases.filter((entry) => entry.approval?.automatic)) {
+    const why = automaticApprovalRefusal(phase, { workType, phases });
+    if (why) throw new SingularityFlowError(`Work type '${workTypeId}' step '${phase.id}' cannot be approved automatically: ${why}.`,
+      { code: 'AUTOMATIC_APPROVAL_NOT_ALLOWED', details: { workType: workTypeId, phase: phase.id,
+        nextAction: { command: 'singularity-flow workflow studio', label: 'Turn off automatic approval for this step in Workflow Studio.' } } });
+  }
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({
     ...phase,

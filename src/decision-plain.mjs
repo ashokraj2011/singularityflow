@@ -165,7 +165,7 @@ function why(workflow, item) {
     case 'scope-completeness':
       return 'Nothing waits on it; it records that you looked for what is missing or unclear.';
     case 'approval':
-      return details.ready ? 'Nothing on this list holds it; its documents are ready to review.' : 'It waits for the questions above.';
+      return details.ready ? `Nothing on this list holds it; its documents are ready to review${details.covers?.length ? `, with ${details.covers.map((entry) => `${entry.label} v${entry.generation}`).join(', ')}, which SFlow approved when ready` : ''}.` : 'It waits for the questions above.';
     default:
       return plainSentence(item.why);
   }

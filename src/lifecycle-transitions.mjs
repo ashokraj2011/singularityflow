@@ -180,13 +180,13 @@ export function clearDecisionState(phase) {
 }
 
 /**
- * Only an automatic completion records a disposition ('policy_waived' or 'not_required') and a
- * policy waiver. Once the phase is sent back, submitted for people to review, or approved by one,
- * the record describes an earlier completion. Kept, the governance gate would replay an earlier
- * round's waiver against the current generation.
+ * Only an automatic completion records a disposition ('policy_waived', 'not_required' or 'approved_automatically') and
+ * its record (a policy waiver, or what an automatic approval checked). Once the phase is sent back, submitted for people
+ * to review, or approved by one, the record describes an earlier completion. Kept, the governance gate would replay an
+ * earlier round's record against the current generation.
  */
 export function clearApprovalDisposition(phase) {
-  delete phase.approvalDisposition; delete phase.approvalWaiver;
+  delete phase.approvalDisposition; delete phase.approvalWaiver; delete phase.automaticApproval;
 }
 
 /**

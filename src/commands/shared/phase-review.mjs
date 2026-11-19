@@ -251,6 +251,11 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).
     ...(attribution ? { attribution, attributionLabels: (await import('../../presence/attribution.mjs')).attributionLabels(attribution) } : {}),
     owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
+    // Approve twice: the steps SFlow approved since the last person approval, which this approval covers and shows.
+    ...(phase.status === 'awaiting_approval' ? await import('../../phase-roles.mjs').then(({ automaticApprovalsBefore, coveredStep }) => {
+      const covered = automaticApprovalsBefore(workflow, phase.id).map(coveredStep);
+      return covered.length ? { approvalCovers: covered } : {};
+    }) : {}),
     // The checklist articles the approver answers, so every surface can ask for them up front.
     ...(reviewBinding ? await import('../../specification-gate.mjs').then(({ approvalChecklistPrompt, resolvedSpecificationQualityPolicy }) => {
       const prompt = approvalChecklistPrompt(resolvedSpecificationQualityPolicy(config, workflow, phase));

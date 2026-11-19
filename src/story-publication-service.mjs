@@ -352,7 +352,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               `Phase '${requestedPhase.id}' cannot be approved without its generation ${requestedPhase.generation} design-source set.`
             );
           }
-          const approval = [...(requestedPhase.approvals ?? [])].reverse()
+          // Approve twice: a step SFlow approved itself gets the same approved metadata and next-step baseline, from its own
+          // record; there is no person's decision receipt to write (automatic-approval.mjs).
+          const automatic = requestedPhase.approvalDisposition === 'approved_automatically' ? requestedPhase.automaticApproval ?? null : null;
+          const approval = automatic ?? [...(requestedPhase.approvals ?? [])].reverse()
             .find((item) => !item.invalidatedAt && item.decision === 'approved');
           if (approval) {
             if (binding) approval.designSourceSet = binding;
@@ -370,7 +373,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               await refreshPhaseSpecificationIndex(root, config, workflow, requestedPhase);
               await settleRetainedPhases(root, config, workflow, approval.at);
             }
-            await writeDecision(root, config, workflow, requestedPhase, approval);
+            if (!automatic) await writeDecision(root, config, workflow, requestedPhase, approval);
             // The advancing phase's interval baseline is a durable write like the three above, and
             // it belongs here for the same reason. `approvePhase` used to write it before the unit
             // opened, which put the baseline file inside the snapshot the rollback restores — so a

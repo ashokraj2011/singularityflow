@@ -22,13 +22,13 @@ export { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { storyPublicationPending } from './story-publication-read.mjs';
 export { storyPublicationPending } from './story-publication-read.mjs';
 import {
-  convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, latestStepBefore, ownerStepChecks,
+  automaticApprovalsBefore, convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, latestStepBefore, ownerStepChecks,
   phaseResponsibilityPin, scopeStepOf, stepResponsibilities
 } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import { documentSuccessorRefusal, documentSuccessorUnopened } from './prepared-document-successor.mjs';
-import { versionQuestionRoute } from './action-command-map.mjs';
+import { approveRoute, versionQuestionRoute } from './action-command-map.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -6763,6 +6763,9 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   };
 }
 
+/** Who an automatic approval names: SFlow itself, never a person or an approval group (approve twice, 2026-11-19). */
+export const AUTOMATIC_APPROVER = Object.freeze({ name: 'SFlow (approved automatically)', login: 'sflow-approved-automatically', automatic: true });
+
 /** Thrown inside evaluateApproval to end a preview whose foundation failed; it never escapes. */
 const APPROVAL_PREVIEW_STOP = Symbol('approval-preview-stop');
 
@@ -6786,7 +6789,11 @@ export async function evaluateApproval(root, config, workflow, {
   actor: decisionActor = null,
   agent: decisionAgent = undefined,
   presence = null,
-  preview = false
+  preview = false,
+  // Approve twice (automatic-approval.mjs): every check a person's approval makes, with no person and no group.
+  automatic = false,
+  // How the person's Yes was bound: bound-yes (a chat), approval-page, terminal or terminal-yes-flag.
+  confirmedBy = null
 } = {}) {
   const holds = [];
   const warnings = [];
@@ -6833,10 +6840,12 @@ export async function evaluateApproval(root, config, workflow, {
     await stage('entry', async () => {
       assertStoryNotArchived(root, workflow);
       if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
-      session = decisionActor ? { actor: decisionActor, agent: decisionAgent ?? null } : await loadSession(root, { required: false });
+      session = automatic ? { actor: AUTOMATIC_APPROVER, agent: null }
+        : decisionActor ? { actor: decisionActor, agent: decisionAgent ?? null } : await loadSession(root, { required: false });
     }, { foundation: true });
     await stage('agent', async () => {
-      assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase], session, 'approve');
+      // An automatic approval is SFlow's own, never an agent's: no agent role is asked to approve.
+      if (!automatic) assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase], session, 'approve');
     });
     await stage('governance', async () => {
       assertPhaseGovernanceMayAdvance(workflow, workflow.phases?.[phaseId ?? workflow.currentPhase]);
@@ -7338,13 +7347,15 @@ export async function evaluateApproval(root, config, workflow, {
       // phases deliberately end that session, and another reviewer may use a different laptop.
       // Keep any selected agent for the role restriction checked above; never manufacture or
       // persist an authoring session merely to preview the same identity the command would use.
-      actor = decisionActor ?? actionActor(root);
+      // An automatic approval names no person and no approval group; every other check stays as it is.
+      actor = automatic ? AUTOMATIC_APPROVER : decisionActor ?? actionActor(root);
       session = { ...(session ?? {}), actor, agent: session?.agent ?? null };
       key = actorKey(actor);
       // On a Story SF Guard requires, only a verified or excepted approval counts [SPEC-PSS-v1 REQ-030].
       const counts = await presenceCountsFor(root, workflow);
       active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved'
         && (!phase.testCommandRevalidation || item.reviewPacketSha256 === submittedReview.packetSha256) && (!counts || counts(item)));
+      if (automatic) { authority = { authorityGroup: null, identityAssurance: 'automatic' }; return; }
       authority = requireApprovalAuthority(
         workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
         phase.approvalPolicy,
@@ -7353,7 +7364,7 @@ export async function evaluateApproval(root, config, workflow, {
       );
     });
     await stage('distinct-identity', async () => {
-      if (active.some((item) => sameApprover(item.actor, actor))) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`, { code: 'APPROVAL_IDENTITY_ALREADY_RECORDED', details: { phase: phase.id, workId: workflow.workItem.id,
+      if (!automatic && active.some((item) => sameApprover(item.actor, actor))) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`, { code: 'APPROVAL_IDENTITY_ALREADY_RECORDED', details: { phase: phase.id, workId: workflow.workItem.id,
         ...eligibleApprovers(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, { exclude: active.map((item) => actorKey(item.actor)) }) } });
     }, { needs: ['identity'] });
     await stage('checklist', async () => {
@@ -7479,11 +7490,17 @@ export async function evaluateApproval(root, config, workflow, {
         } : {}),
         ...(actionContext ? { actionContext } : {}),
         ...(upstream ? { upstream } : {}),
+        // Approve twice: a person's approval also covers the steps SFlow approved since the last one, by their versions.
+        ...(() => {
+          const covered = automatic ? [] : automaticApprovalsBefore(workflow, phase.id);
+          return covered.length ? { covers: covered.map((step) => ({ phase: step.id, generation: step.generation, reviewPacketSha256: step.automaticApproval.reviewPacketSha256 })) } : {};
+        })(),
         selfApproval: sameApprover(phase.generatedBy ?? {}, actor)
       };
     }, { needs: ['identity', 'checklist', 'witness-review'] });
     await stage('self-approval', async () => {
-      if (decision.selfApproval && phase.approvalPolicy.allowSelfApproval === false) {
+      // Where self-approval is off, an automatic approval never stands in for the other person it asks for.
+      if ((decision.selfApproval || automatic) && phase.approvalPolicy.allowSelfApproval === false) {
         throw new SingularityFlowError(`Capability and workflow policy prohibit self-approval for phase '${phase.id}'. Ask another authorized Git identity to approve this generation.`, { code: 'APPROVAL_SELF_APPROVAL_PROHIBITED', details: { phase: phase.id, workId: workflow.workItem.id,
           ...eligibleApprovers(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, { exclude: [key, actor?.email, actor?.login].filter(Boolean) }) } });
       }
@@ -7522,17 +7539,29 @@ async function presenceCountsFor(root, workflow) {
  */
 export async function approvePhase(root, config, workflow, options = {}) {
   const { persist = true } = options;
-  const checked = await evaluateApproval(root, config, workflow, { ...options, preview: false });
+  // Approve twice (automatic-approval.mjs): what SFlow checked before approving this step itself.
+  const automatic = options.automaticApproval ?? null;
+  const checked = await evaluateApproval(root, config, workflow, { ...options, preview: false, automatic: Boolean(automatic) });
   const { phase, session, key, decision, reached, approvalOutcome } = checked;
   config = checked.config;
-  phase.approvals.push(decision);
+  if (automatic && (!reached || (approvalOutcome && approvalOutcome.kind !== 'next'))) {
+    throw new SingularityFlowError(`${phase.label ?? phase.id} v${phase.generation} needs a person's approval: ${reached ? 'a workflow rule decides where the Story goes after it' : 'it needs more than one approval'}.`,
+      { code: 'AUTOMATIC_APPROVAL_NOT_APPLICABLE', details: { phase: phase.id,
+        nextAction: approveRoute(workflow, phase) } });
+  }
+  if (!automatic) phase.approvals.push(decision);
   // A person decides this phase now, so an automatic completion recorded before (by a build that
   // kept it across a reopen) no longer describes it.
   clearApprovalDisposition(phase);
+  if (automatic) {
+    phase.approvalDisposition = 'approved_automatically';
+    phase.automaticApproval = { ...structuredClone(automatic), generation: phase.generation, at: decision.at,
+      reviewPacketSha256: decision.reviewPacketSha256, evidenceCommit: decision.evidenceCommit ?? null };
+  }
   let approvalPending = null;
   let retention = null;
   if (reached) {
-    phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
+    phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = automatic ? null : key;
     closeWorkInterval(workflow, {
       phaseId: phase.id,
       at: decision.at,
@@ -7578,7 +7607,11 @@ export async function approvePhase(root, config, workflow, options = {}) {
       await recordApprovedScopeRevision(root, config, workflow, phase, decision.at);
     }
   }
-  workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${approvalOutcome?.kind === 'loop' ? `; ${describeOutcome(workflow, approvalOutcome)}` : `${retentionDetail(retention)}${advanceDetail(workflow, approvalPending)}`}` : 'approval recorded' });
+  if (automatic) {
+    workflow.history.push({ at: decision.at, actor: key, agent: null, event: 'phase-approved-automatically', phase: phase.id, generation: phase.generation,
+      rule: automatic.rule, reviewPacketSha256: decision.reviewPacketSha256, predicates: structuredClone(automatic.predicates),
+      detail: `approved automatically: ${automatic.checked.join('; ')}${retentionDetail(retention)}${advanceDetail(workflow, approvalPending)}` });
+  } else workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${approvalOutcome?.kind === 'loop' ? `; ${describeOutcome(workflow, approvalOutcome)}` : `${retentionDetail(retention)}${advanceDetail(workflow, approvalPending)}`}` : 'approval recorded' });
   if (persist) {
     // A partial threshold decision must not rewrite the artifact under review. Doing so made the
     // next reviewer see different bytes and invalidated the immutable submission packet even
@@ -7597,7 +7630,7 @@ export async function approvePhase(root, config, workflow, options = {}) {
         });
       }
     }
-    await writeDecision(root, config, workflow, phase, decision);
+    if (!automatic) await writeDecision(root, config, workflow, phase, decision);
     await saveWorkflow(root, config, workflow);
   }
   const next = reached ? currentPhase(workflow) : phase;

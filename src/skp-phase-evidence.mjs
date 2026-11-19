@@ -398,8 +398,12 @@ export async function inspectSkillInputSet(root, definition, workflow, phase, bi
         && Number(entry.generation) === Number(receipt.generation)
         && entry.reviewPacketSha256 === receipt.packetSha256
         && entry.evidenceCommit === receipt.evidenceCommit);
-      const waived = ['none', 'policy'].includes(producer?.approvalPolicy?.mode)
-        && receipt.acceptance === 'policy-approved';
+      // Approve twice: SFlow approved the producer when it was ready, for this exact submission.
+      const automatic = producer?.approvalDisposition === 'approved_automatically'
+        && Number(producer.automaticApproval?.generation) === Number(receipt.generation)
+        && producer.automaticApproval?.reviewPacketSha256 === receipt.packetSha256;
+      const waived = (['none', 'policy'].includes(producer?.approvalPolicy?.mode) && receipt.acceptance === 'policy-approved')
+        || (automatic && receipt.acceptance === 'automatic-approved');
       const skillProducer = workflow.resolution?.phases?.some((entry) =>
         entry.id === expected.phase && entry.kind === 'skill');
       const set = producer?.artifactSet ?? null;
@@ -425,7 +429,7 @@ export async function inspectSkillInputSet(root, definition, workflow, phase, bi
             || !(approval.skillApprovedOutputs ?? []).some((output) =>
             output.path === sourcePath && output.exists === true
             && output.sha256 === actual.sha256 && output.bytes === actual.bytes))
-          || !approval && receipt.acceptance !== 'policy-approved'
+          || !approval && receipt.acceptance !== (automatic ? 'automatic-approved' : 'policy-approved')
           || approval && receipt.acceptance !== 'human-approved') {
         fail('SKP_INPUT_RECEIPT_STALE', `Skill phase '${phase.id}' input '${expected.phase}/${expected.output}' no longer binds the current approved generation.`);
       }

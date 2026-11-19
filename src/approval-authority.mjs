@@ -1,6 +1,17 @@
 import { SingularityFlowError } from './util.mjs';
 
 export const DEFAULT_APPROVAL_AUTHORITY = 'git-contributors';
+
+// Approve twice (owner, 2026-11-19): `approval: { automatic: when-ready }` keeps mode `required`, so no reader of
+// `mode: policy` (the quick fix's waiver) changes and an older build reads it as a person's approval (automatic-approval.mjs).
+export const AUTOMATIC_APPROVAL = 'when-ready';
+export const AUTOMATIC_APPROVAL_RULE = 'when-ready-v1';
+export const automaticApprovalOn = (policy) => (policy?.mode ?? 'required') === 'required' && policy?.automatic === AUTOMATIC_APPROVAL;
+// Why the step's own policy keeps it with its people: no configuration error, so an upgrade never breaks a repository.
+export const automaticApprovalHeldBy = (policy) => ((policy?.minimum ?? 1) !== 1 ? 'it needs more than one approver'
+  : (policy?.requiredAuthorities ?? []).length ? 'a named group must approve it'
+    : policy?.allowSelfApproval === false ? 'this repository asks someone other than the author to approve it' : null);
+export const approvesAutomatically = (policy) => automaticApprovalOn(policy) && !automaticApprovalHeldBy(policy);
 export const APPROVAL_SECURITY_PROFILES = Object.freeze(['poc', 'team', 'regulated']);
 
 export function normalizeApprovalSecurity(value = {}) {
@@ -91,6 +102,8 @@ export function normalizeApprovalAuthorities(value = null, securityValue = {}) {
 
 export function normalizeApprovalPolicy(value = {}, authorities, phaseId, securityValue = {}) {
   const security = normalizeApprovalSecurity(securityValue);
+  const automatic = value && typeof value === 'object' ? value.automatic ?? null : null;
+  if (automatic !== null) assertAutomaticApproval(value, phaseId);
   if (value === 'none' || value?.mode === 'none') {
     return {
       mode: 'none',
@@ -164,8 +177,16 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId, securi
     changeRequests: {
       commentRequired: changeRequests.commentRequired !== false,
       reopenCompleted: changeRequests.reopenCompleted !== false
-    }
+    },
+    // Only when set, so every other step resolves and hashes as before.
+    ...(automatic && mode === 'required' ? { automatic: AUTOMATIC_APPROVAL } : {})
   };
+}
+
+function assertAutomaticApproval(value, phaseId) {
+  if (value.automatic === AUTOMATIC_APPROVAL) return;
+  throw new SingularityFlowError(`Phase '${phaseId}' cannot be approved automatically: approval.automatic must be ${AUTOMATIC_APPROVAL}.`, { code: 'AUTOMATIC_APPROVAL_NOT_ALLOWED', details: { phase: phaseId,
+    nextAction: { command: 'singularity-flow workflow studio', label: 'Turn off automatic approval for this step in Workflow Studio.' } } });
 }
 
 // `counts` is SF Guard's predicate for a Story it requires (src/presence/person-records.mjs

@@ -31,7 +31,7 @@ import { testSetupFiles } from './test-support-files.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
-import { finalScopeStep, isConformancePhase, ownerStepChecks } from './phase-roles.mjs';
+import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePhase, ownerStepChecks } from './phase-roles.mjs';
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
@@ -1757,9 +1757,12 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`,
     options: [{ ...personalStep({ id: 'approve', label: heldBy.length ? `Approve ${name} once ${listWords(heldBy)} ${heldBy.length === 1 ? 'is' : 'are'} done` : `Review and approve ${name}`,
       command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, words: 'You review it and confirm once in your own terminal, in VS Code or with /sf-approve.',
-      does: `Records your approval of ${name} generation ${Number(phase.generation ?? 0)} once you reviewed its documents; the Story moves on when ${minimum} approval${minimum === 1 ? ' is' : 's are'} recorded.` }),
+      does: `Records your approval of ${name} version ${Number(phase.generation ?? 0)} once you reviewed its documents; the Story moves on when ${minimum} approval${minimum === 1 ? ' is' : 's are'} recorded.` }),
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You review it and confirm once.') }],
     details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
+      // The one approval screen opens its documents, and those of the steps SFlow approved since the last approval (approve twice).
+      documents: [...new Set((phase.artifacts ?? []).map((artifact) => artifact?.path).filter((file) => typeof file === 'string' && file))],
+      ...(() => { const covers = automaticApprovalsBefore(workflow, phase.id).map(coveredStep); return covers.length ? { covers } : {}; })(),
       commands: [`singularity-flow approve ${phase.id} --work-id ${workId} --fetch`] }
   };
 }

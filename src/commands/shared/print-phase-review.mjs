@@ -48,6 +48,11 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     }
   }
   if (review.testScope) console.warn(review.testScope.words);
+  // Approve twice: what this approval also covers, the steps SFlow approved since the last person approval.
+  if (review.approvalCovers?.length) {
+    console.log('Your approval also covers these steps, which SFlow approved when they were ready:');
+    for (const step of review.approvalCovers) console.log(`  ${step.label} v${step.generation} (${step.words}): ${step.documents.join(', ') || 'no documents'}`);
+  }
   // What the scanners recorded and the required checks' results: evidence for the reviewer [CQF:REQ-055].
   if (review.qualityFindings?.words) console.log(`Findings: ${review.qualityFindings.words}`);
   if (review.requiredChecks?.words) console.log(review.requiredChecks.words);

@@ -145,9 +145,14 @@ export function compileObligationGraph(workType, { authorities = workType.approv
     reviewKind: reviewKind(phase)
   }));
   const gen = new Map(nodes.map((node) => [node.id, bits(node.responsibilities) | (node.reviewKind === 'human' ? BIT['human-review'] : 0)]));
+  // Approve twice: a route other than the next step, or a person's decision, leaves an automatic step with its people.
+  const automatic = new Set(nodes.filter((node) => node.reviewKind === 'automatic').map((node) => node.id));
+  const asked = new Set(decisions.filter((decision) => decision.anyStep || decision.mode === 'ask' || decision.kind === 'ask').map((decision) => decision.id));
+  const personRoute = (edge) => automatic.has(edge.from) && edge.kind === 'route'
+    && (asked.has(edge.decision) || edge.to !== (order[order.indexOf(edge.from) + 1] ?? END));
   const forward = edges.filter((edge) => edge.to !== END);
   const preds = new Map(order.map((id) => [id, []]));
-  for (const edge of forward) preds.get(edge.to)?.push(edge.from);
+  for (const edge of forward) preds.get(edge.to)?.push(edge);
 
   // Reachability first: a step no route reaches owes nothing and guarantees nothing.
   const reachable = new Set([order[0]]);
@@ -160,13 +165,14 @@ export function compileObligationGraph(workType, { authorities = workType.approv
   // Forward must-analysis: what every route into a step is guaranteed to have done.
   const into = new Map(order.map((id) => [id, id === order[0] ? 0 : ALL]));
   const out = new Map(order.map((id) => [id, (into.get(id) | gen.get(id))]));
+  const across = (edge) => out.get(edge.from) | (personRoute(edge) ? BIT['human-review'] : 0);
   for (let changed = true; changed;) {
     changed = false;
     for (const id of order) {
       if (!reachable.has(id)) continue;
-      const incoming = preds.get(id).filter((from) => reachable.has(from));
+      const incoming = preds.get(id).filter((edge) => reachable.has(edge.from));
       let mask = id === order[0] ? 0 : ALL;
-      for (const from of incoming) mask &= out.get(from);
+      for (const edge of incoming) mask &= across(edge);
       if (id !== order[0] && !incoming.length) mask = 0;
       const after = mask | gen.get(id);
       if (mask !== into.get(id) || after !== out.get(id)) { into.set(id, mask); out.set(id, after); changed = true; }
@@ -195,7 +201,7 @@ export function compileObligationGraph(workType, { authorities = workType.approv
         'Remove the omission so no applicability decision is asked for a responsibility that is met.',
         { phase: edge.from, decision: edge.decision, route: edge.route });
     }
-    if (!missing.includes('review') && !omitted.includes('review') && !(out.get(edge.from) & BIT['human-review'])) {
+    if (!missing.includes('review') && !omitted.includes('review') && !(across(edge) & BIT['human-review'])) {
       finding('OBLIGATION_REVIEW_POLICY_ONLY', 'warning',
         `Work type '${workTypeId}': only automatic policy approvals review the Story on ${describe(edge)}; no person reviews it.`,
         'Require a person\'s approval on at least one step every route to this end passes.',

@@ -836,7 +836,17 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // starts by itself waits for an idle laptop (owner, 2026-11-19): the operating system's input idle time is read through
     // the registered process owner (platform-process.mjs osIdleMilliseconds, +1,388). The gate, the stamp and the queue
     // (machine-activity.mjs, automatic-work.mjs) stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_763_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,778,300 (measured 9,778,268 for submit.mjs, +14,375 over 9,763,893; start.mjs 9,771,820, 2026-11-19, ceremony-approvals):
+    // approve twice, one bound Yes and the convergence Yes [owner, 2026-11-19]: which steps a person must approve, read by
+    // configuration (phase-roles.mjs +3,213, config.mjs +1,101), the `approval.automatic` key (approval-authority.mjs +1,875),
+    // the approval check's automatic mode and the steps a person's approval covers (state.mjs +3,095), the automatic approval
+    // and the landing after submission (submit.mjs +2,341), and their readers (governance, evidence receipt, approval chain,
+    // inputs, publication, phase review: about +3,700). The approval itself, its replay and the landing (automatic-approval.mjs,
+    // automatic-approval-replay.mjs, story-landing.mjs) stay lazy. No new eager file.
+    // 9,778,900 (measured 9,778,850 for submit.mjs, +582, 2026-11-20, ceremony-approvals): a step's own two-approver or
+    // self-approval-off policy holds an automatic step with its people instead of failing configuration, and the obligation
+    // compiler counts a person's review on a route that leaves an automatic step with its people. No new eager file.
+    assert.ok(closure.bytes <= 9_778_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1288,7 +1298,11 @@ test('the common session projection does not import attach, state stores or publ
   // registered process owner (platform-process.mjs osIdleMilliseconds), so Git work SFlow starts by itself waits for an idle
   // laptop [owner, 2026-11-19]. No new eager file.
   // 4,295,200 (measured 4,295,190 on landing-5, 2026-11-19): the update command, the idle reader and the secret-scanner rewording together.
-  assert.ok(current.bytes <= 4_295_200, `session current loads ${current.bytes} source bytes`);
+  // 4,301,700 (measured 4,301,652, +6,462 over 4,295,190, 2026-11-19, ceremony-approvals): configuration reads which steps a
+  // person must approve (phase-roles.mjs +3,213, config.mjs +1,101) and the `approval.automatic` key (approval-authority.mjs
+  // +1,875) [owner, 2026-11-19, approve twice]. No new eager file.
+  // 4,302,300 (measured 4,302,238, +586, 2026-11-20, ceremony-approvals): the same policy hold and route review as above.
+  assert.ok(current.bytes <= 4_302_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

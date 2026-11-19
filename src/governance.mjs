@@ -650,6 +650,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         warnings.push(...replay.errors.map((message) => `${phaseId} policy waiver record is stale and was not relied on; the approval policy is met without it: ${message}`));
       }
     }
+    // Approve twice: a step SFlow approved itself is replayed from the committed records; loaded only for such a step.
+    if (phase.approvalDisposition === 'approved_automatically') {
+      const replay = await (await import('./automatic-approval-replay.mjs')).verifyAutomaticApproval(root, config, workflow, phase, { pendingTransition });
+      waived = replay.valid;
+      if (waived) passes.push(replay.pending ? `approved automatically by this transition: ${phaseId}` : `approved automatically, record verified: ${phaseId}`);
+      else if (!peopleSatisfyPolicy) refuseEach('gate.approval.automatic-invalid', replay.errors.map((message) => `${phaseId} automatic approval is invalid: ${message}`), { phase: phaseId });
+      else warnings.push(...replay.errors.map((message) => `${phaseId} automatic approval record is stale and was not relied on; people's approvals meet the policy without it: ${message}`));
+    }
     const requiresApproval = policyRequiresPeople && !waived;
     if (requiresApproval && distinct.size < (phase.approvalPolicy.minimum ?? 1)) refuse('gate.approval.threshold', `${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}${uncounted}`, { phase: phaseId });
     if (requiresApproval && missingAuthorities.length) refuse('gate.approval.required-authority', `${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}${uncounted}`, { phase: phaseId });

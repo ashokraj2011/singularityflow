@@ -265,7 +265,8 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
         scenario(`human-wait:${phase.id}`, phase.id, 'wait-not-deadlock', 'expected-wait', [
           event('await-reviewer', 'awaiting_approval', 'awaiting_approval', 'human-availability-not-established', 'approval:approvalPolicyCapacity')
         ], { minimum: phase.approval.minimum, requiredAuthorityCount: phase.approval.requiredAuthorities.length,
-          selfApproval: phase.approval.allowSelfApproval === false ? 'distinct-from-producer-required' : 'configured-policy', policyWaiver: phase.approval.mode === 'policy' ? 'not-assumed' : 'not-applicable' });
+          selfApproval: phase.approval.allowSelfApproval === false ? 'distinct-from-producer-required' : 'configured-policy', policyWaiver: phase.approval.mode === 'policy' ? 'not-assumed' : 'not-applicable',
+          ...(phase.approval.automatic ? { automatic: 'not-assumed' } : {}) });
         const hypothetical = symbolicApprovals(phase.approval);
         const partial = hypothetical.slice(0, -1);
         const met = approvalRequirementsMet(phase.approval, hypothetical);

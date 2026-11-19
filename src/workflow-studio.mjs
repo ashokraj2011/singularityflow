@@ -10,7 +10,7 @@
  * the way a Configuration Center save validates one file, and only then are the changed files
  * written — in one review proposal, or in a local authority's working tree.
  */
-import { isConvergencePhase } from './phase-roles.mjs';
+import { automaticApprovalRefusal, isConvergencePhase } from './phase-roles.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import path from 'node:path';
@@ -163,6 +163,21 @@ function requireAuthoringSkill(value) {
     throw new SingularityFlowError(`A drafting skill is a direct skill id such as 'sf-design', not '${value}'.`, { code: 'STUDIO_AUTHORING_SKILL_INVALID' });
   }
   return value;
+}
+
+/**
+ * A workflow step's "Approve automatically when ready" switch: whether it is on, and whether this workflow may turn it
+ * on, with why not in a developer's words. Read from the resolved workflow; unknown when it does not resolve.
+ */
+function automaticApprovalView(phase, type, resolvedPhases) {
+  const approval = phase?.approval;
+  const on = Boolean(approval && typeof approval === 'object' && approval.automatic);
+  if (!resolvedPhases || approval === 'none' || approval?.mode === 'none') return { on, allowed: false, why: approval === 'none' || approval?.mode === 'none' ? 'nobody approves this step' : null };
+  const why = automaticApprovalRefusal(phase, { workType: type, phases: resolvedPhases })
+    ?? ((approval.minimum ?? 1) > 1 ? 'it needs more than one approver'
+      : (approval.requiredAuthorities ?? []).length ? 'a named group must approve it'
+        : approval.allowSelfApproval === false ? 'it must be approved by someone other than its author' : null);
+  return { on, allowed: !why, why };
 }
 
 function approvalSummary(approval) {
@@ -478,6 +493,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           description: typeof phases[phase.id]?.description === 'string' ? phases[phase.id].description : '',
           agent: phase.defaultAgent ?? defaultAgentOf(phase.id),
           approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
+          // Approve twice: whether SFlow approves it when it is ready, and whether this workflow may let it.
+          automaticApproval: automaticApprovalView(phase, type, resolved?.phases ?? null),
           // Where an approver may send rejected work back to, as this workflow runs the step.
           sendBackTo: approvalSummary(phase.approval).mode === 'none' ? [] : [...(phase.approval?.rejectTo ?? [phase.id])],
           optionalInputs: optionalInputIds(phase.inputs),
@@ -920,6 +937,10 @@ class StudioCandidate {
     }
     const node = { ...base, authorities: groups, minimum };
     if (required.length) node.requiredAuthorities = required; else delete node.requiredAuthorities;
+    // Approve twice (owner, 2026-11-19): "Approve automatically when ready", on or off; configuration refuses it where
+    // a person must approve (phase-roles.mjs), and the page offers it only where it may be on.
+    if (approval.automatic === true) node.automatic = 'when-ready';
+    else if (approval.automatic === false) delete node.automatic;
     if (approval.rejectTo != null) node.rejectTo = this.sendBackTargets(approval.rejectTo, phaseId, reaches, name ?? this.phaseLabel(phaseId));
     return node;
   }

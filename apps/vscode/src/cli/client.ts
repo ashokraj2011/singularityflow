@@ -345,6 +345,13 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'upkeep' | '
     return ['create', 'edit', 'remove'].includes(args[1] ?? '') && enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   }
   if (args[0] === 'adhoc') return args[1] === 'status' ? 'read' : 'mutation';
+  // The local browser service: `status` reads it; opening, serving or stopping it is machine-local upkeep
+  // (src/command-registry.mjs, UI_ACTIONS), so no turn contract or read result is refreshed for it.
+  if (args[0] === 'ui') {
+    const action = args[1] && !args[1].startsWith('-') ? args[1] : 'open';
+    if (action === 'status') return 'read';
+    return ['open', 'serve', 'stop'].includes(action) ? 'upkeep' : 'unknown';
+  }
   // The CLI's read forms of mutation-named commands (src/command-registry.mjs readOnlySubcommandOperation).
   if (args[0] === 'jira') return ['status', 'doctor', 'projects', 'epics', 'children', 'permissions', 'boards', 'board',
     'list', 'assigned', 'pull', 'show', 'get', 'fields', 'transitions'].includes(args[1] ?? '') ? 'read' : 'mutation';

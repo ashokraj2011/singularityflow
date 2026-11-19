@@ -120,6 +120,12 @@ const OVERRIDES = {
   'asked-for.mjs': 'local-authored',
   // Every prompt in a repository that uses SFlow, redacted (PCR P1): outside a Story, the clone's own log is its only copy.
   'plain-chat-prompts.mjs': 'local-authored',
+  // The local browser service is a surface: it reaches Story, specification and evidence stores only through the CLI.
+  // Its own writes are one-use launcher pages and staged wording or uploads in its private folder, removed after use.
+  'local-ui/server.mjs': 'surface',
+  'local-ui/operations.mjs': 'surface',
+  // That service's descriptor and request receipts: transport metadata only, machine-local, aged out after retention.
+  'local-ui/private-state.mjs': 'local-operational',
   // Shared helpers every class uses.
   'util.mjs': 'source-control',
   'atomic-write.mjs': 'projection'

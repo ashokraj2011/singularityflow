@@ -38,6 +38,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_PACKAGE_UPDATER_HOME: 'package-updater',
   // The machine ID every lease owner records (src/lease-liveness.mjs).
   SINGULARITY_FLOW_MACHINE_ID_FILE: 'machine-id',
+  // When a person last used this laptop, and the automatic work waiting for an idle one beside it (src/machine-activity.mjs).
+  SINGULARITY_FLOW_ACTIVITY_FILE: 'activity.json',
   SINGULARITY_FLOW_HOME: 'home'
 });
 
@@ -48,6 +50,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
 export const ISOLATED_RUN_SWITCHES = Object.freeze({
   SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off',
   SINGULARITY_FLOW_INDEX_REFRESH: 'off',
+  // The person's own keyboard and pointer idle time never decides anything in an isolated run (src/automatic-work.mjs).
+  SINGULARITY_FLOW_OS_IDLE: 'off',
   // A development checkout never proposes packaged configuration to a real repository (SCF:REQ-015); an isolated
   // run's throwaway repositories are where it is tested (src/workspace-configuration-refresh.mjs).
   SINGULARITY_FLOW_DEVELOPMENT_PROPOSALS: 'allow'

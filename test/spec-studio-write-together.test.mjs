@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -22,7 +22,9 @@ const run = (cwd, command, argv, env) => {
 async function fixture(t) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-write-together-'));
   t.after(() => rm(base, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
-  const env = environment(path.join(base, 'context'));
+  // This fixture's own laptop: its commands are its only activity.
+  const activity = path.join(base, 'activity.json');
+  const env = { ...environment(path.join(base, 'context')), SINGULARITY_FLOW_ACTIVITY_FILE: activity, SINGULARITY_FLOW_OS_IDLE: 'off' };
   const git = (cwd, ...args) => { const result = run(cwd, 'git', args, env); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
   const remote = path.join(base, 'remote.git');
   const root = path.join(base, 'writer');
@@ -31,14 +33,15 @@ async function fixture(t) {
   await writeFile(path.join(root, 'README.md'), '# Fixture\n');
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'Initial'); git(root, 'remote', 'add', 'origin', remote); git(root, 'push', '-q', '-u', 'origin', 'main');
   const cli = (cwd, ...args) => {
-    const result = run(cwd, process.execPath, [bin, '--no-model', ...args, '--json'], { ...env, SINGULARITY_FLOW_AGENT_OUTPUT: 'full' });
+    const extra = typeof args.at(-1) === 'object' ? args.pop() : {};
+    const result = run(cwd, process.execPath, [bin, '--no-model', ...args, '--json'], { ...env, SINGULARITY_FLOW_AGENT_OUTPUT: 'full', ...extra });
     assert.ok(result.stdout.trim(), result.stderr);
     return { status: result.status, value: JSON.parse(result.stdout) };
   };
   const sf = (...args) => { const result = cli(root, 'spec', 'author', ...args); assert.equal(result.status, 0, JSON.stringify(result.value)); return result.value; };
   const fail = (...args) => { const result = cli(root, 'spec', 'author', ...args); assert.notEqual(result.status, 0); return result.value.error; };
   const create = () => sf('new', specId, '--title', 'A small idea', '--kind', 'business', '--operation-id', 'create');
-  return { base, env, root, remote, git, cli, sf, fail, create };
+  return { base, env, activity, root, remote, git, cli, sf, fail, create };
 }
 
 const wording = id => `# Order outcomes
@@ -115,12 +118,23 @@ test('shared checkpoints are unreviewed, idempotent and conflict-aware on two la
   assert.ok((await readDraft(reader, specId)).snapshots.some(s => s.draft.spec === 'Another writer'));
 });
 
-test('automatic sharing is throttled per library and manual Sync now remains available', async t => {
+test('automatic sharing waits for an idle laptop and is throttled per library; Share now never waits', async t => {
   const repo = await fixture(t); repo.create();
-  assert.equal(repo.sf('sync', specId, '--automatic').status, 'synced');
-  const deferred = repo.sf('sync', specId, '--automatic');
-  assert.equal(deferred.status, 'deferred'); assert.ok(deferred.retryAfterMs > 0);
+  // As the editor asks: its own call is not activity, but the command that created the draft just was.
+  const automatic = (...args) => { const result = repo.cli(repo.root, 'spec', 'author', 'sync', specId, '--automatic', ...args, { SINGULARITY_FLOW_ACTIVITY_STAMP: 'off' }); assert.equal(result.status, 0, JSON.stringify(result.value)); return result.value; };
+  const waiting = automatic();
+  assert.equal(waiting.status, 'deferred'); assert.equal(waiting.reason, 'laptop-in-use');
+  assert.ok(waiting.retryAfterMs > 25 * 60_000 && waiting.retryAfterMs <= 30 * 60_000, String(waiting.retryAfterMs));
+  assert.equal(repo.sf('shared', specId, '--refresh').drafts.length, 0, 'nothing left this laptop');
+  assert.equal(automatic('--idle-minutes', '2').status, 'deferred', 'a shorter wait still counts from the last activity');
+  // Idle for longer than the wait: it shares by itself, then the per-library interval applies.
+  const past = (Date.now() - 31 * 60_000) / 1000;
+  await utimes(repo.activity, past, past);
+  assert.equal(automatic().status, 'synced');
+  const deferred = automatic('--idle-minutes', '0');
+  assert.equal(deferred.status, 'deferred'); assert.ok(deferred.retryAfterMs > 0); assert.equal(deferred.reason, undefined);
   assert.equal(repo.sf('sync', specId).status, 'synced');
+  assert.notEqual(repo.cli(repo.root, 'spec', 'author', 'sync', specId, '--automatic', '--idle-minutes', '1441').status, 0);
 });
 
 test('local documents and images stay off Git; takeover asks for the exact original', async t => {

@@ -154,6 +154,7 @@ import { commandGuidanceText, safeCommandPair } from './views/command-guidance.t
 import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
 import { vscodeVersionLimits, vscodeVersionWarning } from '../../../src/vscode-host-version.mjs';
 import { createTerminalIn } from './terminal-start.ts';
+import { idleMinutesSetting, noteLaptopActivity, watchLaptopActivity } from './laptop-activity.ts';
 import {
   offerCopilotChatCounting, startCopilotChatCounting, startCopilotSessionSync, turnOffCopilotChatCounting, turnOnCopilotChatCounting
 } from './copilot-chat-counting.ts';
@@ -370,6 +371,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   setActiveRepositoryContext(null);
   const output = vscode.window.createOutputChannel('Singularity Flow');
   context.subscriptions.push(output);
+  // What the person does in this window keeps SFlow's own Git work (draft sharing, clean-up) waiting for an idle laptop.
+  context.subscriptions.push(...watchLaptopActivity(vscode as unknown as Parameters<typeof watchLaptopActivity>[0]));
   if (hostBenchmarkEnabled) {
     context.subscriptions.push(vscode.commands.registerCommand(
       'singularityFlow.__hostPerformance',
@@ -1035,6 +1038,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!vscode.workspace.getConfiguration('singularityFlow').get<boolean>('warmReads', true)) {
       environment.SINGULARITY_FLOW_READ_WORKER = 'off';
     }
+    // This window records its person's activity itself; its own CLI calls and read workers never count as activity.
+    environment.SINGULARITY_FLOW_ACTIVITY_STAMP = 'off';
+    // The idle wait before SFlow's own Git work, when the person chose one here (otherwise the CLI's default or env).
+    const idleWait = vscode.workspace.getConfiguration('singularityFlow').inspect?.<number>('automaticWork.idleMinutes');
+    const chosenWait = idleWait?.workspaceFolderValue ?? idleWait?.workspaceValue ?? idleWait?.globalValue;
+    if (chosenWait !== undefined) environment.SINGULARITY_FLOW_IDLE_MINUTES = String(idleMinutesSetting(chosenWait));
     // Mirror resource-scoped settings for native Copilot shell commands too. They do not inherit
     // this client's custom environment. Common Git roots remain beneath the selected workspace
     // even when an isolated Story worktree is elsewhere.
@@ -1103,7 +1112,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       || event.affectsConfiguration('singularityFlow.warmReads')
       || event.affectsConfiguration('singularityFlow.performanceTrace')
       || event.affectsConfiguration('singularityFlow.repositoryCheckMode')
-      || event.affectsConfiguration('singularityFlow.repositoryCheckIntervalMinutes')) cliEnvironment = await resolvedCliEnvironment();
+      || event.affectsConfiguration('singularityFlow.repositoryCheckIntervalMinutes')
+      || event.affectsConfiguration('singularityFlow.automaticWork.idleMinutes')) cliEnvironment = await resolvedCliEnvironment();
     if (event.affectsConfiguration('singularityFlow.role')
       || event.affectsConfiguration('singularityFlow.userName')) refreshPersonaMenus();
   });
@@ -1677,6 +1687,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let openingIntake: Promise<unknown> | null = null;
   for (const id of REPOSITORY_COMMANDS) {
     context.subscriptions.push(vscode.commands.registerCommand(id, async (...args: never[]) => {
+      noteLaptopActivity();
       const dispatch = async (): Promise<unknown> => {
         if (id === 'singularityFlow.startWork' && await prepareDeferredWorkspaceForWork()) return;
         const handler = handlers.get(id);

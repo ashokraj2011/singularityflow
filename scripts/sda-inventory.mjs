@@ -126,6 +126,10 @@ const OVERRIDES = {
   'local-ui/operations.mjs': 'surface',
   // That service's descriptor and request receipts: transport metadata only, machine-local, aged out after retention.
   'local-ui/private-state.mjs': 'local-operational',
+  // When a person last used this laptop, and the automatic Git and remote work queued until it is idle: machine-local
+  // operational state, never shared and safe to lose (a lost stamp or job is asked for again when next due).
+  'machine-activity.mjs': 'local-operational',
+  'automatic-work.mjs': 'local-operational',
   // Shared helpers every class uses.
   'util.mjs': 'source-control',
   'atomic-write.mjs': 'projection'

@@ -728,7 +728,8 @@ Usage:
   singularity-flow spec author settle SPEC-ID ([--article ARTICLE=DECISION]... | --all-articles DECISION | [--finding A-NNN=gap|fixed|dismissed]...)
     [--reason TEXT] [--json]
     repeat --article or --finding once per value, or give one comma-separated list; a value without its flag is refused
-  singularity-flow spec author sync SPEC-ID [--automatic --min-interval-ms N] [--json]
+  singularity-flow spec author sync SPEC-ID [--automatic [--idle-minutes N] --min-interval-ms N] [--json]
+    --automatic shares only once this laptop has had no activity for N minutes (default 30; 0 shares when due)
   singularity-flow spec author shared [SPEC-ID] [--refresh] [--json]
   singularity-flow spec author resume SPEC-ID --checkpoint SHA256 --expected-seq N [--json]
   singularity-flow spec author history SPEC-ID [--sequence N | --retention] [--json]

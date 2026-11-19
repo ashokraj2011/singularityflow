@@ -9,6 +9,7 @@ import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { platformPathWithin } from './util.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { confirmCodesIn, resolveConfirmCode } from './confirm-code.mjs';
+import { noteActivity } from './machine-activity.mjs';
 import { ASKED_FOR_SKILLS, TASK_COMPLETION_ALIASES } from './writing-aliases.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
@@ -682,6 +683,8 @@ export async function runRepositoryBoundaryHook(event, input = process.stdin) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return console.log(codePageSafeJson(JSON.stringify(hookAnswerForEveryHost(event, await unreadablePayload(event, payloadIdentity(raw.subarray(0, IDENTITY_HEAD)))))));
     }
+    // A prompt is a person at this laptop: automatic sharing and clean-up wait for an idle one (machine-activity.mjs).
+    if (event === 'boundary-turn') noteActivity();
     const handler = { 'boundary-turn': recordRepositoryBoundaryTurn,
       'boundary-guard': repositoryToolGuard, 'boundary-end': endRepositoryBoundaryTurn,
       'boundary-after': repositoryPostToolGuard, 'boundary-stop': repositoryAgentStop,

@@ -75,7 +75,8 @@ export async function specStudioCommand(root, positionals, options, { config, ac
       if (!original) throw new SingularityFlowError('This source is not in the selected published specification. Choose its exact version.', { code: 'SPEC_SOURCE_UNKNOWN' });
       const restored = await addSpecSource(root, specId, { sources: [original] }, { file: optionString(options, 'file'), restore: restoring });
       result = { sources: restored.sources, localOnly: true, effects: { metadataChanged: false, committed: false, pushed: false } };
-    } else if (action === 'sync') result = await syncDraft(root, config, specId, { automatic: optionBoolean(options, 'automatic'), minimumIntervalMs: optionNumber(options, 'min-interval-ms') ?? 30000 });
+    } else if (action === 'sync') result = await syncDraft(root, config, specId, { automatic: optionBoolean(options, 'automatic'),
+      minimumIntervalMs: optionNumber(options, 'min-interval-ms') ?? 30000, idleMinutes: optionNumber(options, 'idle-minutes') ?? null });
     else if (action === 'resume') {
       const saved = await resumeSharedDraft(root, config, specId, { checkpointSha256: optionString(options, 'checkpoint'),
         expectedSequence: optionNumber(options, 'expected-seq'), operationId });

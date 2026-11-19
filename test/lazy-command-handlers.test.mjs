@@ -824,7 +824,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // checklist, never a blocker (owner, 2026-11-18, Story new-ash-graph). No new eager file.
     // 9,762,550 (measured 9,762,505 for submit.mjs, start.mjs 9,760,968, 2026-11-19): the sf-code recovery above merged with
     // the local-service fixes and the Decide screens on one landing (+5 over its own measure). No new eager file.
-    assert.ok(closure.bytes <= 9_762_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,763,900 (measured 9,763,893 for submit.mjs, +1,388 over 9,762,505; start.mjs 9,762,356, 2026-11-19): Git work SFlow
+    // starts by itself waits for an idle laptop (owner, 2026-11-19): the operating system's input idle time is read through
+    // the registered process owner (platform-process.mjs osIdleMilliseconds, +1,388). The gate, the stamp and the queue
+    // (machine-activity.mjs, automatic-work.mjs) stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_763_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -949,7 +953,11 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 871,600 (measured 871,573, +469): a refused command derives the live Copilot turns again, as a successful one does, so a
   // test failure recorded mid-turn never ends the turn as stale; both paths share one helper (cli-entry.mjs refreshTurns)
   // [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
-  assert.ok(root.bytes <= 871_600, `root dispatch loads ${root.bytes} source bytes`);
+  // 873,000 (measured 872,976, +1,601 over 871,375): Git work SFlow starts by itself waits for an idle laptop (owner,
+  // 2026-11-19): every foreground command that is not upkeep stamps the laptop's activity, lazily (cli-entry.mjs +213), and
+  // the operating system's input idle time is read through the registered process owner (platform-process.mjs +1,388).
+  // The stamp itself (machine-activity.mjs) loads lazily. No new eager file.
+  assert.ok(root.bytes <= 873_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1261,7 +1269,10 @@ test('the common session projection does not import attach, state stores or publ
   // ranOnNode) [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
   // 4,293,750 (measured 4,293,712, +147): a version with nothing written yet says so on its refusal (delivery-evidence.mjs
   // nothingWritten), read by recovery as the version's checklist [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
-  assert.ok(current.bytes <= 4_293_750, `session current loads ${current.bytes} source bytes`);
+  // 4,295,150 (measured 4,295,133, +1,388 over 4,293,745): the operating system's input idle time, read through the
+  // registered process owner (platform-process.mjs osIdleMilliseconds), so Git work SFlow starts by itself waits for an idle
+  // laptop [owner, 2026-11-19]. No new eager file.
+  assert.ok(current.bytes <= 4_295_150, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

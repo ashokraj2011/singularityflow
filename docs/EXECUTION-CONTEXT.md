@@ -112,6 +112,14 @@ heartbeats protect their opened checkout and request interval-gated background m
 OS daemon: a closed application/unused CLI does not run maintenance. Publication and approval
 never wait for cleanup. `SINGULARITY_FLOW_AUTOMATIC_CLEANUP=off` stops background launches.
 
+Clean-up of finished Story folders is Git work SFlow starts by itself, so once due it starts only after
+the laptop has had no activity for 30 minutes (`SINGULARITY_FLOW_IDLE_MINUTES`, or the VS Code setting
+`singularityFlow.automaticWork.idleMinutes`; 0 starts it when due). Activity is a foreground SFlow command,
+a Copilot prompt, what the person does in VS Code, and keyboard or pointer input where the operating system
+reports it (macOS, Windows). A pass due while someone works waits in `~/.singularity-flow/automatic-work/`
+for one process that sleeps until the laptop could be idle and looks again; the history index and the check
+for a newer SFlow wait the same way. Run Retention Cleanup Now and `workspace cleanup` never wait.
+
 A Story worktree must have accepted `closed` or `cancelled` state, an elapsed terminal retention,
 and an exact current remote Story tip matching its local HEAD. Unknown/legacy ownership,
 unpublished commits, dirty/hidden/ignored files (including dependency folders), active operations,

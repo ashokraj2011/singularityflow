@@ -972,6 +972,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   // subcommands; classification is known only after the now-measured dispatch probes complete.
   timingInput.commandClass = operation.classification;
   timingInput.operationId = operation.id;
+  // A person at work: automatic sharing and clean-up wait (machine-activity.mjs).
+  if (operation.classification !== 'upkeep') import('./machine-activity.mjs').then(m => m.noteCommandActivity()).catch(() => {});
   // The passes below run before the command's module loads. Each is a named span, with its Git work
   // counted, so a slow command says where its first seconds went instead of one opaque root-dispatch.
   const dispatchSpan = (name, action) => withCommandTiming(timer, () => timer.measure(name, action));

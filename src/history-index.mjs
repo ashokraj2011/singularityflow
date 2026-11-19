@@ -10,7 +10,7 @@
  *
  * After a mutating command this checks, with a few `stat` calls and no Git process, whether the
  * repository is large enough to matter and lacks the filters. Only then does it start one detached
- * worker that writes them, so no command waits for it. It does nothing in a shallow clone (Git
+ * worker that writes them, once the laptop has been idle (automatic-work.mjs), so no command waits for it. It does nothing in a shallow clone (Git
  * cannot write a commit graph there), in a partial clone that left out trees (writing would
  * download every tree), or when `SINGULARITY_FLOW_HISTORY_INDEX=off`.
  */
@@ -93,7 +93,7 @@ function treesLeftOut(common) {
  * an optimisation, and no part of a command's outcome may depend on it.
  */
 export function refreshHistoryIndex(root, {
-  env = process.env, now = Date.now(), launch = launchWorker
+  env = process.env, now = Date.now(), launch = launchWhenIdle
 } = {}) {
   try {
     if (String(env.SINGULARITY_FLOW_HISTORY_INDEX ?? '').toLowerCase() === 'off') return { status: 'off' };
@@ -117,7 +117,14 @@ export function refreshHistoryIndex(root, {
   }
 }
 
-function launchWorker(root, env) {
+/** Git work SFlow starts by itself: the write waits until the laptop is idle (automatic-work.mjs). */
+function launchWhenIdle(root, env) {
+  void import('./automatic-work.mjs').then(({ whenLaptopIdle }) => whenLaptopIdle({ kind: 'history-index', root: path.resolve(root) },
+    () => launchHistoryIndexWorker(root, env), { env })).catch(() => {});
+  return {};
+}
+
+export function launchHistoryIndexWorker(root, env = process.env) {
   const child = spawnBackground(process.execPath, [WORKER, root], { cwd: root, env });
   return { pid: child.pid ?? null };
 }

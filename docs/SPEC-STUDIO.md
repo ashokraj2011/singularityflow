@@ -23,10 +23,10 @@ Another clone or laptop asks for the matching original again. Re-upload verifies
 These are separate states:
 
 - **Saved on this laptop:** an immutable local snapshot has confirmed the write.
-- **Synced:** an unreviewed draft checkpoint was shared on the selected state branch. It is available to continue on another laptop and cannot be used as an approved Story specification.
+- **Shared:** an unreviewed draft checkpoint was shared on the selected state branch. It is available to continue on another laptop and cannot be used as an approved Story specification.
 - **Ready to use:** a person reviewed the specification and published an immutable reviewed version through the existing review checks.
 
-Sharing runs after a quiet period and does not hold up local writing. It uses exact shared-head comparisons and a per-library automatic attempt interval. **Sync now** bypasses that advisory interval. A timeout preserves the real error and the saved local text. Retrying reconciles the checkpoint rather than publishing a second copy, even when you kept writing after a push whose acknowledgement was lost. A failure that may pass, such as an unreachable remote, stays on the page and sharing tries again by itself, further apart each time, up to every 15 minutes.
+Sharing your draft is Git work, so on its own it waits until this laptop has had no activity for 30 minutes: the header says **Saved on this laptop · shares after 30 minutes idle**. Activity is anything you do at the laptop: typing or clicking (where the operating system reports it, as macOS and Windows do), editing, switching to VS Code, using a terminal, an SFlow command, or a Copilot prompt. Writing never waits for sharing. **Share now** shares at once, and so does publishing. Sharing uses exact shared-head comparisons and a per-library attempt interval. A timeout preserves the real error and the saved local text. Retrying reconciles the checkpoint rather than publishing a second copy, even when you kept writing after a push whose acknowledgement was lost. A failure that may pass, such as an unreachable remote, stays on the page and sharing tries again by itself, further apart each time, up to every 15 minutes.
 
 A shared checkpoint, a published version or a published split cannot be taken back, so the exact files that would ship are checked first with the repository's secret scanner, along with any link carrying a credential. A link is judged by its value: `?auth=true`, `?token=<TOKEN>` and an address on a reserved example host such as `api.example.com` are ordinary writing. When the check trips, or cannot run, nothing is shared: the page says **Not shared**, where to look and how to clear it, without repeating the value, and your writing stays saved on this laptop. Sharing resumes once the value is gone, whatever held it. A suggestion you rejected or a finding you settled keeps only its outcome in a checkpoint, so its text is not shared. For a real example in the text, end that line with the scanner's waiver marker, `sflow-allow-secret`, then a colon and why it is safe. Recorded decisions cannot be edited, so a value in one means starting another draft from your text.
 
@@ -58,8 +58,10 @@ VS Code settings under `singularityFlow.specStudio`:
 | --- | --- |
 | `autosaveMs` | 750 ms |
 | `automaticSync` | true |
-| `syncQuietMs` | 10,000 ms |
 | `syncMinIntervalMs` | 30,000 ms |
+| `syncQuietMs` | 10,000 ms, used only when the idle wait below is 0 |
+
+`singularityFlow.automaticWork.idleMinutes` (default 30) is how long the laptop must be idle before SFlow shares a draft or cleans up finished Story folders by itself; 0 does them as soon as they are due. From a terminal, `SINGULARITY_FLOW_IDLE_MINUTES` sets the same, and `spec author sync SPEC-ID --automatic --idle-minutes N` asks for one share that waits for N idle minutes.
 
 All editor operations use the same CLI services. Run `singularity-flow help spec` for the full forms. The core routes are `spec author new`, `edit`, `status --quick`, `sync`, `shared --refresh`, `resume`, `source`, `sources`, `history`, `restore-version`, `fork`, `derive`, `check` and `publish`. Acceptance, gap decisions, reviewed publication and Story creation remain explicit person actions.
 

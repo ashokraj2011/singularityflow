@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto';
 
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { approvalCardFields, cardSurface, guardCard, matchCard } from './card-channel.mjs';
 import { activeException, approverId, exceptionLabel, foldPresenceChain, presenceEventDigest } from './chain.mjs';
 import { forgetPersonCounts, presencePinKey, registerPersonCounts } from './counted.mjs';
 import { presenceNonce, presenceStatement, statementText } from './statement.mjs';
@@ -418,6 +419,20 @@ export function personTerminal({ env = process.env, stdin = process.stdin, stder
   return { person: true, reason: null };
 }
 
+/**
+ * Whether this process may take a person's touch: their own terminal, or SFlow's own card (the VS Code Decide card or
+ * approval page) whose card this command matched before anything was written (card-channel.mjs). An agent's marker
+ * refuses both, as before [owner, 2026-11-19].
+ */
+export function personCardShown({ env = process.env, stdin = process.stdin, stderr = process.stderr, surface = cardSurface() } = {}) {
+  if (agentStarted(env)) return { person: false, reason: 'an agent started this command' };
+  if (surface) {
+    return surface.matched ? { person: true, reason: null, surface: surface.surface }
+      : { person: false, reason: 'the card it was started from was not matched to what this command signs' };
+  }
+  return personTerminal({ env, stdin, stderr });
+}
+
 function personCommand(action, workflow, phase) {
   return action === 'phase.approve'
     ? `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id}`
@@ -447,6 +462,11 @@ export async function preparePersonPresence(root, { workflow, phase, actor, acti
       'PSS_POLICY_UNREADABLE', { approver, routes });
   }
   const exception = activeException(context.folded, approver);
+  // A host's card said Touch ID signs this: an exception recorded since then never turns it into an unsigned record.
+  if (exception && cardSurface()) {
+    fail(`SF Guard: ${approver} now has per-person exception ${exception.id}, so this would be recorded unsigned, not signed as the card said. Nothing was written. Open the card again.`,
+      'PSS_CARD_CHANGED', { approver, routes });
+  }
   if (exception) {
     return { context, approver, bypass: exception, presence: () => ({ schema: PRESENCE_RECORD_SCHEMA, chainId: context.chainId, approver,
       bypass: exception.id, at: new Date().toISOString() }) };
@@ -462,7 +482,7 @@ export async function preparePersonPresence(root, { workflow, phase, actor, acti
     fail(`SF Guard cannot sign on this computer: ${availability.reason}. Nothing was written. Run this step on the Mac that holds your presence key (${pin.keyId}), or ${routes.others}, or ${routes.exception}.`,
       'PSS_SIGNER_UNAVAILABLE', { approver, keyId: pin.keyId, routes });
   }
-  const terminal = (dependencies.personTerminal ?? personTerminal)();
+  const terminal = (dependencies.personTerminal ?? personCardShown)();
   if (!terminal.person) {
     fail(`SF Guard: ${{ approve: 'approving', reject: 'rejecting', reopen: 'reopening' }[verb] ?? 'deciding'} this step needs your presence signature, taken in your own terminal (${terminal.reason}). Nothing was written. Run it there: ${command}`,
       'PSS_CARD_NOT_SHOWN', { approver, nextAction: { command, label: `Run in your own terminal: ${command}` }, routes });
@@ -481,6 +501,12 @@ export async function preparePersonPresence(root, { workflow, phase, actor, acti
       const presence = { schema: PRESENCE_RECORD_SCHEMA, chainId: context.chainId, approver, keyId: pin.keyId,
         at: new Date().toISOString(), nonce: presenceNonce() };
       const statement = recordStatement(record, presence, { chainId: context.chainId, workId: workflow.workItem.id });
+      // From SFlow's own card: the card the host showed must be this record's, or nothing is signed (card-channel.mjs).
+      if (cardSurface()) {
+        matchCard(guardCard({ ...approvalCardFields({ verb, workId: workflow.workItem.id, phaseId: phase.id, phaseLabel: phase.label ?? phase.id,
+          generation: record.generation, decision: record.decision, target: record.target ?? null, reviewPacketSha256: record.reviewPacketSha256 ?? null, cardLines }),
+        keyId: pin.keyId }));
+      }
       const shown = await card({
         title: `${verb} ${workflow.workItem.id} / ${phase.id}`,
         lines: [`Step: ${phase.label ?? phase.id}, generation ${record.generation}`,

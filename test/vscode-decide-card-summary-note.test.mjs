@@ -148,7 +148,10 @@ test('the Decide card returns the summary note to the chat after recording a pin
   assert.ok(card, 'the card opened');
   assert.match(card.webview.html, /Pin Node 22: create \.nvmrc and amend the plan/u);
   card.post({ type: 'decide.review', rows: [{ item: 'd1', option: 'pin-node', reason: REASON, title: 'The tests failed on Node 26.1.0' }] });
-  await settle();
+  // The card writes the answers file and reads SF Guard's card for it before it asks (presence/card-channel.mjs).
+  for (const started = Date.now(); Date.now() - started < 5_000 && !panels.some((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   const confirmation = panels.find((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');
   assert.ok(confirmation, 'the person confirms what is recorded');
   confirmation.post({ type: 'confirmation.accept', acknowledged: true });

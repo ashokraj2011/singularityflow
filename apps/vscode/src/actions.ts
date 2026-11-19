@@ -471,6 +471,8 @@ export async function approveWithReceipt(
       const tests = client.run<Summary>(['tests', 'summary', '--work-id', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
       // SF Guard's verdict on this step's recorded decisions, read the same way (SPEC-PSS-v1 M5). Advisory.
       const recorded = client.run(['approvals', request.workId, '--json']).catch(() => null);
+      // SF Guard's card for this approval, as the engine renders it: shown on the page, and its digest starts the approval.
+      const guardCard = client.run(['guard', 'card', 'approve', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
       storyReview = await client.run<StoryReviewBundle>([
         'review', request.phaseId, '--format', 'json'
       ]);
@@ -489,11 +491,12 @@ export async function approveWithReceipt(
       testRun = summary?.resultType === 'sflow-test-summary' && summary.run ? { label: summary.run.label ?? '',
         totals: `${summary.totals?.passed ?? 0} passed, ${summary.totals?.failed ?? 0} failed of ${summary.totals?.discovered ?? 0}` } : null;
       {
-        const { attributionSummaryText, storyStandingFrom } = await import('./views/sf-guard-model.ts');
+        const { attributionSummaryText, guardCardFrom, storyStandingFrom } = await import('./views/sf-guard-model.ts');
         const approvals = storyStandingFrom(request.workId, await recorded, null).approvals.filter((entry) => entry.phase === request.phaseId);
         const summary = attributionSummaryText(storyReview.attribution);
         const labels = Array.isArray(storyReview.attributionLabels) ? storyReview.attributionLabels.filter((line): line is string => typeof line === 'string') : [];
-        sfGuard = summary || labels.length || approvals.length ? { summary, labels, approvals } : null;
+        const card = guardCardFrom(await guardCard);
+        sfGuard = summary || labels.length || approvals.length || card?.required || card?.offer ? { summary, labels, approvals, card } : null;
       }
       if (storyReview.workItem?.id !== request.workId || storyReview.phase?.id !== request.phaseId) {
         throw new Error('The approval review is not bound to the selected Story phase.');
@@ -574,15 +577,17 @@ export async function approveWithReceipt(
 
   // One builder for the CLI's argument forms (a witness exception carries its facets).
   const liveReceipt = receipt.token;
+  // On a Story SF Guard requires, the card the page showed starts the approval, and the CLI signs it with Touch ID.
+  const signing = sfGuard?.card ? (await import('./views/sf-guard-model.ts')).presenceCardArgs(sfGuard.card) : [];
   const argv = request.kind === 'story'
-    ? (await import('./views/approval-review.ts')).storyApprovalArguments({ workId: request.workId, phaseId: request.phaseId,
-      receiptToken: liveReceipt, checklist, witnessDecisions, inApprovalDecisions: answered, decisionsDigest: inApproval?.digest ?? null })
+    ? [...(await import('./views/approval-review.ts')).storyApprovalArguments({ workId: request.workId, phaseId: request.phaseId,
+      receiptToken: liveReceipt, checklist, witnessDecisions, inApprovalDecisions: answered, decisionsDigest: inApproval?.digest ?? null }), ...signing]
     : ['initiative', 'approve', request.subject, '--selection-receipt', liveReceipt];
   const run = async (extra: string[] = []): Promise<boolean> => {
     if (!(await stillCurrent())) return false;
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay([...argv, ...extra])}`);
     const result = { output: await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: request.summary, cancellable: false },
+      { location: vscode.ProgressLocation.Notification, title: signing.length ? `${request.summary}: Touch ID is asking now` : request.summary, cancellable: false },
       () => client.runText([...argv, ...extra])
     ) };
     // What the approval did and the next step, where the person approved (SPEC-OAP D7).

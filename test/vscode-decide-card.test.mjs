@@ -92,9 +92,9 @@ test('the person confirms every answer with its reason, and what stays undecided
   assert.match(summary, /Still undecided: Say where package\.json belongs; Check the screenshot; A dirty checkout/u);
 });
 
-test('a Story signed with SF Guard hands over one command with nothing to fill in, and keeps the answers on the page', () => {
+test('where SF Guard could not take Touch ID on the card, it hands over one command with nothing to fill in, and keeps the answers on the page', () => {
   const html = decideHtml(packet(), { error: GUARD_WORDS, route: guardRoute('PAY-1'), draft: decideDraftFrom({ type: 'x', rows: [answer('d1', 'Say where a.js belongs', 'row-req-2', 'Kept here.')] }) });
-  assert.match(html, /Touch ID is taken in your own terminal, so nothing was written here/u);
+  assert.match(html, /SF Guard could not take your Touch ID here, so nothing was written/u);
   assert.match(html, /<code>singularity-flow decisions record PAY-1<\/code><button type="button" data-route>/u);
   assert.doesNotMatch(guardRoute('PAY-1'), /</u, 'nothing to fill in');
   assert.match(html, /value="Kept here\."/u);

@@ -1417,6 +1417,9 @@ const PERSON_DECISION_DENIALS = Object.freeze({
 const CHAINED_OWNED_STEP_DENIAL = 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: nothing was recorded because these commands were chained. This turn may record each one: run them now, one standalone command per call, with the answers the person already gave. Do not ask them again';
 
 const TEST_ENVIRONMENT_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an SFlow command run with NODE_ENV=test or a SINGULARITY_FLOW_TEST_ variable set is refused in every chat: those switches belong to SFlow\'s own test suite and never stand in for a person\'s confirmation, choice or identity. Run the command without them; do not retry it with another spelling';
+// SF Guard's card channel is SFlow's own cards' (presence/card-channel.mjs): a courtesy refusal, so an honest agent never
+// raises a Touch ID prompt the person did not start. The touch, not this, is the boundary.
+const PRESENCE_CARD_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: --presence-card and --card-sha256 are for SFlow\'s own Decide card and approval page, which show SF Guard\'s card and take the person\'s Touch ID; no chat runs them. Ask the person to record it on the card (/sf-decide <WORK-ID> opens it) or with this exact command in their own terminal, and stop; do not retry it';
 
 /** Why a person's decision is refused here: the turn they start for it, or their own terminal. */
 function personDecisionReason(owners) {
@@ -1447,7 +1450,7 @@ function personStepRefusal({ id, argv, owners }, turn = null) {
   const card = id.startsWith('intent-amendment-') ? decisionsCardRoute(argv)
     : id === 'settled-undo' ? decisionsCardRoute(argv, parseCli(argv).positionals[2] ?? null) : null;
   const routes = witness ? [witness] : card ? [card] : guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
-  const said = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
+  const said = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : id === 'presence-card' ? PRESENCE_CARD_DENIAL.replace('<WORK-ID>', workIdOfArgv(argv) ?? '<WORK-ID>') : owners ? personDecisionReason(owners)
     : PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
   const reason = card?.copilotCommand.includes(' ') ? said.replace('/sf-decide <WORK-ID>', card.copilotCommand) : said;
   // In the chat it names, a route to that chat's own command becomes the card or the person's line (mutationDenial).
@@ -1469,6 +1472,8 @@ function personStepOfCall(call, cwd) {
   if (!text || !(/singularity-flow|sflow/iu.test(text) || mentionsHookCli(text))) return null;
   const invocations = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd);
   if (invocations.length && TEST_ENVIRONMENT.test(text)) return { id: 'test-environment', argv: invocations[0].argv };
+  const carded = invocations.find((invocation) => ['presence-card', 'card-sha256'].some((name) => parseCli(invocation.argv).options[name] !== undefined));
+  if (carded) return { id: 'presence-card', argv: carded.argv.filter((value, index, all) => !/^--(?:presence-card|card-sha256)(?:=|$)/u.test(value) && !/^--(?:presence-card|card-sha256)$/u.test(all[index - 1] ?? '')) };
   for (const invocation of invocations) {
     const step = personStep(invocation.argv, invocation.cwd);
     if (step) return step;
@@ -1564,7 +1569,7 @@ function turnPersonDecisionDenial(payload, record) {
   const skill = String(record.skill ?? '').replace(/^\/?(?:sf|sflow)-/u, '');
   for (const call of calls(payload)) {
     const step = personStepOfCall(call, payload.cwd);
-    if (step && (['test-environment', 'authorship-claim'].includes(step.id)
+    if (step && (['test-environment', 'authorship-claim', 'presence-card'].includes(step.id)
       || ((PERSON_DECISION_IDS.has(step.id) || step.id === 'record-authorship') && !step.owners.includes(skill)))) {
       return personStepRefusal(step, record.skill);
     }

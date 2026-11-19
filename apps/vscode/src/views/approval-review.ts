@@ -15,7 +15,7 @@ import { navigateTo } from './navigate.ts';
 import { approvalBlockingCommits, approvalBlockingCommitsHtml, approvalHoldsHtml, contentSecurityPolicy, escape, evidenceConsistencyHtml,
   navigationTarget, nonce, page, type EvidenceConsistencyPresentation } from './webview.ts';
 import { approvalHolds } from './approvals-model.ts';
-import { APPROVAL_STATE_PILL, type ApprovalStanding } from './sf-guard-model.ts';
+import { APPROVAL_STATE_PILL, guardCardText, type ApprovalStanding, type GuardCardRead } from './sf-guard-model.ts';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -108,12 +108,15 @@ export interface ApprovalReviewRequest {
    * and labels (`review --format json`), and this step's recorded decisions as SF Guard counts them
    * (`approvals --json`). Advisory: a label never refuses; the approval gate verifies signatures.
    */
-  sfGuard?: { summary: string | null; labels: string[]; approvals: ApprovalStanding[] } | null;
+  sfGuard?: { summary: string | null; labels: string[]; approvals: ApprovalStanding[]; card?: GuardCardRead | null } | null;
 }
 
-/** The packet's labels and this step's decisions under SF Guard, before the person approves. */
+/** The packet's labels and this step's decisions under SF Guard, and the card Touch ID signs, before the person approves. */
 export function sfGuardReviewHtml(guard: ApprovalReviewRequest['sfGuard']): string {
-  if (!guard || (!guard.summary && !guard.labels.length && !guard.approvals.length)) return '';
+  const card = guard?.card ?? null;
+  // Required here but not signed here (no key, Windows or Linux): the approval is refused, so the reason comes first.
+  const unsigned = card?.required && !card.signs && !card.bypass && card.reason ? card.reason : null;
+  if (!guard || (!guard.summary && !guard.labels.length && !guard.approvals.length && !card?.signs && !card?.bypass && !card?.offer && !unsigned)) return '';
   const decisions = guard.approvals.map((entry) => {
     const pill = APPROVAL_STATE_PILL[entry.state];
     return `<li><span class="pill ${escape(pill.tone)}" data-sfg-state="${escape(entry.state)}">${escape(pill.words)}</span>
@@ -124,7 +127,12 @@ export function sfGuardReviewHtml(guard: ApprovalReviewRequest['sfGuard']): stri
     ${guard.summary ? `<p data-sfg-summary>${escape(guard.summary)}</p>` : ''}
     ${guard.labels.length ? `<ul class="sfg-labels">${guard.labels.map((label) => `<li>${escape(label)}</li>`).join('')}</ul>` : ''}
     ${decisions ? `<h3>Decisions recorded on this step</h3><ul>${decisions}</ul>` : ''}
-    <p class="muted">Labels never refuse anything. Where this Story requires it, recording your approval takes your Touch ID in your own terminal: VS Code shows the card, then hands you the command.</p>
+    ${card?.signs ? `<h3>What Touch ID signs</h3><pre class="sfg-card" data-sfg-card>${escape(guardCardText(card))}</pre>
+    <p class="muted">Record approval signs this card: Touch ID asks right after you click, and nothing is recorded if you cancel it there.</p>` : ''}
+    ${card?.bypass ? `<p data-sfg-bypass>${escape(card.reason ?? `Recorded unsigned, labelled "bypass: per-person exception ${card.bypass}".`)}</p>` : ''}
+    ${card?.offer ? `<p class="muted" data-sfg-offer>${escape(card.offer)}</p>` : ''}
+    ${unsigned ? `<p data-sfg-unsigned>SF Guard cannot sign this here: ${escape(unsigned)}.</p>` : ''}
+    ${guard.summary || guard.labels.length ? '<p class="muted">Labels never refuse anything.</p>' : ''}
   </section>`;
 }
 
@@ -519,6 +527,7 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-errors p { margin:.2rem 0; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }
 .approval-progress { flex-basis:100%; margin:0; font-size:.85rem; }
+.sfg-card { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; margin:.4rem 0; padding:.6rem .75rem; border:var(--sf-border); border-radius:var(--sf-radius); }
 `;
 
 export const REVIEW_SCRIPT = `

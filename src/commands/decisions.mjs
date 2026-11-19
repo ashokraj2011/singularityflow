@@ -45,7 +45,8 @@ import { assertConfirmation, copySlip } from '../text-lines.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card', 'probe', 'probe-wait']);
-const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch', 'version-consent', 'just-a-question', 'expect']);
+// `--presence-card` and `--card-sha256`: SF Guard's card as the VS Code Decide card showed it (presence/card-channel.mjs).
+const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch', 'version-consent', 'just-a-question', 'expect', 'presence-card', 'card-sha256']);
 const UNDO_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'settled', 'reason', 'fetch']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
@@ -981,6 +982,10 @@ async function record(root, options, workId, io) {
     const { actionActor } = await import('./kernel.mjs');
     const { loadSession } = await import('../session.mjs');
     const actor = actionActor(root);
+    // From the Decide card under SF Guard: the card it showed is this summary, for this list and key, or nothing is written.
+    if (options['presence-card'] !== undefined) {
+      await (await import('../presence/card-channel.mjs')).matchDecisionsCard(root, workflow, { actor, summary: preview.summary, packetSha256: packet.packetSha256 });
+    }
     const session = await loadSession(root, { required: false });
     const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
     // An answers file is what VS Code's and Copilot CLI's decisions cards write; the terminal asks or takes flags.
@@ -1149,5 +1154,22 @@ export async function run(argv, { positionals = argv, options = {}, io = { input
   const { repoRoot } = await import('../git.mjs');
   const root = repoRoot();
   if (mode === 'undo') return undo(root, options, workId);
+  // A record started from the Decide card with SF Guard's card signs only for this command, once its card matched.
+  if (mode === 'record' && (options['presence-card'] !== undefined || options['card-sha256'] !== undefined)) {
+    return (await import('../presence/card-channel.mjs')).withCardSurface(options, () => record(root, options, workId, io));
+  }
   return mode === 'record' ? record(root, options, workId, io) : show(root, options, workId);
+}
+
+/**
+ * What `decisions record --answers FILE` would confirm for `workflow`, read without recording: the list's digest and
+ * the summary (`guard card decisions`, SF Guard's card on the Decide card). Nothing is fetched or checked out.
+ */
+export async function answersSummary(root, { config, workflow }, options) {
+  const at = nowIso();
+  const packet = await readDecisionPacket(root, config, workflow, { phaseId: optionString(options, 'phase') ?? null, at });
+  const answers = await answersFrom(options);
+  const { decisionRecordPlan } = await import('../decision-list.mjs');
+  const preview = await previewOf(workflow, packet, decisionRecordPlan(packet, answers, { at }));
+  return { packetSha256: packet.packetSha256, summary: preview.summary, steps: preview.steps.length, refused: preview.refused.length };
 }

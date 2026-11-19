@@ -21,8 +21,9 @@ import { PERSON_STEP_FAMILIES } from '../person-step-catalog.mjs';
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { activeException } from './chain.mjs';
+import { cardSurface } from './card-channel.mjs';
 import {
-  actorApproverId, loadPresenceContext, personBatchStatement, personRecordDigest, personTerminal, PRESENCE_RECORD_SCHEMA, sealedPresence
+  actorApproverId, loadPresenceContext, personBatchStatement, personCardShown, personRecordDigest, PRESENCE_RECORD_SCHEMA, sealedPresence
 } from './person-records.mjs';
 import { presenceNonce } from './statement.mjs';
 
@@ -159,6 +160,11 @@ async function signRecords(root, workflow, context, added) {
   }
   const action = new Set(added.map(({ family }) => family.action)).size === 1 ? added[0].family.action : 'story.person-records';
   const exception = activeException(context.folded, approver);
+  // A host's card said Touch ID signs these: an exception recorded since then never turns them into unsigned records.
+  if (exception && cardSurface()) {
+    fail(`SF Guard: ${approver} now has per-person exception ${exception.id}, so these would be recorded unsigned, not signed as the card said. Nothing was written. Open the card again.`,
+      'PSS_CARD_CHANGED', { approver, routes });
+  }
   if (exception) {
     // Unsigned, and never read as signed: the exception travels with each record and labels it.
     const at = new Date().toISOString();
@@ -178,7 +184,8 @@ async function signRecords(root, workflow, context, added) {
     fail(`SF Guard cannot sign on this computer: ${availability.reason}. Nothing was written. Run this step on the Mac that holds your presence key (${pin.keyId}), or ${routes.others}, or ${routes.exception}.`,
       'PSS_SIGNER_UNAVAILABLE', { approver, keyId: pin.keyId, routes });
   }
-  const terminal = (dependencies.personTerminal ?? personTerminal)();
+  // The person's own terminal, or SFlow's own card whose card this command matched (card-channel.mjs).
+  const terminal = (dependencies.personTerminal ?? personCardShown)();
   if (!terminal.person) {
     fail(`SF Guard: this decision needs your presence signature, taken in your own terminal (${terminal.reason}). Nothing was written. Run it there: ${command}`,
       'PSS_CARD_NOT_SHOWN', { approver, nextAction: { command, label: `Run in your own terminal: ${command}` }, routes });

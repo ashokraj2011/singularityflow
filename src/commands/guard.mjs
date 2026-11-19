@@ -12,6 +12,10 @@
  * of the default branch, and the CI recipe that runs it. A repository that never opts in has no file
  * and behaves exactly as before.
  *
+ * `card` reads SF Guard's card for a host to show before the person records (the VS Code Decide card
+ * and approval page, presence/card-channel.mjs); `setup` turns SF Guard on in one step, in the person's
+ * own terminal, stopping at each step only they can take [owner, 2026-11-19].
+ *
  * The signer, GitHub, the key readers and the configuration writer are parameters (`dependencies`),
  * so tests run every route with software keys and no environment switch.
  */
@@ -27,11 +31,14 @@ import { ctkIdentities, presenceIdentityStanding, readableCopies } from '../pres
 import { presenceNonce } from '../presence/statement.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-export const GUARD_ACTIONS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
-export const GUARD_READ_ACTIONS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
+export const GUARD_ACTIONS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'card', 'setup', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
+export const GUARD_READ_ACTIONS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'card']);
 /** The person's own steps: refused for agents, whatever the turn. */
 export const GUARD_PERSON_ACTIONS = Object.freeze(GUARD_ACTIONS.filter((action) => !GUARD_READ_ACTIONS.includes(action)));
-const USAGE = 'Usage: singularity-flow guard <status|reconcile|report|remote-check|register|rotate|recover|revoke|enable|disable|exception add|exception revoke|stamp-agents> …  (singularity-flow help guard)';
+const USAGE = 'Usage: singularity-flow guard <status|reconcile|report|remote-check|card|setup|register|rotate|recover|revoke|enable|disable|exception add|exception revoke|stamp-agents> …  (singularity-flow help guard)';
+const CARD_USAGE = 'Usage: singularity-flow guard card decisions <WORK-ID> --answers FILE [--phase PHASE] | singularity-flow guard card approve <WORK-ID> --phase PHASE';
+/** What SF Guard costs and covers, said wherever it is offered (research note proof_of_person §3.3). */
+const SF_GUARD_COSTS = 'About 2.5 s of Touch ID per signed decision, 2 to 4 per Story; Macs with Touch ID sign, and Windows and Linux approvers get a labelled per-person exception.';
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
 function print(options, json, text) {
@@ -293,7 +300,7 @@ function statusText(result) {
   if (result.recording) {
     lines.push(`  Attribution recording here: ${result.recording.state}${result.recording.lastGap ? `; last gap ${result.recording.lastGap.code} at ${result.recording.lastGap.at} (${result.recording.gaps} recent; the hooks' answers were unchanged)` : '; no gaps recorded'}.`);
   }
-  if (result.status === 'off' && !result.chainId) lines.push('  Opt in: singularity-flow guard register, then singularity-flow guard enable (both in your own terminal, with Touch ID).');
+  if (result.status === 'off' && !result.chainId) lines.push(`  SF Guard is off here. To turn it on, run in your own terminal: singularity-flow guard setup. ${SF_GUARD_COSTS}`);
   return lines.join('\n');
 }
 
@@ -430,11 +437,111 @@ async function remoteCheckAction(root, state, options, deps) {
   ].join('\n'));
 }
 
-export async function run(argv, { positionals, options }, dependencies = {}) {
+/**
+ * `guard card decisions|approve`: the card SF Guard would sign for what a host is about to record, read only, so the
+ * host shows exactly it and starts the record with its digest (presence/card-channel.mjs). On a Story SF Guard does
+ * not require there is no card, and the decision list is not read.
+ */
+async function cardAction(root, positionals, options, deps) {
+  const [, , kind, workId] = positionals;
+  if (!['decisions', 'approve'].includes(kind) || !workId || positionals.length > 4) fail(CARD_USAGE, 'PSS_ARGUMENT_REQUIRED');
+  if (kind === 'decisions' && !optionString(options, 'answers')) fail(`guard card decisions reads the answers the card wrote. ${CARD_USAGE}`, 'PSS_ARGUMENT_REQUIRED');
+  if (kind === 'approve' && !optionString(options, 'phase')) fail(`guard card approve names the step. ${CARD_USAGE}`, 'PSS_ARGUMENT_REQUIRED');
+  const [{ loadAcceptedStoryExecution }, { actionActor }, channel] = await Promise.all([
+    import('../accepted-story-execution.mjs'), import('./kernel.mjs'), import('../presence/card-channel.mjs')]);
+  const { definition: config, workflow } = await loadAcceptedStoryExecution(root, workId);
+  const phase = kind === 'approve' ? workflow.phases?.[optionString(options, 'phase')] : null;
+  if (kind === 'approve' && !phase) fail(`${workId} has no step '${optionString(options, 'phase')}'. ${CARD_USAGE}`, 'PSS_ARGUMENT_INVALID');
+  const fields = async () => (kind === 'approve' ? channel.approvalCardFieldsFor(root, { config, workflow, phase })
+    : channel.decisionsCardFields({ workId: workflow.workItem.id, ...await (await import('./decisions.mjs')).answersSummary(root, { config, workflow }, options) }));
+  const read = await channel.guardCardFor(root, workflow, { actor: actionActor(root), fields, dependencies: deps.presence ?? null });
+  const card = read.card ? { title: read.card.title, lines: read.card.lines, keyId: read.card.keyId, rule: read.card.rule } : null;
+  const result = { action: 'card', kind, workId: workflow.workItem.id, ...(phase ? { phase: phase.id } : {}), required: read.required, signs: read.signs,
+    ...(read.state ? { state: read.state } : {}), ...(read.offer ? { offer: read.offer } : {}), ...(read.bypass ? { bypass: read.bypass } : {}),
+    ...(read.code ? { code: read.code } : {}), ...(read.reason ? { reason: read.reason } : {}), ...(read.keyId ? { keyId: read.keyId } : {}),
+    ...(card ? { card, cardSha256: read.cardSha256, surface: { decisions: 'vscode-card', approve: 'vscode-approval' }[kind] } : {}) };
+  const text = card ? [`SF Guard: ${card.title}`, ...card.lines.map((line) => `  ${line}`), `  Signing key: ${card.keyId}`, `  ${card.rule}`].join('\n')
+    : read.required ? `SF Guard requires this, and it is not signed here: ${read.reason}.` : read.offer ?? `SF Guard does not sign this Story (${read.state}).`;
+  return print(options, result, text);
+}
+
+/**
+ * `guard setup`: SF Guard on for this repository in one step, in the person's own terminal [owner, 2026-11-19; the
+ * adoption path of research note proof_of_person §3.3]. It does what is left, in order, and stops at the first step
+ * only the person can take, saying exactly what it is; run again, it carries on from there:
+ *   1. this Mac can sign (Touch ID on macOS 26; Windows and Linux approvers get a labelled per-person exception);
+ *   2. a Touch ID identity in the Secure Enclave, which the person creates (the sc_auth command is given);
+ *   3. GitHub lists it as the person's signing key, a browser step (the page and the public key are given);
+ *   4. `guard register` (one touch); 5. `guard enable --remote-check sf-guard-verify`, with any `--exception` (one touch);
+ *   6. the CI recipe, written to .github/workflows/sf-guard-verify.yml when it is not there.
+ * SF Guard stays off in every repository until a person runs this there.
+ */
+async function setupAction(root, positionals, options, dependencies, deps) {
+  if (positionals.length > 2) fail(`guard setup takes no positional arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
+  if (optionBoolean(options, 'json')) fail('guard setup runs in your own terminal and says each step; for where SF Guard stands, read singularity-flow guard status --json.', 'PSS_ARGUMENT_INVALID');
+  const say = (line) => console.log(line);
+  const step = (words, own) => guardAction(['guard', ...words], { positionals: ['guard', ...words], options: own }, dependencies);
+  // What the person passed for the writes (--propose), never setup's own options.
+  const passed = Object.fromEntries(Object.entries(options).filter(([name]) => !['key', 'remote-check', 'exception', 'reason'].includes(name)));
+  let state = await readState(root, { verify: deps.verify });
+  const me = currentApprover(root, state.approvers, { identify: deps.identify });
+  say(`SF Guard setup for ${me.label} [${me.approver}]. ${SF_GUARD_COSTS}`);
+  if (!state.policy.folded.pins.get(me.approver)) {
+    const listing = deps.listIdentities();
+    if (!listing.available) {
+      fail(`SF Guard cannot sign on this computer: ${listing.reason}. Nothing was changed. An approver on a Mac can turn it on with a labelled per-person exception for you: singularity-flow guard setup --exception ${me.approver}`,
+        'PSS_SIGNER_UNAVAILABLE', { approver: me.approver });
+    }
+    const key = await presenceKey(deps, { keyId: optionString(options, 'key') ?? null, purpose: 'set up SF Guard' });
+    say(`  1. This Mac signs with Touch ID identity ${key.keyId}.`);
+    try { await githubListing(me, key.keyId, deps); }
+    catch (error) {
+      if (error?.code === 'PSS_KEY_NOT_LISTED' && me.githubLogin) {
+        error.message = `${error.message}\n  Its public key, to paste there:\n  ${key.publicKey}\n  Then run singularity-flow guard setup again; it carries on from here.`;
+      }
+      throw error;
+    }
+    say(`  2. GitHub lists ${key.keyId} as your signing key.`);
+    say('  3. Registering it: read the card, then touch the sensor.');
+    await step(['register'], { ...passed, key: key.keyId });
+    state = await readState(root, { verify: deps.verify });
+    if (!state.policy.folded.pins.get(me.approver)) {
+      say('Your key is registered in a change waiting for review. Once it is merged, run singularity-flow guard setup again to turn SF Guard on.');
+      return;
+    }
+  } else say(`  1-3. Your presence key ${state.policy.folded.pins.get(me.approver).keyId} is already pinned.`);
+  if (!state.policy.folded.enabled) {
+    say('  4. Turning SF Guard on: read the card, then touch the sensor.');
+    const exceptions = optionStrings(options, 'exception');
+    await step(['enable'], { ...passed, 'remote-check': optionString(options, 'remote-check') ?? (await import('../presence/remote-recipe.mjs')).SF_GUARD_CHECK_NAME,
+      ...(exceptions.length ? { exception: exceptions } : {}), ...(optionString(options, 'reason') ? { reason: optionString(options, 'reason') } : {}) });
+  } else say('  4. SF Guard is already on in this repository.');
+  const recipe = await import('../presence/remote-recipe.mjs');
+  const [{ existsSync }, { mkdir, writeFile }] = await Promise.all([import('node:fs'), import('node:fs/promises')]);
+  const file = path.join(root, recipe.SF_GUARD_CHECK_PATH);
+  if (!existsSync(file)) {
+    const remote = await remoteStanding(root, await readState(root, { verify: deps.verify }), deps).catch(() => ({ check: null, suggested: recipe.SF_GUARD_CHECK_NAME, branch: 'main' }));
+    const stateBranch = (await import('../ledger-config.mjs')).normalizeLedgerConfig(state.definition?.ledger ?? {}).branch;
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, recipe.sfGuardVerifyWorkflowText({ checkName: remote.check ?? remote.suggested, branch: remote.branch, stateBranch }));
+    say(`  5. The CI recipe is written to ${recipe.SF_GUARD_CHECK_PATH}. Pin the SFlow release it installs on its two marked lines (singularity-flow guard remote-check --recipe --package-url <URL> --package-sha256 <HEX> prints it filled in).`);
+  } else say(`  5. ${recipe.SF_GUARD_CHECK_PATH} is already there.`);
+  say(`Next, yourself: commit singularity/presence.json, the stamped agent files and ${recipe.SF_GUARD_CHECK_PATH} in one reviewed change, then make "${optionString(options, 'remote-check') ?? recipe.SF_GUARD_CHECK_NAME}" a required status check of the default branch. Stories already started keep SF Guard off; new Stories are signed.`);
+}
+
+export function run(argv, context, dependencies = {}) {
+  return guardAction(argv, context, dependencies);
+}
+
+/** One guard action; `guard setup` runs `register` and `enable` through it. */
+async function guardAction(argv, { positionals, options }, dependencies = {}) {
   const deps = { ...defaultDependencies(), ...dependencies };
   const action = positionals[1] ?? 'status';
   if (!GUARD_ACTIONS.includes(action)) fail(`Unknown guard action '${action}'. ${USAGE}`, 'PSS_ACTION_UNKNOWN');
   const root = repoRoot();
+  // SF Guard's card for a host: read before the policy and agent files, and nothing is noted or written.
+  if (action === 'card') return cardAction(root, positionals, options, deps);
+  if (action === 'setup') return setupAction(root, positionals, options, dependencies, deps);
   const state = await readState(root, { verify: deps.verify });
   const stamps = await agentStamps(root, state.definition).catch(() => []);
   await noteLocalState(root, state.policy.folded.enabled, stamps);

@@ -27,8 +27,8 @@ const LOCK_READS = Object.freeze(['show', 'show-file']);
 // Backups of this laptop's drafts and local documents (SDA M5): inspect reads; restore saves drafts and bytes here only.
 const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
 // SF Guard (SPEC-PSS-v1): status reads; every other action is the person's own presence-signed step.
-const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
-const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
+const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'card', 'setup', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
+const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'card']);
 // Security team and TLM findings [CQF:REQ-070]: template writes a new local file; import and link write
 // the register on the state branch, and import --dry-run is a read.
 const FINDINGS_SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link', 'plan', 'start', 'report']);

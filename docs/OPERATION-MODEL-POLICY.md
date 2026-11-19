@@ -398,6 +398,7 @@ Every public operation is classified before its implementation module is importe
 | governance.restore | mutation | never | — | — |
 | governance.restore.preview | read | never | — | — |
 | governance.verify | read | never | — | — |
+| guard.card | read | never | — | — |
 | guard.disable | mutation | never | — | — |
 | guard.enable | mutation | never | — | — |
 | guard.exception | mutation | never | — | — |
@@ -408,6 +409,7 @@ Every public operation is classified before its implementation module is importe
 | guard.report | read | never | — | — |
 | guard.revoke | mutation | never | — | — |
 | guard.rotate | mutation | never | — | — |
+| guard.setup | mutation | never | — | — |
 | guard.stamp-agents | mutation | never | — | — |
 | guard.status | read | never | — | — |
 | guide | read | never | — | — |

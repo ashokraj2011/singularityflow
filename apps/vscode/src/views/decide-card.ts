@@ -2,6 +2,10 @@
  * One action for the decisions a step waits on. The chat passes a Story ID and nothing else: the person
  * answers on this page, and the extension records through the CLI outside the chat's shell, so no
  * answer, reason or selection ever comes from the model. A list that changed while open records nothing.
+ *
+ * On a Story SF Guard requires, the confirmation is SF Guard's card as the engine renders it for these
+ * answers (`guard card decisions`), and the record carries its digest, so the CLI signs with Touch ID from
+ * here once the card matches; nothing is signed without the person's click and touch [owner, 2026-11-19].
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -18,6 +22,7 @@ import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, 
   justAQuestionArgv, nextWords, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
+import { guardCardDecisionsArgv, guardCardFrom, guardCardText, presenceCardArgs, type GuardCardRead } from './sf-guard-model.ts';
 import { approvalRows, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
   guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
 
@@ -40,15 +45,19 @@ async function readList(client: SingularityFlowClient, workId: string, { probe =
   return packet;
 }
 
-/** The answers reach the CLI in a private file that is gone once it has run. */
-async function record(client: SingularityFlowClient, packet: DecisionPacket, answers: DecisionAnswers) {
+/** The answers reach the CLI in a private file that is gone once SF Guard's card was read and the record ran. */
+async function withAnswers<T>(packet: DecisionPacket, answers: DecisionAnswers, action: (file: string) => Promise<T>): Promise<T> {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-decide-'));
   const file = path.join(directory, 'answers.json');
   try {
     await writeFile(file, JSON.stringify(decisionAnswersDocument(answers, packet.packetSha256)), { mode: 0o600, flag: 'wx' });
-    return await client.run(decisionRecordArgv(packet.workId, file), undefined, { priority: 'interactive' });
+    return await action(file);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
+
+/** SF Guard's card for these answers, or null from an engine without one (its refusal then hands over the terminal route). */
+const readGuardCard = (client: SingularityFlowClient, workId: string, file: string): Promise<GuardCardRead | null> =>
+  client.run(guardCardDecisionsArgv(workId, file), undefined, { priority: 'interactive' }).then(guardCardFrom, () => null);
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -285,13 +294,30 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         busy = true; render();
         try {
           const writesOnly = draftsOnly(packet, choices);
-          const confirmed = await collectReviewConfirmation(writesOnly
-            ? { title: `Draft the amendment on ${workId}`, summary: 'A draft is written beside the checkout\'s Git data, with your reason in its slot; nothing is recorded or decided.',
-              detail: decideSummary(shown(), choices), confirmLabel: 'Write the draft' }
-            : { title: `Record ${choices.length} decision${choices.length === 1 ? '' : 's'} on ${workId}`,
-              summary: 'Each one is recorded with its own reason, under your name.', detail: decideSummary(shown(), choices), confirmLabel: 'Record these decisions' });
-          if (!confirmed) { busy = false; panel.reveal(); return render(); }
-          const outcome = decisionRecordOutcome(await record(client, packet, answers)).outcome;
+          const ran = await withAnswers(packet, answers, async (file) => {
+            // A draft writes no record; a decision on a Story SF Guard requires shows the card Touch ID signs.
+            const guard = writesOnly ? null : await readGuardCard(client, workId, file);
+            const signing = presenceCardArgs(guard);
+            // Where SF Guard does not sign here (an exception, no key, Windows or Linux), it says why; where it is off, it offers itself.
+            const noted = guard?.bypass ? ` SF Guard: ${guard.reason}.` : guard?.required && guard.reason ? ` SF Guard cannot sign this here: ${guard.reason}.`
+              : guard?.offer ? ` ${guard.offer}` : '';
+            const confirmed = await collectReviewConfirmation(writesOnly
+              ? { title: `Draft the amendment on ${workId}`, summary: 'A draft is written beside the checkout\'s Git data, with your reason in its slot; nothing is recorded or decided.',
+                detail: decideSummary(shown(), choices), confirmLabel: 'Write the draft' }
+              : signing.length && guard
+                ? { title: `Record and sign your decisions on ${workId}`,
+                  summary: 'SF Guard signs this with your Touch ID. Read its card: Touch ID asks right after you click, and nothing is recorded if you cancel it there.',
+                  detail: guardCardText(guard), confirmLabel: 'Record and sign with Touch ID' }
+                : { title: `Record ${choices.length} decision${choices.length === 1 ? '' : 's'} on ${workId}`,
+                  summary: `Each one is recorded with its own reason, under your name.${noted}`, detail: decideSummary(shown(), choices), confirmLabel: 'Record these decisions' });
+            if (!confirmed) return null;
+            if (signing.length) { panel.reveal(); render(null, 'Touch ID is asking now: touch the sensor to sign, or cancel it there and nothing is recorded.'); }
+            const asking = signing.length ? vscode.window.setStatusBarMessage('$(lock) SF Guard: Touch ID is asking now.') : null;
+            try { return await client.run([...decisionRecordArgv(packet.workId, file), ...signing], undefined, { priority: 'interactive' }); }
+            finally { asking?.dispose(); }
+          });
+          if (ran === null) { busy = false; panel.reveal(); return render(); }
+          const outcome = decisionRecordOutcome(ran).outcome;
           summaryUpdate = outcome.summaryUpdate ?? summaryUpdate;
           await refresh?.();
           const all = [...recorded, ...outcome.recorded];

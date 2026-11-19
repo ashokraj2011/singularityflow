@@ -15,7 +15,7 @@
   "draft-for-version": 6,
   "generic-route": 6269,
   "jargon": 1358,
-  "length": 658
+  "length": 656
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -2039,7 +2039,6 @@
   },
   "apps/vscode/src/views/approval-review.ts": {
    "18505f40bd6b": "jargon:generation",
-   "70c4a83289a5": "length",
    "9fa38b21653d": "jargon:deterministic"
   },
   "apps/vscode/src/views/approvals-model.ts": {
@@ -2169,9 +2168,6 @@
   },
   "apps/vscode/src/views/dashboard-model.ts": {
    "90cf29e97bf8": "count-without-name"
-  },
-  "apps/vscode/src/views/decide-card-page.ts": {
-   "28145179551f": "length"
   },
   "apps/vscode/src/views/decide-card.ts": {
    "c68295a30ce8": "count-without-name"

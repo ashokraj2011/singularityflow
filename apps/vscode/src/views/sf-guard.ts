@@ -2,11 +2,13 @@
  * SF Guard in VS Code: the Guard page, the sign card, and the Story standing the Story, approval and
  * review views show. [SPEC-PSS-v1 M5, AC-014] [SPEC-SFG-v1 G5, AC-012]
  *
- * Every read is the CLI's own `--json` answer (`guard status`, `guard report`, `approvals`). The sign
- * card never signs: a person step the CLI refused for want of a terminal (`PSS_CARD_NOT_SHOWN`, before
- * anything was written) is shown as a card, and only the person's click opens their own terminal with
- * the same command, where the CLI prints its card and Touch ID prompts. No model, tool or message from
- * Copilot reaches that click, so agents stay refused, as the CLI refuses them too.
+ * Every read is the CLI's own `--json` answer (`guard status`, `guard report`, `approvals`). The Decide
+ * card and the approval page sign themselves: they show SF Guard's card (`guard card`) and the CLI they
+ * start takes the touch once that card matches [owner, 2026-11-19]. This sign card is what is left for
+ * any other person step the CLI refused for want of a terminal (`PSS_CARD_NOT_SHOWN`, before anything
+ * was written): only the person's click opens their own terminal with the same command, where the CLI
+ * prints its card and Touch ID prompts. No model, tool or message from Copilot reaches that click, so
+ * agents stay refused, as the CLI refuses them too.
  */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';

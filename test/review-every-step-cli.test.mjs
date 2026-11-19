@@ -340,4 +340,7 @@ test('a spec-driven Story reviews every authored step, its specification to its 
   assert.deepEqual(kinds, { specification: 'specification', planning: 'planning', implementation: 'code', verification: 'document', release: 'document' },
     'every authored step was reviewed, each as what it is');
   assert.equal((await workflow()).status, 'closed', 'the reviewed Story ends');
+  // SFlow never merges: after the person's Yes to the code, the Story finalized by itself when it ended (owner, 2026-11-19).
+  assert.equal((await workflow()).lineage?.finalizations?.length, 1, `the Story finalized by itself when it ended\n${String(submitted?.stdout ?? '').slice(-1500)}`);
+  assert.match(String(submitted?.stdout ?? ''), /SFlow never merges/u);
 });

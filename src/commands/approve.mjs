@@ -313,6 +313,11 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);
   if (completion && !quiet) printCompletionVerdict(completion);
+  // SFlow never merges (owner, 2026-11-19): after a person's Yes to the delivered code, finalizing and opening the pull
+  // request follow once the remaining steps pass; merging stays the person's click on the Git host (story-landing.mjs).
+  const landing = completion ? (await postPublicationStep('finalizing and the pull request', workflow.workItem.id,
+    async () => (await import('../story-landing.mjs')).landAfterLastApproval(root, workflow.workItem.id))).value : null;
+  if (landing && !quiet) for (const line of landing.lines) console.log(line);
   emitCommandResult(commandResult({
     operation: { id: 'approve', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -331,6 +336,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
         label: presenceModule.personRecordLabel(workflow, result.approval) } } : {}),
       ...(result.decisions ? { decisions: result.decisions } : {}),
       artifactSetSha256: result.approval.artifactSetSha256,
+      ...(landing ? { landing: { finalized: landing.finalized, pullRequest: landing.pullRequest, next: landing.next } } : {}),
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
   }), { postState: workflow, json: optionBoolean(options, 'json'), forAgent,

@@ -278,6 +278,11 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   // An approval-free last phase ends the Story here; its transaction passed the final evaluation.
   const completion = !advanced ? recordedCompletion(workflow) : null;
   if (completion && !json) printCompletionVerdict(completion);
+  // SFlow never merges (owner, 2026-11-19): when the last steps were approved by themselves after a person's Yes to the
+  // delivered code, finalizing and opening the pull request follow here (story-landing.mjs).
+  const landing = completion ? (await postPublicationStep('finalizing and the pull request', workflow.workItem.id,
+    async () => (await import('../story-landing.mjs')).landAfterLastApproval(root, workflow.workItem.id))).value : null;
+  if (landing && !json) for (const line of landing.lines) console.log(line);
   emitCommandResult(commandResult({
     operation: { id: 'submit', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -298,6 +303,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       ...(automaticApproval?.applies ? { automaticApproval: { approved: automaticApproval.approved === true, checked: automaticApproval.checked ?? [],
         open: automaticApproval.open ?? [], ...(automaticApproval.approved ? { commit: automaticApproval.publication?.sha ?? null } : {}) } } : {}),
       ...(fixedOnTheWay?.moved.length ? { fixedOnTheWay: fixedOnTheWay.moved } : {}),
+      ...(landing ? { landing: { finalized: landing.finalized, pullRequest: landing.pullRequest, next: landing.next } } : {}),
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
   }), {

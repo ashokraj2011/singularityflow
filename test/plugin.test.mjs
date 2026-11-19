@@ -279,7 +279,9 @@ test('plugin provides governed Jira Story intake with explicit workflow and gove
   assert.match(content, /canonical branch is the returned `workItem\.branch`/);
   assert.doesNotMatch(content, /canonical branch is the exact Jira key/);
   assert.match(content, /--readiness-baseline <CHOICE> --test-execution-mode <MODE> --gate-mode <GATES>/);
-  assert.match(content, /never default them silently/);
+  // Taken by default and said in one line the person may change, never three questions (owner, 2026-11-19).
+  assert.match(content, /Defaults: baseline `reuse`, tests `changed-and-affected`, gates `hard`; say them in one line/);
+  assert.match(content, /never as questions/);
 });
 
 test('plugin provides a read-only effective prompt inspection skill', async () => {

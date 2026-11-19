@@ -143,6 +143,11 @@ async function phaseSubcommand(positionals, options) {
         { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: versionPreviewCommand(phase.id), skill: successorSkillForPhase(phase, workflow) } } });
       return (await import('../own-correction-rollover.mjs')).ownCorrectionRollover(root, config, workflow, phase, options);
     }
+    // The review's findings on a version only the reviewer has seen: started on its own, with an undo (owner, 2026-11-19).
+    // Files changed after publication keep it the person's: the preview asks them.
+    if (optionBoolean(options, 'review-findings')) {
+      return (await import('../review-findings-opening.mjs')).reviewFindingsRollover(root, config, workflow, phase, options, { changedFiles: Boolean(plan) });
+    }
     // "Just a question" answers only a version proposed for words the person typed, and never opens one: files changed after
     // publication, or a returned step, are no question (owner, 2026-11-18).
     if (optionBoolean(options, 'as-question') && (plan || await (await import('./phase-opening.mjs')).successorAwaitsConsent(workflow, phase))) {

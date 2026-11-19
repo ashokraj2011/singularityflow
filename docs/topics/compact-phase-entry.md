@@ -44,7 +44,9 @@ Approval, nextsteps, phase continuation and phase entry expose the same `context
 next-phase authoring. In a conversation that worked on an earlier phase, `new` means `/clear`, then
 the next step's own command (`/sf-phase`, or `/sf-code` for a code step); `compact` means `/compact`, then
 that command. It is the command VS Code puts in the chat box. Nextsteps marks Copilot's authoring timing as
-`after-context-boundary`. Fresh conversations proceed without another reset; `keep` has no reset.
+`after-context-boundary`. Fresh conversations proceed without another reset; `keep`, shipped since
+2026-11-19, has no reset: the approval names the next step's own command, which VS Code puts in the chat
+for one Enter. A ready review is submitted in the turn that wrote the version, with no separate `/sf-submit` turn.
 These are chat operations, not Shell or model-free workflow gates. The approval remains recorded.
 Pending publication, recovery and required after-step actions keep their priority.
 
@@ -181,8 +183,8 @@ ownership without changing prior publications or claiming that visual acceptance
 `clarification.checkpoint` is presented before large recovery/context bodies. `derive-questions`
 permits questions from the pinned evidence while artifact authoring remains blocked. Load the
 returned composed context once, derive specific material ambiguities, and ask the human; never
-ask the human to supply the questions or unspecified “clarification answers.” In required mode,
-if there is no material ambiguity, ask for confirmation of a concise interpretation. A menu
+ask the human to supply the questions or unspecified “clarification answers.” Required mode (a
+Story's intake) asks what the request leaves open, never a confirmation of what is already stated. A menu
 selection promising an answer is not an answer. Record actual replies through the returned
 `responseStagingPath` and response-file command; do not invent answers or edit records.
 

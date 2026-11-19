@@ -276,6 +276,8 @@ test('a step reopened by rework or a skill amendment gets the grounding prerequi
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off'; config.worldModel.grounding = 'warn';
   config.repositoryReadiness.requiredBeforeStory = false;
+  // The reopened step's checkpoint is required here, as a team may set it: shipped, only the intake requires it [owner, 2026-11-19].
+  config.phases.requirements.clarification.mode = 'required';
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', '.']); execute('git', ['commit', '-q', '-m', 'Grounding fixture']);
   execute('git', ['init', '-q', '--bare', '-b', 'main', path.join(directory, 'remote.git')]);

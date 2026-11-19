@@ -78,7 +78,8 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.equal(bugfix.phases.find((item) => item.id === 'fix-spec').template, 'bugfix/fix-spec.md');
   assert.deepEqual(feature.documents.allowedPhases, ['intake', 'requirements', 'design', 'implementation-spec']);
   assert.deepEqual(bugfix.documents.allowedPhases, ['intake', 'reproduction', 'fix-design', 'fix-spec']);
-  assert.deepEqual(feature.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
+  // The chat is kept between steps; the next step's command is put in for one Enter (owner, 2026-11-19).
+  assert.deepEqual(feature.contextPolicy, { onApproval: 'keep', onRejection: 'keep', phaseOverrides: {} });
   assert.match(await agentPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'enforce');
   // The registered World Model's grounding setting was removed: the shipped default has none.
@@ -92,12 +93,17 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
     mode: 'required', maxQuestions: 5, topics: ['problem', 'outcome', 'users', 'scope', 'constraints'],
     markers: { mode: 'off' }
   });
-  assert.equal(feature.phases.find((item) => item.id === 'requirements').clarification.mode, 'required');
-  assert.equal(feature.phases.find((item) => item.id === 'design').clarification.mode, 'required');
-  assert.equal(feature.phases.find((item) => item.id === 'implementation-spec').clarification.mode, 'required');
-  assert.equal(bugfix.phases.find((item) => item.id === 'reproduction').clarification.mode, 'required');
+  // Clarification is required only at a Story's intake; later steps ask only what is truly unclear [owner, 2026-11-19].
+  assert.equal(feature.phases.find((item) => item.id === 'requirements').clarification.mode, 'when-needed');
+  assert.equal(feature.phases.find((item) => item.id === 'design').clarification.mode, 'when-needed');
+  assert.equal(feature.phases.find((item) => item.id === 'implementation-spec').clarification.mode, 'when-needed');
+  assert.equal(bugfix.phases.find((item) => item.id === 'reproduction').clarification.mode, 'when-needed');
   assert.equal(figmaMobile.phases.find((item) => item.id === 'design-intake').clarification.mode, 'required');
-  assert.equal(figmaMobile.phases.find((item) => item.id === 'mobile-spec').clarification.mode, 'required');
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'mobile-spec').clarification.mode, 'when-needed');
+  for (const type of [feature, bugfix, figmaMobile]) {
+    assert.deepEqual(type.phases.slice(1).filter((item) => item.clarification.mode === 'required').map((item) => item.id), [],
+      'only the first step of a shipped type requires clarification');
+  }
   assert.deepEqual(bugfix.phases.find((item) => item.id === 'verification').inputs.map((item) => item.phase), ['fix-spec', 'implementation']);
   assert.deepEqual(figmaMobile.phases.map((item) => item.id), ['design-intake', 'design-inventory', 'component-mapping', 'mobile-spec', 'implementation', 'visual-verification', 'conformance']);
   assert.deepEqual(figmaMobile.documents.allowedPhases, ['design-intake', 'design-inventory']);

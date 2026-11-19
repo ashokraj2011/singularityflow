@@ -7,7 +7,7 @@ import { copilotAction } from './copilot-guidance.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { consumedOpeningMismatch, versionNeed, versionNumbers } from './kernel/step-versions.mjs';
 import { versionProposal } from './story-version-proposal.mjs';
-import { ACTION_SKILLS, actionCommandLine } from './action-command-map.mjs';
+import { ACTION_SKILLS, actionCommandLine, reviewFindingsOpenCommand } from './action-command-map.mjs';
 
 const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AMENDMENT: 'amendment', AUTHOR_CONFLICT: 'author-conflict' });
 
@@ -58,6 +58,8 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
     const opened = versionNumbers(versionFactsOf(workflow, phase));
     const legacy = opened.ok && opened.writing > 1 && versionFactsOf(workflow, phase).opening?.record === 'legacy';
     if (opened.ok && (!deterministic || phaseRequiresCodeDelivery(phase)) && (legacy || (opened.writing === null && opened.published >= 1))) {
+      const settles = !legacy && review ? sourceReviewContinuation(workflow, phase, review) : null;
+      if (settles?.nextCommand === reviewFindingsOpenCommand(phase.id)) return { status: 'retained-generation', reason: 'review-findings-settle', actions: settles.actions };
       const route = legacy ? copilotAction({ command: actionCommandLine('open-version', 'preview', { step: phase.id }) }) : sourceReviewContinuation(workflow, phase).actions[0];
       return successorAsk(workflow, phase, { route, reason: legacy ? 'legacy-promotion' : NEED_REASONS[versionNeed(versionFactsOf(workflow, phase))] ?? 'requested-change' });
     }
@@ -69,6 +71,10 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
   if (continuation?.classification === 'successor-publication-required' && reviewAsksForCorrection(review)
       && continuation.nextCommand === actionCommandLine('open-version', 'preview', { step: phase.id })) {
     return successorAsk(workflow, phase, { route: continuation.actions[0], reason: 'review-corrections', findings: reviewCorrection(review, phase.generation)?.findings ?? [] });
+  }
+  // Only the reviewer saw the version: its next starts on its own (owner, 2026-11-19).
+  if (continuation?.classification === 'successor-publication-required' && continuation.nextCommand === reviewFindingsOpenCommand(phase.id)) {
+    return { status: 'retained-generation', reason: 'review-findings-settle', actions: continuation.actions };
   }
   if (continuation?.classification === 'successor-publication-required'
       && !phaseRequiresCodeDelivery(phase) && !deterministic

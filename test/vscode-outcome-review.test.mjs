@@ -76,11 +76,11 @@ test('the page\'s sign-off asks the three checklist items in plain words and run
     '--confirm', 'states-the-outcome', '--deny', 'matches-the-criterion', '--confirm', 'current-for-this-change', '--reason', 'Looked at the plot.', '--json']);
 });
 
-test('the post-code handoff is enabled by default without adopting an acceptance policy', () => {
+test('the post-code page opens only when asked: the chat says the outcome in one optional line (owner, 2026-11-19)', () => {
   const manifest = JSON.parse(readFileSync(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   const setting = manifest.contributes.configuration.properties['singularityFlow.outcomeReview.suggest'];
   assert.equal(setting.type, 'boolean');
-  assert.equal(setting.default, true, 'published code has a standard human handoff');
+  assert.equal(setting.default, false, 'no page opens by itself after each code version');
   assert.match(setting.description, /custom code phases/);
   assert.match(setting.description, /approval policies are unchanged/);
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.openOutcomeReview'));

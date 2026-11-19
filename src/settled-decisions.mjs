@@ -19,7 +19,7 @@ import { SingularityFlowError } from './util.mjs';
  * that recorded one before 2026-11-17; none is settled now: the author's own correction is asked like every successor
  * (owner, 2026-11-17) [D3, OSA:REQ-030].
  */
-export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction', 'node-version', 'test-command', 'plan-accounting']);
+export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction', 'node-version', 'test-command', 'plan-accounting', 'review-corrections']);
 const RETIRED_KINDS = Object.freeze(['own-correction']);
 const ID = /^STL-[0-9]{3,}$/u;
 const BY = Object.freeze(['agent', 'sflow']);
@@ -126,8 +126,11 @@ export function reraisedRoute(workflow, entry) {
   const list = { command: `singularity-flow decisions ${workId}`, copilotCommand: `/sf-decide ${workId}` };
   if (entry.kind === 'story-selection') return { words: 'The next /sf-session in this checkout lists the Stories and asks which one to open.',
     command: 'singularity-flow session open', copilotCommand: '/sf-session' };
-  if (entry.kind === 'own-correction') return { words: `The author asks you before it corrects ${step} again. The generation it opened stays open, and the one before it stays as published.`,
-    command: `singularity-flow phase show ${step} --work-id ${workId}`, copilotCommand: `/sf-phase-documents ${step}` };
+  // The review's findings on a version only its reviewer had seen (review-findings-opening.mjs): the version it opened stays.
+  if (['own-correction', 'review-corrections'].includes(entry.kind)) return { words: entry.kind === 'own-correction'
+    ? `The author asks you before it corrects ${step} again. The generation it opened stays open, and the one before it stays as published.`
+    : `SFlow asks you before it starts another version of ${step} for a review's findings. The version it opened stays open, and the one before it stays as published.`,
+  command: `singularity-flow phase show ${step} --work-id ${workId}`, copilotCommand: `/sf-phase-documents ${step}` };
   if (entry.kind === 'node-version') return { words: `Which Node ${step}'s tests run on is on the decision list again.`, ...list };
   if (entry.kind === 'test-command') return { words: `${entry.effect?.request ?? 'The requested test command'} waits for a person who approves ${step} on the decision list again.`, ...list };
   return { words: `${entry.effect?.path ?? 'The file'} is a question on the decision list again: say where it belongs.`, ...list };

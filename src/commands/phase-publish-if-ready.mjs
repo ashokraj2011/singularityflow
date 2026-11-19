@@ -46,17 +46,16 @@ export function personAuthoredPublication(argv) {
  * independent review hands the author's turn `reviewSubagent` (review-subagent.mjs): its reviewer starts as a
  * sub-agent in this chat, and its lifecycle route (the review in a new chat) stays the fallback.
  */
-export function afterPublication(published, shown, reviewSubagent = null) {
+export function afterPublication(published, shown, reviewSubagent = null, inTurnSubmit = null) {
   const route = nextAfterStep(shown, 'Published.');
   const lifecycle = reviewSubagent ? { ...route, instruction: `Published. ${reviewSubagent.instruction}` } : route;
+  // No review owed and its submission next: the author's turn submits it once, with no separate submit turn (owner, 2026-11-19).
+  const next = !reviewSubagent && inTurnSubmit ? { ...lifecycle, inTurn: inTurnSubmit } : lifecycle;
   const review = reviewSubagent ? { reviewSubagent } : {};
   const offer = published?.outcomeReview;
-  if (!offer) return { ...review, next: lifecycle };
-  return { outcomeReview: offer, afterReview: lifecycle, ...review, next: {
-    instruction: `Published. ${offer.instruction} Show this next action with its Copilot, Shell and VS Code (model-free) routes.`,
-    reason: offer.reason, commandGuidance: { command: offer.command, copilotCommand: offer.copilotCommand,
-      modelFreeCommand: offer.modelFreeCommand ?? null }
-  } };
+  if (!offer) return { ...review, next };
+  // The outcome review is one optional line beside the step's next action, never the next action or a question (owner, 2026-11-19).
+  return { outcomeReview: offer, afterReview: lifecycle, ...review, next };
 }
 
 /**
@@ -109,7 +108,12 @@ export async function run({ positionals, options }) {
   const shown = await step(['phase', 'show', phaseId, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');
   // First, with what follows: the prepublish fields after it describe the draft before publication.
-  const after = afterPublication(published.value, shown.value, await reviewerHandoff(shown.value, phaseId));
+  const reviewer = await reviewerHandoff(shown.value, phaseId);
+  // Its submission next, with no review owed: /sf-submit's own entry, which the author's turn runs (owner, 2026-11-19).
+  const submits = !reviewer && shown.value?.continuation?.nextSkill === '/sf-submit' && typeof shown.value?.workId === 'string'
+    ? { command: (await import('../action-command-map.mjs')).inTurnSubmitCommand(shown.value.workId), skill: shown.value.continuation.nextSkill,
+      reason: 'Submit the published version now, in the turn that wrote it.' } : null;
+  const after = afterPublication(published.value, shown.value, reviewer, submits);
   // What the findings loop let through is the person's to hear in this reply [CQF:REQ-043].
   if (published.value?.qualityFindings?.words && after.next?.instruction) {
     after.next = { ...after.next, instruction: `${after.next.instruction} Also say, as written: ${published.value.qualityFindings.words}` };

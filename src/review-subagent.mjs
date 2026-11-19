@@ -12,7 +12,7 @@
  * own. A sub-agent's task text never replaces the author's turn.
  *
  * The retained review returns to the author's turn: its status names the way on in the same chat (a correction
- * opens the step's next generation through the reviewed rollover; a ready review goes to submission). A host with
+ * opens the step's next generation through the reviewed rollover; a ready review is submitted in the same turn). A host with
  * no sub-agent tool runs the review in a new chat, as before. Nothing here decides for a person.
  */
 import { createHash } from 'node:crypto';
@@ -259,6 +259,7 @@ export function reviewDelegationAfter(payload, { failure = false } = {}) {
  */
 export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent, reviewerSha256 = null }) {
   if (!workId || !phase || !NAME.test(String(reviewerAgent ?? ''))) return null;
+  const next = generation + 1;
   const prompt = `/sf-review-source ${phase}`;
   const status = actionCommandLine('start-review', 'status', { step: phase, workId });
   const delegation = reviewDelegation({ workId, phase, generation, reviewerAgent, reviewerSha256 });
@@ -275,8 +276,10 @@ export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent
       // The author ended its turn on "/sf-phase" after a correction, leaving the person to start it again (Story anu-bin, 2026-11-11).
       // The person's yes starts the next version; asked in these words, a confirmed rollover is held to it (copilot-answer-binding.mjs).
       // Asked before its preview, the question came again after it, in the code step's own turn (Story new-ash-graph): one question, after the preview.
-      + `a correction: run the route's command first (a rollover preview), then show the person its findings and ask once with ask_user the preview's question, "Start version ${generation + 1} to fix the review's findings?" (Yes, No); on yes, run the confirmation it returns and correct the draft in this same turn, then prepublish; never end the turn on that route. `
-      + 'A ready review goes to submission. '
+      + `a correction: run the route's command first. With --review-findings (only the reviewer has seen this version) it starts version ${next} itself: say its one line and fix the findings in this same turn, asking nothing. `
+      + `Otherwise it is a rollover preview: show the person its findings and ask once with ask_user the preview's question, "Start version ${next} to fix the review's findings?" (Yes, No); on yes, run the confirmation it returns and correct the draft in this same turn, then prepublish; never end the turn on that route. `
+      // A ready review: no /sf-submit turn of its own (owner, 2026-11-19).
+      + 'A ready review: run its do.shell (the submission) once, here in this turn, never a separate submit turn; then end with the next step it returns. '
       + `No sub-agent tool: end with "Run this in a new chat:" and ${prompt}.`
   };
 }

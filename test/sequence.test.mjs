@@ -374,11 +374,12 @@ test('agent approval emits one bounded receipt; an already-approved phase never 
   const after = JSON.parse(await readFile(file, 'utf8'));
   assert.equal(after.phases.intake.status, 'approved');
   assert.equal(after.currentPhase, 'requirements');
-  // The clean-chat item names the next step's own command, the one VS Code's chat prefill puts in from submission
-  // readiness, never /sf-next beside it (owner, 2026-11-17).
+  // The next step's own command, the one VS Code's chat prefill puts in from submission readiness, never /sf-next beside
+  // it (owner, 2026-11-17), in the same chat: no /clear between steps (owner, 2026-11-19).
   const readiness = JSON.parse(flow(root, ['status', 'SEQ-1', '--submission-readiness', '--json']).stdout);
   assert.equal(readiness.nextSkill, '/sf-phase');
-  assert.deepEqual(receipt.contextBoundary?.commands, ['/clear', readiness.nextSkill]);
+  assert.equal(receipt.contextBoundary, undefined);
+  assert.deepEqual(receipt.nextStep, { copilotCommand: readiness.nextSkill, phase: 'requirements' });
   await writeFile(path.join(root, 'unrelated-human-draft.txt'), 'preserve this draft');
   const repeated = flow(root, ['approve', 'intake', '--yes', '--for-agent', '--json'], { allowFailure: true });
   assert.notEqual(repeated.status, 0);

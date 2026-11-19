@@ -56,7 +56,7 @@
     "never stop there.",
     "Code: Follow `testExecution.handoff`;",
     "Absent: relay `commands.next`, stop.",
-    "Document: Relay `handoff`'s `copilotCommand`/`command`."
+    "Then relay its `handoff` (`copilotCommand`/`command`)."
   ],
   "sflow-code-docs": [
     "Otherwise stop: this skill documents code steps only.",
@@ -232,8 +232,7 @@
     "If this chat already worked on an earlier phase, show its ordered `commandGuidance.copilotCommand` (`/clear`, then `/sf-phase`, or `/compact`, then `/sf-code`) and stop;"
   ],
   "sflow-outcome": [
-    "A summary alone is not the handoff.",
-    "Only after an explicit choice: run the selected returned app start/stop or tests route."
+    "Only when the person picks one: run the selected returned app start/stop or tests route."
   ],
   "sflow-phase": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
@@ -248,7 +247,7 @@
     "never stop there.",
     "Code: Follow `testExecution.handoff`;",
     "Absent: relay `commands.next`, stop.",
-    "Document: Relay `handoff`'s `copilotCommand`/`command`."
+    "Then relay its `handoff` (`copilotCommand`/`command`)."
   ],
   "sflow-phase-documents": [
     "Stop if its Story or phase differs from the selected session, policy is unverified, or a document reports an error.",
@@ -266,7 +265,7 @@
   "sflow-publish": [
     "mismatch: stop with the returned selection route.",
     "diagnose and use its exact author/owner handoff.",
-    "fallback hands off to the exact returned skill, since this publication-only turn never runs app/tests/configuration commands."
+    "a choice the person picks hands off to its exact returned skill, since this publication-only turn never runs app/tests/configuration commands."
   ],
   "sflow-push": [
     "`outcome-unknown` means stop: the remote could not be read, so another push is not authorized."

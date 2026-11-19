@@ -158,6 +158,15 @@ test('journey B: a code review asks for corrections, and version 2 is opened, fi
     assert.deepEqual(first.findings, [], report(first));
   });
   assert.equal(first.reached, true, `version 2 was never opened, even with the detour\n${report(first)}`);
+  // Only the reviewer had seen version 1: version 2 starts on its own in the author's turn, settled with an undo on the
+  // decisions card, and nobody is asked "Start version 2?" (owner, 2026-11-19, ceremony cut 10).
+  await check(t, 'only the reviewer had seen version 1, so version 2 started on its own, settled with an undo', {}, () => {
+    const record = storyRecord(story);
+    assert.equal(record.phases.implement.versionOpening?.consent?.surface, 'settled', JSON.stringify(record.phases.implement.versionOpening ?? null));
+    assert.ok((record.settledDecisions ?? []).some((entry) => entry.kind === 'review-corrections' && entry.phase === 'implement'), JSON.stringify(record.settledDecisions ?? null));
+    assert.ok(first.trail.some((entry) => /--review-findings/u.test(entry.ran ?? '')), report(first));
+    assert.ok(!first.trail.some((entry) => /Start version 2/u.test(entry.did ?? '')), report(first));
+  });
 
   // Incident 4: the entry to version 2 is held by nothing (fixed in e1574fa2d), and recovery right after the
   // rollover sends the code step to its author, never to a view of its documents.

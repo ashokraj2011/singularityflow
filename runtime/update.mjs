@@ -69,7 +69,19 @@ async function report(file, value) {
   } finally { await rm(temporary, { force: true }); }
 }
 
-export async function runUpdate(options, { environment = process.env, homeDirectory = os.homedir(),
+/** One run; a refusal before anything is staged is reported to VS Code's result file too, never left "running". */
+export async function runUpdate(options, dependencies = {}) {
+  try { return await updateOnce(options, dependencies); }
+  catch (error) {
+    if (!error.reported) {
+      await report(options.result, { status: 'failed', error: error.message, code: error.code ?? null,
+        sourceProblem: Boolean(error.sourceProblem), work: null }).catch(() => {});
+    }
+    throw error;
+  }
+}
+
+async function updateOnce(options, { environment = process.env, homeDirectory = os.homedir(),
   downloader = downloadPair, installer = installPackages, npmInstaller = installNpmGlobal, copier = copyLocalPair,
   detect = detectCliInstall, log = console.log, askSource = null } = {}) {
   const directory = updaterHome(environment, homeDirectory);
@@ -134,7 +146,7 @@ export async function runUpdate(options, { environment = process.env, homeDirect
       sourceProblem: Boolean(error.sourceProblem), work: empty ? null : work, route: plan.route }).catch(() => {});
     throw Object.assign(new Error(error.message + kept
       + '\nYour existing workspace and recovery files were preserved. Resolve the reported cause and run the updater again.', { cause: error }),
-    { code: error.code, sourceProblem: Boolean(error.sourceProblem), work: empty ? null : work });
+    { code: error.code, sourceProblem: Boolean(error.sourceProblem), work: empty ? null : work, reported: true });
   } finally { if (completed) await rm(work, { recursive: true, force: true }); }
 }
 

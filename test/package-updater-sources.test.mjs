@@ -172,6 +172,12 @@ test('an update from a folder saves the folder, keeps the link, and reports each
   const failed = JSON.parse(await readFile(result, 'utf8'));
   assert.deepEqual([failed.status, failed.code, failed.sourceProblem, failed.work], ['failed', 'SOURCE_NO_PACKAGES', true, null]);
   assert.deepEqual((await readdir(state)).sort(), ['source.json'], 'an empty stage is not kept');
+
+  // A refusal before anything is staged still ends the run in the result file, so VS Code never waits on it.
+  await assert.rejects(runUpdate({ result }, { ...dependencies, detect: () => ({ route: 'unsupported', code: 'CLI_LINKED_CHECKOUT',
+    reason: 'The SFlow CLI is linked to a source checkout.' }) }), /linked to a source checkout/);
+  const refused = JSON.parse(await readFile(result, 'utf8'));
+  assert.deepEqual([refused.status, refused.code, refused.error], ['failed', 'CLI_LINKED_CHECKOUT', 'The SFlow CLI is linked to a source checkout.']);
 });
 
 test('local HTTPS fixture: site page, organisation-only link, expired link, empty folder and mismatched pair', async t => {

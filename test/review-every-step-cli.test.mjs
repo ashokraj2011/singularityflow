@@ -151,9 +151,9 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   assert.ok(opened.value.requestedChange.requests.some((entry) => /^Correct what the review of version 1 found: .*explain-the-value/u.test(entry)),
     JSON.stringify(opened.value.requestedChange));
   assert.equal(opened.value.settled.kind, 'review-corrections');
-  const story = JSON.parse(await readFile(path.join(root, 'singularity/work-items/QF-1/workflow.json'), 'utf8'));
-  assert.equal(story.phases.implement.generationIntent.generation, 2);
-  assert.deepEqual(story.phases.implement.versionOpening.consent, { settled: opened.value.settled.id, surface: 'settled' });
+  const settledRecord = JSON.parse(await readFile(path.join(root, 'singularity/work-items/QF-1/workflow.json'), 'utf8'));
+  assert.equal(settledRecord.phases.implement.generationIntent.generation, 2);
+  assert.deepEqual(settledRecord.phases.implement.versionOpening.consent, { settled: opened.value.settled.id, surface: 'settled' });
   // Run again once version 2 is open, it opens nothing: the step's next action is writing it.
   assert.equal(refusal(sflowJson('phase', 'rollover', 'implement', '--review-findings')).code, 'GENERATION_ROLLOVER_UNAVAILABLE');
   // Version 2 is authored with the review of version 1 loaded, and its act says to fix each finding.

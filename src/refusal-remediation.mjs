@@ -20,6 +20,7 @@ import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 import { nearestNames, parseArgs } from './util.mjs';
 import { actionCommandLine, authorCommand, returnRoute, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { WORK_COMMANDS } from './command-skills.mjs';
+import { modelFreeCommandForArgv } from './model-free-commands.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -2136,7 +2137,11 @@ function decisionFamilyPlan(plan, error, argv) {
     entry.label ?? 'Follow the recovery action supplied by the refusing operation.', entry.command, 'remediation', entry.skill));
   const rest = plan.steps.filter((entry) => !GENERIC_STEP_IDS.has(entry.id) && !composedCommand(entry.command)
     && !(entry.id === 'open-decision-list' && entry.command === card.command));
-  return Object.freeze({ ...plan, steps: Object.freeze(deduplicate([card, ...own, ...rest])) });
+  // A decision the card does not record (a person's own terminal step) keeps its own filled retry first [PHR:REQ-006].
+  const same = modelFreeCommandForArgv(argv) ? null : explicitCommands(error).find((entry) => entry.argv?.[0] === argv[0] && entry.argv?.[1] === argv[1]);
+  const retry = same ? step('producer-retry', same.label ?? 'Follow the recovery action supplied by the refusing operation.', same.command, 'remediation', same.skill) : null;
+  // Recording the card's own list leads with its own way out; the card follows, never the same route first.
+  return Object.freeze({ ...plan, steps: Object.freeze(deduplicate(argv[0] === 'decisions' ? [...own, card, ...rest] : [retry, card, ...own, ...rest])) });
 }
 
 function remediationPlanFor(error, argv = []) {

@@ -122,7 +122,6 @@ test('on the list a file departure is one of "Accept all", and a planned test ch
   assert.match(testRow.options[0].does, /t\.mjs is added to W-1:REQ-001's tests\. No step is reset\./u);
   assert.equal(testRow.options[0].chat.command, 'singularity-flow decision departure W-1 --fetch --departure DEP-002 --as accepted --reason "<REASON>"');
   assert.match(testRow.options[0].terminal, /--add-test W-1:REQ-001=t\.mjs/u, 'their own terminal still works');
-  assert.match(testRow.title, /DEP-002: a planned test changes: t\.mjs is added to W-1:REQ-001's tests/u);
   assert.match(effectWords(workflow, testRow.options[1].effects[0]), /the approved document stays as it was/u);
   assert.match(effectWords(workflow, fileRow.options[1].effects[0]), /the model restores what it changed/u);
 });

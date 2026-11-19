@@ -209,8 +209,9 @@ function yesNoCommand([command, sub, third], options, version = null) {
   // clause and what it becomes, in this turn; never another yes, and no question records nothing.
   const corrections = PLAN_CORRECTION_FLAGS.flatMap((flag) => text(flag));
   if (command === 'decision' && sub === 'plan' && corrections.length) {
-    const names = [...new Set(corrections.flatMap((entry) => entry.split(/[=:,]/u)).map((word) => word.trim()).filter(Boolean)
-      .map((word) => (/^[A-Za-z0-9._-]+:[A-Za-z]{2,4}-\d{3}$/u.test(word) ? word.split(':').at(-1) : word)))];
+    // Each row by its short ID (AC-001) and what it becomes or names, as the question says them.
+    const names = [...new Set(corrections.flatMap((entry) => [entry.split('=')[0].split(':').at(-1), ...entry.split('=').slice(1).join('=').split(/[:,]/u)])
+      .map((word) => word.trim()).filter(Boolean))];
     return { records: 'yes', only: true, required: true, row: `plan correction ${names.join(' ')}`, names, yes: ['keep', 'keep it'], no: [] };
   }
   if (command === 'decision' && sub === 'plan' && (options['add-location'] !== undefined || options['add-supporting'] !== undefined)) {

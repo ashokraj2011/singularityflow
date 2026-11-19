@@ -1153,8 +1153,13 @@ test('a refused decision leads with the Decide card, then its own filled command
   assert.equal(blank.steps[0].command, 'singularity-flow decisions PAY-1');
   assert.equal(blank.steps.some((entry) => /<clause>/u.test(entry.command ?? '')), false);
   assert.equal(blank.steps.some((entry) => ['command-help', 'diagnose-repository', 'recommended-next'].includes(entry.id)), false);
-  // `decisions record` is a decision too; `decisions` that only reads the list keeps its own plan.
-  assert.equal(refusalRemediationPlan(refused('WORKSPACE_NOT_FOUND'), ['decisions', 'record', 'PAY-1', '--answers', 'a.json']).steps[0].command, 'singularity-flow decisions PAY-1');
+  // `decisions record` is a decision too, its own way out first and the card after it; `decisions` that only reads the list
+  // keeps its own plan.
+  assert.ok(refusalRemediationPlan(refused('WORKSPACE_NOT_FOUND'), ['decisions', 'record', 'PAY-1', '--answers', 'a.json']).steps.some((entry) => entry.command === 'singularity-flow decisions PAY-1'));
+  // A decision the card does not record keeps its own filled retry first [PHR:REQ-006].
+  const visual = refusalRemediationPlan(refused('DECISION_INPUT_INVALID', { recoveryCommand: 'singularity-flow decision visual-risk PAY-1 --comparison visual-x --expires 2099-01-01 --reason "<REASON>"' }),
+    ['decision', 'visual-risk', 'PAY-1', '--comparison', 'visual-x', '--expires', '2000-01-01', '--reason', 'x']);
+  assert.deepEqual(visual.steps.slice(0, 2).map((entry) => entry.command), ['singularity-flow decision visual-risk PAY-1 --comparison visual-x --expires 2099-01-01 --reason "<REASON>"', 'singularity-flow decisions PAY-1']);
   assert.notEqual(refusalRemediationPlan(refused('WORKSPACE_NOT_FOUND'), ['decisions', 'PAY-1']).steps[0].id, 'open-decision-list');
   // The model's own departure record is its step, not the card's.
   assert.notEqual(refusalRemediationPlan(refused('DEPARTURE_UNCHANGED'), ['departure', 'record', '--kind', 'path']).steps[0].id, 'open-decision-list');

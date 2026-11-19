@@ -65,9 +65,11 @@ test('a change the person asks for after Code is published opens generation 2 in
   const publication = JSON.parse(story.published);
   assert.equal(publication.applicationStart.declared, false);
   assert.match(publication.applicationStart.words, /has no saved start entry yet; \/sf-run-app suggest \(singularity-flow app suggest\) detects one, asks you which to keep and saves it on this checkout only/u);
+  // Asked only when an application is declared (owner, 2026-11-19, ceremony cut 8): nothing is asked, and the line stays in
+  // applicationStart.words for a view that shows it.
   const noApp = agentAct(publication);
   assert.equal(noApp.ask, undefined);
-  assert.match(noApp.said, /has no saved start entry yet/u);
+  assert.notEqual(noApp.state, 'ask-person');
 
   // Nothing asked for yet: rollover says how to ask, and Code is offered both ways after publication.
   const unasked = run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'implementation', '--json'], { allowFailure: true });
@@ -227,7 +229,7 @@ test('after Code is published with its tests passing, the person is asked once w
   const asked = JSON.parse(view);
   assert.equal(asked.act.state, 'ask-person');
   assert.deepEqual(asked.act.ask.choices.map((choice) => choice.label), ['Start the application', 'Not now']);
-  assert.match(Buffer.from(view).subarray(0, 400).toString('utf8'), /"ask":\{"kind":"choice","question":"[^"]*Start the application to try it now\?/u);
+  assert.match(Buffer.from(view).subarray(0, 400).toString('utf8'), /"ask":\{"kind":"choice","question":"Version 1 of Implementation passes its tests\. Start the application to try it\?/u);
   assert.match(view.trimEnd().split('\n').at(-1), /^"next":"ask-person: ask the person: .*\(Start the application \/ Not now\)"\}$/u);
   // Asked once: a later read goes on with the step and does not ask again.
   const later = JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout);

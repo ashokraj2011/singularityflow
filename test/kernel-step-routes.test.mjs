@@ -120,4 +120,7 @@ test('a POC Lite Story goes from its start to its end by its routes: every kerne
     assert.ok(publishedGeneration(record, phase) >= 1, phase);
   }
   assert.equal(walk.trail.some((entry) => /^\/sf-(?:resume|appeal)\b/u.test(entry.taking ?? '')), false, report(walk));
+  // A step nobody approves is submitted in the turn that wrote it, and completing it ends that turn: the next step starts in a
+  // new one, never in the same turn [decision 7; owner, 2026-11-19].
+  assert.ok(walk.trail.some((entry) => /--submit-if-ready/u.test(entry.ran ?? '') && entry.act === 'end-turn'), report(walk));
 });

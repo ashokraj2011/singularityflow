@@ -108,40 +108,50 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
       'bd3aef3d29f9c0ce631ce533eabb905cee1a6ab20f52f8135b4aaf1b6cd6c3d4'
     ]),
     intake: Object.freeze(['9fc6c2cd2343e20f069ff01dbefadcba65584f1d29ed21a74a7ef4899bf89629', 'f8d4857dff76ed804794c43496adc841113bb89e13a2ae6a28182396777cc8ac']),
-    requirements: Object.freeze(['360a64821e529395e9ba85bf6d80270ca16562323f7fa535494c6719616d44b1', '2d6d5be32c33763f982421fb4072040f6ef8f94d8310afb69c5787fe3c72b0fc']),
-    design: Object.freeze(['f7ee1f2db131d69f8b8bdca489722ec0142daee15e7bcab4cd2e69e1d2b6ab32', '07de52089a44ac8a5716ea916cd879d71c1fc60298058c85ad66bee1698a0877']),
+    requirements: Object.freeze(['360a64821e529395e9ba85bf6d80270ca16562323f7fa535494c6719616d44b1', '2d6d5be32c33763f982421fb4072040f6ef8f94d8310afb69c5787fe3c72b0fc', '77d4d3c86d39421019846caf252ae80b8242cfcb0e5c7886116164306715f973']),
+    design: Object.freeze(['f7ee1f2db131d69f8b8bdca489722ec0142daee15e7bcab4cd2e69e1d2b6ab32', '07de52089a44ac8a5716ea916cd879d71c1fc60298058c85ad66bee1698a0877', 'cb2603200e89e62c719c5c31d031ee6234572b52f2b3dffae2317ff410b513a8']),
     'implementation-spec': Object.freeze([
       'b7c27b6097c2528a43e6b7b3ca46abee330616dbc38446117568d4b4fa887a98',
       '10fd283a42cffb449fa1c31c3d0feedc713cdcef6286c16b56d50aec407a3dca',
       // Before broader return routes (2026-10-12).
-      '56f8cd7bd70d104ae689c952446b1ba54c188c25eda4a4f9de6d7a4cb2c49637'
+      '56f8cd7bd70d104ae689c952446b1ba54c188c25eda4a4f9de6d7a4cb2c49637',
+      // Before clarification was required only at a Story's intake (2026-11-19).
+      '18e7c92857df911b40df1635ff6edd882a247b9e9adbfd1183e83f188b0c122f'
     ]),
-    reproduction: Object.freeze(['493668d016cd6d280c31011fcccfad2017b2931a8bd5871acaccf561efc1063b', 'cb404fb39200c909784cdc079818dbac7c34a3c06c0c2630d2256e6c492bac60']),
+    reproduction: Object.freeze(['493668d016cd6d280c31011fcccfad2017b2931a8bd5871acaccf561efc1063b', 'cb404fb39200c909784cdc079818dbac7c34a3c06c0c2630d2256e6c492bac60', '16fa17c5cc2287afbf1fdb193e6f06f9fe643d504fcd0b19bdefa6ea56355bde']),
     'fix-design': Object.freeze([
       '738a2da6b1a6777785f500055715c2474ab9ebc20904d120e3f864916a61ecfe',
       '49ce60f68b88deef9b910986f10d18db062f44789931966793aa71835908335e',
       // Before broader return routes (2026-10-12).
-      '1085cd2472104e4342ac0b13db4b44087004a7a6742bf15f63646806319ca93b'
+      '1085cd2472104e4342ac0b13db4b44087004a7a6742bf15f63646806319ca93b',
+      // Before clarification was required only at a Story's intake (2026-11-19).
+      'e83731ee5e8c1514565cc3403edb3f47895bb44c94d599a802e648df321f0505'
     ]),
     'fix-spec': Object.freeze([
       '6716d50536dccfa1ca58e5f85e4ce9a21f1c95d183397546645bb6156074768d',
       '05f34619ab79a6120d58263eb68d486e51007d7e8e6ecd95caaf6723dff3b9a8',
       // Before broader return routes (2026-10-12).
-      'ae226973c098930cff207afd51f304f466272abdb0d6c428eac562279ec062f1'
+      'ae226973c098930cff207afd51f304f466272abdb0d6c428eac562279ec062f1',
+      // Before clarification was required only at a Story's intake (2026-11-19).
+      '9e87a5dd8747c5a9c903174d5e12f6fde408f96e618bbcef4d06f670fb79ec7d'
     ]),
     'design-intake': Object.freeze(['c627e7856b5c077ac9b6f2395623d0ab440ab9ad02a2a2f983679830968719e1', '8d4ea22f7de43c62327e15dfcb1d37b99dcc4365c96df5e6b68db8bb46b4ac37']),
-    'design-inventory': Object.freeze(['abd5671883bb6f98ea452790bfdc05b56d826d667055fbe24d9f7a61405a2d3c', 'e5d6cf67658f350b900f5eb6fcfcc7bab0a286da2184e0aa100aa801dd70c20f']),
+    'design-inventory': Object.freeze(['abd5671883bb6f98ea452790bfdc05b56d826d667055fbe24d9f7a61405a2d3c', 'e5d6cf67658f350b900f5eb6fcfcc7bab0a286da2184e0aa100aa801dd70c20f', '55446faa95100fb42cdb4caea8f98bea68c779af06b1af70566f404e425432f8']),
     'component-mapping': Object.freeze([
       '35e812770061284af78d1c9bac956ced7f331ca184cb4bea7f3ca04d7f9c95eb',
       '7e23844a21b566e3c79568613659157586f210826a930e1176950b2f5c85ddd0',
       // Before broader return routes (2026-10-12).
-      '506e87791b83675dec4c2e54e6b950def9144c1d667a194a72bebccd9ca00f29'
+      '506e87791b83675dec4c2e54e6b950def9144c1d667a194a72bebccd9ca00f29',
+      // Before clarification was required only at a Story's intake (2026-11-19).
+      '7d2062e3711ecd9b0eca34f58317a8ad74efbaeb6bf8b4e1c1bf36e8de6e064e'
     ]),
     'mobile-spec': Object.freeze([
       'ca57cd0f5fe383e0f86eb1fcfc30feb18bb0454ef42d17a1eda8ae59565759a0',
       '9b3a14f1f8cbe29965845546967a3122dc560b17419b395628749a1df874da4e',
       // Before broader return routes (2026-10-12).
-      '4ecd5cf51485d28136f4ac819b091242b0de8f4fc2fb6657814cd4d100356460'
+      '4ecd5cf51485d28136f4ac819b091242b0de8f4fc2fb6657814cd4d100356460',
+      // Before clarification was required only at a Story's intake (2026-11-19).
+      '4f1831c530c0ad7b6df0cd3a1c4300fb21a765a71d3eb68178faf2bcc29a6f0a'
     ]),
     implementation: Object.freeze(['ac65a5896a978d4bb4fafacb3e88770f63d548dc736608a0872ef80b2a42d0dc', '36d1474a044734c2a03ddb3295b152b282159f693807dda91786022e0d91a7e2']),
     verification: Object.freeze([
@@ -298,20 +308,20 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'demo-web-check': 'dd3b828027bc70a9501a9ac0931958667f4664511a62f4d33bd829effb94bd19',
     'demo-web-repair': 'fd73ce3858ad7522d40e15a6a3d2d03a42d1e71ac17fcedbaeb89b8a808103c1',
     'demo-web-retest': '35fde1ffb133547a031c995504ad3881ca60eb8d10eebabda44121fe442a4b62',
-    'component-mapping': '7d2062e3711ecd9b0eca34f58317a8ad74efbaeb6bf8b4e1c1bf36e8de6e064e',
+    'component-mapping': 'd418bdfa5cc56ea3cba624ed8019c1e9348ec2e7456634b4c6746ae26264a584',
     conformance: '8aebfffa8ed9c22fa75a2e69800f73db16a7ca6b53ed02e60a14646b52736b73',
     convergence: '00d346ea1b8dfca976e2aac2f6b8a7cabd17b6e31b40dd3c3826d1d952daeaed',
-    design: 'cb2603200e89e62c719c5c31d031ee6234572b52f2b3dffae2317ff410b513a8',
+    design: '4ea4ca5882e847a14c9a70ae2df1e7bfba75287c2a611a96f03fa73a4a77ca34',
     'design-intake': 'e4d0371c1c702461dddb8f25d3f93295dc895be412324aac28d93edf39de47ae',
-    'design-inventory': '55446faa95100fb42cdb4caea8f98bea68c779af06b1af70566f404e425432f8',
+    'design-inventory': '00e2265bad948db2bc7c1f9b629814bf954b2c3e321d07a64dc696c10fcc4117',
     'document-intake': '2bce3e0ff60252660b3514153296a55c36f9ac3e1dfaa7cdf51259845f8500d1',
-    'fix-design': 'e83731ee5e8c1514565cc3403edb3f47895bb44c94d599a802e648df321f0505',
-    'fix-spec': '9e87a5dd8747c5a9c903174d5e12f6fde408f96e618bbcef4d06f670fb79ec7d',
+    'fix-design': '75a11314627f861c845d0556048de55d7cf6f3c524ffca7045299bddd28b3f82',
+    'fix-spec': '19a5e378212dcb1a642f339781b2d1a63e4e79556b4640d73eef549fbb7df6b8',
     implement: '2d1991614f6090ee1fa4c97c88ae67a158cf93bda49650308766fe181c2b55d8',
     implementation: '8391515ef54d176c0214f747c343f1e0edacf9b840a94e01ca450ea1106402e9',
-    'implementation-spec': '18e7c92857df911b40df1635ff6edd882a247b9e9adbfd1183e83f188b0c122f',
+    'implementation-spec': 'dcb397a2b8b6c8df579dd45569cbcdf24d2b07b7d41aaf4a3f946f01c22232f7',
     intake: '3a7cdbe743b19870d809c4510a1ebdb0d9c7b49587f90f113453f46172e14933',
-    'mobile-spec': '4f1831c530c0ad7b6df0cd3a1c4300fb21a765a71d3eb68178faf2bcc29a6f0a',
+    'mobile-spec': 'e9629def6632cf242000278d9d2eb80081809e712303410363f33fae895ccdcf',
     planning: 'a588b38f249f6faf6b2a4334f6467c640b38eebceba39586dafd25805082b376',
     'poc-impact-analysis': 'e722954583c0fa43793052d8ac020fc08b384f5d8a4400a96252c9c98a0021aa',
     'poc-intake': '44a071bdc3aede9203b26aa55ba77be32879f8339b008300ab0727e8ee188cd4',
@@ -324,8 +334,8 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'poc-ui-exploration': '7ee802db5756bbedcda38384c9f069d5318565af036e9b78feba6d75b1898668',
     'poc-validation': '63a304a682b7f426e60ca560449531b707ee7448ead839512d1403a044c8e8c2',
     release: '1619c2b5da0081e1412a8989abdc2f13aff4599424bafff3b8d2fd30dddf5d94',
-    reproduction: '16fa17c5cc2287afbf1fdb193e6f06f9fe643d504fcd0b19bdefa6ea56355bde',
-    requirements: '77d4d3c86d39421019846caf252ae80b8242cfcb0e5c7886116164306715f973',
+    reproduction: 'bc21cfb570542e87db5358ced1c82e8f88c3efb13102ee4f8859522e5536dfc4',
+    requirements: '9f49f6ad7d3da48dbc73f252c060b834c5d919a3d1dd436371a5584ac54c7a9a',
     'scenario-check': '866e2fe7588272b2b7ef1132c37e8a36cecb4947419b733889a919ff5ee03f17',
     'scenario-repair': 'cf0575cfaedb47919f13f239d55a9c6508c70086508e6b60a4df659bf3996e55',
     'scenario-retest': '57decaee448ea9be8ab55b625aaa38f323b5c27797cc1336cbd7b9d177592de3',

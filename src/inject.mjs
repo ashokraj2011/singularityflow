@@ -343,8 +343,9 @@ async function validateTokenReductionGenerationReceipt(value, text, workflow, ph
       && receipt.subject.repositoryDomainSha256 !== expectedRepository) {
     differences.push('repositoryDomainSha256');
   }
-  const expectedTokenEconomyPolicy = workflow.resolution?.tokenEconomy
-    ? `sha256:${tokenEconomyDigest(workflow.resolution.tokenEconomy)}` : null;
+  const expectedTokenEconomyPolicy =
+    workflow.resolution?.tokenEconomy
+      ? `sha256:${tokenEconomyDigest(workflow.resolution.tokenEconomy)}` : null;
   if (expectedTokenEconomyPolicy
       && receipt.authority.tokenEconomyPolicySha256 !== expectedTokenEconomyPolicy) {
     differences.push('tokenEconomyPolicySha256');

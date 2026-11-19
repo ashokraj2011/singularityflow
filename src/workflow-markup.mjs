@@ -454,10 +454,11 @@ async function reviewDesign(root, resolved, definition, phaseAgents, { inspectPh
       { fetchImpl: async () => { throw new Error('Design inspection cannot fetch remote resources.'); } });
     const text = [withoutAttachedSkills(agent.prompt).trim(), guidance.text].filter(Boolean).join('\n\n');
     const instructions = [...new Map(guidance.skills.flatMap(skill => skill.referencedInstructions ?? []).map(item => [item.id, { id: item.id, label: item.label, sha256: item.sha256 }])).values()];
+    const estimateNote = 'Approximate characters / 4, not measured provider tokens; excludes runtime context.';
     result.inspection = { phase: phase.id, agent: { id: agent.id, description: agent.description, tools: agent.tools, sha256: agent.sha256, worldModelViews: agent.worldModelViews },
       skills: guidance.skills.map(skill => ({ id: skill.id, label: skill.label, sha256: skill.sha256, loading: skill.loading, use: skill.use, scopes: skill.scopes, instructionRefs: skill.instructionRefs })),
       instructions, representation: 'static-expanded-guidance', runtimeContextIncluded: false,
-      bytes: Buffer.byteLength(text), estimatedTokens: Math.ceil(text.length / 4), tokenEstimate: 'Approximate characters / 4, not measured provider tokens; excludes runtime context.',
+      bytes: Buffer.byteLength(text), estimatedTokens: Math.ceil(text.length / 4), tokenEstimate: estimateNote,
       sha256: digest(text), text: Buffer.byteLength(text) <= 256 * 1024 ? text : null,
       display: Buffer.byteLength(text) <= 256 * 1024 ? 'complete' : 'over-display-limit', warnings: guidance.warnings };
   }

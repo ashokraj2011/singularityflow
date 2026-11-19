@@ -189,7 +189,8 @@ async function publishReview(root, config, workflow, { record, authority, planDi
     payload: { planDigest, record: reference(record), agreementSha256: record.agreementSha256 ?? record.recordSha256 }
   }, `Record Story test risk ${action} for ${workflow.workItem.id}`, async (current) => {
     const freshAuthority = await refresh(current);
-    const witness = await consumeTrpAuthority(root, { record, ...(freshAuthority ?? authority), review, token: authorization.token });
+    const nonce = authorization.token;
+    const witness = await consumeTrpAuthority(root, { record, ...(freshAuthority ?? authority), review, token: nonce });
     const workRoot = workDir(root, config, current.workItem.id);
     await appendTrpRecord(workRoot, record);
     const saved = await appendTrpAuthorityReceipt(workRoot, witness);

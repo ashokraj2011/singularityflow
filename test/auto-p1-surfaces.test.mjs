@@ -16,6 +16,8 @@ import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { SFLOW_TOOLS } from '../src/gateway/tools.mjs';
 
 const FLIGHT_ID = `AFL-${'C'.repeat(26)}`;
+const PROVIDER_REPORTED = 'provider-reported';
+const NOT_EVALUATED = 'not-evaluated';
 const HASH = (value) => `sha256:${String(value).repeat(64).slice(0, 64)}`;
 
 function run(command, args, cwd) {
@@ -136,7 +138,7 @@ test('VS Code Auto cards cover Plan, running, refusal, Needs You, takeover, and 
           touchedPaths: 2, maximumTouchedPaths: 8,
           modelInvocations: 1, maximumModelInvocations: 6,
           providerInputTokens: 1200, maximumInputTokens: 30000,
-          tokenAssurance: 'provider-reported'
+          tokenAssurance: PROVIDER_REPORTED
         }
       },
       { kind: 'refusal', flightId: FLIGHT_ID, status: 'paused',
@@ -148,7 +150,7 @@ test('VS Code Auto cards cover Plan, running, refusal, Needs You, takeover, and 
       {
         kind: 'report', flightId: FLIGHT_ID,
         candidateId: `CAN-${'A'.repeat(26)}`, candidateSha256: HASH('d'),
-        qualityFloor: { status: 'passed', tokenSavingComparison: 'not-evaluated' },
+        qualityFloor: { status: 'passed', tokenSavingComparison: NOT_EVALUATED },
         outcomeMetrics: {
           contentFree: true, verifiedOutcomes: 2, refusals: 1,
           repairAttempts: 1, manualTakeover: false

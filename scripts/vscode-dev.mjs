@@ -731,11 +731,11 @@ const VSCE_PUBLISH_LOCK_TIMEOUT_MS = 60_000;
  */
 async function acquireVscePublishLock(rootDir, generationName) {
   const lockPath = path.join(rootDir, `${generationName}.publish-lock`);
-  const token = randomUUID();
-  const ownerName = `${generationName}.publish-owner-${process.pid}-${token}`;
+  const nonce = randomUUID();
+  const ownerName = `${generationName}.publish-owner-${process.pid}-${nonce}`;
   const ownerPath = path.join(rootDir, ownerName);
   await writeFile(ownerPath, `${JSON.stringify({
-    pid: process.pid, token, ownerName, createdAt: Date.now()
+    pid: process.pid, token: nonce, ownerName, createdAt: Date.now()
   })}\n`, { flag: 'wx', mode: 0o600 });
   const deadline = Date.now() + VSCE_PUBLISH_LOCK_TIMEOUT_MS;
   try {
@@ -745,7 +745,7 @@ async function acquireVscePublishLock(rootDir, generationName) {
         return async () => {
           try {
             const owner = JSON.parse(await readFile(lockPath, 'utf8'));
-            if (owner.token === token) await rm(lockPath, { force: true });
+            if (owner.token === nonce) await rm(lockPath, { force: true });
           } catch (error) {
             if (error?.code !== 'ENOENT') throw error;
           } finally {

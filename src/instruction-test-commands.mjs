@@ -184,7 +184,7 @@ function literalVariables(variables) {
     env[name] = String(value);
   }
   if (secrets.length) {
-    notes.push(`${secrets.join(', ')} ${secrets.length === 1 ? 'looks' : 'look'} like ${secrets.length === 1 ? 'a secret' : 'secrets'}, so the value was not read: `
+    notes.push(`${secrets.join(', ')} ${secrets.length === 1 ? 'looks' : 'look'} like ${secrets.length !== 1 ? 'secrets' : 'a secret'}, so the value was not read: `
       + `declare ${secrets.length === 1 ? 'it' : 'them'} as a secret in ${ENVIRONMENT_DECLARATION_PATH}, bind it on the machine that runs the tests, and link this command to that environment.`);
   }
   return { env, secrets, notes };

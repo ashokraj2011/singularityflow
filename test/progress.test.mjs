@@ -89,13 +89,14 @@ test('progress bar still clamps values for deterministic percentage display', ()
 });
 
 test('progress Markdown renders a Copilot-ready summary, journey, and phase table', () => {
+  const PARTIAL = 'partial';
   const markdown = progressMarkdown({
     workId: 'WORK-42', workType: 'feature', status: 'in_progress', currentPhase: 'design',
     currentPosition: 2, approvedPhases: 1, totalPhases: 3, percentage: 33, documents: 4,
     tokens: { totalTokens: 1250, exactRecords: 2, unavailableRecords: 1 },
     phases: [
       { index: 1, id: 'requirements', label: 'Requirements', status: 'approved', generation: 1, approvals: 1, approvalsRequired: 1, tokens: 1000, tokenStatus: 'exact' },
-      { index: 2, id: 'design', label: 'Design', status: 'in_progress', generation: 2, approvals: 0, approvalsRequired: 1, tokens: 250, tokenStatus: 'partial' },
+      { index: 2, id: 'design', label: 'Design', status: 'in_progress', generation: 2, approvals: 0, approvalsRequired: 1, tokens: 250, tokenStatus: PARTIAL },
       { index: 3, id: 'implementation', label: 'Implementation', status: 'not_started', generation: 0, approvals: 0, approvalsRequired: 1, tokens: 0, tokenStatus: 'none' }
     ]
   });

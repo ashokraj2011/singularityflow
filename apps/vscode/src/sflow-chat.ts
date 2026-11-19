@@ -133,13 +133,13 @@ const attachmentListKey = (active: { editorRoot: string; workId: string; phaseId
 
 async function statusChatAttachments(
   stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
+  cancel: vscode.CancellationToken,
   context: vscode.ExtensionContext,
   getCurrentWork: () => CurrentWork
 ): Promise<void> {
   try {
     const active = await activeAttachmentSession(context, getCurrentWork);
-    if (token.isCancellationRequested) return;
+    if (cancel.isCancellationRequested) return;
     const envelope = await active.client.run<{
       subject?: { kind?: string; id?: string };
       outcome?: { slots?: { phaseId?: string } };
@@ -147,7 +147,7 @@ async function statusChatAttachments(
     }>([
       'revision', 'attachments', 'status', '--json'
     ]);
-    if (token.isCancellationRequested) return;
+    if (cancel.isCancellationRequested) return;
     const sets = chatAttachmentStatusSets(envelope.data?.sets);
     if (!sets || envelope.subject?.kind !== 'story' || envelope.subject.id !== active.workId
         || envelope.outcome?.slots?.phaseId !== active.phaseId) {
@@ -169,14 +169,14 @@ async function statusChatAttachments(
 async function previewChatAttachmentRemoval(
   target: { attachmentSetSha256: string } | { setNumber: number },
   stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
+  cancel: vscode.CancellationToken,
   context: vscode.ExtensionContext,
   getCurrentWork: () => CurrentWork,
   removals: ChatAttachmentRemovals
 ): Promise<void> {
   try {
     const active = await activeAttachmentSession(context, getCurrentWork);
-    if (token.isCancellationRequested) return;
+    if (cancel.isCancellationRequested) return;
     const listed = 'setNumber' in target ? listedAttachmentSets.get(attachmentListKey(active))?.[target.setNumber - 1] : null;
     if ('setNumber' in target && !listed) {
       stream.markdown(`Set ${target.setNumber} is not on the last attachment list for ${safeMarkdown(active.workId)} / ${safeMarkdown(active.phaseId)}. Run \`@sflow /attachments status\` and use a number from it. No attachment set was changed.\n`);
@@ -189,7 +189,7 @@ async function previewChatAttachmentRemoval(
     }>([
       'revision', 'attachments', 'remove-preview', '--attachment-set', attachmentSetSha256, '--json'
     ]);
-    if (token.isCancellationRequested) return;
+    if (cancel.isCancellationRequested) return;
     const plan = envelope.data?.plan;
     if (envelope.data?.registeredEvidencePreserved !== true
         || !matchesChatRemovalPlan(plan, {
@@ -268,7 +268,7 @@ async function removeChatAttachment(
 async function previewChatAttachment(
   request: vscode.ChatRequest,
   stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
+  cancel: vscode.CancellationToken,
   context: vscode.ExtensionContext,
   getCurrentWork: () => CurrentWork,
   confirmations: ChatAttachmentConfirmations
@@ -301,7 +301,7 @@ async function previewChatAttachment(
     const session = await client.run<{
       ready?: boolean; repositoryPath?: string; workId?: string; phase?: string; status?: string;
     }>(['session', 'current', '--json']);
-    if (token.isCancellationRequested) return;
+    if (cancel.isCancellationRequested) return;
     const [editorRoot, sessionRoot] = await Promise.all([
       realpath(active.root), session.repositoryPath ? realpath(session.repositoryPath) : Promise.resolve(null)
     ]);
@@ -319,7 +319,7 @@ async function previewChatAttachment(
       'revision', 'attachments', 'preview', ...sourceArgs,
       '--feedback-stdin', '--json'
     ], input.feedback);
-    if (token.isCancellationRequested) return;
+    if (cancel.isCancellationRequested) return;
     const preview = envelope.data?.preview;
     const attachments = preview?.attachments;
     const planId = envelope.data?.planId;
@@ -617,7 +617,7 @@ async function handleChatRevision(
   prompt: string,
   referenceCount: number,
   stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
+  cancel: vscode.CancellationToken,
   context: vscode.ExtensionContext,
   getCurrentWork: () => CurrentWork
 ): Promise<'resolved' | 'unavailable'> {
@@ -663,7 +663,7 @@ async function handleChatRevision(
     return 'resolved';
   }
 
-  const cancellation = chatAbortSignal(token);
+  const cancellation = chatAbortSignal(cancel);
   try {
     const active = await activeAttachmentSession(context, getCurrentWork, cancellation.signal);
     const argv = ['revision', action.kind];
@@ -675,7 +675,7 @@ async function handleChatRevision(
     }
     stream.progress(`Reading model-free revision ${action.kind}…`);
     const value = await active.client.run(argv, cancellation.signal);
-    if (token.isCancellationRequested) return 'resolved';
+    if (cancel.isCancellationRequested) return 'resolved';
     stream.markdown(renderRevisionInspection(value, action.kind, intervalId));
     const shell = `singularity-flow ${argv.join(' ')}`;
     stream.markdown(routeMarkdown({ command: shell }));
@@ -826,7 +826,7 @@ function renderRevisionChecksRoutes(
 async function handleChatRevisionChecks(
   prompt: string,
   stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
+  cancel: vscode.CancellationToken,
   context: vscode.ExtensionContext,
   getCurrentWork: () => CurrentWork
 ): Promise<'resolved' | 'unavailable'> {
@@ -844,7 +844,7 @@ async function handleChatRevisionChecks(
     renderRevisionChecksRoutes(stream, routes);
     return 'resolved';
   }
-  const cancellation = chatAbortSignal(token);
+  const cancellation = chatAbortSignal(cancel);
   try {
     let client: SingularityFlowClient;
     if (action.kind === 'capabilities') client = revisionChecksClient(context);
@@ -854,7 +854,7 @@ async function handleChatRevisionChecks(
     }
     stream.progress(`Reading model-free browser revision-check ${action.kind}…`);
     const value = await client.run(routes.argv, cancellation.signal);
-    if (token.isCancellationRequested) return 'resolved';
+    if (cancel.isCancellationRequested) return 'resolved';
     stream.markdown(renderRevisionChecksRead(value, action.kind));
     renderRevisionChecksRoutes(stream, routes);
     return 'resolved';
@@ -933,10 +933,10 @@ function participantClient(context: vscode.ExtensionContext): SingularityFlowCli
   });
 }
 
-function chatAbortSignal(token: vscode.CancellationToken): { signal: AbortSignal; dispose: () => void } {
+function chatAbortSignal(cancel: vscode.CancellationToken): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController();
-  if (token.isCancellationRequested) controller.abort();
-  const subscription = token.onCancellationRequested?.(() => controller.abort());
+  if (cancel.isCancellationRequested) controller.abort();
+  const subscription = cancel.onCancellationRequested?.(() => controller.abort());
   return { signal: controller.signal, dispose: () => subscription?.dispose() };
 }
 
@@ -1207,12 +1207,12 @@ async function executeParticipantCommand(
   command: ParticipantCommandDefinition,
   prompt: string,
   stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
+  cancel: vscode.CancellationToken,
   context: vscode.ExtensionContext,
   getCurrentWork: () => CurrentWork
 ): Promise<SflowChatMetadata> {
   const startedAt = Date.now();
-  const cancellation = chatAbortSignal(token);
+  const cancellation = chatAbortSignal(cancel);
   let rendered: ParticipantRendered;
   let outcome: 'resolved' | 'unavailable' = 'resolved';
   try {
@@ -1237,7 +1237,7 @@ async function executeParticipantCommand(
     const value = command.transport === 'cli-text'
       ? await client.runText(argv, { signal: cancellation.signal })
       : await client.run(argv, cancellation.signal);
-    if (token.isCancellationRequested) return {
+    if (cancel.isCancellationRequested) return {
       intent: 'command-discovery', topicId: command.id, followups: []
     };
     rendered = renderParticipantResult(command, value, phaseId);

@@ -10,7 +10,8 @@ import path from 'node:path';
 import { inventedValue, inventedJwt, base64url } from './invented-secrets.mjs';
 
 /** Fake secrets of every shape the reader must never copy. */
-export const FAKE_SECRETS = Object.freeze({
+export const FAKE_SECRETS =
+  Object.freeze({
   dbPassword: inventedValue('Fake-Db-Pa', 'ssw0rd-1729'),
   jvmPassword: inventedValue('Jvm-Inline-', 'Secret-4242'),
   awsKey: inventedValue('AK', 'IAIOSFODNN7EXAMPLE'),
@@ -23,6 +24,7 @@ export const FAKE_SECRETS = Object.freeze({
   vscodeToken: inventedValue('vsc-fake-t', 'oken-24601'),
   launchSecret: inventedValue('Lnch-Fake-Secr', 'et-Profile-8080')
 });
+const { djangoKey } = FAKE_SECRETS;
 
 const xml = (configurations) => `<component name="ProjectRunConfigurationManager">\n${configurations}\n</component>\n`;
 const envs = (pairs) => `    <envs>\n${Object.entries(pairs).map(([name, value]) => `      <env name="${name}" value="${value}" />`).join('\n')}\n    </envs>`;
@@ -40,7 +42,7 @@ export const SPRING_POM = `<?xml version="1.0" encoding="UTF-8"?>
 </project>
 `;
 
-export function springBootRun(name, profile, { password = FAKE_SECRETS.dbPassword } = {}) {
+export function springBootRun(name, profile, { password: dbValue = FAKE_SECRETS.dbPassword } = {}) {
   return xml(`  <configuration default="false" name="${name}" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
     <option name="ACTIVE_PROFILES" value="${profile}" />
     <module name="api" />
@@ -48,7 +50,7 @@ export function springBootRun(name, profile, { password = FAKE_SECRETS.dbPasswor
     <option name="VM_PARAMETERS" value="-Xmx1g -Dspring.datasource.password=${FAKE_SECRETS.jvmPassword} -Dfile.encoding=UTF-8" />
     <option name="PROGRAM_PARAMETERS" value="--server.port=8081 --feature.flags=&quot;a b&quot;" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/services/api" />
-${envs({ DB_PASSWORD: password, SPRING_DATASOURCE_URL: 'jdbc:postgresql://localhost:5432/shop', AWS_ACCESS_KEY_ID: FAKE_SECRETS.awsKey,
+${envs({ DB_PASSWORD: dbValue, SPRING_DATASOURCE_URL: 'jdbc:postgresql://localhost:5432/shop', AWS_ACCESS_KEY_ID: FAKE_SECRETS.awsKey,
     STORAGE_SIGNING: FAKE_SECRETS.awsSecret, CATALOG_URL: `http://127.0.0.1:9000/${profile}` })}
     <method v="2"><option name="Make" enabled="true" /></method>
   </configuration>`);
@@ -140,7 +142,7 @@ export const PYCHARM_DJANGO = xml(`  <configuration default="false" name="Back o
     <module name="backoffice" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
-${envs({ PYTHONUNBUFFERED: '1', DJANGO_SETTINGS_MODULE: 'backoffice.settings.local', SECRET_KEY: FAKE_SECRETS.djangoKey })}
+${envs({ PYTHONUNBUFFERED: '1', DJANGO_SETTINGS_MODULE: 'backoffice.settings.local', SECRET_KEY: djangoKey })}
     <option name="SDK_HOME" value="/Users/someone/.pyenv/versions/3.12.4/bin/python" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/services/backoffice" />
     <option name="IS_MODULE_SDK" value="false" />

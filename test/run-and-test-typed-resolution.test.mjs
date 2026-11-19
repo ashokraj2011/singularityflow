@@ -239,18 +239,18 @@ test('env and argument fields refuse reserved variables and anything that looks 
     assert.deepEqual(fields({ env: { [name]: 'x' } }), [`env.${name}`], name);
   }
   assert.match(errors(base({ env: { PATH: '/bin' } }))[0].message, /reserved names are refused/u);
-  const secretWords = /looks like it carries a secret; capabilities\.yml never holds one\. Declare it as a secret in singularity\/environments\.yml, bind it with env bind/u;
+  const refusalWords = /looks like it carries a secret; capabilities\.yml never holds one\. Declare it as a secret in singularity\/environments\.yml, bind it with env bind/u;
   for (const [name, value] of [['DB_PASSWORD', 'x'], ['API_TOKEN', 'abc'], ['STRIPE', inventedValue('sk_', 'live_51Habcdefghijklmnop')], ['UPSTREAM', 'https://user:pw@example.test/'],
     ['SESSION', inventedJwt({ alg: 'HS256' }, { sub: '1234567890' }, base64url('signature-fake-123'))], ['KEY_ID', inventedValue('AK', 'IAIOSFODNN7EXAMPLE')]]) {
     const [problem] = errors(base({ env: { [name]: value } }));
     assert.equal(problem.field, `env.${name}`);
-    assert.match(problem.message, secretWords);
+    assert.match(problem.message, refusalWords);
   }
   assert.deepEqual(fields({ env: { JAVA_TOOL_OPTIONS: '-agentlib:jdwp=transport=dt_socket,server=y,address=0.0.0.0:5005' } }), ['env.JAVA_TOOL_OPTIONS']);
   for (const token of [inventedValue('-Dspring.datasource.pass', 'word=Fake-Db-Passw0rd-1729'), '--api-key=abc', inventedJwt({ alg: 'HS256' }, { sub: '1234567890' }, base64url('signature-fake-123'))]) {
     const [problem] = errors(base({ type: 'spring-boot', vmOptions: ['-Xmx1g', token] }));
     assert.equal(problem.field, 'vmOptions[1]', token);
-    assert.match(problem.message, secretWords);
+    assert.match(problem.message, refusalWords);
   }
   assert.equal(errors(base({ type: 'maven', goals: ['package'], properties: { 'db.password': inventedValue('hun', 'ter2') } }))[0].field, 'properties');
   assert.equal(errors(base({ beforeLaunch: [{ argv: ['./seed.sh', inventedValue('--to', 'ken=abc123')] }] }))[0].field, 'beforeLaunch[0].argv[1]');

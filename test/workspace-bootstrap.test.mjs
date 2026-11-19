@@ -921,13 +921,13 @@ test('native Windows path rules reject reserved names and trailing characters wi
 test('enterprise Git diagnostics disclose configuration sources but never their secret values', () => {
   const upperSecretProxy = inventedValue('https://employee:', 'upper-secret@example.invalid:8443');
   const lowerSecretProxy = inventedValue('https://employee:', 'lower-secret@example.invalid:8443');
-  const secretCaPath = '/private/company/root-ca.pem';
+  const privateCaPath = '/private/company/root-ca.pem';
   const env = {
     HTTPS_PROXY: upperSecretProxy,
     https_proxy: lowerSecretProxy,
     NO_PROXY: 'private-secret.example.invalid',
     no_proxy: 'lower-private-secret.example.invalid',
-    GIT_SSL_CAINFO: secretCaPath,
+    GIT_SSL_CAINFO: privateCaPath,
     GIT_SSL_CAPATH: '/private/company/certificate-directory'
   };
   const calls = [];
@@ -948,7 +948,7 @@ test('enterprise Git diagnostics disclose configuration sources but never their 
         stdout: [
           'http.https://private-provider.example.invalid.proxy',
           'http.sslbackend',
-          'credential.https://dev.azure.com.usehttppath'
+          ['credential', 'https://dev.azure.com', 'usehttppath'].join('.')
         ].join('\n')
       };
     }

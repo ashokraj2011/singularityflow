@@ -499,7 +499,8 @@ async function assessBytes(source, selected, policy, binaryAdmission) {
       selectedRanges: ranges, ...(delimited ? {
         rowCount: delimited.rowCount, maximumColumns: delimited.maximumColumns, selectedRowRanges
       } : {}),
-      validationOutcome: delimited ? 'utf8-delimited-parse-and-secret-scan' : 'utf8-and-secret-scan',
+      validationOutcome: delimited ? 'utf8-delimited-parse-and-secret-scan'
+        : 'utf8-and-secret-scan',
       modelReadable: Boolean(selected) },
     rendition
   };

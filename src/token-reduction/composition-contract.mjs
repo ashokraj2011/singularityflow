@@ -15,8 +15,10 @@ import {
   canonicalJson, deepFreeze, sealRecord, sha256
 } from '../canonical-json.mjs';
 
-export const TOKEN_REDUCTION_COMPOSITION_FAMILY = 'token-reduction-composition';
-export const TOKEN_REDUCTION_COMPOSITION_KIND = 'tkr/composition-receipt';
+export const TOKEN_REDUCTION_COMPOSITION_FAMILY =
+  'token-reduction-composition';
+export const TOKEN_REDUCTION_COMPOSITION_KIND =
+  'tkr/composition-receipt';
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/u;
 const TYPE_ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u;

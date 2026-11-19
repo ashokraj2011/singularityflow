@@ -313,7 +313,8 @@ export const LOCAL_INTEGRATION_EVIDENCE_VALUES = Object.freeze(['off', 'allowed'
  * (docs/SPEC-ENVIRONMENT-FILES-v2.md, "Plain chats"). `refuse` is the default, and folding only
  * tightens, as above. A `/sf-` turn refuses whatever this says.
  */
-export const PLAIN_CHAT_SECRETS_VALUES = Object.freeze(['refuse', 'allow']);
+export const PLAIN_CHAT_SECRETS_VALUES =
+  Object.freeze(['refuse', 'allow']);
 
 /**
  * What a plain Copilot chat's change does in a repository that uses SFlow (docs/SPEC-PCR-PLAIN-CHAT-ROUTING-v1.md,
@@ -605,18 +606,18 @@ export function debuggerListeners(tokens = []) {
     else listeners.push({ kind, host: effectiveHost, port: port ?? defaults.port ?? null, token });
   };
   for (const [index, raw] of tokens.entries()) {
-    const token = String(raw);
-    if (token === '--debug-jvm') refusals.push('--debug-jvm binds every interface and suspends; declare debug: { runtime: java } and use app start --debug.');
-    for (const match of token.matchAll(/(?:-agentlib:jdwp=|-Xrunjdwp:)([^\s"']*)/gu)) {
+    const arg = String(raw);
+    if (arg === '--debug-jvm') refusals.push('--debug-jvm binds every interface and suspends; declare debug: { runtime: java } and use app start --debug.');
+    for (const match of arg.matchAll(/(?:-agentlib:jdwp=|-Xrunjdwp:)([^\s"']*)/gu)) {
       const address = match[1].split(',').find((option) => option.startsWith('address='));
       if (!address) refusals.push(`${match[0]} names no address; write address=127.0.0.1:PORT.`);
       else check('jdwp', address.slice('address='.length), { host: null }, match[0]);
     }
-    for (const match of token.matchAll(/(?:^|[\s="'])(--inspect(?:-brk|-wait|-port)?)(?:=([^\s"']*))?(?=$|[\s"'])/gu)) {
+    for (const match of arg.matchAll(/(?:^|[\s="'])(--inspect(?:-brk|-wait|-port)?)(?:=([^\s"']*))?(?=$|[\s"'])/gu)) {
       check('inspector', match[2] ?? '', { host: '127.0.0.1', port: 9229 }, match[0].trim());
     }
-    for (const match of token.matchAll(/(?:^|\s)--listen=([^\s"']*)/gu)) check('listen', match[1], { host: '127.0.0.1' }, match[0].trim());
-    if (token === '--listen' && index + 1 < tokens.length) check('listen', tokens[index + 1], { host: '127.0.0.1' }, `--listen ${tokens[index + 1]}`);
+    for (const match of arg.matchAll(/(?:^|\s)--listen=([^\s"']*)/gu)) check('listen', match[1], { host: '127.0.0.1' }, match[0].trim());
+    if (arg === '--listen' && index + 1 < tokens.length) check('listen', tokens[index + 1], { host: '127.0.0.1' }, `--listen ${tokens[index + 1]}`);
   }
   return { listeners, refusals };
 }

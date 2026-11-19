@@ -58,8 +58,9 @@ export async function attestStoryTestCommand({ root, positionals = [], options =
     if (dependencies.head(root) !== initialHead || !fresh.reviews.some(row => row.sha256 === confirm)) {
       fail('The accepted Story moved during review; preview again. No Story policy was changed.', 'TCA_ATTEST_REVIEW_STALE');
     }
+    const nonce = authorization.token;
     await dependencies.reattestTestCommandReviewOrigin(root, dependencies.workDir(root, config, subject.workId), {
-      review: selected.review, token: authorization.token
+      review: selected.review, token: nonce
     });
     return { status: 'attested', workId: subject.workId, reviewSha256: confirm,
       stateChanged: false, filesChanged: true, executed: false,

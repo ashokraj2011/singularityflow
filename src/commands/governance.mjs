@@ -143,8 +143,9 @@ async function verifyPresence(root, options) {
     throw new SingularityFlowError(`--pull-request takes a pull request number, not '${pullRequest}'.`, { code: 'GOVERNANCE_VERIFY_ARGUMENT_INVALID' });
   }
   // The CI job's own token raises GitHub's read limits there; a person's computer has none to send.
+  const ciAccess = process.env.GITHUB_ACTIONS === 'true' ? process.env.GITHUB_TOKEN ?? null : null;
   const result = await remotePresenceCheck(root, { base: optionString(options, 'base') ?? null, pullRequest: pullRequest ? Number(pullRequest) : null,
-    token: process.env.GITHUB_ACTIONS === 'true' ? process.env.GITHUB_TOKEN ?? null : null, repository: await checkRepository(root) });
+    token: ciAccess, repository: await checkRepository(root) });
   if (result.status === 'failed') {
     if (!optionBoolean(options, 'json')) console.log(remotePresenceText(result));
     throw new SingularityFlowError(`SF Guard's remote check failed: ${result.failures.length} problem(s). ${result.failures.map((entry) => `${entry.code}: ${entry.message}`).join(' ')}`,

@@ -396,9 +396,10 @@ test('a frozen v2 report reads and renders with explicit unavailable v3 projecti
   assert.equal(migrated.intent.requirement.text, null);
   assert.deepEqual(migrated.executionUnits,
     { planned: null, current: null, currentManifestSha256: null, switches: [] });
+  const notEvaluated = 'not-evaluated';
   assert.deepEqual(migrated.qualityFloor, {
     status: 'unavailable', basis: 'observed-task-outcomes',
-    tokenSavingComparison: 'not-evaluated', reasons: ['no-economics-receipts'],
+    tokenSavingComparison: notEvaluated, reasons: ['no-economics-receipts'],
     firstPassVerified: 0, verifiedAfterRepair: 0, reviewReturns: 0,
     missingContextIncidents: 0
   });

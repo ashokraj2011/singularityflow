@@ -16,6 +16,7 @@ import type {
 import { phasesInOrder } from '../cli/snapshot.ts';
 
 export type Health = 'pass' | 'warn' | 'fail' | 'skip' | (string & {});
+const OK: Health = 'pass';
 
 export interface Check { id: string; status: Health; message: string; fix?: string | null }
 
@@ -102,7 +103,7 @@ function epicSection(initiative: InitiativeSnapshot | null | undefined): Dashboa
   const blocked = phases.filter((phase) => phase.status === 'rejected' || phase.status === 'stale');
 
   // An artifact that has not been generated is not a fault; a phase that is rejected or stale is.
-  const status: Health = blocked.length ? 'warn' : approved === phases.length ? 'pass' : 'skip';
+  const status: Health = blocked.length ? 'warn' : approved === phases.length ? OK : 'skip';
   const title = initiative.state.initiative.title ?? initiative.state.initiative.id;
 
   return {
@@ -165,7 +166,7 @@ function governanceSection(snapshot: RepositorySnapshot): DashboardSection {
     label: 'Flow Ledger',
     // Not an error: a repository can be governed without a ledger. It is worth stating, because
     // the difference decides whether workflow progress is recoverable from Git.
-    status: enabled ? 'pass' : 'skip',
+    status: enabled ? OK : 'skip',
     headline: enabled
       ? `Workflow progress is recorded on ${ledger?.config?.branch ?? 'the state branch'}.`
       : 'No state branch: workflow progress is not recorded in Git.',

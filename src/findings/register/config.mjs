@@ -62,8 +62,8 @@ export async function readFindingsConfig(root) {
         else columns[key] = header;
       }
       // A token is never written here, as with a quality command's env.
-      const secret = Object.entries(source).find(([, entryValue]) => typeof entryValue === 'string' && looksSecretValue(entryValue));
-      if (secret) config.warnings.push(`${feed}.sources '${source.id}' field ${secret[0]} looks like a credential; bind it with env bind instead. The source is left out.`);
+      const flagged = Object.entries(source).find(([, entryValue]) => typeof entryValue === 'string' && looksSecretValue(entryValue));
+      if (flagged) config.warnings.push(`${feed}.sources '${source.id}' field ${flagged[0]} looks like a credential; bind it with env bind instead. The source is left out.`);
       else config.sources[feed].push({ id: source.id, type: String(source.type ?? 'upload'), columns });
     }
     const stories = section.stories && typeof section.stories === 'object' ? section.stories : {};

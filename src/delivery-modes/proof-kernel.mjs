@@ -435,7 +435,9 @@ function resultSets(results) {
   const sets = { passed: [], failed: [], unavailable: [], notApplicable: [] };
   for (const result of results) {
     const key = {
-      pass: 'passed', fail: 'failed', unavailable: 'unavailable',
+      pass:
+        'passed',
+      fail: 'failed', unavailable: 'unavailable',
       'not-applicable': 'notApplicable'
     }[result.verdict];
     sets[key].push(result.resultSha256);

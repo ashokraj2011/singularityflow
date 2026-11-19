@@ -293,7 +293,8 @@ async function applyLockedStoryTestCommandAmendment(root, config, workflow, opti
       const fresh = await candidateFor(root, config, current, options);
       if (fresh.planSha256 !== initial.planSha256) fail('The Story, source, author, or approved command changed during review. Review a fresh plan.', 'TCA_AMENDMENT_STALE');
       const prior = structuredClone(current);
-      const review = await origin.consumeTestCommandReviewAuthorization(root, path.join(root, workRelative(config, current)), { review: reviewCore, token: grant.token });
+      const nonce = grant.token;
+      const review = await origin.consumeTestCommandReviewAuthorization(root, path.join(root, workRelative(config, current)), { review: reviewCore, token: nonce });
       const reviewPath = recordPath(config, current, fresh.id, 'review-001');
       const reviewSha256 = digest(review);
       const decision = { schemaVersion: fresh.revalidation ? 2 : 1, kind: 'test-command-adoption-decision', id: fresh.id,

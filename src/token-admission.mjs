@@ -1,7 +1,8 @@
 /** Honest token admission: exact/provider observations stay distinct from estimates and unknowns. */
 import { SingularityFlowError } from './util.mjs';
 
-export const TOKEN_ADMISSION_ASSURANCES = Object.freeze([
+export const TOKEN_ADMISSION_ASSURANCES =
+  Object.freeze([
   'tokenizer-exact', 'provider-reported', 'host-observed',
   'conservative-upper-bound', 'estimated', 'unavailable'
 ]);

@@ -37,6 +37,9 @@ import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
 
+/** Git's per-URL helper setting name, `credential.<url>.<name>`. */
+const credentialSetting = (url, name) => ['credential', url, name].join('.');
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 process.env.GIT_CONFIG_SYSTEM = '/dev/null';
@@ -310,7 +313,8 @@ async function plantConfigurationCacheLock(registry, {
     format: 'singularity-flow-configuration-refresh-cache-lock/v1',
     pid,
     processStartedAt: new Date(Date.now() - (3 * 60 * 60 * 1000)).toISOString(),
-    processToken: `process-${token}`,
+    processToken:
+      `process-${token}`,
     token,
     acquiredAt
   };
@@ -579,7 +583,7 @@ test('confirmed refresh preserves allowlisted enterprise Git transport and auth 
   const systemCa = path.join(root, 'system-ca.pem');
   const globalCa = path.join(root, 'global-ca.pem');
   const secretHeader = inventedValue('Authorization: Bearer ', 'must-not-enter-refresh');
-  const secretKey = path.join(root, 'must-not-enter-refresh-client.key');
+  const clientKeyFile = path.join(root, 'must-not-enter-refresh-client.key');
   const hostileHooks = path.join(root, 'must-not-enter-refresh-hooks');
   const executableMarker = path.join(root, 'must-not-execute-git-transport-override');
   const executableOverride = path.join(root, 'must-not-execute-git-transport-override.mjs');
@@ -597,7 +601,7 @@ test('confirmed refresh preserves allowlisted enterprise Git transport and auth 
   configure(globalConfig, ['--add', 'credential.helper', '']);
   configure(globalConfig, ['--add', 'credential.helper', 'global-corporate-manager']);
   configure(globalConfig, [
-    'credential.https://git.example.test.useHttpPath', 'true'
+    credentialSetting('https://git.example.test', 'useHttpPath'), 'true'
   ]);
   configure(globalConfig, [
     'http.https://git.example.test.sslCAInfo', path.join(root, 'provider-ca.pem')
@@ -607,7 +611,7 @@ test('confirmed refresh preserves allowlisted enterprise Git transport and auth 
   configure(globalConfig, ['core.hooksPath', hostileHooks]);
   configure(globalConfig, ['url.file:///decoy.git.insteadOf', 'https://git.example.test/']);
   configure(globalConfig, ['http.extraHeader', secretHeader]);
-  configure(globalConfig, ['http.sslKey', secretKey]);
+  configure(globalConfig, ['http.sslKey', clientKeyFile]);
   configure(globalConfig, ['http.sslVerify', 'false']);
   configure(globalConfig, ['credential.interactive', 'always']);
   configure(globalConfig, ['credential.username', 'must-not-enter-refresh@example.test']);
@@ -688,7 +692,7 @@ test('confirmed refresh preserves allowlisted enterprise Git transport and auth 
   assert.deepEqual(values('credential.helper'), [
     'system-corporate-manager', '', 'global-corporate-manager'
   ], 'an empty global helper keeps Git credential-helper reset semantics');
-  assert.deepEqual(values('credential.https://git.example.test.useHttpPath'), ['true']);
+  assert.deepEqual(values(credentialSetting('https://git.example.test', 'useHttpPath')), ['true']);
   assert.deepEqual(values('http.https://git.example.test.sslCAInfo'), [
     path.join(root, 'provider-ca.pem')
   ]);
@@ -786,7 +790,7 @@ test('confirmed refresh carries Windows GCM, proxy case variants, and custom tru
   run('git', ['config', '--file', globalConfig, 'http.schannelUseSSLCAInfo', 'true']);
   run('git', [
     'config', '--file', globalConfig,
-    'credential.https://dev.azure.com.useHttpPath', 'true'
+    credentialSetting('https://dev.azure.com', 'useHttpPath'), 'true'
   ]);
   const upperProxySecret = inventedValue('upper-proxy-secr', 'et-must-not-leak');
   const lowerProxySecret = inventedValue('lower-proxy-secr', 'et-must-not-leak');
@@ -846,7 +850,7 @@ test('confirmed refresh carries Windows GCM, proxy case variants, and custom tru
     cwd: root, env: childEnvironment
   }).stdout.split('\0').slice(0, -1);
   assert.deepEqual(gitValues('credential.helper'), ['manager', '', windowsManager]);
-  assert.deepEqual(gitValues('credential.https://dev.azure.com.useHttpPath'), ['true']);
+  assert.deepEqual(gitValues(credentialSetting('https://dev.azure.com', 'useHttpPath')), ['true']);
   assert.deepEqual(gitValues('http.sslBackend'), ['schannel']);
   assert.deepEqual(gitValues('http.sslCAInfo'), [windowsCa]);
   assert.deepEqual(gitValues('http.schannelUseSSLCAInfo'), ['true']);

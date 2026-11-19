@@ -70,7 +70,7 @@ export async function workspaceSwitchExecute({ plan, env = process.env } = {}) {
   });
 }
 
-/** A remote, without anything that could be a credential: scheme, host and path only. */
+/** A remote reduced to its scheme, host and path, without anything that could be a credential. */
 export function credentialFreeRemote(url) {
   const text = String(url ?? '');
   const scp = /^[^@/\s]+@([^:/\s]+):(.+)$/u.exec(text);

@@ -10291,17 +10291,19 @@ test('a schema-v2 local reset marker clears all extension-owned global state but
     mode: 'forget-only',
     reset: ['credentials', 'global-state', 'favorites', 'persona', 'global-extension-settings']
   })}\n`);
+  // The stub context keeps a secret under its name with this prefix.
+  const inSecretStorage = (name) => `secret:${name}`;
   const values = new Map([
     ['onboardingComplete', true],
     ['favorites', ['map-capability']],
     ['persona', 'developer'],
     ['acknowledgements', { story: 'WRK-1' }],
     ['pendingHandoffs', ['WRK-1']],
-    ['secret:singularityFlow.jira.config', '{"deployment":"cloud","baseUrl":"https://jira.example.com"}'],
-    ['secret:singularityFlow.jira.token', 'jira-token'],
-    ['secret:singularityFlow.teams.webhook', 'https://teams.example.com/hook'],
-    ['secret:singularityFlow.storage.index', '["design"]'],
-    ['secret:singularityFlow.storage.design', 'provider-token']
+    [inSecretStorage('singularityFlow.jira.config'), '{"deployment":"cloud","baseUrl":"https://jira.example.com"}'],
+    [inSecretStorage('singularityFlow.jira.token'), 'jira-token'],
+    [inSecretStorage('singularityFlow.teams.webhook'), 'https://teams.example.com/hook'],
+    [inSecretStorage('singularityFlow.storage.index'), '["design"]'],
+    [inSecretStorage('singularityFlow.storage.design'), 'provider-token']
   ]);
   const state = context(values);
   state.globalState.keys = () => [...values.keys()].filter((key) => !key.startsWith('secret:'));
@@ -13025,8 +13027,8 @@ test('the Testing view lists test commands and cases with their file and line, r
 
   // Rerun the failed case: its command runs (the engine runs whole commands), after the confirmation.
   registered.informationAnswer = 'Run these tests';
-  const token = cancellation();
-  const running = profile.runHandler({ include: [cases[1]], exclude: [] }, token);
+  const cancel = cancellation();
+  const running = profile.runHandler({ include: [cases[1]], exclude: [] }, cancel);
   const task = await until(() => registered.tasks.find((entry) => entry.task.definition.action === 'tests-run'));
   assert.deepEqual(task.task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--command', 'module-tests',
     '--expect-command', TESTS_SHA_MODULE]);

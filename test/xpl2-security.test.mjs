@@ -82,21 +82,21 @@ test('XPL2-AC-053 Forged messages and source escape are refused', async (t) => {
   // it points at; and "Open working file" refuses a link that resolves outside the repository.
   const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-xpl2-outside-'));
   t.after(() => rm(outside, { recursive: true, force: true }));
-  const secret = path.join(outside, 'secret.txt');
-  await writeFile(secret, 'PRIVATE-OUTSIDE-CONTENT\n');
+  const outsideFile = path.join(outside, 'secret.txt');
+  await writeFile(outsideFile, 'PRIVATE-OUTSIDE-CONTENT\n');
   const linked = await createChangeRepository(t, {
     baseline: { 'docs/readme.md': '# fixture\n', 'docs/local.md': 'local\n' },
     prepare: (directory) => symlink('local.md', path.join(directory, 'docs/escape')),
     apply: async (directory) => {
       await rm(path.join(directory, 'docs/escape'));
-      await symlink(secret, path.join(directory, 'docs/escape'));
+      await symlink(outsideFile, path.join(directory, 'docs/escape'));
     }
   });
   const linkSlice = await comprehensionSlice(linked.root);
   const file = linkSlice.explanationView.inventory.files.find((entry) => entry.path === 'docs/escape');
   const after = linkSlice.sourceReferences.find((entry) => entry.ref === file.sources.after);
   const exact = await readExactSource(sourceRunner(linked.root, home), { base: linkSlice.context.base, workId: null, phase: null }, after);
-  assert.equal(exact.text, secret, 'the captured bytes are the link target path');
+  assert.equal(exact.text, outsideFile, 'the captured bytes are the link target path');
   assert.doesNotMatch(exact.text, /PRIVATE-OUTSIDE-CONTENT/u);
   const escaped = await containedWorkingPath(linked.root, 'docs/escape');
   assert.equal(escaped.target, null);

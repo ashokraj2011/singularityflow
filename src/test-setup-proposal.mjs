@@ -235,7 +235,7 @@ async function spelledOutCommand(options) {
   }
   const level = optionString(options, 'level') ?? null;
   if (level != null && !TEST_COMMAND_LEVELS.includes(level)) throw usage(`--level takes ${TEST_COMMAND_LEVELS.join(', ')}. Leave it out for other.`);
-  // A URL that differs per machine or carries a credential: environments.yml declares it, and each machine binds it.
+  // A URL that differs per machine or carries a credential is declared in environments.yml, and each machine binds it.
   const environment = optionString(options, 'environment') ?? null;
   return {
     id: optionString(options, 'id'), kind: 'test', ...(level ? { level } : {}), argv: commandArgv,

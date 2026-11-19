@@ -278,25 +278,25 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   ]);
   assert.doesNotThrow(() => validateDefinition(structuredClone(template)));
 
-  const tokenSchema = schema.$defs.tokenEconomy.properties;
+  const economySchema = schema.$defs.tokenEconomy.properties;
   const normalized = normalizeTokenEconomy(template.tokenEconomy);
-  assert.equal(tokenSchema.mode.default, 'observe');
+  assert.equal(economySchema.mode.default, 'observe');
   assert.equal(template.tokenEconomy.mode, 'observe');
   assert.equal(normalizeTokenEconomy({}).mode, 'observe');
   assert.equal(normalized.mode, 'observe');
-  assert.deepEqual(Object.keys(normalized).sort(), Object.keys(tokenSchema).sort());
+  assert.deepEqual(Object.keys(normalized).sort(), Object.keys(economySchema).sort());
   const profileSchema = schema.$defs.tokenEconomyProfile.properties;
   assert.deepEqual(
     Object.keys(normalized.profiles.standard).sort(),
     Object.keys(profileSchema).filter((key) => key !== 'maxInputTokens').sort()
   );
-  for (const mode of tokenSchema.mode.enum) {
+  for (const mode of economySchema.mode.enum) {
     const candidate = structuredClone(template.tokenEconomy);
     candidate.mode = mode;
     assert.doesNotThrow(() => normalizeTokenEconomy(candidate), `runtime rejected schema mode ${mode}`);
   }
   const activeTkr = structuredClone(template);
-  activeTkr.tokenEconomy.composer = 'tkr-v1';
+  Object.assign(activeTkr.tokenEconomy, { composer: 'tkr-v1' });
   assert.throws(() => validateDefinition(activeTkr), (error) => (
     error.code === 'TKR_CONTRACT_UNSUPPORTED'
       && error.details?.milestone === 'M2'
@@ -304,7 +304,7 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   ));
   const disabledTkr = structuredClone(template);
   disabledTkr.tokenEconomy.enabled = false;
-  disabledTkr.tokenEconomy.composer = 'tkr-v1';
+  Object.assign(disabledTkr.tokenEconomy, { composer: 'tkr-v1' });
   assert.doesNotThrow(() => validateDefinition(disabledTkr));
   const legacyProfile = structuredClone(template.tokenEconomy);
   delete legacyProfile.profiles.standard.maximumEstimatedPromptTokens;

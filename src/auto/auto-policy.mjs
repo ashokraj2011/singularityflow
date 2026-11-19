@@ -24,7 +24,8 @@ const DEFAULT_CEILINGS = Object.freeze({
   maximumElapsedMinutes: 120,
   maximumTouchedPaths: 8,
   maximumTouchedChanges: 6,
-  tokenBudget: Object.freeze({ maximum: 30_000, assurance: 'exact-required' })
+  tokenBudget:
+    Object.freeze({ maximum: 30_000, assurance: 'exact-required' })
 });
 
 function object(value, label) {
@@ -223,17 +224,18 @@ function ceilingOverrides(value, label) {
     if (value[field] != null) output[field] = positive(value[field], null, `${label}.${field}`);
   }
   if (value.tokenBudget != null) {
-    const token = object(value.tokenBudget, `${label}.tokenBudget`);
-    keys(token, ['maximum', 'assurance'], `${label}.tokenBudget`);
+    const given = object(value.tokenBudget, `${label}.tokenBudget`);
+    keys(given, ['maximum', 'assurance'], `${label}.tokenBudget`);
     output.tokenBudget = {};
-    if (token.maximum != null) output.tokenBudget.maximum = positive(token.maximum, null, `${label}.tokenBudget.maximum`);
-    if (token.assurance != null) {
-      if (!['exact-required', 'best-available'].includes(token.assurance)) {
+    const budget = output.tokenBudget;
+    if (given.maximum != null) budget.maximum = positive(given.maximum, null, `${label}.tokenBudget.maximum`);
+    if (given.assurance != null) {
+      if (!['exact-required', 'best-available'].includes(given.assurance)) {
         throw new SingularityFlowError(`${label}.tokenBudget.assurance must be exact-required or best-available.`, {
           code: 'AUTO_PLAN_INVALID'
         });
       }
-      output.tokenBudget.assurance = token.assurance;
+      budget.assurance = given.assurance;
     }
   }
   return output;

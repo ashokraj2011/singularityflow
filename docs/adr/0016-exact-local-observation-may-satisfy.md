@@ -42,7 +42,7 @@ the module's test command exited 0, so a skipped, filtered, missing or unrelated
    module-observed, exact-local-observed, exact-authenticated).
 5. **Required assurance (D2).** A criterion requires the strongest assurance its tests' module runner
    can reach, and never less than module-observed. A pass below that is an assurance shortfall, not a
-   pass: repair the test configuration, approve another witness, or accept the risk with the
+   pass; repair the test configuration, approve another witness, or accept the risk with the
    `assurance-shortfall` category.
 6. **No promotion.** Exact-local-observed is a local observation of candidate-controlled tests. It is
    never relabelled as authenticated by approval or configuration. Exact-authenticated stays

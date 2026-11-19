@@ -1364,8 +1364,8 @@ ${missing}
 export function renderHtml(report, { changeImpact = null } = {}) {
   const item = report.workItem;
   const elapsedChart = barChart(report.phases, { valueKey: 'elapsedMs', labelKey: 'label', formatValue: humanizeDuration, color: '#4f6df5' });
-  const tokenRows = report.phases.map((phase) => ({ ...phase, reportedTokens: ['exact', 'partial'].includes(phase.tokenStatus) ? phase.tokens : null }));
-  const tokenChart = barChart(tokenRows, {
+  const usageRows = report.phases.map((phase) => ({ ...phase, reportedTokens: ['exact', 'partial'].includes(phase.tokenStatus) ? phase.tokens : null }));
+  const tokenChart = barChart(usageRows, {
     valueKey: 'reportedTokens', labelKey: 'label', formatValue: (value) => value.toLocaleString('en-US'), color: '#2fa66a',
     missing: (phase) => (phase.tokenStatus === 'none' ? 'no model usage recorded' : 'unavailable: the provider did not report tokens')
   });

@@ -795,7 +795,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const coverage = codeRoute ? observedCoverage : (() => {
         const complete = !observedCoverage.unclaimedChangedPaths.length && !observedCoverage.withdrawnButClaimed.length
           && !observedCoverage.invalidEvidence.length;
-        return { ...observedCoverage, unimplemented: [], complete, severity: complete ? 'pass' : observedCoverage.severity };
+        return { ...observedCoverage, unimplemented: [], complete, severity: !complete ? observedCoverage.severity : 'pass' };
       })();
       const qualityRisks = await activeQualityRisks(root, config, workflow, terminal ? 'terminal' : 'consume');
       // A person's accepted implementation risk carries its clause here as the evidence evaluation

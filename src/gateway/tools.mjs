@@ -130,7 +130,8 @@ export function serializeToolSchemas(tools = SFLOW_TOOLS) {
  * named in every place it is reported so nobody mistakes it for billing, and the budget below
  * carries enough headroom to absorb the error rather than being tuned to it.
  */
-export const TOOL_TOKENIZER = 'bytes-per-token-4.0';
+export const TOOL_TOKENIZER =
+  'bytes-per-token-4.0';
 
 export function estimateTokens(text) {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / 4);

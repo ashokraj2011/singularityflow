@@ -83,7 +83,8 @@ async function leaseStanding(file) {
     const { describeLeaseOwner } = await import('../lease-liveness.mjs');
     owner = describeLeaseOwner(lease.owner, lease.liveness);
   }
-  return { file, state, ...(owner ? { owner, token: lease.token } : {}),
+  const { token: leaseNonce } = lease;
+  return { file, state, ...(owner ? { owner, token: leaseNonce } : {}),
     ...(lease.liveness ? { liveness: { state: lease.liveness.state, reason: lease.liveness.reason } } : {}),
     ...(state === 'held' || state === 'unverifiable' ? { review: lease.showCommand ?? `singularity-flow lock show-file ${JSON.stringify(file)}` } : {}),
     ...(lease.releaseCommand ? { release: lease.releaseCommand } : {}) };

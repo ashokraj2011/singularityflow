@@ -3881,7 +3881,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // workflows share, each keeps its own. Configuration names secrets but never holds them; each
   // machine keeps its own, and VS Code stores them in the operating-system keychain.
 
-  var SECRET_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
+  var BOUND_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
   var TOKEN_FORMATS = ['splunk-hec', 'datadog', 'elastic'];
   var TRIGGER_WORDS = { submitted: 'submitted', approved: 'approved', rejected: 'rejected' };
   var SEND_WORDS = { event: 'the event', summary: 'a summary', artifact: 'the document' };
@@ -4031,7 +4031,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   /** Ask the host which secrets this machine has, once per name; storing or removing one updates it. */
   function askSecretStatus(names) {
     var view = integrationsState();
-    var unknown = names.filter(function (name, index) { return SECRET_NAME.test(name) && !view.asked[name] && names.indexOf(name) === index; });
+    var unknown = names.filter(function (name, index) { return BOUND_NAME.test(name) && !view.asked[name] && names.indexOf(name) === index; });
     var jira = !view.askedJira && targetIds().some(function (id) { return state.draft.integrations[id].kind === 'jira'; });
     if (jira) view.askedJira = true;
     if (!unknown.length && !jira) return;
@@ -4045,7 +4045,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function editTargetForm(id) {
     var target = state.draft.integrations[id];
     return { mode: 'edit', id: id, label: target.label || '', kind: target.kind, url: target.url || '', format: target.format || 'json',
-      signingSecret: target.signingSecret || '', tokenSecret: target.tokenSecret || '', urlSecret: target.urlSecret || '',
+      signingSecret:
+        target.signingSecret || '',
+      tokenSecret:
+        target.tokenSecret || '',
+      urlSecret:
+        target.urlSecret || '',
       labels: Object.keys(target.labels || {}).map(function (key) { return key + '=' + target.labels[key]; }).join('\n'),
       network: target.network || 'public', timeoutSeconds: target.timeoutSeconds ? String(target.timeoutSeconds) : '',
       issue: target.issue || '', transitions: jiraTransitionFields(target.transition),
@@ -4088,7 +4093,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     function secret(name, label, required) {
       var value = String(form[name] || '').trim();
       if (!value) return required ? label + ' is required.' : null;
-      if (!SECRET_NAME.test(value)) return label + ' must start with SFLOW_SECRET_ and use capitals, digits and underscores, such as ' + suggestedSecret(id, 'KEY') + '.';
+      if (!BOUND_NAME.test(value)) return label + ' must start with SFLOW_SECRET_ and use capitals, digits and underscores, such as ' + suggestedSecret(id, 'KEY') + '.';
       target[name] = value;
       return null;
     }
@@ -4285,6 +4290,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   function renderTargetForm(form) {
     var kinds = state.model.choices.integrationKinds || [];
+    var keepName = function (key) { return function (value) { form[key] = value.trim(); }; };
     var card = el('section', { class: 'studio-card', 'aria-label': form.mode === 'create' ? 'New target' : 'Change target ' + form.id });
     card.appendChild(el('h2', { text: form.mode === 'create' ? 'New target' : 'Change ' + form.id }));
     if (form.mode === 'create') {
@@ -4307,10 +4313,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       card.appendChild(field('target-url', 'Address', textInput('target-url', form.url, function (value) { form.url = value.trim(); },
         { placeholder: form.kind === 'webhook' ? 'https://hooks.example.com/sflow' : 'https://logs.example.com/services/collector' }), 'https:// only; plain http only to this machine. Never put a password or token in the address.'));
       if (form.kind === 'webhook') {
-        card.appendChild(field('target-signing', 'Signing secret name (recommended)', textInput('target-signing', form.signingSecret, function (value) { form.signingSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'KEY') }),
+        card.appendChild(field('target-signing', 'Signing secret name (recommended)', textInput('target-signing', form.signingSecret, keepName('signingSecret'), { placeholder: suggestedSecret(form.id, 'KEY') }),
           'Each request carries an x-sflow-signature made with this secret, so your service can check it came from your team.'));
       } else {
-        card.appendChild(field('target-token', 'Token secret name' + (TOKEN_FORMATS.indexOf(form.format) >= 0 ? '' : ' (optional)'), textInput('target-token', form.tokenSecret, function (value) { form.tokenSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'TOKEN') }),
+        card.appendChild(field('target-token', 'Token secret name' + (TOKEN_FORMATS.indexOf(form.format) >= 0 ? '' : ' (optional)'), textInput('target-token', form.tokenSecret, keepName('tokenSecret'), { placeholder: suggestedSecret(form.id, 'TOKEN') }),
           'The API token the log service expects, sent the way it expects it.'));
         card.appendChild(field('target-labels', 'Labels (optional)', el('textarea', { id: 'target-labels', 'data-key': 'target-labels', rows: '3', value: form.labels, placeholder: 'service=sflow', onchange: function (event) { form.labels = event.target.value; } }),
           'One name=value per line, added to every entry: Splunk fields, Datadog tags, Loki labels.'));
@@ -4323,7 +4329,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         field('target-drive', 'Drive ID', textInput('target-drive', form.drive, function (value) { form.drive = value.trim(); }, { placeholder: 'b!Xy3k…' }), 'The document library drive.'),
         field('target-site', 'SharePoint site ID (optional)', textInput('target-site', form.site, function (value) { form.site = value.trim(); }, { placeholder: 'contoso.sharepoint.com,…,…' }))));
       card.appendChild(field('target-folder', 'Folder (optional)', textInput('target-folder', form.folder, function (value) { form.folder = value.trim(); }, { placeholder: DRIVE_DEFAULT_FOLDER }), 'Includes {generation}; may use {story}, {step} and {trigger}.'));
-      card.appendChild(field('target-token', 'Graph token secret name', textInput('target-token', form.tokenSecret, function (value) { form.tokenSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'TOKEN') }), 'A Microsoft Graph access token, stored on each machine that moves Stories.'));
+      card.appendChild(field('target-token', 'Graph token secret name', textInput('target-token', form.tokenSecret, keepName('tokenSecret'), { placeholder: suggestedSecret(form.id, 'TOKEN') }), 'A Microsoft Graph access token, stored on each machine that moves Stories.'));
     } else if (form.kind === 'confluence') {
       card.appendChild(el('div', { class: 'callout', text: 'Confluence targets keep one page per Story and step under a parent page, with the step summary or the approved document. A later generation updates the page; an older one never writes over it.' }));
       card.appendChild(el('div', { class: 'grid-2' },
@@ -4332,7 +4338,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       card.appendChild(el('div', { class: 'grid-2' },
         field('target-parent', 'Parent page ID', textInput('target-parent', form.parentPage, function (value) { form.parentPage = value.trim(); }, { placeholder: '123456' }), 'The number in the parent page address.'),
         form.deployment === 'data-center' ? el('span') : field('target-user', 'Account email', textInput('target-user', form.user, function (value) { form.user = value.trim(); }, { placeholder: 'flow-bot@example.com' }), 'The account the API token belongs to.')));
-      card.appendChild(field('target-token', 'Token secret name', textInput('target-token', form.tokenSecret, function (value) { form.tokenSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'TOKEN') }),
+      card.appendChild(field('target-token', 'Token secret name', textInput('target-token', form.tokenSecret, keepName('tokenSecret'), { placeholder: suggestedSecret(form.id, 'TOKEN') }),
         form.deployment === 'data-center' ? 'A personal access token, stored on each machine that moves Stories.' : 'An Atlassian API token, stored on each machine that moves Stories.'));
       card.appendChild(field('target-title', 'Page title (optional)', textInput('target-title', form.title, function (value) { form.title = value; }, { placeholder: '{story} — {step}' }), 'Uses {story}, {step} and {storyTitle}.'));
       card.appendChild(field('target-network', 'Where it is', select('target-network', [{ value: 'public', label: 'On the internet' }, { value: 'private', label: 'On our private network' }], form.network,
@@ -4352,7 +4358,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
           { placeholder: trigger === 'submitted' ? 'In Review' : trigger === 'approved' ? 'Done' : 'In Progress' }));
       })));
     } else if (form.kind === 'teams') {
-      card.appendChild(field('target-url-secret', 'Secret holding the webhook address', textInput('target-url-secret', form.urlSecret, function (value) { form.urlSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'URL') }),
+      card.appendChild(field('target-url-secret', 'Secret holding the webhook address', textInput('target-url-secret', form.urlSecret, keepName('urlSecret'), { placeholder: suggestedSecret(form.id, 'URL') }),
         'A Teams webhook address is itself a credential, so configuration names the secret that holds it.'));
     }
     card.appendChild(field('target-timeout', 'Timeout in seconds (optional)', textInput('target-timeout', form.timeoutSeconds, function (value) { form.timeoutSeconds = value.trim(); }, { placeholder: '10', inputmode: 'numeric' })));
@@ -4400,7 +4406,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         target.kind === 'jira' ? jiraRow()
           : target.kind === 'git' ? el('span', { class: 'hint', text: 'Uses the Git credentials of the machine that moves the Story; the first delivery proves it can write.' })
           : secrets.length ? el('div', { class: 'secrets' }, secrets.map(secretRow))
-            : el('span', { class: 'hint', text: target.kind === 'webhook' ? 'No signing secret: requests are sent unsigned.' : 'No token: entries are sent without one.' }),
+            : el('span', { class: 'hint', text: target.kind === 'webhook' ? 'No signing secret; requests are sent unsigned.' : 'No token; entries are sent without one.' }),
         testPanel(id, target)));
     });
     if (ids.length) main.appendChild(grid);
@@ -7211,9 +7217,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     } else if (message.type === 'studio.mcpSourcesListed') {
       var offered = library(); offered.busy = null; offered.mcp = message.result; offered.mcpForms = {}; render();
     } else if (message.type === 'studio.secretStatus') {
-      var secretView = integrationsState(); secretView.canStore = message.canStore !== false;
-      if (message.jira) secretView.jira = message.jira;
-      Object.keys(message.status || {}).forEach(function (name) { secretView.secrets[name] = message.status[name]; });
+      var keysView = integrationsState(); keysView.canStore = message.canStore !== false;
+      if (message.jira) keysView.jira = message.jira;
+      Object.keys(message.status || {}).forEach(function (name) { keysView.secrets[name] = message.status[name]; });
       render();
     } else if (message.type === 'studio.secretStored') {
       setStatus(message.name + ' is stored in the keychain on this machine.');

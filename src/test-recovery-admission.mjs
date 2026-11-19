@@ -67,7 +67,8 @@ export async function authorizeTrpIntake(root, workflow, agreement, preview) {
       ...(signed ? { presenceInRecord: true } : {})
     });
     if (!authorization) fail('Baseline acceptance was cancelled. No Story was created.', 'TRP_INTAKE_REVIEW_CANCELLED');
-    witnesses.push(await consumeTrpAuthority(root, { record, ...authority, review, token: authorization.token }));
+    const nonce = authorization.token;
+    witnesses.push(await consumeTrpAuthority(root, { record, ...authority, review, token: nonce }));
   }
   if (signed) await (await import('./presence/intake-reviews.mjs')).signTrpIntakeReviews(root, workflow, records, witnesses.map(trpWitnessReceipt), preview.planDigest);
   return { records, witnesses, baselineRefs: baselines.map(record => record.recordSha256) };

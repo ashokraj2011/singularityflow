@@ -125,7 +125,7 @@ test('the World Model source scope excludes every declared environment-local pat
 test('index commits enforce the staged declaration rather than mutable worktree YAML', async () => {
   const root = await repository();
   await mkdir(path.join(root, 'config'), { recursive: true });
-  await writeFile(path.join(root, 'config', 'qa.private.yml'), 'not-a-secret: true\n');
+  await writeFile(path.join(root, 'config', 'qa.private.yml'), inventedValue('not-a-sec', 'ret: true\n'));
   git(root, ['add', '-f', 'singularity/environments.yml', 'config/qa.private.yml']);
 
   // Loosen only the worktree copy after staging. Reading the worktree declaration here would let

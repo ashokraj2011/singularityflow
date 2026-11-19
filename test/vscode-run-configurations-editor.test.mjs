@@ -420,7 +420,8 @@ test('a draft the page kept (webview state) is adopted only for the same block a
   const moved = declared(plan({ start: [WEB, { ...API, name: 'Api v2' }], tests: TESTS })).block;
   assert.equal(model.adoptSavedState(saved, 'payments-web', moved), null, 'the declared block changed underneath');
   const leaking = JSON.parse(JSON.stringify(saved));
-  leaking.configurations[1].entry.env = { DB_PASSWORD: FAKE_SECRETS.dbPassword };
+  const { dbPassword } = FAKE_SECRETS;
+  leaking.configurations[1].entry.env = { DB_PASSWORD: dbPassword };
   assert.equal(model.adoptSavedState(leaking, 'payments-web', block), null);
   assert.equal(model.adoptSavedState({ ...saved, configurations: [{ key: 'x', origin: 0, entry: WEB }] }, 'payments-web', block), null);
 });

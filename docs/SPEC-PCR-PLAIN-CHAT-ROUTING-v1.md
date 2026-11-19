@@ -334,7 +334,7 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
   existing prompt hook. It gains a check of the repository hook file. `sessionStart` stays forbidden.
 - **No workflow gains a step.** Story records gain only "plain chat" marks on "Asked for" entries.
 - **Recorded prompts are redacted before they are written.** The local log never leaves the clone (decision 9).
-  Never print or copy a found secret: neither the refusal nor the record carries the value.
+  Never print or copy a found secret; neither the refusal nor the record carries the value.
 - **Approvals, decisions and person's steps are unchanged:** still people only.
 
 ## Not in scope

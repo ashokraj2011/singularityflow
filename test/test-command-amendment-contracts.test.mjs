@@ -129,12 +129,12 @@ test('ordinary local authorization JSON cannot mint or re-attest a TCA origin', 
   run('git', ['config', 'user.email', 'reviewer@example.invalid'], { cwd: root });
   const workRoot = path.join(root, 'singularity/work-items/STORY-1'); await mkdir(workRoot, { recursive: true });
   const core = reviewCore(); const card = testCommandReviewAuthorization(core);
-  const issued = await issueActionAuthorization(root, card.plan, card.action, { confirmation: card.action.actionId });
-  await assert.rejects(consumeTestCommandReviewAuthorization(root, workRoot, { review: core, token: issued.token }), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
+  const { token: issuedGrant } = await issueActionAuthorization(root, card.plan, card.action, { confirmation: card.action.actionId });
+  await assert.rejects(consumeTestCommandReviewAuthorization(root, workRoot, { review: core, token: issuedGrant }), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
   const review = publicReview(); const reattest = testCommandReviewReattestationAuthorization(review);
   assert.notEqual(reattest.plan.planHash, testCommandAmendmentDigest(review));
-  const second = await issueActionAuthorization(root, reattest.plan, reattest.action, { confirmation: reattest.action.actionId });
-  await assert.rejects(reattestTestCommandReviewOrigin(root, workRoot, { review, token: second.token }), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
+  const { token: secondGrant } = await issueActionAuthorization(root, reattest.plan, reattest.action, { confirmation: reattest.action.actionId });
+  await assert.rejects(reattestTestCommandReviewOrigin(root, workRoot, { review, token: secondGrant }), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
   assert.equal(await verifyTestCommandReviewOrigin(root, workRoot, review), false);
 });
 
@@ -145,8 +145,8 @@ async function reattestInTerminal(root, workRoot, review) {
     const {root,workRoot,review}=${JSON.stringify({ root, workRoot, review })};
     try {
       const card=testCommandReviewReattestationAuthorization(review);
-      const grant=await captureTerminalActionAuthorization(root,card.plan,card.action,{label:'Attest retained review'});
-      const result=await reattestTestCommandReviewOrigin(root,workRoot,{review,token:grant.token});
+      const {token}=await captureTerminalActionAuthorization(root,card.plan,card.action,{label:'Attest retained review'});
+      const result=await reattestTestCommandReviewOrigin(root,workRoot,{review,token});
       console.log('TCA_ORIGIN_RESULT:'+JSON.stringify({ok:true,...result}));
     } catch(error) {console.log('TCA_ORIGIN_RESULT:'+JSON.stringify({ok:false,message:error.message,stack:error.stack}));}
   `;

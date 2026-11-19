@@ -290,7 +290,7 @@ export class TeamOnboardingPanel {
         : null;
       const selectionRef = record.selectionRef?.trim() || null;
       if (existing) {
-        const secret = this.catalogSecrets.get(existing.id);
+        const held = this.catalogSecrets.get(existing.id);
         // Catalog URLs are observations only. An opaque selection must be revalidated immediately
         // before inspection; only a URL entered through the explicit native paste form may bypass
         // that RDS selection step.
@@ -298,7 +298,7 @@ export class TeamOnboardingPanel {
           this.catalogSecrets.set(existing.id, {
             source: 'catalog', selectionRef, locator: null
           });
-        } else if (!secret) {
+        } else if (!held) {
           this.catalogSecrets.set(existing.id, {
             source: 'catalog', selectionRef: null, locator: null
           });
@@ -577,26 +577,26 @@ export class TeamOnboardingPanel {
     row: TeamOnboardingRepositoryRow,
     signal: AbortSignal | undefined = this.inspectionController?.signal
   ): Promise<string> {
-    const secret = this.catalogSecrets.get(row.id);
-    if (!secret) throw new Error('The repository catalog selection is no longer available. Refresh it.');
-    if (secret.source === 'catalog') {
-      if (!secret.selectionRef) {
+    const held = this.catalogSecrets.get(row.id);
+    if (!held) throw new Error('The repository catalog selection is no longer available. Refresh it.');
+    if (held.source === 'catalog') {
+      if (!held.selectionRef) {
         throw new Error(
           'The repository catalog selection is incomplete or expired. Refresh the catalog and choose it again.'
         );
       }
       const selected = await this.run([
-        'repositories', 'select', secret.selectionRef, '--action', 'inspect',
+        'repositories', 'select', held.selectionRef, '--action', 'inspect',
         '--surface', 'vscode', '--json'
       ], signal);
       if (selected.error) throw new Error(selected.error);
       const locator = (selected.result as RepositorySelectionPreparation)?.locator?.trim() ?? '';
       const problem = gitRemoteProblem(locator, row.nameWithOwner);
       if (!locator || problem) throw new Error(problem ?? 'The repository has no safe Git locator.');
-      this.catalogSecrets.set(row.id, { ...secret, locator });
+      this.catalogSecrets.set(row.id, { ...held, locator });
       return locator;
     }
-    const locator = secret.locator?.trim() ?? '';
+    const locator = held.locator?.trim() ?? '';
     const problem = gitRemoteProblem(locator, row.nameWithOwner);
     if (!locator || problem) throw new Error(problem ?? 'The repository has no safe Git locator.');
     return locator;

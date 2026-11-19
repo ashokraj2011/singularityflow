@@ -104,7 +104,7 @@ function normalizeCommandEnv(value, index) {
     if (secret || !/^[A-Z_][A-Z0-9_]{0,127}$/u.test(name) || !declarableEnvironmentVariable(name.replace(/^_/u, 'X_'))
         || !['string', 'number', 'boolean'].includes(typeof raw)
         || String(raw).length > 4_096 || /[\u0000-\u001f\u007f]/u.test(String(raw))) {
-      throw new SingularityFlowError(secret ? `${at}.${name} names a secret: declare it in ${ENVIRONMENT_DECLARATION_PATH}, never in workflow.yml.`
+      throw new SingularityFlowError(secret ? `${at}.${name} names a secret; declare it in ${ENVIRONMENT_DECLARATION_PATH}, never in workflow.yml.`
         : `${at}.${name} must be an unreserved UPPER_CASE name (not PATH, HOME, NODE_*, GIT_*) with short literal text.`,
       { code: secret ? 'QUALITY_COMMAND_ENV_SECRET' : 'QUALITY_COMMAND_ENV_INVALID' });
     }

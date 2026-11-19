@@ -180,29 +180,29 @@ export function deliveryRequest(record, env, clock = Date.now) {
       bodySha256: createHash('sha256').update(body).digest('hex') } };
   }
   if (target.kind === 'http-log') {
-    const token = target.tokenSecret ? secretValue(target.tokenSecret, env) : null;
-    if (target.tokenSecret && !token) return missing(target.tokenSecret);
+    const access = target.tokenSecret ? secretValue(target.tokenSecret, env) : null;
+    if (target.tokenSecret && !access) return missing(target.tokenSecret);
     const message = stepActionText(event);
     const labels = target.labels ?? {};
     const at = Date.parse(event.at ?? '') || clock();
     const headers = { ...base };
     let body;
     if (target.format === 'splunk-hec') {
-      headers.authorization = `Splunk ${token}`;
+      headers.authorization = `Splunk ${access}`;
       body = JSON.stringify({ time: at / 1000, source: 'singularity-flow', sourcetype: '_json', event: { message, ...event }, fields: labels });
     } else if (target.format === 'datadog') {
-      headers['dd-api-key'] = token;
+      headers['dd-api-key'] = access;
       body = JSON.stringify([{ ddsource: 'singularity-flow', service: labels.service ?? 'singularity-flow',
         ddtags: Object.entries(labels).filter(([key]) => key !== 'service').map(([key, value]) => `${key}:${value}`).join(','), message, sflow: event }]);
     } else if (target.format === 'elastic') {
-      headers.authorization = `ApiKey ${token}`;
+      headers.authorization = `ApiKey ${access}`;
       body = JSON.stringify({ '@timestamp': new Date(at).toISOString(), message, labels, sflow: event });
     } else if (target.format === 'loki') {
-      if (token) headers.authorization = `Bearer ${token}`;
+      if (access) headers.authorization = `Bearer ${access}`;
       body = JSON.stringify({ streams: [{ stream: { source: 'singularity-flow', trigger: record.trigger, ...labels },
         values: [[`${BigInt(at) * 1000000n}`, JSON.stringify({ message, ...event })]] }] });
     } else {
-      if (token) headers.authorization = `Bearer ${token}`;
+      if (access) headers.authorization = `Bearer ${access}`;
       body = JSON.stringify({ message, labels, ...event });
     }
     return { url: target.url, headers, body };

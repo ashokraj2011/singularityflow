@@ -71,13 +71,13 @@ class Attempt extends Error {
  */
 export async function deliverToConfluence(record, { env = process.env, request = pinnedHttpRequest, timeoutMs = 10_000 } = {}) {
   const target = record.action.targetSpec;
-  const token = String(env[target.tokenSecret] ?? '').trim();
-  if (!token) return { outcome: 'unavailable', code: 'STEP_ACTION_SECRET_MISSING', detail: `Secret ${target.tokenSecret} is not set on this machine.` };
+  const access = String(env[target.tokenSecret] ?? '').trim();
+  if (!access) return { outcome: 'unavailable', code: 'STEP_ACTION_SECRET_MISSING', detail: `Secret ${target.tokenSecret} is not set on this machine.` };
   if (record.action.send === 'artifact' && !record.artifact?.base64) {
     return { outcome: 'failed', code: 'STEP_ACTION_ARTIFACT_UNAVAILABLE', detail: record.artifact?.problem ?? 'The approved artifact was not recorded with this delivery.' };
   }
   const cloud = target.deployment !== 'data-center';
-  const authorization = cloud ? `Basic ${Buffer.from(`${target.user}:${token}`).toString('base64')}` : `Bearer ${token}`;
+  const authorization = cloud ? `Basic ${Buffer.from(`${target.user}:${access}`).toString('base64')}` : `Bearer ${access}`;
   const base = `${String(target.url).replace(/\/+$/, '')}${cloud ? '/api/v2' : '/rest/api'}`;
   const call = async (method, route, body = null, what = 'Confluence', { absentOk = false } = {}) => {
     const answer = await request({

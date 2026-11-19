@@ -12,8 +12,8 @@ export async function authorizeTrpRecord(root, workRoot, record, authority) {
     const {root,workRoot,record,authority}=${JSON.stringify({ root, workRoot, record, authority })};
     try {
       const review=trpAuthorityReview(record,authority.policy);
-      const grant=await captureTerminalActionAuthorization(root,review.plan,review.action,{label:'Confirm test review'});
-      const witness=await consumeTrpAuthority(root,{record,...authority,review,token:grant.token});
+      const {token}=await captureTerminalActionAuthorization(root,review.plan,review.action,{label:'Confirm test review'});
+      const witness=await consumeTrpAuthority(root,{record,...authority,review,token});
       await appendTrpRecord(workRoot,record);
       const saved=await appendTrpAuthorityReceipt(workRoot,witness);
       console.log('TRP_TERMINAL_RESULT:'+JSON.stringify({ok:true,receipt:saved.receipt}));

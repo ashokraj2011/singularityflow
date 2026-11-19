@@ -8,6 +8,8 @@ import {
   configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 
+const OK = 'pass';
+
 function redactRemote(value) {
   return value ? sanitizeRemote(value) : null;
 }
@@ -27,7 +29,7 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
   const checks = [];
   checks.push({
     id: 'ledger-enabled',
-    status: config.enabled ? 'pass' : 'fail',
+    status: config.enabled ? OK : 'fail',
     detail: config.enabled ? 'append-only ledger is enabled' : 'ledger.enabled is false; there is no deployment to validate'
   });
   const remote = git(root, ['remote', 'get-url', config.remote]);
@@ -44,7 +46,7 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
   }
   checks.push({
     id: 'remote-configured',
-    status: transport ? 'pass' : 'fail',
+    status: transport ? OK : 'fail',
     detail: transport ? `${config.remote}: ${redactRemote(remoteUrl)}`
       : remoteConfigurationError ? `Git remote '${config.remote}' has an unsafe or invalid transport configuration`
         : `Git remote '${config.remote}' is not configured`
@@ -59,14 +61,14 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
       : [];
     checks.push({
       id: 'remote-readable',
-      status: remoteRefs.status === 0 ? 'pass' : 'fail',
+      status: remoteRefs.status === 0 ? OK : 'fail',
       detail: remoteRefs.status === 0 ? 'remote refs are readable with the current Git credentials'
         : (remoteRefs.failure?.advice ?? 'Git remote could not be read')
     });
     const branchPresent = advertisedRefs.includes(`refs/heads/${config.branch}`);
     checks.push({
       id: 'ledger-branch',
-      status: branchPresent ? 'pass' : 'fail',
+      status: branchPresent ? OK : 'fail',
       detail: remoteRefs.status !== 0 ? 'ledger branch could not be checked because Git access failed'
         : branchPresent ? `${config.branch} exists on ${config.remote}` : `${config.branch} is not published on ${config.remote}`
     });
@@ -76,7 +78,7 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
       const pinsPresent = advertisedRefs.some((ref) => ref.startsWith(prefix));
       checks.push({
         id: 'pin-transport-readable',
-        status: remoteRefs.status === 0 ? 'pass' : 'fail',
+        status: remoteRefs.status === 0 ? OK : 'fail',
         detail: remoteRefs.status === 0
           ? `${config.pinTransport} pin namespace is readable${pinsPresent ? '' : ' (no pins published yet)'}`
           : (remoteRefs.failure?.advice ?? 'Git remote could not be read')
@@ -88,7 +90,7 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
   const signingRequired = config.signing === 'commit';
   checks.push({
     id: 'commit-signing',
-    status: !signingRequired || signingKey.status === 0 ? 'pass' : 'fail',
+    status: !signingRequired || signingKey.status === 0 ? OK : 'fail',
     detail: !signingRequired ? 'commit signing is not required by this trust tier' : signingKey.status === 0 ? 'Git signing key is configured' : 'ledger signing requires user.signingkey'
   });
 
@@ -101,14 +103,14 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
   const asserted = (value) => Boolean(value && confirmationValid);
   checks.push({
     id: 'protected-branch-policy',
-    status: asserted(confirmations.protectedBranch) ? 'pass' : highTrust ? 'fail' : 'warn',
+    status: asserted(confirmations.protectedBranch) ? OK : highTrust ? 'fail' : 'warn',
     detail: asserted(confirmations.protectedBranch)
       ? `authorized operator asserted ledger branch protection and non-force-push policy (${confirmationContext.authorityGroup})`
       : 'Git cannot inspect host branch-protection policy; an authorized, identity-bound assertion is required for T2/T3'
   });
   checks.push({
     id: 'authenticated-push-policy',
-    status: asserted(confirmations.pushPolicy) ? 'pass' : highTrust ? 'fail' : 'warn',
+    status: asserted(confirmations.pushPolicy) ? OK : highTrust ? 'fail' : 'warn',
     detail: asserted(confirmations.pushPolicy)
       ? `authorized operator asserted authenticated append permissions and force-push denial (${confirmationContext.authorityGroup})`
       : 'read-only validation cannot prove server-side push authorization'
@@ -116,7 +118,7 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
   if (config.pinTransport !== 'none') {
     checks.push({
       id: 'pin-retention-policy',
-      status: asserted(confirmations.pinRetention) ? 'pass' : config.trustTier === 'T3' ? 'fail' : 'warn',
+      status: asserted(confirmations.pinRetention) ? OK : config.trustTier === 'T3' ? 'fail' : 'warn',
       detail: asserted(confirmations.pinRetention)
         ? `authorized operator asserted pin retention for the configured transport (${confirmationContext.authorityGroup})`
         : 'server retention and deletion policy requires administrator confirmation'

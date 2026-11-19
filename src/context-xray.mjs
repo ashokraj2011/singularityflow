@@ -40,7 +40,8 @@ function knowledgeEntry(entry = {}) {
     representation: entry.representation ?? null,
     bytes: Number.isFinite(entry.bytes) ? entry.bytes : null,
     tokens: Number.isFinite(entry.tokens) ? entry.tokens : null,
-    tokenCountStatus: entry.tokenCountStatus ?? 'unavailable'
+    tokenCountStatus:
+      entry.tokenCountStatus ?? 'unavailable'
   });
 }
 

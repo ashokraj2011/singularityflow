@@ -13,6 +13,9 @@ import { contextXray, contextXrayText } from '../src/context-xray.mjs';
 import { gitCommonDir } from '../src/git.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 
+/** The token count status of an entry nobody counted. */
+const COUNT_UNAVAILABLE = 'unavailable';
+
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 }
@@ -63,7 +66,7 @@ function packet() {
         validity: { status: 'current', validFrom: '2020-01-01T00:00:00.000Z', validUntil: null },
         scopeMatch: true, supersession: { status: 'current', supersededBy: null },
         representation: 'untrusted-knowledge-json-lines-v1', bytes: 120,
-        tokens: null, tokenCountStatus: 'unavailable'
+        tokens: null, tokenCountStatus: COUNT_UNAVAILABLE
       }],
       omitted: [{
         recordSha256: '4'.repeat(64), kind: 'gotcha', reasonCode: 'over-byte-budget',
@@ -71,7 +74,7 @@ function packet() {
         provenanceReferences: [],
         validity: { status: 'current', validFrom: '2020-01-01T00:00:00.000Z', validUntil: null },
         scopeMatch: true, supersession: { status: 'current', supersededBy: null },
-        representation: 'omitted', bytes: 2048, tokens: null, tokenCountStatus: 'unavailable'
+        representation: 'omitted', bytes: 2048, tokens: null, tokenCountStatus: COUNT_UNAVAILABLE
       }],
       omissions: {
         total: 5, byReason: { 'over-byte-budget': 5 },

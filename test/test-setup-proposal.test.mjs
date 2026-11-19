@@ -165,7 +165,7 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
   const relay = json(...spelled('e2e-relay', '--environment', 'relay'));
   assert.deepEqual([relay.data.replaces, relay.data.commands[0].environment], [[], 'relay']);
   assert.match(relay.data.confirmCommand, / --level e2e --environment relay --confirm sha256:/u);
-  const secret = refused(...spelled('e2e-secret', '--env', 'PLAYWRIGHT_BASE_URL=https://user:pw@relay.example.test'));
-  assert.equal(secret.code, 'QUALITY_COMMAND_ENV_SECRET');
-  assert.match(secret.message, /singularity\/environments\.yml/u);
+  const envRefusal = refused(...spelled('e2e-secret', '--env', 'PLAYWRIGHT_BASE_URL=https://user:pw@relay.example.test'));
+  assert.equal(envRefusal.code, 'QUALITY_COMMAND_ENV_SECRET');
+  assert.match(envRefusal.message, /singularity\/environments\.yml/u);
 });

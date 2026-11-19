@@ -30,6 +30,8 @@ import { isInferredSwiftTestCommand, SWIFT_TEST_REPORT_NAMES } from '../swift-ma
 import { prepareInferredSwiftTestReports } from '../verification/swift-reports.mjs';
 import { LEGACY_AGENTS_ROOT } from '../configuration-assets.mjs';
 
+const OK = 'pass';
+
 const PURPOSE_ORDER = Object.freeze(['dependency', 'build', 'quality', 'test', 'start']);
 const PURPOSE_RANK = new Map(PURPOSE_ORDER.map((purpose, index) => [purpose, index]));
 const READINESS_SCOPES = Object.freeze(['full', 'dependency-test']);
@@ -585,7 +587,7 @@ function sanitizedCommandResult(command, result, purpose = command.purpose) {
   return {
     id: command.id,
     purpose,
-    status: result?.status === 'pass' ? 'pass' : 'failed',
+    status: result?.status === 'pass' ? OK : 'failed',
     exitCode: Number.isInteger(result?.exitCode) && result.exitCode >= 0 && result.exitCode <= 255
       ? result.exitCode : null,
     signal: childSignal,
@@ -774,7 +776,7 @@ async function defaultRunCommand(command, {
           ? summary('pass', { exitCode: code, signal: childSignal, reason: 'launch-survived' })
           : summary('failed', { exitCode: code, signal: childSignal, reason: 'start-exited-before-survival' }));
       } else {
-        finish(summary(code === 0 ? 'pass' : 'failed', {
+        finish(summary(code === 0 ? OK : 'failed', {
           exitCode: code, signal: childSignal, reason: code === 0 ? null : 'non-zero-exit'
         }));
       }

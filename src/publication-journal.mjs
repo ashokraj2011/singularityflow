@@ -152,8 +152,10 @@ export async function beginPublicationJournal(root, {
       pid: process.pid,
       processId: PROCESS_OWNER_ID,
       host: lockOwner?.host ?? null,
-      processToken: lockOwner?.processToken ?? null,
-      lockToken: lockOwner?.lockToken ?? null
+      processToken:
+        lockOwner?.processToken ?? null,
+      lockToken:
+        lockOwner?.lockToken ?? null
     },
     createdAt: nowIso(),
     updatedAt: nowIso(),

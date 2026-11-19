@@ -138,9 +138,9 @@ export function environmentFilePairs(kind, text) {
 }
 
 function nameToken(value, fallback) {
-  const token = String(value).toUpperCase().replace(/[^A-Z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').slice(0, 64);
-  if (!token) return fallback;
-  return /^[A-Z]/u.test(token) ? token : `F${token}`;
+  const word = String(value).toUpperCase().replace(/[^A-Z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').slice(0, 64);
+  if (!word) return fallback;
+  return /^[A-Z]/u.test(word) ? word : `F${word}`;
 }
 
 /** The redaction name of a value: the file's name and the key, as `[redacted:FILE-KEY]` shows them. */

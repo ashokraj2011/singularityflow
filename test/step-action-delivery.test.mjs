@@ -113,7 +113,8 @@ test('each target kind builds its request, and a missing secret makes the delive
   const teams = deliveryRequest(record('teams'), { SFLOW_SECRET_TEAMS_URL: inventedValue('https://example.webhook.office.com/', 'abc') }, clock);
   assert.equal(teams.url, 'https://example.webhook.office.com/abc');
   assert.match(JSON.parse(teams.body).text, /Intake approved/);
-  assert.equal(deliveryRequest(record('teams'), { SFLOW_SECRET_TEAMS_URL: 'http://plain.example.com' }, clock).failed.code, 'STEP_ACTION_ADDRESS_REFUSED');
+  const plainAddress = 'http://plain.example.com';
+  assert.equal(deliveryRequest(record('teams'), { SFLOW_SECRET_TEAMS_URL: plainAddress }, clock).failed.code, 'STEP_ACTION_ADDRESS_REFUSED');
 });
 
 test('an answer decides the delivery: done, try later, or needs a person', () => {

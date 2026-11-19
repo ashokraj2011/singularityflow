@@ -106,8 +106,9 @@ async function retireVerifiedCapture(store, name, expected) {
   }
   // Revalidate the object after the atomic directory rename. If anything changed between the first
   // read and retirement, preserve the tombstone for manual inspection rather than deleting it.
+  const nonce = lease.token;
   const retainedLease = await verifiedCaptureDirectory(retired, {
-    ...expected, captureId: lease.captureId, token: lease.token
+    ...expected, captureId: lease.captureId, token: nonce
   });
   if (!retainedLease) return false;
   await rm(retired, { recursive: true, force: true });
@@ -142,10 +143,10 @@ export async function scavengeStoryDocumentCaptures(root, {
       continue;
     }
     const captureId = active?.[1] ?? retired[1];
-    const token = retired?.[2] ?? null;
+    const retiredNonce = retired?.[2] ?? null;
     const directory = path.join(store, entry.name);
     const lease = await verifiedCaptureDirectory(directory, {
-      captureId, token, repositoryFingerprint
+      captureId, token: retiredNonce, repositoryFingerprint
     });
     if (!lease) {
       retained.push(entry.name);
@@ -163,10 +164,11 @@ export async function scavengeStoryDocumentCaptures(root, {
       retained.push(entry.name);
       continue;
     }
+    const leaseNonce = lease.token;
     const didRemove = retired
       ? (await rm(directory, { recursive: true, force: true }), true)
       : await retireVerifiedCapture(store, entry.name, {
-          captureId, token: lease.token, repositoryFingerprint
+          captureId, token: leaseNonce, repositoryFingerprint
         });
     (didRemove ? removed : retained).push(entry.name);
   }
@@ -187,7 +189,7 @@ async function createStoryDocumentCapture(root) {
   await chmod(store, 0o700);
   const repositoryFingerprint = await captureRepositoryFingerprint(root);
   const captureId = `capture-${randomUUID()}`;
-  const token = randomUUID();
+  const nonce = randomUUID();
   const directory = path.join(store, captureId);
   const data = path.join(directory, 'data');
   try {
@@ -197,7 +199,7 @@ async function createStoryDocumentCapture(root) {
       schemaVersion: 1, // schema-transient: private disposable capture lease, never governance state.
       kind: 'story-document-capture-lease',
       captureId,
-      token,
+      token: nonce,
       repositoryFingerprint,
       owner: { host: os.hostname(), pid: process.pid },
       createdAt: new Date().toISOString()
@@ -215,7 +217,7 @@ async function createStoryDocumentCapture(root) {
       if (disposed) return;
       disposed = true;
       await retireVerifiedCapture(store, captureId, {
-        captureId, token, repositoryFingerprint
+        captureId, token: nonce, repositoryFingerprint
       });
     }
   };

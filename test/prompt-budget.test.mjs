@@ -196,7 +196,8 @@ test('observe can record a deterministic TKR shadow without changing delivered l
         generation: 1
       },
       authority: {
-        tokenEconomyPolicySha256: `sha256:${'4'.repeat(64)}`,
+        tokenEconomyPolicySha256:
+          `sha256:${'4'.repeat(64)}`,
         phaseContextPolicySha256: `sha256:${'5'.repeat(64)}`,
         workflowSnapshotSha256: `sha256:${'3'.repeat(64)}`,
         sourceSnapshotSha256: `sha256:${'6'.repeat(64)}`

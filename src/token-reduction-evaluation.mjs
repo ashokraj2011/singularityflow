@@ -642,9 +642,10 @@ function runOutcomes(requests) {
 function qualityFor(runs) {
   return {
     runs: runs.length,
-    firstPassMeasuredRuns: runs.filter((record) => (
-      typeof record.firstPassPassed === 'boolean'
-    )).length,
+    firstPassMeasuredRuns:
+      runs.filter((record) => (
+        typeof record.firstPassPassed === 'boolean'
+      )).length,
     firstPassPercent: rate(runs, 'firstPassPassed'),
     finalAcceptanceMeasuredRuns: runs.filter((record) => (
       typeof record.finalAccepted === 'boolean'
@@ -670,18 +671,21 @@ function summarizeObservations(records) {
     repairCountUnknownRequests: records.filter((record) => (
       !Number.isFinite(record.repairCount)
     )).length,
-    unknownInputTokenRequests: records.filter((record) => (
-      !Number.isFinite(record.inputTokens)
-    )).length,
-    unknownOutputTokenRequests: records.filter((record) => (
-      !Number.isFinite(record.outputTokens)
-    )).length,
+    unknownInputTokenRequests:
+      records.filter((record) => (
+        !Number.isFinite(record.inputTokens)
+      )).length,
+    unknownOutputTokenRequests:
+      records.filter((record) => (
+        !Number.isFinite(record.outputTokens)
+      )).length,
     unknownProviderCostRequests: records.filter((record) => (
       !Number.isFinite(record.providerCost)
     )).length,
-    firstPassUnknownRequests: records.filter((record) => (
-      typeof record.firstPassPassed !== 'boolean'
-    )).length,
+    firstPassUnknownRequests:
+      records.filter((record) => (
+        typeof record.firstPassPassed !== 'boolean'
+      )).length,
     finalAcceptanceUnknownRequests: records.filter((record) => (
       typeof record.finalAccepted !== 'boolean'
     )).length

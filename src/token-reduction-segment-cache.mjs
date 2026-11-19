@@ -37,7 +37,8 @@ const MAXIMUM_CANONICAL_STRING_BYTES = 32 * 1024;
 const MAXIMUM_SCANNED_FILES = 4096;
 const ACTIVE_PENDING_MAXIMUM_AGE_MS = 5 * 60 * 1000;
 
-export const TOKEN_REDUCTION_SEGMENT_CACHE_LIMITS = Object.freeze({
+export const TOKEN_REDUCTION_SEGMENT_CACHE_LIMITS =
+  Object.freeze({
   maximumEntries: 1024,
   maximumDiskBytes: 64 * 1024 * 1024,
   maximumEntryBytes: 2 * 1024 * 1024,

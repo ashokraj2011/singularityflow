@@ -32,13 +32,15 @@ const ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
  * a cloud key) as a target's token and deliver it to an address of its choosing.
  */
 export const INTEGRATION_SECRET_PREFIX = 'SFLOW_SECRET_';
-const SECRET_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
+const SECRET_NAME =
+  /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
 const LABEL_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 // A value under one of these keys would be a secret written into reviewed configuration.
 const INLINE_SECRET_KEY = /^(?:token|password|passwd|secret|apikey|api[-_]?token|key|signingkey|authorization|auth|bearer|credentials?)$/i;
 // A query parameter with one of these names usually carries a credential or a signature.
-const SECRET_QUERY_KEY = /token|secret|signature|^sig$|key|code|password|auth/i;
+const SECRET_QUERY_KEY =
+  /token|secret|signature|^sig$|key|code|password|auth/i;
 
 /**
  * Every kind a target may name. `available` is true once this build can deliver to it; a kind that
@@ -171,7 +173,7 @@ function assertNoInlineSecrets(raw, label) {
   for (const key of Object.keys(raw)) {
     if (INLINE_SECRET_KEY.test(key)) {
       refuse('INTEGRATION_SECRET_INLINE',
-        `${label} has '${key}', which would put a secret in reviewed configuration. Name an environment secret instead, for example tokenSecret: MY_SERVICE_TOKEN.`,
+        `${label} has '${key}', which would put a secret in reviewed configuration. Name an environment secret instead (for example tokenSecret: SFLOW_SECRET_MY_SERVICE_TOKEN).`,
         { location: label, field: key });
     }
   }

@@ -5190,8 +5190,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const report = await client.run<HarnessReport>(['harness', 'report', '--json']);
       const percent = (report.checkers.coverage * 100).toFixed(1);
       const rows = report.events.map((event) => {
-        const verdict = event.checkers?.some((checker) => checker.verdict === 'fail') ? 'fail'
-          : event.checkers?.some((checker) => checker.verdict === 'pass') ? 'pass' : 'not observed';
+        // The first verdict any checker gave, failures first.
+        const verdict = ['fail', 'pass'].find((word) => event.checkers?.some((checker) => checker.verdict === word)) ?? 'not observed';
         return `| \`${event.invocationId}\` | ${event.command?.join(' ') || 'unknown'} | ${event.exitCode ?? '—'} | ${verdict} |`;
       });
       const content = [

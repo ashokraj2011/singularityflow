@@ -26,6 +26,7 @@ const FLIGHT_ID = `AFL-${'A'.repeat(26)}`;
 const ATTEMPT_ID = `AAT-${'B'.repeat(26)}`;
 const HASH = (value) => `sha256:${String(value).repeat(64).slice(0, 64)}`;
 const NOW = () => '2026-09-02T00:00:00.000Z';
+const BEST_AVAILABLE = 'best-available';
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
@@ -60,7 +61,7 @@ function records() {
     requiredOutputs: ['source changes', 'tests'], requiredEvidence: ['affected tests'],
     budgets: {
       maximumTouchedPaths: 20, maximumTouchedChanges: 40, maximumModelInvocations: 2,
-      maximumTotalTokens: 30000, tokenAssurance: 'best-available'
+      maximumTotalTokens: 30000, tokenAssurance: BEST_AVAILABLE
     },
     stopConditions: ['protected-path', 'scope-expansion']
   }, { now: NOW });

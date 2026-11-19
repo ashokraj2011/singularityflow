@@ -590,7 +590,7 @@ export async function invokeModel(request) {
   const file = path.join(directory, `${id}.json`);
   await mkdir(directory, { recursive: true });
   const staged = await stageModelPrompt(normalized.prompt, { maximumBytes: normalized.limits.promptBytes });
-  const admission = assessTokenAdmission({
+  const tokenAdmission = assessTokenAdmission({
     ...(normalized.tokenAdmission ?? {}),
     model: routing?.model ?? normalized.model ?? null,
     logicalPromptBytes: staged.bytes
@@ -630,7 +630,7 @@ export async function invokeModel(request) {
     promptProtocolVersion: null,
     promptEncoding: staged.encoding,
     promptLayout: boundaryPromptLayout(staged),
-    tokenAdmission: admission,
+    tokenAdmission,
     economics: invocationEconomics(staged.bytes),
     cwdSha256: sha256(normalized.cwd),
     // Present when this prompt ran as a turn of a model session (createModelSession).
@@ -691,16 +691,16 @@ export async function invokeModel(request) {
     // invocation receipt with no corresponding prompt record.
     await captureInvocationPrompt(resolvedAuditRoot, staged, event, normalized.executionContext);
     if (normalized.tokenAdmission?.mode === 'enforce') {
-      if (!admission.safeToEnforce || admission.maximumInputTokens == null) {
+      if (!tokenAdmission.safeToEnforce || tokenAdmission.maximumInputTokens == null) {
         throw new SingularityFlowError(
           'Model invocation cannot enforce a context boundary without complete tokenizer/provider admission evidence.',
-          { code: 'TKN_ADMISSION_ASSURANCE_INSUFFICIENT', details: { admission } }
+          { code: 'TKN_ADMISSION_ASSURANCE_INSUFFICIENT', details: { admission: tokenAdmission } }
         );
       }
-      if (admission.admitted !== true) {
+      if (tokenAdmission.admitted !== true) {
         throw new SingularityFlowError(
           'Model invocation exceeds the admitted provider context boundary.',
-          { code: 'TKN_PROVIDER_CONTEXT_OVERFLOW', details: { admission } }
+          { code: 'TKN_PROVIDER_CONTEXT_OVERFLOW', details: { admission: tokenAdmission } }
         );
       }
     }
@@ -846,7 +846,7 @@ export async function invokeModel(request) {
       outputSha256,
       usage: result.usage ?? { status: 'unavailable' },
       toolObservation: completedEvent.toolObservation,
-      tokenAdmission: admission,
+      tokenAdmission,
       economics: completedEvent.economics,
       promptTransport: completedEvent.promptTransport,
       promptProtocolVersion: completedEvent.promptProtocolVersion,

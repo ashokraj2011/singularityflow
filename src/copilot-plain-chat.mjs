@@ -178,8 +178,8 @@ export async function notePrompt(payload, { skill = null, now = Date.now() } = {
   const { subagentPayload, typedArguments } = await import('./asked-for.mjs');
   // A subagent's task shares its session: the person's own copy, and any secret it marks, stay.
   if (subagentPayload(payload)) return null;
-  const earlier = keepsBlockedPrompt(payload) ? (await readSessionCopy(payload))?.held ?? null : null;
-  const held = earlier && !PAUSE_SKILLS.includes(skill) ? earlier : null;
+  const prior = keepsBlockedPrompt(payload) ? (await readSessionCopy(payload))?.held ?? null : null;
+  const held = prior && !PAUSE_SKILLS.includes(skill) ? prior : null;
   await writeSessionCopy(payload, null);
   if (typeof payload.prompt !== 'string') return null;
   const repository = sflowRepositoryAt(typeof payload.cwd === 'string' ? payload.cwd : process.cwd());
@@ -194,7 +194,7 @@ export async function notePrompt(payload, { skill = null, now = Date.now() } = {
   const at = new Date(now).toISOString();
   // What this chat now holds: its own secret where the host keeps a blocked prompt, else the earlier one, which a
   // /sf-pause turn keeps too: only the pause it asks for, which clears this copy, ends it.
-  const holds = secret && keepsBlockedPrompt(payload) ? secret : earlier;
+  const holds = secret && keepsBlockedPrompt(payload) ? secret : prior;
   await writeSessionCopy(payload, { turnId, at, plain: !skill, skill, ...(words ?? { text: '' }), secret, ...(holds ? { held: holds } : {}),
     root: repository.root, story, changed: false });
   await notePromptLog(repository.common, { session: sessionKey(payload)?.slice(0, 16) ?? null, turn: turnId,

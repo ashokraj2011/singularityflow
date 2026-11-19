@@ -125,12 +125,12 @@ function positionalArgvIndexes(argv) {
   const at = [];
   let passthrough = false;
   for (let index = 0; index < argv.length; index += 1) {
-    const token = String(argv[index]);
+    const arg = String(argv[index]);
     if (passthrough) { at.push(index); continue; }
-    if (token === '--') { passthrough = true; continue; }
-    if (!token.startsWith('--')) { at.push(index); continue; }
-    if (token.startsWith('--no-') || token.indexOf('=') > 2) continue;
-    const key = token.slice(2);
+    if (arg === '--') { passthrough = true; continue; }
+    if (!arg.startsWith('--')) { at.push(index); continue; }
+    if (arg.startsWith('--no-') || arg.indexOf('=') > 2) continue;
+    const key = arg.slice(2);
     const next = argv[index + 1];
     if (next !== undefined && (FREE_TEXT_OPTIONS.has(key) || !String(next).startsWith('--')) && !BOOLEAN_OPTIONS.has(key)) index += 1;
   }
@@ -160,13 +160,13 @@ export async function rebaseFileOptions(options, argv, launchDirectory) {
   }
   const end = argv.indexOf('--');
   for (let index = 0; index < (end < 0 ? argv.length : end); index += 1) {
-    const token = String(argv[index]);
-    const equals = /^--([a-z][a-z0-9-]*)=(.*)$/su.exec(token);
+    const arg = String(argv[index]);
+    const equals = /^--([a-z][a-z0-9-]*)=(.*)$/su.exec(arg);
     if (equals && (OUTPUT_OPTIONS.has(equals[1]) || INPUT_OPTIONS.has(equals[1]))) {
       argv[index] = `--${equals[1]}=${await rebasedValue(equals[1], equals[2], launchDirectory)}`;
-    } else if (token.startsWith('--') && (OUTPUT_OPTIONS.has(token.slice(2)) || INPUT_OPTIONS.has(token.slice(2)))
+    } else if (arg.startsWith('--') && (OUTPUT_OPTIONS.has(arg.slice(2)) || INPUT_OPTIONS.has(arg.slice(2)))
         && index + 1 < argv.length && !String(argv[index + 1]).startsWith('--')) {
-      argv[index + 1] = await rebasedValue(token.slice(2), argv[index + 1], launchDirectory);
+      argv[index + 1] = await rebasedValue(arg.slice(2), argv[index + 1], launchDirectory);
       index += 1;
     }
   }

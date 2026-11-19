@@ -39,6 +39,8 @@ import { assertCurrentRevisionPrecheck } from './precheck.mjs';
 import { readRevisionRecord, writeRevisionRecord } from './store.mjs';
 import { buildRevisionAttempt, buildRevisionHunkClaimSet } from './contracts.mjs';
 
+const OK = 'pass';
+
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const START_KIND = 'revision-interactive-start-plan';
 const CAPTURE_KIND = 'revision-interactive-capture-plan';
@@ -837,7 +839,8 @@ function precheckEvidence({ active, current, state, packet, claims, resultCandid
   if (manual.secretScan?.status === 'pass') proven.add('secretScan');
   const unavailableReasons = Object.freeze({
     protectedPaths: 'protected-path-check-not-established',
-    secretScan: 'registered-saved-byte-secret-scan-not-established',
+    secretScan:
+      'registered-saved-byte-secret-scan-not-established',
     hunkDisposition: 'saved-file-diff-is-not-hunk-attribution',
     requiredStructure: 'no-registered-structure-check-executed',
     kernelChecks: 'no-registered-kernel-check-executed',
@@ -846,10 +849,10 @@ function precheckEvidence({ active, current, state, packet, claims, resultCandid
     worktreeEquality: 'cli-buffer-assertion-is-not-trusted-editor-proof'
   });
   const evidence = (name) => ({
-    status: proven.has(name) ? 'pass' : 'unavailable',
+    status: proven.has(name) ? OK : 'unavailable',
     evidenceSha256: digest({
       check: name,
-      status: proven.has(name) ? 'pass' : 'unavailable',
+      status: proven.has(name) ? OK : 'unavailable',
       reason: unavailableReasons[name] ?? 'built-in-check-unavailable',
       candidate: resultCandidate.candidateSha256,
       capturePlanSha256: manual.planSha256

@@ -2,8 +2,10 @@
 import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
-export const TOKEN_ECONOMY_MODES = Object.freeze(['off', 'observe', 'assist', 'enforce']);
-export const TOKEN_ECONOMY_COMPOSERS = Object.freeze(['legacy-v1', 'tkr-v1']);
+export const TOKEN_ECONOMY_MODES =
+  Object.freeze(['off', 'observe', 'assist', 'enforce']);
+export const TOKEN_ECONOMY_COMPOSERS =
+  Object.freeze(['legacy-v1', 'tkr-v1']);
 const PROVIDER_TELEMETRY_MODES = Object.freeze(['off', 'optional', 'required']);
 const CAPABILITY_MODES = Object.freeze(['off', 'optional', 'required']);
 const BREACH_POLICIES = Object.freeze(['refuse', 'partial']);

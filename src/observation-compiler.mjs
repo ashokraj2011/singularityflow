@@ -47,8 +47,9 @@ function redactObservation(raw) {
   const counts = new Map();
   const privateBlock = /-----BEGIN ((?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY)-----[\s\S]*?-----END \1-----/g;
   text = text.replace(privateBlock, () => {
-    counts.set('private-key', (counts.get('private-key') ?? 0) + 1);
-    return '[redacted-secret:private-key]';
+    const id = 'private-key';
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+    return `[redacted-secret:${id}]`;
   });
   for (const rule of SECRET_RULES) {
     const pattern = new RegExp(rule.pattern.source, rule.pattern.flags);

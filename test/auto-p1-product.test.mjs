@@ -160,13 +160,14 @@ test('AUT v2 P1 builders stamp the migration registry, close vocabularies, and s
 
 test('AUT v2 P1 readers reject correctly resealed timestamps and duplicate authority IDs outside the schemas', () => {
   const built = records();
+  const { economics: economicsReceipt } = built;
   const familyRecords = {
     'auto-phase-run': built.phaseRun,
     'auto-attempt': built.attempt,
     'auto-refusal': built.refusal,
     'auto-repair-plan': built.repairPlan,
     'auto-human-request': built.humanRequest,
-    'auto-token-economics-receipt': built.economics,
+    'auto-token-economics-receipt': economicsReceipt,
     'auto-execution-unit-switch': built.switchPlan
   };
   const hashField = (family) => family === 'auto-refusal' ? 'refusalSha256'

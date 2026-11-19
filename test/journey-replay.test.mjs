@@ -169,7 +169,7 @@ test('the extractor keeps only what is on its lists, whatever a real command hel
   const knownWords = await registryWords();
   const context = { workId: 'STORY-9', knownWords, checkout: '/somewhere/private-repo/.singularity-flow/story-worktrees/.w-abc123', home: '/somewhere/private-person' };
   const scrub = (command) => normalizeCommand(command, context);
-  const SECRETS = /private|secret|acme|hunter2|Calculator|widget/iu;
+  const PRIVATE_WORDS = /private|secret|acme|hunter2|Calculator|widget/iu;
   const cases = [
     ['singularity-flow appeal prepare --add-supporting .nvmrc=build-configuration --reason "my secret reason" --phase implementation --json',
       'singularity-flow appeal prepare --add-supporting <VALUE> --reason <TEXT> --phase implementation --json'],
@@ -188,7 +188,7 @@ test('the extractor keeps only what is on its lists, whatever a real command hel
   for (const [command, expected] of cases) {
     const saved = scrub(command);
     assert.equal(saved, expected, command);
-    assert.doesNotMatch(saved, SECRETS, command);
+    assert.doesNotMatch(saved, PRIVATE_WORDS, command);
     for (const token of saved.split(' ')) assert.ok(tokenAllowed(token, knownWords), `${command}: ${token}`);
   }
   // A tool's arguments keep what the guard reads, never its contents.

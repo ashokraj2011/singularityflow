@@ -110,7 +110,8 @@ export async function confirmStoryTestSelection(root, config, workflow, { phaseI
     if (!fresh.preview.ready || fresh.preview.planDigest !== confirmation
       || freshSelection.recordSha256 !== selection.recordSha256) fail('The candidate or test policy changed during review. Review a fresh plan.', 'TRP_TEST_SELECTION_CONFIRMATION_STALE');
     const freshAuthority = trpSelectionAuthorityContext(current, fresh.phase, fresh.agreement);
-    const witness = await consumeTrpAuthority(root, { record: selection, ...freshAuthority, review, token: authorization.token });
+    const nonce = authorization.token;
+    const witness = await consumeTrpAuthority(root, { record: selection, ...freshAuthority, review, token: nonce });
     const workRoot = workDir(root, config, current.workItem.id);
     await appendTrpRecord(workRoot, selection);
     const saved = await appendTrpAuthorityReceipt(workRoot, witness);

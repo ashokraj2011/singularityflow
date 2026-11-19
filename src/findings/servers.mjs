@@ -145,8 +145,8 @@ async function sonarEnvironment(root, command) {
   if (bound?.status !== 'bound') return null;
   const values = bound.childEnvironment({});
   const host = values.SONAR_HOST_URL ?? values.SONARQUBE_HOST_URL ?? null;
-  const token = values.SONAR_TOKEN ?? values.SONARQUBE_TOKEN ?? null;
-  return host && token ? { host, token } : null;
+  const sonarAccess = values.SONAR_TOKEN ?? values.SONARQUBE_TOKEN ?? null;
+  return host && sonarAccess ? { host, token: sonarAccess } : null;
 }
 
 const unavailable = (command, reason) => ({ command, status: 'unavailable', reason, findings: [] });
@@ -192,7 +192,8 @@ export async function submitServerAnalyses(root, config, workflow, phase, comman
       else if (reported && reported !== origin) result = unavailable(command, `the scanner reported ${reported}, not the bound host ${origin}`);
       else {
         try {
-          const read = await readSonarqubeServer({ baseUrl: bound.host, token: bound.token, project: expected, branch: server.branchAnalysis ? branch : null, fetch, source: command.id,
+          const { token: sonarAccess } = bound;
+          const read = await readSonarqubeServer({ baseUrl: bound.host, token: sonarAccess, project: expected, branch: server.branchAnalysis ? branch : null, fetch, source: command.id,
             paths: repositoryPaths({ bases: [{ absolute: root, relative: '.' }], cwd: command.workingDirectory ?? '.' }) });
           result = { command, status: 'read', findings: read.findings };
           servers.push({ commandId: command.id, provider: 'sonarqube', project: expected, branch: server.branchAnalysis ? branch : null,

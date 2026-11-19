@@ -160,8 +160,9 @@ test('an authorization has no executable plan at all', () => {
 });
 
 test('the plan hash moves when anything the user was shown moves', () => {
-  const authority = createHandleAuthority({ secret: Buffer.alloc(32, 7), now: () => 1_000 });
-  const other = createHandleAuthority({ secret: Buffer.alloc(32, 7), now: () => 1_000 });
+  const sameKey = () => Buffer.alloc(32, 7);
+  const authority = createHandleAuthority({ secret: sameKey(), now: () => 1_000 });
+  const other = createHandleAuthority({ secret: sameKey(), now: () => 1_000 });
   // Same secret, same clock: only the random plan ID differs, so hashes must differ per issuance.
   assert.notEqual(authority.issuePlan(plan()).planHash, other.issuePlan(plan()).planHash);
 });

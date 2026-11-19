@@ -126,7 +126,7 @@ test('the last chat comes from Copilot\'s own log, from VS Code, preferring this
     const events = [JSON.stringify({ type: 'user.message', data: { content: 'session.usage_record is only a word here' } }),
       withSystem ? JSON.stringify({ type: 'system.message', data: { content: listing(['java-a', 'x'], ['py-a', 'yy']) } }) : '',
       'not json "session.usage_record"',
-      withUsage ? JSON.stringify({ type: 'session.usage_record', data: { usage: { inputTokens: tokens, toolTokenCount: 13_305, availableToolCount: 154 } } }) : '',
+      withUsage ? JSON.stringify({ type: 'session.usage_record', data: { usage: { inputTokens: tokens, toolTokenCount: 13305, availableToolCount: 154 } } }) : '',
       JSON.stringify({ type: 'session.usage_record', data: { usage: { inputTokens: 999_999 } } })].filter(Boolean);
     if (!withUsage) events.pop();
     await writeFile(path.join(directory, 'events.jsonl'), `${events.join('\n')}\n`);

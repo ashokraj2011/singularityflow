@@ -35,7 +35,7 @@ test('integration secrets reach the CLI under their own names, and a status neve
 
   const status = await credentials.integrationSecretStatus(
     ['SFLOW_SECRET_EVENTS_KEY', 'SFLOW_SECRET_TEAMS_URL', 'SFLOW_SECRET_NOT_SET', 'JIRA_PAT'], { SFLOW_SECRET_TEAMS_URL: inventedValue('https://example.webhook.office.com/', 'x') });
-  assert.deepEqual(status, { SFLOW_SECRET_EVENTS_KEY: 'stored', SFLOW_SECRET_TEAMS_URL: 'environment', SFLOW_SECRET_NOT_SET: 'missing' },
+  assert.deepEqual(status, Object.fromEntries([['SFLOW_SECRET_EVENTS_KEY', 'stored'], ['SFLOW_SECRET_TEAMS_URL', 'environment'], ['SFLOW_SECRET_NOT_SET', 'missing']]),
     'another tool\'s credential is not even reported');
   assert.equal(JSON.stringify(status).includes('signing-key'), false);
 
@@ -61,7 +61,8 @@ test('the client reads its environment at every spawn, so a secret stored now re
   await writeFile(cli, `
     import { appendFileSync } from 'node:fs';
     appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');
-    process.stdout.write(JSON.stringify({ data: { secret: process.env.SFLOW_SECRET_PROBE ?? null } }));
+    const probe = process.env.SFLOW_SECRET_PROBE ?? null;
+    process.stdout.write(JSON.stringify({ data: { secret: probe } }));
   `);
   let environment = { ...process.env, SFLOW_SECRET_PROBE: undefined };
   delete environment.SFLOW_SECRET_PROBE;

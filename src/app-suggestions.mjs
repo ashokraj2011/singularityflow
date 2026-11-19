@@ -68,14 +68,14 @@ export function withoutSecretArguments(tokens, secrets, notes) {
     return part;
   };
   for (let index = 0; index < tokens.length; index += 1) {
-    const token = String(tokens[index]);
-    const flag = token.match(/^--?([A-Za-z][\w.-]*)$/u);
+    const arg = String(tokens[index]);
+    const flag = arg.match(/^--?([A-Za-z][\w.-]*)$/u);
     if (flag && looksSecretName(flag[1]) && index + 1 < tokens.length && !String(tokens[index + 1]).startsWith('-')) {
       remember(tokens[index + 1], environmentNameFor(flag[1]));
       index += 1;
       continue;
     }
-    const property = token.match(/^(-D[\w.-]+=|--[\w.-]+=)(.*)$/su);
+    const property = arg.match(/^(-D[\w.-]+=|--[\w.-]+=)(.*)$/su);
     if (property && /\s/u.test(property[2])) {
       // A property whose value is itself a command line, such as jvmArguments.
       if (looksSecretName(property[1].replace(/^-D|^--|=$/gu, ''))) { remember(property[2], environmentNameFor(property[1].slice(0, -1))); continue; }
@@ -83,7 +83,7 @@ export function withoutSecretArguments(tokens, secrets, notes) {
       if (parts.length) kept.push(`${property[1]}${parts.join(' ')}`);
       continue;
     }
-    const scrubbed = scrubPart(token);
+    const scrubbed = scrubPart(arg);
     if (scrubbed != null) kept.push(scrubbed);
   }
   if (removed) {
@@ -175,11 +175,11 @@ async function readText(context, absolute) {
 
 function portFromArguments(tokens, names) {
   for (let index = 0; index < tokens.length; index += 1) {
-    const token = String(tokens[index]);
+    const arg = String(tokens[index]);
     for (const name of names) {
-      if (token === name && /^(?:[^\s:]*:)?\d{2,5}$/u.test(String(tokens[index + 1] ?? ''))) return Number(String(tokens[index + 1]).split(':').pop());
-      if (token.startsWith(`${name}=`)) {
-        const value = token.slice(name.length + 1).split(':').pop();
+      if (arg === name && /^(?:[^\s:]*:)?\d{2,5}$/u.test(String(tokens[index + 1] ?? ''))) return Number(String(tokens[index + 1]).split(':').pop());
+      if (arg.startsWith(`${name}=`)) {
+        const value = arg.slice(name.length + 1).split(':').pop();
         if (/^\d{2,5}$/u.test(value)) return Number(value);
       }
     }
@@ -388,13 +388,13 @@ function uvicornOptions(tokens) {
   let port = null;
   let reload = false;
   for (let index = 0; index < tokens.length; index += 1) {
-    const token = String(tokens[index]);
-    if (token === '--host') { index += 1; continue; }
-    if (token.startsWith('--host=')) continue;
-    if (token === '--port' && /^\d{2,5}$/u.test(String(tokens[index + 1] ?? ''))) { port = Number(tokens[index + 1]); index += 1; continue; }
-    if (/^--port=\d{2,5}$/u.test(token)) { port = Number(token.slice('--port='.length)); continue; }
-    if (token === '--reload') { reload = true; continue; }
-    parameters.push(token);
+    const arg = String(tokens[index]);
+    if (arg === '--host') { index += 1; continue; }
+    if (arg.startsWith('--host=')) continue;
+    if (arg === '--port' && /^\d{2,5}$/u.test(String(tokens[index + 1] ?? ''))) { port = Number(tokens[index + 1]); index += 1; continue; }
+    if (/^--port=\d{2,5}$/u.test(arg)) { port = Number(arg.slice('--port='.length)); continue; }
+    if (arg === '--reload') { reload = true; continue; }
+    parameters.push(arg);
   }
   return { parameters, port, reload };
 }
@@ -843,7 +843,8 @@ export async function suggestApplication(root, { capabilityId, capability = null
       if (built.entry) typed = { configuration, secretNames, notes: [...new Set([...typedNotes, ...translated.typedNotes ?? []])], argv: resolveStartCommand(built.entry).argv };
       else own.push(`It stays a command line: ${built.problem}`);
     }
-    const scrubbed = typed ? { tokens: typed.argv, secretNames: typed.secretNames } : withoutSecretArguments(translated.argv, secrets, own);
+    const typedNames = typed?.secretNames;
+    const scrubbed = typed ? { tokens: typed.argv, secretNames: typedNames } : withoutSecretArguments(translated.argv, secrets, own);
     own.push(...(typed ? typed.notes : translated.commandNotes ?? []));
     if (scrubbed.tokens.some((token) => /\$[A-Z_]+\$|\$\{[^}]+\}/u.test(token))) own.push('An argument still names an IDE variable ($…$ or ${…}); replace it with its value.');
     const classified = [];

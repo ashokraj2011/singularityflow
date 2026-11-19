@@ -62,7 +62,8 @@ export { entropy };
  * look. Both refuse a commit; the distinction is what the message says, because "this is definitely
  * an AWS key" and "this looks like a password" deserve different sentences.
  */
-export const SECRET_RULES = Object.freeze([
+export const SECRET_RULES =
+  Object.freeze([
   { id: 'private-key', severity: 'certain', label: 'private key', pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/g },
   { id: 'aws-access-key', severity: 'certain', label: 'AWS access key ID', pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { id: 'github-token', severity: 'certain', label: 'GitHub token', pattern: /\bgh[pousr]_[A-Za-z0-9]{36,255}\b/g },

@@ -123,9 +123,9 @@ export function registerRevisionBrokeredExecutionPlan(operations) {
     }
     return { kind: 'write', path: relative, bytes, executable: operation.executable === true };
   });
-  const token = Object.freeze({ kind: 'revision-brokered-execution-plan/v1' });
-  PLANS.set(token, plan);
-  return token;
+  const handle = Object.freeze({ kind: 'revision-brokered-execution-plan/v1' });
+  PLANS.set(handle, plan);
+  return handle;
 }
 
 function validateParentFiles(files) {

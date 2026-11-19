@@ -289,8 +289,8 @@ function validatedSflowCommand(value, { shell = 'posix', maximumLength = 2000 } 
       || hasForbiddenShellSyntax(displayGrammar.scrubbed, shell)) return null;
   const tokens = tokenizeCommand(original, shell);
   if (!tokens?.length || !['singularity-flow', 'sflow'].includes(tokens[0])) return null;
-  const secretCheck = execution ? executionSecretCheckArgv(tokens) : tokens;
-  if (!secretCheck || SECRET_SHAPE.test(commandFromArgv(secretCheck[0], secretCheck.slice(1)))
+  const checkedArgv = execution ? executionSecretCheckArgv(tokens) : tokens;
+  if (!checkedArgv || SECRET_SHAPE.test(commandFromArgv(checkedArgv[0], checkedArgv.slice(1)))
       || !execution && SECRET_SHAPE.test(original)) return null;
   const executable = tokens[0] === 'sflow' ? ['singularity-flow', ...tokens.slice(1)] : tokens;
   const top = executable[1];

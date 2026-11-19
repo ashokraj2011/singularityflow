@@ -31,6 +31,8 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const option = (name, fallback) => process.argv.find((argument) => argument.startsWith(`--${name}=`))?.split('=').slice(1).join('=') ?? fallback;
 const legacyRoot = option('legacy-cli-root', null) && path.resolve(option('legacy-cli-root'));
 const output = option('output', null);
+/** The word a passing check is printed with. */
+const OK = 'pass';
 if (!legacyRoot || !existsSync(path.join(legacyRoot, 'bin/singularity-flow.mjs'))) throw new Error('--legacy-cli-root must name a checkout with bin/singularity-flow.mjs.');
 
 const stateRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-sda-legacy-')));
@@ -189,7 +191,7 @@ try {
     checks
   };
   if (output) await writeFile(output, `${JSON.stringify(report, null, 2)}\n`);
-  for (const entry of checks) console.log(`${entry.passed ? 'pass' : 'FAIL'}  ${entry.step.padEnd(14)} ${entry.check}`);
+  for (const entry of checks) console.log(`${entry.passed ? OK : 'FAIL'}  ${entry.step.padEnd(14)} ${entry.check}`);
   if (!report.passed) process.exitCode = 1;
 } finally {
   await rm(stateRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

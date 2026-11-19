@@ -246,9 +246,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       }
       return preflight;
     },
-    select: async ({ preflight, prospectiveTree }) => {
+    select: async ({ preflight: grant, prospectiveTree }) => {
       revisionSelection = await verifyPreparedRevisionPublicationSelection({
-        token: preflight, root, prospectiveTree, config, workflow
+        token: grant, root, prospectiveTree, config, workflow
       });
       return revisionSelection;
     }

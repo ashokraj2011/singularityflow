@@ -50,7 +50,8 @@ const STAGED_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const AGENT_FILE_LIMIT = 64 * 1024;
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-const GENERATED_TOKENS = Object.freeze(['workId', 'workType', 'phase', 'generation']);
+const GENERATED_TOKENS =
+  Object.freeze(['workId', 'workType', 'phase', 'generation']);
 
 /** The agent Markdown tables an import can add a row to, in the exact shape the parser reads. */
 export const AGENT_RESOURCE_TABLES = Object.freeze({

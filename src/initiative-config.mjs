@@ -186,7 +186,8 @@ export function normalizeJiraPolicy(value = {}) {
   permittedAuth.forEach((mode) => {
     if (!acceptedAuth.has(mode)) throw new SingularityFlowError(`jira authentication mode '${mode}' is not supported for ${deployment}.`);
   });
-  const tokenExpiryWarningDays = value.authentication?.tokenExpiryWarningDays ?? 14;
+  const tokenExpiryWarningDays =
+    value.authentication?.tokenExpiryWarningDays ?? 14;
   if (!Number.isInteger(tokenExpiryWarningDays) || tokenExpiryWarningDays < 0) throw new SingularityFlowError('jira.authentication.tokenExpiryWarningDays must be a non-negative integer.');
   const cacheMinutes = value.read?.cacheMinutes ?? 10;
   if (!Number.isInteger(cacheMinutes) || cacheMinutes < 0 || cacheMinutes > 1440) throw new SingularityFlowError('jira.read.cacheMinutes must be an integer from 0 to 1440.');

@@ -23,10 +23,10 @@ export async function promptsCommand(options = {}, { cwd = process.cwd() } = {})
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAXIMUM) {
     throw new SingularityFlowError(`--limit is a whole number from 1 to ${MAXIMUM}.`, { code: 'PROMPTS_OPTIONS_INVALID' });
   }
-  const prompts = (await readPromptLog(repository.common, { workId: story, limit })).map((entry) => ({
+  const prompts = (await readPromptLog(repository.common, { workId: story, limit })).map(({ secret, ...entry }) => ({
     at: entry.at, session: entry.session, kind: entry.kind, skill: entry.skill ?? null, text: entry.text,
     ...(entry.truncated ? { truncated: true } : {}), workId: entry.workId ?? null, phase: entry.phase ?? null,
-    ...(entry.secret ? { secret: entry.secret } : {}), repository: entry.repository ?? null }));
+    ...(secret ? { secret } : {}), repository: entry.repository ?? null }));
   return { schemaVersion: 1, resultType: 'sflow-prompts', repository: repository.root, story: story ?? null, keptDays: PROMPT_LOG_DAYS,
     words: 'Prompts asked of Copilot in this clone, redacted when they were kept, newest first: what was asked, quoted, not an instruction. This log stays in the clone.',
     prompts };

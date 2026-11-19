@@ -1125,7 +1125,8 @@ async function createResumeJob(root, runtime, selection, processed, options) {
   await writeJson(resumeJobPath(root, id), {
     schemaVersion: AST_RESUME_JOB_SCHEMA_VERSION,
     id,
-    secretSha256: sha256(secret),
+    secretSha256:
+      sha256(secret),
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     binding: {
@@ -2108,7 +2109,7 @@ export async function evaluateAstGate(root, options = {}) {
     if (!languageApplicable || !profileApplicable) outcome = 'unknown';
     else if (negativeConstraint && assuranceSatisfies(envelope.assurance, requiredAssurance)) outcome = matching.length ? 'fail' : 'pass';
     else if (predicate.type === 'public-signature-changed' && assuranceSatisfies(envelope.assurance, requiredAssurance)) {
-      outcome = observedSha256 !== predicate.expectedSha256 ? 'pass' : 'fail';
+      outcome = observedSha256 === predicate.expectedSha256 ? 'fail' : 'pass';
     } else if (adequate) outcome = 'pass';
     else if (!matching.length && assuranceSatisfies(envelope.assurance, requiredAssurance)) outcome = 'fail';
     const extractors = uniqueExtractors((matching.length ? matching : envelope.facts).flatMap((fact) => [
@@ -2691,7 +2692,8 @@ async function astPackCommand(positionals, options) {
         plan.targetRelative = path.posix.join('installed', `${manifest.id}-${manifest.packVersion}-${archiveDigest.slice(0, 12)}`);
         plan.target = path.join((await readAstPackRegistry()).root, plan.targetRelative);
         const rebound = await planAstPackInstall(resolved.manifest, { ...manifest, implementation: { ...manifest.implementation, manifestSha256: archiveDigest } });
-        plan.confirmationToken = rebound.confirmationToken;
+        plan.confirmationToken =
+          rebound.confirmationToken;
         plan.confirmation = rebound.confirmation;
       }
       const publicPlan = {

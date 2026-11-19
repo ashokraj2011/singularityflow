@@ -48,9 +48,14 @@ function sflow(cwd, args, env = {}) {
   return { status: result.status, out: `${result.stdout}${result.stderr}`, json: () => JSON.parse(result.stdout) };
 }
 
+/** A fresh random ID for an owner record's process, lock or store generation. */
+const freshNonce = () => randomUUID();
+/** The reviewed-release option that names the exact lease generation to end. */
+const expecting = (lockToken) => ({ expectedLockToken: lockToken });
+
 /** A lease owner record from another computer: nothing here can prove it stopped. */
 function remoteOwner(extra = {}) {
-  return { pid: 4242, host: 'other-laptop.example', machineId: randomUUID(), processToken: randomUUID(),
+  return { pid: 4242, host: 'other-laptop.example', machineId: randomUUID(), processToken: freshNonce(),
     processStartedAt: Date.parse('2026-10-01T00:00:00.000Z'), ...extra };
 }
 const HOURS_AGO = (hours) => new Date(Date.now() - hours * 60 * 60 * 1000);
@@ -76,7 +81,7 @@ async function writeSubjectOwner(root, subject, owner, { heartbeatAt = null } = 
   const directory = subjectLockPath(root, subject);
   await mkdir(directory, { recursive: true });
   const record = {
-    schemaVersion: 1, subject, processToken: randomUUID(), lockToken: randomUUID(),
+    schemaVersion: 1, subject, processToken: freshNonce(), lockToken: freshNonce(),
     acquiredAt: HOURS_AGO(5).toISOString(), expiresAt: HOURS_AGO(2).toISOString(), ...owner
   };
   await writeFile(path.join(directory, 'owner.json'), `${JSON.stringify(record)}\n`);
@@ -166,7 +171,7 @@ test('a live subject-lock owner with a stale heartbeat is never reclaimed; a rev
   await assert.rejects(() => assertNoActiveSubjectLocks(root), (error) => error.code === 'FACTORY_RESET_ACTIVE_OPERATIONS'
     && error.message.includes(`lock release story LIVE-STALE --confirm ${record.lockToken}`));
 
-  const released = await releaseLeaseAfterReview(root, subject, { expectedLockToken: record.lockToken });
+  const released = await releaseLeaseAfterReview(root, subject, expecting(record.lockToken));
   assert.equal(released.released, true);
   assert.equal(existsSync(directory), false);
   const audit = (await readFile(releasedLeaseAuditPath(root), 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
@@ -221,20 +226,20 @@ test('another machine\'s lease is never reclaimed; the reviewed release removes 
   assert.equal((await inspectSubjectLease(root, subject)).releaseCommand,
     `singularity-flow lock release story REMOTE-1 --confirm ${record.lockToken}`);
 
-  await assert.rejects(() => releaseLeaseAfterReview(root, subject, { expectedLockToken: randomUUID() }),
+  await assert.rejects(() => releaseLeaseAfterReview(root, subject, expecting(freshNonce())),
     (error) => error.code === 'SUBJECT_LOCK_RELEASE_MISMATCH');
   assert.equal(existsSync(path.join(directory, 'owner.json')), true, 'a mismatched release removes nothing');
-  assert.equal((await releaseLeaseAfterReview(root, subject, { expectedLockToken: record.lockToken })).released, true);
+  assert.equal((await releaseLeaseAfterReview(root, subject, expecting(record.lockToken))).released, true);
 
   // The old token never reaches the successor generation.
   const successor = await acquireSubjectLock(root, subject);
-  await assert.rejects(() => releaseLeaseAfterReview(root, subject, { expectedLockToken: record.lockToken }),
+  await assert.rejects(() => releaseLeaseAfterReview(root, subject, expecting(record.lockToken)),
     (error) => error.code === 'SUBJECT_LOCK_RELEASE_MISMATCH');
   // A live owner here that still renews is refused even with its own token.
-  await assert.rejects(() => releaseLeaseAfterReview(root, subject, { expectedLockToken: successor.lockToken }),
+  await assert.rejects(() => releaseLeaseAfterReview(root, subject, expecting(successor.lockToken)),
     (error) => error.code === 'SUBJECT_LOCK_RELEASE_REFUSED');
   assert.equal(await releaseSubjectLock(root, subject, successor), true);
-  assert.equal((await releaseLeaseAfterReview(root, subject, { expectedLockToken: successor.lockToken })).reason,
+  assert.equal((await releaseLeaseAfterReview(root, subject, expecting(successor.lockToken))).reason,
     'already-released');
 });
 
@@ -435,10 +440,10 @@ test('a reset barrier from another machine blocks work until a reviewed release'
   const root = await repository(t);
   const barrier = repositoryResetBarrierPath(root);
   await mkdir(barrier, { recursive: true });
-  const lockToken = randomUUID();
+  const lockToken = freshNonce();
   await writeFile(path.join(barrier, 'owner.json'), `${JSON.stringify({
     schemaVersion: 1, subject: { kind: 'factory-reset-barrier', id: 'repository' }, pid: 17,
-    host: 'elsewhere.example', machineId: randomUUID(), processToken: randomUUID(), lockToken,
+    host: 'elsewhere.example', machineId: randomUUID(), processToken: freshNonce(), lockToken,
     acquiredAt: '2001-01-01T00:00:00.000Z', expiresAt: '2001-01-01T03:00:00.000Z'
   })}\n`);
   await assert.rejects(() => assertRepositoryResetAvailable(root), (error) => error.code === 'FACTORY_RESET_IN_PROGRESS'
@@ -451,13 +456,13 @@ test('this process\'s own held lease is refused a reviewed release', async (t) =
   const root = await repository(t);
   const subject = { kind: 'story', id: 'OWN' };
   await withSubjectLock(root, subject, async (owner) => {
-    await assert.rejects(() => releaseLeaseAfterReview(root, subject, { expectedLockToken: owner.lockToken }),
+    await assert.rejects(() => releaseLeaseAfterReview(root, subject, expecting(owner.lockToken)),
       (error) => error.code === 'SUBJECT_LOCK_RELEASE_REFUSED');
   });
 });
 
 async function writeRegistryLease(lock, owner, mtime) {
-  const token = randomUUID();
+  const token = freshNonce();
   await writeFile(lock, `${JSON.stringify({ ...owner, token, createdAt: mtime.toISOString() })}\n`, { mode: 0o600 });
   await utimes(lock, mtime, mtime);
   return token;
@@ -472,7 +477,7 @@ test('a registry lease of a live owner whose heartbeat stopped, or of another ma
   const other = await liveProcess(t);
   const token = await writeRegistryLease(lock, {
     pid: other.pid, host: os.hostname(), machineId: localMachineId(), processStartedAt: other.processStartedAt,
-    processToken: randomUUID()
+    processToken: freshNonce()
   }, HOURS_AGO(1));
   await assert.rejects(() => withRegistryFileLease(manifest, async () => {
     throw new Error('a live owner must keep its registry lease');
@@ -494,7 +499,7 @@ test('a registry lease of a live owner whose heartbeat stopped, or of another ma
     HOURS_AGO(24));
   await assert.rejects(() => withRegistryFileLease(manifest, async () => {}, { timeoutMs: 200 }),
     (error) => error.code === 'WORKSPACE_REGISTRY_BUSY' && error.details.liveness.state === 'unknown');
-  await assert.rejects(() => releaseRegistryLeaseAfterReview(lock, { expectedToken: randomUUID() }),
+  await assert.rejects(() => releaseRegistryLeaseAfterReview(lock, { expectedToken: freshNonce() }),
     (error) => error.code === 'WORKSPACE_REGISTRY_RELEASE_MISMATCH');
   assert.equal(JSON.parse(await readFile(lock, 'utf8')).token, remote);
 });
@@ -502,12 +507,12 @@ test('a registry lease of a live owner whose heartbeat stopped, or of another ma
 test('a prepared publication journal follows the same predicate', async (t) => {
   const root = await repository(t);
   const subject = { kind: 'story', id: 'JOURNAL-1' };
-  const pending = (owner) => ({
+  const pending = ({ pid, host, processToken, lockToken }) => ({
     journal: true,
     record: { recoveryStage: 'interrupted-before-branch-ref-advanced' },
     journalRecord: {
       stage: 'prepared', subject, commit: null, createdAt: '2001-01-01T00:00:00.000Z', updatedAt: '2001-01-01T00:00:00.000Z',
-      owner: { pid: owner.pid, processId: 'journal-test', host: owner.host, processToken: owner.processToken, lockToken: owner.lockToken }
+      owner: { pid, processId: 'journal-test', host, processToken, lockToken }
     }
   });
   // Another machine's long-expired lease: still live, never declared interrupted.
@@ -537,7 +542,7 @@ test('the SGOS Authority Store keeps a live owner whose heartbeat stopped', asyn
   const store = await openFilesystemAuthorityStore({ root: path.join(directory, 'store'), storeId: 'liveness-store' });
   const other = await liveProcess(t);
   const core = {
-    lockFormat: 'sflow.sgos.authority-store-lock', lockVersion: 2, storeId: store.storeId, token: randomUUID(),
+    lockFormat: 'sflow.sgos.authority-store-lock', lockVersion: 2, storeId: store.storeId, token: freshNonce(),
     host: os.hostname(), machineId: localMachineId(), pid: other.pid, processStartedAt: other.processStartedAt,
     acquiredAt: HOURS_AGO(2).toISOString(), expiresAt: HOURS_AGO(1).toISOString()
   };
@@ -600,7 +605,7 @@ test('the lock command runs while another machine\'s reset barrier holds the rep
   run('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: root });
   const barrier = repositoryResetBarrierPath(root);
   await mkdir(barrier, { recursive: true });
-  const lockToken = randomUUID();
+  const lockToken = freshNonce();
   await writeFile(path.join(barrier, 'owner.json'), `${JSON.stringify({ schemaVersion: 1,
     subject: { kind: 'factory-reset-barrier', id: 'repository' }, ...remoteOwner(), lockToken,
     acquiredAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-01T03:00:00.000Z' })}\n`);
@@ -677,7 +682,7 @@ test('an Authority Store lock from another machine names its reviewed release, a
   t.after(() => rm(directory, { recursive: true, force: true }));
   const storeId = 'cutover-store';
   const cutover = path.join(directory, `.authority-cutover-lock-${storeId}`);
-  const token = randomUUID();
+  const token = freshNonce();
   const core = { lockFormat: 'sflow.sgos.authority-store-lock', lockVersion: 2, storeId, token, host: 'other-laptop.example',
     machineId: randomUUID(), pid: 4242, processStartedAt: 0, acquiredAt: HOURS_AGO(3).toISOString(), expiresAt: HOURS_AGO(2).toISOString() };
   await mkdir(cutover, { mode: 0o700 });
@@ -700,7 +705,7 @@ test('an Authority Store lock from another machine names its reviewed release, a
 
   // The transaction lock: the same route, through the path a refusal prints.
   const transaction = path.join(store.root, '.transaction-lock');
-  const held = { ...core, token: randomUUID(), lockVersion: 3, pidNamespace: 'pid:[4026532415]', hardwareDigest: 'ab'.repeat(8) };
+  const held = { ...core, token: freshNonce(), lockVersion: 3, pidNamespace: 'pid:[4026532415]', hardwareDigest: 'ab'.repeat(8) };
   delete held.ownerSha256;
   await mkdir(transaction, { mode: 0o700 });
   await writeFile(path.join(transaction, 'owner.json'), JSON.stringify({ ...held, ownerSha256: platformSha256(held) }));
@@ -718,11 +723,11 @@ test('a publication another machine holds names its owner and reviewed release; 
   // "wait": since SDA nothing takes another machine's lock over by age, so both looped (D3/E3).
   const root = await repository(t);
   const subject = { kind: 'story', id: 'HELD-1' };
-  const pending = (owner) => ({
+  const pending = ({ pid, host, processToken, lockToken }) => ({
     journal: true,
     record: { recoveryStage: 'interrupted-before-branch-ref-advanced' },
     journalRecord: { stage: 'prepared', subject, commit: null, createdAt: '2026-10-01T00:00:00.000Z',
-      owner: { pid: owner.pid, processId: 'held', host: owner.host, processToken: owner.processToken, lockToken: owner.lockToken } }
+      owner: { pid, processId: 'held', host, processToken, lockToken } }
   });
   const remote = await writeSubjectOwner(root, subject, remoteOwner());
   const journal = pending(remote.record);

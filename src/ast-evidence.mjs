@@ -104,9 +104,9 @@ async function retainedExternalPack(adapter) {
         code: 'AST_EVIDENCE_TOOLCHAIN_CHANGED'
       });
     }
-    const token = `@artifact:${digest}`;
-    byPath.set(path.resolve(item.path), token);
-    files.push({ token, name: path.basename(item.path), sha256: digest, bytesBase64: bytes.toString('base64') });
+    const ref = `@artifact:${digest}`;
+    byPath.set(path.resolve(item.path), ref);
+    files.push({ token: ref, name: path.basename(item.path), sha256: digest, bytesBase64: bytes.toString('base64') });
   }
   const tokenFor = (value) => {
     const resolved = path.isAbsolute(value) ? path.resolve(value) : null;

@@ -103,7 +103,7 @@ export function testsSummaryArgv(target: TestSummaryTarget, runId: string | null
   const scope = target.kind === 'capability'
     ? ['--capability', required(target.capability, 'Capability', ID)]
     : ['--work-id', required(target.workId, 'Work ID', WORK_ID), ...(target.phase ? ['--phase', required(target.phase, 'Phase', PHASE)] : [])];
-  // One token: elsewhere `--run` is a boolean flag, so the CLI reads a separate run ID as a positional.
+  // Kept as one argument because elsewhere `--run` is a boolean flag, so the CLI reads a separate run ID as a positional.
   return ['tests', 'summary', ...scope, ...(runId ? [`--run=${required(runId, 'Run ID', RUN_ID)}`] : []), '--json'];
 }
 

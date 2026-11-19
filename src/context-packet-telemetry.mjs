@@ -74,7 +74,8 @@ function knowledgeEntry(entry = {}) {
     representation: entry.representation ?? null,
     bytes: Number.isFinite(entry.bytes) ? entry.bytes : null,
     tokens: Number.isFinite(entry.tokens) ? entry.tokens : null,
-    tokenCountStatus: entry.tokenCountStatus ?? 'unavailable'
+    tokenCountStatus:
+      entry.tokenCountStatus ?? 'unavailable'
   };
 }
 
@@ -180,9 +181,12 @@ export async function recordContextPacketTelemetry(root, packet, { providerTelem
       operationId: packet.binding.operationId ?? null, packetId: packet.packetId,
       launchId: null, sessionId: null
     }),
-    tokenEconomyMode: packet.tokenEconomy?.mode ?? packet.binding.tokenEconomyMode ?? null,
-    tokenEconomyProfile: packet.tokenEconomy?.profile ?? packet.binding.tokenEconomyProfile ?? null,
-    tokenEconomyConfigurationDigest: packet.tokenEconomy?.configurationDigest
+    tokenEconomyMode:
+      packet.tokenEconomy?.mode ?? packet.binding.tokenEconomyMode ?? null,
+    tokenEconomyProfile:
+      packet.tokenEconomy?.profile ?? packet.binding.tokenEconomyProfile ?? null,
+    tokenEconomyConfigurationDigest:
+      packet.tokenEconomy?.configurationDigest
       ?? packet.binding.tokenEconomyConfigurationDigest ?? null,
     cacheManifestId: packet.contextManifest.cacheManifestId ?? null,
     itemUsage: (packet.items ?? []).map((item) => ({

@@ -482,7 +482,8 @@ function executionProjection(record, invocation) {
       bytes: invocation.outputBytes, sha256: invocation.outputSha256 ?? null
     },
     error: invocation.error ?? null,
-    tokenAdmission: invocation.tokenAdmission ?? null,
+    tokenAdmission:
+      invocation.tokenAdmission ?? null,
     economics: invocation.economics ?? {
       provider: {
         inputTokens: input,

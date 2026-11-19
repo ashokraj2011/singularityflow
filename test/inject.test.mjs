@@ -91,7 +91,8 @@ function shadowPrompt(workId, phase = 'design', generation = 1) {
         workflowInstanceId: workflowSnapshotSha256, phase, generation
       },
       authority: {
-        tokenEconomyPolicySha256: `sha256:${tokenEconomyDigest(tokenEconomy)}`,
+        tokenEconomyPolicySha256:
+          `sha256:${tokenEconomyDigest(tokenEconomy)}`,
         phaseContextPolicySha256: null,
         workflowSnapshotSha256,
         sourceSnapshotSha256: `sha256:${sourceSha256}`
@@ -102,6 +103,9 @@ function shadowPrompt(workId, phase = 'design', generation = 1) {
     compiled, workflowSnapshotSha256, repositoryDomainSha256, sourceSha256, tokenEconomy
   };
 }
+
+/** The token-reduction receipt a compiled prompt records with its injection. */
+const receiptOf = (compiled) => compiled.tokenReduction.record.receipt;
 
 function durableShadowPromptBudget(compiled) {
   const value = structuredClone(compiled);
@@ -225,7 +229,7 @@ test('prompt injection persists and verifies the exact advisory TKR composition 
     agent: 'architect',
     renderedText: compiled.text,
     promptBudget: durableShadowPromptBudget(compiled),
-    tokenReduction: compiled.tokenReduction.record.receipt
+    tokenReduction: receiptOf(compiled)
   }, { workDir });
 
   assert.equal(recorded.record.tokenReduction.activation, 'shadow');
@@ -249,9 +253,8 @@ test('prompt injection persists and verifies the exact advisory TKR composition 
     corruptSummaryOnly.promptBudget.tokenReduction.record
   );
   delete corruptSummaryCore.shadowSha256;
-  corruptSummaryOnly.promptBudget.tokenReduction.record.shadowSha256 = recordSha256(
-    corruptSummaryCore
-  );
+  corruptSummaryOnly.promptBudget.tokenReduction.record.shadowSha256 =
+    recordSha256(corruptSummaryCore);
   await writeFile(receiptPath, `${JSON.stringify(corruptSummaryOnly, null, 2)}\n`);
   const summaryDegraded = await readPromptGeneration(root, workflow, phase, {
     workDir, agent: 'architect'
@@ -264,7 +267,7 @@ test('prompt injection persists and verifies the exact advisory TKR composition 
     agent: 'architect',
     renderedText: compiled.text,
     promptBudget: durableShadowPromptBudget(compiled),
-    tokenReduction: compiled.tokenReduction.record.receipt
+    tokenReduction: receiptOf(compiled)
   }, { workDir });
   assert.equal(summaryReused.reused, true);
   assert.equal(await readFile(receiptPath, 'utf8'), summaryBytesBeforeReuse,
@@ -274,18 +277,18 @@ test('prompt injection persists and verifies the exact advisory TKR composition 
   const corruptShadow = JSON.parse(originalReceiptBytes);
   // Coordinate every public hash as an attacker could. The reader must still derive the exact
   // candidate from the trusted legacy snapshot instead of accepting a self-consistent claim.
-  const inventedCandidateSha256 = `sha256:${'f'.repeat(64)}`;
-  corruptShadow.tokenReduction.candidatePrompt.sha256 = inventedCandidateSha256;
-  corruptShadow.tokenReduction.composition.sha256 = inventedCandidateSha256;
-  corruptShadow.tokenReduction.compositionManifestSha256 = recordSha256(
-    corruptShadow.tokenReduction.composition
-  );
+  const inventedCandidateDigest = `sha256:${'f'.repeat(64)}`;
+  corruptShadow.tokenReduction.candidatePrompt.sha256 = inventedCandidateDigest;
+  corruptShadow.tokenReduction.composition.sha256 = inventedCandidateDigest;
+  corruptShadow.tokenReduction.compositionManifestSha256 =
+    recordSha256(corruptShadow.tokenReduction.composition);
   const receiptCore = structuredClone(corruptShadow.tokenReduction);
   delete receiptCore.receiptSha256;
-  corruptShadow.tokenReduction.receiptSha256 = recordSha256(receiptCore);
+  corruptShadow.tokenReduction.receiptSha256 =
+    recordSha256(receiptCore);
   const shadowSummary = corruptShadow.promptBudget.tokenReduction.record;
   shadowSummary.receiptSha256 = corruptShadow.tokenReduction.receiptSha256;
-  shadowSummary.candidateRef.sha256 = inventedCandidateSha256;
+  shadowSummary.candidateRef.sha256 = inventedCandidateDigest;
   const shadowCore = structuredClone(shadowSummary);
   delete shadowCore.shadowSha256;
   shadowSummary.shadowSha256 = recordSha256(shadowCore);
@@ -308,17 +311,17 @@ test('prompt injection persists and verifies the exact advisory TKR composition 
     agent: 'architect',
     renderedText: compiled.text,
     promptBudget: durableShadowPromptBudget(compiled),
-    tokenReduction: compiled.tokenReduction.record.receipt
+    tokenReduction: receiptOf(compiled)
   }, { workDir });
   assert.equal(reused.reused, true);
   assert.equal(reused.tokenReductionVerification.status, 'unavailable');
   assert.equal(await readFile(receiptPath, 'utf8'), bytesBeforeReuse,
     'advisory degradation must not rewrite immutable prompt history');
 
-  corruptShadow.tokenReduction.activation = 'active';
+  Object.assign(corruptShadow.tokenReduction, { activation: 'active' });
   await writeFile(receiptPath, `${JSON.stringify(corruptShadow, null, 2)}\n`);
   const nonShadowWorkflow = structuredClone(workflow);
-  nonShadowWorkflow.resolution.tokenEconomy.mode = 'assist';
+  Object.assign(nonShadowWorkflow.resolution.tokenEconomy, { mode: 'assist' });
   await assert.rejects(
     () => readPromptGeneration(
       root, nonShadowWorkflow, phase, { workDir, agent: 'architect' }
@@ -352,7 +355,7 @@ test('receipt-only recovery restores exact legacy bytes despite corrupt advisory
     agent: 'architect',
     renderedText: compiled.text,
     promptBudget: durableShadowPromptBudget(compiled),
-    tokenReduction: compiled.tokenReduction.record.receipt
+    tokenReduction: receiptOf(compiled)
   };
   const recorded = await recordInjection(root, workflow, phase, injection, { workDir });
   const receiptPath = path.join(root, recorded.file);
@@ -360,15 +363,15 @@ test('receipt-only recovery restores exact legacy bytes despite corrupt advisory
   await unlink(promptPath);
 
   const corrupt = JSON.parse(await readFile(receiptPath, 'utf8'));
-  const inventedCandidateSha256 = `sha256:${'e'.repeat(64)}`;
-  corrupt.tokenReduction.candidatePrompt.sha256 = inventedCandidateSha256;
-  corrupt.tokenReduction.composition.sha256 = inventedCandidateSha256;
-  corrupt.tokenReduction.compositionManifestSha256 = recordSha256(
-    corrupt.tokenReduction.composition
-  );
+  const inventedCandidateDigest = `sha256:${'e'.repeat(64)}`;
+  corrupt.tokenReduction.candidatePrompt.sha256 = inventedCandidateDigest;
+  corrupt.tokenReduction.composition.sha256 = inventedCandidateDigest;
+  corrupt.tokenReduction.compositionManifestSha256 =
+    recordSha256(corrupt.tokenReduction.composition);
   const corruptCore = structuredClone(corrupt.tokenReduction);
   delete corruptCore.receiptSha256;
-  corrupt.tokenReduction.receiptSha256 = recordSha256(corruptCore);
+  corrupt.tokenReduction.receiptSha256 =
+    recordSha256(corruptCore);
   const corruptBytes = `${JSON.stringify(corrupt, null, 2)}\n`;
   await writeFile(receiptPath, corruptBytes);
 
@@ -415,7 +418,7 @@ test('prompt injection strips an advisory summary that is not bound to its recei
     agent: 'architect',
     renderedText: compiled.text,
     promptBudget,
-    tokenReduction: compiled.tokenReduction.record.receipt
+    tokenReduction: receiptOf(compiled)
   }, { workDir });
   assert.equal(recorded.record.tokenReduction.receiptSha256,
     compiled.tokenReduction.record.receipt.receiptSha256);
@@ -450,7 +453,7 @@ test('v5 receipt-only generation recovers after advisory shadow fields are intro
     agent: 'architect',
     renderedText: compiled.text,
     promptBudget: durableShadowPromptBudget(compiled),
-    tokenReduction: compiled.tokenReduction.record.receipt
+    tokenReduction: receiptOf(compiled)
   };
   const first = await recordInjection(root, workflow, phase, injection, { workDir });
   await unlink(path.join(root, first.promptFile));

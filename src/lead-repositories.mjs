@@ -11,7 +11,8 @@ async function loadSupport() {
     import('./git-remote-diagnostics.mjs'),
     import('./git-repository-identity.mjs')
   ]).then(([migrations, util, remotes, identities]) => ({
-    assertCredentialFreeRemote: remotes.assertCredentialFreeRemote,
+    assertCredentialFreeRemote:
+      remotes.assertCredentialFreeRemote,
     currentSchemaVersion: migrations.currentSchemaVersion,
     readRecord: migrations.readRecord,
     readJson: util.readJson,

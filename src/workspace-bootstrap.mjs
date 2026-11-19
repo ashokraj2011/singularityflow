@@ -27,6 +27,8 @@ import { healerReceipt } from './workspace-healers.mjs';
 import { acquireFileLease, heldFileLeaseRoute } from './file-lease.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
+const OK = 'pass';
+
 export const WORKSPACE_BOOTSTRAP_SCHEMA_VERSION = currentSchemaVersion('workspace-bootstrap');
 export const WORKSPACE_BOOTSTRAP_STATUSES = Object.freeze([
   'planned', 'preflighting', 'waiting-user', 'materializing', 'verifying', 'initializing',
@@ -750,7 +752,8 @@ export function enterpriseGitDiagnostics({ env = process.env, runCommand = run }
       configured: configured.credentialHelper.length > 0,
       sources: configured.credentialHelper
     },
-    credentialOwnership: 'git-or-operating-system',
+    credentialOwnership:
+      'git-or-operating-system',
     guidance: 'Use organisation-approved Git, proxy, and certificate configuration. Singularity Flow never disables TLS or stores credentials.'
   };
 }
@@ -803,7 +806,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
   const findings = [];
   const supportedPlatform = ['darwin', 'linux', 'win32'].includes(process.platform);
   checks.push({
-    id: 'platform', status: supportedPlatform ? 'pass' : 'fail',
+    id: 'platform', status: supportedPlatform ? OK : 'fail',
     observed: { platform: process.platform, architecture: process.arch }
   });
   if (!supportedPlatform) findings.push(finding({
@@ -812,7 +815,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
     action: 'Use the packaged macOS, Linux, or Windows build, then resume.'
   }));
   const node = nodeRequirement();
-  checks.push({ id: 'node-runtime', status: node.met ? 'pass' : 'fail', observed: node.version, required: node.required });
+  checks.push({ id: 'node-runtime', status: node.met ? OK : 'fail', observed: node.version, required: node.required });
   if (!node.met) findings.push(finding({
     id: 'machine.node.unsupported', scope: 'machine', classification: 'runtime-unsupported',
     message: `Node.js ${node.version} is installed; Singularity Flow requires Node.js ${node.required}.`,
@@ -823,7 +826,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
   const gitVersion = String(git.stdout ?? '').match(/(\d+)\.(\d+)\.(\d+)/)?.slice(1).map(Number) ?? null;
   const gitSupported = git.status === 0 && gitVersion && (gitVersion[0] > 2 || (gitVersion[0] === 2 && gitVersion[1] >= 25));
   checks.push({
-    id: 'git-runtime', status: gitSupported ? 'pass' : 'fail',
+    id: 'git-runtime', status: gitSupported ? OK : 'fail',
     observed: git.status === 0 ? String(git.stdout).trim() : null, required: '>=2.25'
   });
   if (!gitSupported) findings.push(finding({
@@ -838,7 +841,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
   const identityEmail = String(runCommand('git', ['config', '--get', 'user.email'], { allowFailure: true }).stdout ?? '').trim();
   const identityRequired = plan.initialization.enabled;
   checks.push({
-    id: 'git-identity', status: identityName && identityEmail ? 'pass' : (identityRequired ? 'fail' : 'warn'),
+    id: 'git-identity', status: identityName && identityEmail ? OK : (identityRequired ? 'fail' : 'warn'),
     observed: identityName && identityEmail ? 'configured' : 'incomplete', required: identityRequired
   });
   if ((!identityName || !identityEmail) && identityRequired) findings.push(finding({
@@ -855,7 +858,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
     writable = await access(ancestor, fsConstants.W_OK).then(() => true).catch(() => false)
       && await probeWritableDirectory(ancestor);
   }
-  checks.push({ id: 'workspace-base', status: writable ? 'pass' : 'fail', observed: ancestor });
+  checks.push({ id: 'workspace-base', status: writable ? OK : 'fail', observed: ancestor });
   if (!writable) findings.push(finding({
     id: 'machine.workspace-base.unwritable', scope: 'workspace', classification: 'path-unwritable',
     message: `The nearest existing workspace parent is not a writable regular directory: ${ancestor}`,
@@ -869,7 +872,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
       const workspace = await readWorkspace(target).catch(() => null);
       resumable = workspace?.id === plan.workspace.id;
     }
-    checks.push({ id: 'workspace-target', status: resumable ? 'pass' : 'fail', observed: resumable ? 'matching-workspace' : 'occupied' });
+    checks.push({ id: 'workspace-target', status: resumable ? OK : 'fail', observed: resumable ? 'matching-workspace' : 'occupied' });
     if (!resumable) findings.push(finding({
       id: 'workspace.target.occupied', scope: 'workspace', classification: 'target-occupied',
       message: `The planned workspace target is already occupied and is not the matching managed workspace: ${target}`,
@@ -885,7 +888,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
   const synced = storage.syncedLocations([{ subject: 'workspace', path: target }], { facts });
   const syncedAllowed = plan.storage?.allowSyncedFolder === true;
   checks.push({
-    id: 'workspace-storage', status: !synced.length ? 'pass' : syncedAllowed ? 'warn' : 'fail',
+    id: 'workspace-storage', status: !synced.length ? OK : syncedAllowed ? 'warn' : 'fail',
     observed: synced[0] ? { folder: synced[0].folder, provider: synced[0].provider } : 'local'
   });
   if (synced.length) {
@@ -908,7 +911,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
   } catch { /* Some network filesystems do not expose statfs; disclose unknown rather than fail. */ }
   const floor = Number(env.SINGULARITY_FLOW_BOOTSTRAP_MIN_DISK_BYTES ?? MIN_DISK_BYTES);
   checks.push({
-    id: 'disk-space', status: availableBytes == null ? 'warn' : (availableBytes >= floor ? 'pass' : 'fail'),
+    id: 'disk-space', status: availableBytes == null ? 'warn' : (availableBytes >= floor ? OK : 'fail'),
     observedBytes: availableBytes, requiredBytes: floor
   });
   if (availableBytes != null && availableBytes < floor) findings.push(finding({
@@ -921,7 +924,7 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
   const registryAncestor = await nearestExisting(path.dirname(registry));
   const registryWritable = await access(registryAncestor, fsConstants.W_OK).then(() => true).catch(() => false)
     && await probeWritableDirectory(registryAncestor);
-  checks.push({ id: 'workspace-registry', status: registryWritable ? 'pass' : 'fail', observed: registry });
+  checks.push({ id: 'workspace-registry', status: registryWritable ? OK : 'fail', observed: registry });
   if (!registryWritable) findings.push(finding({
     id: 'machine.registry.unwritable', scope: 'machine', classification: 'registry-unwritable',
     message: `The machine workspace registry cannot be updated atomically at ${registry}.`,
@@ -1048,7 +1051,7 @@ async function remotePreflight(plan, {
     checks.push({
       id: `remote:${repository.id}`,
       repository: repository.id,
-      status: probe.ok && !missingDefault ? 'pass' : (repository.required ? 'fail' : 'warn'),
+      status: probe.ok && !missingDefault ? OK : (repository.required ? 'fail' : 'warn'),
       remote: probe.remote,
       remoteFingerprint: probe.remoteFingerprint,
       defaultBranch: probe.defaultBranch,

@@ -7639,6 +7639,7 @@ test('the Epic section reports where it has got to, and what is holding it', () 
   assert.match(none.sections.find((section) => section.id === 'epic').headline, /No Story or Initiative is checked out/);
 });
 
+const PARTIAL = 'partial';
 const LIFECYCLE_REPORT = {
   schemaVersion: 1,
   generatedAt: '2026-08-04T12:00:00.000Z',
@@ -7675,7 +7676,7 @@ const LIFECYCLE_REPORT = {
       id: 'requirements', label: 'Requirements', status: 'approved', generations: 2,
       elapsedMs: 7_200_000, activeMs: 2_400_000, waitingMs: 4_800_000, openSubmission: null,
       approvals: 1, selfApprovals: 1, rejections: [{}], usageRecords: 2, pendingTelemetry: 0,
-      tokens: 10_000, tokenStatus: 'partial', models: ['model-alpha'],
+      tokens: 10_000, tokenStatus: PARTIAL, models: ['model-alpha'],
       modelUsage: [], agents: ['product-owner'], cost: 0.22, costStatus: 'partial'
     },
     {

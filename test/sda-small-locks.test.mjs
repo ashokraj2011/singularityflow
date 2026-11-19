@@ -168,14 +168,14 @@ test('a journal without a lock token is judged by the subject lease held now', a
 
   const lock = subjectLockPath(root, subject);
   await mkdir(lock, { recursive: true });
-  const token = randomUUID();
+  const nonce = randomUUID();
   await writeFile(path.join(lock, 'owner.json'), `${JSON.stringify({ schemaVersion: 1, subject, pid: 4242,
     host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: 'p',
-    lockToken: token, acquiredAt: HOUR_AGO.toISOString(), expiresAt: HOUR_AGO.toISOString() })}\n`);
+    lockToken: nonce, acquiredAt: HOUR_AGO.toISOString(), expiresAt: HOUR_AGO.toISOString() })}\n`);
   const active = livePreparedPublicationOwner(pending, root);
   assert.equal(active?.pid, 4242, 'another machine holds the subject lease');
   const refusal = await activePublicationRefusal(root, pending, active, {
     what: "Story 'JRN-1'", retry: 'singularity-flow sync JRN-1', code: 'STORY_PUBLICATION_IN_PROGRESS' });
-  assert.equal(refusal.details.releaseCommand, `singularity-flow lock release story JRN-1 --confirm ${token}`);
+  assert.equal(refusal.details.releaseCommand, `singularity-flow lock release story JRN-1 --confirm ${nonce}`);
   assert.match(refusal.message, /Waiting does not end it/u);
 });

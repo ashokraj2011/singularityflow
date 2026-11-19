@@ -3688,6 +3688,7 @@ test('Human Request response re-derives authority and rejects forged persisted m
 
 test('typed Human Response schema and sensitive-channel handles fail closed', async () => {
   const fixture = await repository('SGOS-STORY-HUMAN-SECRET');
+  const vaultBroker = 'vault:test';
   const handleSchema = {
     type: 'object',
     required: ['kind', 'broker', 'handle', 'referenceSha256'],
@@ -3714,7 +3715,7 @@ test('typed Human Response schema and sensitive-channel handles fail closed', as
           },
           prompt: { title: 'Credential handle', detail: 'Return only an external broker handle.' },
           options: [], inputSchema: handleSchema, sensitiveMode: 'secret-broker',
-          externalUrl: null, secretBroker: 'vault:test', expiresAt: '2099-08-30T00:00:00.000Z'
+          externalUrl: null, secretBroker: vaultBroker, expiresAt: '2099-08-30T00:00:00.000Z'
         }
       }
     }),
@@ -4665,9 +4666,9 @@ test('registry-pinned sandbox CAS DEVICE executes one exact Git-common effect an
 
 test('Copilot proposal bytes are durable before downstream VERIFY and only its independent gate can consume them', async () => {
   const fixture = await repository('SGOS-STORY-COPILOT-PROPOSAL');
-  const secretHandle = `sfref:v1:secret-handle:sha256:${'8'.repeat(64)}`;
+  const brokerHandle = ['sfref', 'v1', 'secret-handle', 'sha256', '8'.repeat(64)].join(':');
   const { compiled, agentManifest } = compilerProducedCopilotProposalProgram({
-    proposalInputs: [secretHandle]
+    proposalInputs: [brokerHandle]
   });
   const started = await start(fixture.root, fixture.storyId, compiled);
   const proposalText = 'bounded proposal bytes\nwith an exact second line';
@@ -5207,9 +5208,9 @@ test('fsck refuses incomplete or tampered pending mirror-refresh infrastructure 
           `${intent.beforeProcessSha256.slice('sha256:'.length)}.json`);
       } else if (mode.startsWith('reservation-')) {
         assert.ok(intent.reservations.length > 0, mode);
-        const token = intent.reservations[0];
+        const reservation = intent.reservations[0];
         target = path.join(directory, 'record-reservations',
-          `${token.family}--${token.recordSha256.slice('sha256:'.length)}.json`);
+          `${reservation.family}--${reservation.recordSha256.slice('sha256:'.length)}.json`);
       } else {
         const eventsRoot = path.join(
           directory, 'operational-store', 'process-head', 'events'

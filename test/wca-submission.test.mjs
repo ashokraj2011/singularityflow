@@ -282,8 +282,9 @@ test('submission requires live terminal consent: public issuer and correctly bou
   const f = await fixture(t); const review = workflowDraftSubmissionPlan(f.preview);
   const publicGrant = await issueActionAuthorization(f.first, review.plan, review.action, { confirmation: review.action.actionId, channel: 'terminal' });
   await assert.rejects(createWorkflowDraftReviewProposal(f.first, { draftId: DRAFT_ID, revision: 1, expectedPlanSha256: f.preview.planSha256, confirmation: publicGrant.token }), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
-  const forged = { ...publicGrant, token: randomUUID(), authorizationId: randomUUID() };
-  forged.answerReceipt = recordSha256({ token: forged.token, authorizationId: forged.authorizationId, planHash: forged.planHash, actionId: forged.actionId });
+  const nonce = randomUUID();
+  const forged = { ...publicGrant, token: nonce, authorizationId: randomUUID() };
+  forged.answerReceipt = recordSha256({ token: nonce, authorizationId: forged.authorizationId, planHash: forged.planHash, actionId: forged.actionId });
   const directory = path.join(f.first, '.git/singularity-flow/action-authorizations');
   await mkdir(directory, { recursive: true }); await writeFile(path.join(directory, `${forged.token}.json`), JSON.stringify(forged));
   await assert.rejects(createWorkflowDraftReviewProposal(f.first, { draftId: DRAFT_ID, revision: 1, expectedPlanSha256: f.preview.planSha256, confirmation: forged.token }), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });

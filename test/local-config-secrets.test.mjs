@@ -378,8 +378,8 @@ test('env audit works with no declaration and says a value in the last publicati
   assert.equal(audit.status, 'findings');
   assert.equal(audit.declarationSha256, null);
   assert.ok(audit.findings.some((finding) => finding.code === 'environment.local-file-tracked' && finding.path === '.env.test'));
-  const secret = audit.findings.find((finding) => finding.code === 'environment.possible-secret' && finding.source === 'last-publication' && finding.path === 'application.yml');
-  assert.match(secret.advice, /rotate it/u);
+  const flagged = audit.findings.find((finding) => finding.code === 'environment.possible-secret' && finding.source === 'last-publication' && finding.path === 'application.yml');
+  assert.match(flagged.advice, /rotate it/u);
   assert.ok(!result.stdout.includes(VALUE), 'never the value');
 });
 

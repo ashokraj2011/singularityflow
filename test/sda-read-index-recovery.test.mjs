@@ -268,15 +268,16 @@ test('A5: a refresh lease is judged by machine identity and process start, and o
   const [file] = await records(repo.directory);
   const leaseFile = projectionSidecars(file).lease;
   const now = new Date().toISOString();
+  const freshNonce = () => randomUUID();
   const writeLease = (owner) => writeFile(leaseFile, JSON.stringify({ version: 3, nonce: randomUUID(), createdAt: now, heartbeatAt: now, ...owner }), { mode: 0o600 });
 
   // A PID the OS gave to another running process (it started after the recorded owner did): dead.
   await writeLease({ pid: 1, host: os.hostname(), machineId: localMachineId(), processStartedAt: Date.parse('2000-01-01T00:00:00Z'),
-    processToken: randomUUID() });
+    processToken: freshNonce() });
   assert.equal((await inspectFileLease(leaseFile)).state, 'reclaimable');
   // A hostname that changed with the network keeps the machine: a dead owner is still taken over.
   await writeLease({ pid: 2 ** 22 + 17, host: 'renamed-by-the-network.local', machineId: localMachineId(),
-    processStartedAt: LEASE_PROCESS_STARTED_AT, processToken: randomUUID() });
+    processStartedAt: LEASE_PROCESS_STARTED_AT, processToken: freshNonce() });
   assert.equal((await inspectFileLease(leaseFile)).state, 'reclaimable');
   const started = Date.now();
   await withFreshRepositoryChecks(() => read(async () => ({ ...await next(), n: ++n })));

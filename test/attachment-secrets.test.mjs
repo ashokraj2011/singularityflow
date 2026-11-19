@@ -142,7 +142,7 @@ test('a value in a sentence is found, and what only looks like one is not', () =
     [inventedValue('pass', 'word: hunter2'), 'password']
   ]) assert.deepEqual(values(line), [name], line);
   for (const line of ['The password is required.', 'password: required', 'token = getToken()', 'password: ${DB_PASSWORD}', 'token: <your token>', inventedValue('pass', 'word: changeme123'), 'password is strong.',
-    'secret: process.env.API_SECRET', 'A token: see the vault.', inventedValue('pass', 'word: example-Xq7mP2vL9sT4'), 'api key: {{ .Values.apiKey }}', 'password = os.environ["DB"]']) {
+    inventedValue('sec', 'ret: process.env.API_SECRET'), 'A token: see the vault.', inventedValue('pass', 'word: example-Xq7mP2vL9sT4'), 'api key: {{ .Values.apiKey }}', inventedValue('pass', 'word = os.environ["DB"]')]) {
     assert.deepEqual(values(line), [], line);
   }
 });

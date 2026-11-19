@@ -201,11 +201,11 @@ test('a typed reason reaches the record command as the person wrote it: a shell 
   const reason = 'Costs $HOME and `date` and $(id): it\'s "fine"';
   const command = decisionRecordCommand('BIN-501', { choices: [['d1', 'dismiss']], digest, values: { reason: { d1: reason } } });
   assert.doesNotMatch(command, /"d1=/u, 'JSON double quotes are not shell quoting');
-  const token = command.slice(command.indexOf('--reason ') + '--reason '.length, command.indexOf(' --confirm'));
+  const quotedReason = command.slice(command.indexOf('--reason ') + '--reason '.length, command.indexOf(' --confirm'));
   // The command is POSIX syntax; on Windows exercise it in Git's shell, not a nonexistent /bin/sh.
   const shell = process.platform === 'win32'
     ? path.resolve(execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim(), '../../../usr/bin/sh.exe') : '/bin/sh';
-  assert.equal(execFileSync(shell, ['-c', `printf '%s' ${token}`], { encoding: 'utf8' }), `d1=${reason}`);
+  assert.equal(execFileSync(shell, ['-c', `printf '%s' ${quotedReason}`], { encoding: 'utf8' }), `d1=${reason}`);
   assert.ok(validateSflowExecutionCommand(command, { shell: 'posix' })?.copyable, 'the guard reads it as one command');
   assert.equal(decisionRecordCommand('BIN-501', { choices: [['d1', 'reuse']], digest }),
     'singularity-flow decisions record BIN-501 --choose d1=reuse', 'plain values stay bare; a person\'s own choice carries no digest');

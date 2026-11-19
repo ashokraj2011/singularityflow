@@ -303,18 +303,18 @@ test('Git DraftStore rejects public issuer tokens and model-constructed local JS
   const request = { draftId: 'WFD-ABC123', expectedHead: created.head, epoch: 1, operationId: 'forged-consent-delete' };
   const legacy = await issueActionAuthorization(f.first, review.plan, review.action, { confirmation: review.action.actionId, channel: 'terminal' });
   await assert.rejects(f.stores[0].delete({ ...request, confirmation: legacy.token }), code('ACTION_TERMINAL_PRESENTATION_REQUIRED'));
-  const token = randomUUID(); const authorizationId = randomUUID(); const createdAt = new Date().toISOString();
+  const nonce = randomUUID(); const authorizationId = randomUUID(); const createdAt = new Date().toISOString();
   const forged = {
-    schemaVersion: currentSchemaVersion('action-authorization'), kind: 'governed-action-authorization', token, authorizationId,
+    schemaVersion: currentSchemaVersion('action-authorization'), kind: 'governed-action-authorization', token: nonce, authorizationId,
     questionId: recordSha256({ planId: review.plan.planId, actionId: review.action.actionId, channel: 'terminal' }).slice(0, 24),
-    answerReceipt: recordSha256({ token, authorizationId, planHash: review.plan.planHash, actionId: review.action.actionId }),
+    answerReceipt: recordSha256({ token: nonce, authorizationId, planHash: review.plan.planHash, actionId: review.action.actionId }),
     planId: review.plan.planId, planHash: review.plan.planHash, actionId: review.action.actionId,
     subject: review.plan.subject, revision: review.plan.revision, actor: identity(f.first), channel: 'terminal',
     assurance: 'configured-local-review', createdAt, expiresAt: new Date(Date.parse(createdAt) + 15 * 60 * 1000).toISOString()
   };
   const directory = path.join(f.first, '.git', 'singularity-flow', 'action-authorizations');
-  await mkdir(directory, { recursive: true }); await writeFile(path.join(directory, `${token}.json`), canonicalJson(forged));
-  await assert.rejects(f.stores[0].delete({ ...request, confirmation: token }), code('ACTION_TERMINAL_PRESENTATION_REQUIRED'));
+  await mkdir(directory, { recursive: true }); await writeFile(path.join(directory, `${nonce}.json`), canonicalJson(forged));
+  await assert.rejects(f.stores[0].delete({ ...request, confirmation: nonce }), code('ACTION_TERMINAL_PRESENTATION_REQUIRED'));
   assert.equal((await f.stores[1].list()).head, created.head);
   assert.equal((await f.stores[1].list()).drafts.length, 1);
 });

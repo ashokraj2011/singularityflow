@@ -272,9 +272,9 @@ test('a test, lint or build command in a skill becomes a step check sflow runs; 
     input: JSON.stringify({ title: 'Deploy as a check', why: 'Wrong.', moves: [{ move: 'step.check', id: 'verification', item: command('./scripts/deploy.sh staging').id }] }) });
   assert.match(refused.stderr + refused.stdout, /moves\[0\]\.item: '\.\/scripts\/deploy\.sh staging' is a deploy command: it stays with its skill or instructions for the agent, and sflow never runs it as a check\./u);
   // A check that would copy a secret into workflow.yml is refused, naming the variable and never its value.
-  const secret = build.items.find((entry) => entry.kind === 'command' && entry.name.startsWith('API_TOKEN='));
+  const leakingItem = build.items.find((entry) => entry.kind === 'command' && entry.name.startsWith('API_TOKEN='));
   const leaked = flow(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { allowFailure: true,
-    input: JSON.stringify({ title: 'Remote lint', why: 'Wrong.', moves: [{ move: 'step.check', id: 'verification', item: secret.id }] }) });
+    input: JSON.stringify({ title: 'Remote lint', why: 'Wrong.', moves: [{ move: 'step.check', id: 'verification', item: leakingItem.id }] }) });
   assert.match(leaked.stderr + leaked.stdout, /moves\[0\]\.item: API_TOKEN in this command looks like a credential\. Declare it in singularity\/environments\.yml and bind it with env bind; a check never carries its value\./u);
   assert.equal((leaked.stderr + leaked.stdout).includes(token), false);
   json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'Checks from the skill', why: 'The skill runs them before a release.',

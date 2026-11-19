@@ -453,7 +453,8 @@ test('closed bounded JSON rejects accessors, cycles, symbols, sparse arrays and 
   assert.throws(() => prepareWorkflowSkillFinalization(cycle), { code: 'WCA_SKP_FINALIZATION_INVALID' });
   const sparse = fixture(); sparse.phases = Array(2);
   assert.throws(() => prepareWorkflowSkillFinalization(sparse), { code: 'WCA_SKP_FINALIZATION_INVALID' });
-  for (const extra of [{ confirmed: true }, { authorization: { token: randomUUID() } }, { finalizationSha256: H('b') }]) {
+  const nonce = randomUUID();
+  for (const extra of [{ confirmed: true }, { authorization: { token: nonce } }, { finalizationSha256: H('b') }]) {
     assert.throws(() => prepareWorkflowSkillFinalization({ ...fixture(), ...extra }), { code: 'WCA_SKP_FINALIZATION_INVALID' });
   }
   const many = fixture(); many.phases = Array(65).fill(many.phases[0]);
@@ -480,8 +481,9 @@ test('public issuer and fabricated durable receipt cannot mint the live consumed
   t.after(() => { for (const [key, value] of Object.entries(previous)) value === undefined ? delete process.env[key] : process.env[key] = value; });
   const record = await issueActionAuthorization(root, review.plan, review.action, { confirmation: review.action.actionId, channel: 'terminal' });
   await assert.rejects(consumeWorkflowSkillFinalizationConsent(root, prepared, record.token), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
-  const forged = { ...record, token: randomUUID(), authorizationId: randomUUID() };
-  forged.answerReceipt = recordSha256({ token: forged.token, authorizationId: forged.authorizationId, planHash: forged.planHash, actionId: forged.actionId });
+  const nonce = randomUUID();
+  const forged = { ...record, token: nonce, authorizationId: randomUUID() };
+  forged.answerReceipt = recordSha256({ token: nonce, authorizationId: forged.authorizationId, planHash: forged.planHash, actionId: forged.actionId });
   const directory = path.join(root, '.git/singularity-flow/action-authorizations'); await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, `${forged.token}.json`), canonicalJson(forged));
   await assert.rejects(consumeWorkflowSkillFinalizationConsent(root, prepared, forged.token), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });

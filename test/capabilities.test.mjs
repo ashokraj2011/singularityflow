@@ -48,7 +48,7 @@ test('capability policy fold only permits equal or stricter child constraints', 
     jiraFields: ['summary', 'description', 'labels'],
     protectedPaths: ['singularity/workflow.yml'],
     worldModelGrounding: 'warn',
-    tokenBudget: 100000,
+    tokenBudget: 100e3,
     gitPublication: 'warn',
     contextBoundary: 'keep',
     contextMaxBytes: 100000

@@ -107,12 +107,12 @@ test('pass closes through documents, repairs always recheck, missing access neve
     { option: 'demo-pass-to-close' }), /reopen an earlier step with singularity-flow decision choose/u);
   const repair = aggregate(resolved, PHASES[2], { next: 'recheck' }, 3);
   assert.equal(decisionOutcome(repair, repair.phases[PHASES[2]]).reason, 'limit');
-  const pass = aggregate(resolved, PHASES[1], { verdict: 'pass' });
-  pass.decisionLog = [decisionOutcome(pass, pass.phases[PHASES[1]])];
-  assert.equal(applicabilityStatus(pass)[0].satisfied, false);
-  pass.applicability = [{ responsibility: 'implement', authorityGroup: 'quality-reviewers',
+  const passing = aggregate(resolved, PHASES[1], { verdict: 'pass' });
+  passing.decisionLog = [decisionOutcome(passing, passing.phases[PHASES[1]])];
+  assert.equal(applicabilityStatus(passing)[0].satisfied, false);
+  passing.applicability = [{ responsibility: 'implement', authorityGroup: 'quality-reviewers',
     reason: 'The fresh approved check proves this exact code needs no additional repair.' }];
-  assert.equal(applicabilityStatus(pass)[0].satisfied, true);
+  assert.equal(applicabilityStatus(passing)[0].satisfied, true);
 });
 
 test('skills are physically linked in agents, rendered once, and scoped to their agent phases', async (t) => {

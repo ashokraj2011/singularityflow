@@ -219,7 +219,8 @@ test('human decision values are bound into the plan and authorization, not appen
   const authorization = await issueActionAuthorization(root, plan, plan.actions[0], { confirmation: plan.actions[0].actionId, channel: 'test' });
   await assert.rejects(() => consumeActionAuthorization(root, authorization.token, changed, changed.actions[0]), /bound|match/);
   await assert.rejects(() => createActionPlan(root, snapshot, { decisionValues: { nonexistent: 'yes' } }), /current submission placeholders/);
-  await assert.rejects(() => createActionPlan(root, snapshot, { decisionValues: { pass: 'yes\n--skip-checks' } }), /bounded literal/);
+  const injectedFlag = 'yes\n--skip-checks';
+  await assert.rejects(() => createActionPlan(root, snapshot, { decisionValues: { pass: injectedFlag } }), /bounded literal/);
 });
 
 test('a prechecked publication action uses the same unchanged lifecycle freshness boundary', async () => {

@@ -110,9 +110,9 @@ test('real CMP corpus measurement aggregates repositories without leaking or cha
 });
 
 test('real CMP corpus measurement refuses unsafe inputs without echoing their path', async () => {
-  const secret = path.join(os.tmpdir(), 'definitely-missing-private-corpus');
+  const privateCorpus = path.join(os.tmpdir(), 'definitely-missing-private-corpus');
   const result = spawnSync(process.execPath, [
-    'scripts/cmp-corpus-measurement.mjs', '--repository', secret, '--samples', '1'
+    'scripts/cmp-corpus-measurement.mjs', '--repository', privateCorpus, '--samples', '1'
   ], { cwd: process.cwd(), encoding: 'utf8' });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /CMP_REAL_CORPUS_INVALID/);

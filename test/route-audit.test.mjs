@@ -64,14 +64,14 @@ test('the script reads the logs and prints aggregates with nothing from a sessio
   t.after(() => rm(directory, { recursive: true, force: true }));
   const session = path.join(directory, '11111111-aaaa-4bbb-8ccc-000000000001');
   await mkdir(session, { recursive: true });
-  const SECRET_PATH = '/home/private-person/private-repo/secret-file.txt';
+  const PRIVATE_PATH = '/home/private-person/private-repo/secret-file.txt';
   const events = [
-    { type: 'session.start', data: { startTime: '2026-11-01T00:00:00.000Z', context: { gitRoot: SECRET_PATH } } },
+    { type: 'session.start', data: { startTime: '2026-11-01T00:00:00.000Z', context: { gitRoot: PRIVATE_PATH } } },
     { type: 'system.message', data: { content: 'You are an AI assistant using Copilot SDK in VS Code.' } },
     { type: 'user.message', data: { content: '/sf-code private prompt words' } },
-    { type: 'tool.execution_start', data: { toolCallId: 'c1', toolName: 'bash', arguments: { command: `singularity-flow appeal prepare --add-supporting ${SECRET_PATH}=class --reason private-reason` } } },
+    { type: 'tool.execution_start', data: { toolCallId: 'c1', toolName: 'bash', arguments: { command: `singularity-flow appeal prepare --add-supporting ${PRIVATE_PATH}=class --reason private-reason` } } },
     { type: 'tool.execution_complete', data: { toolCallId: 'c1', success: true, shellExecution: { exitCode: 1 }, result: { content: JSON.stringify({ resultType: 'sflow-refusal-plan', status: 'failed',
-      error: { code: 'PHASE_APPEAL_PATH_UNSUPPORTED', message: `Cannot account for ${SECRET_PATH}` }, remediationPlan: { steps: [{ command: 'singularity-flow recover private-story --json', skill: '/sf-recover' }] } }) } } }
+      error: { code: 'PHASE_APPEAL_PATH_UNSUPPORTED', message: `Cannot account for ${PRIVATE_PATH}` }, remediationPlan: { steps: [{ command: 'singularity-flow recover private-story --json', skill: '/sf-recover' }] } }) } } }
   ];
   await writeFile(path.join(session, 'events.jsonl'), events.map((event) => JSON.stringify(event)).join('\n'));
   const run = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', SCRIPT, '--sessions', directory, '--json'], { encoding: 'utf8' });

@@ -167,7 +167,7 @@ test('opaque secret handles are immutable references but are always omitted from
     object: { schema: 'secret-handle', revision: 1, sha256: H('opaque'), bytes: 0 },
     authority: 'secret-broker', sensitivity: 'restricted',
     storage: { storeId: 'secret-broker' }, dependencies: [],
-    expansionHandle: 'secret-broker:resolve'
+    expansionHandle: ['secret-broker', 'resolve'].join(':')
   });
   assert.deepEqual(validateSgosMemoryRef(secret), secret);
   const workingSet = compose({

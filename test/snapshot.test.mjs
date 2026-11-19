@@ -1382,12 +1382,12 @@ test('visual editor manages repository prompts and skills and exports portable Y
 test('visual editor configuration refuses symlinked files and parent directories outside the repository', async () => {
   const root = await repository();
   const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-outside-'));
-  const secret = path.join(outside, 'secret.md');
-  await writeFile(secret, '# outside secret\n');
+  const outsideFile = path.join(outside, 'secret.md');
+  await writeFile(outsideFile, '# outside secret\n');
 
   const linkedSkill = path.join(root, '.github', 'skills', 'linked', 'SKILL.md');
   await mkdir(path.dirname(linkedSkill), { recursive: true });
-  await symlink(secret, linkedSkill);
+  await symlink(outsideFile, linkedSkill);
   await assert.rejects(
     () => readConfigurationFile(root, '.github/skills/linked/SKILL.md'),
     /symbolic link/
@@ -1409,12 +1409,12 @@ test('visual editor configuration refuses symlinked files and parent directories
     /symbolic link|outside the repository/
   );
   await unlink(escapedRoot);
-  await symlink(secret, linkedSkill);
+  await symlink(outsideFile, linkedSkill);
   await assert.rejects(
     () => deleteConfigurationFile(root, '.github/skills/linked/SKILL.md'),
     /symbolic link/
   );
-  assert.equal(await readFile(secret, 'utf8'), '# outside secret\n');
+  assert.equal(await readFile(outsideFile, 'utf8'), '# outside secret\n');
 });
 
 test('visual editor agent selection remains local and requires the active work branch', async () => {

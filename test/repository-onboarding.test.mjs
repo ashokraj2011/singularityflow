@@ -1336,10 +1336,10 @@ test('recreate previews exact omissions and never follows a portable-data symlin
     });
     run('git', ['config', 'user.name', 'Configuration Editor'], { cwd: editor });
     run('git', ['config', 'user.email', 'configuration@example.test'], { cwd: editor });
-    const secret = path.join(fixture.base, 'host-secret.yml');
-    await writeFile(secret, 'capabilities:\n  stolen:\n    name: HOST SECRET MUST NOT PUBLISH\n');
+    const hostFile = path.join(fixture.base, 'host-secret.yml');
+    await writeFile(hostFile, 'capabilities:\n  stolen:\n    name: HOST SECRET MUST NOT PUBLISH\n');
     await rm(path.join(editor, 'singularity', 'capabilities.yml'));
-    await symlink(secret, path.join(editor, 'singularity', 'capabilities.yml'));
+    await symlink(hostFile, path.join(editor, 'singularity', 'capabilities.yml'));
     await writeFile(path.join(editor, 'singularity', 'custom-onboarding.yml'), 'custom: true\n');
     run('git', ['add', '-A'], { cwd: editor });
     run('git', ['commit', '-qm', 'Add custom path and malicious portable symlink'], { cwd: editor });

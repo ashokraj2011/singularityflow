@@ -154,20 +154,22 @@ function providedTask({ sensitive = false } = {}) {
     additionalProperties: false,
     properties: { answer: { type: 'string', minLength: 3 } }
   };
+  const requestType = sensitive ? 'credential' : inventedValue('clarif', 'ication');
+  const sensitiveBroker = sensitive ? 'vault:test' : null;
   return {
     ...task(sensitive ? 'credential' : inventedValue('cla', 'rify'), 'HUMAN_REQUEST'),
-    operation: sensitive ? 'human.credential' : 'human.clarification',
+    operation: `human.${requestType}`,
     authority: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
     metadata: {
       sourceConstruct: 'human-request',
       humanRequest: {
-        requestType: sensitive ? 'credential' : inventedValue('clarif', 'ication'),
+        requestType,
         requestedBy: { id: 'sgos-runtime', kind: 'system' },
         authorityRequired: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
         prompt: { title: sensitive ? 'Provide credential handle' : 'Clarify intent', detail: 'Provide typed input.' },
         options: [], inputSchema,
         sensitiveMode: sensitive ? 'secret-broker' : 'none',
-        externalUrl: null, secretBroker: sensitive ? 'vault:test' : null, expiresAt: null
+        externalUrl: null, secretBroker: sensitiveBroker, expiresAt: null
       }
     }
   };

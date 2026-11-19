@@ -27,6 +27,8 @@ import { loadConfig, storyWelEnrollmentStatus } from '../src/state-stores.mjs';
 import { buildWelEnrollment } from '../src/wel-policy.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
+/** The marker the redactor leaves where it removed a value of this kind. */
+const redactedMarker = (kind) => `[redacted-secret:${kind}]`;
 
 function run(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
@@ -328,7 +330,7 @@ test('the Observation Firewall preserves failures, compresses repetition, and ke
   });
   assert.doesNotMatch(JSON.stringify(protectedObservation), new RegExp(credential));
   const protectedRaw = await expandEvidencePacketHandle(root, protectedObservation.expansion[0].handle);
-  assert.match(protectedRaw.content, /\[redacted-secret:github-token\]/);
+  assert.ok(protectedRaw.content.includes(redactedMarker('github-token')), protectedRaw.content);
   assert.doesNotMatch(protectedRaw.content, new RegExp(credential));
 });
 

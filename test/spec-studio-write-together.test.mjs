@@ -125,17 +125,17 @@ test('automatic sharing is throttled per library and manual Sync now remains ava
 
 test('local documents and images stay off Git; takeover asks for the exact original', async t => {
   const repo = await fixture(t); repo.create();
-  const original = path.join(repo.base, 'notes.txt'); const secret = 'Private supporting text, not a shared original.';
-  await writeFile(original, secret);
+  const original = path.join(repo.base, 'notes.txt'); const privateText = 'Private supporting text, not a shared original.';
+  await writeFile(original, privateText);
   const added = repo.sf('source', specId, '--file', original); const descriptor = added.sources[0];
   const read = repo.sf('sources', specId, '--source', descriptor.id).sources[0];
-  assert.equal(read.text, secret); assert.ok(path.isAbsolute(read.path));
+  assert.equal(read.text, privateText); assert.ok(path.isAbsolute(read.path));
   repo.sf('sync', specId);
   const checkpointFiles = repo.git(repo.root, 'ls-tree', '-r', '--name-only', 'refs/remotes/origin/state');
   assert.doesNotMatch(checkpointFiles, /notes\.txt/u);
   const checkpointPath = checkpointFiles.split('\n').find(p => /[a-f0-9]{64}\.json$/u.test(p));
   const checkpoint = repo.git(repo.root, 'show', 'refs/remotes/origin/state:' + checkpointPath);
-  assert.doesNotMatch(checkpoint, new RegExp(secret, 'u'));
+  assert.doesNotMatch(checkpoint, new RegExp(privateText, 'u'));
   assert.ok(!checkpoint.includes(repo.base), 'no absolute source path is synchronized');
   const reader = path.join(repo.base, 'takeover'); repo.git(repo.base, 'clone', '-q', repo.remote, reader);
   const shared = repo.cli(reader, 'spec', 'author', 'shared', specId, '--refresh').value.drafts[0];
@@ -145,9 +145,9 @@ test('local documents and images stay off Git; takeover asks for the exact origi
   const other = path.join(repo.base, 'different.txt'); await writeFile(other, 'Different bytes');
   assert.equal(repo.cli(reader, 'spec', 'author', 'source', specId, '--restore', descriptor.id, '--file', other).value.error.code, 'SPEC_SOURCE_REPLACEMENT_REQUIRED');
   assert.equal(repo.cli(reader, 'spec', 'author', 'source', specId, '--restore', descriptor.id, '--file', original).status, 0);
-  assert.equal(repo.cli(reader, 'spec', 'author', 'sources', specId, '--source', descriptor.id).value.sources[0].text, secret);
+  assert.equal(repo.cli(reader, 'spec', 'author', 'sources', specId, '--source', descriptor.id).value.sources[0].text, privateText);
   const fork = repo.sf('fork', specId, '--operation-id', 'copy');
-  assert.equal(repo.sf('sources', fork.specId, '--source', descriptor.id).sources[0].text, secret);
+  assert.equal(repo.sf('sources', fork.specId, '--source', descriptor.id).sources[0].text, privateText);
   const image = path.join(repo.base, 'screen.png'); await writeFile(image, Buffer.from('89504e470d0a1a0a00000000', 'hex'));
   const picture = repo.sf('source', specId, '--file', image).sources.find(s => s.name === 'screen.png');
   assert.equal(repo.sf('sources', specId, '--source', picture.id).sources[0].status, 'image-ready');

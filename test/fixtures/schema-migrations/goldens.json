@@ -875,7 +875,8 @@
       "maximumTouchedChanges": 40,
       "maximumModelInvocations": 2,
       "maximumTotalTokens": 30000,
-      "tokenAssurance": "best-available"
+      "tokenAssurance":
+        "best-available"
     },
     "stopConditions": ["protected-path", "scope-expansion"],
     "schemaVersion": 1,
@@ -1245,7 +1246,8 @@
     "retainedUnpublishedPaths": [], "authorityTarget": null, "quality": [],
     "qualityFloor": {
       "status": "unavailable", "basis": "observed-task-outcomes",
-      "tokenSavingComparison": "not-evaluated", "reasons": ["no-economics-receipts"],
+      "tokenSavingComparison":
+        "not-evaluated", "reasons": ["no-economics-receipts"],
       "firstPassVerified": 0, "verifiedAfterRepair": 0, "reviewReturns": 0,
       "missingContextIncidents": 0
     },

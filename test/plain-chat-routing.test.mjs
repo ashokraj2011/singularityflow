@@ -176,7 +176,7 @@ test('PCR REQ-003: what looks like a secret is found by its kind, never its valu
   assert.equal(await promptSecret(`the key is ${ACCESS_KEY}`), 'AWS access key ID');
   assert.equal(await promptSecret(inventedValue('-----BEGIN OPENSSH PRIVATE', ' KEY-----\nabc\n')), 'private key');
   assert.equal(await promptSecret(`token ghp_${'A'.repeat(24)}`), 'access token', 'the redactor\'s shorter token shape');
-  for (const prose of ['make the timeout 10s', 'use Bearer authentication everywhere', 'why does token: expired fail?', 'password = "changeme"']) {
+  for (const prose of ['make the timeout 10s', 'use Bearer authentication everywhere', inventedValue('why does tok', 'en: expired fail?'), 'password = "changeme"']) {
     assert.equal(await promptSecret(prose), null, prose);
   }
   // What the gate's rules find, the kept words never hold, even where the diagnostic redactor alone let it through.

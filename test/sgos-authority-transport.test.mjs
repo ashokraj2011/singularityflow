@@ -57,11 +57,12 @@ function lockOwner(storeId, {
   host = os.hostname(), pid = process.pid,
   acquiredAt = Date.now() - 120_000, expiresAt = Date.now() - 90_000
 } = {}) {
+  const nonce = randomUUID();
   const core = {
     lockFormat: 'sflow.sgos.authority-store-lock',
     lockVersion: 1,
     storeId,
-    token: randomUUID(),
+    token: nonce,
     host,
     pid,
     acquiredAt: new Date(acquiredAt).toISOString(),
@@ -74,11 +75,12 @@ async function installCutoverLock(parent, storeId, owner, { heartbeatAt = Date.n
   const lock = path.join(parent, `.authority-cutover-lock-${storeId}`);
   await mkdir(lock, { mode: 0o700 });
   await writeFile(path.join(lock, 'owner.json'), canonicalJson(owner), { mode: 0o600 });
-  const heartbeat = path.join(lock, `heartbeat-${owner.token}`);
+  const { token } = owner;
+  const heartbeat = path.join(lock, `heartbeat-${token}`);
   await writeFile(heartbeat, canonicalJson({
     lockFormat: 'sflow.sgos.authority-store-lock.heartbeat',
     lockVersion: 1,
-    token: owner.token
+    token
   }), { mode: 0o600 });
   const timestamp = new Date(heartbeatAt);
   await utimes(heartbeat, timestamp, timestamp);

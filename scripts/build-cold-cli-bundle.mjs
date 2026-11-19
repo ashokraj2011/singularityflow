@@ -51,7 +51,7 @@ const FAMILIES = Object.freeze([
   ['narrow-reads', ['commands/nextsteps.mjs', 'commands/status-details.mjs', 'commands/session-current.mjs',
     'accepted-story-execution.mjs', 'story-workflow-read.mjs',
     'commands/review-source.mjs', 'source-review-agent-context.mjs', 'story-publication-pending.mjs']],
-  ['light', ['commands/about.mjs', 'commands/ui.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
+  ['light', ['commands/about.mjs', 'commands/ui.mjs', 'commands/update.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
     // Optional exact context/provenance reads must not fall through to compatibility. Keep their
     // dynamic ownership out of every hook/output helper's static closure and its existing ceiling.
     'workspace-membership.mjs', 'workspace-manifest.mjs', 'story-tree-read.mjs', 'decision-list-facts.mjs',

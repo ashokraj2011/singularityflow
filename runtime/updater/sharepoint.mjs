@@ -3,19 +3,13 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, rm, stat } from 'node:fs/promises';
 import { processCommand } from './process.mjs';
+import { FOLDER_LINK_NEEDED, folderUrl, landingProblem, shareLink, sourceError } from './links.mjs';
 
 export const MAX_PACKAGE = 512 * 1024 * 1024;
 const MAX_PAGE = 16 * 1024 * 1024;
 const fail = message => { throw new Error(message); };
 
-export function folderUrl(value) {
-  let url;
-  try { url = new URL(value); } catch { fail('Give the HTTPS SharePoint folder link.'); }
-  if (url.protocol !== 'https:' || url.username || url.password) fail('Use an HTTPS folder link without embedded credentials.');
-  url.hash = '';
-  return url.href;
-}
-
+export { folderUrl, landingProblem, shareLink, sourceError };
 function decodeEntities(value) {
   return value.replace(/&quot;/gu, '"').replace(/&#34;/gu, '"').replace(/&#39;/gu, "'")
     .replace(/&lt;/gu, '<').replace(/&gt;/gu, '>').replace(/&amp;/gu, '&');
@@ -53,7 +47,10 @@ export function folderMetadata(page, effectiveUrl) {
     if (!item.startsWith(base + '/') && item !== base) continue;
     return { drive: driveUrl.href.replace(/\/$/u, ''), token: token.replace(/^[?&]/u, ''), folder: item.slice(base.length).replace(/^\//u, '') };
   }
-  fail('SharePoint did not expose public folder download details. Check that the link opens the folder without signing in and allows downloading.');
+  const problem = landingProblem(page, effectiveUrl);
+  if (problem.code === 'SOURCE_SIGN_IN') throw problem;
+  throw sourceError('SharePoint did not expose public folder download details: this link opens a SharePoint page, not a shared folder. '
+    + 'Check that the link opens the folder without signing in and allows downloading. ' + FOLDER_LINK_NEEDED, 'SOURCE_NOT_FOLDER');
 }
 
 function apiUrl(metadata, target) {
@@ -79,16 +76,19 @@ export function selectPackages(items) {
       && item.name.toLowerCase().endsWith(suffix));
     const productNames = candidates.filter(item => /^(?:singularity[-_.]?flow|sflow)[-_.]/iu.test(item.name));
     if (productNames.length) candidates = productNames;
-    if (!candidates.length) fail('No ' + suffix + ' file was found in the selected folder.');
+    if (!candidates.length) {
+      throw sourceError('No ' + suffix + ' file was found in the selected folder. The folder needs the SFlow .tgz and .vsix, '
+        + 'side by side. Put them there, or use the folder link you were given to install SFlow.', 'SOURCE_NO_PACKAGES');
+    }
     for (const item of candidates) {
       if (/[\u0000-\u001f\u007f/\\]/u.test(item.name) || item.size !== undefined
         && (!Number.isSafeInteger(item.size) || item.size < 1 || item.size > MAX_PACKAGE)) fail('SharePoint returned an invalid package entry.');
     }
     if (candidates.length > 1) {
       const dated = candidates.map(item => ({ item, time: Date.parse(item.lastModifiedDateTime || item.timeLastModified || '') }));
-      if (dated.some(row => !Number.isFinite(row.time))) fail('More than one ' + suffix + ' is present without reliable dates. Keep the current package pair in this folder.');
+      if (dated.some(row => !Number.isFinite(row.time))) throw sourceError('More than one ' + suffix + ' is present without reliable dates. Keep the current package pair in this folder.', 'SOURCE_AMBIGUOUS');
       dated.sort((a, b) => b.time - a.time);
-      if (dated[0].time === dated[1].time) fail('More than one equally recent ' + suffix + ' was found. Keep one current package pair in this folder.');
+      if (dated[0].time === dated[1].time) throw sourceError('More than one equally recent ' + suffix + ' was found. Keep one current package pair in this folder.', 'SOURCE_AMBIGUOUS');
       candidates = [dated[0].item];
     }
     const item = candidates[0];
@@ -145,9 +145,25 @@ export function curlSession(work, { timeout = 900, environment = process.env, ex
   } };
 }
 
+/** A refused landing request, in plain words: a 401/403 is a link people must sign in for, 404 a link that is gone. */
+function landingRefusal(error) {
+  const status = /returned error:\s*(\d{3})/u.exec(String(error?.message))?.[1];
+  if (status === '401' || status === '403') {
+    return sourceError('SharePoint refused this link (' + status + '): it has expired, or only people in your organisation can open it. '
+      + FOLDER_LINK_NEEDED, 'SOURCE_SIGN_IN');
+  }
+  if (status === '404' || status === '410') {
+    return sourceError('This link no longer opens anything on SharePoint (' + status + '). Ask for the current link, then change the source. '
+      + FOLDER_LINK_NEEDED, 'SOURCE_GONE');
+  }
+  return error;
+}
+
 export async function listPackages(source, session, { log = console.log } = {}) {
   log('Reading the SharePoint folder…');
-  const landing = await session.get(folderUrl(source));
+  let landing;
+  try { landing = await session.get(shareLink(source)); }
+  catch (error) { throw landingRefusal(error); }
   const metadata = folderMetadata(await readFile(landing.file, 'utf8'), landing.effectiveUrl);
   let next = childrenUrl(metadata);
   const seen = new Set(), items = [];
@@ -156,8 +172,10 @@ export async function listPackages(source, session, { log = console.log } = {}) 
     seen.add(next);
     const response = await session.get(next);
     let page;
-    try { page = JSON.parse(await readFile(response.file, 'utf8')); } catch { fail('SharePoint returned an HTML/login page instead of a folder listing.'); }
-    if (!Array.isArray(page.value)) fail('SharePoint did not return a readable folder file list.');
+    let text = '';
+    try { text = await readFile(response.file, 'utf8'); page = JSON.parse(text); }
+    catch { throw landingProblem(text, response.effectiveUrl); }
+    if (!Array.isArray(page.value)) throw sourceError('SharePoint did not return a list of files for this link, so it is not a shared folder. ' + FOLDER_LINK_NEEDED, 'SOURCE_NOT_FOLDER');
     items.push(...page.value);
     next = page['@odata.nextLink'] ? apiUrl(metadata, page['@odata.nextLink']) : null;
   }

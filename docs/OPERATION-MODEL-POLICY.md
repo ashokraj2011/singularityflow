@@ -931,6 +931,7 @@ Every public operation is classified before its implementation module is importe
 | ui.serve | upkeep | never | — | — |
 | ui.status | read | never | — | — |
 | ui.stop | upkeep | never | — | — |
+| update | mutation | never | — | — |
 | upstream-issue.decide | mutation | never | — | — |
 | upstream-issue.decide-amendment | mutation | never | — | — |
 | upstream-issue.list | read | never | — | — |

@@ -71,3 +71,4 @@ export { RunWidget } from './views/run-widget.ts';
 export { EnvironmentFilesPanel, environmentFilesCommand } from './views/environment-files.ts';
 
 export { WorkspaceRuntimePanel } from './views/workspace-runtime.ts';
+export { updateSflow, resumeSflowUpdate } from './views/sflow-update.ts';

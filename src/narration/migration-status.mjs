@@ -9,6 +9,8 @@ import { SingularityFlowError } from '../util.mjs';
 
 export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'ui',
+  // The product updater: its --json is its own structured result ({ status, version, route, cli }).
+  'update',
   'adhoc', 'agent', 'appeal', 'approvals', 'approve', 'authority-store', 'auto', 'candidate',
   'change', 'check', 'clarification', 'comprehension', 'constitution', 'context', 'converge', 'copilot', 'decision', 'delivery', 'device', 'import', 'imports', 'marketplace',
   'env', 'evidence', 'execution-unit', 'explain', 'fault', 'fix', 'goal', 'governance', 'help-metrics', 'implement',

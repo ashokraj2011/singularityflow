@@ -18,7 +18,8 @@ export class AboutPanel {
       refresh: () => this.refresh(),
       copy: () => this.info ? vscode.env.clipboard.writeText(JSON.stringify({ ...this.info, window: this.host.window() }, null, 2)) : undefined,
       reload: () => vscode.commands.executeCommand('workbench.action.reloadWindow'),
-      'after-install': () => navigateTo('singularityFlow.afterInstall')
+      'after-install': () => navigateTo('singularityFlow.afterInstall'),
+      'update-sflow': () => navigateTo('singularityFlow.updateSflow')
     });
     panel.webview.onDidReceiveMessage(raw => {
       const target = navigationTarget(raw);

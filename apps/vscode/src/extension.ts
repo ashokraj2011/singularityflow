@@ -3562,12 +3562,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   /**
+   * Update SFlow…: the CLI, the Copilot plugin and this extension from the saved SharePoint link (or a
+   * folder of downloaded files), confirmed once and run in a terminal that outlives this extension.
+   * The flow is in views/sflow-update.ts, loaded only when it runs or a reloaded window resumes it.
+   */
+  const sflowUpdateHost = {
+    context,
+    currentCli: (): string | null => {
+      try {
+        const settings = vscode.workspace.getConfiguration('singularityFlow');
+        return resolveCli({ configuredCli: settings.get<string>('cliPath'), configuredNode: settings.get<string>('nodePath'),
+          extensionPath: context.extensionPath }).cli;
+      } catch { return null; }
+    },
+    output
+  };
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.updateSflow', async () => {
+    try { await lazyPanels().updateSflow(sflowUpdateHost); }
+    catch (error) { showRefusal(error, { headline: 'SFlow was not updated' }); }
+  }));
+  if (context.globalState.get('singularityFlow.sflowUpdate.pending.v1')) {
+    void Promise.resolve().then(() => lazyPanels().resumeSflowUpdate(sflowUpdateHost))
+      .catch((error) => output.appendLine(`Update SFlow could not resume: ${(error as Error).message}`));
+  }
+
+  /**
    * The palette's one entry for upgrading and repairing. Each choice runs an existing command with
    * its own preview and confirmation; those IDs stay callable for keybindings, buttons and pages.
+   * Update SFlow comes first: it is how a person gets the next build at all.
    */
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.upgradeOrRepair', async () => {
       const choice = await vscode.window.showQuickPick([
+        { label: '$(cloud-download) Update SFlow…', command: 'singularityFlow.updateSflow',
+          detail: 'Install the newest SFlow from the SharePoint link you were given: the CLI, the Copilot plugin and this extension.' },
         { label: '$(sync) Upgrade this capability', command: 'singularityFlow.refreshCapability',
           detail: 'Bring the capability open here, or one you choose, up to the installed SFlow version.' },
         { label: '$(sync) Upgrade capabilities & workspaces', command: 'singularityFlow.upgradeWorkspaces',
@@ -8261,6 +8289,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     if (message.action === 'after-install') await vscode.commands.executeCommand('singularityFlow.afterInstall');
+    else if (message.action === 'update-sflow') await vscode.commands.executeCommand('singularityFlow.updateSflow');
     else if (message.action === 'repository-setup') await vscode.commands.executeCommand(
       'singularityFlow.repairRepositorySetup', { repositoryPath: client.repository }
     );

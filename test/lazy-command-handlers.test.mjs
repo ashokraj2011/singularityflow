@@ -824,7 +824,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // checklist, never a blocker (owner, 2026-11-18, Story new-ash-graph). No new eager file.
     // 9,762,550 (measured 9,762,505 for submit.mjs, start.mjs 9,760,968, 2026-11-19): the sf-code recovery above merged with
     // the local-service fixes and the Decide screens on one landing (+5 over its own measure). No new eager file.
-    assert.ok(closure.bytes <= 9_762_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,762,700 (measured 9,762,668 for submit.mjs, +163 over 9,762,505): `singularity-flow update`, the installed package's
+    // own updater, registered as a command (command-registry.mjs), routed to /sf-about and refused in every turn as the
+    // person's own step (command-skills.mjs, person-step-catalog.mjs) [owner, 2026-11-19]. Its handler and runtime/update.mjs
+    // stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_762_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -949,7 +953,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 871,600 (measured 871,573, +469): a refused command derives the live Copilot turns again, as a successful one does, so a
   // test failure recorded mid-turn never ends the turn as stale; both paths share one helper (cli-entry.mjs refreshTurns)
   // [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
-  assert.ok(root.bytes <= 871_600, `root dispatch loads ${root.bytes} source bytes`);
+  // 871,650 (measured 871,645, +72): `singularity-flow update` registered (command-registry.mjs) and kept out of
+  // repository routing and the mutation lease (cli-entry.mjs) [owner, 2026-11-19]. The updater stays lazy
+  // (src/commands/update.mjs loads runtime/update.mjs only when run). No new eager file.
+  assert.ok(root.bytes <= 871_650, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1261,7 +1268,10 @@ test('the common session projection does not import attach, state stores or publ
   // ranOnNode) [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
   // 4,293,750 (measured 4,293,712, +147): a version with nothing written yet says so on its refusal (delivery-evidence.mjs
   // nothingWritten), read by recovery as the version's checklist [owner, 2026-11-18, Story new-ash-graph]. No new eager file.
-  assert.ok(current.bytes <= 4_293_750, `session current loads ${current.bytes} source bytes`);
+  // 4,293,950 (measured 4,293,908, +196): `singularity-flow update` registered, routed to /sf-about and refused in every
+  // turn as the person's own step (command-registry.mjs, command-skills.mjs, person-step-catalog.mjs) [owner, 2026-11-19].
+  // No new eager file.
+  assert.ok(current.bytes <= 4_293_950, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

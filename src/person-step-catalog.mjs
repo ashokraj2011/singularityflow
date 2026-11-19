@@ -103,6 +103,7 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
     && ['accept', 'reject', 'decide', 'settle', 'publish', 'discard'].includes(verb)],
   // Secret-shaped values other answers withhold: the person's own page only [2026-11-18].
   ['person-specification-view', ([command, sub], options) => command === 'spec' && sub === 'author' && options['for-person'] !== undefined],
+  ['product-update', ([command]) => command === 'update'],
   // The person's own browser grant; `ui status` is anyone's.
   ['browser-workspace', ([command, sub]) => command === 'ui' && sub !== 'status'],
   // Dropping a clause of a Story's specification slice changes its requested outcome (SPEC-SPA v1.3 §6.3).

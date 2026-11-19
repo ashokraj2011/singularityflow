@@ -311,7 +311,11 @@ test('the palette offers upgrading and repairing once, and the merged routes sta
   // The quick pick names every route, in this order, and nothing destructive.
   const handler = source.slice(source.indexOf("'singularityFlow.upgradeOrRepair', async"));
   const picks = handler.slice(0, handler.indexOf('title:'));
-  assert.deepEqual([...picks.matchAll(/command: '(singularityFlow\.\w+)'/g)].map((match) => match[1]), UPGRADE_OR_REPAIR_ROUTES);
+  // Update SFlow… comes first, and stays in the palette on its own: it is how the next build arrives.
+  assert.deepEqual([...picks.matchAll(/command: '(singularityFlow\.\w+)'/g)].map((match) => match[1]),
+    ['singularityFlow.updateSflow', ...UPGRADE_OR_REPAIR_ROUTES]);
+  assert.equal(contributed.get('singularityFlow.updateSflow'), 'Singularity Flow: Update SFlow…');
+  assert.equal(hidden.has('singularityFlow.updateSflow'), false, 'Update SFlow… is in the palette');
   assert.doesNotMatch(picks, /factoryReset|localReset/);
   assert.equal(hidden.has('singularityFlow.factoryReset'), false, 'factory reset keeps its own, separately named entry');
 });

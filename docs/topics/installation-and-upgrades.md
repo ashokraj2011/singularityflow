@@ -6,6 +6,7 @@ aliases:
   - bootstrap
   - reinstall
 questions:
+  - How do I update SFlow from the SharePoint link?
   - How do I reinstall SFlow on Windows?
   - How do I install SFlow on macOS?
   - How do I install a promoted SFlow distribution without a source checkout?
@@ -18,12 +19,13 @@ commands:
   - workspace
   - fresh-install
   - reinstall
+  - update
   - product
 related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 50
+version: 51
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -33,9 +35,9 @@ Use this topic when the current goal matches **installation and upgrades**. Star
 
 ## Use it from each surface
 
-- **Shell:** `sflow init`, `sflow bootstrap`, `sflow quickstart`, `sflow plugin`, `sflow fresh-install`, `sflow reinstall`. A promoted distribution is installed with its platform wrapper: `./install.sh`, `.\install.ps1`, or `install.cmd`. Run `singularity-flow init --help` for the exact forms supported by this build.
+- **Shell:** `sflow init`, `sflow bootstrap`, `sflow quickstart`, `sflow plugin`, `sflow fresh-install`, `sflow reinstall`, `sflow update`. A promoted distribution is installed with its platform wrapper: `./install.sh`, `.\install.ps1`, or `install.cmd`. Run `singularity-flow init --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-init`, `/sf-quickstart`, `/sf-reinstall`. There is no Copilot equivalent for the machine-level promoted-distribution install because Copilot may not be installed yet. After installation, use `/sf-refresh-configuration` to refresh registered repositories; the shell equivalent is `singularity-flow workspace refresh-configuration`.
-- **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
+- **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state. **Singularity Flow: Update SFlow…** updates the product from the saved SharePoint link.
 
 ## Guided workflow
 
@@ -51,11 +53,13 @@ Users can also extract the standalone `SFlow-Updater.zip` and open **Update SFlo
 or **Update SFlow.cmd** (Windows). It prompts for and remembers the public folder link; no clone
 is required. Build the ZIP with `node scripts/build-package-updater.mjs`.
 
-For a direct update from an organisation's public SharePoint package folder, run
-`bash update-sflow.sh 'YOUR_SHAREPOINT_FOLDER_LINK'` on Mac or
-`.\update-sflow.ps1 'YOUR_SHAREPOINT_FOLDER_LINK'` on Windows PowerShell. The folder only needs the
-current `.tgz` and `.vsix`. The updater remembers the location, verifies matching builds and delegates
-activation/recovery to the full-product installer. Later runs need no link argument.
+To update from the SharePoint link you were given to install SFlow, run
+`singularity-flow update --source 'YOUR_SHAREPOINT_FOLDER_LINK'` once, or use **Singularity Flow:
+Update SFlow…** in VS Code. Later runs need no link: `singularity-flow update`. The folder only needs
+the current `.tgz` and `.vsix`; `--local-folder FOLDER` uses files you already downloaded instead.
+The updater remembers the source, checks that the two files are one build, and updates the CLI where
+it is installed now (with npm when it was installed with npm), then reinstalls the Copilot plugin and
+the VS Code extension. `update-sflow.sh` and `update-sflow.ps1` take the same arguments.
 See [SharePoint folder updates](../package-updater.md). This user-selected package path does not
 claim a signed promoted release; the promoted-distribution instructions below remain available.
 

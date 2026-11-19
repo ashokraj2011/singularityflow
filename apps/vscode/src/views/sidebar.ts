@@ -22,6 +22,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'story-analytics': 'singularityFlow.openDashboard',
   'configuration-approvals': 'singularityFlow.openConfigurationApprovals',
   'after-install': 'singularityFlow.afterInstall',
+  'update-sflow': 'singularityFlow.updateSflow',
   about: 'singularityFlow.about',
   'favorites-manage': 'singularityFlow.manageFavorites',
   'persona-manage': 'singularityFlow.choosePersona',
@@ -107,6 +108,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'approvals-open', label: 'Approvals', description: 'decisions waiting on a sign-off', icon: 'approval', command: ACTION_COMMANDS['approvals-open']! },
   { id: 'configuration-approvals', label: 'Configuration approvals', description: 'review and activate workflow, agent and test-configuration proposals', icon: 'merge', command: ACTION_COMMANDS['configuration-approvals']! },
   { id: 'workspace-manage', label: 'Workspaces', description: 'choose and manage workspaces', icon: 'workspace', command: ACTION_COMMANDS['workspace-manage']! },
+  { id: 'update-sflow', label: 'Update SFlow', description: 'install the newest SFlow from the SharePoint link: CLI, Copilot plugin and this extension', icon: 'configuration', command: ACTION_COMMANDS['update-sflow']! },
   { id: 'after-install', label: 'After install', description: 'guided build check, safe repository upgrade and workspace refresh', icon: 'configuration', command: ACTION_COMMANDS['after-install']! },
   { id: 'setup-wizard', label: 'Guided start', description: 'capability → workspace → first work item', icon: 'start', command: ACTION_COMMANDS['setup-wizard']! },
   { id: 'goals', label: 'Goals', description: 'outcomes linked to work', icon: 'impact', command: ACTION_COMMANDS.goals! },
@@ -419,7 +421,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const groups: Record<string, { title: string; ids: string[] }> = {
       'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'browser-workspace', 'spec-studio', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'findings', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
       'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'repository-knowledge', 'code-explanation', 'comprehension-center'] },
-      'help-tools': { title: 'Help & diagnostics', ids: ['about', 'help-open', 'diagnostics', 'copilot-extensions', 'fault-repairs', 'after-install', 'local-reset'] },
+      'help-tools': { title: 'Help & diagnostics', ids: ['about', 'help-open', 'diagnostics', 'copilot-extensions', 'fault-repairs', 'update-sflow', 'after-install', 'local-reset'] },
       'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'performance', 'prompt-audit', 'journal'] }
     };
     const selected = groups[group];

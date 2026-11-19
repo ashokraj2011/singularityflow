@@ -3,7 +3,10 @@
 1. Extract this entire ZIP to a folder you want to keep.
 2. Close SFlow sessions in VS Code and Copilot before reinstalling.
 3. Mac: open **Update SFlow.command**. Windows: open **Update SFlow.cmd**.
-4. On first use, paste the public SharePoint folder link when prompted.
+4. On first use, paste the SharePoint link you were given to install SFlow when prompted.
+
+With SFlow installed you do not need this ZIP: use **Singularity Flow: Update SFlow…** in VS Code,
+or `singularity-flow update` in a terminal. They share the saved link.
 
 The folder must contain the current SFlow `.tgz` and `.vsix`, downloadable without sign-in.
 Future runs remember the link: open the same launcher again.

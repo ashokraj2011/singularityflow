@@ -638,6 +638,11 @@
         "title": "Singularity Flow: Synchronize and Take Over Story"
       },
       {
+        "command": "singularityFlow.updateSflow",
+        "title": "Singularity Flow: Update SFlow…",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "singularityFlow.upgradeOrRepair",
         "title": "Singularity Flow: Upgrade or Repair…",
         "icon": "$(sync)"
@@ -1699,6 +1704,11 @@
           "command": "singularityFlow.openComprehensionCenter",
           "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
           "group": "1_explain@2"
+        },
+        {
+          "command": "singularityFlow.updateSflow",
+          "when": "view == singularityFlow.navigation",
+          "group": "2_maintain@0"
         },
         {
           "command": "singularityFlow.upgradeOrRepair",

@@ -264,6 +264,7 @@ type ConfigurationNavigationItem = {
 const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavigationItem[] }> = [
   { label: 'Repository setup', items: [
     { label: 'Overview', glyph: 'configuration', tab: 'overview' },
+    { label: 'Update SFlow', glyph: 'configuration', action: 'update-sflow' },
     { label: 'After install', glyph: 'configuration', action: 'after-install' },
     { label: 'Upgrade / migrate SFlow', glyph: 'configuration', action: 'capability-refresh' },
     { label: 'Repair or upgrade setup', glyph: 'configuration', action: 'repository-setup' },

@@ -2579,6 +2579,33 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['factory-reset', 'local-reset', 'fresh-install']
   },
+  update: {
+    summary: 'Update SFlow from the SharePoint link you were given to install it, or from files you already downloaded.',
+    description: [
+      'Downloads the current .tgz and .vsix from the saved SharePoint folder link, checks that they are',
+      'one SFlow build, and installs them: the CLI where it is installed now (with npm when it was',
+      'installed with npm, otherwise in SFlow\'s own folder), the Copilot plugin uninstalled and installed',
+      'again, and the VS Code extension. Give the link once with --source; it is saved for later updates.',
+      'VS Code offers the same update as Singularity Flow: Update SFlow….',
+      '',
+      'This is a machine-level command and your own step: it changes no repository, workspace or Story,',
+      'and no Copilot turn runs it. Restart VS Code and Copilot CLI sessions afterwards.'
+    ],
+    options: [
+      ['--source LINK', 'The SharePoint folder link (shared with "Anyone with the link"). Saved for next time.'],
+      ['--local-folder FOLDER', 'Use the newest matching .tgz and .vsix already downloaded to FOLDER. Saved for next time.'],
+      ['--check-only', 'Download and check the pair without installing anything.'],
+      ['--reinstall', 'Also uninstall the VS Code extension before installing it again.'],
+      ['--timeout-seconds N', 'Download timeout, 300–3600 seconds (default 900). Saved for next time.'],
+      ['--json', 'Print the result as JSON; progress goes to standard error.']
+    ],
+    examples: [
+      ['singularity-flow update --source \'https://contoso.sharepoint.com/:f:/s/team/LINK\'', 'The first update: give the link you were given.'],
+      ['singularity-flow update', 'Every later update, from the saved link.'],
+      ['singularity-flow update --local-folder ~/Downloads --check-only', 'Check files you already downloaded without installing them.']
+    ],
+    seeAlso: ['about', 'reinstall', 'product']
+  },
   'local-reset': {
     summary: 'Forget this machine’s Singularity Flow state, or deliberately delete its validated workspaces.',
     description: [

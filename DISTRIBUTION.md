@@ -25,6 +25,70 @@ Use `sflow explain installation-and-upgrades` and `sflow explain resets-and-clea
 The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and branch
 `archive/desktop-app`; it is not built, installed, or supported by current releases.
 
+## Update SFlow
+
+Most people install SFlow from two files in the SharePoint folder their team shares: the CLI
+package `singularity-flow-<version>.tgz` and the VS Code extension
+`singularity-flow-vscode-<version>.vsix`. They have no source checkout, so they never need
+`update-sflow.sh`.
+
+**Updating.** In VS Code, run **Singularity Flow: Update SFlow…** (also first in **Upgrade or
+Repair…**, in the Singularity Flow view's title bar, and in **Help & diagnostics**). In a terminal,
+run `singularity-flow update`. The first time, either one asks for the SharePoint link you were given
+to install SFlow and saves it on this computer; after that the menu shows the saved link and only
+asks you to confirm. **Change source…** takes another link, or **Use files I already downloaded…**
+takes a folder holding the `.tgz` and `.vsix` (when several pairs are there, the newest matching pair
+is used). In a terminal: `singularity-flow update --source 'LINK'` or
+`singularity-flow update --local-folder FOLDER`.
+
+The menu shows one confirmation with the source, what is installed now, and every step. Nothing
+changes before you choose **Update**. Then a terminal named "Update SFlow" shows each step:
+
+1. Download the `.tgz` and `.vsix` from the link (or copy them from the folder).
+2. Check that the two files are one SFlow build.
+3. Install the CLI where it is installed now. When it was installed with `npm install -g`, the same
+   global npm folder is updated with `npm install -g` by the npm that owns it, so there is never a
+   second `singularity-flow` on PATH. When it is in SFlow's own folder (`~/.singularity-flow/engine`,
+   from `setup.sh` or an earlier updater run), it is updated there. With no CLI yet, it goes there.
+4. Uninstall the SFlow Copilot plugin and its skills, then install them again.
+5. Install the VS Code extension into the VS Code you ran the menu from, using that VS Code's own
+   command-line tool (so Insiders and a second `code` on PATH are handled) and its extensions folder.
+
+The update runs in its own terminal, not inside the extension it replaces, so it keeps going if the
+extension is replaced or the window reloads; a reloaded window shows the end screen when it
+finishes. The extension is installed over itself (`--force`) rather than removed first, so a failed
+install never leaves VS Code without the menu to try again from. On success choose **Reload
+Window** and restart Copilot CLI sessions. On failure the message gives the reason and where the
+downloaded files were kept, with **Try again** and **Change source…**. If VS Code was set to use
+another CLI (`singularityFlow.cliPath`), the confirmation says so and the setting then points at the
+updated CLI.
+
+The link must be a SharePoint *folder* link shared with **Anyone with the link**. A link to a single
+file, a site page, a link only people in your organisation can open, an expired link, a folder
+without the two files, or a `.tgz` and `.vsix` of different versions are each refused in plain words
+before anything is installed.
+
+The link is saved in `~/.singularity-flow/package-updater/source.json` (under your user profile on
+Windows); `SINGULARITY_FLOW_PACKAGE_UPDATER_HOME` moves that folder. `update-sflow.sh`,
+`update-sflow.ps1` and the standalone `SFlow-Updater.zip` still work, take the same arguments, and
+share the same saved link. See [SharePoint folder updates](docs/package-updater.md).
+
+**First install, and installs older than the menu.** A first install, or an SFlow from before
+**Update SFlow…** existed, is done once by hand from the two files in the SharePoint folder. Download
+both into one folder, close VS Code, and in a terminal in that folder run:
+
+```bash
+npm install -g ./singularity-flow-<version>.tgz
+code --install-extension singularity-flow-vscode-<version>.vsix --force
+singularity-flow plugin install
+```
+
+On Windows use the same commands in PowerShell (`code` is VS Code's `code.cmd`). If `code` is not
+found on a Mac, open VS Code and run **Shell Command: Install 'code' command in PATH**. Then open VS
+Code: every later update is **Singularity Flow: Update SFlow…**, which asks for the link once. A
+hand install does not know the link, so nothing is saved until that first menu run; a machine
+already updated with `update-sflow.sh '<link>'` has the link saved and is never asked.
+
 ## Source dependency lock maintenance
 
 The root `package-lock.json` must cover both the CLI runtime and the VS Code workspace's

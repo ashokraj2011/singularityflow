@@ -52,6 +52,7 @@ test('the extracted updater runs without a repository or node_modules, including
 test('first use asks for a link once and subsequent invocations use saved settings', async t => {
   const directory = await area(t), fixture = pair(); let asked = 0, installed = 0;
   const dependencies = { environment: { SINGULARITY_FLOW_PACKAGE_UPDATER_HOME: directory }, log() {},
+    detect: () => ({ route: 'managed', engineHome: '/nonexistent/engine', fresh: true, others: [] }),
     askSource: async () => { asked++; return 'https://files.sharepoint.com/public'; },
     downloader: async (source, work) => {
       assert.equal(source, 'https://files.sharepoint.com/public');

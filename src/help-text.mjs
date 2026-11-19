@@ -137,6 +137,8 @@ Usage:
     [--registry URL] [--cli-only] [--no-copilot-telemetry] [--skip-tests] [--json]
   sf-reinstall --checkout DIRECTORY [--dry-run | --confirm "REINSTALL SINGULARITY FLOW FINGERPRINT"]
     [--registry URL] [--cli-only] [--no-copilot-telemetry] [--skip-tests] [--json]
+  singularity-flow update [--source LINK | --local-folder FOLDER] [--check-only] [--reinstall] [--timeout-seconds N] [--json]
+    updates SFlow from the saved SharePoint link: the CLI where it is installed now, the Copilot plugin and VS Code
   singularity-flow product status [--json]
   singularity-flow product align [--dry-run] [--json]
   singularity-flow product reviews [--json]

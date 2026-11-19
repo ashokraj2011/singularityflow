@@ -25,7 +25,8 @@ export async function applicationStartOffer(root, workflow, phase) {
   const onward = phaseHandoff(workflow, phase).filter((action) => action.command && !/ phase show /u.test(action.command)).slice(0, 2)
     .map(({ command, copilotCommand, reason }) => ({ command, copilotCommand: copilotCommand ?? null, reason: reason ?? null }));
   return { declared: true, workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-    question: `${phase.label ?? phase.id} generation ${phase.generation} is published and its tests pass. Start the application to try it now?`,
+    // One line, asked only because this checkout declares an application to try (owner, 2026-11-19).
+    question: `Version ${phase.generation} of ${phase.label ?? phase.id} passes its tests. Start the application to try it?`,
     choices: [
       { id: 'start', label: 'Start the application', copilotCommand: '/sf-run-app start', command: 'singularity-flow app plan --json',
         description: 'The person chooses: /sf-run-app starts it in the environment they pick, and reports its address.' },

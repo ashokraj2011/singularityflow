@@ -767,8 +767,11 @@ export function argvAllowed(argv, mode, value) {
     if (action === 'reject' && positionals[0] === 'story') return intentAmendmentProposal(positionals, options, value.contract.workId)
       || options['work-id'] === value.contract.workId && positionals.length === 3
         && positionals[1] === 'rework' && positionals[2] === 'roll-forward' && typeof options['change-request'] === 'string';
+    // `--yes` approves with no review receipt: it is a person's own terminal answer, never a chat's. A chat approves only
+    // through the receipt the person's review binds (`choices begin|answer`, then `--selection-receipt`); a bare approve
+    // with no terminal is refused by the command itself [approvals research, 2026-11-19; owner rule 11-01].
     return positionals[0] === action && (!positionals[1] || positionals[1] === value.originPhase)
-      && (action !== 'approve' || approvalChatDecisions(options));
+      && (action !== 'approve' || (options.yes === undefined && approvalChatDecisions(options)));
   }
   if (classification === 'read') return true;
   // While an amendment proposed from this step waits, nothing moves the step it is bound to [owner, 2026-11-13].

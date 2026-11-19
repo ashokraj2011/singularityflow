@@ -36,6 +36,26 @@ function turnExpired(record) {
 }
 
 /**
+ * A turn past its window whose Story and checkout are exactly as its contract bound them (the workflow record and every
+ * identity stamp unchanged) continues in the same chat once its agent reads the skill's entry again: its window starts
+ * again then, noted beside the turn as a renewal (owner, 2026-11-19). The person typing the same command again changed
+ * nothing but the clock. Anything changed keeps it expired, and the person invokes the skill again.
+ */
+async function unchangedRenewal(payload, record) {
+  try {
+    const value = await boundedRecord(recordFile(payload));
+    if (record.corrupt || !value?.contract || !value.binding?.workflowFile || value.turnId !== record.turnId || value.sessionId !== record.sessionId) return record;
+    if (digest(await readFile(value.binding.workflowFile)) !== value.binding.workflowSha256) return record;
+    for (const stamp of value.binding.stamps ?? []) {
+      if (digest(await readFile(stamp.file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) !== stamp.sha256) return record;
+    }
+    const now = Date.now();
+    await noteTurnRenewal(recordFile(payload), record, { renewedAt: now, unchanged: true });
+    return { ...record, renewedAt: now };
+  } catch { return record; }
+}
+
+/**
  * An expired turn says so, with the one thing that renews it: invoking its skill again. Shell commands
  * never renew a Copilot turn, and the issuers skip expired turns, so routing to one would loop.
  */
@@ -43,8 +63,8 @@ function turnExpiredDenial(record) {
   const skill = `/sf-${String(record?.skill ?? 'phase').replace(/^\/?(?:sf|sflow)-/u, '')}`;
   return { permissionDecision: 'deny', next: [], permissionDecisionReason:
     `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from ${Number.isFinite(record?.renewedAt) ? 'the person\'s last answer in it' : 'its prompt'} and have ended; nothing was written. `
-    + `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. `
-    + `No Shell command renews a Copilot turn.\n\n${formatCommandRouteLines({ copilotCommand: skill }).join('\n')}` };
+    + `Invoke ${skill} again to continue only if its entry read does not: first run ${skill}'s own first command once more in this same chat; when nothing changed since, that read continues this turn here, with everything already written, and you go on without asking the person. `
+    + `No other Shell command renews a Copilot turn.\n\n${formatCommandRouteLines({ copilotCommand: skill }).join('\n')}` };
 }
 
 /**
@@ -2631,7 +2651,15 @@ async function shellSnapshot(root, contract) {
 }
 
 export async function mutationPostToolGuard(payload = {}) {
-  const record = await turn(payload);
+  let record = await turn(payload);
+  // An expired turn's agent read the skill's entry again: when nothing changed since its contract, the same chat goes on
+  // (owner, 2026-11-19). Only an SFlow read the expired turn still admits renews it; an edit or a mutation never does.
+  if (record && !record.corrupt && turnExpired(record)) {
+    const value = await boundedRecord(recordFile(payload)).catch(() => null);
+    const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
+    const reads = calls(payload).filter(call => TERMINALS.has(call.name));
+    if (reads.length && reads.every(call => verifiedShellForm(call, scope) && shellAllowed(call, 'read', scope))) record = await unchangedRenewal(payload, record);
+  }
   const question = Boolean(record) && calls(payload).some(call => QUESTION_TOOLS.has(call.name));
   if (question && !record.corrupt) await renewOnAnswer(payload, record).catch(() => {});
   if (question && answerLedgerTurn(record)) {

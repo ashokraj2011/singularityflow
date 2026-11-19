@@ -589,7 +589,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
   }
   if (!root) {
     if (subcommand === 'attach' || subcommand === 'candidates') {
-      const { knownWorkspaces } = await import('../workspace-manifest.mjs');
+      const { knownWorkspaces } = await import('../known-workspaces.mjs');
       throw new SingularityFlowError(
         subcommand === 'attach'
           ? `Cannot attach a Story because no repository is active. ${resolved.detail}`

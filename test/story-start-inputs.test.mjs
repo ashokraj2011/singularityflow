@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertStoryStartChoices, storyBaseRequired } from '../src/story-start-inputs.mjs';
+import { assertStoryStartChoices } from '../src/story-start-inputs.mjs';
+import { storyBaseRequired } from '../src/story-base-choices.mjs';
 
 test('missing base reports the complete new-Story input shape and the separate resume route', async () => {
   const error = storyBaseRequired('STORY-1');

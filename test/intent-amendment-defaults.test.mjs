@@ -36,7 +36,7 @@ test('every packaged and example workflow defaults to amendments in every active
         workflow.currentPhase = phaseId;
         workflow.phases[phaseId].status = 'in_progress';
         assert.equal(intentAmendmentSource(workflow), true, `${id}/${phaseId}`);
-        const action = workflowGuide(workflow).nextActions.find(entry => entry.command.includes('intent-amendment propose'));
+        const action = workflowGuide(workflow).nextActions.find(entry => entry.command.includes('intent-amendment draft'));
         assert.ok(action, `${id}/${phaseId} offers no amendment route`);
         assert.equal(action.skill, '/sf-amend');
         assert.equal(action.optional, true);
@@ -61,7 +61,7 @@ test('future renamed workflows need no convergence phase, revision loop or YAML 
       delivery: { id: 'delivery', status: 'approved', generation: 1 },
       'peer-signoff': { id: 'peer-signoff', status: 'in_progress', generation: 0 } } };
   assert.equal(intentAmendmentSource(workflow), true);
-  assert.ok(workflowGuide(workflow).nextActions.some(action => action.command.includes('intent-amendment propose')));
+  assert.ok(workflowGuide(workflow).nextActions.some(action => action.command.includes('intent-amendment draft')));
   assert.equal(intentAmendmentSource(workflow, 'delivery'), false, 'caller cannot bind a different phase');
   workflow.phases['agreed-outcome'].status = 'in_progress';
   assert.equal(intentAmendmentSource(workflow), false, 'unapproved intent is a draft, not an amendment');
@@ -81,7 +81,7 @@ test('existing pins with read-side role interpretation gain the default without 
   const before = JSON.stringify(workflow);
   bindAcceptedPhaseInterpretation(workflow, {}, { scope: ['scope', 'plan', 'review'], build: ['implement'] });
   assert.equal(intentAmendmentSource(workflow), true);
-  assert.ok(workflowGuide(workflow).nextActions.some(action => action.command.includes('intent-amendment propose')));
+  assert.ok(workflowGuide(workflow).nextActions.some(action => action.command.includes('intent-amendment draft')));
   assert.equal(JSON.stringify(workflow), before, 'read-side compatibility rewrote the accepted Story');
 });
 

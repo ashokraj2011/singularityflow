@@ -318,23 +318,6 @@ function invalidWorkspaceRegistry(file, reason, cause = undefined) {
   );
 }
 
-/**
- * The workspaces this machine knows, last opened first, archived ones left out: `[{ id, name }]`, at most five.
- * A refusal offers each as a whole command, never `<WORKSPACE>` [audit 2026-11-19, entry 13]; an unreadable
- * registry offers none.
- */
-export async function knownWorkspaces(file) {
-  try {
-    return (await readWorkspaceRegistry(file)).filter((entry) => !entry.archivedAt && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(entry.id))
-      .sort((left, right) => right.openedAt.localeCompare(left.openedAt)).slice(0, 5).map((entry) => ({ id: entry.id, name: entry.name }));
-  } catch { return []; }
-}
-
-/** `workspace use` for each workspace this machine knows but `except` (an ID), as whole commands, three at most. */
-export async function workspaceUseCommands(file, { except = null } = {}) {
-  return (await knownWorkspaces(file)).filter((entry) => entry.id !== except).slice(0, 3).map((entry) => `singularity-flow workspace use ${entry.id}`);
-}
-
 export async function readWorkspaceRegistry(file) {
   let contents;
   try { contents = await readFile(file, 'utf8'); }

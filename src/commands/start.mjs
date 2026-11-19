@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
 import YAML from 'yaml';
 import { SingularityFlowError, nowIso, optionBoolean, optionString, optionStrings, posix, readJson, requirePositional } from '../util.mjs';
-import { assertClean, branch, changes, checkout, fetchRemote, fileAtRef, gitCommonDir, head, localRefHeads, preflightPushBranch, refExists, refHead, remoteDefaultBranchName, remoteNames, repoRoot, validBranch } from '../git.mjs';
+import { assertClean, branch, changes, checkout, fetchRemote, fileAtRef, gitCommonDir, head, localRefHeads, preflightPushBranch, refExists, refHead, remoteNames, repoRoot, validBranch } from '../git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from '../repository-subject-index.mjs';
 import { localStorySubjectIndex } from '../local-story-subject-index.mjs';
 import { worldModelStateAuthority } from '../state-authority.mjs';
@@ -46,7 +46,7 @@ import { assertStartDocuments, preflightInitialStoryDocuments, stageInitialStory
 import { assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired } from '../story-start-readiness.mjs';
 import { collectRepositoryReadinessEvidence, inspectRepositoryPrerequisitePresence } from '../repository-readiness-evidence.mjs';
 import { intakeBaselineChoice, requiredIntakePrerequisites } from '../intake-baseline.mjs';
-import { storyBaseRequired, assertStoryStartChoices } from '../story-start-inputs.mjs';
+import { assertStoryStartChoices } from '../story-start-inputs.mjs';
 import { loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext, storyConfigurationUnavailableError } from '../story-start-base-configuration.mjs';
 import { activateWorkspaceStoryContext, activeWorkspaceFile, workspaceRegistryFile } from '../workspace-context.mjs';
 import { withLedgerRemoteView } from '../ledger.mjs';
@@ -667,13 +667,8 @@ async function startCommandAtRoot(positionals, options) {
       cached = localRefHeads(root, refs.slice(index, index + 32)).size > 0;
     }
     if (!cached) {
-      // The bases this clone already knows, its remote's default first; nothing is fetched.
-      const remote = remoteNames(root)[0] ?? 'origin';
-      let usual = null;
-      try { usual = remoteDefaultBranchName(root, {}, remote); } catch { usual = null; }
-      const known = [...new Set([usual, 'main', 'master', 'develop'].filter(Boolean))];
-      const present = localRefHeads(root, known.map((name) => `refs/remotes/${remote}/${name}`));
-      throw storyBaseRequired(id, { branches: known.filter((name) => present.has(`refs/remotes/${remote}/${name}`)) });
+      const bases = await import('../story-base-choices.mjs');
+      throw bases.storyBaseRequired(id, { branches: bases.localStoryBases(root) });
     }
   }
 

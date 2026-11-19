@@ -1009,15 +1009,14 @@ function workflowDeleteConfirmation(call, value) {
 }
 /**
  * The denial of an agent's workflow delete confirmation, with the workflow it named: its preview gives the short code
- * the person confirms it by, never a digest to copy [audit 2026-11-19, entry 31]. `next` is that preview.
+ * the person confirms it by, never a digest to copy [audit 2026-11-19, entry 31]. Its route stays the person's own command.
  */
 function workflowDeleteDenial(call, value) {
   const selector = parseCli(verifiedShellForm(call, value)?.argv ?? []).positionals[2];
-  const preview = /^(?:(?:story|initiative):)?[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(selector ?? '') ? ['workflow', 'delete', selector, '--dry-run'] : null;
-  return { next: preview ? [safeCommandGuidance({ argv: preview })].filter(Boolean) : [],
-    reason: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: confirming a workflow delete is the person\'s own step. '
-      + `Show them its preview (${preview ? `singularity-flow ${preview.join(' ')}` : 'workflow delete with --dry-run'}): it gives the short code they confirm it by, `
-      + '/sf-confirm in Copilot or singularity-flow confirm in their own terminal, or they confirm in VS Code (Workflow Studio → Delete…). Do not retry it' };
+  const preview = /^(?:(?:story|initiative):)?[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(selector ?? '') ? safeCommandGuidance({ argv: ['workflow', 'delete', selector, '--dry-run'] }) : null;
+  return 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: confirming a workflow delete is the person\'s own step. '
+    + `Show them its preview (${preview?.command ?? 'workflow delete with --dry-run'}): it gives the short code they confirm it by, `
+    + '/sf-confirm in Copilot or singularity-flow confirm in their own terminal, or they confirm in VS Code (Workflow Studio → Delete…). Do not retry it';
 }
 
 function decisionListRecord(call, value) {
@@ -2412,10 +2411,7 @@ async function mutationToolDecision(payload, record) {
     if (guarded.every(call => TERMINALS.has(call.name)
       && (expired ? shellAllowed(call, 'read', bootstrap) : bootstrapAllowed(call, bootstrap)))) return {};
     const deleting = guarded.find(call => TERMINALS.has(call.name) && workflowDeleteConfirmation(call, bootstrap));
-    if (deleting) {
-      const denial = workflowDeleteDenial(deleting, bootstrap);
-      return { permissionDecision: 'deny', next: denial.next, permissionDecisionReason: denial.reason };
-    }
+    if (deleting) return { permissionDecision: 'deny', next: [], permissionDecisionReason: workflowDeleteDenial(deleting, bootstrap) };
     if (guarded.some(call => TERMINALS.has(call.name) && targetOriginPinCall(call, bootstrap))) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: TARGET_ORIGIN_PIN_DENIAL };
     }
@@ -2481,10 +2477,7 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting a waiting commit aside clears what SFlow would publish and moves the branch; the person who looked at it confirms it with the commit ID in their own terminal (the preview without --confirm may run here). Show the user the preview and the command, and stop; do not retry it', [], own());
         if (setAsideDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it', [], own());
-        if (workflowDeleteConfirmation(call, value)) {
-          const denial = workflowDeleteDenial(call, value);
-          return mutationDenial(contract, denial.reason, [], denial.next.length ? { routes: denial.next } : own());
-        }
+        if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, workflowDeleteDenial(call, value), [], own());
         if (decisionListRecord(call, value)) return mutationDenial(contract,
           `PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person's own step: they record it on the Decide card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it) or run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest`, [], own());
         if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL, [], own());

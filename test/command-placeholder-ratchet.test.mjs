@@ -74,7 +74,7 @@ test('the audit entries this branch fixed hand over whole commands [audit 2026-1
   for (const file of ['src/story-approver-refresh.mjs', 'src/story-test-command-amendment.mjs', 'src/presence/story-verify.mjs',
     'src/commands/workflow-retire.mjs', 'src/workflow-transfer-resolution.mjs', 'src/configuration-proposal-list.mjs',
     'src/configuration-drafts.mjs', 'apps/vscode/src/views/spec-studio-model.ts', 'apps/vscode/src/views/spec-studio-page.ts',
-    'src/spec-library/split.mjs', 'src/capability-start.mjs', 'src/story-start-inputs.mjs', 'src/commands/story-test-selection.mjs',
+    'src/spec-library/split.mjs', 'src/capability-start.mjs', 'src/story-base-choices.mjs', 'src/commands/story-test-selection.mjs',
     'src/commands/workspace.mjs', 'src/cli-entry.mjs', 'apps/vscode/src/views/refusal.ts']) {
     assert.ok(!open.has(file), `${file} hands over a command with something to fill in`);
   }

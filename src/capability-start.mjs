@@ -716,18 +716,7 @@ export async function storyBaseForRepository(root, {
     }
   }
   if (!selection.all && !Object.keys(selection.overrides).length) {
-    // The choices as whole commands, the usual base first [audit 2026-11-19, entry 12]: refusal-remediation.mjs
-    // runs the same start again once per branch, or once with every repository's own default.
-    const usual = defaults[catalog.repositoryId] ?? defaultBranch;
-    const branches = usableChoices.map((choice) => choice.branch).sort((left, right) => (right === usual) - (left === usual));
-    const repositoryBases = perRepository ? Object.fromEntries(catalog.repositories
-      .filter((repository) => (catalog.published?.[repository.id] ?? []).includes(defaults[repository.id]))
-      .map((repository) => [repository.id, defaults[repository.id]])) : null;
-    throw new SingularityFlowError(perRepository
-      ? `No branch is published in every repository, so each one starts from its own. ${catalog.repositories.map((repository) => `${repository.id}: ${defaults[repository.id] ?? 'no default'}`).join('; ')}.`
-      : branches.length ? `Choose the branch this Story starts from: ${branches.map((branch) => (branch === usual ? `${branch} (the usual one)` : branch)).join(', ')}.`
-        : 'No branch to start a Story from is published yet.',
-    { code: 'STORY_BASE_REQUIRED', details: { branches, defaultBranch: usual, ...(repositoryBases ? { repositoryBases } : {}) } });
+    throw (await import('./story-base-choices.mjs')).capabilityBaseRequired(catalog, { usableChoices, defaults, defaultBranch, perRepository });
   }
   const resolution = resolveCapabilityBase({
     repositories: catalog.published,

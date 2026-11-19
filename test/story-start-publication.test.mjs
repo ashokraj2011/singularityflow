@@ -542,9 +542,8 @@ test('non-interactive Story start requires an explicit base before mutation', as
     env: { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }
   });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout, /--from-branch/);
-  assert.match(refused.stdout,
-    /singularity-flow workspace branches --preflight-story STORY-NO-BASE --json/);
+  // The base this clone already knows, as the same start, whole [audit 2026-11-19, entry 12]; nothing was fetched.
+  assert.match(refused.stdout, /singularity-flow start STORY-NO-BASE --work-type feature --title 'Missing base' --description 'Must refuse\.' --timings --from-branch main/u, refused.stderr);
   assert.match(refused.stdout, /singularity-flow resume STORY-NO-BASE --fetch/);
   assert.doesNotMatch(refused.stderr, /git ls-remote|git fetch/,
     'a missing required base must refuse before remote or configuration discovery');

@@ -9672,7 +9672,7 @@ async function workspaceCommand(positionals, options) {
       if (subcommand === 'prompt') return console.log('');
       console.log('No active workspace.');
       // Each workspace this machine knows, as a whole command [audit 2026-11-19, entry 13].
-      const known = await (await import('./workspace-manifest.mjs')).knownWorkspaces(registry);
+      const known = await (await import('./known-workspaces.mjs')).knownWorkspaces(registry);
       if (!known.length) console.log('This machine knows no workspace yet. Create one in VS Code (Singularity Flow: Create a Workspace), or with /sf-workspace in Copilot.');
       for (const [index, entry] of known.slice(0, 3).entries()) printCommandRoutes(`singularity-flow workspace use ${entry.id}`, { label: `${index ? 'Or' : 'Select one'}: ${entry.name}` });
       return;

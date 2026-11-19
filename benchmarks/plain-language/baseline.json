@@ -15,7 +15,7 @@
   "draft-for-version": 6,
   "generic-route": 6351,
   "jargon": 1360,
-  "length": 665
+  "length": 664
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -3190,7 +3190,6 @@
    "1dbe0a17a024": "jargon:binding",
    "310c826f8865": "jargon:generation",
    "35800b5db32f": "length",
-   "3add66d030d5": "length",
    "6f35aeb4070e": "length",
    "74ba85dd9163": "jargon:retained",
    "7aabb2d4bce2": "length",
@@ -3930,6 +3929,9 @@
    "67169c4fb711": "length",
    "c5109abbb046": "length"
   },
+  "src/planned-claim-routes.mjs": {
+   "c5702dccb039": "length"
+  },
   "src/planning.mjs": {
    "c8566e73fb9e": "jargon:retained",
    "f439196049c7": "jargon:retained"
@@ -4360,7 +4362,6 @@
    "bb7145ef2c46": "jargon:generation",
    "c0deeb186911": "jargon:binding jargon:packet",
    "c3184158ede5": "length",
-   "c5702dccb039": "length",
    "c75282756390": "length",
    "c898dfbcfaf8": "jargon:retained",
    "c9ff812606b5": "jargon:retained",

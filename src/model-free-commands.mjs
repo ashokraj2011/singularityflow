@@ -1,4 +1,6 @@
 /** Closed command crosswalk and shared display layout. These routes grant no execution authority. */
+import { createRequire } from 'node:module';
+import { PACKAGE_ROOT } from './package-root.mjs';
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export function parseModelFreeTarget(text = '') {
@@ -40,55 +42,17 @@ const cardRecords = (t) => decideCardStep(t) || (t[0] === 'upstream-issue' && ['
 /** A sign-off's VS Code route: the review page that shows the evidence and records it. */
 export const VSCODE_WITNESS_REVIEW = 'Command Palette: Singularity Flow: Review Story Evidence and Sign Off';
 
-/**
- * The VS Code screens that finish a person's own command with no chat model [audit 2026-11-19, entry 4]. Each opens on
- * the Story this window works on, as the Decide card does, and asks for the rest itself (the step, the reason, the
- * workspace); apps/vscode/package.json names each title. A command maps here only when its screen runs that command.
- */
-const palette = (title) => `Command Palette: Singularity Flow: ${title}`;
-export const VSCODE_SCREENS = Object.freeze({
-  // Approvals' "Request changes…" runs `reject <W> --phase <P> --to <T> --reason …` (extension.ts onApprovalsMessage).
-  reject: palette('Approvals, then Request changes…'),
-  reopen: palette('Request Changes to a Closed Story'),
-  cancel: palette('Cancel and Archive Story'),
-  start: palette('Start Work'),
-  sessionWorkspace: palette('Attach Copilot Session to Workspace'),
-  workspaceUse: palette('Work in This Workspace'),
-  configuration: palette('Configuration Approvals'),
-  testPolicy: palette('Review Story Test Policy and Recovery'),
-  appeal: palette('Resolve Phase Issues and Appeals')
-});
-// What each screen runs: Start Work's form (intake-form.ts), the test recovery choices (story-test-recovery.ts and
-// story-test-risk.ts) and the phase issues page (extension.ts resolvePhaseIssues). Anything else keeps no screen.
-const START_FLAGS = new Set(['--from-branch', '--title', '--description', '--acceptance-criteria', '--jira', '--github', '--work-type',
-  '--fetch', '--spec', '--capability', '--isolated-worktree', '--document', '--document-name', '--document-phases', '--document-store',
-  '--reference-repository', '--reference-branch']);
-const TEST_POLICY_VERBS = new Set(['show', 'amend', 'attest', 'risks', 'accept-risk', 'revoke-risk', 'attest-risk']);
-const APPEAL_VERBS = new Set(['preflight', 'resolve', 'resolve-resume', 'resolve-run', 'checkpoint', 'risk-prepare', 'risk-accept',
-  'repair-plan', 'repair-run', 'repair-resume', 'list', 'show', 'attest', 'decide']);
-const flags = (tokens) => tokens.filter((value) => value.startsWith('--'));
-export function vscodeScreenForArgv(tokens) {
-  const [top, sub] = tokens;
-  const without = (...names) => !tokens.some((value) => names.includes(value));
-  if (top === 'reject') return without('--clause', '--repair', '--yes') ? VSCODE_SCREENS.reject : null;
-  if (top === 'reopen') return VSCODE_SCREENS.reopen;
-  if (top === 'cancel') return without('--release') ? VSCODE_SCREENS.cancel : null;
-  if (top === 'start') return sub && !sub.startsWith('--') && flags(tokens).every((flag) => START_FLAGS.has(flag)) ? VSCODE_SCREENS.start : null;
-  if (top === 'session' && sub === 'workspace') return without('--story', '--repository') ? VSCODE_SCREENS.sessionWorkspace : null;
-  if (top === 'workspace' && sub === 'use') return without('--story', '--repository') ? VSCODE_SCREENS.workspaceUse : null;
-  if (top === 'configuration' && ['approve', 'reject'].includes(sub)) return without('--pick', '--lead') ? VSCODE_SCREENS.configuration : null;
-  if (top === 'story' && sub === 'test-policy') return TEST_POLICY_VERBS.has(tokens[2]) ? VSCODE_SCREENS.testPolicy : null;
-  if (top === 'appeal') return APPEAL_VERBS.has(sub) && without('--evidence-file', '--clause', '--transition') ? VSCODE_SCREENS.appeal : null;
-  return null;
-}
+// Lazy, as config.mjs's commit policy [audit 2026-11-19, entry 4]
+let screens;
+const screenFor = (t) => (process.features?.require_module
+  ? (screens ??= createRequire(`${PACKAGE_ROOT}/package.json`)(`${PACKAGE_ROOT}/src/model-free-screens.mjs`)).vscodeScreenForArgv(t) : null);
 
 export function modelFreeCommandForArgv(argv) {
   if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) return null;
   const tokens = argv.filter((value) => value !== '--json');
   if (tokens[0] === 'decision' && tokens[1] === 'witness') return VSCODE_WITNESS_REVIEW;
   if (decideCard(tokens) || cardRecords(tokens)) return VSCODE_DECIDE_CARD;
-  const screen = vscodeScreenForArgv(tokens);
-  if (screen) return screen;
+  if (screenFor(tokens)) return screenFor(tokens);
   const [top, operation] = tokens;
   const exact = (expected) => tokens.length === expected.length && tokens.every((value, i) => value === expected[i]);
   for (const [route, expected] of [
@@ -132,9 +96,8 @@ export function modelFreeCommandForCommand(command) {
   if (typeof command !== 'string' || !/^(?:singularity-flow|sflow)\s/u.test(command)) return null;
   const argv = command.trim().split(/\s+/u).slice(1);
   if (/^(?:singularity-flow|sflow)\s+[A-Za-z0-9._ -]+$/u.test(command)) return modelFreeCommandForArgv(argv);
-  // A screen asks for the reason itself, so a quoted one does not hide it either.
   return argv[0] === 'decision' && argv[1] === 'witness' ? VSCODE_WITNESS_REVIEW : cardRecords(argv) ? VSCODE_DECIDE_CARD
-    : vscodeScreenForArgv(argv.filter((value) => value !== '--json'));
+    : screenFor(argv);
 }
 
 /** Layout only: callers still validate untrusted routes and retain their existing execution gates. */

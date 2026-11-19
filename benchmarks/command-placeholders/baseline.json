@@ -360,6 +360,10 @@
     "src/plan-clause-gaps.mjs": [
       "singularity-flow decision plan {} --owner {} --add-row {}=<PATH> --test <TEST> --reason <why>"
     ],
+    "src/planned-claim-routes.mjs": [
+      "singularity-flow decision plan {} --owner {} --add-row {}=<PATH> --test <TEST> --reason <why>",
+      "singularity-flow decision plan {} --owner {} --add-test {}=<TEST> --reason <why>"
+    ],
     "src/recovery-plan.mjs": [
       "singularity-flow reject {} --work-id {} --to <phase> --reason <reason>"
     ],
@@ -411,9 +415,7 @@
       "singularity-flow decision plan {} --replace-test {}={}:<NEW-TEST> --reason <why>"
     ],
     "src/state.mjs": [
-      "singularity-flow assign {} <assignee>",
-      "singularity-flow decision plan {} --owner {} --add-row {}=<PATH> --test <TEST> --reason <why>",
-      "singularity-flow decision plan {} --owner {} --add-test {}=<TEST> --reason <why>"
+      "singularity-flow assign {} <assignee>"
     ],
     "src/story-test-commands.mjs": [
       "singularity-flow reject {} --work-id <WORK-ID> --fetch --reason <REASON>",

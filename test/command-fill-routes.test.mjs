@@ -82,7 +82,7 @@ test('a missing workspace is one whole selection per workspace this machine know
 
 test('the planned-claim contract a workflow\'s steps suggest is one whole workflow edit [entry 26]', () => {
   const plan = refusalRemediationPlan(refusal('WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED', { workType: 'feature',
-    proposal: { clausePhases: ['requirements'], owners: { implementation: 'planning' } } }), ['start', 'PAY-3']);
+    steps: [['requirements', 'clauses'], ['planning', ''], ['implementation', 'code'], ['review', '']] }), ['start', 'PAY-3']);
   assert.ok(commands(plan).includes('singularity-flow workflow edit feature --planned-claims required --clause-phases requirements --claim-owners implementation=planning'),
     commands(plan).join('\n'));
   const unsuggested = refusalRemediationPlan(refusal('WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED', { workType: 'feature' }), ['start', 'PAY-3']);

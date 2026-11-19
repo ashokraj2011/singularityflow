@@ -397,16 +397,15 @@ export async function activeWorkspaceRepositoryRoot(command, {
   const repair = context.workspacePath && context.repositoryId ? `singularity-flow workspace repair ${JSON.stringify(context.workspacePath)}`
     + (context.storyId || context.requestedStoryId ? '' : ` --repository ${context.repositoryId}`) : null;
   throw new SingularityFlowError(
-    `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. ${repair ? `Repair it with '${repair}'` : 'Repair the workspace'}, or select another workspace.`,
+    `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. ${repair ? `Repair it with '${repair}'` : 'Repair the workspace'}, or select another.`,
     {
       code: 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE',
       details: {
         workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: selectedPath,
         // Workspace commands run without a repository; doctor and nextsteps would meet this again.
         nextAction: repair ?? 'singularity-flow workspace list',
-        // Each other workspace this machine knows, as a whole command [audit 2026-11-19, entry 13].
-        recoveryCommands: [...(repair ? ['singularity-flow workspace list'] : []), ...await (await import('./workspace-manifest.mjs'))
-          .workspaceUseCommands(workspaceRegistryFile(env, home), { except: context.workspaceId })]
+        recoveryCommands: [...(repair ? ['singularity-flow workspace list'] : []),
+          ...await (await import('./known-workspaces.mjs')).workspaceUseCommands(workspaceRegistryFile(env, home), context.workspaceId)]
       }
     }
   );
@@ -938,13 +937,12 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   if (!root && !routingExcluded) {
     // Git's refusal to read the repository the person is in, rather than a request for one.
     if (!localOnlyRequest) refuseUnreadableRepository(process.cwd());
-    // Each workspace this machine knows, as a whole command [audit 2026-11-19, entry 13].
-    const [{ workspaceUseCommands }, { workspaceRegistryFile }] = await Promise.all([import('./workspace-manifest.mjs'), import('./workspace-context.mjs')]);
+    const { workspaceRegistryFile } = await import('./workspace-context.mjs');
     throw new SingularityFlowError(
-      'Run Singularity Flow from inside a Git repository, or select a workspace this machine knows.',
+      'Run Singularity Flow from inside a Git repository, or select a workspace.',
       { code: 'REPOSITORY_CONTEXT_REQUIRED', details: {
         nextAction: 'singularity-flow workspace list',
-        recoveryCommands: await workspaceUseCommands(workspaceRegistryFile())
+        recoveryCommands: await (await import('./known-workspaces.mjs')).workspaceUseCommands(workspaceRegistryFile())
       } }
     );
   }

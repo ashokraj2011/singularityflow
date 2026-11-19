@@ -1,21 +1,5 @@
 import { SingularityFlowError } from './util.mjs';
 
-/**
- * Preserve the local-only base refusal while showing the complete new-Story input shape. `branches` are the
- * bases this clone already knows, the usual one first: refusal-remediation.mjs runs the same start again
- * once per branch, so nobody types a branch name [audit 2026-11-19, entry 12].
- */
-export function storyBaseRequired(id, { branches = [] } = {}) {
-  const inspectCommand = `singularity-flow workspace branches --preflight-story ${id} --json`;
-  return new SingularityFlowError(
-    `Choose the branch Story '${id}' starts from${branches.length ? `: ${branches.join(', ')}` : ''}. A new manual one also needs `
-    + `--work-type, --title and --description; to resume it: singularity-flow resume ${id} --fetch.`,
-    { code: 'STORY_BASE_REQUIRED', details: { ...(branches.length ? { branches, defaultBranch: branches[0] } : { nextAction: inspectCommand }),
-      requiredChoices: ['base', 'workflow', 'intake-source'],
-      recoveryCommands: [`singularity-flow resume ${id} --fetch`] } }
-  );
-}
-
 /** Aggregate only choices still absent after the exact base seed and receipt have been read. */
 export function assertStoryStartChoices({ nonInteractive, workType, source, manualInput }) {
   if (!nonInteractive) return;

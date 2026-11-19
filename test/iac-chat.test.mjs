@@ -172,16 +172,16 @@ test('D3: the engine refuses begin, prepare, publish and submit of the paused st
 test('nextsteps leads with the card while an amendment waits or awaits acknowledgement; propose is offered only when it can succeed', () => {
   const plain = story();
   assert.equal(intentAmendmentProposable(plain), true);
-  const offered = workflowGuide(plain).nextActions.find((action) => action.command.includes('intent-amendment propose'));
+  const offered = workflowGuide(plain).nextActions.find((action) => action.command.includes('intent-amendment draft'));
   assert.deepEqual([offered.skill, offered.copilotCommand, offered.optional], ['/sf-amend', '/sf-amend propose', true]);
-  const proposeNext = workflowNextSteps(plain).find((action) => action.command.includes('intent-amendment propose'));
+  const proposeNext = workflowNextSteps(plain).find((action) => action.command.includes('intent-amendment draft'));
   assert.deepEqual([proposeNext.timing, proposeNext.copilotCommand], ['alternative', '/sf-amend propose']);
 
   const waiting = story({ amendment: true });
   assert.equal(intentAmendmentProposable(waiting), false);
   const steps = workflowNextSteps(waiting);
   assert.deepEqual([steps[0].timing, steps[0].command, steps[0].copilotCommand], ['now', 'singularity-flow decisions IAC-1', '/sf-decide IAC-1']);
-  assert.ok(!steps.some((action) => action.command.includes('intent-amendment propose')), 'proposing again would be refused');
+  assert.ok(!steps.some((action) => action.command.includes('intent-amendment draft')), 'proposing again would be refused');
   assert.ok(!steps.some((action) => action.timing === 'now' && action !== steps[0]));
 
   // Proposed after the submission, it holds the approval: the card leads there too.
@@ -195,7 +195,7 @@ test('nextsteps leads with the card while an amendment waits or awaits acknowled
   const acknowledge = workflowNextSteps(approved);
   assert.deepEqual([acknowledge[0].timing, acknowledge[0].copilotCommand], ['now', '/sf-decide IAC-1']);
   assert.match(acknowledge[0].reason, /^Acknowledge AMD-001 on the decisions card/u);
-  assert.ok(!acknowledge.some((action) => action.command.includes('intent-amendment propose')));
+  assert.ok(!acknowledge.some((action) => action.command.includes('intent-amendment draft')));
   // Acknowledged, it may propose again.
   approved.intentAmendments[0] = { ...approved.intentAmendments[0], acknowledgedAt: '2026-11-13T00:00:00.000Z', acknowledgementRequired: false };
   assert.equal(intentAmendmentProposable(approved), true);

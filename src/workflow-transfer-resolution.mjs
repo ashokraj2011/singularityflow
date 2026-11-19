@@ -338,7 +338,7 @@ export function importPlanText(plan, file, { propose = false, identity = null, r
     lines.push('  Fix each where the bundle was made (Workflow Studio, /sf-build-workflow or the markup), export it again, then preview the new file.');
   }
   if (plan.status === 'ready') {
-    const apply = `singularity-flow workflow import ${fileArgument} --confirm ${plan.planSha256}${chosenText}${proposeText}`;
+    const apply = ['singularity-flow workflow import', fileArgument, '--confirm', plan.planSha256, ...chosen.map(shellWord), ...(propose ? ['--propose'] : [])].join(' ');
     lines.push(...(routeLines ? ['  Apply it:', ...routeLines(apply, '  ')] : [`  Apply it: ${apply}`]));
     return lines;
   }

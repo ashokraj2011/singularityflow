@@ -128,7 +128,12 @@ test('every person\'s own step the Decide card records has the card as its Copil
 
 test('a person\'s own command that a VS Code screen finishes names that screen, never "not available" [audit 2026-11-19, entry 4]', async () => {
   const { readFile } = await import('node:fs/promises');
-  const { VSCODE_SCREENS, VSCODE_DECIDE_CARD, VSCODE_WITNESS_REVIEW, commandRouteRows } = await import('../src/model-free-commands.mjs');
+  const { VSCODE_DECIDE_CARD, VSCODE_WITNESS_REVIEW, commandRouteRows } = await import('../src/model-free-commands.mjs');
+  const palette = (title) => `Command Palette: Singularity Flow: ${title}`;
+  const VSCODE_SCREENS = { reject: palette('Approvals, then Request changes…'), reopen: palette('Request Changes to a Closed Story'),
+    cancel: palette('Cancel and Archive Story'), start: palette('Start Work'), sessionWorkspace: palette('Attach Copilot Session to Workspace'),
+    workspaceUse: palette('Work in This Workspace'), configuration: palette('Configuration Approvals'),
+    testPolicy: palette('Review Story Test Policy and Recovery'), appeal: palette('Resolve Phase Issues and Appeals') };
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   const titles = new Set(manifest.contributes.commands.map((entry) => entry.category ? `${entry.category}: ${entry.title}` : entry.title));
   // Each route names a Command Palette entry the extension contributes, by its exact title.
@@ -160,7 +165,7 @@ test('a person\'s own command that a VS Code screen finishes names that screen, 
   // for, and an appeal it hands to chat.
   for (const command of ['singularity-flow reject build --work-id PAY-1 --to design --clause PAY-1:AC-001 --reason "<REASON>"',
     'singularity-flow cancel PAY-1 --release --apply --confirm PAY-1',
-    'singularity-flow start PAY-2 --from-branch main --test-policy-confirm sha256:0123',
+    'singularity-flow start PAY-2 --from-branch main --test-policy-confirm sha256:0123', 'singularity-flow start --title "<TITLE>"',
     'singularity-flow workspace use payments --repository api',
     'singularity-flow configuration approve sflow/proposals/people-1 --lead https://example.test/lead.git',
     'singularity-flow story test-policy repair --work-id PAY-1 --plan',

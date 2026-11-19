@@ -168,7 +168,7 @@ export async function run(argv, context = {}) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
     if (action === 'prompt') return console.log('');
     const { actionCommandLines, copilotAction } = await import('../copilot-guidance.mjs');
-    const { knownWorkspaces } = await import('../workspace-manifest.mjs');
+    const { knownWorkspaces } = await import('../known-workspaces.mjs');
     console.log('No active workspace.');
     // Each workspace this machine knows, as a whole command, last opened first [audit 2026-11-19, entry 13].
     const known = await knownWorkspaces(registry);

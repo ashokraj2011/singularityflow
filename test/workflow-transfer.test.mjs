@@ -1094,8 +1094,8 @@ test('an imported workflow without a planned-claim contract is refused at previe
   assert.equal(plan.status, 'blocked');
   const refusal = plan.conflicts.find((item) => item.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED');
   assert.ok(refusal, JSON.stringify(plan.conflicts));
-  assert.match(refusal.reason, /Workflow 'legacy-custom' has a migration-required planned-claim contract/);
-  assert.match(refusal.reason, /omits with responsibility scope, a reason, and the approval group as authority/);
+  assert.match(refusal.reason, /Workflow 'legacy-custom' cannot be added or materially changed under the old planned-claim contract/);
+  assert.match(refusal.reason, /declares omits for scope instead/);
   assert.equal(await readFile(path.join(target, 'singularity/workflow.yml'), 'utf8'), before);
 
   // Declaring that it defines no requirement clauses is one of the two repairs the refusal names.

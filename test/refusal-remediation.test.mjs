@@ -732,8 +732,7 @@ test('an imported capability-map bootstrap refusal preserves the map and gives t
   assert.equal(plan.retry.automatic, false);
   // The refusal names the capability asked for and its lead: that whole command leads.
   const named = refusalRemediationPlan(Object.assign(new Error("The imported capability map does not define requested capability 'payments'."), {
-    code: 'CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED', details: { requestedCapabilityId: 'payments',
-      nextAction: { command: 'singularity-flow capability map payments --lead https://git.example.test/lead.git --json', skill: '/sf-capability-map' } }
+    code: 'CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED', details: { requestedCapabilityId: 'payments', lead: 'https://git.example.test/lead.git' }
   }), ['bootstrap']);
   assert.equal(named.steps[0].command, 'singularity-flow capability map payments --lead https://git.example.test/lead.git --json');
   assert.equal(named.steps.filter((entry) => entry.command === named.steps[0].command).length, 1, 'once, not again as the producer\'s');
@@ -772,14 +771,15 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
   ), ['phase', 'publish', 'implementation']);
   // The suggestions and the repository routes from there, then the recheck. With no runner suggested there is no
   // Story-only request to fill in, so none is offered with a placeholder [audit 2026-11-19, entry 8].
-  assert.deepEqual(missing.steps.map((entry) => entry.id), ['inspect-test-setup', 'recheck-structured-test-contract']);
+  assert.deepEqual(missing.steps.map((entry) => entry.id), ['inspect-test-setup', 'request-story-test-command', 'recheck-structured-test-contract']);
+  assert.equal(missing.steps[1].command, null);
   assert.equal(missing.steps[0].command, 'singularity-flow capability test-setup --json');
   assert.equal(missing.steps[0].skill, '/sf-test-setup');
   assert.match(missing.steps[0].label, /capability test-setup --step implementation/);
   assert.match(missing.steps[0].label, /in-scope test script or runner declaration/);
   assert.match(missing.steps[0].label, /story test-policy amend --reason TEXT/);
   assert.match(missing.steps[0].label, /refresh alone does not change its pin/);
-  assert.equal(missing.steps[1].command,
+  assert.equal(missing.steps[2].command,
     'singularity-flow phase prepublish implementation --json');
   // Each runner SFlow suggests for the changed code is one whole request, with its folder, and none is cut.
   const suggested = refusalRemediationPlan(Object.assign(new Error('No structured test command was found.'), {

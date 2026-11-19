@@ -47,7 +47,7 @@ export async function inboxCommand(options) {
     return process.stdout.write(snapshot.detail ? `${snapshot.detail}\n` : approvalInboxText(snapshot));
   }
   if (!root) {
-    const [{ knownWorkspaces }, { workspaceRegistryFile }] = await Promise.all([import('../workspace-manifest.mjs'), import('../workspace-context.mjs')]);
+    const [{ knownWorkspaces }, { workspaceRegistryFile }] = await Promise.all([import('../known-workspaces.mjs'), import('../workspace-context.mjs')]);
     throw new SingularityFlowError(selected.detail ?? 'Select a readable workspace repository.', {
       code: 'SESSION_REPOSITORY_UNAVAILABLE', details: { workspaces: await knownWorkspaces(workspaceRegistryFile()) }
     });

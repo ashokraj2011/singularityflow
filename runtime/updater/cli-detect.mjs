@@ -11,18 +11,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 // Spelled through runtime/ so VS Code's bundles share their one resolver entry (apps/vscode/esbuild.mjs).
-import { resolveManagedEngine } from '../../runtime/resolve.cjs';
+import { engineHome, resolveManagedEngine } from '../../runtime/resolve.cjs';
 
 const PACKAGE = 'singularity-flow';
 export const EXTENSION = 'singularityflow.singularity-flow-vscode';
 export const layoutFor = platform => (platform === 'win32' ? path.win32 : path.posix);
-
-/** runtime/resolve.cjs's engine home, repeated here so a VS Code bundle needs only its shared resolver. */
-export function engineHome({ environment = process.env, homeDirectory = os.homedir() } = {}) {
-  const configured = environment.SINGULARITY_FLOW_ENGINE_HOME;
-  if (configured && !path.isAbsolute(configured)) throw new Error('SFlow engine home must be absolute.');
-  return path.resolve(configured || path.join(homeDirectory, '.singularity-flow', 'engine'));
-}
 
 /** The real filesystem, read synchronously; tests pass a fake one to check Windows layouts anywhere. */
 export const realFilesystem = Object.freeze({

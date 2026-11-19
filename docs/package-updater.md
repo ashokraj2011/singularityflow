@@ -60,8 +60,10 @@ Restart VS Code/Copilot and open a new terminal after completion. The updater do
 - `--check-only` downloads and checks without activating the product.
 - `--local-folder FOLDER` uses a folder of downloaded files instead of the link (a folder path as the
   only argument works too).
-- `--reinstall` removes/reinstalls SFlow's VS Code extension and Copilot plugin/owned skills inside
-  the product transaction. The standalone edition enables this automatically.
+- Every update uninstalls SFlow's Copilot plugin and owned skills and installs them again.
+  `--reinstall` also removes the VS Code extension before installing it again, inside the product
+  transaction; the standalone edition enables it automatically. VS Code's menu never does that: it
+  installs the extension over itself, so a failed install cannot leave VS Code without the menu.
 - `--timeout-seconds 1800` changes the remembered download timeout. Default: 15 minutes; accepted range: 5–60 minutes.
 - Give a new folder link to replace the saved location.
 - Keep one current pair in the folder. If several exist, the newest of each type is selected by SharePoint's modification dates. Ambiguous dates or mismatched builds stop with a concrete error and preserve the current installation.

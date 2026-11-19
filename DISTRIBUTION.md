@@ -55,8 +55,8 @@ changes before you choose **Update**. Then a terminal named "Update SFlow" shows
    command-line tool (so Insiders and a second `code` on PATH are handled) and its extensions folder.
 
 The update runs in its own terminal, not inside the extension it replaces, so it keeps going if the
-extension is replaced or the window reloads; a reloaded window shows the end screen when it
-finishes. The extension is installed over itself (`--force`) rather than removed first, so a failed
+extension is replaced or the window reloads. The terminal stays open on its last line until you
+press Enter, and a reloaded window shows the end screen once Singularity Flow is open in it. The extension is installed over itself (`--force`) rather than removed first, so a failed
 install never leaves VS Code without the menu to try again from. On success choose **Reload
 Window** and restart Copilot CLI sessions. On failure the message gives the reason and where the
 downloaded files were kept, with **Try again** and **Change source…**. If VS Code was set to use

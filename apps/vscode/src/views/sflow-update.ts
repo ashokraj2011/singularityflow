@@ -124,7 +124,7 @@ function settingChange(plan: CliInstallPlan): { text: string; value: string } | 
       value: plan.cli };
   }
   if (plan.route === 'managed') {
-    return { text: `VS Code is set to use the CLI at ${configured} (singularityFlow.cliPath). After the update it uses the CLI in SFlow's own folder instead, and that setting is cleared.`,
+    return { text: `VS Code uses the CLI at ${configured} (singularityFlow.cliPath). After the update it uses SFlow's own folder; that setting is cleared.`,
       value: '' };
   }
   return null;

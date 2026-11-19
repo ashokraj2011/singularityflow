@@ -117,8 +117,9 @@ export async function runUpdate(options, { environment = process.env, homeDirect
       const hostEnvironment = { ...environment,
         ...(options.code ? { SINGULARITY_FLOW_CODE_COMMAND: options.code } : {}),
         ...(options.codeExtensionsDir ? { VSCODE_EXTENSIONS: path.resolve(options.codeExtensionsDir) } : {}) };
+      // The Copilot plugin is always uninstalled and installed again (owner, 2026-11-19); --reinstall also redoes VS Code.
       await installer(pair, { environment: hostEnvironment, reinstall: Boolean(options.reinstall),
-        reinstallCopilot: Boolean(options.reinstallCopilot) });
+        reinstallCopilot: options.reinstallCopilot !== false });
       installed = { route: 'managed', cli: null, version: inspected.version };
     }
     completed = true;

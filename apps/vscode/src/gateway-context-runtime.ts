@@ -9,7 +9,7 @@ import path from 'node:path';
 
 // One installed-engine resolver for activation and all lazy panels. Keep the implementation in
 // this tiny shared entry, rather than copying its filesystem validation into every CLI client.
-export { resolveManagedEngine } from '../../../runtime/resolve.cjs';
+export { engineHome, resolveManagedEngine } from '../../../runtime/resolve.cjs';
 
 import type {
   ActiveRepositoryContext, GatewayRepositoryContext, GatewaySession

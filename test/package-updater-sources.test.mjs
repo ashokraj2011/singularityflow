@@ -158,7 +158,7 @@ test('an update from a folder saves the folder, keeps the link, and reports each
   const dependencies = { environment: { ...process.env, SINGULARITY_FLOW_PACKAGE_UPDATER_HOME: state }, log: silent, detect: managed,
     downloader: () => assert.fail('a folder source never downloads'),
     installer: async (files, options) => { installed.push({ version: files.version, reinstallCopilot: options.reinstallCopilot, reinstall: options.reinstall }); } };
-  const done = await runUpdate({ localFolder: folder, reinstallCopilot: true, result }, dependencies);
+  const done = await runUpdate({ localFolder: folder, result }, dependencies);
   assert.equal(done.status, 'complete'); assert.equal(done.version, '0.9.1');
   assert.deepEqual(installed, [{ version: '0.9.1', reinstallCopilot: true, reinstall: false }]);
   assert.equal(JSON.parse(await readFile(result, 'utf8')).status, 'complete');

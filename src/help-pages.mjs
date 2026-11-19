@@ -1680,11 +1680,21 @@ const PAGES = Object.freeze({
       'Accepting a reused run never certifies a run that was not recorded: the run stays the earlier step\'s.',
       'A question with one clear answer that evidence names is not asked: the agent or SFlow settles it and lists',
       'it under "Settled for you" with that evidence. decisions undo --settled STL-ID, or Undo on the card, makes it',
-      'your question again on its own route; only a person undoes, never an agent.'
+      'your question again on its own route; only a person undoes, never an agent.',
+      'A code step\'s change outside the plan is settled only when its place is clear: a file beside one a row names,',
+      'test support (by its folder, the folder your test configuration names, or a page object only tests import),',
+      'documentation, an ignore file, or a generated file whose source is planned. A dependency, build, CI or test',
+      'configuration, CODEOWNERS and similar files, a sensitive path, and anything that changes what the product does',
+      'are always asked. Undo is open until the step is submitted; its approval lists everything settled.',
+      'Picking the one recommended option needs no reason: the record says it followed SFlow\'s recommendation. Any other',
+      'option, and every accepted risk or exception, takes your own reason.',
+      'decisions learn reads only: how often each kind of answer followed the recommendation and how often one was taken',
+      'back, for this Story or, with --all, every Story this machine holds for the repository.'
     ],
     options: [
       ['--phase PHASE', 'The step whose decisions to list; the current step by default.'],
       ['--settled STL-ID', 'undo only: the settled decision to hand back to a person.'],
+      ['--all', 'learn only: every Story of this repository the machine holds, not just this one.'],
       ['--choose ITEM=OPTION', 'Choose an option for an item, such as d1=reuse; repeat per item.'],
       ['--reason ITEM=TEXT', 'Replace the default reason of a chosen item (20 to 1000 characters).'],
       ['--expires ITEM=YYYY-MM-DD', 'Replace the default date of a chosen item (at most 90 days ahead).'],
@@ -1696,7 +1706,8 @@ const PAGES = Object.freeze({
       ['singularity-flow decisions BIN-501', 'Shows what Release waits for, in plain words, with the choices.'],
       ['singularity-flow decisions record BIN-501 --choose d1=reuse --confirm sha256:<DIGEST>',
         'Records the recommended reuse and the issue decision it implies, then approval can go ahead.'],
-      ['singularity-flow decisions undo BIN-501 --settled STL-001', 'Undoes what was settled for you; its question is yours again.']
+      ['singularity-flow decisions undo BIN-501 --settled STL-001', 'Undoes what was settled for you; its question is yours again.'],
+      ['singularity-flow decisions learn --all', 'Shows how often answers followed the recommendation across this repository\'s Stories.']
     ],
     seeAlso: ['approve', 'upstream-issue', 'decision']
   },

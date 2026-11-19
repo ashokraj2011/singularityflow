@@ -51,6 +51,9 @@ const TEST_SUPPORT_FILE = /(?:^|[._-])(?:mocks?|fixtures?|setup|teardown|helpers
 // Setup a test runner names wherever it sits (Jest, Vitest, Create React App, Playwright global setup).
 const TEST_RUNNER_SETUP_FILE = /^(?:setupTests|setup-tests|(?:jest|vitest|playwright|test)[.-]setup|global[.-]?(?:setup|teardown))\.[a-z0-9]+$/iu;
 
+// Test support this Story settled by its folder or content (plan-amendments.mjs classificationContext) [C3, 2026-11-19].
+const settledTestSupport = (relative, classification) => Boolean(classification?.testSupportPaths?.has?.(relative));
+
 /**
  * A test-support module: a mock, fixture, setup, helper or page object, which a test uses but which proves nothing by
  * running. A plan listed three E2E setup and mock modules as an AC's planned tests; only the reviewer said so
@@ -58,9 +61,10 @@ const TEST_RUNNER_SETUP_FILE = /^(?:setupTests|setup-tests|(?:jest|vitest|playwr
  * a test folder (test/calculator.js) is not either, and outside a test folder only what a test runner names
  * (conftest.py, setupTests.js, __mocks__/) is: src/helper.mjs or src/setup.js is the application's own code.
  */
-export function isTestSupportPath(candidate) {
+export function isTestSupportPath(candidate, classification = null) {
   const relative = posix(String(candidate ?? '')).replace(/^\.\//, '');
   if (!relative || relative.startsWith('../') || path.posix.isAbsolute(relative)) return false;
+  if (settledTestSupport(relative, classification)) return true;
   const segments = relative.split('/');
   const basename = segments.at(-1) ?? '';
   const directories = segments.slice(0, -1).map((segment) => segment.toLowerCase());
@@ -78,9 +82,10 @@ export function isTestSupportPath(candidate) {
  * Product directories such as `src/pages` are not accepted merely because they contain the word
  * "page". Teams with another convention can change the governed policy after human review.
  */
-export function isTestAutomationPath(candidate) {
+export function isTestAutomationPath(candidate, classification = null) {
   const relative = posix(String(candidate ?? '')).replace(/^\.\//, '');
   if (!relative || relative.startsWith('../') || path.posix.isAbsolute(relative)) return false;
+  if (settledTestSupport(relative, classification)) return true;
   const segments = relative.toLowerCase().split('/');
   const basename = segments.at(-1) ?? '';
   if (segments.some((segment) => TEST_DIRECTORY_SEGMENTS.has(segment))) return true;

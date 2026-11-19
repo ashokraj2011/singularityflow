@@ -14,7 +14,7 @@
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import path from 'node:path';
 import { isAllowedTestAutomationPath } from './code-delivery-tests.mjs';
-import { accountedAmendmentPaths, departureCandidatePaths } from './plan-amendments.mjs';
+import { accountedAmendmentPaths, classificationContext, departureCandidatePaths } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
 import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
 
@@ -41,7 +41,8 @@ export async function codeCandidateScope(itemDirectory, workflow, phase) {
     const elsewhere = (claim.steps ?? []).length && !claim.steps.includes(phase.id);
     for (const candidate of [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]) (elsewhere ? others : allowed).add(candidate);
   }
-  for (const candidate of plannedSupportingFiles(records.planned ?? [])) allowed.add(candidate);
+  // A page object this Story settled as test support is one here too, as in every other reader [C3, 2026-11-19].
+  for (const candidate of plannedSupportingFiles(records.planned ?? [], classificationContext(workflow))) allowed.add(candidate);
   for (const candidate of accountedAmendmentPaths(records.planned ?? [])) allowed.add(candidate);
   // A departure's files are published with the step that recorded it [CQF:REQ-022]; a file another
   // step's plan names stays that step's, so publication still refuses it here.

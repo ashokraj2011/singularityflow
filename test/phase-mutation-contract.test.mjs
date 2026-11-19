@@ -904,6 +904,11 @@ test('no agent turn decides or acknowledges an intent amendment; reading it stay
     for (const command of [decide, decide.replace('reject', 'approve'), acknowledge]) {
       const denied = await shell(command);
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
+      // In /sf-decide an acknowledgement is the person's bound yes [owner, 2026-11-19]: with none in this turn, nothing runs.
+      if (skill.startsWith('/sf-decide') && command === acknowledge) {
+        assert.match(denied.permissionDecisionReason, /^PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded\. This command records a yes or no for one row/u, `${skill}: ${command}`);
+        continue;
+      }
       assert.match(denied.permissionDecisionReason, command === acknowledge
         ? /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: acknowledging an approved intent amendment is a person's own step, recorded on the decisions card, never by this turn\. Tell them to open it with \/sf-decide PMC-1/u
         : /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, on the decisions card, never by this turn\. Tell them to open it with \/sf-decide PMC-1 \(a stale one is refreshed there\)/u, `${skill}: ${command}`);
@@ -1012,16 +1017,14 @@ test('every step only a person takes in their own terminal is refused in every t
       `singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
       `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-command --confirm ${digest}`],
     'set-aside': [`singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm ${digest} --json`],
-    // What was settled for the person is theirs to hand back, on the card or in their own terminal [owner, 2026-11-13].
-    'settled-undo': ['singularity-flow decisions undo PMC-1 --settled STL-001', 'singularity-flow decisions undo PMC-1 --settled STL-002 --reason "Not the Story I meant." --json'],
+    // What was settled for the person, and an approved intent amendment's acknowledgement, left this list [owner,
+    // 2026-11-19]: each is also a bound yes in /sf-decide; test/person-step-golden.test.mjs holds every turn to that.
     'publication-set-aside': [`singularity-flow sync PMC-1 --set-aside --confirm ${'a'.repeat(40)}`,
       `singularity-flow initiative sync INIT-1 --set-aside --confirm ${'a'.repeat(40)}`],
     'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],
     'test-run-set-aside': [`singularity-flow tests held --work-id PMC-1 --phase custom-step --command unit --set-aside --confirm ${'a'.repeat(24)}`],
     'target-origin-pin': [`singularity-flow story target-origin PMC-1 --url https://staging.example.test --reason "Approved staging target." --confirm ${digest}`],
     'intent-amendment-decision': ['singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001'],
-    // Acknowledging an approved one is the person's too, on the decisions card [owner, 2026-11-13].
-    'intent-amendment-acknowledgement': ['singularity-flow story intent-amendment acknowledge AMD-001 --work-id PMC-1', 'singularity-flow story intent-amendment acknowledge'],
     'knowledge-confirmation': ['singularity-flow wm rules confirm R-0123456789ab --json', 'singularity-flow wm knowledge reject K-rule-0123456789abcdef --note "Not a rule."'],
     'spec-drift-decision': ['singularity-flow spec drift decide PMC-1:REQ-001 --accept --reason "The code is right."'],
     'spec-library-decision': ['singularity-flow spec author decide SPEC-CHK-004 GAP-001 --option O1 --reason "Strictly above."',

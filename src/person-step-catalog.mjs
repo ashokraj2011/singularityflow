@@ -59,6 +59,10 @@ const confirming = (options) => options.confirm !== undefined;
  * (2026-10-27). No surface routes them to a skill but the Decide card, for one it records (/sf-decide opens
  * it, decideCardStep) [owner, 2026-11-15]. test/phase-mutation-contract.test.mjs holds the guard's refusals.
  */
+// Terminal-only for good [owner, 2026-11-19]: a publication set-aside (rare, severe), a workflow delete (irreversible), a held
+// run's set-aside and a lock release (the agent may be that process), the browser grant, another approver's clarification
+// answer, an environment binding (secrets), APM (supply chain), configuration approval and activation (signed), SF Guard's
+// own steps (keys), and test-policy attest and approvers refresh (governance). The rest wait for SF Guard to sign on the card.
 export const OWN_TERMINAL_STEPS = Object.freeze([
   ['witness', ([command, sub]) => command === 'decision' && sub === 'witness'],
   // A card records a person's answers from outside chat; no chat writes the file for them.
@@ -80,8 +84,6 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['decision-list-record', ([command, sub], options) => command === 'decisions' && sub === 'record'
     && !(options.choose !== undefined && options.answers === undefined
       && [options.choose].flat().every((entry) => typeof entry === 'string' && CHAT_CHOICE.test(entry)))],
-  // Undoing a settled decision hands it back to the person [owner, 2026-11-13].
-  ['settled-undo', ([command, sub]) => command === 'decisions' && sub === 'undo'],
   ['set-aside', ([command], options) => command === 'recover' && options['set-aside'] === true],
   // Without --confirm it is a preview anyone may run.
   ['publication-set-aside', ([command, sub], options) => (command === 'sync' || (command === 'initiative' && sub === 'sync'))
@@ -91,8 +93,6 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['test-run-set-aside', ([command, sub], options) => command === 'tests' && sub === 'held' && options['set-aside'] === true && confirming(options)],
   ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && confirming(options)],
   ['intent-amendment-decision', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'decide'],
-  // Acknowledging an approved one is a person's too, recorded on the decisions card; no turn runs it [owner, 2026-11-13].
-  ['intent-amendment-acknowledgement', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'acknowledge'],
   ['knowledge-confirmation', ([command, sub, verb]) => command === 'wm'
     && ((sub === 'rules' && verb === 'confirm') || (sub === 'knowledge' && ['confirm', 'correct', 'reject'].includes(verb)))],
   ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],
@@ -148,7 +148,8 @@ export const ISSUE_ONLY_OPTIONS = DECISION_LIST_CHAT_OPTIONS;
 export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge', 'reject', 'amend']);
 // Change impact on: a chat proposal waits for the person's yes, the one step held there [CIC:REQ-015].
 export const PROPOSAL_BOUND_TURNS = Object.freeze(['reject', 'amend']);
-export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record', 'intent-amendment-proposal']);
+export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record', 'intent-amendment-proposal',
+  'settled-undo', 'intent-amendment-acknowledgement']);
 
 const EPIC_COMMANDS = new Set(['initiative', 'epic']);
 const HOST_POLICY_ASSERTIONS = ['confirm-protected', 'confirm-push-policy', 'confirm-pin-retention'];
@@ -161,6 +162,9 @@ const HOST_POLICY_ASSERTIONS = ['confirm-protected', 'confirm-push-policy', 'con
  */
 export const PERSON_DECISIONS = Object.freeze([
   ['story-decision', ([command, sub]) => command === 'decision' && DECIDE_SKILL_MUTATIONS.includes(sub), ['decide']],
+  // An undo of what was settled, an approved amendment's acknowledgement: also a bound yes, never under SF Guard [owner, 2026-11-19].
+  ['settled-undo', ([command, sub]) => command === 'decisions' && sub === 'undo', ['decide']],
+  ['intent-amendment-acknowledgement', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'acknowledge', ['decide']],
   ['story-reopen', ([command]) => command === 'reopen', ['reject']],
   ['convergence-adjudication', ([command, sub]) => command === 'story' && sub === 'adjudicate', ['converge']],
   ['source-review-decision', ([command, sub]) => command === 'review-source' && sub === 'decide', ['review-decide']],
@@ -282,7 +286,7 @@ export const PERSON_STEPS = Object.freeze([
   { id: 'test-risk-review', guard: 'own:live-terminal-review',
     family: { list: 'testRecovery.riskReviews', path: ['testRecovery', 'riskReviews'], action: 'story.test-risk', label: 'Test risk review', isPerson: always } },
   // A settled decision and a person's signed undo of it, one entry each [owner, 2026-11-13].
-  { id: 'settled-decision', guard: 'own:settled-undo', review: { kind: 'settled', entry: safe({ settledDecisions: 'decision_settled' }) },
+  { id: 'settled-decision', guard: 'decision:settled-undo', review: { kind: 'settled', entry: safe({ settledDecisions: 'decision_settled' }) },
     family: { list: 'settledDecisions', action: 'decisions.undo', label: 'Undo of a settled decision', isPerson: (entry) => Boolean(entry?.undoes) } },
   // Recorded on a commit, and signed by nothing yet.
   // A change of which tests the Story's gates run (`story test-policy scope`): what was recorded stays as it was.

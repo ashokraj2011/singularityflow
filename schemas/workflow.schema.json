@@ -1045,6 +1045,36 @@
         "additionalProperties": false
       }
     },
+    "adviceOutcomes": {
+      "description": "Append-only: one entry per answered decision-list item, written in the same commit as the decision, saying whether the answer matched SFlow's recommendation [owner, 2026-11-19, Q13]. No free text, no file contents, no actor; not a person record. Read by `decisions learn`; a question is retired only by a code change the owner approves.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "recommended", "chosen", "matched", "reason", "surface", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^ADV-[0-9]{3,}$" },
+          "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "subject": { "type": ["string", "null"], "maxLength": 300 },
+          "phase": { "type": ["string", "null"], "maxLength": 120 },
+          "recommended": {
+            "type": "object", "required": ["form", "option"],
+            "properties": { "form": { "enum": ["option", "first", "lean", "check", "none"] }, "option": { "type": ["string", "null"], "maxLength": 64 } },
+            "additionalProperties": false
+          },
+          "chosen": {
+            "type": "object", "required": ["option", "outcome"],
+            "properties": { "option": { "type": ["string", "null"], "maxLength": 64 }, "outcome": { "type": ["string", "null"], "maxLength": 32 } },
+            "additionalProperties": false
+          },
+          "matched": { "type": ["boolean", "null"] },
+          "reason": { "enum": ["typed", "recommendation", "default", "none"] },
+          "surface": { "enum": ["card", "terminal", "chat", "command"] },
+          "record": { "type": "string", "pattern": "^[A-Z]{2,5}-[0-9]{3,}$" },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "findingRisks": {
       "description": "Append-only acceptances by a person of one lint, static-analysis or security finding a code step keeps, or of a scanner that cannot run under enforce, and their revocations [CQF:REQ-047]. Each binds the finding's fingerprint, rule, tool and tool version until it expires (at most 90 days) or is revoked. A security finding is accepted by the workflow's security reviewers when it names them, otherwise by the step's approvers.",
       "type": "array",

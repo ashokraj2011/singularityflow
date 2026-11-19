@@ -95,13 +95,15 @@ test('a settled item and an advised one on the same card; Undo from the card han
   // The advised item: its recommended answer (or what to weigh), and what each choice does.
   assert.match(departure.recommended.words, /^Recommended/u);
   assert.ok(departure.options.filter((option) => option.available !== false).every((option) => typeof option.does === 'string' && option.does), JSON.stringify(departure.options));
-  // The settled item: its evidence as lines, an Undo that says what it does, nothing recommended, and no chat yes-or-no.
+  // The settled item: its evidence as lines, an Undo that says what it does, nothing recommended, and a chat yes that names it
+  // ("Undo: ask me instead?") [owner, 2026-11-19].
   const settled = card.settled.find((item) => item.details.settledId === settledId);
-  assert.deepEqual([settled.kind, settled.settled, settled.recommended, settled.chatYesNo], ['settled', true, undefined, false]);
+  assert.deepEqual([settled.kind, settled.settled, settled.recommended, settled.chatYesNo], ['settled', true, undefined, true]);
+  assert.match(settled.yesNo.question, new RegExp(`Undo: ask me instead \\(${settledId}\\)\\?$`, 'u'));
   assert.ok(settled.evidence.some((line) => /package\.json/u.test(line)), JSON.stringify(settled.evidence));
   assert.deepEqual(settled.options.map((option) => option.id), ['undo']);
   assert.match(settled.options[0].does, /^Makes it your question again: .*waits for a person who approves implement/u);
-  assert.match(settled.answer.words, /^Nothing to answer\. Undo it on the Decide card \(\/sf-decide QF-1 opens it\) only if it is wrong/u);
+  assert.match(settled.answer.words, /^Nothing to answer\. Undo it only if it is wrong: on the Decide card, or say yes to its question in \/sf-decide QF-1\./u);
   // Numbered after every item and every offered one, the approval door being d0, so settling or undoing renumbers nothing.
   assert.ok([...card.items, ...(card.offered ?? [])].every((item) => number(item.id) < number(settled.id)), settled.id);
 

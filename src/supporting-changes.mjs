@@ -24,8 +24,9 @@ const CI_SUPPORT_PATHS = [/^\.github\/actions\//u, /^\.gitlab\/ci\//u, /^\.azure
 /**
  * Classify one exact repository path for the supporting-files list.
  * Returns `{ class }` for an allowed class, or `{ refused, reason }` when the path cannot be one.
+ * `classification`: the Story's settled test support (source-boundary.mjs), so a page object it settled is test support here too.
  */
-export function classifySupportingChange(candidate) {
+export function classifySupportingChange(candidate, classification = null) {
   const relative = posix(String(candidate ?? '')).replace(/^\.\//u, '');
   const lower = relative.toLowerCase();
   const base = path.posix.basename(lower);
@@ -40,8 +41,8 @@ export function classifySupportingChange(candidate) {
   if (configuration) return { class: configuration };
   // Test support (mocks, fixtures, setup, helpers) proves nothing by running and carries no application behaviour, so
   // it is listed here with its reason; it had no valid place at all, refused here and from Planned tests (office, 2026-11-11).
-  if (isTestSupportPath(relative)) return { class: 'test-support' };
-  if (isTestAutomationPath(relative)) {
+  if (isTestSupportPath(relative, classification)) return { class: 'test-support' };
+  if (isTestAutomationPath(relative, classification)) {
     return { refused: 'test-source', reason: 'a test case belongs in the Planned tests column of its clause row' };
   }
   if (CI_SUPPORT_PATHS.some(pattern => pattern.test(lower))) return { class: 'ci-configuration' };

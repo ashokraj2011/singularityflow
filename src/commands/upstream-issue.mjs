@@ -27,10 +27,10 @@ export const UPSTREAM_ISSUE_ACTIONS = Object.freeze(['raise', 'list', 'decide', 
 const ALLOWED = {
   raise: ['phase', 'about', 'problem', 'assumption', 'impact', 'proposed', 'authored', 'from-artifact', 'supersedes'],
   list: ['open'],
-  decide: ['outcome', 'reason', 'link', 'expires'],
+  decide: ['outcome', 'reason', 'link', 'expires', 'recommended'],
   'propose-amendment': ['phase', 'reason', 'file', 'issue'],
   'decide-amendment': ['decision', 'reason', 'confirm'],
-  revalidate: ['amendment', 'outcome', 'reason']
+  revalidate: ['amendment', 'outcome', 'reason', 'recommended']
 };
 
 function refused(message, code = 'UPSTREAM_ISSUE_INVALID', details = undefined) {
@@ -308,9 +308,13 @@ async function decide(root, config, workflow, issueId, options) {
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  const { value, authority } = await decideUpstreamIssueRecord(root, config, workflow, issueId, {
-    outcome, reason: optionString(options, 'reason') ?? '', link: optionString(options, 'link') ?? null, expires: optionString(options, 'expires') ?? null
-  }, { actor, agent });
+  // The person's answer: their reason, or with --recommended the recommendation's own, checked against the list [C10, Q13].
+  const { chatAnswer, withChatAdvice } = await import('../recommended-answer.mjs');
+  const answer = await chatAnswer(root, config, workflow, { recommended: optionBoolean(options, 'recommended'), reason: optionString(options, 'reason') ?? '', what: issueId,
+    matches: (item) => ['upstream-issue', 'conformance-gap'].includes(item.kind) && item.details?.issue === issueId, optionOf: () => outcome });
+  const { value, authority } = await withChatAdvice(answer.advice, () => decideUpstreamIssueRecord(root, config, workflow, issueId, {
+    outcome, reason: answer.reason, link: optionString(options, 'link') ?? null, expires: optionString(options, 'expires') ?? null
+  }, { actor, agent }));
   if (!optionBoolean(options, 'json')) {
     console.log(`Decided ${issueId} through ${authority.authorityGroup}: ${outcome}${value.link ? ` (${value.link})` : ''}.`);
     if (outcome === 'return') console.log(`${value.changeRequest.id} returned the Story to ${value.changeRequest.targetPhase}; the current step's working files are kept.`);
@@ -465,11 +469,15 @@ export async function commitAmendmentRevalidation(root, config, workflow, { amen
 async function revalidate(root, config, workflow, phaseId, options) {
   const amendmentId = optionString(options, 'amendment');
   const outcome = optionString(options, 'outcome');
-  const reason = optionString(options, 'reason');
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  const value = await commitAmendmentRevalidation(root, config, workflow, { amendmentId, phaseId, outcome, reason }, { actor, agent });
+  // "Still holds" or "redo": the person's reason, or with --recommended the recommendation's own [C10, Q13].
+  const { chatAnswer, withChatAdvice } = await import('../recommended-answer.mjs');
+  const answer = await chatAnswer(root, config, workflow, { recommended: optionBoolean(options, 'recommended'), reason: optionString(options, 'reason') ?? '',
+    what: `${phaseId} after ${amendmentId}`, matches: (item) => item.kind === 'revalidation' && item.details?.amendment === amendmentId && item.details?.phase === phaseId,
+    optionOf: () => (outcome === 'unchanged' ? 'still-holds' : outcome === 'return' ? 'return-step' : null) });
+  const value = await withChatAdvice(answer.advice, () => commitAmendmentRevalidation(root, config, workflow, { amendmentId, phaseId, outcome, reason: answer.reason }, { actor, agent }));
   if (!optionBoolean(options, 'json')) {
     console.log(outcome === 'return'
       ? `${value.link} returned the Story to ${phaseId} after ${amendmentId}.`

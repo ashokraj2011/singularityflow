@@ -1638,8 +1638,10 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       ['list', 'show'].includes(action) || optionBoolean(options, 'dry-run') ? 'read' : 'mutation');
   }
   // The decision list reads; only `decisions record` and a person's `decisions undo` write (its second word may be a Story ID).
+  // `decisions learn` reads the advice records only [Q13].
   if (definition.name === 'decisions') {
     if (positionals[1] === 'undo') return never('decisions.undo', definition, 'mutation');
+    if (positionals[1] === 'learn') return never('decisions.learn', definition, 'read');
     return positionals[1] === 'record' ? never('decisions.record', definition, 'mutation') : never('decisions.show', definition, 'read');
   }
   if (definition.name === 'gateway') return gatewayOperation(definition, positionals[1] ?? 'tools');

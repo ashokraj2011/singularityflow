@@ -294,7 +294,8 @@ test('the release-approval incident is one decision: recorded once, then approva
   assert.equal(after.upstreamIssueDecisions.some((entry) => entry.issue === 'UPI-001'), false, 'the superseded issue needs no decision');
   assert.ok(after.history.some((entry) => entry.event === 'evidence_reuse_decided'));
   assert.ok(after.history.some((entry) => entry.event === 'upstream_issue_decided'));
-  assert.equal(json(cli('decisions', W, '--json')).data.status, 'nothing-to-decide');
+  const left = json(cli('decisions', W, '--json')).data;
+  assert.equal(left.status, 'nothing-to-decide', JSON.stringify(left.items.map((entry) => [entry.kind, entry.title, entry.holds])));
 
   // Parity the other way: once nothing is pending, next steps offer the approval, and it succeeds.
   const ready = json(cli('nextsteps', W, '--json'));

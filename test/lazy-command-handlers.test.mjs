@@ -840,7 +840,19 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // environment itself (owner, 2026-11-19, ceremony cut 5): the gates make a Story checkout's dependencies ready before
     // its tests and say why when they cannot (state.mjs +1,363). The install, the copy, the Node probe and the Node kept for
     // a Story stay lazy (repository-dependency-setup.mjs, loaded by its path; node-version-settle.mjs; node-pin.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_763_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,767,350 (measured 9,767,312 for submit.mjs, +3,509 over 9,763,803; start.mjs 9,764,797, 2026-11-19): changes outside
+    // the plan are settled from a fixed list [owner, 2026-11-19, C3, Q6]: the Story's settled test support is one
+    // classification every reader takes (plan-amendments.mjs +1,000, source-boundary.mjs, supporting-changes.mjs,
+    // specifications.mjs, candidate-scope.mjs), the settling pin and the completion hold on a step nobody approves (state.mjs),
+    // and untracked files in the importer search (git.mjs). The classifier and the page-object reader stay lazy
+    // (out-of-plan-classes.mjs, test-support-detection.mjs). No new eager file.
+    // 9,767,400 (measured 9,767,375 for submit.mjs, +63, 2026-11-19): `--recommended` is a boolean option the parser knows
+    // (util.mjs BOOLEAN_OPTIONS), the recommended answer recorded in chat with no reason [owner, 2026-11-19, C10]. No new eager file.
+    // 9,767,900 (measured 9,767,892 for submit.mjs, +517 over 9,767,375, 2026-11-19): an undo of what was settled and an
+    // approved amendment's acknowledgement are a /sf-decide turn's bound yes (person-step-catalog.mjs, copilot-mutation-guard.mjs
+    // decide-turn admissions, copilot-answer-binding.mjs) and the catalog says why thirteen steps stay terminal-only
+    // [owner, 2026-11-19, terminal-to-card]. No new eager file.
+    assert.ok(closure.bytes <= 9_767_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -973,7 +985,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // the operating system's input idle time is read through the registered process owner (platform-process.mjs +1,388).
   // The stamp itself (machine-activity.mjs) loads lazily. No new eager file.
   // 873,300 (measured 873,289 on landing-5, 2026-11-19): the update command and the idle stamp together (+72 and +1,601 above).
-  assert.ok(root.bytes <= 873_300, `root dispatch loads ${root.bytes} source bytes`);
+  // 873,438 (measured 873,438, +149, 2026-11-19): `decisions learn` registered as a read (command-registry.mjs), the
+  // read-only report of how often answers followed the recommendation [owner, 2026-11-19, Q13]. No new eager file.
+  // 873,501 (measured 873,501, +63, 2026-11-19): `--recommended` in the parser's boolean options (util.mjs) [C10]. No new eager file.
+  assert.ok(root.bytes <= 873_501, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1292,7 +1307,15 @@ test('the common session projection does not import attach, state stores or publ
   // registered process owner (platform-process.mjs osIdleMilliseconds), so Git work SFlow starts by itself waits for an idle
   // laptop [owner, 2026-11-19]. No new eager file.
   // 4,295,200 (measured 4,295,190 on landing-5, 2026-11-19): the update command, the idle reader and the secret-scanner rewording together.
-  assert.ok(current.bytes <= 4_295_200, `session current loads ${current.bytes} source bytes`);
+  // 4,295,339 (measured 4,295,339, +149, 2026-11-19): `decisions learn` registered as a read (command-registry.mjs) [owner,
+  // 2026-11-19, Q13]. No new eager file.
+  // 4,297,750 (measured 4,297,704, +2,365, 2026-11-19): the Story's settled test support read by every path classifier
+  // (plan-amendments.mjs, source-boundary.mjs, supporting-changes.mjs, specifications.mjs) and untracked files in the importer
+  // search (git.mjs) [owner, 2026-11-19, C3]. No new eager file.
+  // 4,297,800 (measured 4,297,767, +63, 2026-11-19): `--recommended` in the parser's boolean options (util.mjs) [C10]. No new eager file.
+  // 4,298,300 (measured 4,298,284, +517, 2026-11-19): the two bound yeses in /sf-decide and the terminal-only reasons
+  // (person-step-catalog.mjs, copilot-mutation-guard.mjs, copilot-answer-binding.mjs) [terminal-to-card]. No new eager file.
+  assert.ok(current.bytes <= 4_298_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

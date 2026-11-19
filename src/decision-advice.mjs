@@ -13,6 +13,7 @@
  * Nothing here chooses, preselects or records anything, and nothing enters the list's digest: what a person
  * confirms is the option they pick, under the same checks as before.
  */
+import { personClass } from './person-change-class.mjs';
 import { stepName } from './upstream-routes.mjs';
 
 const listWords = (values) => {
@@ -151,16 +152,18 @@ export function optionDoes(workflow, item, entry) {
   return firstSentence(entry.words) || entry.label;
 }
 
+// Each recommendation says its form, which the advice record keeps [owner, 2026-11-19, Q13]: one named option, what to do
+// first, a lean (which option when) or a check SFlow runs first.
 const rec = (item, optionId, why) => {
   const entry = item.options.find((candidate) => candidate.id === optionId);
-  return entry ? { option: entry.id, why, words: `Recommended: ${entry.label.replace(/[.!?]+$/u, '')}. ${why}` } : null;
+  return entry ? { option: entry.id, form: 'option', why, words: `Recommended: ${entry.label.replace(/[.!?]+$/u, '')}. ${why}` } : null;
 };
 // A step that is not one of the choices, said as what to do first.
-const first = (why) => ({ option: null, why, words: `Recommended first: ${why}` });
+const first = (why) => ({ option: null, form: 'first', why, words: `Recommended first: ${why}` });
 // No one choice is right whatever the facts: which one, when [owner, 2026-11-16]. Still a recommendation.
-const lean = (advice) => ({ option: null, why: advice, words: `Recommended: ${advice.replace(/^./u, (letter) => letter.toUpperCase())}` });
+const lean = (advice) => ({ option: null, form: 'lean', why: advice, words: `Recommended: ${advice.replace(/^./u, (letter) => letter.toUpperCase())}` });
 // The answer depends on a check SFlow runs itself, which has no result for this code yet: the check comes first.
-const checkFirst = (why) => ({ option: null, check: true, why, words: `Recommended: Check first. ${why}` });
+const checkFirst = (why) => ({ option: null, form: 'check', check: true, why, words: `Recommended: Check first. ${why}` });
 const live = (item) => item.options.filter((entry) => entry.available !== false);
 
 /**
@@ -261,6 +264,13 @@ export function itemRecommendation(workflow, item) {
         : lean('sign it off once its evidence is published.');
     }
     case 'plan-accounting': {
+      // A dependency, a build, CI or runner configuration, or governance metadata is weighed by a person [owner, 2026-11-19, C3].
+      const files = details.paths ?? (details.path ? [details.path] : []);
+      const weighed = files.find((file) => personClass(file));
+      if (weighed) {
+        const named = personClass(weighed);
+        return lean(`list ${weighed} as a supporting change only if this change needs it (${named.words.replace(/, so a person decides it\.$/u, '').replace(/^It /u, 'it ').replace(/\.$/u, '')}); otherwise add it to the row it serves.`);
+      }
       const supporting = options.find((entry) => entry.id === 'supporting');
       if (supporting) return rec(item, 'supporting', 'It is a supporting file (its kind serves no single requirement), so it belongs in the plan as a supporting change.');
       if (only) return rec(item, only.id, 'The plan has one row it can join.');
@@ -273,6 +283,13 @@ export function itemRecommendation(workflow, item) {
       // A row change recorded without what the row becomes: the kind its own reason names [office laptop, 2026-11-19].
       if (marked && /^accept-/u.test(marked.id) && ['plan-row', 'test'].includes(details.departureKind)) {
         return rec(item, marked.id, 'The departure\'s own reason names what the row becomes; choose another if it should become something else.');
+      }
+      // A new dependency, a build, CI or runner configuration, or governance metadata is weighed, never waved through
+      // [owner, 2026-11-19, C3]: which answer depends on whether the change needs it.
+      if (accept && details.departureKind === 'supporting' && ['dependency', 'build', 'governance'].includes(details.personClass)) {
+        return lean(details.personClass === 'dependency' ? 'accept it if the change needs this third-party code and its version; reject it to undo it.'
+          : details.personClass === 'build' ? 'accept it if the change needs this build, CI or test configuration and it runs no fewer tests; reject it to undo it.'
+            : 'accept it if this change to who reviews the repository, or what runs when it opens, belongs in this Story; reject it to undo it.');
       }
       if (accept && details.departureKind === 'supporting') return rec(item, 'accept', 'It is a supporting file the change needs; accepting lists it in the plan, and no step is reset.');
       if (accept && details.departureKind === 'path' && details.clauses?.length) {
@@ -362,16 +379,25 @@ export function yesNoOf(workflow, item) {
   // Reject alone is no yes or no: the item says why there is nothing to accept (a departure no row of the plan can take).
   if (!yes) return null;
   const no = options.find((entry) => entry.id === 'reject') ?? null;
-  // The question names its row, as the answer binding reads it (a departure's ID, a responsibility, a path), and says how
-  // long a reason the command takes [owner, 2026-11-14].
-  return { question: `${String(item.title ?? '').replace(/[.!?]+$/u, '')}. ${yes.label.replace(/[.!?]+$/u, '')}?${reasonWords(options)}`, yes: yes.id, no: no?.id ?? null,
+  // The question names its row, as the answer binding reads it (a departure's ID, a responsibility, a path), says which answer
+  // is recommended and why, and asks for a reason only on the side that takes one [owner, 2026-11-14; C10, 2026-11-19].
+  const advice = item.recommended ?? itemRecommendation(workflow, item);
+  const said = advice?.option === yes.id ? ` Recommended: yes. ${advice.why}` : no && advice?.option === no.id ? ` Recommended: no. ${advice.why}` : '';
+  return { question: `${String(item.title ?? '').replace(/[.!?]+$/u, '')}. ${yes.label.replace(/[.!?]+$/u, '')}?${said.replace(/\s*$/u, '')}${reasonWords(options, { yes, no })}`, yes: yes.id, no: no?.id ?? null,
     route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
 }
 
-/** " Say why in at least 20 characters.": the longest minimum the answers' reasons take, or '' when none needs one. */
-function reasonWords(options) {
-  const minimum = Math.max(0, ...options.map((entry) => Number(entry.needs?.reason?.minimum ?? 0)));
-  return minimum ? ` Say why in at least ${minimum} characters.` : '';
+/**
+ * " Say why in at least 20 characters.": the longest minimum the answers' reasons take, or '' when none needs one. When only
+ * one side takes a reason (the other is the recommended one, which needs none), it names that side [C10, 2026-11-19].
+ */
+function reasonWords(options, { yes = null, no = null } = {}) {
+  const minimum = (entry) => Number(entry?.needs?.reason?.minimum ?? 0);
+  const most = Math.max(0, ...options.map(minimum));
+  if (!most) return '';
+  if (yes && no && !minimum(yes) !== !minimum(no)) return ` ${minimum(yes) ? 'A yes' : 'A no'} says why in at least ${most} characters.`;
+  if (yes && !no && !minimum(yes)) return '';
+  return ` Say why in at least ${most} characters.`;
 }
 
 function stillHoldsYesNo(workflow, item) {
@@ -387,7 +413,7 @@ function stillHoldsYesNo(workflow, item) {
   const name = stepName(workflow, phase);
   const plain = (text) => String(text).toLowerCase().replace(/[-_\s]+/gu, ' ').trim();
   const shown = plain(name).includes(plain(phase)) ? name : `${name} (${phase})`;
-  return { question: `Does ${shown} still hold after ${item.details?.amendment}? ${said.replace(/\s*$/u, '')}${reasonWords(options)}`, yes: yes.id, no: no.id,
+  return { question: `Does ${shown} still hold after ${item.details?.amendment}? ${said.replace(/\s*$/u, '')}${reasonWords(options, { yes, no })}`, yes: yes.id, no: no.id,
     route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
 }
 
@@ -399,7 +425,59 @@ function stillHoldsYesNo(workflow, item) {
 export function advisedItem(workflow, item) {
   const options = item.options.map((entry) => ({ ...entry, does: optionDoes(workflow, item, entry) }));
   const advised = { ...item, options };
-  if (item.settled) return { ...advised, chatYesNo: false };
-  const yesNo = yesNoOf(workflow, advised);
-  return { ...advised, recommended: itemRecommendation(workflow, advised), chatYesNo: Boolean(yesNo), ...(yesNo ? { yesNo } : {}) };
+  if (item.settled) {
+    // Undo in chat, as a bound yes: "Undo: ask me instead?" [owner, 2026-11-19]. Its question names the settlement.
+    const undo = options.find((entry) => entry.id === 'undo' && entry.chat?.command);
+    const yesNo = undo && item.details?.settledId ? { question: `${String(item.title ?? '').replace(/[.!?]+$/u, '')}. Undo: ask me instead (${item.details.settledId})?`,
+      yes: 'undo', no: null, route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` } : null;
+    return { ...advised, chatYesNo: Boolean(yesNo), ...(yesNo ? { yesNo } : {}) };
+  }
+  const recommended = itemRecommendation(workflow, advised);
+  // The reasons are settled before the question is asked: its words say which side takes one (C10).
+  const reasoned = { ...advised, options: reasonOptional(item, options, recommended), recommended };
+  const yesNo = yesNoOf(workflow, reasoned);
+  return { ...reasoned, chatYesNo: Boolean(yesNo), ...(yesNo ? { yesNo } : {}) };
+}
+
+/**
+ * Effects that record an exception [owner, 2026-11-19, C10, kind 3]: an accepted risk, a dated exception, a narrowed or
+ * failed run that counts, a responsibility or screen size that does not apply, a finding accepted, a difference accepted
+ * as it is. Recommended or not, the person says why in their own words, on every surface. Reusing a recorded run on
+ * unchanged code is no exception (owner 2026-11-06), unless it also accepts a risk.
+ */
+const EXCEPTION_EFFECTS = new Set(['obligation-risk', 'test-run-risk', 'test-narrowing', 'finding-risk', 'visual-profile', 'applicability']);
+export function exceptionOption(entry) {
+  if (entry?.needs?.expires) return true;
+  return (entry?.effects ?? []).some((effect) => EXCEPTION_EFFECTS.has(effect.kind) || effect.outcome === 'accept-risk'
+    || (effect.kind === 'convergence-adjudication' && effect.disposition === 'accepted-deviation'));
+}
+
+// What a reason may be left out for: an item that commits the Story or decides an exception or verdict (kinds 2 to 4).
+// An intent amendment's decision (kind 1) keeps its own optional reason, and an approval takes none.
+const OWN_REASON_KINDS = new Set(['intent-amendment', 'approval', 'settled']);
+export const RECOMMENDATION_REASON = 'Followed SFlow\'s recommendation: ';
+// The chat commands that check --recommended themselves (recommended-answer.mjs).
+const RECOMMENDED_COMMANDS = /^singularity-flow (?:decision (?:departure|plan)|upstream-issue (?:revalidate|decide)) /u;
+
+/**
+ * No reason is asked when the person picks the item's single recommended option [owner, 2026-11-19, C10]: picked as it is,
+ * its record keeps "Followed SFlow's recommendation: <why>", which every command's and schema's minimum still takes. Any
+ * other option keeps its reason (the person says why they disagree), an exception always does, and so does every option of
+ * an item that names no single option (a lean, a check, a first step), until a recommendation names one. Runs before the
+ * list's digest binds what each option needs, so every surface and the engine agree.
+ */
+export function reasonOptional(item, options, recommended) {
+  if (!recommended?.option || OWN_REASON_KINDS.has(item.kind)) return options;
+  return options.map((entry) => {
+    const need = entry.needs?.reason;
+    // An exception keeps its reason even when it is the recommended answer: the person says why it may stand.
+    if (entry.id !== recommended.option || !need || exceptionOption(entry) || entry.recordable === false || need.minimum === 0) return entry;
+    const because = `${RECOMMENDATION_REASON}${String(recommended.why ?? '').replace(/\s+/gu, ' ').trim()}`.slice(0, need.maximum);
+    // In chat, after the person's own Yes, its command says --recommended and carries no reason: the command checks it [C10].
+    const command = entry.chat?.command;
+    // Their own words, when they give some anyway, still go in the command that takes them (`withReason`).
+    const chat = command && RECOMMENDED_COMMANDS.test(command)
+      ? { chat: { ...entry.chat, command: command.replace(/ --supporting-reason "<REASON>"/gu, '').replace(/ --reason "<REASON>"/u, ' --recommended'), withReason: command } } : {};
+    return { ...entry, ...chat, needs: { ...entry.needs, reason: { ...need, minimum: 0, default: because, recommended: true } } };
+  });
 }

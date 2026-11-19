@@ -978,7 +978,7 @@ export function derivePlannedClaimMap(markdown, options = {}) {
 }
 
 /** Each supporting file's class and reason, exactly one per listed path when present. */
-function normalizeSupportingFileDetails(value, supportingFiles) {
+function normalizeSupportingFileDetails(value, supportingFiles, classification = null) {
   if (value == null) return [];
   if (!Array.isArray(value)) throw new SingularityFlowError('supportingFileDetails must be a list.');
   const listed = new Set(supportingFiles);
@@ -987,7 +987,7 @@ function normalizeSupportingFileDetails(value, supportingFiles) {
     const candidate = posix(String(entry?.path ?? ''));
     if (!listed.has(candidate) || seen.has(candidate)) throw new SingularityFlowError(`supportingFileDetails must describe each supporting file once; ${candidate || 'an entry'} does not match.`);
     seen.add(candidate);
-    if (!SUPPORTING_CHANGE_CLASSES.includes(entry.class) || classifySupportingChange(candidate).class !== entry.class) {
+    if (!SUPPORTING_CHANGE_CLASSES.includes(entry.class) || classifySupportingChange(candidate, classification).class !== entry.class) {
       throw new SingularityFlowError(`supportingFileDetails gives ${candidate} a class its path does not have.`);
     }
     const reason = typeof entry.reason === 'string' ? entry.reason.trim() : '';
@@ -1013,7 +1013,7 @@ export function testOnlyClaimEvidence(id, plan, claim, { complete = true } = {})
   return !complete || [...plannedTests].every((candidate) => observedTests.has(candidate));
 }
 
-export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, plannedClaims = {} } = {}) {
+export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, plannedClaims = {}, classification = null } = {}) {
   const normalized = normalizeSpecPolicy(policy);
   if (!['planned', 'observed'].includes(kind)) throw new SingularityFlowError('Claim map kind must be planned or observed.');
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`${kind} claim map must be an object.`);
@@ -1098,7 +1098,8 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, pl
   // Present only when the plan lists some, so a plan without the section records what it always did.
   const supportingFiles = kind === 'planned'
     ? normalizePaths(value.supportingFiles ?? [], 'supportingFiles', normalized.limits) : [];
-  const supportingFileDetails = kind === 'planned' ? normalizeSupportingFileDetails(value.supportingFileDetails, supportingFiles) : [];
+  // The Story's settled test support counts as such here too (plan-amendments.mjs classificationContext) [C3, 2026-11-19].
+  const supportingFileDetails = kind === 'planned' ? normalizeSupportingFileDetails(value.supportingFileDetails, supportingFiles, classification) : [];
   // How each criterion must be verified, from the plan's own contracts table [E2G-013].
   const verificationContracts = kind === 'planned' ? normalizeVerificationContracts(value.verificationContracts) : [];
   const result = {
@@ -1462,11 +1463,12 @@ function sortedUnique(values) {
 /**
  * Every supporting file the planned claim maps list, once each — limited to paths of a supporting
  * class, so a plan written before the classes existed, or a hand-written map, cannot exempt
- * application source, tests or migrations from requirement accounting.
+ * application source, tests or migrations from requirement accounting. `classification`: the
+ * Story's settled test support, which is a supporting class by its evidence, not its path [C3].
  */
-export function plannedSupportingFiles(maps = []) {
+export function plannedSupportingFiles(maps = [], classification = null) {
   return sortedUnique(maps.flatMap((map) => map?.supportingFiles ?? []))
-    .filter((candidate) => !classifySupportingChange(candidate).refused);
+    .filter((candidate) => !classifySupportingChange(candidate, classification).refused);
 }
 
 export function mergePlannedClaimRecords(maps = []) {

@@ -163,7 +163,9 @@ test('an open issue no gap names is listed at the Story\'s end; accepting it is 
   const covered = packetOf(workflow, { gaps: [], activeReuse: [{ id: 'ERU-001', phase: 'verification', clauses: ['BIN-501:REQ-001'] }] }).items[0];
   assert.deepEqual(covered.options.map((entry) => [entry.id, entry.recommended]).slice(0, 1), [['accept-risk', true]]);
   assert.match(covered.why, /The recorded run accepted for Verification already covers it\./u);
-  assert.equal(decisionsOf(packetOf(workflow, { gaps: [], endsStory: false })).length, 0, 'before the end, an issue blocks nothing here');
+  // Before the end it is listed from the moment it is raised, and holds only the Story's end [owner, 2026-11-19, Q12].
+  const early = decisionsOf(packetOf(workflow, { gaps: [], endsStory: false }));
+  assert.deepEqual(early.map((entry) => [entry.kind, entry.holds, entry.holdsApproval]), [['upstream-issue', 'story-end', false]], 'before the end, an issue blocks nothing here');
   // Once the replacement is decided, nothing remains: the superseded original owes nothing.
   workflow.upstreamIssueDecisions.push({ issue: 'UPI-002', outcome: 'accept-risk', expiresAt: '2026-11-18T00:00:00.000Z', reason: 'x'.repeat(20) });
   assert.equal(decisionsOf(packetOf(workflow, { gaps: [] })).length, 0);

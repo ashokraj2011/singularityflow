@@ -57,6 +57,7 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
   if (!changes.length || changes.length > MAX_CHANGES) {
     throw new SingularityFlowError(`Name 1 to ${MAX_CHANGES} changes with --add-location <clause>=<path> or --add-supporting <path>=<class>.`, { code: 'PLAN_AMENDMENT_INVALID' });
   }
+  const classification = classificationContext(workflow);
   const normalized = changes.map((change) => {
     if (change.kind === 'add-location') {
       const clauseId = String(change.clauseId ?? '').toUpperCase();
@@ -65,7 +66,7 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
         throw new SingularityFlowError(`The plan has no row for ${clauseId}; a plan amendment adds to an existing row. Its rows: ${Object.keys(plan).slice(0, 12).join(', ') || 'none'}.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId, rows: Object.keys(plan) } });
       }
       const candidate = exactPath(change.path, `The location for ${clauseId}`);
-      if (claim.fulfillment === 'test-only' && !isTestAutomationPath(candidate)) {
+      if (claim.fulfillment === 'test-only' && !isTestAutomationPath(candidate, classification)) {
         throw new SingularityFlowError(`${clauseId} is test-only; only an exact test or test-support path can be accounted for without changing its delivery contract.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId } });
       }
       if ((claim.expectedPaths ?? []).includes(candidate)) {
@@ -75,7 +76,7 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
     }
     if (change.kind === 'add-supporting') {
       const candidate = exactPath(change.path, 'A supporting change');
-      const classified = classifySupportingChange(candidate);
+      const classified = classifySupportingChange(candidate, classification);
       if (classified.refused) {
         throw new SingularityFlowError(`${candidate} cannot be a supporting change: ${classified.reason}. Add it to a row with --add-location instead.`, {
           code: 'PLAN_AMENDMENT_SUPPORTING_REFUSED', details: { path: candidate, refused: classified.refused }
@@ -110,13 +111,29 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
   return amendment;
 }
 
-/** Plan changes SFlow settled and nobody undid, as settled-decisions.mjs reads them, without loading it [owner, 2026-11-13]. */
-export function settledPlanChanges(workflow) {
+// What a settled file may be listed as (out-of-plan-classes.mjs) [C3, 2026-11-19].
+const SETTLED_SUPPORTING = new Set(['test-support', 'documentation', 'repository-metadata']);
+
+/** Settlements none undid, read without loading settled-decisions.mjs. */
+function standingSettlements(workflow) {
   const list = countedRecords(workflow, workflow?.settledDecisions, (entry) => Boolean(entry?.undoes));
   const undone = new Set(list.map((entry) => entry.undoes));
-  return list.filter((entry) => !entry.undoes && !undone.has(entry.id)).flatMap(({ kind, effect: e = {}, answer, at }) => (
+  return list.filter((entry) => !entry.undoes && !undone.has(entry.id));
+}
+
+/** Plan changes SFlow settled and nobody undid, as settled-decisions.mjs reads them, without loading it [owner, 2026-11-13]. */
+export function settledPlanChanges(workflow) {
+  return standingSettlements(workflow).flatMap(({ kind, effect: e = {}, answer, at }) => (
     kind === 'plan-accounting' && e.path ? [{ kind: 'add-location', clauseId: e.clauseId, path: e.path, at }]
-      : kind === 'node-version' && e.file ? [{ kind: 'add-supporting', path: e.file, class: e.class, reason: String(answer).slice(0, 500), at }] : []));
+      : kind === 'plan-accounting' && e.file && SETTLED_SUPPORTING.has(e.class) ? [{ kind: 'add-supporting', path: e.file, class: e.class, reason: String(answer).slice(0, 500), at }]
+        : kind === 'node-version' && e.file ? [{ kind: 'add-supporting', path: e.file, class: e.class, reason: String(answer).slice(0, 500), at }] : []));
+}
+
+/** The files this Story's standing settlements class as test support beyond their path, for every reader (source-boundary.mjs) [C3]. */
+export function classificationContext(workflow) {
+  const testSupportPaths = new Set(standingSettlements(workflow).filter((entry) => entry.kind === 'plan-accounting' && entry.effect?.file
+    && entry.effect.class === 'test-support' && entry.effect.rule).map((entry) => entry.effect.file));
+  return testSupportPaths.size ? { testSupportPaths } : null;
 }
 
 /**

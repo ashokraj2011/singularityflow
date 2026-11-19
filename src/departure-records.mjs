@@ -66,7 +66,7 @@ async function openCodeGeneration(workflow, phase) {
  * path boundary (which keeps out `.git`, workflow and configuration files, every Story's own records and
  * other Stories' files), its protected paths and the paths another step's plan names.
  */
-function departureLimit(file, { pathContext, protectedPaths = [], otherStep = () => false }) {
+function departureLimit(file, { pathContext, protectedPaths = [], otherStep = () => false, classification = null }) {
   const candidate = posix(file);
   if (candidate === '.git' || candidate.startsWith('.git/')) return 'it is Git\'s own data';
   const { isApplicationPath, alwaysLocalName, evaluateProtectedPaths, isTestAutomationPath } = limits;
@@ -78,7 +78,8 @@ function departureLimit(file, { pathContext, protectedPaths = [], otherStep = ()
   if (!application) return 'it is not application source: workflow and configuration files, Story records and other Stories\' files change through their own routes';
   if (!evaluateProtectedPaths({ entries: [{ newPath: candidate }] }, protectedPaths).valid) return 'it is a protected path';
   if (otherStep(candidate)) return 'another step\'s plan names it, so it is published with that step';
-  if (isTestAutomationPath(candidate)) return 'a test always belongs to the step\'s candidate; a change to the planned tests is --kind test';
+  // Test support this Story settled (a page object its content shows) is the candidate's too, as every reader says [C3].
+  if (isTestAutomationPath(candidate, classification)) return 'a test always belongs to the step\'s candidate; a change to the planned tests is --kind test';
   return null;
 }
 
@@ -106,9 +107,9 @@ async function otherStepPlannedPaths(itemDirectory, workflow, phase) {
 /** The boundary every departure file is held to, read once for a step. */
 async function limitContext(root, config, workflow, phase) {
   await loadLimits();
-  const [{ applicationPathContext }, { workDir }] = await Promise.all([import('./application-paths.mjs'), import('./story-paths.mjs')]);
+  const [{ applicationPathContext }, { workDir }, { classificationContext }] = await Promise.all([import('./application-paths.mjs'), import('./story-paths.mjs'), import('./plan-amendments.mjs')]);
   const others = await otherStepPlannedPaths(workDir(root, config, workflow.workItem.id), workflow, phase).catch(() => new Set());
-  return { pathContext: applicationPathContext(config, workflow), otherStep: (file) => others.has(file),
+  return { pathContext: applicationPathContext(config, workflow), otherStep: (file) => others.has(file), classification: classificationContext(workflow),
     protectedPaths: [...new Set([...(config.governance?.protectedPaths ?? []), ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])])] };
 }
 
@@ -281,6 +282,28 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
     if (!exactFileAtObject(root, head(root), posix(request.file))) await rm(path.join(root, posix(request.file)), { force: true });
   }
   return recorded;
+}
+
+/**
+ * `departure record --kind path|supporting` for files whose place is clear: SFlow settles them instead of opening a
+ * question, with the agent's reason as one more line of evidence [owner, 2026-11-19, C3]. Returns `{ departure, settled }`:
+ * the departure recorded for the files left for a person (null when none is), and what was settled. Any other kind, or a
+ * Story started before settling was pinned, records the departure as before.
+ */
+export async function recordDepartureOrSettle(root, config, workflow, request, { actor, agent = null }) {
+  const phase = workflow.phases?.[workflow.currentPhase];
+  const { outOfPlanSettling, settleOutOfPlan } = await import('./settle-before-publication.mjs');
+  if (!['path', 'supporting'].includes(request.kind) || !outOfPlanSettling(workflow) || !await openCodeGeneration(workflow, phase)) {
+    return { departure: await recordDepartureRequest(root, config, workflow, request, { actor, agent }), settled: [] };
+  }
+  // Only a real change outside the plan is settled: a file that changed in this generation and no row names.
+  const { unreconciledCandidatePaths } = await import('./candidate-scope.mjs');
+  const outside = new Set(await unreconciledCandidatePaths(root, config, workflow, phase).catch(() => []));
+  const files = [...new Set((request.paths ?? []).map((file) => posix(String(file).trim())))];
+  const { settled } = await settleOutOfPlan(root, config, workflow, phase, files.filter((file) => outside.has(file)), { actor, agent, reason: request.reason });
+  const done = new Set(settled.map((entry) => entry.effect?.path ?? entry.effect?.file));
+  const left = files.filter((file) => !done.has(file));
+  return { departure: left.length ? await recordDepartureRequest(root, config, workflow, { ...request, paths: left }, { actor, agent }) : null, settled };
 }
 
 /**
@@ -546,14 +569,16 @@ export function acceptanceCommand(workflow, departure) {
  * The code step's approval waits while any of its departures is open, reopened, or rejected and not
  * reverted [CQF:REQ-023]. The refusal names the decision list, where each one says who decides it.
  */
-export async function assertDeparturesDecided(root, config, workflow, phase) {
+export async function assertDeparturesDecided(root, config, workflow, phase, { boundary = null } = {}) {
   if (!(workflow.departures ?? []).some((entry) => entry.phase === phase.id)) return;
   const readings = (await departureReadings(root, workflow, phase.id)).filter((entry) => departureHolds(entry.status));
   if (!readings.length) return;
   const workId = workflow.workItem.id;
   const open = readings.filter((entry) => entry.status !== 'rejected');
+  // A step its submission completes says so: the plan's approvers decide each, before it is submitted [Q6, 2026-11-19].
+  const when = boundary ? ` before it is ${boundary}, which completes it; the plan's approvers decide ${open.length === 1 ? 'it' : 'each'}` : '';
   if (open.length) {
-    throw new SingularityFlowError(`${phase.label ?? phase.id} waits for ${open.length === 1 ? 'one departure' : `${open.length} departures`} from the approved documents to be decided: ${open.map((entry) => `${entry.departure.id} (${departureWords(entry.departure)}${entry.status === 'reopened' ? ', changed since it was accepted' : ''})`).join('; ')}.`, {
+    throw new SingularityFlowError(`${phase.label ?? phase.id} waits for ${open.length === 1 ? 'one departure' : `${open.length} departures`} from the approved documents to be decided${when}: ${open.map((entry) => `${entry.departure.id} (${departureWords(entry.departure)}${entry.status === 'reopened' ? ', changed since it was accepted' : ''})`).join('; ')}.`, {
       code: 'DEPARTURES_UNDECIDED', details: { phase: phase.id, departures: open.map((entry) => ({ id: entry.departure.id, kind: entry.departure.kind, status: entry.status,
         acceptAll: acceptAllEligible(entry.departure) })), nextAction: { command: `singularity-flow decisions ${workId}`, label: 'Decide each departure on the decisions table.' } } });
   }
@@ -579,7 +604,7 @@ export async function departureSummary(root, workflow, phase, recordedNow = []) 
   const name = phase.label ?? phase.id;
   const words = [
     recordedNow.length ? `Recorded ${recordedNow.map((entry) => `${entry.id} (${entry.paths.join(', ')})`).join(', ')} as ${recordedNow.length === 1 ? 'a departure' : 'departures'} from the approved plan.` : '',
-    open.length ? `${open.map((entry) => entry.id).join(', ')} ${open.length === 1 ? 'waits' : 'wait'} for a person on the decisions table before ${name} is approved; publish goes ahead with ${open.length === 1 ? 'it' : 'them'}, so keep working and do not ask about ${open.length === 1 ? 'it' : 'them'} now.` : '',
+    open.length ? `${open.map((entry) => entry.id).join(', ')} ${open.length === 1 ? 'waits' : 'wait'} for a person on the decisions table before ${name} is ${phase.approvalPolicy?.mode === 'none' ? 'submitted' : 'approved'}; publish goes ahead with ${open.length === 1 ? 'it' : 'them'}, so keep working and do not ask about ${open.length === 1 ? 'it' : 'them'} now.` : '',
     ...rejected.map((entry) => (entry.kind === 'finding'
       ? `${entry.id} was rejected: take the fix for ${entry.findings.join(', ')} out of ${entry.paths.join(', ')}, keeping the planned work, then recheck.`
       : `${entry.id} was rejected: restore ${entry.paths.join(', ')} to what ${entry.paths.length === 1 ? 'it' : 'they'} held when this generation began (remove a file that is new), then recheck.`))

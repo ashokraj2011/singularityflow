@@ -229,11 +229,14 @@ test('a turn previews the author\'s own correction, never opens it without the p
   // (owner, 2026-11-17) [D3, OSA:REQ-030].
   const confirmation = `singularity-flow phase rollover custom-step --correction "The summary says value 3, which contradicts the recorded decision." --confirm sha256:${'a'.repeat(64)} --json`;
   assert.equal((await guard('/sf-phase', confirmation)).permissionDecision, 'deny', 'an own correction never opens without the person\'s yes');
-  for (const prompt of ['/sf-phase', '/sf-decide PMC-1', '/sf-session', 'Thanks. Undo that for me.']) {
+  for (const prompt of ['/sf-phase', '/sf-session', 'Thanks. Undo that for me.']) {
     const refused = await guard(prompt, 'singularity-flow decisions undo PMC-1 --settled STL-001');
     assert.equal(refused.permissionDecision, 'deny', prompt);
     assert.match(refused.permissionDecisionReason, /undoing a settled decision hands its question back to the person, so only they undo it, on the decisions card \(\/sf-decide PMC-1 opens it\)/u, prompt);
-    // Inside /sf-decide the card itself, never /sf-decide again [owner, 2026-11-19, loop 1].
-    assert.equal(refused.next[0].copilotCommand, prompt.startsWith('/sf-decide') ? '/decide PMC-1' : '/sf-decide PMC-1', prompt);
+    assert.equal(refused.next[0].copilotCommand, '/sf-decide PMC-1', prompt);
   }
+  // In /sf-decide it is the person's bound yes to "Undo: ask me instead?" [owner, 2026-11-19]: with no yes in the turn, nothing runs.
+  const unanswered = await guard('/sf-decide PMC-1', 'singularity-flow decisions undo PMC-1 --settled STL-001');
+  assert.equal(unanswered.permissionDecision, 'deny');
+  assert.match(unanswered.permissionDecisionReason, /PHASE_MUTATION_ANSWER_UNBOUND/u);
 });

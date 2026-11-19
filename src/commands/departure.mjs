@@ -19,7 +19,7 @@ const ALLOWED = Object.freeze({
   list: ['phase', 'open'],
   show: []
 });
-const DECIDE_OPTIONS = Object.freeze(['departure', 'as', 'clause', 'fulfillment', 'reason', 'fetch']);
+const DECIDE_OPTIONS = Object.freeze(['departure', 'as', 'clause', 'fulfillment', 'reason', 'fetch', 'recommended']);
 
 function refused(message, code = 'DEPARTURE_OPTIONS_INVALID') {
   throw new SingularityFlowError(message, { code });
@@ -60,20 +60,32 @@ async function story(options) {
 async function record(options) {
   const { root, config, workflow } = await story(options);
   if (workflow.status !== 'in_progress') refused(`Story ${workflow.workItem.id} is ${workflow.status}; departures are recorded while it is in progress.`, 'DEPARTURE_LIFECYCLE');
-  const [{ actionActor }, { loadSession }, { recordDepartureRequest }, { departureWords }] = await Promise.all([
+  const [{ actionActor }, { loadSession }, { recordDepartureOrSettle }, { departureWords }] = await Promise.all([
     import('../git.mjs'), import('../session.mjs'), import('../departure-records.mjs'), import('../departures.mjs')]);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  const recorded = await recordDepartureRequest(root, config, workflow, {
+  const { departure: recorded, settled } = await recordDepartureOrSettle(root, config, workflow, {
     kind: optionString(options, 'kind'), paths: optionStrings(options, 'path'), clauses: optionStrings(options, 'clause'), reason: optionString(options, 'reason'),
     target: optionString(options, 'target'), file: optionString(options, 'file'), 'row-op': optionString(options, 'row-op'), fulfillment: optionString(options, 'fulfillment'),
     test: optionString(options, 'test'), from: optionString(options, 'from'), to: optionString(options, 'to'), findings: optionStrings(options, 'finding'),
     supersedes: optionString(options, 'supersedes')
   }, { actor: actionActor(root), agent });
+  // A file whose place is clear is settled, not asked [owner, 2026-11-19, C3]: listed with an undo, and nothing waits on it.
+  const settledWords = settled.length ? `Settled ${settled.map((entry) => `${entry.id} (${entry.answer})`).join('; ')} ${settled.length === 1 ? 'It is' : 'They are'} listed under "Settled for you" with an undo; nobody is asked.` : '';
+  if (!recorded) {
+    if (!optionBoolean(options, 'json')) console.log(`${settledWords} Keep working.`);
+    emitCommandResult(commandResult({
+      operation: { id: 'departure.record', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },
+      outcome: succeeded('departure.record.settled', { settled: settled.map((entry) => entry.id).join(', ') }),
+      effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: { departure: null, settled }
+    }), { json: optionBoolean(options, 'json'), postState: workflow });
+    return;
+  }
   // The register items it fixes on the way are in this Story now [CQF:REQ-066]; the departure stands whatever the register does.
   const register = recorded.findings.length ? await (await import('../findings/register/on-the-way.mjs')).markFixedOnTheWay(root, config, workflow, recorded) : null;
   if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded ${recorded.id}: ${departureWords(recorded)}.${recorded.proposal ? ` The draft is kept with the record at ${recorded.proposal.path}.` : ''} Keep working: publish goes ahead with it, and a person decides it on the decisions table before ${workflow.phases[recorded.phase]?.label ?? recorded.phase} is approved.`);
+    if (settledWords) console.log(settledWords);
+    console.log(`Recorded ${recorded.id}: ${departureWords(recorded)}.${recorded.proposal ? ` The draft is kept with the record at ${recorded.proposal.path}.` : ''} Keep working: publish goes ahead with it, and a person decides it on the decisions table before ${workflow.phases[recorded.phase]?.label ?? recorded.phase} is ${workflow.phases[recorded.phase]?.approvalPolicy?.mode === 'none' ? 'submitted' : 'approved'}.`);
     if (register?.marked.length) console.log(`In this Story in the findings register: ${register.marked.join(', ')}.`);
     for (const entry of register?.skipped ?? []) console.log(`Not marked in the findings register: ${entry.id}, because ${entry.reason}.`);
     if (register?.error) console.log(`The findings register could not be written (${register.error}). Retry: ${register.nextAction}`);
@@ -81,7 +93,7 @@ async function record(options) {
   emitCommandResult(commandResult({
     operation: { id: 'departure.record', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('departure.record.succeeded', { departure: recorded.id, kind: recorded.kind }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: { departure: recorded, ...(register ? { register } : {}) }
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: { departure: recorded, ...(settled.length ? { settled } : {}), ...(register ? { register } : {}) }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
@@ -175,8 +187,15 @@ export async function decisionDepartureCommand(positionals, options) {
   if (!['accepted', 'rejected'].includes(as)) refused('Decide with --as accepted or --as rejected.');
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  const result = await commitDepartureDecision(root, config, workflow, { departures: optionStrings(options, 'departure'), decision: as === 'accepted' ? 'accept' : 'reject',
-    reason: optionString(options, 'reason') ?? '', clause: optionString(options, 'clause') ?? null, fulfillment: optionString(options, 'fulfillment') ?? null }, { actor: actionActor(root), agent });
+  // The person's reason, or with --recommended the recommendation's own, checked against the list's own row [C10, Q13].
+  const ids = optionStrings(options, 'departure');
+  const clause = optionString(options, 'clause') ?? null;
+  const fulfillment = optionString(options, 'fulfillment') ?? null;
+  const { chatAnswer, withChatAdvice, departureOptionOf } = await import('../recommended-answer.mjs');
+  const answer = await chatAnswer(root, config, workflow, { recommended: optionBoolean(options, 'recommended'), reason: optionString(options, 'reason') ?? '', what: ids.join(', '),
+    matches: (item) => item.kind === 'departure' && ids.length === 1 && item.details?.departure === ids[0], optionOf: (item) => departureOptionOf(item, { as, clause, fulfillment }) });
+  const result = await withChatAdvice(answer.advice, () => commitDepartureDecision(root, config, workflow, { departures: ids, decision: as === 'accepted' ? 'accept' : 'reject',
+    reason: answer.reason, clause, fulfillment }, { actor: actionActor(root), agent }));
   if (!optionBoolean(options, 'json')) {
     console.log(`${result.departures.join(', ')} ${result.decision}${result.record?.id ? ` (${result.record.id})` : ''}.${result.decision === 'rejected' ? ' The model restores each file in the open generation; prepublish checks it is back.' : ''}`);
     // A named row that only checks tests was left out: said, so the person knows where the files went.

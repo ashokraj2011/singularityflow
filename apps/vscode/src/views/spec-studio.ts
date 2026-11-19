@@ -198,7 +198,7 @@ export class SpecStudioPanel implements vscode.Disposable {
       // operation may have been running, when a blocked save would hear nothing at all.
       const status = this.state.status;
       if (status && this.saveBlocked) this.post({ type: 'spec.saveFailed', message: this.state.error?.message ?? 'Your writing could not be saved.' });
-      else if (status) this.post({ type: 'spec.saved', sequence: status.sequence, dirty: this.edits.has(status.specId) });
+      else if (status) this.post({ type: 'spec.saved', sequence: status.sequence, dirty: this.edits.has(status.specId), saveState: this.state.saveState });
     },
     'spec.research': (message) => this.guard(() => this.draftWrite('Collecting research from the code…', (specId) => model.researchArgv(specId, {
       paths: Array.isArray(message.paths) ? message.paths.filter((entry): entry is string => typeof entry === 'string') : [], refresh: booleanField(message, 'refresh')

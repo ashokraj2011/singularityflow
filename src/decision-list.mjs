@@ -21,6 +21,7 @@ import { presenceRequires } from './presence/counted.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
+import { personClass } from './person-change-class.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
@@ -1244,6 +1245,12 @@ function holdItem(workflow, context, kind, hold) {
   };
 }
 
+/** The class of person's question a file departure is, by its files: the first named class, else what the product does. */
+function departurePersonClass(paths) {
+  const named = paths.map(personClass).find(Boolean);
+  return named ?? { class: 'behaviour', words: 'It can change what the product does, so a person decides it.' };
+}
+
 // A sentence said before an item's own why, which stays as it is.
 const prefixed = (lead, text) => (lead ? `${lead} ${text}` : text);
 const rowSlug = (clauseId) => String(clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-');
@@ -1354,6 +1361,10 @@ function departureItem(workflow, context, entry, facts) {
   // First, so a form that keeps only the opening sentences still names the findings register items it fixes [CQF:REQ-066].
   const fixes = (departure.findings ?? []).map((id) => (facts.findingTitles?.[id] ? `${id} ${facts.findingTitles[id]}` : id));
   // What the person typed that its author accounted for as this departure, quoted beside it [SCS:REQ-043].
+  // Why a person decides it and SFlow does not, by its class [owner, 2026-11-19, C3]: a dependency, how the product is built,
+  // shipped or tested, who governs the repository, or what the product does.
+  const person = ['path', 'supporting'].includes(departure.kind) ? departurePersonClass(departure.paths ?? []) : null;
+  const completion = (text) => (noApproval(workflow, departure.phase) ? text.replace('; its approval waits for this decision.', '; nobody approves it, so its submission waits for this decision.') : text);
   const asked = (workflow.askedFor ?? []).filter((entry) => entry.phase === departure.phase
     && (workflow.instructionAccounts ?? []).findLast((account) => account.phase === entry.phase && Number(account.instruction) === Number(entry.instruction))?.departure === departure.id)
     .map((entry) => `(${entry.instruction}) "${String(entry.text ?? '').replace(/\s+/gu, ' ').trim()}"`);
@@ -1363,9 +1374,10 @@ function departureItem(workflow, context, entry, facts) {
       ? `Say where ${files} ${departure.paths.length === 1 ? 'belongs' : 'belong'} (${departure.id})` : `${departure.id}: ${words}`).slice(0, 200),
     ...(departure.kind === 'path' && departure.paths?.length === 1 ? { subject: `file:${departure.paths[0]}` } : {}),
     // No row can take the files: said first, so a form that keeps only the opening sentence says why there is no Accept.
-    why: prefixed(noRow, `${fixes.length ? `It fixes ${listWords(fixes)} from the findings register. ` : ''}${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests}${asked.length ? ` Asked for: ${asked.join('; ')}.` : ''} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`),
+    // Why a person decides it comes first, after a missing row; a step nobody approves waits at its submission [C3, Q6].
+    why: completion(prefixed(noRow, prefixed(person?.words, `${fixes.length ? `It fixes ${listWords(fixes)} from the findings register. ` : ''}${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests}${asked.length ? ` Asked for: ${asked.join('; ')}.` : ''} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`))),
     options: [...accepts, reject],
-    details: { departure: departure.id, departureKind: departure.kind, status, ...(departure.paths?.length === 1 ? { path: departure.paths[0] } : { paths: departure.paths }),
+    details: { departure: departure.id, departureKind: departure.kind, status, ...(person ? { personClass: person.class } : {}), ...(departure.paths?.length === 1 ? { path: departure.paths[0] } : { paths: departure.paths }),
       clauses: departure.clauses ?? [], ...(leftOut ? { leftOut: { clauses: [...fit.testOnly, ...fit.noRow], words: leftOut } } : {}), acceptAll: !one, ...(departure.findings?.length ? { findings: departure.findings } : {}), ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
       commands: [`singularity-flow departure show ${departure.id} --work-id ${workId}`] }
   };
@@ -1685,6 +1697,31 @@ function testSetupItem(workflow, context, hold, files, { need }) {
 
 const SETTLED_SHOWN = 20;
 
+// How a group of settled files reads in one line [owner, 2026-11-19, C3].
+const SETTLED_GROUP_WORDS = Object.freeze({ 'test-support': ['test-support file', 'listed as supporting changes'], documentation: ['documentation file', 'listed as supporting changes'],
+  'repository-metadata': ['ignore file', 'listed as supporting changes'], row: ['file', 'added to the row of the file beside it'] });
+
+/**
+ * What SFlow settled into the plan of `phaseId` and still stands, grouped by what it did, one line each: "12 test-support files
+ * listed as supporting changes", each line with every settlement behind it, so each keeps its own undo [C3]. The delivered
+ * code's approval lists these: what was settled is reviewed there after the fact.
+ */
+export function settledLedger(workflow, phaseId = null) {
+  const groups = new Map();
+  for (const entry of settledDecisions(workflow).filter((item) => !item.undone && item.kind === 'plan-accounting' && (!phaseId || item.phase === phaseId))) {
+    const key = entry.effect?.class ?? 'row';
+    const group = groups.get(key) ?? { kind: key, settled: [] };
+    group.settled.push({ id: entry.id, file: entry.effect?.path ?? entry.effect?.file ?? String(entry.subject).replace(/^file:/u, ''), answer: entry.answer,
+      undo: `singularity-flow decisions undo ${workflow.workItem.id} --settled ${entry.id}` });
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => {
+    const [noun, did] = SETTLED_GROUP_WORDS[group.kind] ?? ['file', 'settled into the plan'];
+    const count = group.settled.length;
+    return { ...group, words: `${count} ${noun}${count === 1 ? '' : 's'} ${did.replace(/^listed as supporting changes$/u, count === 1 ? 'listed as a supporting change' : did)}` };
+  });
+}
+
 /**
  * What the agent or SFlow settled for the person and that still stands, newest first [owner, 2026-11-13]: never a
  * question, so it holds nothing and is not counted; each shows its answer and evidence, and one option, Undo,
@@ -1752,6 +1789,11 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
   const approvals = (phase.approvals ?? []).filter((entry) => !entry.invalidatedAt && entry.decision === 'approved').length;
   const minimum = phase.approvalPolicy?.minimum ?? 1;
   const waiting = heldBy.length ? `It waits for ${listWords(heldBy)} first.` : 'Nothing above holds it.';
+  // What SFlow settled into this step's plan, and what earlier steps were found to get wrong, reviewed here after the fact
+  // [owner, 2026-11-19, C3, Q12]: the approval is where a settlement is last undone, by returning the step.
+  const ledger = settledLedger(workflow, phase.id);
+  const raised = (workflow.upstreamIssues ?? []).filter((issue) => issue.raisedIn?.phase === phase.id).map((issue) => issue.id);
+  const reviewed = [...ledger.map((group) => `Settled for you: ${group.words}.`), ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : [])];
   return {
     kind: 'approval', title: `Approve ${name}`,
     why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`,
@@ -1760,6 +1802,7 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
       does: `Records your approval of ${name} generation ${Number(phase.generation ?? 0)} once you reviewed its documents; the Story moves on when ${minimum} approval${minimum === 1 ? ' is' : 's are'} recorded.` }),
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You review it and confirm once.') }],
     details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
+      ...(reviewed.length ? { ledger: { settled: ledger, issues: raised }, lines: reviewed } : {}),
       commands: [`singularity-flow approve ${phase.id} --work-id ${workId} --fetch`] }
   };
 }
@@ -1952,8 +1995,9 @@ function itemHolds(workflow, facts, awaiting) {
       // A pending intent amendment pauses the step it was proposed in until a scope approver decides it [owner, 2026-11-13, D3].
       if (item.kind === 'intent-amendment' && item.details?.status === 'proposed' && item.details.sourcePhase === phaseId) return 'this-step';
       if (item.details?.stage === 'early') return 'nothing-yet';
-      // What a step nobody approves has typed into it waits for its submission, which completes it [SCS:REQ-042].
-      if (item.kind === 'asked-for' && noApproval(workflow, phaseId)) return 'step-completion';
+      // What a step nobody approves has typed into it waits for its submission, which completes it [SCS:REQ-042], and so does a
+      // change outside its plan: the plan's approvers decide it there, or nobody ever would [owner, 2026-11-19, Q6].
+      if (['asked-for', 'departure'].includes(item.kind) && noApproval(workflow, phaseId)) return 'step-completion';
       if (['departure', 'asked-for', 'appeal', 'intent-amendment'].includes(item.kind)) return 'approval-later';
       if (item.kind !== 'owed-decision') return 'this-step';
       if (item.details?.scopeItem) return scopeHere ? 'approval-later' : endsStory ? 'submission' : 'story-end';
@@ -2189,6 +2233,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     items, holding, open: items.length,
     ...(offered.length ? { offered } : {}),
     ...(settled.length ? { settled } : {}),
+    // More settled than the card lists: one line per group, each settlement with its own undo behind it [C3].
+    ...(settledDecisions(workflow).filter((entry) => !entry.undone).length > SETTLED_SHOWN ? { settledGroups: settledLedger(workflow) } : {}),
     ...(facts.inactiveTestCommands?.length ? { inactiveTestCommands: facts.inactiveTestCommands } : {}),
     // With its VS Code route: the Decide card for the list itself, never "not available" beside it (paid run, 2026-11-14).
     next: first && !takenNow(first) ? { item: first.id, kind: first.kind, title: first.title, notYet: first.options[0]?.words ?? first.why,

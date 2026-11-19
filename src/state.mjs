@@ -1269,6 +1269,8 @@ export async function createWorkflow(root, config, {
       testExecutionMode: resolution.testExecutionMode,
       // The owner-step checks this Story is held to, pinned so a Story already running keeps its policy [PHR:REQ-002].
       phaseResponsibility: phaseResponsibilityPin(),
+      // What SFlow settles outside the plan (settle-before-publication.mjs), pinned [C3, 2026-11-19].
+      settling: { outOfPlan: 1 },
       ...(snapshotState.repositoryCommitPolicy == null ? {} : { repositoryCommitPolicy: structuredClone(snapshotState.repositoryCommitPolicy) }),
       phases: resolution.phases
     },
@@ -5668,8 +5670,12 @@ async function submitPhaseTransition(root, config, workflow, {
   await assertPhaseRepairSettled(root, workflow, phase);
   const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
   await assertPhaseAppealsResolved(root, config, workflow, phase);
-  // Completed by this submission, a step's instructions are accounted for first, before its tests run [SCS:REQ-042].
-  if (phase.approvalPolicy?.mode === 'none') await assertAskedForAccounted(root, config, workflow, phase);
+  // Completed by this submission, a step's instructions are accounted for first, before its tests run [SCS:REQ-042], and its
+  // departures decided [Q6].
+  if (phase.approvalPolicy?.mode === 'none') {
+    await assertAskedForAccounted(root, config, workflow, phase);
+    await assertDeparturesDecidedAtCompletion(root, config, workflow, phase);
+  }
   // A missing receipt holds only the Story's ending: the closing transition refuses it, this submission is told [PHR:REQ-003].
   await warnRequiredStepActions(root, config, workflow);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
@@ -6408,7 +6414,10 @@ async function submitPhaseTransition(root, config, workflow, {
     // A step that completes at its submission waits, as an approval would, for the "still holds" of a kept step it reads [CIC:REQ-021].
     const owed = stillHoldsOwed(workflow, phase);
     if (owed.length) throw stillHoldsRefusal(workflow, phase, owed);
-    if (waiver?.eligible) await assertAskedForAccounted(root, config, workflow, phase, { boundary: 'submitted' });
+    if (waiver?.eligible) {
+      await assertAskedForAccounted(root, config, workflow, phase, { boundary: 'submitted' });
+      await assertDeparturesDecidedAtCompletion(root, config, workflow, phase);
+    }
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;
     phase.approvedBy = null;
@@ -6494,6 +6503,13 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   if (persist) await saveWorkflow(root, config, workflow);
   return phase;
+}
+
+/** A step its submission completes waits for its departures as an approval would [Q6, 2026-11-19]; read from the CLI source. */
+async function assertDeparturesDecidedAtCompletion(root, config, workflow, phase) {
+  if (!(workflow.departures ?? []).some((entry) => entry.phase === phase.id)) return;
+  const { assertDeparturesDecided } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departure-records.mjs')).href);
+  await assertDeparturesDecided(root, config, workflow, phase, { boundary: 'submitted' });
 }
 
 async function assertAskedForAccounted(root, config, workflow, phase, options) {

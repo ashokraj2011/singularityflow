@@ -41,7 +41,13 @@ test('each changed path is its own item, and a row is a real option an approver 
   assert.deepEqual(build.options.map((option) => option.id), ['row-w-1-req-001', 'supporting']);
   assert.deepEqual(testFile.options.map((option) => option.id), ['row-w-1-req-001', 'row-w-1-ac-002']);
   assert.equal(items.flatMap((item) => item.options).some((option) => option.recommended), false, 'nothing is chosen for the person');
-  for (const option of items.flatMap((item) => item.options)) {
+  // The one row a file can join is recommended, and picked as it is it needs no reason; a dependency or build file is weighed,
+  // and every other answer takes the person's own reason [owner, 2026-11-19, C3, C10].
+  assert.deepEqual(items.map((item) => item.recommended.option), ['row-w-1-req-001', null, null]);
+  assert.match(source.options[0].needs.reason.default, /^Followed SFlow's recommendation: /u);
+  assert.equal(source.options[0].needs.reason.minimum, 0);
+  assert.match(build.recommended.words, /third-party code/u);
+  for (const option of items.flatMap((item) => item.options).filter((entry) => entry !== source.options[0])) {
     assert.equal(option.needs.reason.default, '', 'a reason is the person\'s, never suggested');
     assert.notEqual(option.recordable, false);
     assert.equal(option.action, undefined, 'it is a choice, not a command to copy');

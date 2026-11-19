@@ -6,6 +6,8 @@
  * tests that never ran. A configuration is tokenized, never imported or run, and only plain literals count: what
  * this cannot read comes back as `unread`, so the refusal can say this may be why and keep the person's route.
  */
+import path from 'node:path';
+
 import { TEST_RUNNERS } from './test-runners.mjs';
 import { tokenizeJavaScript } from './verification/javascript-declarations.mjs';
 
@@ -173,4 +175,70 @@ export function collectionConfigNames(runner, names) {
   const source = TEST_RUNNERS[runner]?.collection;
   if (!source) return [];
   return names.filter((name) => source.names.some((pattern) => pattern.test(name)) || (source.packageKey && name === 'package.json'));
+}
+
+// A glob's leading folders, before its first wildcard: `e2e/**/*.cy.ts` is under `e2e`.
+function leadingFolder(glob) {
+  const parts = [];
+  for (const segment of clean(glob).split('/').slice(0, -1)) {
+    if (/[*?{[]/u.test(segment)) break;
+    parts.push(segment);
+  }
+  return parts.join('/');
+}
+const BROWSER_CONFIG = Object.freeze({ playwright: /^playwright\.config\.[cm]?[jt]s$/u, cypress: /^cypress\.config\.[cm]?[jt]s$/u, webdriverio: /^wdio(?:\.[\w-]+)?\.conf\.[cm]?[jt]s$/u });
+const BROWSER_KEYS = Object.freeze({ playwright: ['testDir'], cypress: ['specPattern', 'supportFolder', 'supportFile'], webdriverio: ['specs'] });
+
+/**
+ * The folders a repository's own test configuration names for its tests [owner, 2026-11-19, C3, T2]: Playwright's `testDir`,
+ * Cypress's `specPattern` and support folder, WebdriverIO's `specs`, pytest's `testpaths`, and the folder holding a browser
+ * runner's configuration when it is not the repository root (`qa/playwright.config.ts`). `configs` are repository-relative
+ * configuration paths and `read(file)` their text at the Story's base; only plain literals count, as everywhere in this file.
+ * Each root names the configuration and the option that names it, the evidence a settlement records.
+ */
+export function runnerTestRoots(configs, read) {
+  const roots = [];
+  const add = (folder, config, words) => {
+    const root = path.posix.normalize(folder).replace(/\/+$/u, '');
+    if (!root || root === '.' || root.startsWith('..') || roots.some((entry) => entry.root === root)) return;
+    roots.push({ root, config, words });
+  };
+  for (const config of configs) {
+    const name = path.posix.basename(config);
+    const folder = path.posix.dirname(config) === '.' ? '' : path.posix.dirname(config);
+    const runner = Object.keys(BROWSER_CONFIG).find((key) => BROWSER_CONFIG[key].test(name));
+    const text = read(config);
+    if (text == null) continue;
+    if (runner) {
+      for (const block of [null, 'e2e', 'component']) {
+        const options = literalOptions(text, { keys: BROWSER_KEYS[runner], within: block });
+        for (const [key, values] of Object.entries(options.values ?? {})) {
+          for (const value of values) {
+            const named = key === 'supportFile' ? path.posix.dirname(clean(value)) : key === 'testDir' || key === 'supportFolder' ? clean(value) : leadingFolder(value);
+            add(path.posix.join(folder || '.', named), config, `${config} names ${named} as its ${key}`);
+          }
+        }
+      }
+      if (folder) add(folder, config, `${config} keeps ${runner === 'webdriverio' ? 'WebdriverIO' : runner.replace(/^./u, (first) => first.toUpperCase())}'s tests in ${folder}`);
+      continue;
+    }
+    const section = TEST_RUNNERS.pytest.collection.sections.find(([file]) => file === name);
+    if (!section || folder) continue;
+    const lines = String(text).split(/\r?\n/u);
+    const start = lines.findIndex((line) => line.trim().toLowerCase().startsWith(section[1]));
+    if (start < 0) continue;
+    const end = lines.findIndex((line, index) => index > start && /^\s*\[/u.test(line) && !line.trim().toLowerCase().startsWith(section[1]));
+    const written = /^testpaths\s*=\s*((?:.*\n?)(?:[ \t]+.*\n?)*)/mu.exec(lines.slice(start + 1, end < 0 ? undefined : end).join('\n'))?.[1];
+    if (!written) continue;
+    const places = /[[\]"']/u.test(written) ? [...written.matchAll(/["']([^"']+)["']/gu)].map((match) => match[1]) : written.trim().split(/\s+/u);
+    for (const place of places.filter((entry) => !/[*?{]/u.test(entry))) add(clean(place), config, `${config} names ${clean(place)} in pytest's testpaths`);
+  }
+  return roots;
+}
+
+/** Whether a repository-relative path is a test runner configuration `runnerTestRoots` reads. */
+export function isRunnerTestConfig(file) {
+  const name = path.posix.basename(String(file ?? ''));
+  return Object.values(BROWSER_CONFIG).some((pattern) => pattern.test(name))
+    || (!String(file).includes('/') && TEST_RUNNERS.pytest.collection.sections.some(([config]) => config === name));
 }

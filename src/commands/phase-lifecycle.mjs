@@ -360,8 +360,13 @@ async function phaseSubcommand(positionals, options) {
   // A person's own publication records none: what they leave out stays theirs to account for.
   if (phaseRequiresCodeDelivery(requestedPhase) && authorshipOptions.producer === 'governed-agent') {
     const recordedBy = await loadSession(root, { required: false });
+    const agentName = recordedBy?.workId === workflow.workItem.id ? recordedBy.agent ?? null : null;
+    // What the plan settles is settled here too, as at prepublish: an agent that publishes without one met a companion
+    // file as a person's question [owner, 2026-11-19, C3].
+    await (await import('../settle-before-publication.mjs')).settleBeforePublication(root, config, workflow, requestedPhase,
+      { actor: actionActor(root), agent: agentName, accounting: true, nodeSettled: true });
     await (await import('../departure-records.mjs')).recordPathDepartures(root, config, workflow, requestedPhase,
-      { actor: actionActor(root), agent: recordedBy?.workId === workflow.workItem.id ? recordedBy.agent ?? null : null });
+      { actor: actionActor(root), agent: agentName });
   }
   // An agent's publication carries what the person asked for even when no prepublish copied it [SCS:REQ-041].
   if (authorshipOptions.producer === 'governed-agent') {

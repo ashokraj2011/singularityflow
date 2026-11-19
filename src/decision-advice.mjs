@@ -13,6 +13,7 @@
  * Nothing here chooses, preselects or records anything, and nothing enters the list's digest: what a person
  * confirms is the option they pick, under the same checks as before.
  */
+import { personClass } from './person-change-class.mjs';
 import { stepName } from './upstream-routes.mjs';
 
 const listWords = (values) => {
@@ -263,6 +264,9 @@ export function itemRecommendation(workflow, item) {
         : lean('sign it off once its evidence is published.');
     }
     case 'plan-accounting': {
+      // A dependency, a build, CI or runner configuration, or governance metadata is weighed by a person [owner, 2026-11-19, C3].
+      const named = details.path ? personClass(details.path) : null;
+      if (named) return lean(`list ${details.path} as a supporting change only if this change needs it (${named.words.replace(/, so a person decides it\.$/u, '').replace(/^It /u, 'it ').replace(/\.$/u, '')}); otherwise add it to the row it serves.`);
       const supporting = options.find((entry) => entry.id === 'supporting');
       if (supporting) return rec(item, 'supporting', 'It is a supporting file (its kind serves no single requirement), so it belongs in the plan as a supporting change.');
       if (only) return rec(item, only.id, 'The plan has one row it can join.');
@@ -275,6 +279,13 @@ export function itemRecommendation(workflow, item) {
       // A row change recorded without what the row becomes: the kind its own reason names [office laptop, 2026-11-19].
       if (marked && /^accept-/u.test(marked.id) && ['plan-row', 'test'].includes(details.departureKind)) {
         return rec(item, marked.id, 'The departure\'s own reason names what the row becomes; choose another if it should become something else.');
+      }
+      // A new dependency, a build, CI or runner configuration, or governance metadata is weighed, never waved through
+      // [owner, 2026-11-19, C3]: which answer depends on whether the change needs it.
+      if (accept && details.departureKind === 'supporting' && ['dependency', 'build', 'governance'].includes(details.personClass)) {
+        return lean(details.personClass === 'dependency' ? 'accept it if the change needs this third-party code and its version; reject it to undo it.'
+          : details.personClass === 'build' ? 'accept it if the change needs this build, CI or test configuration and it runs no fewer tests; reject it to undo it.'
+            : 'accept it if this change to who reviews the repository, or what runs when it opens, belongs in this Story; reject it to undo it.');
       }
       if (accept && details.departureKind === 'supporting') return rec(item, 'accept', 'It is a supporting file the change needs; accepting lists it in the plan, and no step is reset.');
       if (accept && details.departureKind === 'path' && details.clauses?.length) {

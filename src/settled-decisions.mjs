@@ -130,7 +130,7 @@ export function reraisedRoute(workflow, entry) {
     command: `singularity-flow phase show ${step} --work-id ${workId}`, copilotCommand: `/sf-phase-documents ${step}` };
   if (entry.kind === 'node-version') return { words: `Which Node ${step}'s tests run on is on the decision list again.`, ...list };
   if (entry.kind === 'test-command') return { words: `${entry.effect?.request ?? 'The requested test command'} waits for a person who approves ${step} on the decision list again.`, ...list };
-  return { words: `${entry.effect?.path ?? 'The file'} is a question on the decision list again: say where it belongs.`, ...list };
+  return { words: `${entry.effect?.path ?? entry.effect?.file ?? 'The file'} is a question on the decision list again: say where it belongs.`, ...list };
 }
 
 /** After a Node settlement's undo: the file SFlow wrote goes, unless someone changed it since; then it is theirs and stays. */
@@ -197,6 +197,18 @@ export async function undoSettledDecision(root, config, workflow, id, { actor, a
   if (['node-version', 'test-command'].includes(found?.kind) && step?.status === 'awaiting_approval') {
     fail(`${step.label ?? found.phase} is awaiting approval, and undoing ${id} would change what its submitted review ran. An approver returns it for changes first (/sf-reject); then undo it.`,
       'SETTLED_DECISION_DURING_REVIEW', { phase: found.phase, nextAction: { command: `singularity-flow reject ${found.phase} --work-id ${workflow.workItem.id} --fetch --reason <REASON>`, skill: '/sf-reject' } });
+  }
+  // A file settled into the plan [owner, 2026-11-19, C3]: its review read the plan with it, so undo waits for its approvers to
+  // return the step, by the filled route; once the step is approved, its approval reviewed what was settled, and undo is closed.
+  if (found?.kind === 'plan-accounting' && step?.status === 'awaiting_approval') {
+    const { returnRoute } = await import('./action-command-map.mjs');
+    const route = returnRoute(workflow, step);
+    fail(`${step.label ?? found.phase} is awaiting approval, and its review read the plan with ${found.subject.replace(/^file:/u, '')} settled in it. An approver returns it for changes first (${route.skill}); then undo it.`,
+      'SETTLED_DECISION_DURING_REVIEW', { phase: found.phase, nextAction: { command: route.command, skill: route.skill } });
+  }
+  if (found?.kind === 'plan-accounting' && ['approved', 'completed'].includes(step?.status)) {
+    fail(`${step.label ?? found.phase} is approved, and its approval reviewed ${found.subject.replace(/^file:/u, '')} as settled, so ${id} is no longer undone here. A change to it now is a new change in a later step.`,
+      'SETTLED_DECISION_CLOSED', { phase: found.phase });
   }
   const { value, publication } = await transact(root, config, workflow, { label: `undo ${id}`, actor, agent,
     record: (aggregate, who) => recordSettledUndo(aggregate, { id, actor: who, at, reason, channel }) });

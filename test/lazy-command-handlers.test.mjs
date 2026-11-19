@@ -836,7 +836,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // starts by itself waits for an idle laptop (owner, 2026-11-19): the operating system's input idle time is read through
     // the registered process owner (platform-process.mjs osIdleMilliseconds, +1,388). The gate, the stamp and the queue
     // (machine-activity.mjs, automatic-work.mjs) stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_763_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,767,350 (measured 9,767,312 for submit.mjs, +3,509 over 9,763,803; start.mjs 9,764,797, 2026-11-19): changes outside
+    // the plan are settled from a fixed list [owner, 2026-11-19, C3, Q6]: the Story's settled test support is one
+    // classification every reader takes (plan-amendments.mjs +1,000, source-boundary.mjs, supporting-changes.mjs,
+    // specifications.mjs, candidate-scope.mjs), the settling pin and the completion hold on a step nobody approves (state.mjs),
+    // and untracked files in the importer search (git.mjs). The classifier and the page-object reader stay lazy
+    // (out-of-plan-classes.mjs, test-support-detection.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_767_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1292,7 +1298,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,295,200 (measured 4,295,190 on landing-5, 2026-11-19): the update command, the idle reader and the secret-scanner rewording together.
   // 4,295,339 (measured 4,295,339, +149, 2026-11-19): `decisions learn` registered as a read (command-registry.mjs) [owner,
   // 2026-11-19, Q13]. No new eager file.
-  assert.ok(current.bytes <= 4_295_339, `session current loads ${current.bytes} source bytes`);
+  // 4,297,750 (measured 4,297,704, +2,365, 2026-11-19): the Story's settled test support read by every path classifier
+  // (plan-amendments.mjs, source-boundary.mjs, supporting-changes.mjs, specifications.mjs) and untracked files in the importer
+  // search (git.mjs) [owner, 2026-11-19, C3]. No new eager file.
+  assert.ok(current.bytes <= 4_297_750, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

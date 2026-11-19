@@ -158,7 +158,7 @@ const CONTRACT_TEXT = Object.freeze({
 // Preserve narrower task contracts and compact equivalents when the class default is too broad.
 const CONTRACT_TEXT_BY_SKILL = Object.freeze({
   'sflow-approve': 'Require human review of exact bound documents outside chat; refresh packet and explicit consent.',
-  'sflow-start': 'Explicit base/workflow; shown defaults; preserve errors/artifacts/actions.',
+  'sflow-start': 'Explicit base/workflow, no preselection; shown defaults; preserve errors/artifacts/actions.',
   'sflow-story-start': 'Explicit branch/workflow; shown defaults; preserve errors, artifacts, next actions.',
   'sflow-recover': 'CLI validates/mutates; preserve exact results, warnings, publication status, artifacts/actions.',
   'sflow-submit': 'Show artifact references, warnings, and confirmation before a decision.',

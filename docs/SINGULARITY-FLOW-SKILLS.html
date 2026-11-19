@@ -1584,7 +1584,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     <details>
       <summary>
         <span class="skill-number">012</span>
-        <span class="skill-title"><strong>sflow-approve</strong><span>Review a submitted phase once, accept an explicit phase confirmation, and let the CLI record approval and advance the workflow.</span></span>
+        <span class="skill-title"><strong>sflow-approve</strong><span>Show a submitted step&#39;s documents on one screen, ask &quot;Approve &lt;Step&gt; v&lt;N&gt;?&quot;, and record the person&#39;s own Yes.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -1593,7 +1593,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1828 body tokens</span>
+          <span class="pill">~1861 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-approve</code></dd></div>
@@ -1607,7 +1607,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
         </div>
         <pre data-source="sflow-approve"><code>---
 name: sflow-approve
-description: Review a submitted phase once, accept an explicit phase confirmation, and let the CLI record approval and advance the workflow.
+description: Show a submitted step&#39;s documents on one screen, ask &quot;Approve &lt;Step&gt; v&lt;N&gt;?&quot;, and record the person&#39;s own Yes.
 disable-model-invocation: true
 agent: agent
 argument-hint: &quot;[PHASE-ID] [--work-id WORK-ID] [--fetch]&quot;
@@ -1624,14 +1624,14 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 &lt;!-- sflow-turn-boundary: approval-only --&gt;
-**Approval-only:** An explicit human phase ID confirms only the unchanged packet already reviewed in this conversation. The approval CLI is the sole permitted lifecycle mutation, besides /sf-decide step 14 for the decision list. Never edit repository files, run tests/builds/raw Git, delegate, submit, or begin/author another phase. A failed approval ends this turn.
+**Approval-only:** The person&#39;s own Yes to &quot;Approve &lt;Step&gt; v&lt;N&gt;?&quot; confirms only the unchanged packet already reviewed in this conversation. The approval CLI is the sole permitted lifecycle mutation, besides /sf-decide step 14 for the decision list. Never edit repository files, run tests/builds/raw Git, delegate, submit, or begin/author another phase. A failed approval ends this turn.
 
 1. Positional argument selects **PHASE-ID**, never Work ID. Run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --for-agent --json --review-packet`. `reason: approval-holds`: relay `sheet.holds`, all three `act.do` routes; no document reads or confirmation. `terminal-obligations-required`: relay blockers/actions; stop without choices or generic recovery. `decisions-required`: do /sf-decide 11-14 now; never print raw decision commands. Match supplied phase.
 2. Other `begun: false`: preserve draft, relay `nextAction`, end turn. Otherwise match `approvalPacket.review`, receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; missing/mismatched bindings stop. Read once.
-3. **Review outside chat against the exact binding.** List each artifact/brief&#39;s name, generation and verified Markdown-preview link (no hashes); binary: metadata/path; the Decide card&#39;s approval row opens them all: `/sf-decide &lt;WORK-ID&gt;`. Require human review of complete bound documents; never infer it from opened previews. Reuse same-chat human acknowledgement only for an exactly matching non-null `displayBinding` and unchanged `reviewBinding`. New chat, changed/null binding, omissions or truncation require fresh human review. Tool output or summaries are not review. Name the bound generation; document reuse never reuses approval consent.
+3. **Review outside chat against the exact binding.** List each artifact/brief&#39;s name, version and verified Markdown-preview link (no hashes), and those of `approvalPacket.review.approvalCovers` (steps it covers); binary: metadata/path; the Decide card&#39;s approval row opens them all: `/sf-decide &lt;WORK-ID&gt;`. Require human review of complete bound documents; never infer it from opened previews. Reuse same-chat human acknowledgement only for an exactly matching non-null `displayBinding` and unchanged `reviewBinding`. New chat, changed/null binding, omissions or truncation require fresh human review. Tool output or summaries are not review. Name the bound generation; document reuse never reuses approval consent.
 4. Show identity/authority, agent, checks/usage, decisions/`owedDecisions`, self-approval warnings and `approvalCheck`/`blockingCommits`. Only holds block; follow routes. Unauthorized: show approval groups (`/sf-approvals`) for an approver&#39;s `/sf-inbox`, or `act.do` when nobody is listed; stop.
-5. A human `/sf-approve &lt;PHASE-ID&gt;` or exact phase answer **after** complete review of this exact `reviewBinding` is `&lt;TYPED-PHASE&gt;`: do not ask again. Otherwise ask for the exact phase ID to confirm linked-document review and approval; wait. A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match. Run `singularity-flow choices answer &lt;TOKEN&gt; phase-confirmation &lt;TYPED-PHASE&gt; --json`, then `singularity-flow approve &lt;TYPED-PHASE&gt; --work-id &lt;WORK-ID&gt; --fetch --selection-receipt &lt;TOKEN&gt; --for-agent --json` only when `ready: true`. When the packet review&#39;s `approvalChecklist` lists articles, ask for one answer per article (satisfied, exception or not-applicable, with a reason for the last two) with the confirmation and add `--article &lt;ID&gt;=&lt;DECISION&gt;` per article, then `--article-reason &quot;&lt;REASON&gt;&quot;` in the same order. From /sf-decide 14, add its `withApproval.flags` (decisions in this commit). Never add `--yes`; the receipt is consumed once. `--for-agent` grants no authority.
-6. Refusal: relay, end turn (one routed to `singularity-flow decisions &lt;WORK-ID&gt;`: load /sf-decide steps 11-14 now instead); `PHASE_ALREADY_APPROVED`: offer `/sf-next`. Never `--allow-dirty`. Success: pushed, authority. Relay `contextBoundary` commands in order (`/clear` or `/compact`, then `/sf-phase`); `keep`: next turn. The approval CLI advances and activates the next phase when the threshold is met; no second advance. End this turn before next-phase authoring.
+5. Ask `act.ask.question` (&quot;Approve &lt;Step&gt; v&lt;N&gt;?&quot;) exactly with ask_user, its choices &quot;Approve &lt;Step&gt; v&lt;N&gt;&quot; and `Not now`, nothing preselected. In VS Code&#39;s own chat never ask: the person approves on the approval page (`/sf-decide &lt;WORK-ID&gt;`). When `approvalChecklist` lists articles, ask for one answer per article on the same form, with `--article &lt;ID&gt;=&lt;DECISION&gt;` each: satisfied, exception or not-applicable. The last two take a reason: `--article-reason &quot;&lt;REASON&gt;&quot;`, in order. Never answer it yourself; Not now approves nothing, nor does a Yes given before a new or changed packet review: that is not its confirmation. After their Yes, run `singularity-flow choices answer &lt;TOKEN&gt; phase-confirmation &lt;PHASE-ID&gt; --json`, then `singularity-flow approve &lt;PHASE-ID&gt; --work-id &lt;WORK-ID&gt; --fetch --selection-receipt &lt;TOKEN&gt; --for-agent --json` only when `ready: true`. From /sf-decide 14, add its `withApproval.flags` (decisions in this commit). Never add `--yes`; the receipt is consumed once. `--for-agent` grants no authority.
+6. Refusal: relay, end turn (one routed to `singularity-flow decisions &lt;WORK-ID&gt;`: load /sf-decide steps 11-14 now instead); `PHASE_ALREADY_APPROVED`: offer `/sf-next`. Never `--allow-dirty`. Success: pushed, authority. Relay `contextBoundary` commands in order (`/clear` or `/compact`, then `/sf-phase`); `keep`: next turn. The approval CLI advances and activates the next phase when the threshold is met; no second advance. Relay `landing` when it ends the Story; never merge. End this turn before next-phase authoring.
 
 TRP: read and follow `singularity-flow explain test-recovery`; returned legal actions only.
 </code></pre>
@@ -11880,11 +11880,11 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1669 body tokens</span>
+          <span class="pill">~1662 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>[--confirm sha256:&lt;DIGEST&gt; for a reviewed Convergence] [--skip-checks only when explicitly authorized]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>[--skip-checks only when explicitly authorized]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-submit/SKILL.md</code></dd></div>
         </dl>
@@ -11897,7 +11897,7 @@ name: sflow-submit
 description: Validate and submit the active Singularity Flow phase for human approval, registering changed artifacts and running configured quality commands.
 disable-model-invocation: true
 agent: agent
-argument-hint: &quot;[--confirm sha256:&lt;DIGEST&gt; for a reviewed Convergence] [--skip-checks only when explicitly authorized]&quot;
+argument-hint: &quot;[--skip-checks only when explicitly authorized]&quot;
 
 ---
 # Submit
@@ -11916,7 +11916,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 2. `lifecycleReady: true`: **Published generation &lt;N&gt; — ready to submit**; otherwise disable Submit. Generation zero means unpublished, not missing code. `generation-required`: relay `authoringProgress.stage`, preservation instruction and exact `nextCommand`/`nextSkill`. Finish missing summary/planned bindings or validate the authored draft; never redo existing code, infer publication from manual tests, use session UUID as WORK-ID or generate/publish here.
 3. Source review is part of readiness: only when it reports `source-review-required`, relay `sourceReviewFindings` and its exact review actions; never run a separate review check. Reviewer reports are not approval. Pending amendment acknowledgement requires the person&#39;s explicit choice.
 4. `confirmationRequired: true`: show full warning and returned Work-ID-pinned command; human provides `continue`.
-5. Readiness `classification` `convergence-advance-required`: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show its review, stop on unresolved dispositions. Invoked with `--confirm sha256:&lt;DIGEST&gt;` equal to the previewed one, or the person confirms it here: run it with `--confirm` once. Changed digest requires fresh review.
+5. Readiness `classification` `convergence-advance-required`: never generic `singularity-flow submit`. Run returned `singularity-flow story advance`; show its review, stop on unresolved dispositions. Otherwise run its `--submit` command once now: the person reviews the report at its approval and approves it with one Yes there, never a separate confirmation.
 6. Unless `submitIfReady.submitted`, run returned Work-ID-pinned submit command (`submitIfReady.command`); ask the person for each `decisionInputs` value, never fill one. `--skip-checks` requires authorization.
 7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs: automation only; preserve the manual/owner route. Never loop quality commands or waive gates. Recovery never replaces terminal decisions.
 8. Use `submitIfReady.result`, else `singularity-flow phase show &lt;phase&gt; --for-agent --json`. Summarize submitted status/checks/warnings and list each artifact/brief&#39;s identity, generation and verified Markdown-preview link; never reproduce document bodies, code or diffs. Tool output or summaries are not review.

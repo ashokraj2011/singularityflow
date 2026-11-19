@@ -201,7 +201,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'drain',
-  'heartbeat', 'not-applicable',
+  'heartbeat', 'not-applicable', 'submit',
   // guard register|rotate|recover --author (src/commands/guard.mjs).
   'author',
   // findings list (src/commands/findings.mjs).

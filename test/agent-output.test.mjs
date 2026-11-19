@@ -584,13 +584,13 @@ test('the same actionable result a third time in a row says it is a loop and nam
   });
   assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
   const now = Date.parse('2026-10-15T12:00:00Z');
-  // The Convergence preview the person kept following without confirming: readiness returns the
-  // preview, and only the preview's own route carries the digest.
+  // The Convergence preview followed again and again without submitting it: its act is the turn's own next step, and
+  // the loop says to do it (its confirmation folds into its approval, owner 2026-11-19).
   const preview = { resultType: 'sflow-submission-readiness', workId: 'W', phaseId: 'convergence', head: 'h0',
     classification: 'convergence-advance-required', nextCommand: 'singularity-flow story advance --work-id W', nextSkill: '/sf-submit' };
   const previews = [1, 2, 3].map((minute) => observeAgentLoop(root, preview, agentAct(preview), { now: now - 30 * 60_000 + minute * 60_000 }));
-  assert.equal(previews[2].state, 'confirm-review');
-  assert.match(previews[2].loop.instruction, /Run do\.shell once to show the digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once\./u);
+  assert.equal(previews[2].state, 'next');
+  assert.match(previews[2].loop.instruction, /The same result has come back 3 times in a row; repeating the command cannot change it\. Do act\.do now/u);
   const review = { ...preview, head: 'h1', nextCommand: `singularity-flow story advance --work-id W --confirm ${digest}` };
   const seen = [1, 2, 3].map((minute) => observeAgentLoop(root, review, agentAct(review), { now: now + minute * 60_000 }));
   assert.equal(seen[1].loop, undefined);

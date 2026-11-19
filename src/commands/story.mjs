@@ -3072,23 +3072,25 @@ export async function storyAdvanceCommand(positionals, options) {
     // the check then refuses, so a preview says what is open first, in the check's own words and routes.
     const { endsStory } = await import('../upstream-entry-summary.mjs');
     if (endsStory(workflow, subject.phase)) await (await import('../evidence/terminal.mjs')).assertTerminalReadiness(root, config, workflow);
-    const confirmation = optionString(options, 'confirm');
+    // The convergence confirmation folds into its approval (owner, 2026-11-19): `--submit` sends this exact result for
+    // approval, where the person reviews it and approves it with one bound Yes, which advances the Story out of convergence
+    // [SPK:REQ-032] (approval checks the same result again). No code to type; `--confirm <digest>` still submits the exact
+    // result a preview showed (a host binds it).
+    const confirmation = optionBoolean(options, 'submit') ? reviewed.snapshotSha256 : optionString(options, 'confirm');
     if (!confirmation) {
-      // The digest binds the confirmation; a person never reads it. The text names the iteration and gives the
-      // confirmation as a short code (confirm-code.mjs); the JSON a host or agent reads keeps the digest, and the code.
-      const command = `singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`;
+      const command = `singularity-flow story advance --work-id ${workflow.workItem.id} --submit`;
+      const label = 'Submit it for approval; you review it there and approve it with one Yes.';
       if (optionBoolean(options, 'json')) {
-        const { rememberConfirmCommand } = await import('../confirm-code.mjs');
         console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-convergence-advance', status: 'ready-to-confirm', workId: workflow.workItem.id, phase: subject.phase.id,
           iteration: projection.iteration, findings: projection.findings.length, reconciliation: projection.bindings.reconciliation.sha256,
-          confirmationDigest: reviewed.snapshotSha256, confirmationCode: rememberConfirmCommand(command),
-          effects: { committed: false, pushed: false }, next: [{ command, skill: '/sf-submit', label: 'After reviewing this exact result, run it.' }] }, null, 2));
+          confirmationDigest: reviewed.snapshotSha256,
+          effects: { committed: false, pushed: false }, next: [{ command, skill: '/sf-submit', label }] }, null, 2));
         return;
       }
-      console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is dispositioned.`);
-      console.log(`Findings: ${projection.findings.length}. Bound to this iteration's reconciliation.`);
-      console.log('No lifecycle state, file, commit, or remote changed.');
-      printCommandRoutes(command, { skill: '/sf-submit', label: 'After reviewing this exact result, run' });
+      console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is decided.`);
+      console.log(`Findings: ${projection.findings.length}.`);
+      console.log('Nothing changed yet.');
+      printCommandRoutes(command, { skill: '/sf-submit', label });
       return;
     }
     if (confirmation !== reviewed.snapshotSha256) {
@@ -3105,7 +3107,7 @@ export async function storyAdvanceCommand(positionals, options) {
         }
       );
     }
-    if (!optionBoolean(options, 'json')) console.log(`Convergence iteration ${projection.iteration} confirmed by an authorized human; submitting the phase for approval.`);
+    if (!optionBoolean(options, 'json')) console.log(`Convergence iteration ${projection.iteration} is ready; submitting it for approval, where you approve it with one Yes.`);
     return (await router()).submitConfirmedConvergenceCommand(
       ['submit', subject.phase.id],
       { ...options, 'work-id': workflow.workItem.id },

@@ -42,7 +42,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 108
+version: 109
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -84,7 +84,10 @@ Selecting a step opens its properties on the right, in sections: the step (name,
 which skill drafts it), the drafting agent (**Edit agent**, **Create an agent**), sign-off (a switch, the approval
 groups whose approvals count, which of them must each approve, how many approvals it needs (1 to 20), and its send-back rules: each earlier step an approver may send rejected
 work back to, at most how many times, and which step's next run starts the count again; rules into
-the same step share one count), what it reads from
+the same step share one count; and **Approve automatically when ready**, `approval: { automatic: when-ready }`:
+SFlow approves the step right after it is submitted when its reviewer said ready, its checks passed and nothing is
+open, else its people approve it; offered only where it may be on, never on the plan, a step that may change source
+files, convergence or the design sources, see `sflow explain approvals`), what it reads from
 earlier steps (each one required or optional: an optional input may be missing when a decision skips
 the step that writes it), artifacts (the template it drafts from, the file it writes and its artifact
 set), the World Model (the Repository brief the step gets; nothing to set), clarifying questions,

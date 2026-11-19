@@ -150,11 +150,12 @@ test('custom phase selectors are exact and protected commands cannot be smuggled
 // A run of 7 to 64 hexadecimal characters with a letter and a digit: a hash (person-text-no-hashes.test.mjs).
 const HEX_RUN = /(?<![0-9A-Za-z_])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,64}(?![0-9A-Za-z_])/iu;
 
-test('convergence submission binds the preview\'s exact digest; the person reviews it and types its short code, never the digest', async () => {
+test('convergence goes for approval with the preview\'s exact digest; nobody types a code, its approval is its one Yes', async () => {
+  // The convergence confirmation folds into its approval (owner, 2026-11-19).
   const actions = [action(['story', 'advance', '--work-id', 'STORY-1'])];
   const digest = `sha256:${'d4'.repeat(32)}`;
   const preview = { resultType: 'sflow-convergence-advance', status: 'ready-to-confirm', workId: 'STORY-1', iteration: 2, findings: 3,
-    confirmationDigest: digest, confirmationCode: 'K7Q2-M8DX' };
+    confirmationDigest: digest };
   const h = host({ actions, convergence: preview });
   await h.run();
   assert.deepEqual([...h.calls.find(argv => argv[0] === 'story' && !argv.includes('--confirm'))], ['story', 'advance', '--work-id', 'STORY-1', '--json'],
@@ -163,20 +164,16 @@ test('convergence submission binds the preview\'s exact digest; the person revie
   assert.equal(writes.length, 1);
   assert.deepEqual([...writes[0]], ['story', 'advance', '--work-id', 'STORY-1', '--confirm', digest]);
   assert.equal(h.calls.some(argv => argv[1] === 'execute' || argv[0] === 'submit'), false);
-  assert.equal(h.reviews.length, 1);
-  assert.equal(h.reviews[0].expected, 'K7Q2-M8DX', 'the person types the short code');
-  assert.match(h.reviews[0].detail, /Convergence iteration 2 has no unresolved blockers[\s\S]*Findings: 3\./u);
-  for (const text of [h.reviews[0].title, h.reviews[0].summary, h.reviews[0].detail, h.reviews[0].expected]) assert.doesNotMatch(text, HEX_RUN);
-  for (const option of ['cancel', 'moved', 'paused', 'missing-digest', 'missing-code', 'other-story', 'not-ready']) {
+  assert.equal(h.reviews.length, 0, 'no separate confirmation: the person approves it with one Yes');
+  const shown = h.markdown.join('');
+  assert.match(shown, /Convergence iteration 2 has no unresolved blockers[\s\S]*Findings: 3\.[\s\S]*approve it with one Yes/u);
+  assert.doesNotMatch(shown, HEX_RUN, 'the person reads no digest');
+  // Nobody waits at a prompt between the preview and the submission any more, so only the preview itself can refuse it.
+  for (const option of ['missing-digest', 'other-story', 'not-ready']) {
     const convergence = option === 'missing-digest' ? { ...preview, confirmationDigest: undefined }
-      : option === 'missing-code' ? { ...preview, confirmationCode: undefined }
-        : option === 'other-story' ? { ...preview, workId: 'STORY-2' }
-          : option === 'not-ready' ? { ...preview, status: 'blocked' } : preview;
-    const rejected = host({ actions, convergence, reviewConfirmed: option !== 'cancel', moved: option === 'moved', paused: option === 'paused' });
-    if (['missing-digest', 'missing-code', 'other-story', 'not-ready'].includes(option)) {
-      await assert.rejects(() => rejected.run(), /No exact convergence review was returned/);
-      assert.equal(rejected.reviews.length, 0, option);
-    } else await rejected.run();
+      : option === 'other-story' ? { ...preview, workId: 'STORY-2' } : { ...preview, status: 'blocked' };
+    const rejected = host({ actions, convergence });
+    await assert.rejects(() => rejected.run(), /No exact convergence review was returned/);
     assert.equal(rejected.calls.some(argv => argv[0] === 'story' && argv.includes('--confirm')), false, option);
   }
 });

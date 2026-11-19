@@ -682,11 +682,12 @@ export function agentAct(result) {
   if (result.resultType === 'command-result' && result.operation?.id === 'prepare' && result.data?.preparation?.scope) {
     return { ...withRoute({ state: 'next', said: null, do: null }, action), read: ['data.preparation.scope'] };
   }
-  const state = result.classification === 'convergence-advance-required' ? 'confirm-review' : 'next';
-  // The in-chat confirmation came only with the loop warning, on the third repeat; the first act gave only the
-  // generic reason, and the person was left to re-run the preview (session mining N4, 2026-11-11).
-  const said = oneLine(`${result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')}${state === 'confirm-review'
-    ? ' Run do.shell once to show the review and its digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once.' : ''}`) || null;
+  // The convergence confirmation folds into its approval (owner, 2026-11-19): the turn submits the report, and the person
+  // reviews it and approves it with one Yes, at the approval. Nobody types a code or confirms it twice.
+  const convergence = result.classification === 'convergence-advance-required';
+  const state = 'next';
+  const said = oneLine(`${result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')}${convergence
+    ? ' Run do.shell once; when it says the report is ready, run its --submit command once in this same turn: it sends the report for approval, where the person reviews it and approves it with one Yes. Never ask them to confirm it first.' : ''}`) || null;
   const nextsteps = result.resultType === 'sflow-nextsteps'
     ? { read: ['contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
   const act = withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);
@@ -753,8 +754,6 @@ export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
   if (count < LOOP_THRESHOLD) return act;
   const instruction = act.ask?.kind === 'confirm' || act.state === 'confirm'
     ? `This confirmation has come back ${count} times in a row and the person has not given it. Ask them now in this chat to confirm the exact value; only on an explicit yes run do.shell once. Do not offer the preview again.`
-    : act.state === 'confirm-review'
-      ? `This review has come back ${count} times in a row unconfirmed. Run do.shell once to show the digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once. Do not end with this route again.`
     // A person's own step is shown, never run: "Do act.do now" contradicted next's "never run it" (agent-text audit, 2026-11-11).
     : PERSON_STATES.has(act.state) && act.do && !act.ask
       ? `This has come back ${count} times in a row: do.shell is the person's to run, never this turn's. Show it to them once more, say it is theirs to run, and stop; never run it.`

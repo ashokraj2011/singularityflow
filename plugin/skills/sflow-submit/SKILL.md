@@ -3,7 +3,7 @@ name: sflow-submit
 description: Validate and submit the active Singularity Flow phase for human approval, registering changed artifacts and running configured quality commands.
 disable-model-invocation: true
 agent: agent
-argument-hint: "[--confirm sha256:<DIGEST> for a reviewed Convergence] [--skip-checks only when explicitly authorized]"
+argument-hint: "[--skip-checks only when explicitly authorized]"
 
 ---
 # Submit
@@ -22,7 +22,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 2. `lifecycleReady: true`: **Published generation <N> — ready to submit**; otherwise disable Submit. Generation zero means unpublished, not missing code. `generation-required`: relay `authoringProgress.stage`, preservation instruction and exact `nextCommand`/`nextSkill`. Finish missing summary/planned bindings or validate the authored draft; never redo existing code, infer publication from manual tests, use session UUID as WORK-ID or generate/publish here.
 3. Source review is part of readiness: only when it reports `source-review-required`, relay `sourceReviewFindings` and its exact review actions; never run a separate review check. Reviewer reports are not approval. Pending amendment acknowledgement requires the person's explicit choice.
 4. `confirmationRequired: true`: show full warning and returned Work-ID-pinned command; human provides `continue`.
-5. Readiness `classification` `convergence-advance-required`: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show its review, stop on unresolved dispositions. Invoked with `--confirm sha256:<DIGEST>` equal to the previewed one, or the person confirms it here: run it with `--confirm` once. Changed digest requires fresh review.
+5. Readiness `classification` `convergence-advance-required`: never generic `singularity-flow submit`. Run returned `singularity-flow story advance`; show its review, stop on unresolved dispositions. Otherwise run its `--submit` command once now: the person reviews the report at its approval and approves it with one Yes there, never a separate confirmation.
 6. Unless `submitIfReady.submitted`, run returned Work-ID-pinned submit command (`submitIfReady.command`); ask the person for each `decisionInputs` value, never fill one. `--skip-checks` requires authorization.
 7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs: automation only; preserve the manual/owner route. Never loop quality commands or waive gates. Recovery never replaces terminal decisions.
 8. Use `submitIfReady.result`, else `singularity-flow phase show <phase> --for-agent --json`. Summarize submitted status/checks/warnings and list each artifact/brief's identity, generation and verified Markdown-preview link; never reproduce document bodies, code or diffs. Tool output or summaries are not review.

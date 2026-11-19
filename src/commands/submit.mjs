@@ -100,7 +100,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     if (typeof convergenceConfirmation !== 'string'
         || !/^sha256:[0-9a-f]{64}$/.test(convergenceConfirmation)) {
       throw new SingularityFlowError(
-        `Convergence can be submitted only through explicit human advancement. Run singularity-flow story advance --work-id ${resolvedWorkId} to review the deterministic result and receive its digest-bound confirmation command.`,
+        `Convergence is submitted with singularity-flow story advance --work-id ${resolvedWorkId} --submit, which checks the report first; a person then reviews it and approves it with one Yes.`,
         { code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED', details: { workId: resolvedWorkId, nextAction: `singularity-flow story advance --work-id ${resolvedWorkId}` } }
       );
     }

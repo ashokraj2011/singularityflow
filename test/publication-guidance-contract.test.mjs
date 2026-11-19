@@ -100,7 +100,7 @@ test('every shipped and example workflow routes publication through its phase co
   assert.ok(checked >= 50, `workflow inventory unexpectedly shrank to ${checked} generated phases`);
 });
 
-test('every published convergence route stops at explicit human advancement', async () => {
+test('every published convergence route goes through story advance, never the generic submission', async () => {
   const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
   const resolved = resolveWorkType(definition, 'spec-driven-standard');
   const convergence = resolved.phases.find((phase) => phase.id === 'convergence');

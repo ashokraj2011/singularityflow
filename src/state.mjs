@@ -350,7 +350,7 @@ function requiredModelAssuranceRank(value) {
 function convergenceAdvanceRequired(workflow, details = {}) {
   const workId = workflow?.workItem?.id ?? details.workId ?? '<WORK-ID>';
   return new SingularityFlowError(
-    `Convergence can be submitted only through explicit human advancement. Run singularity-flow story advance --work-id ${workId} to review the deterministic result and receive its digest-bound confirmation command.`,
+    `Convergence is submitted with singularity-flow story advance --work-id ${workId} --submit, which checks the report first; a person then reviews it and approves it with one Yes.`,
     {
       code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED',
       details: { workId, ...details, nextAction: `singularity-flow story advance --work-id ${workId}` }

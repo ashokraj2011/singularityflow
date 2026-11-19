@@ -740,6 +740,11 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
   await endMutationDecisionTurns(f.root);
   assert.deepEqual(await shell(choose), {}, 'a failed approval ended the decision turn');
   const approval = await approve('approver-2');
+  // `--yes` approves with no review receipt: an /sf-approve chat never runs it (approvals research, 2026-11-19).
+  const yes = await mutationToolGuard({ ...approval, toolArgs: { ...approval.toolArgs, command: 'singularity-flow approve custom-step --work-id PMC-1 --yes' } });
+  assert.equal(yes.permissionDecision, 'deny', 'an /sf-approve chat approved with --yes, no review receipt');
+  const yesTrue = await mutationToolGuard({ ...approval, toolArgs: { ...approval.toolArgs, command: 'singularity-flow approve custom-step --work-id PMC-1 --yes=true' } });
+  assert.equal(yesTrue.permissionDecision, 'deny', 'an /sf-approve chat approved with --yes=true');
   await endMutationDecisionTurns(f.root, { modes: ['decision-only'] });
   const ended = await shell(choose);
   assert.equal(ended.permissionDecision, 'deny', 'a refused decision did not end the /sf-decide turn');

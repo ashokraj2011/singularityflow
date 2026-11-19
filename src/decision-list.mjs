@@ -18,7 +18,8 @@
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { presenceRequires } from './presence/counted.mjs';
-import { clausesTakingPaths, leftOutWords, MAX_PLAN_AMENDMENT_CHANGES, planAuthorities, rowTakesPaths } from './plan-amendments.mjs';
+import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
+import { clausesTakingPaths, leftOutWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
@@ -1242,6 +1243,8 @@ function holdItem(workflow, context, kind, hold) {
   };
 }
 
+// A sentence said before an item's own why, which stays as it is.
+const prefixed = (lead, text) => (lead ? `${lead} ${text}` : text);
 const rowSlug = (clauseId) => String(clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-');
 
 /**
@@ -1286,7 +1289,7 @@ function departureItem(workflow, context, entry, facts) {
       // No row can take them: said plainly, with what is left, and never a choice that would be refused.
       noRow = leftOut ? `${leftOutWords(fit, { ...said, mode: 'cannot' })} No other row of the plan can take ${them}.`
         : (facts.planRows ?? []).length ? `Every row of the plan only checks tests, so no row can take ${files}.` : `The plan has no row to add ${files} to.`;
-      const words = `${noRow} Reject it, and the model restores ${them}; to keep ${them}, the scope changes first so a clause covers ${them}: an intent amendment, which the scope's approvers decide (/sf-amend drafts it).`;
+      const words = `${noRow} Reject it, and the model restores ${them}; or change the scope first (/sf-amend), which its approvers decide.`;
       accepts = [{ ...accept({ label: 'Accept', words, writes: 'plan-amendment' }), available: false, recordable: false, does: words }];
     }
   } else if (departure.kind === 'supporting') {
@@ -1337,8 +1340,8 @@ function departureItem(workflow, context, entry, facts) {
     kind: 'departure', title: (departure.kind === 'path' && departure.paths?.length
       ? `Say where ${files} ${departure.paths.length === 1 ? 'belongs' : 'belong'} (${departure.id})` : `${departure.id}: ${words}`).slice(0, 200),
     ...(departure.kind === 'path' && departure.paths?.length === 1 ? { subject: `file:${departure.paths[0]}` } : {}),
-    // No row can take the files: first, so a form that keeps only the opening sentence says why there is no Accept.
-    why: `${noRow ? `${noRow} ` : ''}${fixes.length ? `It fixes ${listWords(fixes)} from the findings register. ` : ''}${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests}${asked.length ? ` Asked for: ${asked.join('; ')}.` : ''} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`,
+    // No row can take the files: said first, so a form that keeps only the opening sentence says why there is no Accept.
+    why: prefixed(noRow, `${fixes.length ? `It fixes ${listWords(fixes)} from the findings register. ` : ''}${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests}${asked.length ? ` Asked for: ${asked.join('; ')}.` : ''} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`),
     options: [...accepts, reject],
     details: { departure: departure.id, departureKind: departure.kind, status, ...(departure.paths?.length === 1 ? { path: departure.paths[0] } : { paths: departure.paths }),
       clauses: departure.clauses ?? [], ...(leftOut ? { leftOut: { clauses: [...fit.testOnly, ...fit.noRow], words: leftOut } } : {}), acceptAll: !one, ...(departure.findings?.length ? { findings: departure.findings } : {}), ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
@@ -1567,13 +1570,6 @@ function askedForItem(workflow, context, entry, facts) {
 }
 
 /**
- * A changed path no row of the plan names: which row it belongs to, or that it is a supporting change,
- * is a choice for an approver of the plan. One item per path, each option its row, with no answer
- * chosen and no reason suggested. `chat` is the same write as a /sf-decide turn runs it (with the
- * person's own reason in place of the blank): `decision plan` is on that turn's list, so `recordable`
- * here and there are two different questions.
- */
-/**
  * No row of the plan can take these files and none is a supporting change: said plainly, with what is left, and never a
  * choice that would be refused [owner, 2026-11-19]. Adding is shown as not available with why; keeping them out of this
  * Story is whoever works in the checkout's own step, and changing the scope is /sf-amend's.
@@ -1581,7 +1577,7 @@ function askedForItem(workflow, context, entry, facts) {
 function noPlanRowChoices(workflow, context, hold, files) {
   const them = files.length === 1 ? 'it' : 'them';
   const lead = `No row of the plan can take ${listWords(files)}${(hold.planRows ?? []).length ? ': every row only checks tests' : ''}.`;
-  const words = `${lead} ${hold.keepOut ? `Keep ${them} out of this Story (${hold.keepOut} shows how), or change` : 'Change'} the scope so a clause covers ${them}: an intent amendment, which the scope's approvers decide (/sf-amend drafts it).`;
+  const words = `${lead} ${hold.keepOut ? `Keep ${them} out of this Story (${hold.keepOut}), or change` : 'Change'} the scope first (/sf-amend), which its approvers decide.`;
   const add = { ...option(workflow, context, { id: 'add-to-row', label: 'Add to a row of the plan', words, effects: [{ kind: 'plan-amendment', changes: [] }], needs: {} }),
     available: false, recordable: false, does: words };
   const keepOut = hold.keepOut ? personalStep({ id: 'keep-out', label: `Keep ${them} out of this Story`, command: hold.keepOut,
@@ -1590,6 +1586,13 @@ function noPlanRowChoices(workflow, context, hold, files) {
   return { lead, options: [add, ...(keepOut ? [keepOut] : [])] };
 }
 
+/**
+ * A changed path no row of the plan names: which row it belongs to, or that it is a supporting change,
+ * is a choice for an approver of the plan. One item per path, each option its row, with no answer
+ * chosen and no reason suggested. `chat` is the same write as a /sf-decide turn runs it (with the
+ * person's own reason in place of the blank): `decision plan` is on that turn's list, so `recordable`
+ * here and there are two different questions.
+ */
 function planPathItems(workflow, context, hold) {
   const workId = workflow.workItem.id;
   const need = { reason: textNeed('', PLAN_REASON) };
@@ -1601,7 +1604,7 @@ function planPathItems(workflow, context, hold) {
     const none = !rows.length && !supporting ? noPlanRowChoices(workflow, context, hold, [file]) : null;
     return {
       kind: 'plan-accounting', title: `Say where ${file} belongs`, subject: `file:${file}`,
-      why: `${none ? `${none.lead} ` : ''}${file} changed and no row of the plan names it, so ${hold.waits ?? 'approval waits'}. Add it to the row it serves${supporting ? `, or list it as a supporting change (${supporting})` : ''}: the code and its tests stay as they are, and no step is reset.${hold.keepOut ? ` If it is not part of this Story, keep it out instead: ${hold.keepOut} shows the private-copy route.` : ''}`,
+      why: prefixed(none?.lead, `${file} changed and no row of the plan names it, so ${hold.waits ?? 'approval waits'}. Add it to the row it serves${supporting ? `, or list it as a supporting change (${supporting})` : ''}: the code and its tests stay as they are, and no step is reset.${hold.keepOut ? ` If it is not part of this Story, keep it out instead: ${hold.keepOut} shows the private-copy route.` : ''}`),
       options: none ? none.options : [
         ...rows.map((row) => ({ ...option(workflow, context, {
           id: `row-${String(row.clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-')}`.slice(0, 64),
@@ -1649,7 +1652,7 @@ function testSetupItem(workflow, context, hold, files, { need }) {
   const none = located.length && !rows.length ? noPlanRowChoices(workflow, context, hold, located) : null;
   return {
     kind: 'plan-accounting', title: `Say where this test setup belongs: ${listWords(files)}`,
-    why: `${none ? `${none.lead} ` : ''}${listWords(files)} changed together for how tests run, and no row of the plan names them, so approval waits. They are one change, so you decide once, and each is recorded by name: the code and its tests stay as they are, and no step is reset.`,
+    why: prefixed(none?.lead, `${listWords(files)} changed together for how tests run, and no row of the plan names them, so approval waits. They are one change, so you decide once, and each is recorded by name: the code and its tests stay as they are, and no step is reset.`),
     options: none ? none.options : located.length ? rows.map(rowOption) : [{ ...option(workflow, context, {
       id: 'supporting', label: 'List them as supporting changes',
       words: 'They stay out of every requirement, each listed with your reason.',

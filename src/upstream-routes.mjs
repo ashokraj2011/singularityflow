@@ -242,9 +242,9 @@ export function conformanceGapRoutes(workflow, phaseId, gap, issue = null) {
       : gapChoice('repair-return', owner, returnable(owner) ? reject(owner) : null, returnable(owner) ? '/sf-reject' : null,
         returnable(owner) ? `Return to ${owner}${later}; retest ${clause}.`
           : `${owner}'s approvers can return it through an issue.`),
-    // The Decide card names the recorded run that covers it, filled in: no attempt ID to look up [owner, 2026-11-19].
+    // The card names the recorded run [owner, 2026-11-19].
     gapChoice('evidence-reuse', 'phase-approval-authority', ['decisions', workId], '/sf-decide',
-      `${clause}: reuse a run an earlier attempt recorded, on the Decide card, which names the run when one covers it; reuse retains its producer. Accepting existing evidence never certifies a run that was not recorded.`),
+      `${clause}: reuse a recorded run on the Decide card, which names it; reuse retains its producer. Accepting existing evidence never certifies a run that was not recorded.`),
     gapChoice('fresh-recorded-run', codeStep ?? owner, codeStep && returnable(codeStep) ? reject(codeStep) : null, codeStep && returnable(codeStep) ? '/sf-reject' : null,
       codeStep ? `Return to ${codeStep}${later}; a document step such as ${phaseId} cannot record test runs.`
         : 'No code step records tests here.')

@@ -24,8 +24,7 @@ import {
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { readOnlyAgent } from './phase-actor-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-// Already loaded with departures.mjs.
-import { clausesTakingPaths, leftOutWords, planRowsOf, rowTakesPaths } from './plan-amendments.mjs';
+import { allPlanRows, clausesTakingPaths, leftOutWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { posix, SingularityFlowError, nowIso } from './util.mjs';
 
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -382,7 +381,7 @@ export function departureAmendmentChanges(departure, { clause = null, reason, ro
 /** The plan's rows, every one, as accepting a file departure chooses among them. */
 async function planRows(root, config, workflow) {
   const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { workDir }] = await Promise.all([import('./specifications.mjs'), import('./story-paths.mjs')]);
-  return planRowsOf(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []), { limit: Infinity });
+  return allPlanRows(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []));
 }
 
 /** A departure that may be decided now, by its ID, or a refusal that says why not. */

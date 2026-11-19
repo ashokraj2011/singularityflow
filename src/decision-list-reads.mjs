@@ -221,9 +221,9 @@ async function departureFacts(root, config, workflow, phase) {
       import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departure-records.mjs')).href), import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departures.mjs')).href)]);
     const readings = (await departureReadings(root, workflow, phase.id)).filter((entry) => departureHolds(entry.status) && entry.status !== 'rejected');
     if (!readings.length) return null;
-    const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { planRowsOf }] = await Promise.all([import('./specifications.mjs'), import('./plan-amendments.mjs')]);
+    const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { allPlanRows }] = await Promise.all([import('./specifications.mjs'), import('./plan-row-fit.mjs')]);
     // Every row: a clause a departure names is looked up however long the plan is; the list offers at most 40 of them.
-    const planRows = planRowsOf(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []), { limit: Infinity });
+    const planRows = allPlanRows(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []));
     // The register's words for each item a fix on the way carries, quoted [CQF:REQ-066]; one it cannot read shows its ID alone.
     const fixed = [...new Set(readings.flatMap((entry) => entry.departure.findings ?? []))];
     const findingTitles = fixed.length

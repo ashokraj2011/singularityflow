@@ -2113,14 +2113,12 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
     if (ownerCheck && ['approved', 'approve'].includes(boundary) && lines.length) {
       const routes = owed.unimplemented.length ? upstreamRoutes(owed.unimplemented) : { text: '', details: {} };
       throw new SingularityFlowError(
-        `Phase '${phase.id}' cannot be approved because the Story's ending would refuse its specification coverage:\n- ${lines.join('\n- ')}\n`
-        + `It is the last code step, so this is where it is delivered: return ${phase.id} for its author to complete the source and test evidence in a reviewed new generation, `
-        + `or decide it on the Decide card (singularity-flow decisions ${workflow.workItem.id}): a plan correction, or a risk accepted until a date. Never hand-edit an observed claim map.${routes.text}`,
+        `Phase '${phase.id}' cannot be approved: the Story's ending would refuse it.\n- ${lines.join('\n- ')}\n`
+        + `Return ${phase.id} to its author, or decide it on the Decide card (singularity-flow decisions ${workflow.workItem.id}).${routes.text}`,
         { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, ownerPhase: phase.id,
           evidenceCommit, coverage: owed, ...routes.details,
           repairCommand: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --reason <REASON>`,
-          // The card holds each risk filled in, with its category and a date to choose: no command to compose [owner, 2026-11-19].
-          recoveryCommands: [{ label: 'Or a person who may accept this risk records it on the Decide card, with its category and expiry.',
+          recoveryCommands: [{ label: 'Or accept the risk on the Decide card, with its category and a date.',
             command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' }] } }
       );
     }
@@ -2144,11 +2142,10 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
         workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
         evidenceCommit, coverage, ...routes.details,
         // An unplanned path is accounted for by a narrow plan amendment, not by deleting it [E2G-012].
-        // Which row is the approver's choice, so the rows go with it: the Decide card offers each one filled in, and
-        // a command with the row left blank is no route [owner, 2026-11-19].
+        // Which row is the approver's choice: the Decide card offers each, filled in [owner, 2026-11-19].
         ...(coverage.unclaimedChangedPaths.length ? {
           nextAction: routes.details.nextAction ?? { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide',
-            label: 'An approver of the plan says where each changed file belongs on the Decide card; preserve the submitted code and test evidence.' },
+            label: 'Say where each changed file belongs, on the Decide card.' },
           planRows: planRowsOf(planned)
         } : {})
       }

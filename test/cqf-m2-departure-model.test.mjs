@@ -166,7 +166,7 @@ test('when no row of the plan can take the files, Accept is shown as not availab
   assert.deepEqual(item.options.map((option) => [option.id, option.available !== false, option.recordable !== false]), [['accept', false, false], ['reject', true, true]]);
   assert.equal(accept.chat, undefined, 'no chat offers it');
   assert.match(item.why, /^AC-002 only checks tests, so these files cannot be added to it\. No other row of the plan can take them\. /u);
-  assert.match(accept.does, /Reject it, and the model restores them; to keep them, the scope changes first .*intent amendment/u);
+  assert.match(accept.does, /Reject it, and the model restores them; or change the scope first \(\/sf-amend\), which its approvers decide\.$/u);
   assert.ok(reject.chat.command.includes('--as rejected'));
   assert.equal(item.recommended.option, null, 'nothing that cannot be done is recommended');
   assert.match(item.recommended.why, /reject it to undo the change/u);

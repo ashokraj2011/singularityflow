@@ -131,7 +131,7 @@ test('test findings route to what can act without a test-recovery agreement', ()
   const renewals = lapsedTestRunRiskRenewals(lapsedStory, [{ testRunRisk: testRunRiskBinding(lapsed) }], { at: '2026-11-03T00:00:00.000Z' });
   const renew = first({ code: 'PRIOR_CODE_TEST_EVIDENCE_REQUIRED', details: { testRunRiskRenewals: renewals } });
   assert.equal(renew.kind, 'test-run-risk');
-  assert.match(renew.detail, /the decision that let it through lapsed/u);
+  assert.match(renew.detail, /its accepted risk lapsed/u);
   assert.match(renew.command, /^singularity-flow decisions \S+$/u);
   for (const sourceCode of ['TEST_MODULE_AMBIGUOUS', 'TEST_MODULE_UNCOVERED', 'GRADLE_TEST_TARGET_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED']) {
     const setup = first({ code: 'code.delivery.incomplete', details: { sourceCode } });

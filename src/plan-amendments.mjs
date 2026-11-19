@@ -30,58 +30,11 @@ export function planAuthorities(workflow) {
   return [...groups].sort();
 }
 
-/** The plan's rows, as a person chooses among them to account for a path; `limit` rows, 40 unless asked for more. */
-export function planRowsOf(planned, { limit = 40 } = {}) {
-  return Object.entries(planned).slice(0, limit).map(([clauseId, claim]) => ({ clauseId,
+/** The plan's rows, as a person chooses among them to account for a path. */
+export function planRowsOf(planned) {
+  return Object.entries(planned).slice(0, 40).map(([clauseId, claim]) => ({ clauseId,
     ...(claim.observableResult ? { result: String(claim.observableResult).slice(0, 120) } : {}),
     ...(claim.fulfillment === 'test-only' ? { testOnly: true } : {}) }));
-}
-
-/**
- * Whether a plan row can take these files as part of its delivery, as recordPlanAmendment checks it: a row that
- * only checks tests (test-only) takes a test or test-support file and nothing else. `row` is a planned claim or
- * one of planRowsOf's rows; a row nobody knows is left to the plan's own check.
- */
-export function rowTakesPaths(row, paths) {
-  const testOnly = row?.testOnly === true || row?.fulfillment === 'test-only';
-  return !testOnly || (paths ?? []).every(isTestAutomationPath);
-}
-
-/** The row a clause names: its own ID, or the one row whose full ID ends with a short one (AC-001), as decision plan reads it. */
-function rowNamed(rows, clauseId) {
-  const id = String(clauseId ?? '').toUpperCase();
-  const exact = rows.find((row) => String(row.clauseId).toUpperCase() === id);
-  if (exact || id.includes(':')) return exact ?? null;
-  const ending = rows.filter((row) => String(row.clauseId).includes(':') && String(row.clauseId).toUpperCase().split(':').at(-1) === id);
-  return ending.length === 1 ? ending[0] : null;
-}
-
-/**
- * The clauses a file departure names, split by whether their plan row can take its files [owner, 2026-11-19]: `takes`
- * can; `testOnly` only checks tests and the files are not all tests, and `noRow` names no row of the plan, so
- * accepting there would be refused, as recordPlanAmendment refuses it. `rows` are planRowsOf's rows, every one.
- */
-export function clausesTakingPaths(clauses, rows, paths) {
-  const fit = { takes: [], testOnly: [], noRow: [] };
-  for (const clauseId of clauses ?? []) {
-    const row = rowNamed(rows ?? [], clauseId);
-    (!row ? fit.noRow : rowTakesPaths(row, paths) ? fit.takes : fit.testOnly).push(clauseId);
-  }
-  return fit;
-}
-
-const wordList = (items) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
-
-/**
- * Why the files are not added to the named rows clausesTakingPaths left out, in plain words: "AC-002 only checks
- * tests, so these files are not added to it." `mode` is 'is' (before), 'was' (after) or 'cannot'; '' when none.
- */
-export function leftOutWords({ testOnly = [], noRow = [] }, { name = (id) => id, subject, plural = false, mode = 'is' }) {
-  const verb = mode === 'cannot' ? 'cannot be' : mode === 'was' ? `${plural ? 'were' : 'was'} not` : `${plural ? 'are' : 'is'} not`;
-  const to = (ids) => (ids.length === 1 ? 'it' : 'them');
-  return [testOnly.length ? `${wordList(testOnly.map(name))} only ${testOnly.length === 1 ? 'checks' : 'check'} tests, so ${subject} ${verb} added to ${to(testOnly)}.` : '',
-    noRow.length ? `${wordList(noRow.map(name))} ${noRow.length === 1 ? 'has' : 'have'} no row in the plan, so ${subject} ${verb} added to ${to(noRow)}.` : '']
-    .filter(Boolean).join(' ');
 }
 
 function exactPath(value, label) {
@@ -104,27 +57,16 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
   if (!changes.length || changes.length > MAX_CHANGES) {
     throw new SingularityFlowError(`Name 1 to ${MAX_CHANGES} changes with --add-location <clause>=<path> or --add-supporting <path>=<class>.`, { code: 'PLAN_AMENDMENT_INVALID' });
   }
-  // The rows that can take a file, each as the command that adds it there, so a refusal is never a dead end [owner, 2026-11-19].
-  const workId = workflow?.workItem?.id ?? null;
-  const takers = (file, except) => Object.entries(plan).filter(([id, row]) => id !== except && rowTakesPaths(row, [file])).map(([id]) => id);
-  const routes = (file, rows) => (workId ? rows.slice(0, 3).map((id) => ({ label: `Add ${file} to ${id} instead.`,
-    command: `singularity-flow decision plan ${workId} --fetch --add-location ${id}=${file} --reason "<REASON>"` })) : []);
   const normalized = changes.map((change) => {
     if (change.kind === 'add-location') {
       const clauseId = String(change.clauseId ?? '').toUpperCase();
       const claim = plan[clauseId];
       if (!claim) {
-        let file = null;
-        try { file = exactPath(change.path, 'The location'); } catch { file = null; }
-        throw new SingularityFlowError(`The plan has no row for ${clauseId}; a plan amendment adds to an existing row. Its rows: ${Object.keys(plan).slice(0, 12).join(', ') || 'none'}.`, {
-          code: 'PLAN_AMENDMENT_INVALID', details: { clauseId, rows: Object.keys(plan), ...(file ? { recoveryCommands: routes(file, takers(file, clauseId)) } : {}) } });
+        throw new SingularityFlowError(`The plan has no row for ${clauseId}; a plan amendment adds to an existing row. Its rows: ${Object.keys(plan).slice(0, 12).join(', ') || 'none'}.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId, rows: Object.keys(plan) } });
       }
       const candidate = exactPath(change.path, `The location for ${clauseId}`);
-      if (!rowTakesPaths(claim, [candidate])) {
-        const rows = takers(candidate, clauseId);
-        throw new SingularityFlowError(`${clauseId} only checks tests (its row is test-only), so only a test or test-support file can be added to it, and ${candidate} is not one. ${rows.length
-          ? `Add it to a row that can take it instead: ${rows.slice(0, 12).join(', ')}${rows.length > 12 ? ', …' : ''}.`
-          : 'No other row of the plan can take it: every row only checks tests.'}`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId, path: candidate, rows, recoveryCommands: routes(candidate, rows) } });
+      if (claim.fulfillment === 'test-only' && !isTestAutomationPath(candidate)) {
+        throw new SingularityFlowError(`${clauseId} is test-only; only an exact test or test-support path can be accounted for without changing its delivery contract.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId } });
       }
       if ((claim.expectedPaths ?? []).includes(candidate)) {
         throw new SingularityFlowError(`${candidate} is already an expected path of ${clauseId}.`, { code: 'PLAN_AMENDMENT_INVALID' });

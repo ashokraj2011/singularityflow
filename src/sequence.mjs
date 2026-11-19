@@ -68,7 +68,6 @@ export function sequenceGuidance(workflow) {
   const pending = workflow.pendingDecision;
   if (pending) return {
     summary: `Choose what happens next for '${pending.label}'${pending.reason === 'limit' ? '; its rounds are used' : ''}. Members of ${pending.by.join(', ')} decide.`,
-    // One filled command per option, as nextsteps names them: only the reason is the person's to type [owner, 2026-11-19].
     actions: [
       copilotAction({ skill: '/sflow-decide', command: `singularity-flow decision show ${workId}` }),
       ...(pending.options ?? []).map((option) => copilotAction({ skill: '/sflow-decide',

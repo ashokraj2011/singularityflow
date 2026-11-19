@@ -184,7 +184,7 @@ test('a file no row of the plan can take says why, with what is left, and offers
   const source = packet.items.find((item) => item.details.path === 'src/helper.mjs');
   assert.match(source.why, /^No row of the plan can take src\/helper\.mjs: every row only checks tests\. /u);
   assert.deepEqual(source.options.map((option) => [option.id, option.available !== false, option.recordable !== false]), [['add-to-row', false, false], ['keep-out', true, false]]);
-  assert.match(source.options[0].does, /Keep it out of this Story \(singularity-flow recover W-1 --phase implementation --json shows how\), or change the scope .*\/sf-amend drafts it/u);
+  assert.equal(source.options[0].does, 'No row of the plan can take src/helper.mjs: every row only checks tests. Keep it out of this Story (singularity-flow recover W-1 --phase implementation --json), or change the scope first (/sf-amend), which its approvers decide.');
   assert.equal(source.options[1].action.command, keepOut);
   assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: { [source.id]: 'add-to-row' } }), { at: AT }),
     { code: 'DECISIONS_OPTION_NOT_RECORDABLE' });

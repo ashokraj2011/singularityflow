@@ -67,9 +67,8 @@ function testFindingRoute(workflow, phase, finding, code, author) {
     // The Decide card holds this risk filled in (its command, run and cause), with the cause and a date to confirm:
     // no command for the person to compose [owner, 2026-11-19].
     return route('test-run-risk', 'phase-approval-authority', ['decisions', workId],
-      `The environment may be what stopped this run${renewal && decided === renewal ? ', and the decision that let it through lapsed' : ''}. `
-      + `Fix the environment and run it again, or a person who approves ${decided.phase} accepts it on the Decide card, with the cause, why the risk is acceptable and an expiry (an agent cannot). `
-      + 'The tests still run every time; only a run with the same environment cause is covered.', '/sf-decide');
+      `The environment may have stopped this run${renewal && decided === renewal ? ', and its accepted risk lapsed' : ''}. `
+      + `Fix it and run again, or an approver of ${decided.phase} accepts it on the Decide card, with the cause and a date.`, '/sf-decide');
   }
   if (TEST_CONFIGURATION_CODES.has(code) || (TEST_POLICY_CODES.has(code) && finding.details?.configurationDependency === true)) {
     return route('runner-setup', phase.id, ['capability', 'test-setup', '--json'],
@@ -175,18 +174,9 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       gapRoutes = others.map((choice) => route(choice.kind, choice.owner, choice.argv, choice.detail, choice.skill));
     }
   } else if (code === 'plan_evidence_correction_review_required') {
-    // One route per criterion the file could prove, each filled in; with none, the file is inspected [owner, 2026-11-19].
-    const eligible = (finding.details?.eligibleClauseIds ?? []).filter((id) => SAFE_ARGUMENT.test(String(id)));
-    const correction = (clauseId) => route('human-review', 'plan-approval-authority',
-      ['appeal', 'evidence-prepare', '--phase', phase.id, '--path', finding.path, '--clause', clauseId, '--method', 'visual', '--reason', '<reason>', '--json'],
-      `Preserve the exact pending evidence. If it proves ${clauseId}, the plan authority reviews its contract before publication; continue only admitted draft repairs. The preview offers a guided local browser review or human terminal. No visual pass or test waiver is implied.`, '/sf-appeal');
-    if (finding.path && SAFE_ARGUMENT.test(finding.path) && eligible.length) {
-      resolution = correction(eligible[0]);
-      gapRoutes = eligible.slice(1, 3).map(correction);
-    } else {
-      resolution = route('worktree-review', 'human-reviewer', ['recover', workId, '--phase', phase.id, '--json'],
-        'Preserve the exact pending evidence and inspect it: no criterion of the plan can take it as visual evidence, so it is kept out or the plan changes. No visual pass or test waiver is implied.');
-    }
+    // Recovery names the file's correction for each criterion it could prove, filled in: no clause to look up [owner, 2026-11-19].
+    resolution = route('human-review', 'plan-approval-authority', ['recover', workId, '--phase', phase.id, '--json'],
+      'Keep the pending evidence as it is. Recovery offers its evidence-contract correction for each criterion it could prove, filled in; the plan\'s approvers review it before publishing.', '/sf-recover');
   } else if (code.startsWith('generation_publication')) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'Check the saved publication and its files. Restore them as published, or return the step for a reviewed new version; refreshing configuration or accepting a risk cannot make changed files valid.', '/sf-doctor');
@@ -232,7 +222,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (code === 'generation_excluded_changes_unresolved') {
     // The Decide card offers each file under each row that can take it, filled in [owner, 2026-11-19].
     resolution = route('plan-amendment', 'plan-approval-authority', ['decisions', workId],
-      'An approver of the plan says where each Story edit belongs on the Decide card (an existing approved row, or a supporting change), then this phase is rechecked. Preserve unrelated edits through the hash-confirmed recovery copy. Do not return to Planning, discard bytes or silently publish without these files.', '/sf-decide');
+      'An approver of the plan says where each Story edit belongs on the Decide card, then this step is rechecked. Keep unrelated edits in the recovery copy; never publish without these files.', '/sf-decide');
   } else if (code === 'spec_coverage_incomplete' && finding.details?.upstreamDecision?.complete === true) {
     // Every clause still without delivery waits on an open upstream issue: its step's approvers decide.
     const decision = finding.details.upstreamDecision;

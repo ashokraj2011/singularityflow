@@ -200,11 +200,10 @@ export async function evidenceContractRecoveryActions(root, config, workflow, ph
   try { ({ record } = await readOwnedPlan(root, config, workflow, phase)); } catch { return []; }
   const clauses = Object.keys(record.claims ?? {}).filter(id => /:AC-\d{3}$/u.test(id)
     && (!(record.claims[id].steps ?? []).length || record.claims[id].steps.includes(phase.id)));
-  // One action per criterion the file could prove, each filled in; none when no criterion can take it [owner, 2026-11-19].
   return paths.flatMap(evidencePath => clauses.slice(0, 3).map(clauseId => ({ id: `review-evidence-contract:${phase.id}:${evidencePath}${clauses.length > 1 ? `:${clauseId}` : ''}`,
     safe: false, automatic: false, mode: 'guided', confirmation: 'human-authority', skill: '/sf-appeal',
     command: safeCommandGuidance({ executable: 'singularity-flow', argv: ['appeal', 'evidence-prepare',
       '--phase', phase.id, '--path', evidencePath, '--clause', clauseId, '--method', 'visual', '--reason', '<reason>', '--json'] })?.command ?? null,
     evidence: { path: evidencePath, eligibleClauseIds: clauses },
-    detail: `Preserve and inspect this exact file. If the approved plan misclassified ${clauseId}'s screenshot or inspection obligation, preview its evidence-contract correction and have the plan authority review it. No automatic adoption, passing visual evidence, test waiver or phase approval.` })));
+    detail: 'Preserve and inspect this exact file. If the approved plan misclassified a screenshot/inspection obligation, preview its evidence-contract correction and have the plan authority review it. No automatic adoption, passing visual evidence, test waiver or phase approval.' })));
 }

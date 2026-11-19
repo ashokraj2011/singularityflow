@@ -63,7 +63,7 @@ try {
   await page.waitForFunction(() => !document.querySelector('[data-sync-problem]').hidden);
   assert.equal(await page.locator('[data-sync-error]').innerText(), sharingFailure);
   assert.equal(await page.locator('[data-sync-problem] script').count(), 0);
-  await page.evaluate(() => window.postMessage({ type: 'spec.syncState', text: 'Synced' }, '*'));
+  await page.evaluate(() => window.postMessage({ type: 'spec.syncState', text: 'Shared' }, '*'));
   await page.waitForFunction(() => document.querySelector('[data-sync-problem]').hidden);
   results.push('rich/source round trip, escaping, editing metadata, save acknowledgement');
 

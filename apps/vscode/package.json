@@ -433,9 +433,10 @@
       "title": "Singularity Flow",
       "properties": {
         "singularityFlow.specStudio.autosaveMs": { "type": "integer", "default": 750, "minimum": 100, "maximum": 10000, "description": "Delay after typing before saving the specification on this laptop." },
-        "singularityFlow.specStudio.automaticSync": { "type": "boolean", "default": true, "description": "Share unreviewed draft checkpoints in the specification library after writing is saved locally." },
-        "singularityFlow.specStudio.syncQuietMs": { "type": "integer", "default": 10000, "minimum": 1000, "maximum": 300000, "description": "Quiet time after a local save before sharing an unreviewed checkpoint." },
-        "singularityFlow.specStudio.syncMinIntervalMs": { "type": "integer", "default": 30000, "minimum": 1000, "maximum": 3600000, "description": "Minimum interval between automatic checkpoint attempts in the open specification library." },
+        "singularityFlow.specStudio.automaticSync": { "type": "boolean", "default": true, "description": "Share your saved Spec Studio drafts by themselves, once this laptop has been idle (see Automatic Work: Idle Minutes). Share now always shares at once." },
+        "singularityFlow.specStudio.syncQuietMs": { "type": "integer", "default": 10000, "minimum": 1000, "maximum": 300000, "markdownDeprecationMessage": "Replaced by `#singularityFlow.automaticWork.idleMinutes#`. Used only when that is 0.", "description": "Used only when Automatic Work: Idle Minutes is 0: quiet time after a save before sharing your draft." },
+        "singularityFlow.specStudio.syncMinIntervalMs": { "type": "integer", "default": 30000, "minimum": 1000, "maximum": 3600000, "description": "Least time between two attempts to share your drafts by themselves, and the base of the wait after a failed one." },
+        "singularityFlow.automaticWork.idleMinutes": { "type": "integer", "default": 30, "minimum": 0, "maximum": 1440, "description": "Minutes with no activity on this laptop before SFlow does Git work by itself: sharing your Spec Studio drafts and clean-up of finished Story folders. Anything you ask for (Share now, Publish, approve, a Copilot step) runs at once. 0 runs them as soon as they are due." },
         "singularityFlow.performanceTrace": {
           "type": "boolean", "default": false,
           "description": "Record bounded, laptop-local classified performance traces for SFlow CLI requests. No prompts, document contents, credentials or URLs are captured. View Activity & logs → Performance or run singularity-flow logs performance."

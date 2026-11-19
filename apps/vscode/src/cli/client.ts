@@ -896,6 +896,8 @@ export class SingularityFlowClient {
     // never retarget its background reads or mutations. The kernel verifies this selector.
     if (this.options.surfaceBinding !== false) env.SINGULARITY_FLOW_SURFACE_CONTEXT = JSON.stringify({ schemaVersion: 1, repositoryPath: path.resolve(repository) });
     else delete env.SINGULARITY_FLOW_SURFACE_CONTEXT;
+    // The window records its person's activity itself (laptop-activity.ts); its own timers and reads never count.
+    env.SINGULARITY_FLOW_ACTIVITY_STAMP = 'off';
     const environmentDigest = createHash('sha256').update(JSON.stringify(
       Object.entries(env).filter(([key, value]) => value !== undefined
         && !['SINGULARITY_FLOW_PERF_ACTION_ID', 'SINGULARITY_FLOW_PERF_PARENT_SPAN_ID'].includes(key)).sort(([a], [b]) => a.localeCompare(b))

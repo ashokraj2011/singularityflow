@@ -217,7 +217,8 @@ test('the heartbeat in a Story checkout writes no Story index entry and does no 
 test('background worker finishes independently and repeat foreground launches are throttled', slowLane({ timeout: 120000 }), async t => {
   const f = await fixture(t);
   const { scheduleWorkspaceRetention } = await import('../src/workspace-retention-background.mjs');
-  const options = { protect: [f.root], env: { ...process.env, NODE_ENV: 'production', SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'on' } };
+  // No idle wait: this test is about the worker itself (the wait has its own test below).
+  const options = { protect: [f.root], env: { ...process.env, NODE_ENV: 'production', SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'on', SINGULARITY_FLOW_IDLE_MINUTES: '0' } };
   assert.equal(await scheduleWorkspaceRetention(f.workspacePath, options), true);
   const file = path.join(f.workspacePath, '.singularity-flow/cleanup-state.json');
   const deadline = Date.now() + 90000;
@@ -233,6 +234,30 @@ test('background worker finishes independently and repeat foreground launches ar
   assert.equal(result?.status, 'completed');
   assert.equal(leased, false, 'the worker released its maintenance lease');
   assert.equal(await scheduleWorkspaceRetention(f.workspacePath, options), false);
+});
+
+test('clean-up of finished Story folders starts by itself only on an idle laptop, and waits for one otherwise', async t => {
+  const f = await fixture(t);
+  const { scheduleWorkspaceRetention } = await import('../src/workspace-retention-background.mjs');
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-retention-idle-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { ...process.env, NODE_ENV: 'production', SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'on', SINGULARITY_FLOW_ACTIVITY_FILE: path.join(home, 'activity.json') };
+  const queue = path.join(home, 'automatic-work');
+  let launched = 0;
+  // The runner's first act is to claim the queue; this stand-in does only that.
+  const launchRunner = async () => { launched += 1; await writeFile(path.join(queue, 'runner.json'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })); };
+  const options = { protect: [f.root], env, idle: async () => ({ idle: false, remainingMs: 60_000 }), launchRunner };
+  assert.equal(await scheduleWorkspaceRetention(f.workspacePath, options), false, 'due, but someone is working');
+  assert.equal(launched, 1, 'one waiting process takes it from here');
+  const jobs = (await readdir(queue)).filter(name => name.startsWith('workspace-cleanup-'));
+  assert.equal(jobs.length, 1);
+  const job = JSON.parse(await readFile(path.join(queue, jobs[0]), 'utf8'));
+  assert.equal(job.workspacePath, path.resolve(f.workspacePath)); assert.ok(job.protect.includes(f.root));
+  assert.equal(await lstat(path.join(f.workspacePath, '.singularity-flow/cleanup-state.json')).then(() => true, () => false), false, 'nothing ran');
+  // The window's next heartbeat finds it already waiting: no second job, no second process.
+  assert.equal(await scheduleWorkspaceRetention(f.workspacePath, options), false);
+  assert.equal((await readdir(queue)).filter(name => name.startsWith('workspace-cleanup-')).length, 1);
+  assert.equal(launched, 1);
 });
 
 test('the background worker refuses to start without a valid launch packet', async t => {

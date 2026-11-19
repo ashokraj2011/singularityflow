@@ -3,7 +3,8 @@
  *
  * Two laptops ran builds that predated the fixes for the very refusals they hit (2026-10-27), and
  * nothing said so. This never waits on the network: it reads a cached answer and, at most twice a
- * day, starts `git ls-remote` in a detached process whose output the next call reads. It warns only
+ * day and once the laptop has been idle (automatic-work.mjs), starts `git ls-remote` in a detached process whose
+ * output the next call reads. It warns only
  * when the checkout shows this build is an ancestor of main; a build from a branch ahead of main, a
  * checkout that is gone or unreachable, or an unstamped build says nothing.
  */
@@ -59,6 +60,14 @@ function startRefresh(checkout, rawFile) {
   } catch { /* No Git or no checkout: nothing is said. */ }
 }
 
+export { startRefresh as startBuildCurrencyRefresh };
+
+/** An ls-remote SFlow starts by itself: it waits until the laptop is idle (automatic-work.mjs). */
+function refreshWhenIdle(checkout, rawFile, env) {
+  void import('./automatic-work.mjs').then(({ whenLaptopIdle }) => whenLaptopIdle({ kind: 'build-currency', checkout, rawFile },
+    () => startRefresh(checkout, rawFile), { env })).catch(() => {});
+}
+
 /**
  * `{ behind, main, build, checkout, commands }` when this build is older than main, else null.
  * Reads the install record and writes only `build-currency*` in the installations folder
@@ -66,7 +75,7 @@ function startRefresh(checkout, rawFile) {
  */
 export function buildCurrency({ env = process.env, now = Date.now(), commit = BUILD_INFO.commit,
   directory = env.SINGULARITY_FLOW_INSTALLATIONS_DIR ?? path.join(os.homedir(), '.singularity-flow', 'installations'),
-  refresh = startRefresh } = {}) {
+  refresh = refreshWhenIdle } = {}) {
   if (!SHA.test(commit ?? '') || env.SINGULARITY_FLOW_NO_UPDATE_CHECK === '1') return null;
   const checkout = readJson(path.join(directory, 'current.json'))?.checkout;
   if (typeof checkout !== 'string' || !checkout) return null;
@@ -86,7 +95,7 @@ export function buildCurrency({ env = process.env, now = Date.now(), commit = BU
   if (stale && !pending) {
     cache = { ...cache, requestedAt: new Date(now).toISOString() };
     try { mkdirSync(directory, { recursive: true }); } catch { /* reported as nothing */ }
-    refresh(checkout, rawFile);
+    refresh(checkout, rawFile, env);
   }
   if (main || (stale && !pending)) {
     try { writeFileSync(`${cacheFile}.tmp`, `${JSON.stringify(cache)}\n`, { mode: 0o600 }); renameSync(`${cacheFile}.tmp`, cacheFile); } catch { /* best effort */ }

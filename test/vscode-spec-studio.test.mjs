@@ -140,8 +140,8 @@ function git(cwd, ...args) {
   assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
   return result.stdout.trim();
 }
-function cli(cwd, args) {
-  const result = spawnSync(process.execPath, [bin, ...args], { cwd, env: { ...env, ...isolatedEnvironment(path.join(path.dirname(cwd), '.test-context-' + path.basename(cwd))), SINGULARITY_FLOW_TEST_IDENTITY: 'Spec Author', GIT_CONFIG_VALUE_0: 'Spec Author', GIT_CONFIG_VALUE_1: 'spec.author@example.test' }, encoding: 'utf8', timeout: childTimeout(180_000), maxBuffer: 16 * 1024 * 1024 });
+function cli(cwd, args, extra = {}) {
+  const result = spawnSync(process.execPath, [bin, ...args], { cwd, env: { ...env, ...isolatedEnvironment(path.join(path.dirname(cwd), '.test-context-' + path.basename(cwd))), SINGULARITY_FLOW_TEST_IDENTITY: 'Spec Author', GIT_CONFIG_VALUE_0: 'Spec Author', GIT_CONFIG_VALUE_1: 'spec.author@example.test', ...extra }, encoding: 'utf8', timeout: childTimeout(180_000), maxBuffer: 16 * 1024 * 1024 });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 const json = (cwd, args) => {
@@ -186,7 +186,7 @@ async function storefront(t) {
 }
 
 /** The panel's client: every command goes to the real CLI; refusals arrive as the runner's CliError does. */
-function recordingClient(root) {
+function recordingClient(root, extra = {}) {
   const client = {
     calls: [], pending: 0,
     async run(argv) {
@@ -194,7 +194,7 @@ function recordingClient(root) {
       client.pending += 1;
       try {
         await new Promise((resolve) => setImmediate(resolve));
-        const result = cli(root, argv);
+        const result = cli(root, argv, extra);
         if (result.status !== 0) {
           let parsed = null;
           try { parsed = JSON.parse(result.stdout); } catch { /* prose */ }
@@ -1022,7 +1022,7 @@ test('research and questions open from the writing page, and the stages that rep
 
 test('one sharing failure does not end automatic sharing: a transient one retries by itself, and its warning survives a render', async t => {
   const { root } = await storefront(t); const original = recordingClient(root);
-  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 50, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 50, 'singularityFlow.specStudio.syncMinIntervalMs': 1000, 'singularityFlow.automaticWork.idleMinutes': 0 });
   let failures = 1; const syncs = [];
   const client = { ...original, run: async argv => {
     if (argv[2] === 'sync') { syncs.push(argv); if (failures-- > 0) throw Object.assign(new Error('Could not reach the remote'), { result: { error: { code: 'SPEC_SHARED_DRAFT_PENDING', message: 'Could not reach the remote', details: {} } } }); }
@@ -1051,7 +1051,7 @@ test('one sharing failure does not end automatic sharing: a transient one retrie
 
 test('Studio says plainly when a secret stopped sharing, keeps writing, and shares again once it is gone', async t => {
   const { root } = await storefront(t); const client = recordingClient(root);
-  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 50, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 50, 'singularityFlow.specStudio.syncMinIntervalMs': 1000, 'singularityFlow.automaticWork.idleMinutes': 0 });
   const studio = await live(client, root); t.after(() => studio.dispose());
   const syncCalls = () => client.calls.filter(argv => argv[2] === 'sync').length;
   const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
@@ -1095,7 +1095,7 @@ test('a sharing refusal that arrives after a reload is still shown, and opening 
   assert.match(studio.webview.html, /Not shared: a secret\./u);
   assert.match(studio.webview.html, /Saved on this laptop · not shared/u);
   // Leaving and coming back loses the page's warning, so the hold goes too and the next attempt says why again.
-  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000, 'singularityFlow.automaticWork.idleMinutes': 0 });
   const syncs = original.calls.filter(argv => argv[2] === 'sync').length;
   refusing = false;
   studio.post({ type: 'spec.home' }); await settled(original, studio);
@@ -1195,7 +1195,7 @@ test('a form that asks for something always hears how it went, including when an
 
 test('sharing resumes once a value is gone that was not wording, with nobody typing', async t => {
   const { root } = await storefront(t); const client = recordingClient(root);
-  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000, 'singularityFlow.automaticWork.idleMinutes': 0 });
   const { saveDraft } = await import('../src/spec-library/draft-store.mjs');
   await saveDraft(root, SPEC, { operationId: 'old-source', operation: 'source', change: draft => ({ ...draft,
     sources: [{ id: 'SRC-0000000000000009', type: 'url', name: 'files.acme.io', url: inventedValue('https://files.acme.io/old?to', 'ken=Zx9fK2mQ', '7vLp4Tn8'), purpose: '', standing: 'not-read' }] }) });
@@ -1235,25 +1235,78 @@ test('a lost save answer does not become someone else’s conflict when the pers
   assert.equal(after.sequence, status.sequence + 2);
 });
 
+/** A client whose engine reads its own activity file, which only the test writes, as the window's own calls never do. */
+async function engineActivity(t, root) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-spec-activity-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'activity.json');
+  return { file, client: recordingClient(root, { SINGULARITY_FLOW_ACTIVITY_FILE: file, SINGULARITY_FLOW_ACTIVITY_STAMP: 'off', SINGULARITY_FLOW_OS_IDLE: 'off' }) };
+}
+
 test('a draft in backoff does not hold up another queued behind it', async t => {
-  const { root } = await storefront(t); const original = recordingClient(root);
+  const { root } = await storefront(t); const { client: original } = await engineActivity(t, root);
   json(root, ['spec', 'author', 'new', 'SPEC-OTHER-004', '--title', 'Another', '--kind', 'business', '--local']);
-  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncMinIntervalMs': 1000, 'singularityFlow.automaticWork.idleMinutes': 30 });
+  // The laptop is idle only while the test says so: nothing is shared while the other draft opens, however slow the machine.
+  let idle = true;
+  const laptop = { note() {}, quiet: () => (idle ? { idle: true, remainingMs: 0 } : { idle: false, remainingMs: 20 }) };
   const syncs = [];
   const client = { ...original, run: async argv => {
     if (argv[2] === 'sync') { syncs.push(argv[3]); if (argv[3] === SPEC) throw Object.assign(new Error('Could not reach the remote'), { result: { error: { code: 'SPEC_SHARED_DRAFT_PENDING', message: 'Could not reach the remote', details: {} } } }); }
     return original.run(argv);
   } };
-  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(original, studio);
+  SpecStudioPanel.show(client, SPEC, { root: () => root, laptop }); const studio = panels.at(-1); await settled(original, studio);
   t.after(() => studio.dispose());
-  for (let attempt = 0; !syncs.length && attempt < 300; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
-  assert.equal(syncs[0], SPEC);
-  // Its backoff is now 2 seconds out. The other draft opens and queues; it goes first at the plain interval.
+  for (let attempt = 0; !syncs.length && attempt < 400; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual(syncs, [SPEC]);
+  // Its backoff is now 2 seconds out. The other draft opens and queues while the laptop is in use.
+  idle = false;
   studio.post({ type: 'spec.open', spec: 'SPEC-OTHER-004' }); await settled(original, studio);
-  const started = Date.now();
-  for (let attempt = 0; !syncs.includes('SPEC-OTHER-004') && attempt < 400; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
-  assert.ok(syncs.includes('SPEC-OTHER-004'), JSON.stringify(syncs));
-  assert.equal(syncs.filter(spec => spec === SPEC).length, 1, 'the failing one waits its turn: ' + (Date.now() - started));
+  assert.deepEqual(syncs, [SPEC], 'nothing is shared while the laptop is in use');
+  // Idle again, the draft due soonest goes first, whether or not the failing one's backoff has run out meanwhile.
+  idle = true;
+  for (let attempt = 0; syncs.length < 2 && attempt < 400; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual(syncs, [SPEC, 'SPEC-OTHER-004'], 'the failing one waits its turn');
+});
+
+test('a draft shares by itself only once the laptop has been idle; Share now shares at once', async t => {
+  const { root } = await storefront(t); const { file, client } = await engineActivity(t, root);
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncMinIntervalMs': 1000, 'singularityFlow.automaticWork.idleMinutes': 30 });
+  let idle = false, asked = 0, noted = 0;
+  const laptop = { note: () => { noted += 1; }, quiet: (minutes) => { asked += 1; assert.equal(minutes, 30); return idle ? { idle: true, remainingMs: 0 } : { idle: false, remainingMs: 20 }; } };
+  const studio = await live(client, root, { laptop }, { keep: true }); t.after(() => studio.dispose());
+  const syncs = () => client.calls.filter(argv => argv[2] === 'sync');
+  const shared = () => json(root, ['spec', 'author', 'shared', SPEC, '--refresh']).drafts[0]?.draft.spec ?? null;
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  const first = status.spec + '\nOne more line.\n';
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: first }); await settled(client, studio);
+  assert.ok(noted > 0, 'writing here is activity on this laptop');
+  assert.equal(posted(studio, 'spec.saved').at(-1).saveState, 'Saved on this laptop · shares after 30 minutes idle');
+  assert.match(studio.webview.html, />Share now</u);
+  // In use: the wait is re-armed for the time left, again and again, and nothing leaves this laptop.
+  const before = asked;
+  await new Promise(resolve => setTimeout(resolve, 2500));
+  assert.equal(syncs().length, 0);
+  assert.ok(asked - before >= 2, `re-armed, not shared (${asked - before})`);
+  // Share now does not wait for anything.
+  studio.post({ type: 'spec.sync' }); await settled(client, studio);
+  assert.equal(syncs().length, 1); assert.ok(!syncs()[0].includes('--automatic'));
+  assert.equal(shared(), first);
+  // Newer writing while the laptop is in use stays here; once idle here, the engine is asked with the same wait and,
+  // holding its own reading of a person at work (another terminal, say), says when to try again.
+  const second = first + 'Two more lines.\n';
+  studio.post({ type: 'spec.save', sequence: status.sequence + 1, text: second }); await settled(client, studio);
+  const { noteActivity } = await import('../src/machine-activity.mjs');
+  noteActivity({ file });
+  idle = true;
+  for (let attempt = 0; syncs().length < 2 && attempt < 400; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  await settled(client, studio);
+  assert.deepEqual(syncs()[1].slice(4, 8), ['--automatic', '--idle-minutes', '30', '--min-interval-ms']);
+  assert.equal(shared(), first, 'the engine saw activity, so nothing was shared');
+  assert.equal(posted(studio, 'spec.syncState').at(-1).text, 'Saved on this laptop · shares after 30 minutes idle');
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert.equal(syncs().length, 2, 'and it waits as long as the engine said');
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC, '--quick']).spec, second, 'the newer writing is saved on this laptop');
 });
 
 test('selected wording that looks private is not sent to chat; ordinary wording is', async t => {

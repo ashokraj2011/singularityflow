@@ -25,6 +25,7 @@ import { collectReviewConfirmation } from './review-confirmation.ts';
 import * as model from './spec-studio-model.ts';
 import { composeRegions, specStudioHtml, SPEC_STUDIO_SCRIPT, SPEC_STUDIO_STYLE, studioDocumentHtml, type SpecStudioPageState } from './spec-studio-page.ts';
 import * as split from './spec-studio-split.ts';
+import { idleMinutesSetting, idleWaitWords, laptopQuiet, noteLaptopActivity } from '../laptop-activity.ts';
 
 export interface SpecStudioHooks {
   /** The repository the CLI runs in, so a cited file opens at its line. */
@@ -39,6 +40,11 @@ export interface SpecStudioHooks {
    * took the refusal, which then types the same command into the person's own terminal (SPEC-PSS-v1 AC-014).
    */
   signRequired?: (error: unknown) => boolean;
+  /**
+   * The laptop's activity (laptop-activity.ts): what the person does here is noted, and sharing nobody asked for waits
+   * until the laptop has been idle. Tests give their own clock-free answers.
+   */
+  laptop?: { note(): void; quiet(idleMinutes: number): { idle: boolean; remainingMs: number } };
 }
 type Client = Pick<SingularityFlowClient, 'run'> & Partial<Pick<SingularityFlowClient, 'forkForRepository'>>;
 
@@ -81,6 +87,8 @@ export class SpecStudioPanel implements vscode.Disposable {
   /** A save whose answer never came: it may have landed, so the next save learns its sequence first. */
   private unanswered: { spec: string; edit: { text: string; sequence: number; title?: string; kind?: string | null }; operation: string } | null = null;
   private lastSyncAt = 0;
+  /** The engine said the laptop is in use (its own idle reading): automatic sharing waits until then. */
+  private sharingDeferredUntil = 0;
   private saveBlocked = false;
   private syncing = false;
   private reviewing = false;
@@ -114,6 +122,8 @@ export class SpecStudioPanel implements vscode.Disposable {
     this.hooks = { ...hooks, root: () => this.repositoryRoot };
     this.state = this.fresh(target);
     panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The person writing or clicking here: SFlow's own Git work keeps waiting for an idle laptop.
+      if ((raw as { type?: unknown } | null)?.type !== 'spec.ready') this.laptop().note();
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
       // Whatever the handler did to the page, a form that was sent always hears back, or its buttons stay disabled.
@@ -188,7 +198,7 @@ export class SpecStudioPanel implements vscode.Disposable {
       // operation may have been running, when a blocked save would hear nothing at all.
       const status = this.state.status;
       if (status && this.saveBlocked) this.post({ type: 'spec.saveFailed', message: this.state.error?.message ?? 'Your writing could not be saved.' });
-      else if (status) this.post({ type: 'spec.saved', sequence: status.sequence, dirty: this.edits.has(status.specId) });
+      else if (status) this.post({ type: 'spec.saved', sequence: status.sequence, dirty: this.edits.has(status.specId), saveState: this.state.saveState });
     },
     'spec.research': (message) => this.guard(() => this.draftWrite('Collecting research from the code…', (specId) => model.researchArgv(specId, {
       paths: Array.isArray(message.paths) ? message.paths.filter((entry): entry is string => typeof entry === 'string') : [], refresh: booleanField(message, 'refresh')
@@ -320,7 +330,7 @@ export class SpecStudioPanel implements vscode.Disposable {
       this.state.step = 'draft';
       // Opening starts over: the attempt below says again whatever still stands in the way.
       this.syncHolds.delete(status.specId);
-      if (status.sharedDraft?.localSequence !== status.sequence) this.scheduleSync();
+      if (status.sharedDraft?.localSequence !== status.sequence) { this.state.saveState ??= this.savedWords(); this.scheduleSync(); }
     }
     this.opening = false;
     if (this.state.selectedGap && !status?.gaps.some((gap) => gap.id === this.state.selectedGap)) this.state.selectedGap = null;
@@ -515,11 +525,18 @@ export class SpecStudioPanel implements vscode.Disposable {
     if (this.page?.spec === status.specId) Object.assign(this.page, { text: message.text, title, kind });
     if (message.text === status.spec && sequence === status.sequence && title === status.title && kind === status.kind) this.edits.delete(status.specId);
     else this.edits.set(status.specId, { text: message.text, sequence, title, kind });
-    this.state.saveState = this.edits.has(status.specId) ? 'Changes waiting to save' : 'Saved on this laptop';
+    this.state.saveState = this.edits.has(status.specId) ? 'Changes waiting to save' : this.savedWords();
     if (!this.saveBlocked) this.scheduleSave();
   }
 
   private setting<T>(key: string, fallback: T): T { return vscode.workspace.getConfiguration('singularityFlow').get<T>('specStudio.' + key, fallback); }
+  /** Minutes the laptop must be idle before sharing nobody asked for (singularityFlow.automaticWork.idleMinutes). */
+  private idleMinutes(): number { return idleMinutesSetting(vscode.workspace.getConfiguration('singularityFlow').get<number>('automaticWork.idleMinutes', 30)); }
+  private laptop(): NonNullable<SpecStudioHooks['laptop']> { return this.hooks.laptop ?? { note: () => noteLaptopActivity(), quiet: laptopQuiet }; }
+  /** The least time between two automatic attempts, and the base of their backoff. */
+  private syncInterval(): number { return Math.max(1000, this.setting('syncMinIntervalMs', 30000)); }
+  /** The header's plain account of saved writing: when it will be shared, if it will be by itself. */
+  private savedWords(): string { return this.setting('automaticSync', true) ? 'Saved on this laptop · ' + idleWaitWords(this.idleMinutes()) : 'Saved on this laptop'; }
   private scheduleSave(): void {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     if (!this.disposed) this.saveTimer = setTimeout(() => { this.saveTimer = null; if (!this.running || this.reviewing) void this.flushEdits(); else this.scheduleSave(); }, Math.max(100, this.setting('autosaveMs', 750)));
@@ -552,8 +569,8 @@ export class SpecStudioPanel implements vscode.Disposable {
         else if (latest?.sequence === captured.sequence) latest.sequence = sequence;
         if (this.basis?.spec === status.specId) this.basis.sequence = sequence;
         await this.hooks.memento?.update(this.recoveryKey(status.specId), undefined);
-        this.saveAttempt = null; this.unanswered = null; this.saveBlocked = false; this.state.error = null; this.state.saveState = 'Saved on this laptop';
-        this.post({ type: 'spec.saved', sequence, dirty: this.edits.has(status.specId) });
+        this.saveAttempt = null; this.unanswered = null; this.saveBlocked = false; this.state.error = null; this.state.saveState = this.savedWords();
+        this.post({ type: 'spec.saved', sequence, dirty: this.edits.has(status.specId), saveState: this.state.saveState });
         this.scheduleSync();
         // Another snapshot landed between: Copilot's proposal through the CLI, say. The page has not seen it.
         if (sequence > captured.sequence + 1) queueMicrotask(() => this.queueReload());
@@ -599,6 +616,11 @@ export class SpecStudioPanel implements vscode.Disposable {
     if (this.state.status) this.pendingSync.add(this.state.status.specId);
     this.planSync();
   }
+  /**
+   * Sharing nobody asked for waits until the laptop has been idle for automaticWork.idleMinutes (30 by default) [owner,
+   * 2026-11-19], then the time left since anyone was last active, re-armed as often as someone is. Share now, Publish
+   * and the rest never wait. With no idle wait (0) the earlier quiet period applies (specStudio.syncQuietMs).
+   */
   private planSync(): void {
     if (this.syncTimer) clearTimeout(this.syncTimer);
     if (this.disposed || this.saveBlocked || !this.setting('automaticSync', true)) return;
@@ -606,11 +628,15 @@ export class SpecStudioPanel implements vscode.Disposable {
     const retryAt = (spec: string): number => this.syncBackoff.get(spec)?.retryAt ?? 0;
     const next = [...this.pendingSync].filter(spec => !this.syncHeld(spec)).sort((left, right) => retryAt(left) - retryAt(right))[0];
     if (!next) return;
-    const delay = Math.max(this.setting('syncQuietMs', 10000), this.lastSyncAt + Math.max(1000, this.setting('syncMinIntervalMs', 30000)) - Date.now(), retryAt(next) - Date.now());
+    const minutes = this.idleMinutes();
+    const quiet = minutes === 0 ? this.setting('syncQuietMs', 10000) : Math.max(1000, this.laptop().quiet(minutes).remainingMs);
+    const now = Date.now();
+    const delay = Math.max(quiet, this.lastSyncAt + this.syncInterval() - now, retryAt(next) - now, this.sharingDeferredUntil - now);
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
-      if (!this.running) void this.flushEdits().then(ok => { if (ok) void this.sync(true, next); });
-      else this.planSync();
+      // Busy here, or someone was active while this waited: wait again, for the time left.
+      if (this.running || minutes > 0 && !this.laptop().quiet(minutes).idle) return this.planSync();
+      void this.flushEdits().then(ok => { if (ok) void this.sync(true, next); });
     }, delay);
   }
   /** A hold on refused writing lasts only while that writing is the draft; any later version is worth trying. */
@@ -628,23 +654,27 @@ export class SpecStudioPanel implements vscode.Disposable {
     this.syncing = true; this.pendingSync.delete(spec);
     if (!automatic) { this.syncHolds.delete(spec); this.syncBackoff.delete(spec); }
     this.lastSyncAt = Date.now();
-    if (open()) this.post({ type: 'spec.syncState', text: 'Syncing saved writing…' });
+    if (open()) this.post({ type: 'spec.syncState', text: 'Sharing your draft…' });
     try {
-      const result = await this.client.run(['spec', 'author', 'sync', spec, ...(automatic ? ['--automatic', '--min-interval-ms', String(Math.max(1000, this.setting('syncMinIntervalMs', 30000)))] : []), '--json']) as { status: string; retryAfterMs?: number };
+      const result = await this.client.run(['spec', 'author', 'sync', spec, ...(automatic
+        ? ['--automatic', '--idle-minutes', String(this.idleMinutes()), '--min-interval-ms', String(this.syncInterval())] : []), '--json']) as { status: string; retryAfterMs?: number };
       if (result.status === 'deferred') {
         this.pendingSync.add(spec);
-        if (open()) { this.state.saveState = 'Saved on this laptop · sync queued'; this.post({ type: 'spec.syncState', text: this.state.saveState }); }
+        // The engine's own reading (keyboard and pointer included) says when it may be idle: not before then.
+        if (Number.isFinite(result.retryAfterMs)) this.sharingDeferredUntil = Date.now() + Math.max(1000, result.retryAfterMs!);
+        if (open()) { this.state.saveState = this.savedWords(); this.post({ type: 'spec.syncState', text: this.state.saveState }); }
         return;
       }
+      this.sharingDeferredUntil = 0;
       this.syncHolds.delete(spec); this.syncBackoff.delete(spec);
       const current = open();
       if (current) {
         const newer = this.edits.has(spec) || sequence !== current.sequence;
-        this.state.syncState = newer ? 'Newer writing awaits sync' : 'Synced';
+        this.state.syncState = newer ? 'Newer writing not shared yet' : 'Shared';
         const hadProblem = Boolean(this.state.sharing);
         this.state.sharing = null;
         // The header says the latest fact about this writing, across renders too.
-        this.state.saveState = this.edits.has(spec) ? 'Saving latest writing…' : newer ? 'Saved locally · sync queued' : 'Synced';
+        this.state.saveState = this.edits.has(spec) ? 'Saving latest writing…' : newer ? this.savedWords() : 'Shared';
         this.post({ type: 'spec.syncState', text: this.state.saveState });
         if (newer) this.pendingSync.add(spec);
         if (hadProblem) this.render();
@@ -659,7 +689,7 @@ export class SpecStudioPanel implements vscode.Disposable {
       else {
         // Transient: a person need not do anything, so automatic sharing keeps trying, further apart.
         const failures = (this.syncBackoff.get(spec)?.failures ?? 0) + 1;
-        this.syncBackoff.set(spec, { failures, retryAt: Date.now() + Math.min(MAXIMUM_SYNC_BACKOFF_MS, Math.max(1000, this.setting('syncMinIntervalMs', 30000)) * 2 ** failures) });
+        this.syncBackoff.set(spec, { failures, retryAt: Date.now() + Math.min(MAXIMUM_SYNC_BACKOFF_MS, this.syncInterval() * 2 ** failures) });
       }
       const refusal = model.refusalFrom(error);
       this.hooks.output?.appendLine('Spec Studio sharing ' + spec + ': ' + refusal.message);
@@ -911,7 +941,7 @@ export class SpecStudioPanel implements vscode.Disposable {
   private async discardEdits(): Promise<void> {
     const spec = this.state.status?.specId ?? this.state.target.specId; if (!spec) return;
     this.edits.delete(spec); await this.hooks.memento?.update(this.recoveryKey(spec), undefined);
-    this.saveAttempt = null; this.saveBlocked = false; this.state.error = null; this.state.saveState = 'Saved on this laptop';
+    this.saveAttempt = null; this.saveBlocked = false; this.state.error = null; this.state.saveState = this.savedWords();
     this.state.notice = 'Your unsaved text was discarded. This is the latest saved version.';
     await this.read(); this.render();
   }

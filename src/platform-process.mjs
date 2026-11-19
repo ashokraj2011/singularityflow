@@ -295,6 +295,22 @@ export function tryWindowsTaskkill(pid, {
   }
 }
 
+const WINDOWS_IDLE = 'Add-Type -Name I -Namespace S -MemberDefinition \'[DllImport("user32.dll")] public static extern bool GetLastInputInfo(int[] i);\';'
+  + '$i=[int[]](8,0);[void][S.I]::GetLastInputInfo($i);$d=([int64][Environment]::TickCount-$i[1])%4294967296;if($d -lt 0){$d+=4294967296};$d';
+
+/** Milliseconds with no keyboard or pointer input (macOS HIDIdleTime, Windows GetLastInputInfo), else null: automatic-work.mjs. */
+export function osIdleMilliseconds({ platform = process.platform, environment = process.env, spawnSyncCommand = spawnSync } = {}) {
+  try {
+    const windows = platform === 'win32';
+    if (!windows && platform !== 'darwin') return null;
+    const result = spawnSyncCommand(windows ? path.win32.join(path.win32.dirname(resolveWindowsSystemTool(environment, 'cmd.exe')), 'WindowsPowerShell', 'v1.0', 'powershell.exe') : '/usr/sbin/ioreg',
+      windows ? ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_IDLE] : ['-c', 'IOHIDSystem', '-r', '-d', '1', '-k', 'HIDIdleTime'],
+      { encoding: 'utf8', timeout: windows ? 5_000 : 2_000, windowsHide: true, shell: false });
+    const value = (windows ? /^\s*(\d{1,10})\s*$/u : /"HIDIdleTime"\s*=\s*(\d+)/u).exec(result?.status === 0 || !windows ? String(result?.stdout ?? '') : '')?.[1];
+    return value ? (windows ? Number(value) : Number(BigInt(value) / 1_000_000n)) : null;
+  } catch { return null; }
+}
+
 /** A process this CLI started, not a test double: only a real child's pid names a process group. */
 export const isSpawnedChild = (child) => child instanceof ChildProcess;
 

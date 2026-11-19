@@ -25,7 +25,9 @@ const FAMILIES = Object.freeze([
     'kernel/step-state.mjs', 'kernel/step-versions.mjs',
     // Copilot's home, which install, hooks, reports, MCP reads and model launches all take from one rule. Claimed by
     // any one of their families, the others would import that family's chunk for it.
-    'copilot-home.mjs']],
+    'copilot-home.mjs',
+    // The laptop's last activity, stamped by root dispatch and the prompt hook alike (machine-activity.mjs).
+    'machine-activity.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs',
     // The Story report's change impact counts, imported only by `report` and its read [CIC:REQ-017].
@@ -45,7 +47,10 @@ const FAMILIES = Object.freeze([
   // rendering --for-agent. Entry programs remain private; helper imports never start a worker.
   ['worker-protocol', ['read-worker.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs',
     'configuration-proposal-sync-worker.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
-    'agent-packet-presentation.mjs']],
+    'agent-packet-presentation.mjs',
+    // The idle-laptop gate and queue that clean-up, the history index, the newer-build check and automatic
+    // sharing load only when one is due (automatic-work.mjs). Unclaimed, it fell into compatibility.
+    'automatic-work.mjs']],
   // Claim strict next-step reads before broad catalog/review families. Sharing their slot with
   // phase review caused every nextsteps call to load document, receipt and lifecycle writers.
   ['narrow-reads', ['commands/nextsteps.mjs', 'commands/status-details.mjs', 'commands/session-current.mjs',

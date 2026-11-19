@@ -832,7 +832,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // own updater, registered as a command (command-registry.mjs), routed to /sf-about and refused in every turn as the
     // person's own step (command-skills.mjs, person-step-catalog.mjs) [owner, 2026-11-19]. Its handler and runtime/update.mjs
     // stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_762_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,763,900 (measured 9,763,893 for submit.mjs, +1,388 over 9,762,505; start.mjs 9,762,356, 2026-11-19): Git work SFlow
+    // starts by itself waits for an idle laptop (owner, 2026-11-19): the operating system's input idle time is read through
+    // the registered process owner (platform-process.mjs osIdleMilliseconds, +1,388). The gate, the stamp and the queue
+    // (machine-activity.mjs, automatic-work.mjs) stay lazy. No new eager file.
+    assert.ok(closure.bytes <= 9_763_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -960,7 +964,11 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 871,650 (measured 871,645, +72): `singularity-flow update` registered (command-registry.mjs) and kept out of
   // repository routing and the mutation lease (cli-entry.mjs) [owner, 2026-11-19]. The updater stays lazy
   // (src/commands/update.mjs loads runtime/update.mjs only when run). No new eager file.
-  assert.ok(root.bytes <= 871_650, `root dispatch loads ${root.bytes} source bytes`);
+  // 873,000 (measured 872,976, +1,601 over 871,375): Git work SFlow starts by itself waits for an idle laptop (owner,
+  // 2026-11-19): every foreground command that is not upkeep stamps the laptop's activity, lazily (cli-entry.mjs +213), and
+  // the operating system's input idle time is read through the registered process owner (platform-process.mjs +1,388).
+  // The stamp itself (machine-activity.mjs) loads lazily. No new eager file.
+  assert.ok(root.bytes <= 873_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1275,7 +1283,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,293,950 (measured 4,293,908, +196): `singularity-flow update` registered, routed to /sf-about and refused in every
   // turn as the person's own step (command-registry.mjs, command-skills.mjs, person-step-catalog.mjs) [owner, 2026-11-19].
   // No new eager file.
-  assert.ok(current.bytes <= 4_293_950, `session current loads ${current.bytes} source bytes`);
+  // 4,295,150 (measured 4,295,133, +1,388 over 4,293,745): the operating system's input idle time, read through the
+  // registered process owner (platform-process.mjs osIdleMilliseconds), so Git work SFlow starts by itself waits for an idle
+  // laptop [owner, 2026-11-19]. No new eager file.
+  assert.ok(current.bytes <= 4_295_150, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

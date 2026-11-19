@@ -97,15 +97,27 @@ async function ownCheckpoint(root, specId, remote, { contentSha256, local, basis
   return history?.snapshots.find(snapshot => snapshot.snapshotSha256 === remote.checkpoint.sourceSnapshotSha256)?.sequence ?? null;
 }
 
-export async function syncDraft(root, config, specId, { automatic = false, minimumIntervalMs = 30000 } = {}) {
+/**
+ * Share the draft's latest saved version. `automatic` is sharing nobody asked for just now: it waits until the laptop has
+ * been idle for `idleMinutes` (SINGULARITY_FLOW_IDLE_MINUTES, 30 by default; 0 waits for nothing) and answers
+ * `deferred` with the time left [owner, 2026-11-19]. Asked for, it shares at once.
+ */
+export async function syncDraft(root, config, specId, { automatic = false, minimumIntervalMs = 30000, idleMinutes = null,
+  env = process.env, idle = null } = {}) {
   if (!Number.isSafeInteger(minimumIntervalMs) || minimumIntervalMs < 1000 || minimumIntervalMs > 3600000) fail('The automatic sharing interval must be 1–3600 seconds.', 'SPEC_SYNC_INTERVAL_INVALID');
+  if (idleMinutes !== null && (!Number.isSafeInteger(idleMinutes) || idleMinutes < 0 || idleMinutes > 1440)) fail('The idle wait before sharing must be 0–1440 minutes.', 'SPEC_SYNC_INTERVAL_INVALID');
   const local = await readDraft(root, requireSpecId(specId), { headOnly: true });
   if (!local?.head) fail('Open or restore a draft before sharing it.', 'SPEC_DRAFT_MISSING', { specId });
   const content = portableDraft(local.head.draft);
   // A shared checkpoint cannot be taken back, so nothing leaves before this; a refusal takes no automatic slot.
   const { assertFilesShareable, publishCheckedFiles } = await import('./share-check.mjs');
   assertFilesShareable(specId, { 'checkpoint.json': canonicalJson({ draft: content }) });
-  if (automatic) { const deferred = await automaticSlot(root, minimumIntervalMs); if (deferred) return { ...deferred, specId }; }
+  if (automatic) {
+    const { laptopIdle } = await import('../automatic-work.mjs');
+    const quiet = await (idle ?? laptopIdle)({ env: idleMinutes === null ? env : { ...env, SINGULARITY_FLOW_IDLE_MINUTES: String(idleMinutes) } });
+    if (!quiet.idle) return { status: 'deferred', reason: 'laptop-in-use', retryAfterMs: Math.max(1000, Math.ceil(quiet.remainingMs)), specId };
+    const deferred = await automaticSlot(root, minimumIntervalMs); if (deferred) return { ...deferred, specId };
+  }
   const contentSha256 = hash(content);
   let basis = await sharedBasis(root, specId) ?? local.head.draft.sharedDraftBase;
   const view = await libraryView(root, config);

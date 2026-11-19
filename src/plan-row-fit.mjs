@@ -33,6 +33,18 @@ export function clausesTakingPaths(clauses, rows, paths) {
   return fit;
 }
 
+/** The values each plan row change names besides its row [office laptop, 2026-11-19]: a correction needs every one. */
+export const ROW_CHANGE_VALUES = Object.freeze({ 'set-fulfillment': ['fulfillment'], 'add-test': ['test'], 'replace-test': ['from', 'to'],
+  'replace-location': ['from', 'to'], 'remove-location': ['path'], 'add-row': [] });
+/** The fulfillment kinds a plan row takes (specifications.mjs FULFILLMENT_TYPES, which a test holds this to), the usual ones first. */
+export const ROW_FULFILLMENTS = Object.freeze(['modified', 'new', 'test-only', 'existing', 'removed', 'document', 'configuration', 'evidence']);
+
+/** The values a row change leaves out (or names wrongly, for a fulfillment), or [] when it is complete. */
+export function rowChangeMissing(change) {
+  return (ROW_CHANGE_VALUES[change?.op] ?? []).filter((key) => !String(change?.[key] ?? '').trim()
+    || (key === 'fulfillment' && !ROW_FULFILLMENTS.includes(String(change.fulfillment))));
+}
+
 const wordList = (items) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 
 /**
@@ -78,7 +90,7 @@ export function explainedAmendmentRefusal(error, { workId, plan = {}, changes = 
 export function rowChangeWords(change = {}) {
   const row = change.clauseId ?? 'a row';
   switch (change.op) {
-    case 'set-fulfillment': return `${row} becomes ${change.fulfillment}`;
+    case 'set-fulfillment': return String(change.fulfillment ?? '').trim() ? `${row} becomes ${change.fulfillment}` : `${row}'s fulfillment changes (what it becomes was not named)`;
     case 'add-row': return `a row is added for ${row}`;
     case 'remove-location': return `${change.path} is taken out of ${row}'s row`;
     case 'replace-location': return `${row}'s row names ${change.to} instead of ${change.from}`;

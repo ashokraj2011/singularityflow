@@ -19,7 +19,7 @@ const ALLOWED = Object.freeze({
   list: ['phase', 'open'],
   show: []
 });
-const DECIDE_OPTIONS = Object.freeze(['departure', 'as', 'clause', 'reason', 'fetch']);
+const DECIDE_OPTIONS = Object.freeze(['departure', 'as', 'clause', 'fulfillment', 'reason', 'fetch']);
 
 function refused(message, code = 'DEPARTURE_OPTIONS_INVALID') {
   throw new SingularityFlowError(message, { code });
@@ -176,7 +176,7 @@ export async function decisionDepartureCommand(positionals, options) {
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
   const result = await commitDepartureDecision(root, config, workflow, { departures: optionStrings(options, 'departure'), decision: as === 'accepted' ? 'accept' : 'reject',
-    reason: optionString(options, 'reason') ?? '', clause: optionString(options, 'clause') ?? null }, { actor: actionActor(root), agent });
+    reason: optionString(options, 'reason') ?? '', clause: optionString(options, 'clause') ?? null, fulfillment: optionString(options, 'fulfillment') ?? null }, { actor: actionActor(root), agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`${result.departures.join(', ')} ${result.decision}${result.record?.id ? ` (${result.record.id})` : ''}.${result.decision === 'rejected' ? ' The model restores each file in the open generation; prepublish checks it is back.' : ''}`);
     // A named row that only checks tests was left out: said, so the person knows where the files went.

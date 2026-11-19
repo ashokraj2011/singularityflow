@@ -185,7 +185,8 @@ function yesNoCommand([command, sub, third], options, version = null) {
   if (command === 'decision' && sub === 'departure') {
     const records = { accepted: 'yes', rejected: 'no' }[options.as];
     // The card asks "Keep this change (DEP-002): …?": Keep is its yes [owner, 2026-11-19].
-    return records ? { records, row: `departure ${text('departure')[0]}`, names: text('departure'), ids: /\bdep \d{3,}\b/u,
+    // A row change recorded without its value is kept with the kind the person chose: the question named it [office laptop, 2026-11-19].
+    return records ? { records, row: `departure ${text('departure')[0]}`, names: [...text('departure'), ...text('fulfillment')], ids: /\bdep \d{3,}\b/u,
       yes: ['accept', 'keep', 'keep it'], no: ['reject'], typed: { yes: /\bd\d{1,3}=accept[\w-]*/u, no: /\bd\d{1,3}=reject\b/u } } : null;
   }
   if (command === 'decision' && sub === 'applicability') return { records: 'yes', only: true, row: `applicability ${text('responsibility')[0]}`, names: text('responsibility'), yes: [], no: [] };

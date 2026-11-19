@@ -5,9 +5,11 @@
  */
 import { countedRecords, isWithdrawn } from './presence/counted.mjs';
 
-// The same plan row change, whatever the row's digest was when it was asked for.
+// The same plan row change, whatever the row's digest was when it was asked for; a value the departure left blank
+// matches whatever the person chose [office laptop, 2026-11-19].
 const sameOperation = (left, right) => {
-  const strip = ({ previousClaimSha256, ...rest } = {}) => JSON.stringify(Object.keys(rest).sort().map((key) => [key, rest[key]]));
+  const blank = Object.keys(right ?? {}).filter((key) => right[key] === '');
+  const strip = ({ previousClaimSha256, ...rest } = {}) => JSON.stringify(Object.keys(rest).sort().map((key) => [key, blank.includes(key) ? '' : rest[key]]));
   return strip(left) === strip(right);
 };
 

@@ -167,6 +167,16 @@ test('departure record keeps every hard limit: secrets, configuration, tests, un
   refusedWith(record('--kind', 'path', '--path', '.git/config'), 'DEPARTURE_NOT_ALLOWED');
   refusedWith(record('--kind', 'path', '--path', 'package.json'), 'DEPARTURE_UNCHANGED');
   refusedWith(record('--kind', 'test', '--clause', 'QF-1:AC-001', '--row-op', 'remove-test', '--test', 'test/value.test.mjs'), 'DEPARTURE_NOT_ALLOWED');
+  // A row change names every value it needs (office laptop, 2026-11-19): the same command, only the missing value open.
+  const incomplete = record('--kind', 'plan-row', '--clause', 'QF-1:AC-001', '--row-op', 'set-fulfillment');
+  refusedWith(incomplete, 'DEPARTURE_ROW_CHANGE_INCOMPLETE');
+  assert.match(incomplete.stdout + incomplete.stderr, /one of modified, new, test-only, existing, removed, document, configuration, evidence/u);
+  assert.ok((incomplete.stdout + incomplete.stderr).includes("singularity-flow departure record --kind plan-row --clause QF-1:AC-001 --row-op set-fulfillment --fulfillment <KIND> --reason 'The change needed this file to be edited.'"),
+    incomplete.stdout + incomplete.stderr);
+  refusedWith(record('--kind', 'plan-row', '--clause', 'QF-1:AC-001', '--row-op', 'set-fulfillment', '--fulfillment', 'sometimes'), 'DEPARTURE_ROW_CHANGE_INCOMPLETE');
+  refusedWith(record('--kind', 'test', '--clause', 'QF-1:AC-001', '--row-op', 'add-test'), 'DEPARTURE_ROW_CHANGE_INCOMPLETE');
+  refusedWith(record('--kind', 'plan-row', '--clause', 'QF-1:AC-001', '--row-op', 'replace-location', '--from', 'src/value.mjs'), 'DEPARTURE_ROW_CHANGE_INCOMPLETE');
+  assert.equal((await state(repo)).departures, undefined, 'nothing incomplete is recorded');
   // The model's own record, with the clause it serves.
   const recorded = record('--kind', 'path', '--path', 'index.html', '--clause', 'QF-1:AC-001');
   assert.equal(recorded.status, 0, recorded.stdout + recorded.stderr);

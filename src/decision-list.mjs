@@ -19,7 +19,7 @@ import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { presenceRequires } from './presence/counted.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
-import { clausesTakingPaths, leftOutWords, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
+import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
@@ -1313,6 +1313,22 @@ function departureItem(workflow, context, entry, facts) {
       words: `${name} is submitted, so the wording is amended once its approvers return it; then ${departure.id} is decided here.`,
       does: `Returns ${name} to its author: ${reopenWords(workflow, departure.phase)}; then ${departure.id} can be accepted.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: departure.phase }], context) }] : [])];
+  } else if (['plan-row', 'test'].includes(departure.kind) && rowChangeMissing(departure.change).length) {
+    // Recorded without its value [office laptop, 2026-11-19]: the person chooses it here. What a row becomes is a choice
+    // among the kinds, the one the departure's reason names first; anything else its author records again, or it is rejected.
+    const missing = rowChangeMissing(departure.change);
+    const row = clauseName(workflow, departure.change?.clauseId);
+    if (missing.every((key) => key === 'fulfillment')) {
+      const named = ROW_FULFILLMENTS.find((kind) => new RegExp(`\\b${kind}\\b`, 'iu').test(String(departure.reason ?? '')));
+      accepts = [...(named ? [named] : []), ...ROW_FULFILLMENTS.filter((kind) => kind !== named)].map((kind) => ({ ...accept({ id: `accept-${kind}`,
+        label: `Accept: ${row} becomes ${kind}`, words: `The plan changes exactly so: ${departure.change?.clauseId} becomes ${kind}. A plan row correction records it with your reason; no step is reset.`,
+        writes: 'plan-row-correction' }), ...(kind === named ? { recommended: true } : {}), effects: [effect('accept', { writes: 'plan-row-correction', fulfillment: kind })],
+      oneByOne: true, chat: { command: decide('accepted', ` --fulfillment ${kind}`) },
+      terminal: `singularity-flow decision plan ${workId} --fetch --set-fulfillment ${departure.change?.clauseId}=${kind} --reason "<REASON>"` }));
+    } else {
+      const words = `${departure.id} does not say its ${missing.join(' and ')}, so the change cannot be made as recorded. ${name}'s agent records it again with that named (/sf-code), or reject it.`;
+      accepts = [{ ...accept({ label: 'Accept', words, writes: 'plan-row-correction' }), available: false, recordable: false, does: words }];
+    }
   } else if (['plan-row', 'test'].includes(departure.kind)) {
     // A plan row or test change is kept here, on the card or in /sf-decide, with the exact rows shown, by an approver of
     // the plan; it records the plan row correction it names [owner, 2026-11-19]. A person's own terminal still works.

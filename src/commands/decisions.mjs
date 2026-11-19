@@ -682,7 +682,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
   if (effect.kind === 'departure') {
     const { commitDepartureDecision } = await import('../departure-records.mjs');
     return (await commitDepartureDecision(root, config, workflow, { departures: effect.departures ?? [effect.departure], decision: effect.decision,
-      reason: step.values.reason, changes: effect.changes ?? null }, { actor, agent })).record;
+      reason: step.values.reason, changes: effect.changes ?? null, fulfillment: effect.fulfillment ?? null }, { actor, agent })).record;
   }
   if (effect.kind === 'node-pin') {
     const { commitNodePin } = await import('./decision-plan-amendment.mjs');

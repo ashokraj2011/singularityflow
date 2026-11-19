@@ -7,6 +7,7 @@ import {
 } from '../src/departures.mjs';
 
 const AT = '2026-11-08T08:00:00.000Z';
+const LATER_DAY = '2026-11-09T08:00:00.000Z';
 const story = () => ({ workItem: { id: 'W-1' }, history: [] });
 const file = (workflow, fields = {}) => recordDeparture(workflow, { kind: 'path', phase: 'code', generation: 1, paths: ['src/a.mjs'],
   contentHashes: { 'src/a.mjs': 'new' }, baseHashes: { 'src/a.mjs': null }, clauses: ['W-1:REQ-001'], reason: 'The change needed a module of its own.', at: AT, ...fields });
@@ -267,4 +268,46 @@ test('a clause departure with no saved draft is accepted from one drafted for it
     'singularity-flow story intent-amendment draft --work-id W-1 --clause W-1:AC-001 --clause W-1:AC-002');
   assert.equal(acceptanceCommand(workflow, { id: 'DEP-004', kind: 'clause', clauses: ['W-1:AC-001'], proposal: { path: 'singularity/work-items/W-1/context/departures/DEP-004-scope.md' } }),
     'singularity-flow story intent-amendment propose --work-id W-1 --file singularity/work-items/W-1/context/departures/DEP-004-scope.md --departure DEP-004 --reason "<REASON>"');
+});
+
+// Office laptop, 2026-11-19: an agent recorded `--row-op set-fulfillment` with no `--fulfillment`. The acceptance command
+// then ended in "=" and was refused, and even the complete correction never closed the departure.
+test('a row change recorded without its value asks the person for it, and the correction with their value accepts it', async () => {
+  const { decisionPacket } = await import('../src/decision-list.mjs');
+  const { acceptanceCommand, correctionOptions } = await import('../src/departure-records.mjs');
+  const { departureAcceptance, departureWords } = await import('../src/departures.mjs');
+  const { ROW_FULFILLMENTS } = await import('../src/plan-row-fit.mjs');
+  const { FULFILLMENT_TYPES } = await import('../src/specifications.mjs');
+  assert.deepEqual([...ROW_FULFILLMENTS].sort(), [...FULFILLMENT_TYPES].sort(), 'the kinds offered are the kinds a row takes');
+  const workflow = { workItem: { id: 'W-1' }, status: 'in_progress', currentPhase: 'code', phaseOrder: ['plan', 'code'],
+    phases: { plan: { id: 'plan', label: 'Plan', status: 'approved', generation: 1, approvalPolicy: { authorities: ['planners'] } },
+      code: { id: 'code', label: 'Code', status: 'in_progress', generation: 1, approvalPolicy: { authorities: ['engineers'], minimum: 1 } } } };
+  const authorities = { planners: { label: 'Planners', allowAnyGitIdentity: true }, engineers: { label: 'Engineers', allowAnyGitIdentity: true } };
+  const blank = { id: 'DEP-002', kind: 'plan-row', phase: 'code', paths: [], clauses: ['W-1:AC-001'], change: { op: 'set-fulfillment', clauseId: 'W-1:AC-001', fulfillment: '' },
+    reason: 'The page objects are test support, so AC-001 should be test-only.', recordedBy: 'agent', at: AT };
+  const packet = decisionPacket(workflow, { phaseId: 'code', pending: {}, departures: { phase: 'code', planRows: [{ clauseId: 'W-1:AC-001' }], codeStepOpen: true,
+    entries: [{ departure: blank, status: 'open', groups: ['planners'], words: departureWords(blank), acceptAll: false }], acceptance: { 'DEP-002': acceptanceCommand(workflow, blank) }, reopens: {}, tests: {} } },
+  { authorities, actor: { email: 'person@example.invalid' }, at: '2026-11-19T08:00:00.000Z' });
+  const item = packet.items.find((entry) => entry.kind === 'departure');
+  assert.match(item.title, /DEP-002: a plan row changes: W-1:AC-001's fulfillment changes \(what it becomes was not named\)/u);
+  assert.equal(item.options[0].id, 'accept-test-only', 'the kind its own reason names comes first');
+  assert.equal(item.recommended.option, 'accept-test-only');
+  assert.deepEqual(item.options.slice(0, -1).map((option) => option.effects[0].fulfillment), ['test-only', ...ROW_FULFILLMENTS.filter((kind) => kind !== 'test-only')]);
+  assert.equal(item.options[0].chat.command, 'singularity-flow decision departure W-1 --fetch --departure DEP-002 --as accepted --fulfillment test-only --reason "<REASON>"');
+  assert.equal(item.options[0].terminal, 'singularity-flow decision plan W-1 --fetch --set-fulfillment W-1:AC-001=test-only --reason "<REASON>"');
+  assert.ok(packet.items.every((entry) => entry.options.every((option) => !/=(?:\s|"|$)/u.test(`${option.terminal ?? ''} ${option.chat?.command ?? ''} ${option.action?.command ?? ''}`))),
+    'no command with an empty value');
+  assert.equal(acceptanceCommand(workflow, blank), 'singularity-flow decisions W-1', 'never a command ending in "="');
+  // The command takes the person's kind, and refuses without one with a filled command per kind.
+  assert.deepEqual(correctionOptions(blank, 'A reason the person gave.', { fulfillment: 'test-only', workId: 'W-1' }), { 'set-fulfillment': 'W-1:AC-001=test-only', reason: 'A reason the person gave.' });
+  assert.throws(() => correctionOptions(blank, 'A reason the person gave.', { workId: 'W-1' }), (error) => error.code === 'DEPARTURE_ROW_CHANGE_INCOMPLETE'
+    && error.details.commands.includes('singularity-flow decision departure W-1 --fetch --departure DEP-002 --as accepted --fulfillment test-only --reason "<REASON>"')
+    && error.details.commands.at(-1).includes('--as rejected') && !/=(?:\s|$)/u.test(error.message));
+  // A correction of the same row and change, with the value the person chose, accepts it; a complete one stays exact.
+  const record = (fulfillment) => ({ workItem: { id: 'W-1' }, departures: [blank], planAmendments: [{ id: 'PRC-001', kind: 'plan-row-correction', at: LATER_DAY,
+    operations: [{ op: 'set-fulfillment', clauseId: 'W-1:AC-001', fulfillment, previousClaimSha256: 'a'.repeat(64) }] }] });
+  assert.equal(departureAcceptance(record('modified'), blank)?.id, 'PRC-001', 'whatever value the person chose');
+  const complete = { ...blank, change: { ...blank.change, fulfillment: 'test-only' } };
+  assert.equal(departureAcceptance(record('modified'), complete), null, 'a complete change is matched exactly');
+  assert.equal(departureAcceptance(record('test-only'), complete)?.id, 'PRC-001');
 });

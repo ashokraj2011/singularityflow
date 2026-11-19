@@ -270,6 +270,10 @@ export function itemRecommendation(workflow, item) {
       if (details.status === 'reopened') return lean('it changed again after it was accepted: accept it only if the change still belongs in this Story.');
       const accept = options.find((entry) => entry.id === 'accept');
       if (accept && details.departureKind === 'finding') return rec(item, 'accept', 'It fixes findings from the register; rejecting it opens them again.');
+      // A row change recorded without what the row becomes: the kind its own reason names [office laptop, 2026-11-19].
+      if (marked && /^accept-/u.test(marked.id) && ['plan-row', 'test'].includes(details.departureKind)) {
+        return rec(item, marked.id, 'The departure\'s own reason names what the row becomes; choose another if it should become something else.');
+      }
       if (accept && details.departureKind === 'supporting') return rec(item, 'accept', 'It is a supporting file the change needs; accepting lists it in the plan, and no step is reset.');
       if (accept && details.departureKind === 'path' && details.clauses?.length) {
         const kept = details.clauses.filter((id) => !(details.leftOut?.clauses ?? []).includes(id));

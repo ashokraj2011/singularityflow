@@ -94,6 +94,8 @@ test('an agent tool call at minute 31 is refused as before: its own calls, a hos
   const author = await f.enter('/sf-code', 'agent-only', 31 * MINUTE);
   const shell = (command) => repositoryToolGuard({ ...author, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   assert.deepEqual(await shell('singularity-flow phase enter --for-agent --json'), {}, 'an expired turn keeps its reads');
+  // Something changed since the turn bound its Story: its entry read renews nothing (owner, 2026-11-19).
+  spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'moved on'], { cwd: f.root });
   await repositoryPostToolGuard({ ...author, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --for-agent --json', cwd: f.root } });
   // Asking is the agent's; only the answer is the person's.
   assert.notEqual((await repositoryToolGuard({ ...author, toolName: 'ask_user', toolArgs: { question: 'Which name?' } })).permissionDecision, 'deny');
@@ -109,6 +111,46 @@ test('an agent tool call at minute 31 is refused as before: its own calls, a hos
   assert.match(refusal.permissionDecisionReason, EXPIRED);
   assert.deepEqual(refusal.next, []);
   assert.match((await shell('singularity-flow session attach PMC-1')).permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: /u);
+});
+
+test('past its 30 minutes, a turn whose Story did not change goes on in the same chat once its agent reads the entry again', async t => {
+  const f = await fixture(t);
+  const author = await f.enter('/sf-code', 'unchanged', 31 * MINUTE);
+  const refused = await mutationToolGuard(author);
+  assert.match(refused.permissionDecisionReason, EXPIRED);
+  // The refusal says how it goes on without the person typing anything: the skill's own first command again, here.
+  assert.match(refused.permissionDecisionReason, /first run \/sf-code's own first command once more in this same chat; when nothing changed since, that read continues this turn here/u);
+  // An edit renews nothing; the entry read does, with nothing changed since the turn bound its Story (owner, 2026-11-19).
+  await repositoryPostToolGuard({ ...author, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } });
+  assert.match((await mutationToolGuard(author)).permissionDecisionReason, EXPIRED);
+  await repositoryPostToolGuard({ ...author, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --for-agent --json', cwd: f.root } });
+  const after = await mutationToolGuard(author);
+  assert.notEqual(after.permissionDecision, 'deny', JSON.stringify(after));
+  assert.deepEqual(await boundTurnStories(f.root), ['PMC-1'], 'the turn is bound to its Story again');
+});
+
+test('the unchanged renewal is once per prompt: past its second window only the person renews the turn [OSA:REQ-051]', async t => {
+  const f = await fixture(t);
+  const author = await f.enter('/sf-code', 'renewed-once', 31 * MINUTE);
+  const read = () => repositoryPostToolGuard({ ...author, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --for-agent --json', cwd: f.root } });
+  await read();
+  assert.notEqual((await mutationToolGuard(author)).permissionDecision, 'deny', 'the first unchanged read renews it');
+  const renewal = JSON.parse(await readFile(turnRenewalFile(f.recordOf('renewed-once')), 'utf8'));
+  assert.equal(renewal.unchangedAt, renewal.renewedAt, 'noted as the one unchanged renewal');
+  // Thirty-one minutes after that renewal, nothing changed again: source edits change no stamp, so another read would extend
+  // one prompt without end. It renews nothing, and the refusal no longer offers it.
+  const record = JSON.parse(await readFile(f.recordOf('renewed-once'), 'utf8'));
+  const earlier = Date.now() - TURN_WINDOW_MS - MINUTE;
+  await noteTurnRenewal(f.recordOf('renewed-once'), record, { renewedAt: earlier, unchangedAt: earlier });
+  const expired = await mutationToolGuard(author);
+  assert.match(expired.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last 30 minutes from its renewal and have ended; nothing was written\. Invoke \/sf-code again to continue: the new turn enters again/u);
+  assert.match(expired.permissionDecisionReason, /renewed once already with nothing changed, so its entry read renews it no more/u);
+  assert.doesNotMatch(expired.permissionDecisionReason, /own first command once more/u);
+  await read();
+  assert.match((await mutationToolGuard(author)).permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: /u, 'a second unchanged read renews nothing');
+  // The person's own answer still renews it, as always.
+  await answered(author, 'keep going');
+  assert.notEqual((await mutationToolGuard(author)).permissionDecision, 'deny');
 });
 
 test('an answer in another session, another checkout or an earlier turn renews nothing of this one', async t => {

@@ -399,8 +399,9 @@ test('a real retained blocker names authoring; a corrected same-generation revie
   await retainReport(root, config, workflow, report, input);
   const status = await readSourceReviewStatus(root, config, workflow, 'specification');
   assert.equal(status.status, 'correction-required');
-  // Its correction is the next version, on the person's yes (Stage 2, journey I).
-  assert.equal(status.continuation.nextCommand, 'singularity-flow phase rollover specification --json');
+  // Its correction is the next version: only the reviewer has seen this one, so it starts on its own (owner, 2026-11-19,
+  // ceremony cut 10; journey I); a version a person saw is their yes (Stage 2).
+  assert.equal(status.continuation.nextCommand, 'singularity-flow phase rollover specification --review-findings --json');
   assert.equal((await sourceReviewContext(root, config, workflow, 'specification', '.git/review.json')).canReview, true,
     'a mistaken reviewer finding may be corrected against the unchanged pinned publication');
   await retainReport(root, config, workflow, review(input), input);

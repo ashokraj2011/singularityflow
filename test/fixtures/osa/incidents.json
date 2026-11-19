@@ -380,7 +380,7 @@
       "coverage": {
         "journey": "B",
         "test": "test/journey-stories.test.mjs",
-        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "testTitle": "journey B: a code review asks for corrections three times: versions 2 and 3 start on their own, the person is asked for 4, and it is submitted and approved by the routes",
         "checks": [
           "continuation opens version 2 by its routes, with no detour"
         ],
@@ -495,7 +495,7 @@
       "coverage": {
         "journey": "B",
         "test": "test/journey-stories.test.mjs",
-        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "testTitle": "journey B: a code review asks for corrections three times: versions 2 and 3 start on their own, the person is asked for 4, and it is submitted and approved by the routes",
         "checks": [
           "entry is admitted, not held",
           "routes the code step to its author, never /sf-phase-documents"
@@ -599,9 +599,9 @@
       "coverage": {
         "journey": "B",
         "test": "test/journey-stories.test.mjs",
-        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "testTitle": "journey B: a code review asks for corrections three times: versions 2 and 3 start on their own, the person is asked for 4, and it is submitted and approved by the routes",
         "checks": [
-          "version 2 is fixed, published, re-reviewed ready and submitted by its routes"
+          "version 4 is fixed, published, re-reviewed ready and submitted by its routes"
         ],
         "related": [
           "test/review-every-step-cli.test.mjs: a quick-fix Story reviews every step",
@@ -717,9 +717,9 @@
       "coverage": {
         "journey": "B",
         "test": "test/journey-stories.test.mjs",
-        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "testTitle": "journey B: a code review asks for corrections three times: versions 2 and 3 start on their own, the person is asked for 4, and it is submitted and approved by the routes",
         "checks": [
-          "version 2 is fixed, published, re-reviewed ready and submitted by its routes"
+          "version 4 is fixed, published, re-reviewed ready and submitted by its routes"
         ],
         "related": [
           "test/step-being-written.test.mjs",
@@ -830,7 +830,7 @@
       "coverage": {
         "journey": "B",
         "test": "test/journey-stories.test.mjs",
-        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "testTitle": "journey B: a code review asks for corrections three times: versions 2 and 3 start on their own, the person is asked for 4, and it is submitted and approved by the routes",
         "checks": [
           "after the code step, the Story is approved to its end by its routes, with no detour"
         ],
@@ -939,7 +939,7 @@
       "coverage": {
         "journey": "B",
         "test": "test/journey-stories.test.mjs",
-        "testTitle": "journey B: a code review asks for corrections, and version 2 is opened, fixed, re-reviewed, submitted and approved by the routes",
+        "testTitle": "journey B: a code review asks for corrections three times: versions 2 and 3 start on their own, the person is asked for 4, and it is submitted and approved by the routes",
         "checks": [
           "reply carries the next step: a route, and the words to relay"
         ],

@@ -1013,7 +1013,7 @@
       }
     },
     "settledDecisions": {
-      "description": "Append-only decisions the agent or SFlow settled because one clear answer had evidence SFlow can name, so no person was asked [owner, 2026-11-13]: which Story a session opens, the author's own correction of its unreviewed draft, the Node a module's tests run on, a test command the repository alone declares, a changed file a plan row already covers. Each names its answer and evidence. A person's undo ({ undoes }) makes it their question again; an undo is a person's record SF Guard signs.",
+      "description": "Append-only decisions the agent or SFlow settled because one clear answer had evidence SFlow can name, so no person was asked [owner, 2026-11-13]: which Story a session opens, the author's own correction of its unreviewed draft, the Node a module's tests run on, a test command the repository alone declares, a changed file a plan row already covers, the next version for a review's findings on a version only the reviewer had seen [owner, 2026-11-19]. Each names its answer and evidence. A person's undo ({ undoes }) makes it their question again; an undo is a person's record SF Guard signs.",
       "type": "array",
       "items": {
         "type": "object",
@@ -1022,7 +1022,7 @@
           "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^STL-[0-9]{3,}$" },
           "undoes": { "type": "string", "pattern": "^STL-[0-9]{3,}$" },
-          "kind": { "enum": ["story-selection", "own-correction", "node-version", "test-command", "plan-accounting"] },
+          "kind": { "enum": ["story-selection", "own-correction", "node-version", "test-command", "plan-accounting", "review-corrections"] },
           "subject": { "type": "string", "minLength": 1, "maxLength": 300 },
           "phase": { "type": "string", "minLength": 1 },
           "answer": { "type": "string", "minLength": 1, "maxLength": 600 },

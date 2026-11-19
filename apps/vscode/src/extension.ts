@@ -5352,7 +5352,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // generation; no new snapshot, application process, test or acceptance is triggered by this offer.
   const outcomeOffered = new Set(context.workspaceState.get<string[]>('singularityFlow.outcomeOffered') ?? []);
   context.subscriptions.push(store.onDidChange((state) => {
-    if (vscode.workspace.getConfiguration('singularityFlow').get<boolean>('outcomeReview.suggest', true) !== true) return;
+    // Off by default (owner, 2026-11-19): the outcome is one optional line in the chat, never a page that opens by itself.
+    if (vscode.workspace.getConfiguration('singularityFlow').get<boolean>('outcomeReview.suggest', false) !== true) return;
     const offer = state.stale || state.error ? null : currentCodeOutcomeOffer(state.snapshot);
     if (!offer) return;
     const targetRepository = repository;

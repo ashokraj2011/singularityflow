@@ -438,16 +438,17 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       continue;
     }
     if (done({ story, result: taken.result, record: storyRecord(story), trail })) return { reached: true, findings, trail, steps: step, next: taken.next ?? null, last: taken.result ?? null, views };
-    // D1: in a turn of the work command, a route naming its other name is this turn's own work, run here by its command.
+    // D1: in a turn of the work command, a route naming its other name is this turn's own work, run here by its command;
+    // never a route the result says is for a new turn (a submission that completed the step ends the turn, decision 7).
     const named = taken.next?.copilot ? skillOf(taken.next.copilot) : null;
-    if (named && named !== turn && entries.get(turn)?.oneWorkCommand && entries.get(named)?.oneWorkCommand && !taken.next.inTurn
+    if (named && named !== turn && entries.get(turn)?.oneWorkCommand && entries.get(named)?.oneWorkCommand && !taken.next.inTurn && taken.next.turn !== 'new-turn'
         && taken.next.shell && (taken.next.copilot.trim().split(/\s+/u)[1] ?? current()) === current()) {
       taken.next = { ...taken.next, inTurn: true, source: `${taken.next.source ?? 'route'} (one work command)` };
     }
     // A skill that does the current step's own work in its turn (/sf-next, D2) takes the step's work route there: the
     // work command's steps run in the same turn, with no second command typed [OSA:REQ-025, journey J].
     const host = guard.skill && entries.get(guard.skill)?.worksInTurn ? guard.skill : null;
-    if (host && taken.next?.copilot && !taken.next.inTurn && !taken.next.subagent && WORK_ROUTE.test(taken.next.copilot)
+    if (host && taken.next?.copilot && !taken.next.inTurn && !taken.next.subagent && taken.next.turn !== 'new-turn' && WORK_ROUTE.test(taken.next.copilot)
         && (taken.next.copilot.trim().split(/\s+/u)[1] ?? current()) === current()) {
       taken.next = { ...taken.next, within: host };
     }
@@ -743,6 +744,12 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     // The reviewer ends its turn on the continuation: the next step must be in what it returned [incident 2026-11-16].
     const onward = returnedRoute(retained.result) ?? returnedRoute(result.afterRetention ? { continuation: result.afterRetention } : null);
     if (!onward) return { result: retained.result, finding: { kind: 'review-without-next', detail: `the retained review of ${phase} returned no next step` }, turn: nextTurn };
+    // The author's turn goes on once its reviewer sub-agent returns (owner, 2026-11-19): a ready review is submitted there,
+    // and the review's findings on a version only the reviewer has seen start the next version there, with no turn typed.
+    if (route.subagent && turn && onward.shell && (retained.result?.act?.state === 'submit' || /\s--review-findings(?:\s|$)/u.test(onward.shell))) {
+      entry.did = `${entry.did}; the author's turn goes on: ${short(onward.shell)}`;
+      return { result: retained.result, next: { shell: onward.shell, copilot: null, inTurn: true, source: 'author turn after its reviewer' }, turn };
+    }
     return { result: retained.result, next: { ...onward, inTurn: false }, turn: null };
   }
   // The step's clarification questions: the agent asks them, the person answers, and the answers are recorded by the

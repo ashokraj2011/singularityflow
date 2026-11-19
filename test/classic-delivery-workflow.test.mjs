@@ -212,6 +212,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'intake');
   // The approval's clean-chat item names Code's own command, the one VS Code's chat prefill puts in (owner, 2026-11-17).
+  // The chat reset stays between steps (owner, 2026-11-19): the next step rebuilds from approved records only.
   assert.match(cli('approve', 'intake', '--yes').stdout, /Next Copilot actions:\n- Copilot: \/clear\n[\s\S]*?\n- Copilot: \/sf-code\n/u);
 
   measuredPhase = 'implementation';

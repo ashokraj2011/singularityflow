@@ -38,13 +38,16 @@ test('existing implementation is completed through summary, planned assertions a
   assert.match(code, /commands\.publish` once when ready/);
   assert.match(code, /--publish-if-ready/);
   assert.match(code, /once when ready unless `publishIfReady\.published`/);
-  assert.match(code, /Published: read `outcomeReview\.agentCommand` once/);
-  assert.match(code, /ask `validation\.question`\/`choices` now/);
-  assert.match(code, /sflowDeliveryValidation` or `ask_user/);
-  assert.match(code, /Only the chosen route may run; no acceptance\/submission\/approval/);
+  // A ready version is submitted in the turn that wrote it; the outcome is one optional line, the application's start one
+  // question only when one is declared (owner, 2026-11-19).
+  assert.match(code, /Act `submit` \(review ready, or none owed\): run its `do\.shell` once now; no `\/sf-submit` turn/);
+  // Decision values the submission records are the person's: handed to /sf-submit, never guessed or asked in the author's turn.
+  assert.match(code, /If it names `decisionInputs`, those are the person's: relay its `\/sf-submit` route, never ask them here\./);
+  assert.doesNotMatch(code, /asking only `decisionInputs`/);
+  assert.match(code, /ask a declared `applicationStart`'s one question; the outcome `line` is optional, never asked/);
+  assert.doesNotMatch(code, /ask `validation\.question`/);
   assert.match(code, /Missing capture: ask start\/setup\/upload/);
-  assert.match(code, /`afterReview`=lifecycle/);
-  assert.match(code, /Never submit\/approve/);
+  assert.match(code, /Never approve\./);
 });
 
 test('document author and submitter preserve existing draft work and never equate preparation or manual tests with publication', async () => {

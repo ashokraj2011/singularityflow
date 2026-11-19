@@ -435,7 +435,9 @@ export function codeOutcomeReviewOffer(workflow, phase) {
     agentCommand: `singularity-flow outcome ${workId} --for-agent --json`,
     required: false, recordsAcceptance: false,
     reason: 'Try this Story’s application and check each acceptance criterion, its test results and outstanding human checks before approval.',
-    instruction: 'Open the outcome review for this exact Story, then ask validation.question with its returned choices now. Prefer the native sflowDeliveryValidation tool, otherwise the host question tool. A summary without a question does not finish this handoff. Only the selected action may run; inspection records no acceptance or approval. Final application acceptance, when adopted, uses submitted test evidence; Continue preserves existing submission, sign-off and approval requirements.' };
+    // One optional line, never a question: it records nothing (owner, 2026-11-19).
+    line: `Optional: /sf-outcome ${workId} shows each requirement with its tests, and the application to try.`,
+    instruction: 'Optional: show `line` once. Open the outcome review only when the person asks; it asks nothing and records no acceptance or approval. Continue preserves existing submission, sign-off and approval requirements.' };
 }
 export function araFail(code, message, details = {}) {
   throw new SingularityFlowError(message, { code, details });

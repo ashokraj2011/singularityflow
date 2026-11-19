@@ -224,12 +224,17 @@ export async function readTurnRenewal(file) {
   } catch { return null; }
 }
 
-/** The turn record with `renewedAt`, the person's last answer in this same turn, once the window from its prompt has passed. */
+/**
+ * The turn record with `renewedAt`, the person's last answer in this same turn, once the window from its prompt has passed,
+ * and `unchangedAt` once its one renewal with nothing changed was spent (copilot-mutation-guard.mjs unchangedRenewal).
+ */
 export async function withTurnRenewal(record, recordFile, now = Date.now()) {
   if (!Number.isFinite(record?.recordedAt) || now - record.recordedAt <= TURN_WINDOW_MS) return record;
   const noted = await readTurnRenewal(turnRenewalFile(recordFile));
-  const at = noted?.turnId === record.turnId && noted.sessionId === record.sessionId ? noted.renewedAt : null;
-  return Number.isFinite(at) && at > record.recordedAt && at <= now ? { ...record, renewedAt: at } : record;
+  const same = noted?.turnId === record.turnId && noted.sessionId === record.sessionId;
+  const at = same ? noted.renewedAt : null;
+  const spent = same && Number.isFinite(noted.unchangedAt) ? { unchangedAt: noted.unchangedAt } : {};
+  return Number.isFinite(at) && at > record.recordedAt && at <= now ? { ...record, renewedAt: at, ...spent } : { ...record, ...spent };
 }
 
 /**

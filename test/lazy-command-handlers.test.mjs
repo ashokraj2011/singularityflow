@@ -862,6 +862,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,778,900 (measured 9,778,850 for submit.mjs, +582, 2026-11-20, ceremony-approvals): a step's own two-approver or
     // self-approval-off policy holds an automatic step with its people instead of failing configuration, and the obligation
     // compiler counts a person's review on a route that leaves an automatic step with its people. No new eager file.
+    // 9,768,673 (measured 9,768,673 for submit.mjs, +6,310 over 9,762,363; start.mjs 9,765,102, 2026-11-19 on
+    // ceremony-turns): the ceremony cuts' wiring, as flow-turns measured it on its own base (+3,597, owner 2026-11-19), and the
+    // owner's changes to it: a review's next version starts on its own at most twice in a row and never for a finding back
+    // after a fix (source-review-continuation.mjs reviewFindingsHold, reviewFindingKeys), which the step's entry names to the
+    // person (phase-authoring-entry.mjs successor.because), no in-turn submission for decision values, intake clarification's
+    // one assumptions question (clarifications.mjs) and the kept chat's next step named, never run (approval-agent-result.mjs).
+    // The settled opening and its records stay lazy (review-findings-opening.mjs, story-version-opening.mjs). No new eager file.
     assert.ok(closure.bytes <= 9_778_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -998,6 +1005,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 873,438 (measured 873,438, +149, 2026-11-19): `decisions learn` registered as a read (command-registry.mjs), the
   // read-only report of how often answers followed the recommendation [owner, 2026-11-19, Q13]. No new eager file.
   // 873,501 (measured 873,501, +63, 2026-11-19): `--recommended` in the parser's boolean options (util.mjs) [C10]. No new eager file.
+  // 873,308 (measured 873,308, +19 over 873,289, 2026-11-19 on ceremony-turns): `--review-findings`, the settled start of a
+  // review's next version, is a boolean option the parser knows (util.mjs). No new eager file.
   assert.ok(root.bytes <= 873_501, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
@@ -1329,6 +1338,9 @@ test('the common session projection does not import attach, state stores or publ
   // person must approve (phase-roles.mjs +3,213, config.mjs +1,101) and the `approval.automatic` key (approval-authority.mjs
   // +1,875) [owner, 2026-11-19, approve twice]. No new eager file.
   // 4,302,300 (measured 4,302,238, +586, 2026-11-20, ceremony-approvals): the same policy hold and route review as above.
+  // 4,295,434 (measured 4,295,434, +244 over 4,295,190, 2026-11-19 on ceremony-turns): `--review-findings` (util.mjs +19) and
+  // intake clarification's words, required only at a Story's intake, with one assumptions question when nothing is open
+  // (clarifications.mjs +296), less the outcome review's question (code-delivery-policy.mjs -71). No new eager file.
   assert.ok(current.bytes <= 4_302_300, `session current loads ${current.bytes} source bytes`);
 });
 

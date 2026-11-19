@@ -270,7 +270,9 @@ test('a retained correction routes compact phase entry to explicit successor pre
     const before = git(root, 'rev-parse', 'HEAD');
     for (const options of [[], ['--compose']]) {
       // The next version is the person's yes first [owner: a yes before every new version; OSA Stage 2, D3]: the entry asks
-      // the proposal's question, and its route is the step's preview, which prepares nothing.
+      // the proposal's question, and its route is the step's preview, which prepares nothing. This review leaves a person a
+      // disposition to give (its exclusion row), so it is not one only its reviewer has seen: never started on its own
+      // (owner, 2026-11-19, cut 10).
       const entry = completeAgentResult(cli(root, 'phase', 'enter', phaseId, ...options, '--for-agent', '--json'));
       assert.equal(entry.status, 'successor-confirmation-required');
       assert.equal(entry.authoringAllowed, false, 'the person\'s yes and preparation must precede composition');
@@ -288,6 +290,13 @@ test('a retained correction routes compact phase entry to explicit successor pre
       assert.equal(git(root, 'rev-parse', 'HEAD'), before);
       assert.equal(git(root, 'status', '--short'), '');
     }
+    // Asked to start it on its own anyway, SFlow refuses and names the preview that asks the person: never the same command.
+    const asked = spawnSync(process.execPath, [executable, 'phase', 'rollover', phaseId, '--review-findings', '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
+    assert.notEqual(asked.status, 0);
+    const askedResult = completeAgentResult(asked.stdout);
+    assert.equal(askedResult.error.code, 'VERSION_REVIEW_FINDINGS_ASK', asked.stdout.slice(0, 2000));
+    assert.equal(askedResult.error.details.nextAction?.command ?? askedResult.error.details.nextAction, `singularity-flow phase rollover ${phaseId} --json`);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), before, 'nothing was opened or settled');
     // Preparation without the person's yes is refused; their yes to the review's question opens version 2.
     refusedWithoutYes(root, phaseId);
     const opened = openNextVersion(root, phaseId);

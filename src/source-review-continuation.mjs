@@ -8,6 +8,43 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
+import { inTurnSubmitCommand, reviewFindingsOpenCommand } from './action-command-map.mjs';
+
+/** Only the reviewer has seen the version its retained review asks to correct (owner, 2026-11-19): review-findings-opening.mjs. */
+export function reviewerAloneSaw(workflow, phase, review) {
+  const version = Number(phase?.generation ?? 0);
+  if (!(version >= 1) || phase.status !== 'in_progress' || workflow?.currentPhase !== phase.id || !reviewAsksForCorrection(review) || !review.reportSha256) return false;
+  if (review.generation !== undefined && Number(review.generation) !== version) return false;
+  if ((review.decisions ?? []).length || (review.carriedDecisions ?? []).length || (review.pendingDispositions ?? []).length) return false;
+  if ((phase.approvals ?? []).some((entry) => Number(entry.generation) === version) || phase.rejectedAt || phase.submittedAt) return false;
+  const undone = new Set((workflow.settledDecisions ?? []).map((entry) => entry?.undoes).filter(Boolean));
+  return !(workflow.settledDecisions ?? []).some((entry) => entry?.kind === 'review-corrections' && entry.phase === phase.id && undone.has(entry.id))
+    && !reviewFindingsHold(workflow, phase, review);
+}
+
+/** The reviewer's blocking findings by the reviewer's own IDs: what "the same finding" is from one version to the next. */
+export const reviewFindingKeys = (review) => [...new Set((review?.findings ?? [])
+  .filter((entry) => entry?.code === 'reviewer-blocker' && entry.reviewFindingId).map((entry) => String(entry.reviewFindingId)))];
+
+/**
+ * Why a review's next version is the person's question although only the reviewer saw this one (owner, 2026-11-19): SFlow
+ * started 2 in a row already (a person's yes breaks the run), or a finding came back after SFlow's fix. Null: neither.
+ */
+export function reviewFindingsHold(workflow, phase, review) {
+  const starts = (workflow?.settledDecisions ?? []).filter((entry) => entry?.kind === 'review-corrections' && entry.phase === phase?.id);
+  const run = [];
+  for (let version = Number(phase?.generation ?? 0); version > 1 && run.length < 9;) {
+    const start = starts.findLast((entry) => Number(entry.effect?.toGeneration) === version);
+    const opening = phase.versionOpening;
+    if (!start || !(Number(start.effect.generation) < version) || (Number(opening?.version) === version && opening.consent?.surface !== 'settled')) break;
+    run.push(start);
+    version = Number(start.effect.generation);
+  }
+  if (run.length >= 2) return { reason: 'rounds', words: `The reviewer has asked for corrections ${run.length + 1} times in a row.` };
+  const before = new Set(run[0]?.effect?.findings ?? []);
+  const back = reviewFindingKeys(review).filter((key) => before.has(key));
+  return back.length ? { reason: 'repeated', findings: back, words: `The reviewer's finding ${back[0]} came back after SFlow's fix.` } : null;
+}
 
 /**
  * When everything a review still holds is a reviewer finding about the approved specification, the
@@ -85,10 +122,14 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
       const code = phaseRequiresCodeDelivery(phase);
       if (operation === 'open-version' && inputs.consent === 'required') {
         // A published step's next version opens in its own work command, which asks the person, then fixes it in the same
-        // turn [D3, OSA:REQ-030]; /sf-recover found nothing to recover for unchanged bytes (owner, 2026-11-16).
+        // turn [D3, OSA:REQ-030]; /sf-recover found nothing to recover for unchanged bytes (owner, 2026-11-16), or starts it
+        // on its own when only the reviewer saw this one (owner, 2026-11-19).
         const skill = code ? '/sf-code' : String(author).replace(/^\/sflow-/u, '/sf-');
-        actions = [action(skill, `singularity-flow phase rollover ${phase.id} --json`,
-          fix ? `${skill} asks the person "Start version ${generation} of ${phase.label ?? phase.id} to fix the review's findings?" and, on their yes, fixes them in the same turn.`
+        const settles = Boolean(fix) && reviewerAloneSaw(workflow, phase, review);
+        const held = fix && !settles ? reviewFindingsHold(workflow, phase, review) : null;
+        actions = [action(skill, settles ? reviewFindingsOpenCommand(phase.id) : `singularity-flow phase rollover ${phase.id} --json`,
+          settles ? `Only the reviewer has seen version ${phase.generation}: ${skill} starts version ${generation} of ${phase.label ?? phase.id} to fix the review's findings on its own and fixes them in the same turn.`
+            : fix ? `${held ? `${held.words} ` : ''}${skill} asks the person "Start version ${generation} of ${phase.label ?? phase.id} to fix the review's findings?" and, on their yes, fixes them in the same turn.`
             : `${skill} previews version ${generation} of ${phase.id} and asks the person to confirm it; version ${phase.generation} stays as published.`, fix)];
       } else if (operation === 'author-version' && decision.version.published >= 1) {
         // Its next version is open: writing it is the next step. The published version's review is carried into it, so
@@ -125,7 +166,11 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     }
   }
   const presentation = continuationPresentation(actions[0]);
+  // A ready version is submitted in the turn that wrote it, never a /sf-submit turn of its own (owner, 2026-11-19), unless it
+  // records decision values: those are the person's, given in /sf-submit, never guessed here.
+  const inTurn = classification === 'submission-required' && actions[0]?.skill && !/\s--decision\s/u.test(actions[0].command ?? '')
+    ? { command: inTurnSubmitCommand(workflow.workItem.id), skill: actions[0].skill, reason: 'Submit the ready version now, in the turn that wrote it.' } : null;
   return { classification, publishedGeneration: Number(phase.generation ?? 0), targetGeneration: generation,
-    automaticAdvance: false, actions, nextCommand: actions[0]?.command ?? null,
+    automaticAdvance: false, actions, ...(inTurn ? { inTurn } : {}), nextCommand: actions[0]?.command ?? null,
     nextSkill: actions[0]?.skill ?? null, copilotCommand: actions[0]?.copilotCommand ?? null, ...(presentation ? { presentation } : {}) };
 }

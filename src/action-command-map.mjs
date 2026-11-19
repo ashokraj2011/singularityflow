@@ -26,7 +26,8 @@ export const ACTION_SKILLS = Object.freeze({ recover: '/sf-recover', takeover: '
  */
 const entry = (copilot, forms) => Object.freeze({ copilot, forms: Object.freeze(forms), shell: Object.freeze(Object.values(forms)) });
 export const ACTION_COMMANDS = Object.freeze({
-  'open-version': entry('work', { preview: 'phase rollover <step> --json', begin: 'phase begin <step> --json', prepare: 'prepare <step>' }),
+  'open-version': entry('work', { preview: 'phase rollover <step> --json', begin: 'phase begin <step> --json', prepare: 'prepare <step>',
+    findings: 'phase rollover <step> --review-findings --json' }),
   'build-version': entry('work', { prepare: 'prepare <step>', preview: 'phase rollover <step> --json' }),
   'author-version': entry('work', { prepare: 'prepare <step>' }),
   // `account`: what the person typed, accounted for by the step's author before the submission that completes it [SCS:REQ-042].
@@ -38,8 +39,10 @@ export const ACTION_COMMANDS = Object.freeze({
   'start-review': entry(ACTION_SKILLS.review, { context: 'review-source context <step> --for-agent --json', retain: 'review-source submit <step>',
     status: 'review-source status <step> --work-id <W> --for-agent --json' }),
   'review-version': entry(ACTION_SKILLS.review, { context: 'review-source context <step> --for-agent --json' }),
-  // `exact`: the submission itself; the decision values a step records are added by submitRoute below.
-  'submit-version': entry(ACTION_SKILLS.readiness, { readiness: 'status <W> --submission-readiness --json', exact: 'submit <step> --work-id <W>', step: 'submit <step>' }),
+  // `exact`: the submission itself; the decision values a step records are added by submitRoute below. `in-turn`: /sf-submit's
+  // entry, run in the author's turn [owner, 2026-11-19].
+  'submit-version': entry(ACTION_SKILLS.readiness, { readiness: 'status <W> --submission-readiness --json', exact: 'submit <step> --work-id <W>', step: 'submit <step>',
+    'in-turn': 'status <W> --submission-readiness --for-agent --json --submit-if-ready' }),
   'refresh-facts': entry(ACTION_SKILLS.readiness, { readiness: 'status <W> --submission-readiness --json' }),
   'approve-step': entry(ACTION_SKILLS.approve, { approve: 'approve <step> --work-id <W> --fetch',
     reject: 'reject <step> --work-id <W> --fetch --to <phase> --reason <reason>' }),
@@ -97,6 +100,7 @@ export function builtPublicationRoute(workflow, phase, producer, modelEnabled) {
 
 /** A published step's own version question, the open-version preview: its next version opens only on the person's yes [D3]. */
 export const versionPreviewCommand = (step) => actionCommandLine('open-version', 'preview', { step });
+export const reviewFindingsOpenCommand = (step) => actionCommandLine('open-version', 'findings', { step });
 export const versionQuestionRoute = (workflow, phase) => ({ skill: actionSkill('open-version', { phase, workflow }),
   command: versionPreviewCommand(phase.id).replace(/ --json$/u, ' --reason "<what to change>" --json') });
 
@@ -108,6 +112,7 @@ export const storyNextCommand = (workId) => actionCommandLine('none', 'story', {
 const fixed = (skill, operation, form, workflow, phase, to) => ({ skill, command: actionCommandLine(operation, form, { step: phase.id, workId: workflow.workItem.id, to }) });
 export const approveRoute = (workflow, phase) => fixed(ACTION_SKILLS.approve, 'approve-step', 'approve', workflow, phase);
 export const returnRoute = (workflow, phase, to = phase.id) => fixed(ACTION_SKILLS.reject, 'approve-step', 'reject', workflow, phase, to);
+export const inTurnSubmitCommand = (workId) => actionCommandLine('submit-version', 'in-turn', { workId });
 export const handoffSubmitRoute = (workflow, phase) => {
   const route = fixed(ACTION_SKILLS.readiness, 'submit-version', 'step', workflow, phase);
   return { ...route, command: route.command + decisionSubmitArguments(workflow, phase.id) };

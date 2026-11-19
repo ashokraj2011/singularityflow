@@ -1164,6 +1164,8 @@ workTypes:
           - { phase: convergence }
           - { phase: verification, projection: approved-summary, preserve: [Acceptance and specification results, "Negative, regression, security, and non-functional checks"], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
         approval: { automatic: when-ready }
+# Clarification is `required` only at a Story's intake; later steps proceed on the approved documents and ask
+# only when something is truly unclear (`when-needed`) [owner, 2026-11-19].
 phases:
   intake:
     label: Intake
@@ -1180,7 +1182,7 @@ phases:
     defaultTemplate: feature/requirements.md
     artifact: { path: artifacts/requirements/requirements.md, kind: requirements, minimumBytes: 300 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [scope, acceptance criteria, dependencies, constraints, risks]
     writeScope: artifact-only
@@ -1190,7 +1192,7 @@ phases:
     defaultTemplate: feature/design.md
     artifact: { path: artifacts/design/design.md, kind: design, minimumBytes: 300 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [boundaries, contracts, failure behavior, security, migration]
     writeScope: artifact-only
@@ -1200,7 +1202,7 @@ phases:
     defaultTemplate: feature/implementation-spec.md
     artifact: { path: artifacts/implementation-spec/implementation-spec.md, kind: implementation-spec, minimumBytes: 400 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [interfaces, data, security, observability, migration, tests]
     writeScope: artifact-only
@@ -1210,7 +1212,7 @@ phases:
     defaultTemplate: bugfix/reproduction.md
     artifact: { path: artifacts/reproduction/reproduction.md, kind: reproduction, minimumBytes: 250 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [observed behavior, expected behavior, reproduction, environment, impact]
     writeScope: artifact-only
@@ -1220,7 +1222,7 @@ phases:
     defaultTemplate: bugfix/fix-design.md
     artifact: { path: artifacts/fix-design/fix-design.md, kind: fix-design, minimumBytes: 250 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [root cause, scope, regression risk, compatibility, rollback]
     writeScope: artifact-only
@@ -1230,7 +1232,7 @@ phases:
     defaultTemplate: bugfix/fix-spec.md
     artifact: { path: artifacts/fix-spec/fix-spec.md, kind: implementation-spec, minimumBytes: 300 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [changed behavior, test expectations, compatibility, failure behavior, rollback]
     writeScope: artifact-only
@@ -1265,7 +1267,7 @@ phases:
     defaultTemplate: figma-mobile/design-inventory.md
     artifact: { path: artifacts/design-inventory/design-inventory.md, kind: design-inventory, minimumBytes: 500 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [screen states, transitions, assets, responsive behavior, evidence gaps]
     writeScope: artifact-only
@@ -1275,7 +1277,7 @@ phases:
     defaultTemplate: figma-mobile/component-mapping.md
     artifact: { path: artifacts/component-mapping/component-mapping.md, kind: component-mapping, minimumBytes: 500 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [component ownership, navigation, state, data contracts, accessibility]
     writeScope: artifact-only
@@ -1285,7 +1287,7 @@ phases:
     defaultTemplate: figma-mobile/mobile-spec.md
     artifact: { path: artifacts/mobile-spec/mobile-spec.md, kind: implementation-spec, minimumBytes: 700 }
     clarification:
-      mode: required
+      mode: when-needed
       maxQuestions: 5
       topics: [behavior, interfaces, failure states, analytics, testing]
     writeScope: artifact-only

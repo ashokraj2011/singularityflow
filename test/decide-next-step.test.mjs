@@ -33,8 +33,9 @@ function story() {
     history: [], witnessRecords: [{ id: 'WIT-001', clauseId: `${W}:AC-002`, slot: 'layout-structure', outcome: 'met' }],
     resolution: { approvalAuthorities: AUTHORITIES, sourceReview: { mode: 'enforce', level: 2, phases: ['implementation'], kinds: { implementation: 'code' }, reviewerAgent: 'sflow-source-reviewer' } } };
 }
-// The review the planner read: correction required, one blocking finding.
-const REVIEW = { status: 'correction-required', reportSha256: 'a'.repeat(64), pendingDispositions: [],
+// The review the planner read: correction required, one blocking finding. A person had answered part of it (HD-1), so its
+// next version is theirs to start, as in the incident; one only its reviewer saw starts on its own (ceremony cut 10).
+const REVIEW = { status: 'correction-required', reportSha256: 'a'.repeat(64), pendingDispositions: [], decisions: [{ id: 'HD-1' }],
   report: { binding: { sources: [] }, findings: [{ id: 'F-1', severity: 'blocking', check: 'tests', message: 'AC-001 has no test.' }] },
   findings: [{ code: 'reviewer-blocker', reviewFindingId: 'F-1', message: "Reviewer finding 'F-1': AC-001 has no test." }] };
 // After WIT-001: one visual sign-off left that nobody can give yet (its screenshot is a later step's).

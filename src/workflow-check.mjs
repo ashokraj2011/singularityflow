@@ -391,9 +391,11 @@ async function questionPlacementFindings(workflow, resolved, { people, stepLabel
           data: setting.data({ edits: [setting.edit('mode', 'when-needed')], suggested: topicsThatFit(step, phase) }) },
         subject: { step: phase.id }, location: setting.at(['mode']) });
     }
-    // A step drafting from the Story's own sources that may skip confirming its reading.
+    // A step drafting from the Story's own sources that may skip confirming its reading. After an earlier step that asks the
+    // person (the intake), a later step asks only when something is truly unclear: the shipped rule, not a note [owner, 2026-11-19].
     const scope = holds.get(phase.id)?.includes('scope');
-    if (policy.mode === 'when-needed' && step.output !== 'code' && (scope || !(phase.inputs ?? []).length)) {
+    const intakeAsked = order.slice(0, index).some(asks);
+    if (policy.mode === 'when-needed' && step.output !== 'code' && (scope || !(phase.inputs ?? []).length) && !intakeAsked) {
       findings.push({ code: 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', area: 'clarity', severity: 'note',
         title: `${label} drafts from the Story's own sources without always confirming its reading`,
         detail: `${label} ${scope ? 'defines the Story\'s scope' : 'reads only the Story\'s own sources'}, and its clarification is when-needed: when its agent finds nothing materially unclear it drafts without asking, `

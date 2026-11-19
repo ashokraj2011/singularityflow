@@ -147,12 +147,13 @@ export async function askAtTerminal(question) {
 
 /**
  * Open a successor on the person's yes: their consent receipt, then the one opening operation. `open(workflow, phase)`
- * makes the step's own opening inside the governed commit. There is no exception: the author's own correction is asked too.
+ * makes the step's own opening inside the governed commit. The author's own correction is asked too; `settled` is the one
+ * exception, a review's findings on a version only the reviewer has seen (owner, 2026-11-19).
  */
-export async function openSuccessor(root, config, workflow, phase, { proposal, digest, question, open, typed = false, operationId = null, fault = null }) {
+export async function openSuccessor(root, config, workflow, phase, { proposal, digest, question, open, typed = false, operationId = null, fault = null, settled = null }) {
   // Only the first opening of version 1 needs no yes [§7.2]; every successor does, the author's own correction too
-  // (owner, 2026-11-17) [D3, OSA:REQ-030].
-  const owed = proposal.consent !== 'not-required';
+  // (owner, 2026-11-17) [D3, OSA:REQ-030], but for review findings only the reviewer saw (owner, 2026-11-19).
+  const owed = proposal.consent !== 'not-required' && !(settled?.kind === 'review-corrections' && proposal.reason === 'review-corrections');
   const found = owed ? await consentFor(root, workflow, { proposal, digest, question, typed }) : { principal: await principalHere(root), receipt: null };
   if (owed && !found.receipt) {
     // The step's own preview, through its work command, as the views name it: never the published version's submission.
@@ -164,7 +165,8 @@ export async function openSuccessor(root, config, workflow, phase, { proposal, d
   const { openVersion } = await opening();
   const session = await (await import('../session.mjs')).loadSession(root, { required: false }).catch(() => null);
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  const opened = await openVersion(root, config, workflow, phase, { proposal, digest, receipt: found.receipt, principal: found.principal, operationId, open, fault, agent });
+  const opened = await openVersion(root, config, workflow, phase, { proposal, digest, receipt: found.receipt, principal: found.principal, operationId, open, fault, agent,
+    ...(settled ? { settled } : {}) });
   // A code version's Node, when the evidence names it, is pinned as the version opens, before anything runs: settled with an
   // undo, never a question (node-version-settle.mjs) [owner, 2026-11-18]. Never fails the opening.
   if ((await import('../code-delivery-policy.mjs')).phaseRequiresCodeDelivery(phase)) {

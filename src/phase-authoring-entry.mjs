@@ -2,12 +2,12 @@ import { requiresProspectivePhaseInspection } from './code-submission-evidence.m
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
-import { reviewAsksForCorrection, reviewCorrection, sourceReviewContinuation } from './source-review-continuation.mjs';
+import { reviewAsksForCorrection, reviewCorrection, reviewFindingsHold, sourceReviewContinuation } from './source-review-continuation.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { consumedOpeningMismatch, versionNeed, versionNumbers } from './kernel/step-versions.mjs';
 import { versionProposal } from './story-version-proposal.mjs';
-import { ACTION_SKILLS, actionCommandLine } from './action-command-map.mjs';
+import { ACTION_SKILLS, actionCommandLine, reviewFindingsOpenCommand } from './action-command-map.mjs';
 
 const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AMENDMENT: 'amendment', AUTHOR_CONFLICT: 'author-conflict' });
 
@@ -15,13 +15,15 @@ const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AME
  * A published step's next version, for any reason, is the person's one yes, asked here with the host's question tool and
  * the proposal's own words and numbers [D3, §7.1, OSA:REQ-030]; the same turn goes straight on to its work once it opens.
  */
-export function successorAsk(workflow, phase, { reason, findings = [], requests = [], route }) {
+export function successorAsk(workflow, phase, { reason, findings = [], requests = [], route, because = null }) {
   const { proposal, question } = versionProposal(workflow, phase, { reason });
   // The step's own preview route (its continuation's, with its work command), asked with the proposal's question.
   const preview = { ...route, reason: `Ask the person "${question}"; on their yes this preview, then its confirmation, opens version ${proposal.version} of ${phase.id}.` };
   // `requests`: the person's typed words, as data.
   return { status: 'successor-confirmation-required', reason: reason === 'review-corrections' ? 'retained-review-correction' : reason,
-    targetGeneration: proposal.version, successor: { question, choices: ['Yes', 'No'], preview, findings, ...(requests.length ? { requests } : {}) }, actions: [preview] };
+    targetGeneration: proposal.version, successor: { question, choices: ['Yes', 'No'], preview, findings, ...(requests.length ? { requests } : {}),
+      // Why SFlow asks, when it would have started the version itself: 2 starts in a row, or a finding back (owner, 2026-11-19).
+      ...(because ? { because } : {}) }, actions: [preview] };
 }
 
 /** Read-only entry classification. Only explicit prepare can reserve a document successor. */
@@ -58,8 +60,11 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
     const opened = versionNumbers(versionFactsOf(workflow, phase));
     const legacy = opened.ok && opened.writing > 1 && versionFactsOf(workflow, phase).opening?.record === 'legacy';
     if (opened.ok && (!deterministic || phaseRequiresCodeDelivery(phase)) && (legacy || (opened.writing === null && opened.published >= 1))) {
+      const settles = !legacy && review ? sourceReviewContinuation(workflow, phase, review) : null;
+      if (settles?.nextCommand === reviewFindingsOpenCommand(phase.id)) return { status: 'retained-generation', reason: 'review-findings-settle', actions: settles.actions };
       const route = legacy ? copilotAction({ command: actionCommandLine('open-version', 'preview', { step: phase.id }) }) : sourceReviewContinuation(workflow, phase).actions[0];
-      return successorAsk(workflow, phase, { route, reason: legacy ? 'legacy-promotion' : NEED_REASONS[versionNeed(versionFactsOf(workflow, phase))] ?? 'requested-change' });
+      return successorAsk(workflow, phase, { route, reason: legacy ? 'legacy-promotion' : NEED_REASONS[versionNeed(versionFactsOf(workflow, phase))] ?? 'requested-change',
+        because: !legacy && reviewAsksForCorrection(review) ? reviewFindingsHold(workflow, phase, review)?.words ?? null : null });
     }
     return { status: 'authoring-entry' };
   }
@@ -68,7 +73,12 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
   // with the host's question tool, and the same turn goes straight on to the fix (owner, 2026-11-16). Never automatic.
   if (continuation?.classification === 'successor-publication-required' && reviewAsksForCorrection(review)
       && continuation.nextCommand === actionCommandLine('open-version', 'preview', { step: phase.id })) {
-    return successorAsk(workflow, phase, { route: continuation.actions[0], reason: 'review-corrections', findings: reviewCorrection(review, phase.generation)?.findings ?? [] });
+    return successorAsk(workflow, phase, { route: continuation.actions[0], reason: 'review-corrections', findings: reviewCorrection(review, phase.generation)?.findings ?? [],
+      because: reviewFindingsHold(workflow, phase, review)?.words ?? null });
+  }
+  // Only the reviewer saw the version: its next starts on its own (owner, 2026-11-19).
+  if (continuation?.classification === 'successor-publication-required' && continuation.nextCommand === reviewFindingsOpenCommand(phase.id)) {
+    return { status: 'retained-generation', reason: 'review-findings-settle', actions: continuation.actions };
   }
   if (continuation?.classification === 'successor-publication-required'
       && !phaseRequiresCodeDelivery(phase) && !deterministic

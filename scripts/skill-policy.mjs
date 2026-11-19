@@ -68,7 +68,7 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
 export const QUESTION_TOOL_CONTRACT = 'Where the steps say ask_user, use your host\'s question tool: ask_user in the Copilot CLI, vscode_askQuestions in VS Code; it is unavailable only when neither exists.';
 const namesQuestionTool = (body) => body.includes('`ask_user`');
 
-export const REVIEW_SUBAGENT_CONTRACT = 'A publication returning `reviewSubagent` is reviewed next: start that reviewer as a sub-agent here, in the foreground, as its `instruction` says (no sub-agent tool: its new-chat route); relay no route while it runs, and ask a code offer only after a ready review; never review, retain or submit it yourself.';
+export const REVIEW_SUBAGENT_CONTRACT = 'A publication returning `reviewSubagent` is reviewed next: start that reviewer as a sub-agent here, in the foreground, as its `instruction` says (no sub-agent tool: its new-chat route); relay no route while it runs; never review or retain it yourself. A ready review is submitted in this turn by its route, once.';
 
 /**
  * Read `act` first; a long result is bounded, never lost. `[large-output]` `[agent-output]`
@@ -158,7 +158,8 @@ const CONTRACT_TEXT = Object.freeze({
 // Preserve narrower task contracts and compact equivalents when the class default is too broad.
 const CONTRACT_TEXT_BY_SKILL = Object.freeze({
   'sflow-approve': 'Require human review of exact bound documents outside chat; refresh packet and explicit consent.',
-  'sflow-start': 'Explicit choices; no preselection; preserve errors/artifacts/actions.',
+  'sflow-start': 'Explicit base/workflow, no preselection; shown defaults; preserve errors/artifacts/actions.',
+  'sflow-story-start': 'Explicit branch/workflow; shown defaults; preserve errors, artifacts, next actions.',
   'sflow-recover': 'CLI validates/mutates; preserve exact results, warnings, publication status, artifacts/actions.',
   'sflow-submit': 'Show artifact references, warnings, and confirmation before a decision.',
   'sflow-refresh-configuration': "Preserve the CLI's exact plan, conflicts, branch effects, failures, and retry instructions.",

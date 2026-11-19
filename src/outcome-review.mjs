@@ -177,8 +177,10 @@ function deliveryValidation(review, delivered, graph) {
     description: checks.length ? 'Inspect screenshots or files and record any required human sign-off.' : 'Exercise the approved behavior; API and CLI deliveries need no web screen.', route: review.routes.matrix });
   choices.push({ id: 'repair', label: 'Request a repair', description: 'Keep this Story and use its current repair admission.', route: review.routes.repair },
     { id: 'continue', label: 'Continue workflow', description: 'Show the next workflow action. Outstanding checks remain owed.', route: review.routes.continue });
+  // One optional line of choices after a code version, never a required question: it records nothing (owner, 2026-11-19).
+  const line = `Check ${delivered?.generation ? `version ${delivered.generation}` : review.workId} yourself (optional): ${choices.map((choice) => choice.label).join(' · ')}.`;
   return { schemaVersion: 1, binding: { workId: review.workId, phase: review.step?.id ?? null, generation: review.step?.generation ?? null },
-    question: `What would you like to validate for ${review.workId}?`, tests,
+    question: `What would you like to validate for ${review.workId}?`, line, asked: 'optional', tests,
     steps: [
       { id: 'tests', label: 'Automated tests', status: tests.status, detail: tests.status === 'not-applicable'
         ? 'This Story has no code delivery to test yet. Follow its current workflow step.' : publishCheck.length
@@ -196,7 +198,7 @@ function deliveryValidation(review, delivered, graph) {
         detail: checks.length ? 'Capture or attach genuine evidence, then use the human review checklist. A screenshot alone is not a sign-off.'
           : 'Check the acceptance criteria against tests, API responses or CLI output.' }
     ], choices, recordsAcceptance: false,
-    instruction: 'Ask this question now with these choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. Execute only the selected returned route when this surface permits it, a start in the background as its how says; otherwise hand off to that exact skill. Cancellation records nothing. Continue does not waive checks, submit or approve.' };
+    instruction: 'Show `line` once as optional choices; it is not a question to ask. Run a choice\'s route only when the person picks it and this surface permits it, a start in the background as its how says; otherwise hand off to that exact skill. It records nothing. Continue does not waive checks, submit or approve.' };
 }
 
 /**

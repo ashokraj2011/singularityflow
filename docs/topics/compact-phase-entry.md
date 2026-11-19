@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 21
+version: 22
 ---
 # Compact phase entry for Copilot
 
@@ -44,7 +44,11 @@ Approval, nextsteps, phase continuation and phase entry expose the same `context
 next-phase authoring. In a conversation that worked on an earlier phase, `new` means `/clear`, then
 the next step's own command (`/sf-phase`, or `/sf-code` for a code step); `compact` means `/compact`, then
 that command. It is the command VS Code puts in the chat box. Nextsteps marks Copilot's authoring timing as
-`after-context-boundary`. Fresh conversations proceed without another reset; `keep` has no reset.
+`after-context-boundary`. Fresh conversations proceed without another reset; `keep` (a team's own choice;
+the shipped policy is `new`) has no reset: the approval names the next step's own command for the person.
+The approval turn still ends there and never runs that command. A ready review is submitted in the turn
+that wrote the version, with no separate `/sf-submit` turn, unless the submission records decision values:
+those are the person's, so the turn ends on `/sf-submit`, where they give them.
 These are chat operations, not Shell or model-free workflow gates. The approval remains recorded.
 Pending publication, recovery and required after-step actions keep their priority.
 
@@ -181,8 +185,10 @@ ownership without changing prior publications or claiming that visual acceptance
 `clarification.checkpoint` is presented before large recovery/context bodies. `derive-questions`
 permits questions from the pinned evidence while artifact authoring remains blocked. Load the
 returned composed context once, derive specific material ambiguities, and ask the human; never
-ask the human to supply the questions or unspecified “clarification answers.” In required mode,
-if there is no material ambiguity, ask for confirmation of a concise interpretation. A menu
+ask the human to supply the questions or unspecified “clarification answers.” Required mode (a
+Story's intake) asks what the request leaves open, never a confirmation of what is already stated. When it
+leaves nothing open, ask one question naming the assumptions the step will build on, with "Go ahead"
+recommended, and record that answer. A menu
 selection promising an answer is not an answer. Record actual replies through the returned
 `responseStagingPath` and response-file command; do not invent answers or edit records.
 

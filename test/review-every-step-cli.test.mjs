@@ -126,38 +126,53 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   assert.ok(corrected.findings.some((entry) => entry.code === 'reviewer-blocker'));
   assert.ok(!corrected.findings.some((entry) => /name-the-constant/u.test(entry.message)), 'an advisory design note does not hold the step');
   // Its next step in SFlow's own words, ready to relay, and one turn: /sf-code, never /sf-recover (owner, 2026-11-16).
+  // Only the reviewer has seen version 1, so that step starts version 2 on its own, with an undo (owner, 2026-11-19).
   assert.deepEqual([corrected.continuation.nextSkill, corrected.continuation.copilotCommand], ['/sf-code', '/sf-code implement']);
   assert.equal(corrected.continuation.presentation, ["Now — Fix the review's findings (version 2)", '- Copilot: `/sf-code implement`',
-    '- Shell: `singularity-flow phase rollover implement`', '- VS Code (model-free): not available for this action'].join('\n'));
+    '- Shell: `singularity-flow phase rollover implement --review-findings`', '- VS Code (model-free): not available for this action'].join('\n'));
   assert.equal(agentAct(corrected).show, corrected.continuation.presentation, 'a review turn ends on it');
   assert.match(sflow('review-source', 'status', 'implement'), /Now — Fix the review's findings \(version 2\)\n- Copilot: \/sf-code implement\n/u);
-  // /sf-code's entry asks the person to start version 2, with the review's findings and where each points.
-  const asking = sflowJson('phase', 'enter', '--compose', '--for-agent').value;
-  assert.equal(asking.status, 'successor-confirmation-required', JSON.stringify(asking).slice(0, 3000));
-  // The proposal's question, with its actual numbers; version 1's passing run is recorded, so its tests are named [OSA §7.1].
-  assert.equal(asking.successor.question, "Start version 2 of Implement to fix the review's findings? Published version 1 and its recorded tests will stay unchanged.");
-  assert.deepEqual(asking.successor.findings.map((entry) => [entry.id, entry.check, entry.at]), [['explain-the-value', 'plan', 'src/value.mjs:1']]);
-  const ask = (asking.act ?? agentAct(asking));
-  assert.deepEqual([ask.state, ask.ask.question, ask.do.shell], ['confirm', asking.successor.question, 'singularity-flow phase rollover implement --json']);
+  // /sf-code's entry runs that start in its own turn and asks the person nothing.
+  const entering = sflowJson('phase', 'enter', '--compose', '--for-agent').value;
+  const enterAct = entering.act ?? agentAct(entering);
+  assert.deepEqual([enterAct.state, enterAct.do?.shell, enterAct.ask], ['next', 'singularity-flow phase rollover implement --review-findings --json', undefined],
+    JSON.stringify(entering).slice(0, 3000));
 
-  // The refusal leads with the in-step route: the reviewed rollover to generation 2, with the review as its reason.
+  // The refusal leads with the same in-step route.
   const held = sflowJson('submit', 'implement');
   assert.equal(refusal(held).code, 'SOURCE_REVIEW_REQUIRED');
-  assert.equal(refusal(held).details.nextAction, 'singularity-flow phase rollover implement --json');
-  assert.equal(held.value.remediationPlan.steps[0].command, 'singularity-flow phase rollover implement --json', 'the in-step route leads');
-  const preview = sflowJson('phase', 'rollover', 'implement');
-  assert.equal(preview.status, 0, JSON.stringify(preview.value));
-  assert.equal(preview.value.toGeneration, 2);
-  // The review is named by its generation, never its digest: these words are shown and kept [no hashes shown].
-  assert.ok(preview.value.requestedChange.requests.some((entry) => /^Correct what the review of version 1 found: .*explain-the-value/u.test(entry)),
-    JSON.stringify(preview.value.requestedChange));
-  assert.equal(preview.value.mutates, false);
-  const opened = sflowJson('phase', 'rollover', 'implement', '--confirm', preview.value.confirmation);
+  assert.equal(refusal(held).details.nextAction, 'singularity-flow phase rollover implement --review-findings --json');
+  assert.equal(held.value.remediationPlan.steps[0].command, 'singularity-flow phase rollover implement --review-findings --json', 'the in-step route leads');
+  const opened = sflowJson('phase', 'rollover', 'implement', '--review-findings');
   assert.equal(opened.status, 0, JSON.stringify(opened.value));
-  assert.equal(opened.value.generationIntent.generation, 2);
+  assert.equal(opened.value.toGeneration, 2);
+  // Its undo is forward only, and says so: version 2 stays open (2026-11-19 review).
+  assert.equal(opened.value.line, 'Only the reviewer had seen version 1 of Implement, so SFlow started version 2 to fix its findings. '
+    + 'Version 2 stays open; an undo on the decisions card (/sf-decide QF-1) only makes SFlow ask you before it starts another.');
+  assert.match(opened.value.settled.undo.words, /^An undo does not withdraw version 2: it stays open\./u);
+  // The review is named by its generation, never its digest: these words are shown and kept [no hashes shown].
+  assert.ok(opened.value.requestedChange.requests.some((entry) => /^Correct what the review of version 1 found: .*explain-the-value/u.test(entry)),
+    JSON.stringify(opened.value.requestedChange));
+  assert.equal(opened.value.settled.kind, 'review-corrections');
+  const settledRecord = JSON.parse(await readFile(path.join(root, 'singularity/work-items/QF-1/workflow.json'), 'utf8'));
+  assert.equal(settledRecord.phases.implement.generationIntent.generation, 2);
+  assert.deepEqual(settledRecord.phases.implement.versionOpening.consent, { settled: opened.value.settled.id, surface: 'settled' });
+  // The settlement is written in the opening's own commit: a start that fails leaves none for a version nobody opened.
+  assert.match(must('git', ['log', '-1', '--format=%s']), /^Open implement version 2 of QF-1/u);
+  const committed = JSON.parse(must('git', ['show', 'HEAD:singularity/work-items/QF-1/workflow.json']));
+  const start = committed.settledDecisions.find((entry) => entry.id === opened.value.settled.id);
+  assert.deepEqual([start?.kind, start?.effect], ['review-corrections', { generation: 1, toGeneration: 2, findings: ['explain-the-value'] }]);
+  // The reviewer's blocking finding on version 1 has no dispute route for a person after this start, as before it (only a
+  // review's pending dispositions are decided: ceremony-turns.test.mjs), and version 2 has no review yet.
+  // Their say is their words to the author or a return at approval, as the undo names (owner item, 2026-11-19).
+  const dispute = sflowJson('review-source', 'decision-context', 'implement', '--work-id', 'QF-1', '--finding', 'explain-the-value', '--reason', 'The comment is enough.');
+  assert.match(refusal(dispute).message, /requires a retained report/u, JSON.stringify(dispute.value).slice(0, 1500));
+  // Run again once version 2 is open, it opens nothing: the step's next action is writing it.
+  assert.equal(refusal(sflowJson('phase', 'rollover', 'implement', '--review-findings')).code, 'GENERATION_ROLLOVER_UNAVAILABLE');
   // Version 2 is authored with the review of version 1 loaded, and its act says to fix each finding.
   const fixing = sflowJson('phase', 'enter', '--compose', '--for-agent').value;
-  assert.deepEqual(fixing.reviewCorrection, { generation: 1, findings: asking.successor.findings }, JSON.stringify(fixing).slice(0, 3000));
+  assert.deepEqual(fixing.reviewCorrection?.findings?.map((entry) => [entry.id, entry.check, entry.at]), [['explain-the-value', 'plan', 'src/value.mjs:1']],
+    JSON.stringify(fixing).slice(0, 3000));
   // Recovery right after the rollover, before anything changed (owner's run, 11:00): nothing changed yet is expected, and
   // the route is the code author, never a view of the step's documents.
   const recovery = sflowJson('recover', 'QF-1', '--phase', 'implement').value;

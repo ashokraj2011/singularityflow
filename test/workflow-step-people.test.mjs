@@ -73,6 +73,8 @@ async function teamRepository() {
     overrides.intake = { ...(overrides.intake ?? {}), clarification: { mode: 'off' } };
     overrides.requirements = { ...overrides.requirements, clarification: { mode: 'off', markers: { mode: 'block' } } };
     overrides.design = { ...overrides.design, clarification: { mode: 'off' } };
+    // As the shipped step was before only the intake required it (owner, 2026-11-19): this team asks at its plan.
+    overrides['implementation-spec'] = { ...overrides['implementation-spec'], clarification: { mode: 'required', maxQuestions: 5, topics: ['interfaces', 'data', 'security', 'observability', 'migration', 'tests'] } };
     overrides.implementation = { ...overrides.implementation, clarification: { mode: 'required', maxQuestions: 3 } };
     overrides.verification = { ...overrides.verification, clarification: { mode: 'when-needed', maxQuestions: 3, topics: ['scope', 'acceptance criteria', 'environment'] } };
     fmly.templateOverrides = { ...fmly.templateOverrides, design: 'fmly/design.md' };

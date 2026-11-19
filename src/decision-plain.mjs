@@ -270,13 +270,17 @@ export function plainSettled(workflow, entry) {
         return `${who} added ${effect.path ?? 'the file'} to ${clauseName(workflow, effect.clauseId)}'s row of the plan because ${first ?? 'that row names the file beside it'} beside it`;
       case 'own-correction':
         return `${who} opened a new version of ${step} to correct its own work because nobody had reviewed it yet`;
+      case 'review-corrections':
+        return `${who} started version ${effect.toGeneration ?? 'N'} of ${step} to fix the review's findings because only the reviewer had seen version ${effect.generation ?? 'N'}`;
       default: {
         const [what, because] = String(entry.answer ?? '').split(/:\s+/u, 2);
         return because ? `${who} chose this: ${bare(what)}, because ${bare(because)}` : `${who} chose this: ${bare(what)}`;
       }
     }
   })();
-  return `${capital(said)}. Undo if wrong.`;
+  // Its undo is forward only: the version it started stays open (owner, 2026-11-19).
+  return entry.kind === 'review-corrections' ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open.`
+    : `${capital(said)}. Undo if wrong.`;
 }
 
 /** "One question for you." / "3 questions for you." / "Nothing waits on you now.", from what is asked now. */

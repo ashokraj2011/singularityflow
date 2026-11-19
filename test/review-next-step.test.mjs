@@ -52,7 +52,9 @@ const REPORT = { binding: { sources: [{ id: 'code:src:calc.mjs', path: 'src/calc
     { id: 'F-2', severity: 'blocking', check: 'quality', message: 'The input is parsed with eval.', sourceId: 'code:src:calc.mjs', line: 30 },
     { id: 'F-3', severity: 'blocking', check: 'plan', message: 'The history panel the plan names is missing.' },
     { id: 'N-1', severity: 'advisory', check: 'design', message: 'A shorter name would read better.', sourceId: 'code:src:calc.mjs', line: 2 }] };
-const REVIEW = { status: 'correction-required', reportSha256: 'a'.repeat(64), report: REPORT, pendingDispositions: [],
+// A person has already answered part of this review (a disposition), so its next version is theirs to start: the question
+// path. A review only its reviewer has seen starts the next version on its own (UNSEEN, owner 2026-11-19, cut 10).
+const REVIEW = { status: 'correction-required', reportSha256: 'a'.repeat(64), report: REPORT, pendingDispositions: [], decisions: [{ id: 'HD-1' }],
   findings: REPORT.findings.filter((entry) => entry.severity === 'blocking')
     .map((entry) => ({ code: 'reviewer-blocker', reviewFindingId: entry.id, message: `Reviewer finding '${entry.id}': ${entry.message}` })) };
 const PRESENTATION = ["Now — Fix the review's findings (version 2)", '- Copilot: `/sf-code implementation`',
@@ -86,6 +88,20 @@ test('the incident: a code step\'s correction-required review leads to /sf-code 
   assert.equal(phaseHandoff(workflow, workflow.phases.implementation, { sourceReviewEvidence: REVIEW })[0].label, "Fix the review's findings (version 2)");
   assert.match(nextStepsText(nextStepsSnapshot({ workflow, sourceReviewEvidence: REVIEW })),
     /1\. Now — Fix the review's findings \(version 2\)\n {3}- Copilot: \/sf-code implementation\n {3}- Shell: singularity-flow phase rollover implementation --json\n/u);
+});
+
+test('a review only its reviewer has seen starts the next version on its own, run by the step\'s own work command (owner, 2026-11-19)', () => {
+  const UNSEEN = { ...REVIEW, decisions: [] };
+  for (const [workflow, id, skill] of [[story(), 'implementation', '/sf-code'], [story({ code: false }), 'specification', '/sf-phase']]) {
+    const next = sourceReviewContinuation(workflow, workflow.phases[id], UNSEEN);
+    assert.deepEqual([next.nextSkill, next.nextCommand], [skill, `singularity-flow phase rollover ${id} --review-findings --json`]);
+    assert.equal(next.actions[0].label, "Fix the review's findings (version 2)");
+    assert.match(next.actions[0].reason, /^Only the reviewer has seen version 1: \/sf-(?:code|phase) starts version 2 of \w+ to fix the review's findings on its own and fixes them in the same turn\.$/u);
+    // The entry runs it in its own turn: nobody is asked.
+    const entry = phaseAuthoringEntry(workflow, workflow.phases[id], { review: UNSEEN });
+    assert.deepEqual([entry.status, entry.reason, entry.actions[0].command], ['retained-generation', 'review-findings-settle', next.nextCommand]);
+    assert.equal(entry.successor, undefined);
+  }
 });
 
 test('a document step a review asks to correct goes to its own drafting skill, which asks the person first [D3, journey I]', () => {

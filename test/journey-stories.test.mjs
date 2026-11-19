@@ -13,7 +13,8 @@
  *      "Start version 3?", and it goes on to its submission [OSA:AC-013];
  *   G  version 2 open on a step with no review: submit refuses with the route to write it, which is then followed
  *      [OSA:REQ-032, AC-013];
- *   I  a document step's review asks corrections, and the person is asked "Start version 2?" as for code [OSA:AC-013];
+ *   I  a document step's review asks corrections of a version only its reviewer saw: version 2 starts on its own, settled
+ *      for the person, as for code (owner, 2026-11-19, ceremony cut 10; the asked path is F's);
  *   K  a change typed after /sf-code once the code is published, without the step's name and with it: the entry, its edit
  *      permission, the kernel and the guard all ask "Start version N?", and the routes write and publish the change.
  *   L  a change typed after the code is published while its review is still owed: the person says No to "Start version
@@ -661,11 +662,12 @@ test('journey L: a change typed while the review is owed, the person says No, an
 
 // ------------------------------------------------------------------------------------------- I
 
-// Journey I (SPEC-OSA v1.1 §12.2): the same consent rule for a document's corrections. The planning step's independent
-// review asks corrections of version 1; the person is asked "Start version 2 of Planning to fix the review's findings?"
-// before anything of version 2 opens, and only their yes opens it, through the opening operation with their receipt;
-// version 2 is written, reviewed ready, submitted and approved by its routes [D3, OSA:REQ-030, REQ-020, AC-013].
-test('journey I: a document step\'s review asks corrections, the person is asked "Start version 2?", and the step goes on by its routes', slowLane({ timeout: 1_800_000 }), async (t) => {
+// Journey I (SPEC-OSA v1.1 §12.2): the same rule for a document's corrections as for code. The planning step's independent
+// review asks corrections of version 1, which only its reviewer has seen: SFlow starts version 2 itself, through the opening
+// operation, settled for the person with an undo, and nobody is asked "Start version 2?", a yes that only agreed with a
+// reviewer they had not read (owner, 2026-11-19, ceremony cut 10); version 2 is written, reviewed ready, submitted and
+// approved by its routes [OSA:REQ-020]. A version a person has seen is still asked (journey F) [D3, OSA:REQ-030, AC-013].
+test('journey I: a document step\'s review asks corrections of a version only its reviewer saw: version 2 starts on its own, and the step goes on by its routes', slowLane({ timeout: 1_800_000 }), async (t) => {
   const W = 'JRN-I';
   const story = await journeyRepository(t, { configure: (configuration) => {
     configuration.workTypes['spec-driven-standard'].sourceReview = { mode: 'enforce', phases: ['planning'], reviewerAgent: 'sflow-source-reviewer' };
@@ -697,21 +699,24 @@ test('journey I: a document step\'s review asks corrections, the person is asked
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings, [], report(walk));
   });
-  await check(t, 'the review asked corrections of version 1, and the person was asked "Start version 2 of Planning" before it opened', {}, () => {
+  await check(t, 'the review asked corrections of version 1, and the author\'s turn started version 2 on its own before preparing it, asking nobody', {}, () => {
     const corrections = walk.trail.findIndex((entry) => /reviewer wrote.*correction-required/u.test(entry.did ?? '') && /planning/u.test(entry.state ?? ''));
     assert.ok(corrections > 0, report(walk));
-    const asked = walk.trail.findIndex((entry, index) => index > corrections && entry.act === 'confirm');
-    const confirmed = walk.trail.findIndex((entry) => /phase rollover planning .*--confirm /u.test(`${entry.ran ?? ''} ${entry.did ?? ''}`));
-    assert.ok(asked > corrections && confirmed >= asked, report(walk));
-    // Nothing of version 2 was prepared before the person's yes.
-    assert.ok(walk.trail.slice(corrections, confirmed).every((entry) => !/^singularity-flow prepare planning\b/u.test(entry.ran ?? '')), report(walk));
+    const started = walk.trail.findIndex((entry, index) => index >= corrections && /phase rollover planning --review-findings/u.test(`${entry.ran ?? ''} ${entry.did ?? ''}`));
+    assert.ok(started >= corrections, report(walk));
+    assert.ok(!walk.trail.some((entry, index) => index > corrections && entry.act === 'confirm'), report(walk));
+    // Nothing of version 2 was prepared before it was started.
+    assert.ok(walk.trail.slice(corrections, started).every((entry) => !/^singularity-flow prepare planning\b/u.test(entry.ran ?? '')), report(walk));
   });
-  await check(t, 'version 2 opened through the opening operation with the person\'s receipt, for the review\'s corrections', {}, () => {
-    const planning = storyRecord(story).phases.planning;
+  await check(t, 'version 2 opened through the opening operation, settled for the person in the same commit, for the review\'s corrections', {}, () => {
+    const record = storyRecord(story);
+    const planning = record.phases.planning;
     assert.equal(planning.generation, 2);
     assert.equal(planning.versionOpening?.version, 2);
     assert.equal(planning.versionOpening?.reason, 'review-corrections');
-    assert.ok(planning.versionOpening?.consent?.receiptId, JSON.stringify(planning.versionOpening ?? null));
+    assert.equal(planning.versionOpening?.consent?.surface, 'settled', JSON.stringify(planning.versionOpening ?? null));
+    const start = (record.settledDecisions ?? []).find((entry) => entry.id === planning.versionOpening.consent.settled);
+    assert.deepEqual([start?.kind, start?.phase, start?.effect?.generation, start?.effect?.toGeneration], ['review-corrections', 'planning', 1, 2]);
   });
   await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
   settle(t);

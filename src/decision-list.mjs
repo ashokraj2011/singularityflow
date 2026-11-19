@@ -378,7 +378,7 @@ function gapItem(workflow, context, group) {
 }
 
 /** One item for an open upstream issue no blocking gap names. */
-function issueItem(workflow, context, state) {
+function issueItem(workflow, context, state, { early = false } = {}) {
   const { issue } = state;
   const ownerName = stepName(workflow, issue.phase);
   const covering = (context.facts.activeReuse ?? []).filter((entry) => (entry.clauses ?? []).some((clause) => issueNamesClause(issue.about, clause)));
@@ -419,7 +419,7 @@ function issueItem(workflow, context, state) {
     title: `${aboutName}: a problem reported in ${ownerName}`,
     why: why.join(' '),
     options,
-    details: { issue: issue.id, phase: issue.phase, about: issue.about, status: state.status, proposed: issue.proposed ?? null,
+    details: { issue: issue.id, phase: issue.phase, about: issue.about, status: state.status, proposed: issue.proposed ?? null, ...(early ? { early: true } : {}),
       supersedes: (context.facts.issues ?? []).filter((entry) => entry.supersededBy === issue.id).map((entry) => entry.issue.id),
       coveredBy: covering.map((entry) => entry.id),
       commands: [`singularity-flow upstream-issue decide ${issue.id} --work-id ${workflow.workItem.id} --outcome ${upstreamIssueOutcomes(workflow, issue.phase)} --reason "<why>"`] }
@@ -2023,15 +2023,22 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const phase = workflow.phases?.[facts.phaseId] ?? null;
   const awaiting = phase?.status === 'awaiting_approval';
   const pending = facts.pending ?? {};
-  const groups = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: facts.endsStory === true });
+  // Every open upstream issue is shown from the moment it is raised, on every step's list [owner, 2026-11-19, Q12]: one no gap
+  // names holds only the Story's end (`early`), so nothing that stops a step changes; at the step that ends the Story, as before.
+  const converging = facts.convergence ? convergenceItems(workflow, context, facts.convergence) : [];
+  // An issue a convergence row names is decided there, never asked again [SCS:REQ-031].
+  const namedThere = new Set(converging.flatMap((item) => item.details?.issues ?? []));
+  const groups = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: true })
+    .filter((group) => group.kind !== 'upstream-issue' || !namedThere.has(group.state.issue.id));
+  const early = facts.endsStory !== true;
   const listed = [
     ...(pending.publication ? [machineItem(workflow, pending.publication)] : []),
     ...(pending.routing ? [routingItem(workflow, context, pending.routing)] : []),
     ...(pending.intentAmendments ?? []).map((amendment) => intentAmendmentItem(workflow, context, amendment)),
     ...(pending.forwardAmendments ?? []).map((blocker) => forwardAmendmentItem(workflow, context, blocker)),
     ...(pending.appeals ?? []).map((appeal) => appealItem(workflow, context, appeal)),
-    ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
-    ...(facts.convergence ? convergenceItems(workflow, context, facts.convergence) : []),
+    ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state, { early }))),
+    ...converging,
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
     ...(facts.nodePin ? [nodePinItem(workflow, context, facts.nodePin)] : []),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
@@ -2075,7 +2082,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     .flatMap((hold) => (hold.unclaimedPaths?.length ? planPathItems(workflow, context, hold)
       : [holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold)]));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
-  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && amendmentItem(item))
+  const held = (item) => (APPROVAL_HOLDING_KINDS.includes(item.kind) && !item.details?.early) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && amendmentItem(item))
     || (awaiting && holds.some((hold) => carriesHold(item, hold)))
     // A "still holds" row holds only the approval of the step it is about or one that reads it (CIC:REQ-021); the engine says which.
     || (awaiting && revalidating.includes(item) && (item.details.reason !== 'prompt-held'

@@ -865,6 +865,8 @@ Usage:
   singularity-flow guard reconcile [--json]
   singularity-flow guard report [--since DATE|7d|12h] [--story WORK-ID] [--json]
   singularity-flow guard remote-check [--recipe] [--package-url URL --package-sha256 HEX] [--json]
+  singularity-flow guard card decisions <WORK-ID> --answers FILE [--phase PHASE] | guard card approve <WORK-ID> --phase PHASE [--json]
+  singularity-flow guard setup [--key <SHA256-FINGERPRINT>] [--remote-check NAME] [--exception APPROVER-ID]... [--propose]
   singularity-flow guard register [--key <SHA256-FINGERPRINT>] [--propose] [--json]
   singularity-flow guard rotate|recover --key <SHA256-FINGERPRINT> [--propose] [--json]
   singularity-flow guard revoke <APPROVER-ID> --reason TEXT [--propose] [--json]

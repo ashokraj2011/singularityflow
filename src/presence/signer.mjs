@@ -6,7 +6,9 @@
  * The Touch ID prompt is the system's and cannot name the action, so the card is printed to the
  * person's terminal by this process immediately before it starts the signing, with the statement it
  * rendered. A statement prepared anywhere else is never signed. Signing needs a terminal for the
- * card; it refuses without one.
+ * card, or SFlow's own card (the VS Code Decide card or approval page) whose card this command
+ * matched before anything was written (card-channel.mjs) [owner, 2026-11-19]: the card's text then
+ * goes to stderr as one line for the host's log. Anything else refuses.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -14,17 +16,16 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { cardSurface, PRESENCE_RULE, surfaceCardLine } from './card-channel.mjs';
 import { SK_PROVIDER, SSH_KEYGEN, systemToolEnvironment } from './local-keys.mjs';
 import { keyFingerprint, PRESENCE_NAMESPACE, verifyPresenceSignature } from './sshsig.mjs';
 import { statementText } from './statement.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
-const RULE = 'Touch the sensor only for a command you started yourself, right after its card. A prompt you did not start is an agent asking: decline it.';
-
 /** The card a person reads before their touch. */
 export function presenceCard({ title, lines, keyId }) {
   return [
-    '', `SF Guard: ${title}`, ...lines.map((line) => `  ${line}`), `  Signing key: ${keyId}`, `  ${RULE}`, ''
+    '', `SF Guard: ${title}`, ...lines.map((line) => `  ${line}`), `  Signing key: ${keyId}`, `  ${PRESENCE_RULE}`, ''
   ].join('\n');
 }
 
@@ -68,10 +69,12 @@ export async function presenceKeyStubs({ exec = spawnSync } = {}) {
  * prompt). Returns `{ signature, userVerification }` once the signature verifies against
  * `publicKey`. Declining the prompt throws PSS_PRESENCE_DECLINED and nothing is written.
  */
-export async function signWithPresence({ statement, keyId, publicKey, card, terminal = process.stderr, exec = spawnSync }) {
-  const availability = signerAvailability();
+export async function signWithPresence({ statement, keyId, publicKey, card, terminal = process.stderr, exec = spawnSync,
+  surface = cardSurface(), availability = signerAvailability() }) {
   if (!availability.available) throw signerUnavailable(availability.reason);
-  if (!terminal?.isTTY) {
+  // SFlow's own card stands in for the terminal only once this command matched it; an unmatched one never does.
+  const shownOnCard = !terminal?.isTTY && surface?.matched === true;
+  if (!terminal?.isTTY && !shownOnCard) {
     throw new SingularityFlowError('SF Guard shows the card in your own terminal before your touch, and this has no terminal. Run the command in your own terminal.',
       { code: 'PSS_CARD_NOT_SHOWN' });
   }
@@ -80,7 +83,7 @@ export async function signWithPresence({ statement, keyId, publicKey, card, term
     const stub = stubs.find((entry) => entry.keyId === keyId);
     if (!stub) throw signerUnavailable(`this Mac's Secure Enclave does not hold ${keyId}`);
     const message = statementText(statement);
-    terminal.write(card);
+    terminal.write(shownOnCard ? surfaceCardLine(card, surface) : card);
     const result = exec(SSH_KEYGEN, ['-Y', 'sign', '-f', stub.file, '-n', PRESENCE_NAMESPACE], {
       input: message, encoding: 'utf8', timeout: 120_000, stdio: ['pipe', 'pipe', 'inherit'],
       env: systemToolEnvironment({ SSH_SK_PROVIDER: SK_PROVIDER, SSH_ASKPASS_REQUIRE: 'force', SSH_ASKPASS: '/usr/bin/true' })

@@ -4,10 +4,11 @@
  *
  * Nothing here decides anything. On or off, each key's standing, each exception, the remote check,
  * recording and every label come from `guard status`, `guard report` and `approvals`, as the
- * terminal prints them; the counts are the report's own, never recounted. A person step that needs a
- * presence signature is never signed here: the CLI refuses it without a terminal
- * (`PSS_CARD_NOT_SHOWN`) before anything is written, and the sign card hands the same command to the
- * person's own terminal, where the CLI prints its card and Touch ID prompts [PSS:REQ-012].
+ * terminal prints them; the counts are the report's own, never recounted. The Decide card and the
+ * approval page show SF Guard's card as the engine renders it (`guard card`), and start the record
+ * with its digest, so the CLI they start signs with Touch ID once that card matches [owner, 2026-11-19].
+ * Any other person step the CLI refuses without a terminal (`PSS_CARD_NOT_SHOWN`), before anything is
+ * written, and the sign card hands the same command to the person's own terminal [PSS:REQ-012].
  */
 
 /** The rule on every card, in the CLI's words (src/presence/signer.mjs). */
@@ -29,6 +30,25 @@ export function guardReportArgv({ story = null, since = null }: { story?: string
   return ['guard', 'report', ...(since ? ['--since', since] : []), ...(story ? ['--story', story] : []), '--json'];
 }
 export const storyApprovalsArgv = (workId: string): string[] => ['approvals', workId, '--json'];
+/** SF Guard's card for the answers a Decide card wrote, and for a step's approval (src/commands/guard.mjs `card`). */
+export const guardCardDecisionsArgv = (workId: string, answers: string): string[] => ['guard', 'card', 'decisions', workId, '--answers', answers, '--json'];
+export const guardCardApproveArgv = (workId: string, phase: string): string[] => ['guard', 'card', 'approve', workId, '--phase', phase, '--json'];
+
+/**
+ * SF Guard's card for what a person is about to record, as the engine renders it: what Touch ID signs (`card`) and its
+ * digest when this Mac signs it here; who records it unsigned and why (`bypass`, `reason`); or, where the Story does
+ * not require SF Guard, the one line that offers it (`offer`).
+ */
+export interface GuardCardRead {
+  required: boolean;
+  signs: boolean;
+  card: { title: string; lines: string[]; keyId: string; rule: string } | null;
+  cardSha256: string | null;
+  surface: 'vscode-card' | 'vscode-approval' | null;
+  bypass: string | null;
+  reason: string | null;
+  offer: string | null;
+}
 
 /** The attribution classes in the report's order, with the words `guard report` prints for each. */
 export const CLASS_WORDS: Readonly<Record<string, string>> = Object.freeze({
@@ -352,4 +372,30 @@ export function signRequestFrom(error: unknown): SignRequest | null {
   if (!repository || !args.length || invocation?.input) return null;
   const replay = args.filter((entry) => entry !== '--json');
   return { repository, args: replay, title: signTitle(replay), message: text(object(result?.error)?.message) ?? text(value.message) ?? '' };
+}
+
+/** `guard card --json` read as the page shows it, or null when the engine gave none (an older CLI, or a failed read). */
+export function guardCardFrom(result: unknown): GuardCardRead | null {
+  const value = object(result);
+  if (!value || value.resultType !== 'sflow-guard' || value.action !== 'card' || typeof value.required !== 'boolean') return null;
+  const card = object(value.card);
+  const lines = list(card?.lines).filter((line): line is string => typeof line === 'string');
+  const shown = card && text(card.title) && text(card.keyId) && text(card.rule) && lines.length
+    ? { title: text(card.title)!, lines, keyId: text(card.keyId)!, rule: text(card.rule)! } : null;
+  const digest = text(value.cardSha256);
+  const surface = value.surface === 'vscode-card' || value.surface === 'vscode-approval' ? value.surface : null;
+  const signs = value.signs === true && Boolean(shown && digest && /^sha256:[0-9a-f]{64}$/u.test(digest) && surface);
+  return { required: value.required, signs, card: signs ? shown : null, cardSha256: signs ? digest : null, surface: signs ? surface : null,
+    bypass: text(value.bypass), reason: text(value.reason), offer: value.required ? null : text(value.offer) };
+}
+
+/** The card as a page shows it: its title, each line, the key, then the rule. */
+export function guardCardText(read: GuardCardRead): string {
+  if (!read.card) return '';
+  return [`SF Guard: ${read.card.title}`, ...read.card.lines.map((line) => `  ${line}`), `  Signing key: ${read.card.keyId}`, `  ${read.card.rule}`].join('\n');
+}
+
+/** The flags that start the record under the card the person read; none when SF Guard does not sign it here. */
+export function presenceCardArgs(read: GuardCardRead | null): string[] {
+  return read?.signs && read.surface && read.cardSha256 ? ['--presence-card', read.surface, '--card-sha256', read.cardSha256] : [];
 }

@@ -32,7 +32,13 @@ import { forgetTerminalReview, recordTerminalReview, terminalReviewBinding, term
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
-    () => withCommandConfirmation(options, () => approveCommand(positionals, options)));
+    () => withCommandConfirmation(options, () => approveFromCard(positionals, options)));
+}
+
+/** `approve` itself, or, from the approval page with SF Guard's card (`--presence-card`), under that card only. */
+export async function approveFromCard(positionals, options, dependencies = {}) {
+  if (options['presence-card'] === undefined && options['card-sha256'] === undefined) return approveCommand(positionals, options, dependencies);
+  return (await import('../presence/card-channel.mjs')).withCardSurface(options, () => approveCommand(positionals, options, dependencies));
 }
 
 /**
@@ -118,6 +124,10 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   // SF Guard (SPEC-PSS-v1 M2): on a Story it requires, everything a presence signature needs is
   // checked here, before any prompt or write; each refusal names a route the person can take today.
   const presenceModule = workflow.resolution?.presence ? await import('../presence/person-records.mjs') : null;
+  // From the approval page: the card it showed is this step's, for this packet and key, before anything is shown or written.
+  if (options['presence-card'] !== undefined) {
+    await (await import('../presence/card-channel.mjs')).matchApprovalCard(root, { config, workflow, phase, actor: session.actor });
+  }
   const presence = presenceModule
     ? await presenceModule.preparePersonPresence(root, { workflow, phase, actor: session.actor, action: 'phase.approve' }, dependencies.presence)
     : null;

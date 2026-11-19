@@ -1007,6 +1007,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 873,501 (measured 873,501, +63, 2026-11-19): `--recommended` in the parser's boolean options (util.mjs) [C10]. No new eager file.
   // 873,308 (measured 873,308, +19 over 873,289, 2026-11-19 on ceremony-turns): `--review-findings`, the settled start of a
   // review's next version, is a boolean option the parser knows (util.mjs). No new eager file.
+  // 873,320 (measured 873,314, +25): `guard card` (a read: SF Guard's card for the Decide card and approval page) and
+  // `guard setup` (the person's own step) registered (command-registry.mjs) [owner, 2026-11-19]. No new eager file.
   assert.ok(root.bytes <= 873_501, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
@@ -1341,6 +1343,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,295,434 (measured 4,295,434, +244 over 4,295,190, 2026-11-19 on ceremony-turns): `--review-findings` (util.mjs +19) and
   // intake clarification's words, required only at a Story's intake, with one assumptions question when nothing is open
   // (clarifications.mjs +296), less the outcome review's question (code-delivery-policy.mjs -71). No new eager file.
+  // 4,295,220 (measured 4,295,215, +25): `guard card` and `guard setup` registered (command-registry.mjs) [owner, 2026-11-19].
+  // No new eager file.
   assert.ok(current.bytes <= 4_302_300, `session current loads ${current.bytes} source bytes`);
 });
 

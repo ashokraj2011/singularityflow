@@ -382,9 +382,13 @@ export function draftFileOf(packet: DecisionPacket, itemId: string | null = null
   return file ?? null;
 }
 
-/** With SF Guard the signature is taken in the person's own terminal: the one command with nothing to fill in, which asks the same questions there. */
+/**
+ * With SF Guard the card signs with Touch ID itself; where it cannot (an older engine, or a process the CLI will not take a
+ * touch from), the signature is taken in the person's own terminal: the one command with nothing to fill in, which asks the
+ * same questions there.
+ */
 export const guardRoute = (workId: string) => `singularity-flow decisions record ${workId}`;
-export const GUARD_WORDS = 'This Story signs each decision with SF Guard, and Touch ID is taken in your own terminal, so nothing was written here. Put this in a terminal and press Enter; it asks the same questions and shows the card to sign.';
+export const GUARD_WORDS = 'SF Guard could not take your Touch ID here, so nothing was written. Put this in a terminal and press Enter: it asks again and shows the card to sign.';
 
 export const DECIDE_STYLE = `
 .dc { display:grid; gap:1rem; padding:1rem 0; max-width:80rem; }

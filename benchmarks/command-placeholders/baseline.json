@@ -340,9 +340,6 @@
     "src/phase-appeals.mjs": [
       "singularity-flow appeal prepare --phase {} --add-location <CLAUSE>=<PATH> --reason <REASON>"
     ],
-    "src/phase-evidence-amendment.mjs": [
-      "[argv] appeal evidence-prepare --phase {} --path {} --clause <CLAUSE-ID> --method visual --reason <reason> --json"
-    ],
     "src/phase-mutation-contract.mjs": [
       "[argv] review-source decision-context {} --work-id {} --finding <FINDING-ID> --reason <TEXT> --json"
     ],

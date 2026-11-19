@@ -54,13 +54,7 @@ export const TEMPORARY = Object.freeze([
   { entry: 5, file: 'src/state.mjs', includes: '--add-location <clause>=' },
   { entry: 5, file: 'src/phase-resolution.mjs', includes: '--add-location <clause>=' },
   { entry: 6, file: 'src/decision-list.mjs', includes: '--add-location <clause>=' },
-  { entry: 15, file: 'src/upstream-routes.mjs', includes: '--from-attempt <ATTEMPT-ID>' },
-  { entry: 16, file: 'src/sequence.mjs', includes: '--option <option>' },
-  { entry: 17, file: 'src/state.mjs', includes: '--category <category>' },
-  { entry: 19, file: 'src/phase-resolution.mjs', includes: 'decision test-risk' },
-  { entry: 21, file: 'src/phase-resolution.mjs', includes: 'appeal evidence-prepare' },
-  { entry: 27, file: 'src/departure-records.mjs', includes: 'intent-amendment propose' },
-  { entry: 29, file: 'src/commands/decisions.mjs', includes: '--settled <STL-ID>' }
+  { entry: 21, file: 'src/phase-resolution.mjs', includes: 'appeal evidence-prepare' }
 ].map(Object.freeze));
 
 const SKIP_DIRECTORIES = new Set(['node_modules', 'generated', 'dist', 'out', '.git']);

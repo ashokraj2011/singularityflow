@@ -17,7 +17,7 @@ export function plannedClaimRoutes(workflow, codePhase, owner, gaps, ownedPlanne
       ? { command: `singularity-flow decision plan ${workId} --owner ${owner.id} --add-test ${clause}=<TEST> --reason <why>`,
         label: `An approver of ${owner.id} plans ${clause}'s test in their own terminal.` }
       : { command: `singularity-flow decision plan ${workId} --owner ${owner.id} --add-row ${clause}=<PATH> --test <TEST> --reason <why>`,
-        label: `An approver of ${owner.id} plans ${clause}, which the specification holds, in their own terminal.` })),
+        label: `An approver of ${owner.id} plans ${clause} in their own terminal.` })),
     ...(raised ? [{ command: raised.command.replace('<clause-or-section>', gaps.join(',')).replace('<what-is-wrong>', `"The plan has no test for ${gaps.join(', ')}."`), skill: '/sf-decide',
       label: `Or record it for ${owner.id}'s approvers: they decide a plan correction, a return, an accepted risk or a dismissal.` }] : [])] : [];
   const returnPlan = owner?.status === 'awaiting_approval' && (owner.approvalPolicy?.rejectTo ?? [owner.id]).includes(owner.id)

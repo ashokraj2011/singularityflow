@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6274,
-  "jargon": 1359,
-  "length": 667
+  "generic-route": 6269,
+  "jargon": 1358,
+  "length": 658
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -1369,7 +1369,6 @@
   "STORY_BASE_CONFIGURATION_MISMATCH",
   "STORY_BASE_INVALID",
   "STORY_BASE_ORPHAN",
-  "STORY_BASE_REQUIRED",
   "STORY_BRANCH_EXISTS",
   "STORY_BRANCH_STALE",
   "STORY_CHECKS_REMOTE_MISSING",
@@ -1831,7 +1830,7 @@
   "src/clarification-markers.mjs": 3,
   "src/clarifications.mjs": 17,
   "src/cli-entry.mjs": 1,
-  "src/cli.mjs": 252,
+  "src/cli.mjs": 250,
   "src/clone-strategy.mjs": 8,
   "src/code-delivery-policy.mjs": 7,
   "src/code-delivery-tests.mjs": 1,
@@ -2907,7 +2906,6 @@
    "cccc0454dac3": "length",
    "ce094aac0924": "jargon:ledger",
    "cf60cf7bd291": "jargon:staging length",
-   "d521b869eca0": "length",
    "d542fd1fa49b": "length",
    "d8f8f206d272": "jargon:admission",
    "dccc0b2cb916": "jargon:generation",
@@ -3151,8 +3149,6 @@
    "1dbe0a17a024": "jargon:binding",
    "310c826f8865": "jargon:generation",
    "35800b5db32f": "length",
-   "3add66d030d5": "length",
-   "55420aba4639": "length",
    "6f35aeb4070e": "length",
    "74ba85dd9163": "jargon:retained",
    "7aabb2d4bce2": "length",
@@ -3510,7 +3506,6 @@
    "ff9d51eb8656": "jargon:retained"
   },
   "src/guide.mjs": {
-   "4a3399a1235c": "length",
    "914e07d74c1e": "length"
   },
   "src/harness-imports.mjs": {
@@ -4017,9 +4012,7 @@
    "70dd08ff9578": "length",
    "73a504b893d3": "jargon:projection",
    "76c99ca9298f": "jargon:retained",
-   "7974a641c917": "jargon:digest",
    "7a74c7c83a4e": "length",
-   "7b79f09d9077": "length",
    "84c7d9b2bbbe": "jargon:retained length",
    "914e2aaa0034": "jargon:binding",
    "91bacd7b8f04": "jargon:retained",
@@ -4320,7 +4313,6 @@
    "bb7145ef2c46": "jargon:generation",
    "c0deeb186911": "jargon:binding jargon:packet",
    "c3184158ede5": "length",
-   "c5702dccb039": "length",
    "c75282756390": "length",
    "c898dfbcfaf8": "jargon:retained",
    "c9ff812606b5": "jargon:retained",
@@ -4385,9 +4377,6 @@
   "src/story-start-documents.mjs": {
    "8a4c8d2d6112": "jargon:aggregate"
   },
-  "src/story-start-inputs.mjs": {
-   "b10f40610df4": "length"
-  },
   "src/story-start-journal.mjs": {
    "a0cf5868e5ee": "3× jargon:retained"
   },
@@ -4396,9 +4385,6 @@
   },
   "src/story-state-normalization.mjs": {
    "979dc785d1df": "length"
-  },
-  "src/story-test-command-amendment.mjs": {
-   "8d8a0fb3d256": "length"
   },
   "src/story-test-risk.mjs": {
    "4ad6b71f7caa": "length"
@@ -4483,7 +4469,6 @@
    "f0763b278229": "jargon:transport"
   },
   "src/upstream-routes.mjs": {
-   "3de93b96397d": "length",
    "e5464c664d06": "length"
   },
   "src/util.mjs": {

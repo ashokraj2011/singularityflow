@@ -36,10 +36,15 @@ async function printDeletePlan(plan, stories, options = {}) {
     if (stories.unpinned.length) console.log(`  Blocking: unfinished Stories with no pinned copy: ${stories.unpinned.map((story) => story.id).join(', ')}`);
   } else if (stories) console.log(`  Stories were not checked: ${stories.reason}`);
   // Confirmed by the plan's short code, never its digest (confirm-code.mjs).
-  const { renderPlatformCommand, safeCommandGuidance, commandRouteLines } = await import('../safe-command-guidance.mjs');
-  const command = renderPlatformCommand(['singularity-flow', 'workflow', 'delete', plan.selector,
-    ...(options.newDefault ? ['--new-default', options.newDefault] : []), '--confirm', plan.planSha256]);
-  console.log(['Delete it:', ...commandRouteLines(safeCommandGuidance({ command }) ?? {})].join('\n'));
+  const { safeCommandGuidance, commandRouteLines } = await import('../safe-command-guidance.mjs');
+  console.log(['Delete it:', ...commandRouteLines(safeCommandGuidance({ command: await deleteCommand(plan, options) }) ?? {})].join('\n'));
+}
+
+/** The whole command that deletes the previewed plan; its route is the plan's short code. */
+async function deleteCommand(plan, { newDefault = null, dryRun = false } = {}) {
+  const { renderPlatformCommand } = await import('../safe-command-guidance.mjs');
+  return renderPlatformCommand(['singularity-flow', 'workflow', 'delete', plan.selector,
+    ...(newDefault ? ['--new-default', newDefault] : []), ...(dryRun ? ['--dry-run'] : ['--confirm', plan.planSha256])]);
 }
 
 async function deleteStories(root, plan) {
@@ -95,14 +100,20 @@ export async function run(root, positionals, options, { author, printProposal, w
   }
   const expectedPlanSha256 = optionString(options, 'confirm');
   if (!expectedPlanSha256) {
-    throw new SingularityFlowError(`Preview the delete first with singularity-flow workflow delete ${selector} --dry-run --json, then pass its --confirm plan SHA-256.`, {
-      code: 'WORKFLOW_DELETE_CONFIRMATION_REQUIRED', details: { nextAction: { command: `singularity-flow workflow delete ${selector} --dry-run --json` } }
+    // What it would remove, and the whole command that removes it: the person confirms by its short code.
+    const blocked = stories?.unpinned?.length > 0;
+    const named = (entries) => entries.slice(0, 5).map((entry) => lines.removed(entry)).join(', ') + (entries.length > 5 ? `, and ${entries.length - 5} more` : '');
+    throw new SingularityFlowError(blocked
+      ? `Nothing was deleted: unfinished Stories have no pinned copy of ${plan.selector} (${stories.unpinned.map((story) => story.id).join(', ')}). Its preview says what to do.`
+      : `Nothing was deleted yet. Deleting ${plan.selector} removes ${plan.removed.length ? named(plan.removed) : 'nothing else'}${plan.kept.length ? ` and keeps ${plan.kept.length} still in use` : ''}. If that is right, confirm it with the command below.`, {
+      code: 'WORKFLOW_DELETE_CONFIRMATION_REQUIRED', details: { nextAction: { command: await deleteCommand(plan, { newDefault, dryRun: blocked }),
+        label: blocked ? 'Preview the delete' : 'Delete it as previewed' } }
     });
   }
   if (plan.planSha256 !== expectedPlanSha256) {
-    throw new SingularityFlowError(`The delete plan changed since its preview. Nothing changed. Preview again (singularity-flow workflow delete ${selector} --dry-run) and confirm it by the code it gives.`, {
+    throw new SingularityFlowError('The delete plan changed since its preview. Nothing changed. Preview it again: it gives the code that confirms the new plan.', {
       code: 'WORKFLOW_DELETE_PLAN_STALE', details: { expected: expectedPlanSha256, actual: plan.planSha256,
-        nextAction: { command: `singularity-flow workflow delete ${selector} --dry-run --json` } }
+        nextAction: { command: await deleteCommand(plan, { newDefault, dryRun: true }), label: 'Preview the delete again' } }
     });
   }
   retirement.assertDeleteStoriesClear(stories, plan.workflowId);

@@ -397,14 +397,15 @@ export async function activeWorkspaceRepositoryRoot(command, {
   const repair = context.workspacePath && context.repositoryId ? `singularity-flow workspace repair ${JSON.stringify(context.workspacePath)}`
     + (context.storyId || context.requestedStoryId ? '' : ` --repository ${context.repositoryId}`) : null;
   throw new SingularityFlowError(
-    `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. ${repair ? `Repair it with '${repair}'` : 'Repair the workspace'}, or select another with 'singularity-flow workspace use <WORKSPACE>'.`,
+    `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. ${repair ? `Repair it with '${repair}'` : 'Repair the workspace'}, or select another.`,
     {
       code: 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE',
       details: {
         workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: selectedPath,
         // Workspace commands run without a repository; doctor and nextsteps would meet this again.
         nextAction: repair ?? 'singularity-flow workspace list',
-        recoveryCommands: [...(repair ? ['singularity-flow workspace list'] : []), 'singularity-flow workspace use <WORKSPACE>']
+        recoveryCommands: [...(repair ? ['singularity-flow workspace list'] : []),
+          ...await (await import('./known-workspaces.mjs')).workspaceUseCommands(workspaceRegistryFile(env, home), context.workspaceId)]
       }
     }
   );
@@ -936,11 +937,12 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   if (!root && !routingExcluded) {
     // Git's refusal to read the repository the person is in, rather than a request for one.
     if (!localOnlyRequest) refuseUnreadableRepository(process.cwd());
+    const { workspaceRegistryFile } = await import('./workspace-context.mjs');
     throw new SingularityFlowError(
-      "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
+      'Run Singularity Flow from inside a Git repository, or select a workspace.',
       { code: 'REPOSITORY_CONTEXT_REQUIRED', details: {
         nextAction: 'singularity-flow workspace list',
-        recoveryCommands: ['singularity-flow workspace use <WORKSPACE>']
+        recoveryCommands: await (await import('./known-workspaces.mjs')).workspaceUseCommands(workspaceRegistryFile())
       } }
     );
   }

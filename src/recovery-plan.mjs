@@ -12,7 +12,7 @@ import {
   uncoveredTestDeliveryPaths
 } from './delivery-evidence.mjs';
 import {
-  normalizeRequiredTestCommand, structuredTestCommandRequiredError, TEST_SETUP_COMMAND
+  normalizeRequiredTestCommand, TEST_SETUP_COMMAND
 } from './code-delivery-tests.mjs';
 import { projectTestExecutionCommand, testExecutionHandoff } from './test-execution-handoff.mjs';
 import { buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary } from './repository-change-set.mjs';
@@ -506,7 +506,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         }, { executionMode: storyTestScope(workflow) }) : phase.qualityCommands ?? []).filter(isTestCommand);
         const normalized = testCommands.map((command, index) =>
           normalizeRequiredTestCommand(command, index));
-        if (!testCommands.length) throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id, paths: deliveryEvidence?.sourcePaths });
+        if (!testCommands.length) throw await (await import('./test-command-suggestions.mjs')).testCommandRequiredRefusal(root, phase, { workId: workflow.workItem.id, paths: deliveryEvidence?.sourcePaths });
         const testPolicy = workflow.resolution?.codeDelivery?.tests;
         testExecution.status = 'not-run';
         if (deliveryErrors.length) testExecution.blockedBy = deliveryErrors.map(error => error.code ?? 'CODE_DELIVERY_INCOMPLETE');

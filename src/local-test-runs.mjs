@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { storyTestScope } from './code-delivery-policy.mjs';
 import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands, testCommandProvenance } from './delivery-evidence.mjs';
-import { normalizeRequiredTestCommand, parseTestResult, structuredTestCommandRequiredError } from './code-delivery-tests.mjs';
+import { normalizeRequiredTestCommand, parseTestResult } from './code-delivery-tests.mjs';
 import { evaluateExternalCommandForModelMode, withCommandLiteralEnvironment } from './external-command-policy.mjs';
 import { head } from './git.mjs';
 import { operationContext } from './operation-context.mjs';
@@ -137,7 +137,7 @@ export async function stageStoryLocalTests(root, config, workflow, {
 } = {}) {
   const { phase, commands: resolved } = await resolveStoryLocalTestCommands(root, config, workflow, { phaseId });
   const commands = await select(resolved);
-  if (!commands.length) throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id });
+  if (!commands.length) throw await (await import('./test-command-suggestions.mjs')).testCommandRequiredRefusal(root, phase, { workId: workflow.workItem.id });
   const checks = await kernel.qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
     localRun: { ranBy, requestedEnvironment },

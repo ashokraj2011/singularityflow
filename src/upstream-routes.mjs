@@ -67,10 +67,11 @@ export function upstreamChangeRoutes(workflow, producerId, { currentPhaseId = wo
     notes.push(`${current.id} may not return work to ${producerId}; its allowed return targets are ${allowed.join(', ') || 'none'}. A workflow maintainer decides how ${producerId} is corrected.`);
   }
   if (scopeStepOf(workflow)?.id === producerId && intentAmendmentProposable(workflow, current.id)) {
+    // The draft, for this Story, at its usual place: it gives the whole command that proposes it [audit 2026-11-19, entry 20].
     routes.push({
-      kind: 'intent-amendment', phase: producerId, legal: true, skill: null,
-      command: 'singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <reason>',
-      label: `Propose a reviewed amendment of the approved ${producerId} scope from ${current.id}. Its approvers decide it on the decisions card; ${current.id} pauses until then.`
+      kind: 'intent-amendment', phase: producerId, legal: true, skill: '/sf-amend',
+      command: `singularity-flow story intent-amendment draft --work-id ${workId}`,
+      label: `Draft an amendment to ${producerId}'s approved scope`
     });
   }
   const raised = raiseUpstreamIssueRoute(workflow, producerId, current.id);

@@ -141,7 +141,9 @@ export async function activeWorkspaceMovedRefusal(context, cwd) {
     + 'it was moved or renamed. workspace repair, run in its new folder, saves it there and re-links its Story checkouts.', {
     code: 'ACTIVE_WORKSPACE_MOVED',
     details: { workspaceId: context.workspaceId, workspacePath: context.workspacePath, newFolder: route.folder,
-      nextAction: route.command, recoveryCommands: ['singularity-flow workspace use <WORKSPACE>'] }
+      // Another workspace this machine knows, as a whole command [audit 2026-11-19, entry 13].
+      nextAction: route.command, recoveryCommands: await (await import('./known-workspaces.mjs')).workspaceUseCommands(
+        (await import('./workspace-context.mjs')).workspaceRegistryFile(), context.workspaceId) }
   });
 }
 

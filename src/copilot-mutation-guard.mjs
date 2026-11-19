@@ -1007,9 +1007,17 @@ function workflowDeleteConfirmation(call, value) {
   const { positionals, options } = parseCli(safe.argv);
   return positionals[0] === 'workflow' && positionals[1] === 'delete' && options.confirm !== undefined;
 }
-const WORKFLOW_DELETE_CONFIRMATION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: confirming a workflow delete is the person\'s own step. '
-  + 'Show them the preview (workflow delete <ID> --dry-run) and its plan digest; they confirm in VS Code (Workflow Studio → Delete…) '
-  + 'or run singularity-flow workflow delete <ID> --confirm <PLAN-SHA256> --propose in their own terminal. Do not retry it';
+/**
+ * The denial of an agent's workflow delete confirmation, with the workflow it named: its preview gives the short code
+ * the person confirms it by, never a digest to copy [audit 2026-11-19, entry 31]. Its route stays the person's own command.
+ */
+function workflowDeleteDenial(call, value) {
+  const selector = parseCli(verifiedShellForm(call, value)?.argv ?? []).positionals[2];
+  const preview = /^(?:(?:story|initiative):)?[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(selector ?? '') ? safeCommandGuidance({ argv: ['workflow', 'delete', selector, '--dry-run'] }) : null;
+  return 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: confirming a workflow delete is the person\'s own step. '
+    + `Show them its preview (${preview?.command ?? 'workflow delete with --dry-run'}): it gives the short code they confirm it by, `
+    + '/sf-confirm in Copilot or singularity-flow confirm in their own terminal, or they confirm in VS Code (Workflow Studio → Delete…). Do not retry it';
+}
 
 function decisionListRecord(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -1582,6 +1590,11 @@ function clarificationAnswerCall(call, value) {
   if (!safe) return false;
   const { positionals } = parseCli(safe.argv);
   return positionals[0] === 'clarification' && positionals[1] === 'answer';
+}
+/** ` <step>` a clarification answer names, or nothing when it names none. */
+function clarificationAnswerStep(call, value) {
+  const step = parseCli(verifiedShellForm(call, value)?.argv ?? []).positionals[2];
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(step ?? '') ? ` ${step}` : '';
 }
 function planRowCorrectionCall(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -2397,9 +2410,8 @@ async function mutationToolDecision(payload, record) {
     const expired = turnExpired(record);
     if (guarded.every(call => TERMINALS.has(call.name)
       && (expired ? shellAllowed(call, 'read', bootstrap) : bootstrapAllowed(call, bootstrap)))) return {};
-    if (guarded.some(call => TERMINALS.has(call.name) && workflowDeleteConfirmation(call, bootstrap))) {
-      return { permissionDecision: 'deny', next: [], permissionDecisionReason: WORKFLOW_DELETE_CONFIRMATION_DENIAL };
-    }
+    const deleting = guarded.find(call => TERMINALS.has(call.name) && workflowDeleteConfirmation(call, bootstrap));
+    if (deleting) return { permissionDecision: 'deny', next: [], permissionDecisionReason: workflowDeleteDenial(deleting, bootstrap) };
     if (guarded.some(call => TERMINALS.has(call.name) && targetOriginPinCall(call, bootstrap))) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: TARGET_ORIGIN_PIN_DENIAL };
     }
@@ -2465,7 +2477,7 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting a waiting commit aside clears what SFlow would publish and moves the branch; the person who looked at it confirms it with the commit ID in their own terminal (the preview without --confirm may run here). Show the user the preview and the command, and stop; do not retry it', [], own());
         if (setAsideDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it', [], own());
-        if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL, [], own());
+        if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, workflowDeleteDenial(call, value), [], own());
         if (decisionListRecord(call, value)) return mutationDenial(contract,
           `PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person's own step: they record it on the Decide card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it) or run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest`, [], own());
         if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL, [], own());
@@ -2478,8 +2490,9 @@ async function mutationToolDecision(payload, record) {
           [], { routes: [decisionsCardRoute(['decisions', contract.workId], contract.workId)].filter(Boolean) });
         if (approvalEvidenceConfirmationCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving with --confirm-evidence also records the step\'s screenshots and inspections as witnessed, the word of the approver who looked at them, in their own terminal; an agent never signs off evidence. Approve here without it, or show the user the command and stop; do not retry it', [], own());
+        // The command this turn wrote is the approver's own, whole, with the step and question filled [audit 2026-11-19, entry 9].
         if (clarificationAnswerCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a clarification answer from another clone is the approver\'s own word, committed under their Git identity, in their own terminal (singularity-flow clarification answer <step> --question "<QUESTION>" --answer "<ANSWER>"); the author\'s checkout then runs singularity-flow clarification import <step>. Show the user the command and stop; do not retry it', [], own());
+          `PHASE_MUTATION_OPERATION_NOT_ALLOWED: a clarification answer from another clone is the approver's own word, committed under their Git identity, in their own terminal, with the command below; the author's checkout then runs singularity-flow clarification import${clarificationAnswerStep(call, value)}. Show the user the command and stop; do not retry it`, [], own());
         if (planRowCorrectionCall(call, value)) return mutationDenial(contract,
           `PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan's rows is the word of a person who approves that plan: they keep it on the Decide card or answer it in /sf-decide ${contract.workId ?? '<WORK-ID>'}, each showing the exact rows, or run it in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the route and stop; do not retry it`, [], own());
         if (liveTerminalReviewCall(call, value)) return mutationDenial(contract,

@@ -282,6 +282,41 @@ function phaseContainmentSteps(context) {
 const shellWord = (word) => (/^[A-Za-z0-9_./:@%+=,<>-]+$/u.test(word) ? word : `'${String(word).replaceAll("'", `'"'"'`)}'`);
 const retriedCommand = (argv, extra = []) => ['singularity-flow', ...argv.filter((word) => word !== '--for-agent' && word !== '--json'), ...extra].map(shellWord).join(' ');
 
+const BRANCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/u;
+/**
+ * A new Story with no base named: the same start again, once per published base, the usual one first; or, when no
+ * branch is in every repository, once with each repository's own usual branch [audit 2026-11-19, entry 12].
+ */
+function storyBaseSteps(argv, error) {
+  const details = error?.details ?? {};
+  const bases = Object.entries(details.repositoryBases ?? {}).filter(([id, branch]) => safeWorkId(id) && BRANCH_NAME.test(String(branch)));
+  const branches = (Array.isArray(details.branches) ? details.branches : []).filter((branch) => BRANCH_NAME.test(String(branch))).slice(0, PLAN_STEP_LIMIT);
+  const steps = bases.length
+    ? [step('start-from-repository-defaults', `Start each repository from its usual branch: ${bases.map(([id, branch]) => `${id} from ${branch}`).join(', ')}.`,
+      retriedCommand(argv, bases.flatMap(([id, branch]) => ['--from-branch', `${id}=${branch}`])), 'remediation')]
+    : branches.map((branch, index) => step(`start-from-branch-${index + 1}`,
+      branch === details.defaultBranch ? `Start from ${branch}, the usual branch.` : `Start from ${branch}.`, retriedCommand(argv, ['--from-branch', branch]), 'remediation'));
+  const workId = argv[0] === 'start' ? safeWorkId(argv[1]) : safeWorkId(details.workId);
+  // No branch named at all (not "none published"): the same start in the person's own terminal, which lists them and asks.
+  const ask = !steps.length && !Array.isArray(details.branches) && workId ? step('start-and-choose-branch',
+    'Start it in your own terminal: it lists the branches and asks which one.', argv[0] === 'start' ? retriedCommand(argv) : `singularity-flow start ${workId}`, 'remediation') : null;
+  return [...steps, ask, workId ? step('resume-existing-story', `If ${workId} already exists on the remote, resume it instead.`, `singularity-flow resume ${workId} --fetch`, 'remediation') : null];
+}
+
+/** The Repository brief for the step the refused command named, or the current one: never `--phase <PHASE>` [audit 2026-11-19, entry 31]. */
+function repositoryBriefCommand(argv, error) {
+  const phase = lowerKebab(error?.details?.phase) ?? lowerKebab(optionValueRaw(argv, 'phase'));
+  return `singularity-flow wm brief${phase ? ` --phase ${phase}` : ''}`;
+}
+
+/** The runners a test-command refusal suggests, each `{ id, label, sourceRoots }`, at most three. */
+function testSuggestionsOf(error) {
+  return (Array.isArray(error?.details?.testSuggestions) ? error.details.testSuggestions : []).slice(0, 3)
+    .filter((entry) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(entry?.id ?? ''))
+    .map((entry) => ({ id: entry.id, label: typeof entry.label === 'string' ? redactDiagnosticText(entry.label).replace(/[`\u0000-\u001f]/gu, ' ').slice(0, 200) : null,
+      sourceRoots: (Array.isArray(entry.sourceRoots) ? entry.sourceRoots : []).filter((folder) => /^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$/u.test(String(folder)) && !String(folder).split('/').includes('..')).slice(0, 3) }));
+}
+
 /** What an appeal still needs, from what was typed; a person's list where it holds the same question. */
 function appealNeedsSteps(argv, error) {
   const details = error?.details ?? {};
@@ -324,9 +359,16 @@ function sessionOptionsSteps(argv) {
   step('read-current-binding', 'Run it as it is: it reads the binding, and takes no other option.', 'singularity-flow session current --for-agent --json', 'remediation', '/sf-session')];
 }
 
+/** The workspaces a refusal names (`details.workspaces`), each `{ id, name }`, last opened first. */
+const workspacesOf = (error) => (Array.isArray(error?.details?.workspaces) ? error.details.workspaces : [])
+  .filter((entry) => safeWorkId(entry?.id)).map((entry) => ({ id: entry.id, name: redactDiagnosticText(String(entry.name ?? entry.id)).slice(0, 120) }));
+/** One whole selection per workspace this machine knows, last opened first, two at most beside the full list [audit 2026-11-19, entry 13]. */
+const workspaceChoices = (error, head, skill = null) => workspacesOf(error).slice(0, 2).map((entry, index) => step(index ? `select-workspace-${index + 1}` : 'select-workspace',
+  `${index ? 'Or' : 'Select the workspace that holds this work:'} ${entry.name}${entry.name === entry.id ? '' : ` (${entry.id})`}${index ? '.' : ', opened last.'}`,
+  `${head} ${shellWord(entry.id)}`, 'remediation', skill));
+
 /** No repository is active: selecting one is the way through, and the list says which. */
-const sessionRepositorySteps = () => [
-  step('select-workspace', 'Select the workspace that holds this work; a person names it if there are several.', 'singularity-flow session workspace <WORKSPACE>', 'remediation', '/sf-session'),
+const sessionRepositorySteps = (argv, error) => [...workspaceChoices(error, 'singularity-flow session workspace', '/sf-session'),
   step('list-workspaces', 'The workspaces this machine knows.', 'singularity-flow workspace list --json', 'diagnostic', '/sf-workspaces')
 ];
 
@@ -475,15 +517,13 @@ const UPGRADE_KNOWN = Object.freeze({
       'singularity-flow doctor --json')
   ],
   // The registered (v4) and legacy-v3 World Models were removed; their commands and settings say so.
-  WMB_REMOVED: () => [
-    step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.',
-      'singularity-flow wm brief --phase <PHASE>'),
+  WMB_REMOVED: (argv, error) => [
+    step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.', repositoryBriefCommand(argv, error)),
     step('read-repository-knowledge', 'Read the repository itself: rules, contracts, flows and risks, with no model.',
       'singularity-flow wm knowledge brief')
   ],
-  COMMAND_REMOVED: () => [
-    step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.',
-      'singularity-flow wm brief --phase <PHASE>'),
+  COMMAND_REMOVED: (argv, error) => [
+    step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.', repositoryBriefCommand(argv, error)),
     step('read-repository-contracts', 'Read the endpoints, seams and storage the code declares, with no model.',
       'singularity-flow wm knowledge show contracts')
   ],
@@ -496,13 +536,20 @@ const UPGRADE_KNOWN = Object.freeze({
       'singularity-flow product status --json', 'diagnostic', '/sf-product')
   ],
   WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED: (argv, error) => {
-    const workType = lowerKebab(error?.details?.workType) ?? '<WORK-TYPE>';
+    const workType = lowerKebab(error?.details?.workType);
+    // The contract the workflow's own steps suggest, whole [audit 2026-11-19, entry 26]: the steps that write its clauses,
+    // and each code step planned by the step just before it, after a clause step, as the inference reads them (config.mjs).
+    const steps = (Array.isArray(error?.details?.steps) ? error.details.steps : []).map(([id, kind] = []) => [lowerKebab(id), kind]);
+    const clausePhases = steps.filter(([, kind]) => kind === 'clauses').map(([id]) => id);
+    const owners = steps.flatMap(([id, kind], index) => (kind === 'code' && index > 0 && steps[index - 1][1] !== 'code'
+      && steps.slice(0, index).some(([, before]) => before === 'clauses') ? [[id, steps[index - 1][0]]] : []));
+    const proposed = workType && clausePhases.length && !clausePhases.includes(null) && owners.length && !owners.flat().includes(null);
     return [
       step('validate-workflow', 'Review the work type\'s planned-claim contract. Existing Stories keep their pinned policy.',
         'singularity-flow workflow validate'),
-      step('record-planned-claims', 'Record the reviewed planned-claim policy for new Stories.',
-        `singularity-flow workflow edit ${workType} --planned-claims required --clause-phases <PHASES> --claim-owners <CODE>=<OWNER>`,
-        'remediation')
+      proposed ? step('record-planned-claims', `Record the planned-claim policy its steps suggest for new Stories: clauses from ${clausePhases.join(', ')}; ${owners.map(([code, owner]) => `${owner} plans ${code}`).join(', ')}.`,
+        `singularity-flow workflow edit ${workType} --planned-claims required --clause-phases ${clausePhases.join(',')} --claim-owners ${owners.map(([code, owner]) => `${code}=${owner}`).join(',')}`,
+        'remediation') : null
     ];
   },
   CONVERGENCE_LEGACY_MIGRATION_REQUIRED: (argv, error) => [
@@ -545,8 +592,9 @@ const UPGRADE_KNOWN = Object.freeze({
     // The preview restores the most recent rebuild and names it by when it ran; a person never types its plan ID.
     const plan = /^grb-[0-9a-f]{24}$/u.test(String(error?.details?.plan ?? '')) ? error.details.plan : null;
     return [
+      // A new Story's ID and title are the person's own words; its base, when not given, is offered as whole commands.
       step('start-new-story', 'This Story was explicitly retired and stays read-only. Start a new Story with a new ID under the current Flow Policy.',
-        'singularity-flow start <WORK-ID> --from-branch <BASE> --title <TITLE>', 'remediation'),
+        'singularity-flow start <NEW-WORK-ID> --title "<TITLE>"', 'remediation'),
       ...(plan ? [step('preview-governance-restore',
         'Only if the rebuild itself was a mistake: preview restoring the Flow Policy it replaced, a reviewed change for the whole repository.',
         'singularity-flow governance restore --dry-run')] : [])
@@ -696,6 +744,16 @@ function eligibleDeciders(details = {}) {
 }
 
 const IDENTITY_CHECK = 'check the Git identity this checkout uses with git config user.email (a GitHub login comes from gh auth status)';
+/**
+ * The whole command that sets this checkout's Git email to each address the groups list, as words a person can
+ * run, never "the address you are listed under" [audit 2026-11-19, entry 30]. Logins are set by gh, not here.
+ */
+function listedAddressStep(details) {
+  const listed = (Array.isArray(details?.eligibleApprovers) ? details.eligibleApprovers : [])
+    .filter((entry) => typeof entry === 'string' && /^[^\s<>"'`@]{1,128}@[^\s<>"'`@]{1,125}$/u.test(entry)).slice(0, 3);
+  return listed.length ? step('set-listed-address', `To decide as a listed address, set it here: ${listed.map((entry) => `git config user.email ${entry}`).join(', or ')}.`,
+    null, 'remediation') : null;
+}
 const NOTHING_TO_REJECT = 'Nothing was recorded and the work under review needs no change; do not reject or resubmit it to get past this.';
 
 /**
@@ -715,8 +773,9 @@ function approvalIdentitySteps(_argv, error) {
     step('set-approval-identity',
       `This checkout has no Git email or GitHub login to decide with: ${IDENTITY_CHECK}. Set user.email to the address you are listed under, then run the same command again.`,
       null, 'remediation'),
+    listedAddressStep(details),
     ask
-  ];
+  ].filter(Boolean);
   // Nobody else is pinned for this Story and the step forbids self-approval: no one can approve it
   // here, and asking "another member" named nobody. Say so, and name the way to a Story that can finish.
   if (error?.code === 'APPROVAL_SELF_APPROVAL_PROHIBITED' && !details.anyIdentity
@@ -769,8 +828,9 @@ function approvalIdentitySteps(_argv, error) {
     step('check-approval-identity',
       `${identity} is not a member of ${deciders}. If you are listed under another address, ${IDENTITY_CHECK}, set it to your listed address, and run the same command again (resume the Story first if its session still shows the old identity).`,
       null, 'remediation'),
+    listedAddressStep(details),
     ask
-  ];
+  ].filter(Boolean);
 }
 
 const APPROVAL_IDENTITY_CODES = Object.freeze(['APPROVAL_IDENTITY_NOT_AUTHORIZED', 'APPROVAL_IDENTITY_MISSING',
@@ -785,12 +845,18 @@ function clarificationAuthoritySteps(argv, error) {
   const details = error?.details ?? {};
   const phase = lowerKebab(details.phase) ?? artifactAuthoringPhase(argv, error);
   const workId = safeWorkId(details.workId);
+  // One whole command per question as asked, only the answer left to write [audit 2026-11-19, entry 9].
+  const questions = (Array.isArray(details.questions) ? details.questions : []).filter((entry) => typeof entry?.question === 'string'
+    && entry.question.trim() && entry.question.length <= 2000 && !/[\u0000-\u001f\u007f]/u.test(`${entry.question}${entry.marker ?? ''}`)).slice(0, 3);
+  const who = `Only a member of ${eligibleDeciders(details)} can answer. They answer in their own clone, in their own terminal; the answer is sent as its own small commit, never on the Story branch.`;
+  const answers = phase && questions.length ? questions.map((entry, index) => step(index ? `answer-in-own-clone-${index + 1}` : 'answer-in-own-clone',
+    index ? 'And the next question, the same way.' : who,
+    `singularity-flow clarification answer ${phase} ${typeof entry.marker === 'string' ? `--marker ${shellWord(entry.marker)}` : `--question ${shellWord(entry.question)}`} --answer "<ANSWER>"`, 'remediation'))
+    : [step('answer-in-own-clone', `${who}${phase ? ' The step\'s clarification status lists each question still open.' : ''}`, null, 'remediation')];
   return [
-    step('answer-in-own-clone',
-      `Only a member of ${eligibleDeciders(details)} can answer. They answer in their own clone, in their own terminal; the answer is sent as its own small commit, never on the Story branch.`,
-      `singularity-flow clarification answer ${phase ?? '<PHASE>'} --question "<QUESTION>" --answer "<ANSWER>"`, 'remediation'),
-    step('import-answers', `Then this checkout records the answers that bind this step${workId ? ` of ${workId}` : ''}, checking who sent each.`,
-      `singularity-flow clarification import ${phase ?? '<PHASE>'}`, 'remediation'),
+    ...answers,
+    phase ? step('import-answers', `Then this checkout records the answers that bind this step${workId ? ` of ${workId}` : ''}, checking who sent each.`,
+      `singularity-flow clarification import ${phase}`, 'remediation') : null,
     phase ? step('inspect-clarification-checkpoint', 'See which questions still need an answer.',
       `singularity-flow clarification status ${phase} --json`, 'diagnostic') : null
   ].filter(Boolean);
@@ -986,6 +1052,7 @@ function changedAfterPublicationSteps(details) {
 }
 
 const KNOWN = Object.freeze({
+  STORY_BASE_REQUIRED: storyBaseSteps,
   // A documentation topic or question given to `explain --subject`. The refusal names the topic it
   // matches first; these stay for words that match none. Repository diagnostics cannot help here.
   XPL2_SUBJECT_UNKNOWN: () => [
@@ -1029,7 +1096,7 @@ const KNOWN = Object.freeze({
     'The approved configuration adds nobody to this Story\'s groups yet. A person joins the group through approved configuration first; then preview the refresh again.',
     'singularity-flow configuration add-current-identity --target story:<GROUP>', 'remediation')],
   APR_CONFIRMATION_REQUIRED: () => [step('confirm-in-own-terminal',
-    'A person in one of the refreshed groups confirms the refresh plan digest in their own terminal; an agent never confirms it.', null, 'remediation')],
+    'A person in one of the refreshed groups runs the confirming command the refusal gives in their own terminal; an agent never confirms it.', null, 'remediation')],
   APR_REFRESH_BLOCKED: (argv, error) => (Array.isArray(error?.details?.blockers) ? error.details.blockers : []).slice(0, PLAN_STEP_LIMIT)
     .map((blocker, index) => step(`clear-refresh-blocker-${index + 1}`,
       String(blocker?.words ?? blocker?.label ?? 'Resolve this record before refreshing approvers.').slice(0, 2000),
@@ -1090,10 +1157,11 @@ const KNOWN = Object.freeze({
     return [step('list-final-check', 'Renew only an exception the step\'s current approval recorded; the final check lists them.',
       `singularity-flow decisions${workId ? ` ${workId}` : ' <WORK-ID>'}`, 'diagnostic', '/sf-decide')];
   },
-  WITNESS_EXCEPTION_STORY_CLOSED: (argv) => {
-    const workId = witnessExceptionWorkId(argv);
-    return [step('reopen-final-step', 'Reopen the Story at its final step first; a closed Story renews nothing.',
-      `singularity-flow reopen ${workId ?? '<WORK-ID>'} --to <FINAL-STEP> --reason "<why the exception is renewed>"`, 'remediation', '/sf-reject')];
+  WITNESS_EXCEPTION_STORY_CLOSED: (argv, error) => {
+    const workId = safeWorkId(error?.details?.workId) ?? witnessExceptionWorkId(argv);
+    const finalStep = lowerKebab(error?.details?.finalStep);
+    return [step('reopen-final-step', `Reopen the Story at its final step${finalStep ? `, ${finalStep},` : ''} first; a closed Story renews nothing.`,
+      workId && finalStep ? `singularity-flow reopen ${workId} --to ${finalStep} --reason "<why the exception is renewed>"` : null, 'remediation', '/sf-reject')];
   },
   // A draft citing a constitution article the Story's pin lacks: the author corrects the citation.
   CONSTITUTION_CITATION_INVALID: (argv, error) => {
@@ -1545,11 +1613,14 @@ const KNOWN = Object.freeze({
       'Inspect the source repository configuration; no invalid sflow/config branch was published.',
       'singularity-flow capability fsck --json', 'diagnostic')
   ],
-  CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED: () => [
-    step('map-with-review',
+  // The capability asked for, on the lead the refusal names, whole [audit 2026-11-19, entry 31]; with none named, the proposals.
+  CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED: (argv, error) => {
+    const capability = lowerKebab(error?.details?.requestedCapabilityId ?? error?.details?.capabilityId);
+    const lead = /^[A-Za-z0-9@:/._~+-]{1,500}$/u.test(error?.details?.lead ?? '') ? ` --lead ${error.details.lead}` : '';
+    return [step('map-with-review',
       'Preserve the imported organisation map, establish its authority, and add the new capability through a separate reviewed proposal.',
-      'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json', 'remediation')
-  ],
+      capability ? `singularity-flow capability map ${capability}${lead} --json` : 'singularity-flow capability proposals --json', 'remediation')];
+  },
   // Within the three-step cap: what SFlow suggests (and the repository routes from there), the
   // A proposed test command that is not the shape publication runs: name the field (the refusal does)
   // and the inspection, which lists commands that are; it had only the generic recover/doctor plan.
@@ -1565,12 +1636,17 @@ const KNOWN = Object.freeze({
     return [
       step('inspect-test-setup',
         'See which runner SFlow suggests for the changed modules (add --source-root <DIRECTORY> for one below the repository root); inspection runs nothing. '
-        + `/sf-test-setup then proposes it for every later Story with capability test-setup --step ${phase ?? '<STEP>'}: a configuration approver activates it, and a person who approves this step adopts it here with story test-policy amend --reason TEXT, because refresh alone does not change its pin. `
+        + `/sf-test-setup then proposes it for every later Story with capability test-setup${phase ? ` --step ${phase}` : ''}: a configuration approver activates it, and a person who approves this step adopts it here with story test-policy amend --reason TEXT, because refresh alone does not change its pin. `
         + 'If the affected module has an in-scope test script or runner declaration, repairing it within this step\'s scope works too; never suppress tests. A newer runtime may also add native support.',
         'singularity-flow capability test-setup --json', 'diagnostic', '/sf-test-setup'),
-      step('request-story-test-command',
-        'Or request the exact command that runs this step\'s tests, for this Story only: --use a suggestion, or give --id, --argv \'<JSON ARRAY>\', --working-directory, --affected-root, --adapter and --report. A person who approves the step accepts it from the decision list (/sf-decide); an agent never accepts it.',
-        `singularity-flow decision test-command ${workId ?? '<WORK-ID>'} --phase ${phase ?? '<PHASE>'} --use <SUGGESTION-ID> --reason "<why this command tests the step>"`, 'remediation'),
+      // One whole request per runner SFlow suggests for the changed code (code-delivery-tests.mjs testCommandRequiredRefusal),
+      // never `--use <SUGGESTION-ID>` to look up first [audit 2026-11-19, entry 8].
+      ...(workId && phase && testSuggestionsOf(error).length ? testSuggestionsOf(error).map((suggestion, index) => step(`request-story-test-command${index ? `-${index + 1}` : ''}`,
+        `Or request ${suggestion.label ? `\`${suggestion.label}\`` : suggestion.id} as this step's test command, for this Story only. A person who approves the step accepts it from the decision list (/sf-decide); an agent never accepts it.`,
+        `singularity-flow decision test-command ${workId} --phase ${phase} --use ${suggestion.id}${suggestion.sourceRoots.map((folder) => ` --source-root ${shellWord(folder)}`).join('')} --reason "<why this command tests the step>"`,
+        'remediation'))
+        // No runner suggested: the command is the person's own, given in full; nothing is offered with a placeholder in it.
+        : [step('request-story-test-command', 'Or request the exact command that runs its tests, for this Story only, given in full with decision test-command (help decision); a person who approves the step accepts it.', null, 'remediation')]),
       step('recheck-structured-test-contract',
         'After an accepted Story-only command, an adopted amendment or a real repository/runtime repair, recheck: this read-only check names the resolved runner and does not republish unchanged code. Do not retry publication against unchanged inputs.',
         `singularity-flow phase prepublish${phase ? ` ${phase}` : ''} --json`, 'diagnostic', '/sf-code')
@@ -1801,9 +1877,8 @@ const KNOWN = Object.freeze({
     'singularity-flow workspace doctor --network --json')],
   AUTO_PLAN_INVALID: () => [step('plan-again', 'Plan again with a non-empty requirement within the size limit; a malformed plan is never kept.',
     'singularity-flow auto plan <REQUIREMENT>', 'remediation')],
-  SESSION_REPOSITORY_UNAVAILABLE: () => [
-    step('list-workspaces', 'See the workspaces this machine knows and the state of each repository.', 'singularity-flow workspace list', 'diagnostic'),
-    step('select-workspace', 'Select a workspace repository this machine can read.', 'singularity-flow workspace use <WORKSPACE>', 'remediation')],
+  SESSION_REPOSITORY_UNAVAILABLE: (argv, error) => [...workspaceChoices(error, 'singularity-flow workspace use'),
+    step('list-workspaces', 'See the workspaces this machine knows and the state of each repository.', 'singularity-flow workspace list', 'diagnostic')],
   LOCAL_EPIC_RESERVATION_AMBIGUOUS: (_argv, error) => [step('remove-other-reservations',
     `Keep the reservation this branch is for and delete the other reservation files${Array.isArray(error?.details?.reservations)
       ? ` (${error.details.reservations.map((entry) => redactDiagnosticText(String(entry)).slice(0, 200)).join(', ')})` : ''} in your own terminal, then run the same command again.`,
@@ -1856,8 +1931,11 @@ function genericSteps(argv) {
 export const PLAN_STEP_LIMIT = 3;
 // A scope approver's decision on an intent amendment in their own terminal stays beside its card route, which the
 // decision-list rule below keeps: SF Guard takes its signature there [owner, 2026-11-13].
+// Each suggested runner's whole request and the recheck after it are kept too [audit 2026-11-19, entry 8].
 export const PLAN_RESERVED_STEP_IDS = Object.freeze(['open-decision-list', 'accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue', 'correct-plan-row',
-  'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run', 'decide-intent-amendment']);
+  'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run', 'decide-intent-amendment',
+  'request-story-test-command', 'request-story-test-command-2', 'request-story-test-command-3', 'recheck-structured-test-contract',
+  'answer-in-own-clone-2', 'answer-in-own-clone-3', 'import-answers']);
 
 const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'correct-report': 'correct-conformance-report', 'raise-upstream-issue': 'raise-upstream-issue', 'decide-upstream-issue': 'decide-conformance-gap',
   'repair-return': 'return-conformance-gap', 'evidence-reuse': 'reuse-recorded-evidence', 'fresh-recorded-run': 'record-fresh-run' });
@@ -2320,7 +2398,8 @@ function remediationPlanFor(error, argv = []) {
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
   // A published code step's own change after publication: its in-step repair leads any producer read (N7). So does the
   // step's own way to publish what a witness or an appeal waits for (review findings 6 and 7, 2026-11-17).
-  const inStepFirst = authoringIncomplete || (['CODE_CHANGED_AFTER_PUBLICATION', 'WITNESS_EVIDENCE_UNPUBLISHED', 'PHASE_APPEAL_LIFECYCLE'].includes(code)
+  // So does each base a Story can start from, whole, before any read of them [audit 2026-11-19, entry 12].
+  const inStepFirst = authoringIncomplete || (['CODE_CHANGED_AFTER_PUBLICATION', 'WITNESS_EVIDENCE_UNPUBLISHED', 'PHASE_APPEAL_LIFECYCLE', 'STORY_BASE_REQUIRED'].includes(code)
     && known.length > 0);
   // A producer action that repeats a known step's exact command adds a second label, not a route.
   const nonDuplicateExplicit = explicit.filter((entry) => !entry?.command

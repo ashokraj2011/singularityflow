@@ -21,8 +21,9 @@ test('session open with no repository leads to selecting one', async (t) => {
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'), SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspaces.json') } });
   const refusal = JSON.parse(result.stdout);
   assert.equal(refusal.error.code, 'SESSION_REPOSITORY_REQUIRED');
-  assert.equal(refusal.remediationPlan.steps[0].command, 'singularity-flow session workspace <WORKSPACE>');
-  assert.equal(refusal.remediationPlan.steps[0].skill, '/sf-session');
+  // This machine knows no workspace yet: the list, never a <WORKSPACE> to fill in [audit 2026-11-19, entry 13].
+  assert.equal(refusal.remediationPlan.steps[0].command, 'singularity-flow workspace list --json');
+  assert.ok(!JSON.stringify(refusal.remediationPlan).includes('<WORKSPACE>'));
 });
 
 test('a source-review write step with the agent flag gets the same command without it; submit and its reads take the flag', async (t) => {

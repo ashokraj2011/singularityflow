@@ -168,10 +168,16 @@ export async function run(argv, context = {}) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
     if (action === 'prompt') return console.log('');
     const { actionCommandLines, copilotAction } = await import('../copilot-guidance.mjs');
+    const { knownWorkspaces } = await import('../known-workspaces.mjs');
     console.log('No active workspace.');
-    for (const line of actionCommandLines(copilotAction({
-      command: 'singularity-flow workspace use <WORKSPACE>'
-    }), 'Select one')) console.log(line);
+    // Each workspace this machine knows, as a whole command, last opened first [audit 2026-11-19, entry 13].
+    const known = await knownWorkspaces(registry);
+    if (!known.length) console.log('This machine knows no workspace yet. Create one in VS Code (Singularity Flow: Create a Workspace), or with /sf-workspace in Copilot.');
+    for (const [index, entry] of known.slice(0, 3).entries()) {
+      for (const line of actionCommandLines(copilotAction({
+        command: `singularity-flow workspace use ${entry.id}`
+      }), `${index ? 'Or' : 'Select one'}: ${entry.name}`)) console.log(line);
+    }
     return;
   }
   let gitShadowSummary = null;

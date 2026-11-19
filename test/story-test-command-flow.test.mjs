@@ -109,7 +109,9 @@ test('a step approver accepts a Story-only test command, and publication and sub
   const blocked = refused('phase', 'publish', 'implement');
   assert.equal(blocked.error.code, 'CODE_DELIVERY_TEST_COMMAND_REQUIRED');
   const routes = blocked.remediationPlan.steps.map((step) => step.command ?? '').join('\n');
-  assert.match(routes, /singularity-flow decision test-command QF-1 --phase implement /u);
+  // No runner is suggested here, so the Story-only request is named in words, never as a command with <SUGGESTION-ID> to fill in.
+  assert.ok(blocked.remediationPlan.steps.some((step) => step.id === 'request-story-test-command' && step.command === null), routes);
+  assert.doesNotMatch(routes, /<SUGGESTION-ID>/u);
   assert.match(routes, /singularity-flow capability test-setup /u);
   const recovery = json('recover', 'QF-1', '--phase', 'implement');
   const recoveryActions = recovery.actions ?? recovery.data?.actions ?? [];

@@ -106,10 +106,13 @@ export function personRecordRoute(workflow, entry) {
       ? `the approver rejects it again in their own terminal: singularity-flow reject ${entry.phase} --work-id ${workId} --reason "<why>"`
       : `the approver approves it again in their own terminal: singularity-flow approve ${entry.phase} --work-id ${workId}`;
   }
+  const step = entry.record?.phaseId ?? entry.phase;
+  const phase = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(step ?? '') ? ` --phase ${step}` : '';
   const again = {
-    testCommandAmendments: `the approver records the test-policy amendment again in their own terminal: singularity-flow story test-policy amend --work-id ${workId} --reason "<why>" --apply --confirm <PLAN-DIGEST>`,
+    // A preview gives the whole confirming command; the person never copies a digest.
+    testCommandAmendments: `the approver previews the test-policy amendment again in their own terminal and runs the command it gives: singularity-flow story test-policy amend --work-id ${workId}${phase} --reason "<why>"`,
     approverRefreshes: `an approver refreshes the approvers again in their own terminal: singularity-flow story approvers refresh ${workId} --reason "<why>"`,
-    'testRecovery.selectionConfirmations': `the reviewer confirms the test selection again in their own terminal: singularity-flow story test-policy confirm --work-id ${workId} --phase <PHASE> --confirm <PLAN-DIGEST>`,
+    'testRecovery.selectionConfirmations': `the reviewer reads the test selection again in their own terminal and runs the command it gives to confirm it: singularity-flow story test-policy plan --work-id ${workId}${phase}`,
     'testRecovery.riskReviews': `the reviewer records the test risk decision again in their own terminal: singularity-flow story test-policy accept-risk --work-id ${workId} … (or attest-risk / revoke-risk; for a baseline accepted at intake: singularity-flow story test-policy baseline-admission ${workId} … --apply)`
   }[entry.list];
   return again ?? 'the person records the decision again in their own terminal, where SF Guard takes their Touch ID';

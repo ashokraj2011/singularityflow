@@ -46,9 +46,12 @@ export async function inboxCommand(options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(snapshot, null, 2));
     return process.stdout.write(snapshot.detail ? `${snapshot.detail}\n` : approvalInboxText(snapshot));
   }
-  if (!root) throw new SingularityFlowError(selected.detail ?? 'Select a readable workspace repository.', {
-    code: 'SESSION_REPOSITORY_UNAVAILABLE'
-  });
+  if (!root) {
+    const [{ knownWorkspaces }, { workspaceRegistryFile }] = await Promise.all([import('../known-workspaces.mjs'), import('../workspace-context.mjs')]);
+    throw new SingularityFlowError(selected.detail ?? 'Select a readable workspace repository.', {
+      code: 'SESSION_REPOSITORY_UNAVAILABLE', details: { workspaces: await knownWorkspaces(workspaceRegistryFile()) }
+    });
+  }
   const { definition: config } = await withApprovedConfigurationRead(root,
     () => sessionDiscoveryConfiguration(root, selected.authority));
   const snapshot = await approvalInbox(root, config, { fetch: !optionBoolean(options, 'offline') });

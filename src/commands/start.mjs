@@ -46,7 +46,7 @@ import { assertStartDocuments, preflightInitialStoryDocuments, stageInitialStory
 import { assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired } from '../story-start-readiness.mjs';
 import { collectRepositoryReadinessEvidence, inspectRepositoryPrerequisitePresence } from '../repository-readiness-evidence.mjs';
 import { intakeBaselineChoice, requiredIntakePrerequisites } from '../intake-baseline.mjs';
-import { storyBaseRequired, assertStoryStartChoices } from '../story-start-inputs.mjs';
+import { assertStoryStartChoices } from '../story-start-inputs.mjs';
 import { loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext, storyConfigurationUnavailableError } from '../story-start-base-configuration.mjs';
 import { activateWorkspaceStoryContext, activeWorkspaceFile, workspaceRegistryFile } from '../workspace-context.mjs';
 import { withLedgerRemoteView } from '../ledger.mjs';
@@ -666,7 +666,10 @@ async function startCommandAtRoot(positionals, options) {
     for (let index = 0; index < refs.length && !cached; index += 32) {
       cached = localRefHeads(root, refs.slice(index, index + 32)).size > 0;
     }
-    if (!cached) throw storyBaseRequired(id);
+    if (!cached) {
+      const bases = await import('../story-base-choices.mjs');
+      throw bases.storyBaseRequired(id, { branches: bases.localStoryBases(root) });
+    }
   }
 
   // Only after a local durable Story has had its network-free pinned resume path do we select policy

@@ -103,10 +103,14 @@ test('workflow import and export from a folder outside the selected workspace us
 
   const preview = flow(downloads, 'workflow', 'import', 'team.json', '--dry-run', '--propose');
   assert.equal(preview.status, 0, preview.stderr || preview.stdout);
-  const apply = /^ {2}Apply it: singularity-flow (.+)$/mu.exec(preview.stdout)?.[1];
-  assert.ok(apply?.endsWith(' --propose'), `the apply line keeps --propose: ${apply}`);
+  // Applied by the plan's short code (confirm-code.mjs): the command it stands for keeps --propose.
+  const { resolveConfirmCode } = await import('../src/confirm-code.mjs');
+  const codeOf = (stdout) => /Apply it:\n(?:.*\n)*?.*- Shell: singularity-flow confirm ([0-9A-Z]{4}-[0-9A-Z]{4})$/mu.exec(stdout)?.[1];
+  const code = codeOf(preview.stdout);
+  assert.ok(resolveConfirmCode(code, { env })?.command.endsWith(' --propose'), `the apply route keeps --propose: ${preview.stdout}`);
+  const apply = `confirm ${code}`;
   const plain = flow(downloads, 'workflow', 'import', 'team.json', '--dry-run');
-  assert.doesNotMatch(/Apply it: .*$/mu.exec(plain.stdout)?.[0] ?? '', /--propose/u, 'a preview without --propose prints none');
+  assert.doesNotMatch(resolveConfirmCode(codeOf(plain.stdout), { env })?.command ?? '', /--propose/u, 'a preview without --propose prints none');
 
   const imported = flow(downloads, ...apply.split(' '));
   assert.equal(imported.status, 0, imported.stderr || imported.stdout);

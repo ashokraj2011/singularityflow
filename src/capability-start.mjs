@@ -716,10 +716,7 @@ export async function storyBaseForRepository(root, {
     }
   }
   if (!selection.all && !Object.keys(selection.overrides).length) {
-    throw new SingularityFlowError(perRepository
-      ? `No branch is published in every repository. Choose one per repository with --from-branch <REPOSITORY>=<BRANCH>, once for each of ${catalog.repositories.map((repository) => repository.id).join(', ')}.`
-      : `Choose the remote base branch explicitly with --from-branch <BRANCH>. Available: ${usableChoices.map((choice) => choice.branch).join(', ') || 'none'}.`,
-    { code: 'STORY_BASE_REQUIRED' });
+    throw (await import('./story-base-choices.mjs')).capabilityBaseRequired(catalog, { usableChoices, defaults, defaultBranch, perRepository });
   }
   const resolution = resolveCapabilityBase({
     repositories: catalog.published,

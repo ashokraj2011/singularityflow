@@ -421,7 +421,7 @@ test('no next-step list holds the same item twice, wherever its entries come fro
         ...(amendment === 'acknowledged' ? { acknowledgedAt: '2026-11-14T16:37:10.557Z' } : {}) }] : [];
       const context = `${phaseStatus} gen ${generation} amendment ${amendment} model ${enabled}`;
       const steps = workflowNextSteps(state, { modelMode: { enabled } });
-      proposable += steps.some((step) => step.command?.startsWith('singularity-flow story intent-amendment propose')) ? 1 : 0;
+      proposable += steps.some((step) => step.command?.startsWith('singularity-flow story intent-amendment draft')) ? 1 : 0;
       distinct(steps, context);
       distinct(nextStepsSnapshot({ workflow: state, modelMode: { enabled } }).actions, context);
     }
@@ -449,7 +449,7 @@ test('an approval followed by a step nobody approves prints each next step once,
       implement: phase('implement', 'Implement', statuses[1], 0, { mode: 'none' }), verify: phase('verify', 'Verify', 'not_started', 0, { mode: 'none' }) } });
   const after = story('implement', ['approved', 'in_progress']);
   const before = story('fix-design', ['awaiting_approval', 'not_started']);
-  const AMEND = /If the approved intent must change, propose a reviewed amendment/gu;
+  const AMEND = /If the approved intent must change, draft an amendment/gu;
   const asNext = (steps) => steps.map((step, index) => plannedAction({ id: `step-${index}`, label: step.reason, command: step.command,
     rank: { now: 'NOW', then: 'SOON', alternative: 'LATER' }[step.timing] ?? 'LATER', kind: 'workflow' }, step.skill));
   // The approval's own list and the list of the step after it, joined into one result: each item once, wherever it stood.

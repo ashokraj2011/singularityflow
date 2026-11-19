@@ -903,10 +903,7 @@ export async function prepareConfigurationBootstrapWorktree(root, {
             details: {
               requestedCapabilityId,
               importedCapabilityIds: Object.keys(importedCapabilities.capabilities ?? {}).sort(),
-              nextAction: {
-                command: 'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json',
-                skill: '/sf-capability-map'
-              },
+              lead: url,
               preserved: ['imported-capability-map', 'application-branches', 'remote-configuration-refs']
             }
           }

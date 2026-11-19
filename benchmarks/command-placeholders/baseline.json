@@ -1,0 +1,520 @@
+{
+  "revision": 1,
+  "sources": {
+    "apps/vscode/src/extension.ts": [
+      "singularity-flow workspace doctor --network --repository <REPOSITORY-URL> --json"
+    ],
+    "apps/vscode/src/sflow-chat.ts": [
+      "singularity-flow revision checks result <RUN-ID> --json",
+      "singularity-flow revision checks run --plan sha256:<PLAN> --confirm sha256:<PLAN> --json"
+    ],
+    "apps/vscode/src/views/intake-form.ts": [
+      "singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>"
+    ],
+    "apps/vscode/src/views/run-configurations-model.ts": [
+      "singularity-flow env bind <ENVIRONMENT> --stdin",
+      "singularity-flow env bind {} --stdin <ENVIRONMENT>"
+    ],
+    "src/adhoc/landing.mjs": [
+      "singularity-flow start <WORK-ID> --from-branch {} --allow-dirty"
+    ],
+    "src/agent-hooks.mjs": [
+      "singularity-flow session attach <WORK-ID>",
+      "singularity-flow session attach {} <WORK-ID>"
+    ],
+    "src/agent-output.mjs": [
+      "singularity-flow phase prepublish <phase> --for-agent --json --publish-if-ready",
+      "singularity-flow phase prepublish {} --for-agent --json --publish-if-ready <phase>"
+    ],
+    "src/amendment-plan-corrections.mjs": [
+      "[argv] --test <TEST>"
+    ],
+    "src/apm-policy.mjs": [
+      "singularity-flow apm install <PACKAGE>"
+    ],
+    "src/application-review.mjs": [
+      "singularity-flow reject {} --work-id {} --to <allowed-phase> --reason <reason>"
+    ],
+    "src/approval-check.mjs": [
+      "singularity-flow story intent-amendment decide {} --decision <approve|reject> --confirm {} --work-id {}"
+    ],
+    "src/auto/auto-p1-control.mjs": [
+      "singularity-flow auto repair {} --refusal <REFUSAL-ID>",
+      "singularity-flow auto repair {} --refusal {} <REFUSAL-ID>"
+    ],
+    "src/auto/auto-version-authority.mjs": [
+      "singularity-flow auto repair {} --refusal <REFUSAL-ID>",
+      "singularity-flow auto repair {} --refusal {} <REFUSAL-ID>"
+    ],
+    "src/cli.mjs": [
+      "[argv] singularity-flow fix {} {} --max-attempts {} --allow-path <PATH> --verify-argv <JSON-ARGV>",
+      "sflow impact explain {} <finding-id>",
+      "sflow impact start {} --work-id <ID> --work-type <TYPE> --confirm {}",
+      "singularity-flow action authorize {} --action <id> --confirm <exact-action-id>",
+      "singularity-flow action execute {} --action <id> --authorization <token>",
+      "singularity-flow assign {} <assignee>",
+      "singularity-flow capability edit <ID> --lead <URL> --mode set …",
+      "singularity-flow fix {} --plan-only --allow-path <PATH> --verify <COMMAND>",
+      "singularity-flow initiative applicability set {} <yes|no> --reason <TEXT>",
+      "singularity-flow resume <WORK-ID> --fetch",
+      "singularity-flow start <WORK-ID>",
+      "singularity-flow workflow edit <ID> --phases a,b,c",
+      "singularity-flow workspace repair <ITS-NEW-FOLDER>",
+      "singularity-flow workspace {} <WORKSPACE-DIRECTORY>"
+    ],
+    "src/commands/auto.mjs": [
+      "singularity-flow auto repair {} --refusal <REFUSAL-ID> --confirm {}",
+      "singularity-flow auto repair {} --refusal {} --confirm {} <REFUSAL-ID>"
+    ],
+    "src/commands/call.mjs": [
+      "singularity-flow call add <FOLDER>",
+      "singularity-flow start <WORK-ID> --agent {}"
+    ],
+    "src/commands/capability-projects.mjs": [
+      "[argv] capability map <CAPABILITY-ID> --lead {} --kind delivery --repository {} --json",
+      "singularity-flow capability projects <GIT-URL> [--branch NAME] [--lead URL] [--json], or capability projects --path <CHECKOUT> [--lead URL] [--json]"
+    ],
+    "src/commands/decision-test-command.mjs": [
+      "singularity-flow decision test-command <WORK-ID> --accept {}",
+      "singularity-flow decision test-command {} --accept {} <WORK-ID>"
+    ],
+    "src/commands/delivery.mjs": [
+      "[argv] singularity-flow delivery promotion-preview {} --workflow <feature|bugfix> --work-id <WORK-ID>",
+      "singularity-flow delivery local-runner-plan --signer {} --work-id <WORK-ID> --phase <PHASE> --command <CONFIGURED-COMMAND-ID> --proof-subject <SHA256> --candidate <SHA256> --json",
+      "singularity-flow delivery promotion-apply --plan <PLAN-FILE> --confirm-plan {}"
+    ],
+    "src/commands/explain.mjs": [
+      "sflow show {} --section <heading>"
+    ],
+    "src/commands/git-policy.mjs": [
+      "singularity-flow git-policy plan|validate --operation sha256:<OWNER-ISSUED-ID> [--json]"
+    ],
+    "src/commands/goal.mjs": [
+      "singularity-flow goal create \"<OUTCOME>\" --success \"<OBSERVABLE SUCCESS>\"",
+      "singularity-flow goal link {} <WORK-ID> --kind story"
+    ],
+    "src/commands/guide.mjs": [
+      "singularity-flow bootstrap <REPOSITORY-URL>"
+    ],
+    "src/commands/nextsteps.mjs": [
+      "singularity-flow assign {} <assignee>"
+    ],
+    "src/commands/revise.mjs": [
+      "singularity-flow revision capture --preview --note <CHANGE-NOTE> --saved-buffers-confirmed"
+    ],
+    "src/commands/revision.mjs": [
+      "singularity-flow revision attachments preview --file <LOCAL_FILE> --feedback-stdin",
+      "singularity-flow revision attachments preview --file <PATH> --feedback-stdin",
+      "singularity-flow revision attachments register --file <PATH> --feedback-stdin --confirm {}",
+      "singularity-flow revision capture --note <SAME-NOTE> --saved-buffers-confirmed --plan {} --confirm {}"
+    ],
+    "src/commands/session-open.mjs": [
+      "singularity-flow session open <WORK-ID>",
+      "singularity-flow session open <WORK-ID> {}"
+    ],
+    "src/commands/session-takeover.mjs": [
+      "singularity-flow backup restore <DIRECTORY>",
+      "singularity-flow documents restore {} --file <LOCAL-FILE> --work-id {}"
+    ],
+    "src/commands/session.mjs": [
+      "singularity-flow session attach <WORK-ID>"
+    ],
+    "src/commands/sgos-evidence.mjs": [
+      "singularity-flow evidence export <PROCESS-ID> --out <REPOSITORY-FILE> [--json]",
+      "singularity-flow evidence reconstruct <PROCESS-ID> [--json]",
+      "singularity-flow evidence verify <FILE> [--json]"
+    ],
+    "src/commands/sgos.mjs": [
+      "singularity-flow process start <PROGRAM> --subject <SUBJECT>"
+    ],
+    "src/commands/shared/prepared-phase-next-actions.mjs": [
+      "singularity-flow story adjudicate {} --disposition <rework|update-intent|accepted-deviation|dismissed|deferred> --reason <reason> [--clause <CLAUSE-ID> ...]"
+    ],
+    "src/commands/shared/print-phase-review.mjs": [
+      "singularity-flow documents view <id> --work-id {}"
+    ],
+    "src/commands/skill-master.mjs": [
+      "singularity-flow skill create <ID> --description \"<what it does and when to use it>\" --from <FILE>"
+    ],
+    "src/commands/spec-attach.mjs": [
+      "singularity-flow start <WORK-ID> --spec {} --from-branch <BRANCH>"
+    ],
+    "src/commands/spec-author.mjs": [
+      "singularity-flow spec author edit {} --kind <business|technical> --expected-seq {}"
+    ],
+    "src/commands/start.mjs": [
+      "singularity-flow documents upload <FILE> --name <NAME>"
+    ],
+    "src/commands/story.mjs": [
+      "[argv] story skill-version decide {} --decision approve --reason <REVIEW-REASON> --work-id {}",
+      "singularity-flow story adjudicate <ITEM-ID> --disposition <rework|update-intent|accepted-deviation|dismissed|deferred> [--reason <TEXT>] [--clause <CLAUSE-ID> ...]",
+      "singularity-flow story intent-amendment decide {} --decision <approve|reject> --confirm {} --work-id {}"
+    ],
+    "src/commands/upstream-issue.mjs": [
+      "singularity-flow upstream-issue raise --work-id {} --phase <EARLIER> --about \"{}\" --problem \"<this item's text>\"",
+      "singularity-flow upstream-issue raise --work-id {} --phase {} --about \"{}\" --problem \"<this item's text>\" <EARLIER>",
+      "singularity-flow upstream-issue raise --work-id {} --phase {} --supersedes {} --about <ID|SECTION> --problem <TEXT>"
+    ],
+    "src/commands/workflow-intent.mjs": [
+      "[argv] workflow intent attachments {} {} --expected-source {} --id <CAPTURE-ID> --json",
+      "[argv] workflow markup compile <FILE> --json"
+    ],
+    "src/commands/workflow-markup.mjs": [
+      "[argv] workflow markup compile <FILE> --out <BUNDLE.json> --json",
+      "[argv] workflow markup compile {} --out <BUNDLE.json> --json"
+    ],
+    "src/configuration-proposal.mjs": [
+      "singularity-flow configuration approve {} --confirm {}{} <PROPOSAL-BRANCH> <COMMIT-SHA>",
+      "singularity-flow configuration approve {} <PROPOSAL-BRANCH>",
+      "singularity-flow configuration reject {} <PROPOSAL>"
+    ],
+    "src/configuration-state-git.mjs": [
+      "singularity-flow configuration approve <PROPOSAL>",
+      "singularity-flow configuration approve <PROPOSAL> --confirm <COMMIT>{}",
+      "singularity-flow configuration approve <PROPOSAL> --confirm {}{} <COMMIT>",
+      "singularity-flow configuration approve {} --confirm <COMMIT>{} <PROPOSAL>",
+      "singularity-flow configuration approve {} --confirm {}{} <PROPOSAL> <COMMIT>",
+      "singularity-flow configuration approve {} <PROPOSAL>"
+    ],
+    "src/convergence-review-route.mjs": [
+      "singularity-flow story adjudicate {} --disposition <rework|update-intent|accepted-deviation|dismissed|deferred> --reason <reason> [--clause <CLAUSE-ID> ...]"
+    ],
+    "src/copilot-answer-binding.mjs": [
+      "singularity-flow phase rollover <step>",
+      "singularity-flow phase rollover {} <step>",
+      "singularity-flow story intent-amendment propose --work-id <WORK-ID> --file \"{}\" --reason \"<why>\" --authored human",
+      "singularity-flow story intent-amendment propose --work-id {} --file \"{}\" --reason \"<why>\" --authored human <WORK-ID>"
+    ],
+    "src/copilot-mutation-guard.mjs": [
+      "/sf-decide <WORK-ID>",
+      "singularity-flow tests node --work-id <WORK-ID> --node <MAJOR> finds out whether the tests pass on another installed Node, and records nothing as evidence. A person pins it on /sf-decide"
+    ],
+    "src/copilot-plain-chat.mjs": [
+      "/sf-start <NEW-ID>{}",
+      "/sf-start <NEW-ID>{} (its quick-fix workflow suits a small change)"
+    ],
+    "src/decision-advice.mjs": [
+      "/sf-decide <WORK-ID>",
+      "/sf-decide {} <WORK-ID>"
+    ],
+    "src/decision-list.mjs": [
+      "/sf-decide <WORK-ID>",
+      "/sf-decide {} <WORK-ID>",
+      "singularity-flow decision completeness {} --fetch --confirm {} --article <ID>=<DECISION> --reason \"<REASON>\"",
+      "singularity-flow decision scope {} --fetch --item {} --as {} --clause <CLAUSES> --reason \"<REASON>\"",
+      "singularity-flow decision test-risk {} --phase {} --command {} --cause \"<what stops it>\" --reason \"<why>\" --expires <YYYY-MM-DD>",
+      "singularity-flow decision test-risk {} --phase {} --command {} --cause-class {} --cause \"<what stops it>\" --reason \"<why>\" --expires <YYYY-MM-DD>",
+      "singularity-flow decisions record {} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT]",
+      "singularity-flow decisions record {} --phase {} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT]"
+    ],
+    "src/delivery-evidence.mjs": [
+      "singularity-flow decision plan {} --add-location <clause>={} --reason <why>",
+      "singularity-flow decision plan {} --replace-location {}={}:<NEW-PATH> --reason <why>",
+      "singularity-flow decision plan {} --set-fulfillment {}=<new|modified|existing|removed|document|configuration> --reason <why>"
+    ],
+    "src/design-sources.mjs": [
+      "singularity-flow mcp record {} --kind design-source --tool get_metadata --phase {} --output <METADATA-XML-PATH> --file-key <FIGMA-FILE-KEY> --file-version <FIGMA-FILE-VERSION>"
+    ],
+    "src/document-runtime.mjs": [
+      "[argv] documents restore {} --work-id {} --file <LOCAL-FILE> --json"
+    ],
+    "src/document-storage.mjs": [
+      "singularity-flow documents restore {} --file <LOCAL-FILE>"
+    ],
+    "src/documents.mjs": [
+      "singularity-flow reopen {} --to <PHASE> --reason <TEXT>"
+    ],
+    "src/environment-files.mjs": [
+      "singularity-flow env files link {} --to <FILE>"
+    ],
+    "src/epic-lifecycle.mjs": [
+      "/sf-story-fetch <JIRA-KEY>",
+      "singularity-flow start <WORK-ID>"
+    ],
+    "src/evidence-reuse.mjs": [
+      "singularity-flow decision evidence-reuse <WORK-ID> --phase {}",
+      "singularity-flow decision evidence-reuse {} --phase {} <WORK-ID>"
+    ],
+    "src/evidence/cross-phase-change.mjs": [
+      "singularity-flow decision plan --add-location <clause>=<path> --reason <reason>"
+    ],
+    "src/evidence/evaluate.mjs": [
+      "singularity-flow decision risk --obligation {} --category <category> --expires <YYYY-MM-DD> --reason \"<why>\""
+    ],
+    "src/fault-repair.mjs": [
+      "singularity-flow repair attempt {} --patch <PATCH-FILE>"
+    ],
+    "src/finding-escalation.mjs": [
+      "singularity-flow appeal risk-prepare{} --phase {} --finding {} --evidence-file <PATH> --expires <YYYY-MM-DD> --reason <why> --json"
+    ],
+    "src/finding-risk.mjs": [
+      "singularity-flow decision finding-risk <WORK-ID> --phase {} --finding {}",
+      "singularity-flow decision finding-risk {} --phase {} --finding {} <WORK-ID>"
+    ],
+    "src/forward-amendments.mjs": [
+      "singularity-flow upstream-issue revalidate {} --work-id {} --amendment {} --outcome <unchanged|return> --reason \"<why>\""
+    ],
+    "src/fos-features.mjs": [
+      "singularity-flow authority refresh <LOCAL-PATH>",
+      "singularity-flow cache clear --derived --repo <LOCAL-PATH>",
+      "singularity-flow onboard <LOCAL-PATH> --remote <NAME>",
+      "singularity-flow recover <WORK-ID> --json"
+    ],
+    "src/gateway/planners/home-overview.mjs": [
+      "singularity-flow goal next <GOAL-ID>",
+      "singularity-flow resume <WORK-ID>",
+      "singularity-flow start <WORK-ID>",
+      "singularity-flow story return <WORK-ID>",
+      "singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run",
+      "singularity-flow workspace bootstrap status <BOOTSTRAP-ID>"
+    ],
+    "src/gateway/planners/impact-quick.mjs": [
+      "sflow start <WORK-ID>"
+    ],
+    "src/gateway/planners/impact-what-if.mjs": [
+      "sflow impact start {} --work-id <WORK-ID> --work-type <TYPE> --confirm {}"
+    ],
+    "src/gateway/planners/problem-investigate.mjs": [
+      "sflow start <WORK-ID>"
+    ],
+    "src/git-proposal-history.mjs": [
+      "singularity-flow configuration approve <PROPOSAL>",
+      "singularity-flow configuration approve {} <PROPOSAL>"
+    ],
+    "src/governance.mjs": [
+      "singularity-flow decision witness-exception {} --phase {} --mapping {} --expires <YYYY-MM-DD> --reason \"<why the exception still stands>\""
+    ],
+    "src/inbox.mjs": [
+      "singularity-flow decision choose {} --fetch --option <OPTION> --reason <REASON> --expected {}"
+    ],
+    "src/initiative-report.mjs": [
+      "singularity-flow epic sources add --epic {} --file <PATH>",
+      "singularity-flow initiative approve <OUTPUT>",
+      "singularity-flow initiative approve {} <OUTPUT>",
+      "singularity-flow initiative evidence add <CHECK-ID> --phase {} --assurance {} --observed-state \"<WHAT WAS REVIEWED>\" --reason \"<WHY THIS SATISFIES THE CHECK>\"",
+      "singularity-flow initiative evidence add <CHECK-ID> --phase {} --assurance {} --path <EVIDENCE-FILE> --verification <METHOD>",
+      "singularity-flow initiative evidence add {} --phase {} --assurance {} --observed-state \"<WHAT WAS REVIEWED>\" --reason \"<WHY THIS SATISFIES THE CHECK>\" <CHECK-ID>",
+      "singularity-flow initiative evidence add {} --phase {} --assurance {} --path <EVIDENCE-FILE> --verification <METHOD> <CHECK-ID>"
+    ],
+    "src/local-backup.mjs": [
+      "singularity-flow documents list <WORK-ID> --all --json",
+      "singularity-flow documents list {} --all --json <WORK-ID>"
+    ],
+    "src/mcp-readiness.mjs": [
+      "singularity-flow mcp smoke {} --url <AUTHORIZED-URL>",
+      "singularity-flow mcp smoke {} --url {} <AUTHORIZED-URL>",
+      "singularity-flow story target-origin --url <AUTHORIZED-URL>",
+      "singularity-flow story target-origin {} --url <AUTHORIZED-URL>"
+    ],
+    "src/mcp-target.mjs": [
+      "singularity-flow mcp smoke {} --url <AUTHORIZED-URL>",
+      "singularity-flow mcp smoke {} --url {} <AUTHORIZED-URL>"
+    ],
+    "src/narration/continuation.mjs": [
+      "singularity-flow phase publish <phase>",
+      "singularity-flow phase publish {} <phase>",
+      "singularity-flow prepare <phase>",
+      "singularity-flow prepare {} <phase>",
+      "singularity-flow wm compose --phase <phase>",
+      "singularity-flow wm compose --phase {} <phase>"
+    ],
+    "src/nextsteps.mjs": [
+      "singularity-flow resume <WORK-ID> --fetch",
+      "singularity-flow start <WORK-ID>"
+    ],
+    "src/organisation.mjs": [
+      "singularity-flow capability edit {} --lead {} --mode {} --json <CHANGED-OPTIONS>",
+      "singularity-flow capability edit {} --lead {} --mode {} <CHANGED-OPTIONS> --json",
+      "singularity-flow capability fsck --repository {} --lead {} --json <DELIVERY-URL> <DELIVERY-URL>",
+      "singularity-flow capability map <CAPABILITY-ID> --lead {} --json",
+      "singularity-flow capability map <lower-case-kebab-id> --lead {} --json",
+      "singularity-flow capability map {} --lead {} --kind <KIND> --json",
+      "singularity-flow capability map-team {} --lead {} --name <TEAM-NAME> --json"
+    ],
+    "src/outcome-review.mjs": [
+      "singularity-flow upstream-issue raise --work-id {} --phase {} --about <CLAUSE-ID> --problem \"<what to repair>\""
+    ],
+    "src/owed-decisions.mjs": [
+      "[argv] decision witness --work-id {} --criterion {} --slot {} --file {} --reason <review-reason> {} --json"
+    ],
+    "src/phase-appeals.mjs": [
+      "singularity-flow appeal prepare --phase {} --add-location <CLAUSE>=<PATH> --reason <REASON>"
+    ],
+    "src/phase-evidence-amendment.mjs": [
+      "[argv] appeal evidence-prepare --phase {} --path {} --clause <CLAUSE-ID> --method visual --reason <reason> --json"
+    ],
+    "src/phase-mutation-contract.mjs": [
+      "[argv] review-source decision-context {} --work-id {} --finding <FINDING-ID> --reason <TEXT> --json"
+    ],
+    "src/phase-prepublish.mjs": [
+      "singularity-flow assign {} <assignee>"
+    ],
+    "src/phase-prompt-composer.mjs": [
+      "singularity-flow story intent-amendment propose --file <FILE> --reason \"<REASON>\""
+    ],
+    "src/phase-resolution.mjs": [
+      "[argv] appeal risk-prepare --phase {} --gate-mode soft --expires <YYYY-MM-DD> --reason <why> --json",
+      "[argv] appeal risk-prepare --work-id {} --phase {} --finding {} --evidence-file <PATH> --expires <YYYY-MM-DD> --reason <why> --json",
+      "[argv] appeal risk-prepare --work-id {} --phase {} --finding {} --gate-mode soft --expires <YYYY-MM-DD> --reason <why> --json"
+    ],
+    "src/plan-clause-gaps.mjs": [
+      "singularity-flow decision plan {} --owner {} --add-row {}=<PATH> --test <TEST> --reason <why>"
+    ],
+    "src/planned-claim-routes.mjs": [
+      "singularity-flow decision plan {} --owner {} --add-row {}=<PATH> --test <TEST> --reason <why>",
+      "singularity-flow decision plan {} --owner {} --add-test {}=<TEST> --reason <why>"
+    ],
+    "src/recovery-plan.mjs": [
+      "singularity-flow reject {} --work-id {} --to <phase> --reason <reason>"
+    ],
+    "src/reference-repositories.mjs": [
+      "singularity-flow story references materialize --work-id <WORK-ID>"
+    ],
+    "src/refusal-remediation.mjs": [
+      "[argv] --supporting-reason <WHY>",
+      "[argv] call add {} --main <FILE>",
+      "singularity-flow appeal prepare --add-location <CLAUSE>=<PATH> --reason <REASON>",
+      "singularity-flow appeal prepare --phase {} --add-location <CLAUSE>=<PATH> --reason <REASON>",
+      "singularity-flow appeal risk-prepare --phase {} --gate-mode soft --expires <YYYY-MM-DD> --reason <why> --json",
+      "singularity-flow backup create --out <DIRECTORY-OUTSIDE-THE-REPOSITORY>",
+      "singularity-flow backup create --out <NEW-OR-EMPTY-DIRECTORY>",
+      "singularity-flow backup inspect <ANOTHER-COPY>",
+      "singularity-flow backup inspect <DIRECTORY>",
+      "singularity-flow configuration add-current-identity --target story:<GROUP>",
+      "singularity-flow decisions <WORK-ID>",
+      "singularity-flow decisions {} <WORK-ID>",
+      "singularity-flow documents restore {}{} --file <LOCAL-FILE> --json",
+      "singularity-flow onboard <LOCAL-PATH>",
+      "singularity-flow onboard <LOCAL-PATH> --remote <NAME>",
+      "singularity-flow story intent-amendment decide {} --decision <approve|reject> --confirm {} --work-id {}"
+    ],
+    "src/repository-projects-source.mjs": [
+      "singularity-flow capability projects --path <CHECKOUT> --json",
+      "singularity-flow capability projects <GIT-URL> --json"
+    ],
+    "src/scope/command.mjs": [
+      "singularity-flow decision completeness {} --confirm {} --article <article>=satisfied|exception|not-applicable --reason <reason>"
+    ],
+    "src/scope/extract.mjs": [
+      "[argv] {} --as {} --clause <CLAUSE-ID> --reason <why>"
+    ],
+    "src/session.mjs": [
+      "singularity-flow resume <WORK-ID>"
+    ],
+    "src/sgos/capability-pack-authority.mjs": [
+      "singularity-flow authority-store sync --confirm sha256:<SYNC-PLAN> --json"
+    ],
+    "src/source-review-continuation.mjs": [
+      "singularity-flow review-source decision-context {} --work-id {} --finding {} --reason <TEXT> --json"
+    ],
+    "src/source-review-decision.mjs": [
+      "singularity-flow review-source decision-context {} --work-id {} --finding {} --reason <TEXT> --json"
+    ],
+    "src/spec-coverage-preview.mjs": [
+      "singularity-flow decision plan {} --replace-location {}={}:<NEW-PATH> --reason <why>",
+      "singularity-flow decision plan {} --replace-test {}={}:<NEW-TEST> --reason <why>"
+    ],
+    "src/state.mjs": [
+      "singularity-flow assign {} <assignee>"
+    ],
+    "src/story-test-commands.mjs": [
+      "singularity-flow reject {} --work-id <WORK-ID> --fetch --reason <REASON>",
+      "singularity-flow reject {} --work-id {} --fetch --reason <REASON> <WORK-ID>"
+    ],
+    "src/test-command-pins.mjs": [
+      "singularity-flow decision test-command <WORK-ID> --phase {} --repin {} --reason \"<why the test command changed>\"",
+      "singularity-flow decision test-command {} --phase {} --repin {} --reason \"<why the test command changed>\" <WORK-ID>",
+      "singularity-flow story test-policy amend --work-id <WORK-ID> --phase {} --reason \"<WHY>\"",
+      "singularity-flow story test-policy amend --work-id {} --phase {} --reason \"<WHY>\" <WORK-ID>"
+    ],
+    "src/test-narrowing.mjs": [
+      "singularity-flow decision test-narrowing <WORK-ID> --phase {} --command {}",
+      "singularity-flow decision test-narrowing {} --phase {} --command {} <WORK-ID>"
+    ],
+    "src/test-run-risk.mjs": [
+      "singularity-flow decision test-risk <WORK-ID> --phase {} --command {}",
+      "singularity-flow decision test-risk {} --phase {} --command {} <WORK-ID>"
+    ],
+    "src/upstream-routes.mjs": [
+      "[argv] {} --outcome accept-risk --expires <YYYY-MM-DD> --reason <why>",
+      "singularity-flow upstream-issue raise --work-id {} --phase {} --about <clause-or-section> --problem <what-is-wrong>"
+    ],
+    "src/visual-coverage.mjs": [
+      "singularity-flow decision visual-profile <WORK-ID> --phase {} --profile {} --not-applicable --reason \"<why this screen size does not apply to this Story>\"",
+      "singularity-flow decision visual-profile {} --phase {} --profile {} --not-applicable --reason \"<why this screen size does not apply to this Story>\" <WORK-ID>",
+      "singularity-flow visual record --phase {} --profile-id {} --screen-id <SCREEN-ID> --state-id <STATE-ID> --file <PNG-PATH> --source <simulator|emulator|device> --device \"<DEVICE>\""
+    ],
+    "src/visual-profile-decisions.mjs": [
+      "singularity-flow mcp record <SERVER> --kind visual-artifact --tool <TOOL> --phase {} --profile-id {} --screen-id <SCREEN-ID> --state-id <STATE-ID> --output <PNG-PATH>"
+    ],
+    "src/visual-risks.mjs": [
+      "singularity-flow decision visual-risk {} --comparison {} --expires <YYYY-MM-DD> --reason <why>"
+    ],
+    "src/workflow-assess/index.mjs": [
+      "singularity-flow workflow assess {} --read <STEP> --json",
+      "singularity-flow workflow assess {} --verify <FILE> --json"
+    ],
+    "src/workflow-step-people.mjs": [
+      "singularity-flow approve {} --work-id <WORK-ID>",
+      "singularity-flow approve {} --work-id <WORK-ID> --confirm-evidence",
+      "singularity-flow decision test-risk <WORK-ID> --phase {} --cause <CAUSE> --expires <YYYY-MM-DD> --reason <REASON>"
+    ],
+    "src/workflow-studio.mjs": [
+      "singularity-flow workflow studio apply --change-set <FILE> --dry-run"
+    ],
+    "src/workflow-transfer.mjs": [
+      "singularity-flow workflow import <FILE> --dry-run"
+    ],
+    "src/workflow-walk/walk.mjs": [
+      "singularity-flow clarification answer {} --marker \"<question>\" --answer \"<answer>\""
+    ],
+    "src/workspace-relink.mjs": [
+      "singularity-flow workspace repair <ITS-NEW-FOLDER>"
+    ],
+    "src/workspace-story-checkout.mjs": [
+      "singularity-flow start <WORK-ID>"
+    ]
+  },
+  "plans": {
+    "APR_NOTHING_TO_ADD": [
+      "singularity-flow configuration add-current-identity --target story:<GROUP>"
+    ],
+    "AUTHORITY_PIN_MISSING": [
+      "singularity-flow onboard <LOCAL-PATH>"
+    ],
+    "AUTHORITY_ROUTE_AMBIGUOUS": [
+      "singularity-flow onboard <LOCAL-PATH> --remote <NAME>"
+    ],
+    "BACKUP_DESTINATION_INVALID": [
+      "singularity-flow backup create --out <NEW-OR-EMPTY-DIRECTORY>"
+    ],
+    "BACKUP_INSIDE_CHECKOUT": [
+      "singularity-flow backup create --out <DIRECTORY-OUTSIDE-THE-REPOSITORY>"
+    ],
+    "BACKUP_INTEGRITY_FAILED": [
+      "singularity-flow backup inspect <ANOTHER-COPY>"
+    ],
+    "BACKUP_INVALID": [
+      "singularity-flow backup inspect <ANOTHER-COPY>"
+    ],
+    "BACKUP_REPOSITORY_MISMATCH": [
+      "singularity-flow backup inspect <DIRECTORY>"
+    ],
+    "DOCUMENT_RESTORE_HASH_MISMATCH": [
+      "singularity-flow documents restore DOC-001 --file <LOCAL-FILE> --json",
+      "singularity-flow documents restore DOC-001 --work-id W-1 --file <LOCAL-FILE> --json"
+    ],
+    "UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE": [
+      "singularity-flow upstream-issue raise --work-id W-1 --phase plan --about <ID|SECTION> --problem <TEXT>"
+    ],
+    "WITNESS_EXCEPTION_RENEWAL_INVALID": [
+      "singularity-flow decisions <WORK-ID>"
+    ],
+    "WITNESS_EXCEPTION_UNKNOWN": [
+      "singularity-flow decisions <WORK-ID>"
+    ],
+    "WORKFLOW_IMPORT_CONFLICT": [
+      "singularity-flow workflow import <BUNDLE-FILE> --dry-run"
+    ]
+  }
+}

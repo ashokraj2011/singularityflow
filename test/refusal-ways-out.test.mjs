@@ -40,7 +40,10 @@ test('refusals that had only help, doctor and nextsteps name their own way out',
   assert.match(first('REWORK_ROLL_FORWARD_SUPERSEDED', ['story', 'rework', 'roll-forward', '--work-id', 'W-1']).command, /^singularity-flow nextsteps W-1/u);
   assert.match(first('STORY_PUBLICATION_IN_PROGRESS', ['submit']).command, /result last --wait/u);
   assert.match(first('PUBLICATION_SET_ASIDE_REFUSED', ['sync', 'W-1', '--set-aside'], { reason: 'commits-after-it', commit: 'a'.repeat(40) }).label, /git reset --keep a{40}/u);
-  assert.match(first('WITNESS_EXCEPTION_STORY_CLOSED', ['decision', 'witness-exception', 'W-1']).command, /^singularity-flow reopen W-1 --to/u);
+  // Reopened at its named final step [audit 2026-11-19, entry 28]; with none named, no command to fill in.
+  assert.equal(first('WITNESS_EXCEPTION_STORY_CLOSED', ['decision', 'witness-exception', 'W-1'], { finalStep: 'release' }).command,
+    'singularity-flow reopen W-1 --to release --reason "<why the exception is renewed>"');
+  assert.equal(first('WITNESS_EXCEPTION_STORY_CLOSED', ['decision', 'witness-exception', 'W-1']).command, null);
   assert.match(first('WITNESS_EXCEPTION_UNKNOWN', ['decision', 'witness-exception', 'W-1']).command, /^singularity-flow decisions W-1/u);
 });
 

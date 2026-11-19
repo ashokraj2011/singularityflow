@@ -471,18 +471,17 @@ export function assertWorkTypeStartable(resolved) {
   );
 }
 
+const claimSteps = (r) => (r?.phases ?? []).map((p) => [p.id, currentSpecificationDefinitionPhase(p) ? 'clauses' : phaseRequiresCodeDelivery(p) ? 'code' : '']);
+
 /** Refuse starting new work from a readable-but-unmigrated legacy workflow. */
 export function assertPlannedClaimsReady(resolved) {
   if (resolved?.plannedClaims?.mode !== 'migration-required') return resolved;
   const id = resolved.id ?? 'unknown';
   throw new SingularityFlowError(
-    `Workflow '${id}' predates the planned-claim contract and cannot start a new Story. `
-    + 'Review it with singularity-flow workflow validate, then run workflow edit with '
-    + '--planned-claims required --clause-phases <PHASES> --claim-owners <CODE>=<OWNER> (comma-separate several), '
-    + 'or, for a workflow that defines no requirement clauses, declare omits for scope with a reason and the approval group that decides. Existing Stories keep their pinned policy.',
+    `Workflow '${id}' predates the planned-claim contract and cannot start a new Story.`,
     {
       code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
-      details: { workType: id, reason: resolved.plannedClaims.reason ?? null }
+      details: { workType: id, reason: resolved.plannedClaims.reason ?? null, steps: claimSteps(resolved) }
     }
   );
   return resolved;
@@ -528,15 +527,12 @@ export function assertWorkflowReadinessChanges(previousDefinition, candidateDefi
         === JSON.stringify(plannedClaimsReadinessShape(candidate));
     if (unchangedLegacy) continue;
     throw new SingularityFlowError(
-      `Workflow '${workTypeId}' has a migration-required planned-claim contract and cannot be added or materially changed. `
+      `Workflow '${workTypeId}' cannot be added or materially changed under the old planned-claim contract. `
       + (candidate.plannedClaims.reason ? `${candidate.plannedClaims.reason.replace(/\.+$/u, '')}. ` : '')
-      + 'Declare a resolvable required topology: plannedClaims with mode required, clausePhases naming the step that '
-      + 'writes requirements or an implementation spec, and owners mapping each code step to the step that plans it. '
-      + 'A workflow that defines no requirement clauses declares omits for scope instead: '
-      + 'omits with responsibility scope, a reason, and the approval group as authority.',
+      + 'Record what its steps suggest, or with no clauses it declares omits for scope instead.',
       {
         code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
-        details: { workType: workTypeId, reason: candidate.plannedClaims.reason ?? null }
+        details: { workType: workTypeId, reason: candidate.plannedClaims.reason ?? null, steps: claimSteps(candidate) }
       }
     );
   }

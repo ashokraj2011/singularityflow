@@ -1272,7 +1272,7 @@ export async function rejectProposal(root, branch, {
   const withdrawn = Boolean(reviewed.proposer?.email && rejecter?.email
     && reviewed.proposer.email.trim().toLowerCase() === rejecter.email.trim().toLowerCase());
   const verb = withdrawn ? 'withdraw' : 'reject';
-  const command = `singularity-flow configuration reject ${branch} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}`;
+  const command = `singularity-flow configuration reject ${branch} --confirm ${revision}${reason ? '' : ' --reason "<REASON>"'}`;
   if (confirm != null || yes) {
     const named = confirm != null ? String(confirm).trim() : await shownRevision(root, branch);
     if (named !== revision) {
@@ -1434,7 +1434,7 @@ export async function rejectDelegatedProposal(root, branch, kind, {
   const withdrawn = Boolean(rejecter) && proposedBy(reviewed, rejecter) === true;
   const revision = reviewed.proposalCommit;
   // `--lead` before `--confirm`, as the proposal's other routes name it: nothing is joined to the revision a route confirms.
-  const command = `singularity-flow configuration reject ${branch}${on} --confirm ${revision}${reason ? '' : ' --reason <TEXT>'}`;
+  const command = `singularity-flow configuration reject ${branch}${on} --confirm ${revision}${reason ? '' : ' --reason "<REASON>"'}`;
   const decided = await decidedRevision(root, branch, revision, { yes, confirm, interactive, ask,
     question: withdrawn ? 'Withdraw your proposal? Nothing in sflow/config changes. [y/N] ' : 'Reject this proposal? Nothing in sflow/config changes. [y/N] ', command });
   if (!decided) {

@@ -2674,9 +2674,10 @@ async function clarificationCommand(positionals, options) {
       requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, answerPolicy, session.actor);
     } catch (error) {
       throw new SingularityFlowError(
-        `Only a member of ${phase.id}'s approval groups (${answerPolicy.authorities.join(', ')}) can answer its clarification questions, because the answers decide what the phase produces. `
-        + `One of them answers in their own clone, in their own terminal, with singularity-flow clarification answer ${phase.id} --question "<QUESTION>" --answer "<ANSWER>"; then this checkout records it with singularity-flow clarification import ${phase.id}. The author cannot answer for them. ${error.message}`,
-        { code: 'CLARIFICATION_AUTHORITY_REQUIRED', details: { ...error.details, phase: phase.id, workId: workflow.workItem.id, authorities: [...answerPolicy.authorities] } }
+        `Only ${phase.id}'s approvers (${answerPolicy.authorities.join(', ')}) answer its questions, each in their own clone with the command given for it; this checkout then imports the answers. ${error.message}`,
+        // The questions as asked, so each is one whole command with only the answer left to write [audit 2026-11-19, entry 9].
+        { code: 'CLARIFICATION_AUTHORITY_REQUIRED', details: { ...error.details, phase: phase.id, workId: workflow.workItem.id, authorities: [...answerPolicy.authorities],
+          questions: responses.slice(0, 20).map((entry) => ({ question: entry.question, ...(entry.marker ? { marker: entry.marker } : {}) })) } }
       );
     }
   }
@@ -5485,14 +5486,28 @@ async function workflowCommand(positionals, options) {
       // Who an imported approval group puts in or takes out is named, "you" included (git's identity here).
       let me = null;
       try { me = identity(root, { offline: true }); } catch { me = null; }
-      for (const line of importPlanText(plan, positionals[2], { propose: proposing, identity: me })) console.log(line);
+      // Applied by the plan's short code, never its digest (confirm-code.mjs).
+      const routeLines = (command, indent) => commandRouteLines(safeCommandGuidance({ command }) ?? {}, indent);
+      for (const line of importPlanText(plan, positionals[2], { propose: proposing, identity: me, routeLines })) console.log(line);
       return;
     }
     const expectedPlanSha256 = optionString(options, 'confirm');
     if (!expectedPlanSha256) {
-      throw new SingularityFlowError(
-        `Preview this bundle first with singularity-flow workflow import ${inputPath} --dry-run --json, then pass its --confirm plan SHA-256.`
-      );
+      // What it would do, and the whole command that does it: the person confirms by its short code.
+      const plan = await withApprovedConfigurationRead(root, () =>
+        planWorkflowImport(root, bundle, choices), { preferAuthority: true });
+      // Its counts and what it adds, as the preview words them.
+      const summary = importPlanText(plan, positionals[2], { propose: proposing }).slice(1)
+        .filter((line) => /^ {2}(?:Add|Adds): /u.test(line)).map((line) => line.trim()).join('; ');
+      const again = ['singularity-flow', 'workflow', 'import', positionals[2], ...(plan.status === 'ready' ? [] : ['--dry-run']),
+        ...(proposing ? ['--propose'] : []), ...optionStrings(options, 'resolve').flatMap((value) => ['--resolve', value]),
+        ...(options['resolve-all'] === true ? ['--resolve-all'] : options['resolve-all'] ? ['--resolve-all', String(options['resolve-all'])] : []),
+        ...(plan.status === 'ready' ? ['--confirm', plan.planSha256] : [])];
+      throw new SingularityFlowError(plan.status === 'ready'
+        ? `Nothing was imported yet. This import: ${summary}. If that is right, confirm it with the command below.`
+        : `Nothing was imported: ${plan.unresolved?.length ? `first choose what happens to ${plan.unresolved.map((item) => item.id).join(', ')}` : 'the bundle is not ready to import'}. Its preview gives each choice as a whole command.`,
+      { code: 'WORKFLOW_IMPORT_CONFIRMATION_REQUIRED', details: { nextAction: { command: renderPlatformCommand(again),
+        label: plan.status === 'ready' ? 'Import it as previewed' : 'Preview the import and its choices' } } });
     }
     const ids = bundle.workflows?.map((entry) => entry.id).filter(Boolean) ?? [];
     const proposal = await withApprovedConfigurationRead(root, async () =>
@@ -5551,9 +5566,19 @@ async function workflowCommand(positionals, options) {
     }
     const expectedPlanSha256 = optionString(options, 'confirm');
     if (!expectedPlanSha256) {
-      throw new SingularityFlowError(
-        `Preview the copy first with singularity-flow workflow copy ${sourceId} ${targetId} --dry-run --json, then pass its --confirm plan SHA-256.`
-      );
+      // The whole command that copies it, confirmed by its short code; a copy with problems previews them instead.
+      const plan = await withApprovedConfigurationRead(root, () => planWorkflowCopy(root, input), { preferAuthority: true });
+      const resolveAll = options['resolve-all'];
+      const again = ['singularity-flow', 'workflow', subcommand, sourceId, targetId, '--label', label,
+        ...(subcommand === 'copy' && optionBoolean(options, 'independent') ? ['--independent'] : []),
+        ...optionStrings(options, 'resolve').flatMap((value) => ['--resolve', value]),
+        ...(resolveAll === true ? ['--resolve-all'] : resolveAll ? ['--resolve-all', String(resolveAll)] : []),
+        ...(plan.problems?.length ? ['--dry-run'] : ['--confirm', plan.planSha256])];
+      throw new SingularityFlowError(plan.problems?.length
+        ? `Nothing was copied: approval would refuse ${plan.problems.length === 1 ? 'a problem' : `${plan.problems.length} problems`} in ${sourceId}. Its preview names each one.`
+        : `Nothing was copied yet. This copies workflow ${sourceId} to ${targetId}${plan.changedPaths?.length ? `, changing ${plan.changedPaths.join(', ')}` : ''}. If that is right, confirm it with the command below.`,
+      { code: 'WORKFLOW_COPY_CONFIRMATION_REQUIRED', details: { nextAction: { command: renderPlatformCommand(again),
+        label: plan.problems?.length ? 'Preview the copy and its problems' : 'Copy it as previewed' } } });
     }
     const proposal = await withApprovedConfigurationRead(root, async () =>
       workflowTransferProposal(await planWorkflowCopy(root, input), {
@@ -9648,7 +9673,10 @@ async function workspaceCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
       if (subcommand === 'prompt') return console.log('');
       console.log('No active workspace.');
-      printCommandRoutes('singularity-flow workspace use <WORKSPACE>', { label: 'Select one' });
+      // Each workspace this machine knows, as a whole command [audit 2026-11-19, entry 13].
+      const known = await (await import('./known-workspaces.mjs')).knownWorkspaces(registry);
+      if (!known.length) console.log('This machine knows no workspace yet. Create one in VS Code (Singularity Flow: Create a Workspace), or with /sf-workspace in Copilot.');
+      for (const [index, entry] of known.slice(0, 3).entries()) printCommandRoutes(`singularity-flow workspace use ${entry.id}`, { label: `${index ? 'Or' : 'Select one'}: ${entry.name}` });
       return;
     }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({

@@ -840,7 +840,7 @@ test('a newly added migration-required Story workflow is listed as blocked, and 
     assert.equal(listed.valid, false);
     assert.equal(listed.failure.code, 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED');
     assert.equal(listed.failure.details.workType, 'legacy-custom');
-    assert.match(listed.failure.message, /omits with responsibility scope/);
+    assert.match(listed.failure.message, /omits for scope/);
 
     await assert.rejects(
       () => activateWorkflowConfigurationProposal(item.story, proposalBranch, {

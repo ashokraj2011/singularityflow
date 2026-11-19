@@ -204,7 +204,9 @@ test('only a member of the phase approval groups can answer its clarification qu
   flow(root, ['wm', 'compose', '--phase', 'intake']);
   const refused = flow(root, ['clarification', 'record', 'intake', '--question', 'Which regions?', '--answer', 'EU only.'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /Only a member of intake's approval groups \(product-approvers\) can answer its clarification questions/);
+  assert.match(refused.stderr, /Only intake's approvers \(product-approvers\) answer its questions/);
+  // The question as asked, filled in: only the answer is the approver's to write [audit 2026-11-19, entry 9].
+  assert.match(refused.stderr, /clarification answer intake --question 'Which regions\?' --answer "<ANSWER>"/);
   assert.equal(existsSync(path.join(root, 'singularity/work-items', workId, 'context/clarifications-intake-gen1.json')), false);
 });
 

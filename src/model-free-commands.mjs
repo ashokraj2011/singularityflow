@@ -1,4 +1,6 @@
 /** Closed command crosswalk and shared display layout. These routes grant no execution authority. */
+import { createRequire } from 'node:module';
+import { PACKAGE_ROOT } from './package-root.mjs';
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export function parseModelFreeTarget(text = '') {
@@ -39,11 +41,17 @@ const cardRecords = (t) => decideCardStep(t) || (t[0] === 'upstream-issue' && ['
 /** A sign-off's VS Code route: the review page that shows the evidence and records it. */
 export const VSCODE_WITNESS_REVIEW = 'Command Palette: Singularity Flow: Review Story Evidence and Sign Off';
 
+// Lazy, as config.mjs's commit policy [audit 2026-11-19, entry 4]
+let screens;
+const screenFor = (t) => (process.features?.require_module
+  ? (screens ??= createRequire(`${PACKAGE_ROOT}/package.json`)(`${PACKAGE_ROOT}/src/model-free-screens.mjs`)).vscodeScreenForArgv(t) : null);
+
 export function modelFreeCommandForArgv(argv) {
   if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) return null;
   const tokens = argv.filter((value) => value !== '--json');
   if (tokens[0] === 'decision' && tokens[1] === 'witness') return VSCODE_WITNESS_REVIEW;
   if (decideCard(tokens) || cardRecords(tokens)) return VSCODE_DECIDE_CARD;
+  if (screenFor(tokens)) return screenFor(tokens);
   const [top, operation] = tokens;
   const exact = (expected) => tokens.length === expected.length && tokens.every((value, i) => value === expected[i]);
   for (const [route, expected] of [
@@ -87,7 +95,8 @@ export function modelFreeCommandForCommand(command) {
   if (typeof command !== 'string' || !/^(?:singularity-flow|sflow)\s/u.test(command)) return null;
   const argv = command.trim().split(/\s+/u).slice(1);
   if (/^(?:singularity-flow|sflow)\s+[A-Za-z0-9._ -]+$/u.test(command)) return modelFreeCommandForArgv(argv);
-  return argv[0] === 'decision' && argv[1] === 'witness' ? VSCODE_WITNESS_REVIEW : cardRecords(argv) ? VSCODE_DECIDE_CARD : null;
+  return argv[0] === 'decision' && argv[1] === 'witness' ? VSCODE_WITNESS_REVIEW : cardRecords(argv) ? VSCODE_DECIDE_CARD
+    : screenFor(argv);
 }
 
 /** Layout only: callers still validate untrusted routes and retain their existing execution gates. */

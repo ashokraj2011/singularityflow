@@ -208,8 +208,9 @@ test('with no branch in every repository, start names the per-repository form an
     ]
   };
   await assert.rejects(storyBaseForRepository('/unused', { values: [], interactive: false, catalog }),
-    (error) => error.code === 'STORY_BASE_REQUIRED'
-      && /--from-branch <REPOSITORY>=<BRANCH>, once for each of api, web/.test(error.message));
+    // Each repository's own usual branch, for one whole start [audit 2026-11-19, entry 12].
+    (error) => error.code === 'STORY_BASE_REQUIRED' && /api: main; web: develop/.test(error.message)
+      && JSON.stringify(error.details.repositoryBases) === JSON.stringify({ api: 'main', web: 'develop' }));
   const chosen = await storyBaseForRepository('/unused', { values: ['api=main', 'web=develop'], interactive: false, catalog });
   assert.deepEqual(Object.fromEntries(Object.entries(chosen.plan.resolution.resolved).map(([id, entry]) => [id, entry.branch])),
     { api: 'main', web: 'develop' });

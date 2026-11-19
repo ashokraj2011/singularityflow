@@ -109,8 +109,10 @@ export async function run({ positionals, options }) {
   if (!shown.ok) stop(shown, 'phase show');
   // First, with what follows: the prepublish fields after it describe the draft before publication.
   const reviewer = await reviewerHandoff(shown.value, phaseId);
-  // Its submission next, with no review owed: /sf-submit's own entry, which the author's turn runs (owner, 2026-11-19).
+  // Its submission next, with no review owed: /sf-submit's own entry, which the author's turn runs (owner, 2026-11-19); one
+  // that records decision values stays /sf-submit's, where the person gives them.
   const submits = !reviewer && shown.value?.continuation?.nextSkill === '/sf-submit' && typeof shown.value?.workId === 'string'
+    && !/\s--decision\s/u.test(shown.value.continuation.nextCommand ?? '')
     ? { command: (await import('../action-command-map.mjs')).inTurnSubmitCommand(shown.value.workId), skill: shown.value.continuation.nextSkill,
       reason: 'Submit the published version now, in the turn that wrote it.' } : null;
   const after = afterPublication(published.value, shown.value, reviewer, submits);

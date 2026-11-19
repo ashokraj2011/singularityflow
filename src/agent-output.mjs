@@ -317,7 +317,7 @@ export function agentAct(result) {
     const boundary = Array.isArray(result.contextBoundary?.commands) && result.contextBoundary.commands.length ? result.contextBoundary.commands.join(', then ') : null;
     return { state: 'end-turn', do: null, read: ['outcome', 'decision', 'warnings', ...(result.contextBoundary ? ['contextBoundary'] : []), ...(result.nextStep ? ['nextStep'] : [])],
       said: boundary ? `Approved. End this turn; the one next step is ${boundary} (${result.contextBoundary.nextPhase ?? 'the next step'}). Offer no other route.`
-        : result.nextStep?.copilotCommand ? `Approved. End this turn; the one next step is ${result.nextStep.copilotCommand} (${result.nextStep.phase ?? 'the next step'}), in this same chat: VS Code puts it in the chat input for one Enter. Offer no other route.`
+        : result.nextStep?.copilotCommand ? `Approved. End this turn. Name the next step for the person: ${result.nextStep.copilotCommand} (${result.nextStep.phase ?? 'the next step'}). Offer no other route.`
           : 'Approved. End this turn; the next step continues in a new turn. Offer no other route.' };
   }
   // `result last` (agent-result-keeper.mjs): a kept result is acted on as the command returned it;
@@ -465,7 +465,7 @@ export function agentAct(result) {
   const line = codeOffer?.line ? { show: codeOffer.line } : {};
   if (result.publishIfReady?.published && done?.inTurn?.command) return withRoute({ state: 'submit', do: null, ...line,
     read: ['publishIfReady.next', 'publishIfReady.output', ...(start?.declared ? ['publishIfReady.applicationStart'] : [])],
-    said: oneLine(`Published; it owes no review, so submit it now in this same turn: run do.shell once, asking the person only for a decisionInputs value it names; never an approval.${start?.declared
+    said: oneLine(`Published; it owes no review, so submit it now in this same turn: run do.shell once; never an approval. If it submits nothing because it names decisionInputs, those values are the person's: end the turn on its /sf-submit route, never ask them here.${start?.declared
       ? ' Then ask publishIfReady.applicationStart\'s one question.' : ''}${codeOffer?.line ? ' Show act.show as one optional line, never a question.' : ''}`) },
   { command: done.inTurn.command, skill: done.inTurn.skill, reason: done.inTurn.reason });
   if (codeOffer && start?.declared) return { state: 'ask-person', ...line,
@@ -477,6 +477,14 @@ export function agentAct(result) {
   if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
     state: 'read', do: null, read: ['data.outcome'], ...(result.data.outcome.validation?.line ? { show: result.data.outcome.validation.line } : {}),
     said: 'Show the actual retained test results, diagnostic runs separately, application readiness and outstanding human checks, then act.show as one line of optional choices. Ask nothing: run a choice\'s route only when the person picks one (a Start in the terminal tool\'s background mode, as its how says). Never accept, submit or approve from it.' };
+  // A submission that completed its step (nobody approves it) moved the Story on: the turn ends there and names the next step
+  // for the person, never starts it [decision 7, OSA:REQ-050; owner, 2026-11-19].
+  if (result.submitIfReady?.submitted && result.submitIfReady.result?.status === 'completed' && done) {
+    const reset = done.contextBoundary?.commands?.length ? done.contextBoundary.commands.join(', then ') : null;
+    return withRoute({ state: 'end-turn', do: null, read: ['submitIfReady.next', 'submitIfReady.result'],
+      said: oneLine(`Submitted, and that completed ${result.submitIfReady.result.phase ?? 'the step'}. End this turn. Name the next step for the person: ${reset ?? (done.commandGuidance ? 'do.copilot' : 'as submitIfReady.next says')}, in a new turn; never start it here.`) },
+    done.commandGuidance ? { commandGuidance: done.commandGuidance, reason: done.reason, turn: 'new-turn' } : null);
+  }
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.
   if (done) return { state: 'next', said: oneLine(`${done.instruction?.split('. ')[0] ?? 'Done.'}${codeOffer?.line ? ' Show act.show as one optional line, never a question.' : ''}`), ...line,
     read: result.publishIfReady?.published ? [...(result.publishIfReady.reviewSubagent ? ['publishIfReady.reviewSubagent'] : []), 'publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : []), ...(result.artifacts ? ['artifacts'] : [])]
@@ -493,7 +501,7 @@ export function agentAct(result) {
     // A review's findings on a version only its reviewer has seen: started on its own, run here (owner, 2026-11-19).
     const settles = firstNow(result.next);
     if (/\s--review-findings(?:\s|$)/u.test(settles?.commandGuidance?.command ?? settles?.command ?? '')) return withRoute({ state: 'next', do: null, read: ['next'],
-      said: oneLine(`Only the reviewer has seen ${result.phase ?? 'this step'}'s published version: run do.shell now, in this turn. SFlow starts the next version itself, with an undo on the decisions card; `
+      said: oneLine(`Only the reviewer has seen ${result.phase ?? 'this step'}'s published version: run do.shell now, in this turn. SFlow starts the next version itself and lists it on the decisions card; `
         + 'say its line, refresh the entry once and fix the review\'s findings in this same turn. Ask the person nothing about it.') }, settles);
     // A review asked the published code for corrections: one yes from the person starts the next version, and this same
     // turn fixes the findings. Asked with the host's question tool, never answered by the agent [owner, 2026-11-16].
@@ -510,9 +518,9 @@ export function agentAct(result) {
       read: ['successor', 'next'],
       // Words the person typed may have been only a question: its third answer opens nothing (owner, 2026-11-18).
       ask: { kind: 'choice', question: result.successor.question, choices: [...(result.successor.choices ?? ['Yes', 'No']), ...(asked ? [JUST_A_QUESTION] : [])].map((label) => ({ label })),
-        how: `Show the person successor.${asked ? 'requests' : 'findings'} in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and ${asked ? 'make the change' : 'fix the findings'} in this same turn.${asked ? ` On "${JUST_A_QUESTION}" run do.shell (the preview), then its justAQuestion.command, which keeps their words as a question and opens nothing; answer their question in this turn.` : ''} On No, or with no question tool, give the person next and end; never answer it yourself.` },
+        how: `${result.successor.because ? 'Say successor.because first. ' : ''}Show the person successor.${asked ? 'requests' : 'findings'} in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and ${asked ? 'make the change' : 'fix the findings'} in this same turn.${asked ? ` On "${JUST_A_QUESTION}" run do.shell (the preview), then its justAQuestion.command, which keeps their words as a question and opens nothing; answer their question in this turn.` : ''} On No, or with no question tool, give the person next and end; never answer it yourself.` },
       said: oneLine(asked ? `The person asked for a change to ${result.phase ?? 'this step'}: ask them whether to start version ${result.successor.targetGeneration ?? 'N+1'} for it, and on their Yes make it now.`
-        : `The review of ${result.phase ?? 'this step'} asked for corrections: ask the person whether to start version ${result.successor.targetGeneration ?? 'N+1'} to fix them, and on their Yes do it now.`) },
+        : `${result.successor.because ? `${result.successor.because} ` : ''}The review of ${result.phase ?? 'this step'} asked for corrections: ask the person whether to start version ${result.successor.targetGeneration ?? result.targetGeneration ?? 'N+1'} to fix them, and on their Yes do it now.`) },
     result.successor.preview);
     // `author` only where the edit permission grants an edit; otherwise its next is the step's way on [OSA:REQ-010, C7].
     // The entry said "write now" and the permission "no edits" in one reply, and the agent went round both [2026-11-16].
@@ -621,8 +629,9 @@ export function agentAct(result) {
     const inTurn = result.continuation.inTurn;
     return withRoute({ state: 'submit', do: null, read: ['status', 'findings', 'continuation'],
       ...(result.continuation.presentation ? { show: result.continuation.presentation } : {}),
-      said: oneLine(`The review is ready (${result.status}). The turn that wrote this version and started its reviewer submits it now: run do.shell once, `
-        + 'asking the person only for a decisionInputs value it names; never a separate submit turn, never an approval. A review turn of its own ends its reply with act.show exactly as given.', 700) },
+      said: oneLine(`The review is ready (${result.status}). The turn that wrote this version and started its reviewer submits it now: run do.shell once; `
+        + 'never a separate submit turn, never an approval. If it submits nothing because it names decisionInputs, those values are the person\'s: end the turn on its /sf-submit route, never ask them here. '
+        + 'A review turn of its own ends its reply with act.show exactly as given.', 700) },
     { command: inTurn.command, skill: inTurn.skill, reason: inTurn.reason });
   }
   // A retained review, as its submission or its status returns it: what comes after retention, from its own
@@ -681,7 +690,7 @@ export function agentAct(result) {
     return { state: 'read', do: null, said: oneLine(list.headline) };
   }
   // The next version for a review's findings, started by SFlow, said in one line with its undo (owner, 2026-11-19).
-  if (result.resultType === 'sflow-generation-rollover' && result.kind === 'review-corrections' && result.mutates === true && result.settled && result.line) {
+  if (result.resultType === 'sflow-generation-rollover' && result.kind === 'review-corrections' && result.mutates === true && result.line) {
     return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', 'requestedChange'],
       said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and fix the review's findings in this same turn; ask the person nothing about it.`) }, result.nextAction);
   }

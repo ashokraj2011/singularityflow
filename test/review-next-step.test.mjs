@@ -96,7 +96,7 @@ test('a review only its reviewer has seen starts the next version on its own, ru
     const next = sourceReviewContinuation(workflow, workflow.phases[id], UNSEEN);
     assert.deepEqual([next.nextSkill, next.nextCommand], [skill, `singularity-flow phase rollover ${id} --review-findings --json`]);
     assert.equal(next.actions[0].label, "Fix the review's findings (version 2)");
-    assert.match(next.actions[0].reason, /^Only the reviewer has seen version 1: \/sf-(?:code|phase) starts version 2 of \w+ to fix the review's findings on its own \(undo on the decisions card\)/u);
+    assert.match(next.actions[0].reason, /^Only the reviewer has seen version 1: \/sf-(?:code|phase) starts version 2 of \w+ to fix the review's findings on its own and fixes them in the same turn\.$/u);
     // The entry runs it in its own turn: nobody is asked.
     const entry = phaseAuthoringEntry(workflow, workflow.phases[id], { review: UNSEEN });
     assert.deepEqual([entry.status, entry.reason, entry.actions[0].command], ['retained-generation', 'review-findings-settle', next.nextCommand]);

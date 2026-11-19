@@ -129,6 +129,30 @@ test('past its 30 minutes, a turn whose Story did not change goes on in the same
   assert.deepEqual(await boundTurnStories(f.root), ['PMC-1'], 'the turn is bound to its Story again');
 });
 
+test('the unchanged renewal is once per prompt: past its second window only the person renews the turn [OSA:REQ-051]', async t => {
+  const f = await fixture(t);
+  const author = await f.enter('/sf-code', 'renewed-once', 31 * MINUTE);
+  const read = () => repositoryPostToolGuard({ ...author, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --for-agent --json', cwd: f.root } });
+  await read();
+  assert.notEqual((await mutationToolGuard(author)).permissionDecision, 'deny', 'the first unchanged read renews it');
+  const renewal = JSON.parse(await readFile(turnRenewalFile(f.recordOf('renewed-once')), 'utf8'));
+  assert.equal(renewal.unchangedAt, renewal.renewedAt, 'noted as the one unchanged renewal');
+  // Thirty-one minutes after that renewal, nothing changed again: source edits change no stamp, so another read would extend
+  // one prompt without end. It renews nothing, and the refusal no longer offers it.
+  const record = JSON.parse(await readFile(f.recordOf('renewed-once'), 'utf8'));
+  const earlier = Date.now() - TURN_WINDOW_MS - MINUTE;
+  await noteTurnRenewal(f.recordOf('renewed-once'), record, { renewedAt: earlier, unchangedAt: earlier });
+  const expired = await mutationToolGuard(author);
+  assert.match(expired.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last 30 minutes from its renewal and have ended; nothing was written\. Invoke \/sf-code again to continue: the new turn enters again/u);
+  assert.match(expired.permissionDecisionReason, /renewed once already with nothing changed, so its entry read renews it no more/u);
+  assert.doesNotMatch(expired.permissionDecisionReason, /own first command once more/u);
+  await read();
+  assert.match((await mutationToolGuard(author)).permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: /u, 'a second unchanged read renews nothing');
+  // The person's own answer still renews it, as always.
+  await answered(author, 'keep going');
+  assert.notEqual((await mutationToolGuard(author)).permissionDecision, 'deny');
+});
+
 test('an answer in another session, another checkout or an earlier turn renews nothing of this one', async t => {
   const f = await fixture(t);
   const mine = await f.enter('/sf-code', 'mine', 31 * MINUTE);

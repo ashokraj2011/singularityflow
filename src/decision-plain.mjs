@@ -277,7 +277,9 @@ export function plainSettled(workflow, entry) {
       }
     }
   })();
-  return `${capital(said)}. Undo if wrong.`;
+  // Its undo is forward only: the version it started stays open (owner, 2026-11-19).
+  return entry.kind === 'review-corrections' ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open.`
+    : `${capital(said)}. Undo if wrong.`;
 }
 
 /** "One question for you." / "3 questions for you." / "Nothing waits on you now.", from what is asked now. */

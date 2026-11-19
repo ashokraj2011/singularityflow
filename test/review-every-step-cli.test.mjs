@@ -146,7 +146,10 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   const opened = sflowJson('phase', 'rollover', 'implement', '--review-findings');
   assert.equal(opened.status, 0, JSON.stringify(opened.value));
   assert.equal(opened.value.toGeneration, 2);
-  assert.equal(opened.value.line, 'Only the reviewer had seen version 1 of Implement, so SFlow started version 2 to fix its findings; undo it on the decisions card (/sf-decide QF-1).');
+  // Its undo is forward only, and says so: version 2 stays open (2026-11-19 review).
+  assert.equal(opened.value.line, 'Only the reviewer had seen version 1 of Implement, so SFlow started version 2 to fix its findings. '
+    + 'Version 2 stays open; an undo on the decisions card (/sf-decide QF-1) only makes SFlow ask you before it starts another.');
+  assert.match(opened.value.settled.undo.words, /^An undo does not withdraw version 2: it stays open\./u);
   // The review is named by its generation, never its digest: these words are shown and kept [no hashes shown].
   assert.ok(opened.value.requestedChange.requests.some((entry) => /^Correct what the review of version 1 found: .*explain-the-value/u.test(entry)),
     JSON.stringify(opened.value.requestedChange));
@@ -154,6 +157,16 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   const settledRecord = JSON.parse(await readFile(path.join(root, 'singularity/work-items/QF-1/workflow.json'), 'utf8'));
   assert.equal(settledRecord.phases.implement.generationIntent.generation, 2);
   assert.deepEqual(settledRecord.phases.implement.versionOpening.consent, { settled: opened.value.settled.id, surface: 'settled' });
+  // The settlement is written in the opening's own commit: a start that fails leaves none for a version nobody opened.
+  assert.match(must('git', ['log', '-1', '--format=%s']), /^Open implement version 2 of QF-1/u);
+  const committed = JSON.parse(must('git', ['show', 'HEAD:singularity/work-items/QF-1/workflow.json']));
+  const start = committed.settledDecisions.find((entry) => entry.id === opened.value.settled.id);
+  assert.deepEqual([start?.kind, start?.effect], ['review-corrections', { generation: 1, toGeneration: 2, findings: ['explain-the-value'] }]);
+  // The reviewer's blocking finding on version 1 has no dispute route for a person after this start, as before it (only a
+  // review's pending dispositions are decided: ceremony-turns.test.mjs), and version 2 has no review yet.
+  // Their say is their words to the author or a return at approval, as the undo names (owner item, 2026-11-19).
+  const dispute = sflowJson('review-source', 'decision-context', 'implement', '--work-id', 'QF-1', '--finding', 'explain-the-value', '--reason', 'The comment is enough.');
+  assert.match(refusal(dispute).message, /requires a retained report/u, JSON.stringify(dispute.value).slice(0, 1500));
   // Run again once version 2 is open, it opens nothing: the step's next action is writing it.
   assert.equal(refusal(sflowJson('phase', 'rollover', 'implement', '--review-findings')).code, 'GENERATION_ROLLOVER_UNAVAILABLE');
   // Version 2 is authored with the review of version 1 loaded, and its act says to fix each finding.

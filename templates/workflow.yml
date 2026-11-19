@@ -14,12 +14,11 @@ harnessImports:
     questionPrecedesMutation: warn
     maximumActions: observe
 
-# The chat is kept between steps: after an approval the next step's command is
-# put in the chat for one Enter (owner, 2026-11-19). `new` instead prints `/clear`
-# followed by the next step's command; that conversation reconstructs its prompt
-# from approved Git artifacts, governed agent guidance and inputs.
+# Rotate Copilot only after a durable lifecycle decision. `new` prints `/clear`
+# followed by `/sflow-next`; the new conversation reconstructs its prompt from
+# approved Git artifacts, governed agent guidance, inputs, and world-model views.
 contextPolicy:
-  onApproval: keep
+  onApproval: new
   onRejection: keep
   # Per-phase values may be keep, compact, or new.
   phaseOverrides: {}

@@ -2465,7 +2465,7 @@ Run `singularity-flow check --for-agent --json` once. Report freshness, mode, in
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~3504 body tokens</span>
+          <span class="pill">~3521 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -2505,7 +2505,7 @@ Blocked: relay `resolution.issues[].choices`. Eligible risk needs reason/expiry 
 7. Code: Follow `testExecution.handoff`; `argvWithheld: true` means configured, not missing; never infer it. No adoption/amendment for redaction/inference or reporter flags. Development tests allowed; report argv/cwd/exit/failures. Publication runs tests unless passed on this code; manual passes never advance. `runnerStatus: blocked`: fix that finding first. No skip/list/dry-run/no-tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results. Document: Prepublish rechecks recovery; never accept draft holds.
 8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Correct every agent finding under `correction.class`/`sameTurn`; route others via `correction.guidance`/`correction.skill`. Code: follow `traceabilityRepair.actions`; verify hashes; repair tags unasked; `ready` is not test success. Never invent, pad, blindly delete markers, nest models or overwrite producers. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets; same findings after a change: correct differently. Exhausted `correction.maximumChangedFingerprints`: preserve work, return manual/owner routes.
 9. Use returned `commands.publish` once when ready unless `publishIfReady.published`. Advisories/`requiredBefore: approve` don&#39;t hold. Absent: relay `commands.next`, stop. Refusal: `repairContinuation`; verify, retry; report the exact failure. Nonzero exit fails despite passing JUnit. No test ran: relay `testRunRisk.command` to a step approver; never run it. `/sf-recover`: proven runtime repair permits retry without source changes. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once. Keep sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never approve.
-10. `reviewSubagent` first. Report `publishIfReady.output` commit/push/artifact. Act `submit` (review ready, or none owed): run its `do.shell` once now, asking only `decisionInputs` values; no `/sf-submit` turn. Then relay its `handoff` (`copilotCommand`/`command`). Code: ask a declared `applicationStart`&#39;s one question; the outcome `line` is optional, never asked. Read errors keep publication.
+10. `reviewSubagent` first. Report `publishIfReady.output` commit/push/artifact. Act `submit` (review ready, or none owed): run its `do.shell` once now; no `/sf-submit` turn. If it names `decisionInputs`, those are the person&#39;s: relay its `/sf-submit` route, never ask them here. Then relay its `handoff` (`copilotCommand`/`command`). Code: ask a declared `applicationStart`&#39;s one question; the outcome `line` is optional, never asked. Read errors keep publication.
 
 TRP: `singularity-flow explain test-recovery`.
 </code></pre>
@@ -8247,7 +8247,7 @@ argument-hint: &quot;[on|off|status]&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~3510 body tokens</span>
+          <span class="pill">~3527 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -8287,7 +8287,7 @@ Blocked: relay `resolution.issues[].choices`. Eligible risk needs reason/expiry 
 7. Code: Follow `testExecution.handoff`; `argvWithheld: true` means configured, not missing; never infer it. No adoption/amendment for redaction/inference or reporter flags. Development tests allowed; report argv/cwd/exit/failures. Publication runs tests unless passed on this code; manual passes never advance. `runnerStatus: blocked`: fix that finding first. No skip/list/dry-run/no-tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results. Document: Prepublish rechecks recovery; never accept draft holds.
 8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Correct every agent finding under `correction.class`/`sameTurn`; route others via `correction.guidance`/`correction.skill`. Code: follow `traceabilityRepair.actions`; verify hashes; repair tags unasked; `ready` is not test success. Never invent, pad, blindly delete markers, nest models or overwrite producers. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets; same findings after a change: correct differently. Exhausted `correction.maximumChangedFingerprints`: preserve work, return manual/owner routes.
 9. Use returned `commands.publish` once when ready unless `publishIfReady.published`. Advisories/`requiredBefore: approve` don&#39;t hold. Absent: relay `commands.next`, stop. Refusal: `repairContinuation`; verify, retry; report the exact failure. Nonzero exit fails despite passing JUnit. No test ran: relay `testRunRisk.command` to a step approver; never run it. `/sf-recover`: proven runtime repair permits retry without source changes. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once. Keep sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never approve.
-10. `reviewSubagent` first. Report `publishIfReady.output` commit/push/artifact. Act `submit` (review ready, or none owed): run its `do.shell` once now, asking only `decisionInputs` values; no `/sf-submit` turn. Then relay its `handoff` (`copilotCommand`/`command`). Code: ask a declared `applicationStart`&#39;s one question; the outcome `line` is optional, never asked. Read errors keep publication.
+10. `reviewSubagent` first. Report `publishIfReady.output` commit/push/artifact. Act `submit` (review ready, or none owed): run its `do.shell` once now; no `/sf-submit` turn. If it names `decisionInputs`, those are the person&#39;s: relay its `/sf-submit` route, never ask them here. Then relay its `handoff` (`copilotCommand`/`command`). Code: ask a declared `applicationStart`&#39;s one question; the outcome `line` is optional, never asked. Read errors keep publication.
 
 TRP: `singularity-flow explain test-recovery`.
 </code></pre>
@@ -11349,7 +11349,7 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1364 body tokens</span>
+          <span class="pill">~1370 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-start</code></dd></div>
@@ -11384,7 +11384,7 @@ First require an explicit Work ID, then run `singularity-flow workspace branches
 3. Use catalog/preflight member checks; no workspace-wide rescan. Repair exact missing members. Authority failure: Shell `singularity-flow workspace reinitialize --dry-run --json`, Copilot `/sf-admin`; never `init` for an absent local workflow file.
 4. Choose `&lt;BASE&gt;` explicitly. If `intake.workflowCatalogScope` is not `approved-configuration`, run step 6 without `--work-type`. Choose `&lt;WORKFLOW&gt;` from exact-base `intake.storyWorkflows`.
 5. Collect outcome, criteria, scope, risks and named documents; never search. Offer `intake.findings.items` unpicked; picks become `--address &lt;ID,...&gt;` on start; one with `story` is taken. Clone: `singularity-flow story clone &lt;ORIGINAL-ID&gt; --preview --json`; review new name/ID, workflow/bases and reattach documents. Add `--clone-from &lt;ORIGINAL-ID&gt; --clone-source-commit &lt;source.commit&gt;`. Pinned inputs survive phase advances; copy no evidence, risk acceptances, decisions or approvals. Otherwise `--jira`/`--story-file`. References: paired `--reference-repository ID=URL --reference-branch ID=BRANCH`.
-6. Defaults: baseline `reuse`, tests `changed-and-affected`, gates `hard`, in one line with the base/workflow ask (changeable: `run`/`defer`, `all-configured`, `soft`). Soft needs human coverage-risk review, reason/expiry. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;`. Missing tests/setup never block creation or imply a pass. No implicit installs/tests; baselines use `/sf-ready`. World Model/AST/models/telemetry: advisory. Never upgrade configuration here. `preflight.storyBranch` is the branch start creates; a person&#39;s own name goes to both as `--ref &lt;BRANCH&gt;`.
+6. SFlow&#39;s defaults: baseline `reuse`, tests `changed-and-affected`, gates `hard`, named as SFlow&#39;s in one line with the base/workflow ask (changeable: `run`/`defer`, `all-configured`, `soft`). Soft needs human coverage-risk review, reason/expiry. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;`. Missing tests/setup never block creation or imply a pass. No implicit installs/tests; baselines use `/sf-ready`. World Model/AST/models/telemetry: advisory. Never upgrade configuration here. `preflight.storyBranch` is the branch start creates; a person&#39;s own name goes to both as `--ref &lt;BRANCH&gt;`.
 7. Start with identical base/workflow/baseline/test/gate flags; add returned `--intake-receipt`. `targetUrl: required` needs `--target-url`; pass a `recommended` one when given. Without `ask_user`, use step 8 or stop; keep hard gates unless explicitly selected.
 8. Pinned choices: `singularity-flow choices begin start &lt;WORK-ID&gt; --for-agent --json`, `singularity-flow choices answer &lt;TOKEN&gt;`, pass `--selection-receipt &lt;TOKEN&gt;` (15-minute, single-use).
 9. Show readiness; `/sf-next`. Pending tests: Copilot `/sf-test-setup`; Shell `singularity-flow capability test-setup --json`. Tests run later; publish needs evidence.
@@ -11809,7 +11809,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1304 body tokens</span>
+          <span class="pill">~1309 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-story-start</code></dd></div>
@@ -11843,7 +11843,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Run `singularity-flow jira pull &lt;STORY-KEY&gt; --json`; show its details before mutation.
 3. Verify its Jira project routes to this repository or active workspace; otherwise switch first.
 4. Run `singularity-flow workspace branches --entry --intake --work-id &lt;STORY-KEY&gt; --for-agent --json` once; list unrelated changes it reports and stop until the person lands (`/sf-adhoc`) or moves them.
-5. Run `singularity-flow workspace branches --json`. Present branches published by every required delivery repository and require a choice; stop if a remote fails. Ask separately for optional **read-only reference repositories**. Each requires an explicit lower-kebab ID, credential-free Git URL, and branch and becomes paired `--reference-repository ID=URL --reference-branch ID=BRANCH` options. Never infer one or describe it as a delivery repository. Defaults: baseline `reuse`, tests `changed-and-affected`, gates `hard`; say them in one line with the branch ask (changeable: `run`/`defer`, `all-configured`, `soft` with human coverage-risk review, reason, expiry), never as questions. Start `singularity-flow story start &lt;STORY-KEY&gt; --fetch --from-branch &lt;SELECTED-BRANCH&gt; --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;` interactively and bridge workflow choices through `ask_user`. If the chosen workflow&#39;s `targetUrl` is `required` (start refuses without it) or `recommended`, ask for its authorized target and pass `--target-url &lt;AUTHORIZED-URL&gt;`.
+5. Run `singularity-flow workspace branches --json`. Present branches published by every required delivery repository and require a choice; stop if a remote fails. Ask separately for optional **read-only reference repositories**. Each requires an explicit lower-kebab ID, credential-free Git URL, and branch and becomes paired `--reference-repository ID=URL --reference-branch ID=BRANCH` options. Never infer one or describe it as a delivery repository. SFlow&#39;s defaults: baseline `reuse`, tests `changed-and-affected`, gates `hard`; say them as SFlow&#39;s in one line with the branch ask (changeable: `run`/`defer`, `all-configured`, `soft` with human coverage-risk review, reason, expiry), never as questions. Start `singularity-flow story start &lt;STORY-KEY&gt; --fetch --from-branch &lt;SELECTED-BRANCH&gt; --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;` interactively and bridge workflow choices through `ask_user`. If the chosen workflow&#39;s `targetUrl` is `required` (start refuses without it) or `recommended`, ask for its authorized target and pass `--target-url &lt;AUTHORIZED-URL&gt;`.
 6. If persistent terminal input is unavailable:
    - Run `singularity-flow choices begin start &lt;STORY-KEY&gt; --for-agent --json`.
    - Present and record `base-branch`; never preselect it.

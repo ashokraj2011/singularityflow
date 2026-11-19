@@ -211,16 +211,16 @@ test('Classic delivery commits passing test results before Testing and Code chec
     '--answer', 'Yes; keep the exported interface and add the matching unit test.');
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'intake');
-  // The approval names Code's own command, the one VS Code's chat prefill puts in (owner, 2026-11-17), in the same
-  // chat: no /clear between steps (owner, 2026-11-19).
-  const approved = cli('approve', 'intake', '--yes').stdout;
-  assert.match(approved, /Next Copilot actions:\n- Copilot: \/sf-code\n/u);
-  assert.doesNotMatch(approved, /\/clear/u);
+  // The approval's clean-chat item names Code's own command, the one VS Code's chat prefill puts in (owner, 2026-11-17).
+  // The chat reset stays between steps (owner, 2026-11-19): the next step rebuilds from approved records only.
+  assert.match(cli('approve', 'intake', '--yes').stdout, /Next Copilot actions:\n- Copilot: \/clear\n[\s\S]*?\n- Copilot: \/sf-code\n/u);
 
   measuredPhase = 'implementation';
-  // Intake was approved here, outside any Copilot conversation: the chat is kept, so the next agent entry owes no reset.
+  // Intake was approved here, outside any Copilot conversation: the next agent entry repeats the
+  // boundary that approval owes until Code is prepared.
   const owed = completeAgentResult(cli('nextsteps', '--for-agent', '--json').stdout);
-  assert.equal(owed.contextBoundary, undefined);
+  // The reset, then Code's own command: the one VS Code's chat prefill puts in (owner, 2026-11-17).
+  assert.deepEqual([owed.contextBoundary?.mode, owed.contextBoundary?.phase, owed.contextBoundary?.commands], ['new', 'intake', ['/clear', '/sf-code']]);
   cli('prepare', 'implementation');
   assert.equal(completeAgentResult(cli('nextsteps', '--for-agent', '--json').stdout).contextBoundary, undefined);
   measureEntry();

@@ -6,9 +6,11 @@
  * person has seen that version yet (no answer on its review, no approval or return, no words they typed for it, no file
  * changed after it was published). Asking "Start version N to fix the review's findings?" then only asked the person to
  * agree with a reviewer they had not read. SFlow starts version N itself, through the one opening operation, records it as
- * settled for the person with its evidence, and the decisions card lists it with an undo. The author fixes the findings in
- * the same turn. An undo hands the question back: every later version of that step for a review's findings is asked again.
- * Anything a person touched keeps the question theirs: the refusal names the preview that asks it.
+ * settled for the person with its evidence, in the opening's own commit, and the decisions card lists it with an undo. The
+ * author fixes the findings in the same turn. An undo never withdraws the version it opened (no route withdraws an open
+ * version); it only makes every later start of that step for a review's findings the person's question again.
+ * Anything a person touched keeps the question theirs: the refusal names the preview that asks it. So do 2 starts in a row
+ * already, and a finding back after SFlow's fix (source-review-continuation.mjs reviewFindingsHold).
  */
 import { SingularityFlowError } from './util.mjs';
 
@@ -22,7 +24,7 @@ export async function reviewFindingsUndone(workflow, phase) {
 }
 
 export async function reviewFindingsRollover(root, config, workflow, phase, options, { changedFiles = false } = {}) {
-  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }, { reviewerAloneSaw }, { versionPreviewCommand }] = await Promise.all([
+  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }, { reviewerAloneSaw, reviewFindingsHold, reviewFindingKeys }, { versionPreviewCommand }] = await Promise.all([
     import('./util.mjs'), import('./code-delivery-policy.mjs'), import('./source-review-continuation.mjs'), import('./action-command-map.mjs')]);
   if (optionString(options, 'confirm') || optionString(options, 'reason', null) !== null || options.correction !== undefined) {
     throw new SingularityFlowError('--review-findings starts the next version for the review\'s findings and takes no --confirm, --reason or --correction.',
@@ -34,7 +36,7 @@ export async function reviewFindingsRollover(root, config, workflow, phase, opti
   const ask = (words) => {
     throw new SingularityFlowError(`${words} Starting version ${from + 1} is the person's yes: preview it and ask them its question.`, {
       code: 'VERSION_REVIEW_FINDINGS_ASK', details: { phase: phase.id, version: from + 1,
-        nextAction: { command: versionPreviewCommand(phase.id), label: `Ask the person to start version ${from + 1} of ${phase.label ?? phase.id} for the review's findings` } } });
+        nextAction: { command: versionPreviewCommand(phase.id), label: `Ask to start version ${from + 1} of ${phase.label ?? phase.id} for its review` } } });
   };
   if (changedFiles) ask(`Files changed after version ${from} of ${phase.label ?? phase.id} was published.`);
   let review = null;
@@ -48,6 +50,9 @@ export async function reviewFindingsRollover(root, config, workflow, phase, opti
     throw new SingularityFlowError(`${phase.label ?? phase.id} has no published version waiting to be corrected for its review; nothing was opened.`, {
       code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: { phase: phase.id, nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route } });
   }
+  // Two starts in a row, or a finding back after a fix: the person decides (owner, 2026-11-19).
+  const held = reviewFindingsHold(workflow, phase, review);
+  if (held) ask(held.words);
   if (!reviewerAloneSaw(workflow, phase, review)) ask(`Someone besides the reviewer has seen version ${from} of ${phase.label ?? phase.id}, or its review asks for no corrections.`);
   if (await reviewFindingsUndone(workflow, phase)) ask(`A person undid an earlier start of ${phase.label ?? phase.id} for a review's findings.`);
   const successor = await import('./requested-successor.mjs');
@@ -56,29 +61,29 @@ export async function reviewFindingsRollover(root, config, workflow, phase, opti
   if (!request) ask(`The review of version ${from} names no correction to make.`);
   const code = phaseRequiresCodeDelivery(phase);
   const findings = (review?.findings ?? []).filter((entry) => entry.code !== 'human-disposition-required').length;
-  const [{ commitSettledDecision }, { actionActor }, { loadSession }] = await Promise.all([
-    import('./settled-decisions.mjs'), import('./git.mjs'), import('./session.mjs')]);
-  const session = await loadSession(root, { required: false }).catch(() => null);
-  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  const { record: settled } = await commitSettledDecision(root, config, workflow, {
-    kind: 'review-corrections', by: 'sflow', phase: phase.id, subject: reviewFindingsSubject(phase),
-    answer: `Started version ${from + 1} of ${phase.id} to fix the review's findings on version ${from}`,
+  const proposed = await opening.proposalNow(root, workflow, phase, { reason: 'review-corrections' });
+  const next = proposed.proposal.version;
+  const [{ actionActor }, { actorKey }] = await Promise.all([import('./git.mjs'), import('./state-stores.mjs')]);
+  // Recorded in the opening's own commit, so a start that fails leaves no settlement for a version nobody opened.
+  const settlement = { kind: 'review-corrections', by: 'sflow', phase: phase.id, subject: reviewFindingsSubject(phase),
+    answer: `Started version ${next} of ${phase.id} to fix the review's findings on version ${from}`,
     evidence: [
       { what: `the review of version ${from} asks for ${findings || 'its'} correction${findings === 1 ? '' : 's'}`, where: `${phase.id} review of version ${from}` },
       { what: `nobody answered that review, approved, returned or asked to change version ${from}`, where: `${phase.id} review, approval and request records` }
     ],
-    effect: { generation: from, toGeneration: from + 1 }
-  }, { actor: actionActor(root), agent });
-  // The one opening operation, as a confirmed rollover opens it: the settlement stands in for the person's yes [owner, 2026-11-19].
-  const proposed = await opening.proposalNow(root, workflow, phase, { reason: 'review-corrections' });
-  const opened = await opening.openSuccessor(root, config, workflow, phase, { ...proposed, settled: { kind: 'review-corrections', id: settled.id },
+    // The reviewer's findings it was started for: one back after this fix asks the person (reviewFindingsHold).
+    effect: { generation: from, toGeneration: next, findings: reviewFindingKeys(review) } };
+  const opened = await opening.openSuccessor(root, config, workflow, phase, { ...proposed,
+    settled: { kind: 'review-corrections', settlement, actor: actorKey(actionActor(root)) },
     open: code ? opening.codeOpening(root, config) : opening.documentOpening() });
-  const next = proposed.proposal.version;
-  const line = `Only the reviewer had seen version ${from} of ${phase.label ?? phase.id}, so SFlow started version ${next} to fix its findings; undo it on the decisions card (/sf-decide ${workflow.workItem.id}).`;
-  const result = { schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'review-corrections', workId: workflow.workItem.id, phase: phase.id,
+  const settled = opened.settled ?? (workflow.settledDecisions ?? []).findLast((entry) => entry?.kind === 'review-corrections' && entry.subject === settlement.subject) ?? null;
+  const workId = workflow.workItem.id;
+  const line = `Only the reviewer had seen version ${from} of ${phase.label ?? phase.id}, so SFlow started version ${next} to fix its findings. `
+    + `Version ${next} stays open; an undo on the decisions card (/sf-decide ${workId}) only makes SFlow ask you before it starts another.`;
+  const result = { schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'review-corrections', workId, phase: phase.id,
     fromGeneration: from, toGeneration: next, mutates: true, requestedChange: { requests: [request] }, line,
-    settled: { id: settled.id, kind: settled.kind, answer: settled.answer, evidence: settled.evidence,
-      undo: { copilotCommand: `/sf-decide ${workflow.workItem.id}`, words: 'Undo on the decisions card: SFlow then asks before it starts a version of this step for a review\'s findings.' } },
+    settled: settled ? { id: settled.id, kind: settled.kind, answer: settled.answer, evidence: settled.evidence,
+      undo: { copilotCommand: `/sf-decide ${workId}`, words: `An undo does not withdraw version ${next}: it stays open. It makes SFlow ask you before it starts another version of this step for a review's findings.` } } : null,
     preserved: code ? `Version ${from}, its evidence and its test results stay as published.` : `Version ${from} and its review stay as published.`,
     opened: { generation: next, status: 'open' }, opening: opened.outcome, replayed: opened.replayed,
     // What follows is the kernel's next for the open version: writing it, in this same turn.

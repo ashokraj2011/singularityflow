@@ -154,7 +154,8 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
   // Only the first opening of version 1 omits the person's yes [§7.2]; every other needs its exact, sealed receipt, the
   // author's own correction too (owner, 2026-11-17) [D3, OSA:REQ-030]; but a review's findings on a version only the reviewer
   // saw open settled, with an undo, never as consent (owner, 2026-11-19; review-findings-opening.mjs).
-  const reviewSettled = settled?.kind === 'review-corrections' && proposal.reason === 'review-corrections' && typeof settled.id === 'string' && !receipt;
+  const reviewSettled = settled?.kind === 'review-corrections' && proposal.reason === 'review-corrections' && Boolean(settled.settlement) && !receipt;
+  let settledRecord = null;
   const problem = reviewSettled ? null : proposal.consent !== 'not-required' || receipt ? consentProblem(commonDir, receipt, { digest, proposal, principal }) : null;
   // A yes that opens nothing (another person's, expired, declined, for another proposal, or none) is asked again: the
   // step's own preview, which this person answers themselves; the step's other next action only when that cannot be named.
@@ -192,8 +193,14 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
       exactWorkItemPaths: [recordPath, posix(path.join(directory, 'context', 'generation-start')), posix(path.join(directory, 'context', 'work-intervals'))],
       beforeStateWrite: async () => {
         intent = await open(workflow, phase);
+        // The settlement that stands in for the person's yes is written in this same commit: an opening that fails leaves none.
+        if (reviewSettled) {
+          settledRecord = (await import('./settled-decisions.mjs')).recordSettledDecision(workflow, { ...settled.settlement, at: openedAt, actor: settled.actor ?? null, agent });
+          (workflow.history ??= []).push({ at: openedAt, actor: settled.actor ?? 'system', agent, event: 'decision_settled', phase: phase.id,
+            detail: `${settledRecord.id} (${settledRecord.kind}) settled by SFlow: ${settledRecord.answer}` });
+        }
         const record = { schema: RECORD_SCHEMA, operationId: id, payloadDigest, proposal, proposalDigest: digest, consent: receipt,
-          ...(reviewSettled ? { settled: { kind: settled.kind, id: settled.id } } : {}),
+          ...(reviewSettled ? { settled: { kind: settledRecord.kind, id: settledRecord.id } } : {}),
           writer: { ...writer, actor: principal ? { name: principal.name ?? null, email: principal.email ?? null, login: principal.login ?? null } : null },
           intent: intent?.id ? { id: intent.id, receiptSha256: intent.receiptSha256 ?? null } : null, openedAt };
         recordSha256 = sha(record);
@@ -201,10 +208,10 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
         // The reservation moves the high-watermark in the same commit as the opening it reserves [§4.3, §7.2].
         phase.versionOpening = { operationId: id, version: proposal.version, highWatermark: proposal.version, reason: proposal.reason,
           path: recordPath, sha256: recordSha256, consent: receipt ? { receiptId: receipt.receiptId, surface: receipt.response.surface,
-            assurance: receipt.principal.assurance } : reviewSettled ? { settled: settled.id, surface: 'settled' } : null, writer, openedAt };
+            assurance: receipt.principal.assurance } : reviewSettled ? { settled: settledRecord.id, surface: 'settled' } : null, writer, openedAt };
         (workflow.history ??= []).push({ at: openedAt, actor: principal?.email ?? principal?.name ?? 'system', agent, event: 'version_opened',
           phase: phase.id, detail: `version ${proposal.version} opened (${proposal.reason})${receipt ? ` on the person's yes (${receipt.response.surface})`
-            : reviewSettled ? ` settled for the person (${settled.id}; only the reviewer had seen version ${proposal.from?.published ?? proposal.version - 1})` : ''}` });
+            : reviewSettled ? ` settled for the person (${settledRecord.id}; only the reviewer had seen version ${proposal.from?.published ?? proposal.version - 1})` : ''}` });
       },
       fault: async (point, context) => {
         // The commit exists on this clone; its shared acceptance is pending until the push answers [§7.2 checkpoints].
@@ -252,7 +259,7 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
   await move('shared-confirmed', { commit: result.sha, recordPath, recordSha256, outcome });
   if (receipt) await dropGrant(commonDir, digest);
   if (fault) await fault('before-reply', { operationId: id, outcome });
-  return { outcome, replayed: false, checkpoint: 'shared-confirmed' };
+  return { outcome, replayed: false, checkpoint: 'shared-confirmed', ...(settledRecord ? { settled: settledRecord } : {}) };
 }
 
 // ------------------------------------------------------------------------------------------------ reconciliation

@@ -35,8 +35,13 @@ function turnExpired(record) {
   return Number.isFinite(record?.recordedAt) && Date.now() - turnWindowStart(record) > MAX_AGE;
 }
 
-/** A turn past its window whose contract's workflow and stamps are unchanged goes on once its entry is read again (owner, 2026-11-19). */
+/**
+ * A turn past its window whose contract's workflow and stamps are unchanged goes on once its entry is read again (owner,
+ * 2026-11-19), once per person prompt: the window bounds what an agent does unattended, renewed otherwise only by the
+ * person's own answer [OSA:REQ-051]. Source edits change no stamp, so a second renewal would extend one prompt without end.
+ */
 async function unchangedRenewal(payload, record) {
+  if (Number.isFinite(record.unchangedAt)) return record;
   try {
     const value = await boundedRecord(recordFile(payload));
     if (record.corrupt || !value?.contract || !value.binding?.workflowFile || value.turnId !== record.turnId || value.sessionId !== record.sessionId) return record;
@@ -45,8 +50,8 @@ async function unchangedRenewal(payload, record) {
       if (digest(await readFile(stamp.file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) !== stamp.sha256) return record;
     }
     const now = Date.now();
-    await noteTurnRenewal(recordFile(payload), record, { renewedAt: now, unchanged: true });
-    return { ...record, renewedAt: now };
+    await noteTurnRenewal(recordFile(payload), record, { renewedAt: now, unchangedAt: now });
+    return { ...record, renewedAt: now, unchangedAt: now };
   } catch { return record; }
 }
 
@@ -56,9 +61,12 @@ async function unchangedRenewal(payload, record) {
  */
 function turnExpiredDenial(record) {
   const skill = `/sf-${String(record?.skill ?? 'phase').replace(/^\/?(?:sf|sflow)-/u, '')}`;
+  const spent = Number.isFinite(record?.unchangedAt);
+  const from = !Number.isFinite(record?.renewedAt) ? 'its prompt' : record.renewedAt === record.unchangedAt ? 'its renewal' : 'the person\'s last answer in it';
   return { permissionDecision: 'deny', next: [], permissionDecisionReason:
-    `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from ${Number.isFinite(record?.renewedAt) ? 'the person\'s last answer in it' : 'its prompt'} and have ended; nothing was written. `
-    + `Invoke ${skill} again to continue only if its entry read does not: first run ${skill}'s own first command once more in this same chat; when nothing changed since, that read continues this turn here, with everything already written, and you go on without asking the person. `
+    `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from ${from} and have ended; nothing was written. `
+    + (spent ? `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. It was renewed once already with nothing changed, so its entry read renews it no more. `
+      : `Invoke ${skill} again to continue only if its entry read does not: first run ${skill}'s own first command once more in this same chat; when nothing changed since, that read continues this turn here, once, with everything already written, and you go on without asking the person. `)
     + `No other Shell command renews a Copilot turn.\n\n${formatCommandRouteLines({ copilotCommand: skill }).join('\n')}` };
 }
 

@@ -201,9 +201,8 @@ test('/sf-progress and /sf-nextsteps read their CLI JSON through the tools, fiel
   const checks = ({ repositoryChecks, ...rest }) => [rest, [repositoryChecks?.scope, repositoryChecks?.mode, repositoryChecks?.refresh]];
   const asAgent = agentPacketPresentation(agentNextStepsView(agentNextSteps(cliNext.json)));
   assert.deepEqual(checks(nextsteps), checks(asAgent));
-  // The chat is kept between steps (owner, 2026-11-19): neither names a reset.
-  assert.equal(nextsteps.contextBoundary ?? null, null, 'no chat reset before the next step');
-  assert.equal(cliNext.json.contextBoundary ?? null, null);
+  assert.ok(nextsteps.contextBoundary?.commands?.length, 'the chat reset the skill reads first');
+  assert.deepEqual(nextsteps.contextBoundary, agentPacketPresentation(cliNext.json.contextBoundary));
   assert.deepEqual(nextsteps.pending, agentPacketPresentation(cliNext.json.pending), 'the one pending list (SPEC-OAP M3)');
   assert.ok(nextsteps.actions.length && nextsteps.actions.every((action) => action.timing !== 'then'));
   // Model on, the governed agent's route, never the model-free one the planner's own mode implies.

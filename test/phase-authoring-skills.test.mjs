@@ -40,7 +40,10 @@ test('existing implementation is completed through summary, planned assertions a
   assert.match(code, /once when ready unless `publishIfReady\.published`/);
   // A ready version is submitted in the turn that wrote it; the outcome is one optional line, the application's start one
   // question only when one is declared (owner, 2026-11-19).
-  assert.match(code, /Act `submit` \(review ready, or none owed\): run its `do\.shell` once now, asking only `decisionInputs` values; no `\/sf-submit` turn/);
+  assert.match(code, /Act `submit` \(review ready, or none owed\): run its `do\.shell` once now; no `\/sf-submit` turn/);
+  // Decision values the submission records are the person's: handed to /sf-submit, never guessed or asked in the author's turn.
+  assert.match(code, /If it names `decisionInputs`, those are the person's: relay its `\/sf-submit` route, never ask them here\./);
+  assert.doesNotMatch(code, /asking only `decisionInputs`/);
   assert.match(code, /ask a declared `applicationStart`'s one question; the outcome `line` is optional, never asked/);
   assert.doesNotMatch(code, /ask `validation\.question`/);
   assert.match(code, /Missing capture: ask start\/setup\/upload/);

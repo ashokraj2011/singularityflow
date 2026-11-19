@@ -351,7 +351,7 @@ export function clarificationCheckpoint(policy, verification, { slices = [] } = 
     instruction: questioningAllowed
       ? `Read the exact composed context, its approved phase inputs (the earlier steps\' outputs) first: what they state is settled, never asked again. ${slices.length
         ? `So is the specification slice in the pinned Story source (${slices.join(', ')}): its clauses and decided questions are never asked again or put up for confirmation; ask only what they leave open. `
-        : ''}A missing durable record is not an unanswered question. First reuse actual human replies in this conversation, or those already written at responseStagingPath, only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Write the replies with a file-edit tool at responseStagingPath as ${CLARIFICATION_RESPONSE_FORMAT} (${FORMAT_NOTE}), then run the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. ${mode === 'required' ? 'Required here (the Story\'s intake): ask what its request leaves open on these topics; never ask the person to confirm what the evidence already states. ' : ''}Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. ${mode === 'required'
+        : ''}A missing durable record is not an unanswered question. First reuse actual human replies in this conversation, or those already written at responseStagingPath, only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Write the replies with a file-edit tool at responseStagingPath as ${CLARIFICATION_RESPONSE_FORMAT} (${FORMAT_NOTE}), then run the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. ${mode === 'required' ? 'Required here (the Story\'s intake): ask what its request leaves open on these topics, never a confirmation of what the evidence already states. When it leaves nothing open, ask one question naming the assumptions this step will build on, with "Go ahead" recommended, and record that answer. ' : ''}Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. ${mode === 'required'
         ? 'Recording remains required before authoring.'
         : 'Record only answers to questions you asked; with no material ambiguity, continue without a record.'}`
       : stage === 'inspect-binding'
@@ -470,7 +470,8 @@ export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSo
   const required = policy.mode === 'required'
     ? [
         'This checkpoint is required. Pause for at least one human response before authoring.',
-        'Ask what the request leaves open on these topics; never ask the person to confirm what the evidence already states.'
+        'Ask what the request leaves open on these topics; never ask the person to confirm what the evidence already states.',
+        'When the request leaves nothing open, ask one question naming the assumptions this step will build on, with "Go ahead" recommended, and record that answer.'
       ]
     : [
         'Ask only when a material ambiguity remains after reading the governed evidence.',

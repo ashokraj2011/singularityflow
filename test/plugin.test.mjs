@@ -280,7 +280,8 @@ test('plugin provides governed Jira Story intake with explicit workflow and gove
   assert.doesNotMatch(content, /canonical branch is the exact Jira key/);
   assert.match(content, /--readiness-baseline <CHOICE> --test-execution-mode <MODE> --gate-mode <GATES>/);
   // Taken by default and said in one line the person may change, never three questions (owner, 2026-11-19).
-  assert.match(content, /Defaults: baseline `reuse`, tests `changed-and-affected`, gates `hard`; say them in one line/);
+  // Said as SFlow's own defaults, so the person knows where they come from (2026-11-19 review).
+  assert.match(content, /SFlow's defaults: baseline `reuse`, tests `changed-and-affected`, gates `hard`; say them as SFlow's in one line/);
   assert.match(content, /never as questions/);
 });
 

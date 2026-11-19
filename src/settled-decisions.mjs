@@ -134,8 +134,14 @@ export function reraisedRoute(workflow, entry) {
 }
 
 /** After a Node settlement's undo: the file SFlow wrote goes, unless someone changed it since; then it is theirs and stays. */
-async function removeSettledFile(root, settled) {
+async function removeSettledFile(root, settled, workflow) {
+  // A Node settled for the Story's tests alone wrote no file: its kept entry goes (node-version-settle.mjs).
   const [{ readFile, rm }, path] = await Promise.all([import('node:fs/promises'), import('node:path')]);
+  if (settled.effect?.override) {
+    // From the CLI source, as the gates load it, out of the VS Code bundles.
+    const [{ PACKAGE_ROOT }, { pathToFileURL }] = await Promise.all([import('./package-root.mjs'), import('node:url')]);
+    return (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'node-version-settle.mjs')).href)).dropNodeOverride(root, workflow, settled);
+  }
   const file = path.join(root, settled.effect?.file ?? '.nvmrc');
   const wrote = (await readFile(file, 'utf8').catch(() => null)) === `${settled.effect?.version}\n`;
   if (wrote) await rm(file, { force: true });
@@ -201,6 +207,6 @@ export async function undoSettledDecision(root, config, workflow, id, { actor, a
   const { value, publication } = await transact(root, config, workflow, { label: `undo ${id}`, actor, agent,
     record: (aggregate, who) => recordSettledUndo(aggregate, { id, actor: who, at, reason, channel }) });
   // The file a Node settlement wrote goes with it, so the choice on the list is a real one again.
-  const removed = value.settled.kind === 'node-version' ? await removeSettledFile(root, value.settled).catch(() => false) : null;
+  const removed = value.settled.kind === 'node-version' ? await removeSettledFile(root, value.settled, workflow).catch(() => false) : null;
   return { undo: value.undo, settled: value.settled, publication, reraised: reraisedRoute(workflow, value.settled), ...(removed === null ? {} : { removed }) };
 }

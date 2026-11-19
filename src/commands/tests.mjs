@@ -132,13 +132,13 @@ async function plannedCommand(root, command, plan, declaration) {
 }
 
 /** What a plan adds to its commands: what covers each path, what was seen and not used, and what would surprise someone later. */
-async function planDetails(root, commands, { changed = [], planned = [], plannedTests = [] } = {}) {
+async function planDetails(root, commands, { changed = [], planned = [], plannedTests = [], config = null } = {}) {
   const { earlyTestChecks, pathCoverage, suitesNotUsed } = await import('../test-plan.mjs');
   const quiet = async (read, fallback) => { try { return await read(); } catch { return fallback; } };
   return {
     paths: await quiet(() => pathCoverage(root, commands, { changed, planned }), null),
     notUsed: await quiet(() => suitesNotUsed(root, commands), []),
-    earlyChecks: await earlyTestChecks(root, commands, { planned: plannedTests })
+    earlyChecks: await earlyTestChecks(root, commands, { planned: plannedTests, config })
   };
 }
 
@@ -624,10 +624,16 @@ async function planStory(root, options) {
     commands: shown,
     ...(prospective ? { prospective: true } : {}),
     ...(stopped ? { stopped } : {}),
-    ...await planDetails(root, entries.map((entry) => entry.command), {
+    ...await planDetails(root, entries.map((entry) => entry.command), { config: context.config,
       changed: [...(evidence?.sourcePaths ?? []), ...(evidence?.testPaths ?? [])],
       planned: plannedFiles, plannedTests: planned.testPaths })
   };
+}
+
+/** Make the checkout's dependencies ready before a check copies them; never refuses (repository-dependency-setup.mjs). */
+async function prepareDependencies(root, config, commands) {
+  await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'repository-dependency-setup.mjs')).href)
+    .then((setup) => setup.prepareRepositoryDependencies(root, { config, directories: commands.map((command) => command.workingDirectory ?? '.') })).catch(() => null);
 }
 
 /** `--within SECONDS`: a check's own time in all, or null; each command's timeout is cut to what is left of it. */
@@ -660,6 +666,8 @@ export async function tryStoryBase(root, options) {
   const context = await storyContext(root, options);
   const { phase, commands } = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, { phaseId: optionString(options, 'phase', null) });
   const baseCommit = storyBaseCommit(context.workflow, phase);
+  // The base's checkout gets this one's dependencies (verification/base-run.mjs), so they are made ready here first.
+  await prepareDependencies(root, context.config, commands);
   const scope = { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id };
   if (!baseCommit) fail(`Story ${context.workflow.workItem.id} names no base commit to compare with.`, 'TESTS_BASE_UNKNOWN');
   const attempts = await stepAttempts(root, workDirRelative(context.config, context.workflow.workItem.id), context.workflow.workItem.id, phase.id);
@@ -720,6 +728,8 @@ export async function tryStoryNode(root, options) {
   const scope = { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id };
   const codeState = await (await import('../node-pin.mjs')).nodeProbeState(root, context.config, context.workflow);
   const pathContext = applicationPathContext(context.config, context.workflow);
+  // Each throwaway copy gets this checkout's dependencies, so they are made ready here first (repository-dependency-setup.mjs).
+  await prepareDependencies(root, context.config, commands);
   const untracked = new Set(untrackedFiles(root));
   const included = changedFiles(root).filter((file) => isApplicationChangePath(file, { ...pathContext, untracked: untracked.has(file) }));
   const results = [];

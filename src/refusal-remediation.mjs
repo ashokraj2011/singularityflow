@@ -357,10 +357,14 @@ function requiredTestFailureSteps(argv, error) {
   const fixes = error?.details?.requiredTestExecution?.environmentFix;
   // The step's own repair, in its code turn.
   const ownRepairSkill = context?.phaseId ? '/sf-code' : null;
+  // Dependencies SFlow could not install: the person runs the named command in their own terminal (no agent route), then
+  // the same gate [owner, 2026-11-19].
+  const dependencies = error?.details?.dependencySetup;
   return [
+    ...(dependencies?.nextAction ? [step('make-dependencies-ready', `${dependencies.words} ${dependencies.nextAction.label}`.slice(0, 2000), null, 'remediation')] : []),
     ...(Array.isArray(fixes) ? fixes.slice(0, 3).map((command, index) => step(`fix-environment-${index + 1}`, index ? 'Or this.'
       : 'The environment is not set up here, so no change in the step passes it: fix it with this, then run the same check again.', command, 'remediation')) : []),
-    ...(pin?.settles && context?.workId ? [step('rerun-on-pinned-node', `SFlow pins Node ${pin.version} in ${pin.file} itself before the next run, settled with an undo on the decisions card: ${pin.words} Run the same gate again.`,
+    ...(pin?.settles && context?.workId ? [step('rerun-on-pinned-node', `SFlow pins ${pin.checks ? 'an installed Node the tests pass on' : `Node ${pin.version}`} in ${pin.file} itself before the next run, settled with an undo on the decisions card: ${pin.words} Run the same gate again.`,
       prepublishAgain(context.phaseId), 'remediation', ownRepairSkill)] : []),
     ...(pin && !pin.settles && context?.workId ? [step('pin-node-version',
       `A person chooses ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`}: ${pin.words} Node ${pin.node} is installed here. Choosing it ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step, with their reason; an agent cannot record it. Show them this, then rerun the gate once it is recorded.`,
@@ -2703,7 +2707,10 @@ export function refusalDetails(details) {
   if (Array.isArray(details.unclaimedPaths)) projected.unclaimedPaths = details.unclaimedPaths.map(String).slice(0, 20);
   if (details.setAside?.command) projected.setAside = { command: details.setAside.command, paths: (details.setAside.paths ?? []).slice(0, 20) };
   if (details.otherNode?.version) projected.otherNode = { version: details.otherNode.version, node: details.otherNode.node };
-  if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null, ...(details.nodePin.replaces ? { replaces: details.nodePin.replaces } : {}), ...(details.nodePin.settles === true ? { settles: true } : {}) };
+  if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null, ...(details.nodePin.replaces ? { replaces: details.nodePin.replaces } : {}), ...(details.nodePin.settles === true ? { settles: true } : {}), ...(details.nodePin.checks === true ? { checks: true } : {}) };
+  if (details.dependencySetup?.words) projected.dependencySetup = compact({ words: text(details.dependencySetup.words), directory: text(details.dependencySetup.directory),
+    nextAction: details.dependencySetup.nextAction ? compact({ label: text(details.dependencySetup.nextAction.label), command: text(details.dependencySetup.nextAction.command),
+      workingDirectory: text(details.dependencySetup.nextAction.workingDirectory) }) : null });
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
     scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',
     applicationFiles: 'not-modified-by-probe', index: 'not-modified-by-probe',

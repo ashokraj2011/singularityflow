@@ -170,6 +170,11 @@ export async function openSuccessor(root, config, workflow, phase, { proposal, d
   if ((await import('../code-delivery-policy.mjs')).phaseRequiresCodeDelivery(phase)) {
     await (await import('../settle-before-publication.mjs')).settleBeforePublication(root, config, workflow, phase,
       { actor: (await import('../git.mjs')).actionActor(root), agent }).catch(() => null);
+    // Then its dependencies, on that Node, as a developer would make them ready (repository-dependency-setup.mjs) [owner,
+    // 2026-11-19]: a failure says why and what to run, and the tests make them ready again before they run.
+    const [path, { pathToFileURL }, { PACKAGE_ROOT }] = await Promise.all([import('node:path'), import('node:url'), import('../package-root.mjs')]);
+    await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'repository-dependency-setup.mjs')).href)
+      .then((setup) => setup.prepareRepositoryDependencies(root, { config })).catch(() => null);
   }
   return opened;
 }

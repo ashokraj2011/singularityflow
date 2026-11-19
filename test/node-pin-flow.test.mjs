@@ -160,36 +160,32 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   assert.match(published.stderr, /Using Node 22\.14\.0 from nvm for this run: \.nvmrc asks for 22\./u);
 });
 
-test('a .nvmrc naming a Node not installed here offers to change it to one that is, or to install it', { ...posix, ...slowLane({ timeout: 480_000 }) }, async (t) => {
+test('a .nvmrc naming a Node not installed here: this Story\'s tests run on an installed one the package accepts, settled with an undo, and the file stays', { ...posix, ...slowLane({ timeout: 480_000 }) }, async (t) => {
   const { root, run, json } = await failingOnThisNode(t, { '.nvmrc': '18\n' });
+  // Settled when the version opened, never asked [owner, 2026-11-19]: Node 22 is the only installed Node package.json accepts.
   const before = json('decisions', 'QF-1').value.data;
-  const offered = before.items.find((item) => item.kind === 'node-pin');
-  assert.ok(offered, JSON.stringify(before.items.map((item) => item.kind)));
-  assert.equal(offered.details.replaces, '18');
-  assert.equal(offered.details.version, '22');
-  assert.equal(offered.options[0].label, 'Change .nvmrc from 18 to Node 22');
-  assert.equal(offered.plain.question, 'Change .nvmrc to Node 22 for Implement\'s tests?');
-  assert.match(offered.plain.why, /^\.nvmrc asks for Node 18, which is not installed here; Node 22\.14\.0 is\.$/u);
-  assert.match(offered.why, /\.nvmrc asks for Node 18, and no installed Node matches\./u);
-  assert.match(offered.why, /Or install Node 18 and there is nothing to choose\./u);
-
-  // The gate's own refusal says the same, and its first route is that choice.
-  const gate = json('phase', 'publish', 'implement');
-  assert.notEqual(gate.status, 0);
-  assert.equal(gate.value.error.details?.nodePin?.replaces, '18', JSON.stringify(gate.value.error.details));
-  assert.equal(gate.value.remediationPlan.steps[0].id, 'pin-node-version');
-  assert.match(gate.value.remediationPlan.steps[0].label ?? gate.value.remediationPlan.steps[0].reason ?? JSON.stringify(gate.value.remediationPlan.steps[0]), /to change \.nvmrc to Node 22/u);
-
-  const fresh = json('decisions', 'QF-1').value.data;
-  const id = fresh.items.find((entry) => entry.kind === 'node-pin').id;
-  const reason = 'Node 18 is not installed here and the package asks for 20 or later.';
-  const recorded = json('decisions', 'record', 'QF-1', '--choose', `${id}=pin-node`, '--reason', `${id}=${reason}`, '--confirm', fresh.packetSha256);
-  assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
-  assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '22\n');
-  assert.equal(json('decisions', 'QF-1').value.data.items.some((entry) => entry.kind === 'node-pin'), false, 'the choice is gone once made');
+  assert.equal(before.items.some((item) => item.kind === 'node-pin'), false, JSON.stringify(before.items.map((item) => item.kind)));
+  const settled = before.settled.find((entry) => entry.details.settledKind === 'node-version');
+  assert.ok(settled, JSON.stringify(before.settled));
+  assert.match(settled.evidenceWords, /\.nvmrc asks for Node 18 \(\.nvmrc\)/u);
+  assert.match(settled.evidenceWords, /Node 22\.14\.0 is the only installed Node that package\.json accepts \(>=20 <25\)/u);
+  assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '18\n', 'the repository\'s file is not changed');
+  // The gate runs the tests on it, and says so in one line.
   const published = run('phase', 'publish', 'implement');
   assert.equal(published.status, 0, published.stdout + published.stderr);
-  assert.match(published.stderr, /Using Node 22\.14\.0 from nvm for this run: \.nvmrc asks for 22\./u);
+  assert.match(published.stderr, /Using Node 22\.14\.0 from nvm for this Story's tests: \.nvmrc asks for Node 18, which is not installed here\./u);
+  assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '18\n');
+  // Undone, the Node kept for this Story goes, the file counts as it is again, and changing it is the person's choice.
+  const kept = path.join(root, '.git', 'singularity-flow', 'node-overrides.json');
+  assert.deepEqual(JSON.parse(await readFile(kept, 'utf8')).overrides.map((entry) => [entry.workId, entry.wanted, entry.version]), [['QF-1', '18', '22']]);
+  const undone = json('decisions', 'undo', 'QF-1', '--settled', settled.details.settledId);
+  assert.equal(undone.status, 0, JSON.stringify(undone.value));
+  assert.match(undone.value.data.reraised.words, /is on the decision list again/u);
+  assert.deepEqual(JSON.parse(await readFile(kept, 'utf8')).overrides, []);
+  assert.equal((json('decisions', 'QF-1').value.data.settled ?? []).some((entry) => entry.details.settledKind === 'node-version'), false);
+  const plan = json('tests', 'plan', '--work-id', 'QF-1', '--phase', 'implement').value;
+  const check = (plan.data ?? plan).earlyChecks.find((entry) => entry.id === 'node-version');
+  assert.match(check.words, /\.nvmrc asks for Node 18, and no installed Node matches\./u);
 });
 
 test('a pin replaces only the version a person was shown', { ...posix }, async (t) => {

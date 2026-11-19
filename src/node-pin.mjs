@@ -36,16 +36,27 @@ export async function installedNodeOfMajor(version, environment = process.env) {
 
 const answerPath = (root, workId) => path.join(gitCommonDir(root), 'singularity-flow', 'test-node-runs', `${String(workId).replace(/[^A-Za-z0-9._-]+/gu, '_')}.json`);
 
-/** Keep what `tests node` found. It is a fact for a person, never evidence. */
+/**
+ * Keep what `tests node` found. It is a fact for a person, never evidence. The latest answer for each other Node tried on
+ * the same code stays beside it (`earlier`), so SFlow's own check of several Nodes never runs one twice on that code.
+ */
 export async function keepNodeTry(root, workId, answer) {
   const file = answerPath(root, workId);
+  const before = await readFile(file, 'utf8').then(JSON.parse, () => null);
+  const sameCode = (entry) => entry && entry.version !== answer.version && Array.isArray(entry.results)
+    && (answer.state ? entry.state === answer.state : entry.head === answer.head);
+  const earlier = [before, ...(Array.isArray(before?.earlier) ? before.earlier : [])].filter(sameCode)
+    .map(({ earlier: _earlier, ...entry }) => entry).filter((entry, index, all) => all.findIndex((other) => other.version === entry.version) === index).slice(0, 4);
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(answer, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(file, `${JSON.stringify({ ...answer, ...(earlier.length ? { earlier } : {}) }, null, 2)}\n`, { mode: 0o600 });
 }
 
-const nodeTry = async (root, workId) => {
+/** The latest `tests node` answer, or with `version` the latest for that Node (kept beside a later one on the same code). */
+const nodeTry = async (root, workId, version = null) => {
   const answer = await readFile(answerPath(root, workId), 'utf8').then(JSON.parse, () => null);
-  return Array.isArray(answer?.results) ? answer : null;
+  if (!Array.isArray(answer?.results)) return null;
+  if (version === null || answer.version === version) return answer;
+  return (Array.isArray(answer.earlier) ? answer.earlier : []).find((entry) => entry?.version === version && Array.isArray(entry.results)) ?? null;
 };
 
 /**
@@ -67,7 +78,7 @@ export async function nodeProbeState(root, config, workflow) {
  * same commit; `known` that it ran to the end, so it says whether the tests pass.
  */
 export async function nodeTryWords(root, workId, version, { head = null, state = null } = {}) {
-  const answer = await nodeTry(root, workId);
+  const answer = await nodeTry(root, workId, version);
   if (answer?.version !== version) return null;
   const counts = answer.results.map((entry) => (entry.tests ? `${entry.tests.passed} of ${entry.tests.discovered} passed` : entry.status)).join(', ');
   const passed = answer.results.length > 0 && answer.results.every((entry) => entry.status === 'passed');
@@ -109,11 +120,43 @@ export async function nodePinOffer(root, commands, { attempts = [], environment 
   if (!failed || !runtimeCause(failed.cause)) return null;
   const { installedNodeVersions } = await import('./project-node-version.mjs');
   const running = await nodeVersion('node', { cwd: root, environment }).catch(() => null);
-  const other = (await installedNodeVersions(environment).catch(() => [])).find((version) => version.split('.')[0] !== String(running ?? '').split('.')[0]);
+  // Each other installed major, newest first: SFlow runs the tests on them in turn and pins the first they pass on
+  // (node-version-settle.mjs) [owner, 2026-11-19].
+  const others = (await installedNodeVersions(environment).catch(() => [])).filter((version) => version.split('.')[0] !== String(running ?? '').split('.')[0])
+    .filter((version, index, all) => all.findIndex((entry) => entry.split('.')[0] === version.split('.')[0]) === index);
+  const [other] = others;
   if (!other) return null;
-  return { file: NODE_PIN_FILE, version: other.split('.')[0], node: other, running, stage: 'failed', commandId: failed.commandId,
+  return { file: NODE_PIN_FILE, version: other.split('.')[0], node: other, running, stage: 'failed', commandId: failed.commandId, candidates: others,
     cause: `The tests stopped because ${running ? `Node ${running} here` : 'the Node here'} is not the version they need; Node ${other} is installed`,
     words: `The latest run of ${failed.commandId} stopped because the toolchain here is not the version the build needs${running ? `: this machine runs Node ${running}` : ''}.` };
+}
+
+/**
+ * Whether SFlow answers this pin itself before the tests run (node-version-settle.mjs), never a person's action: the
+ * evidence names it, or there are installed Nodes to try and nothing says they fail [owner, 2026-11-19]. Once a check on
+ * this code found the tests fail on the Node offered, or a person undid the settlement, it is the person's choice.
+ */
+export async function sflowSettlesNodePin(root, workflow, phase, pin) {
+  if (!pin) return false;
+  const { nodeVersionSubject, settleableNodePin, settlementState } = await import('./settled-decisions.mjs');
+  if (settleableNodePin(workflow, phase, pin)) return true;
+  if (!pin.candidates?.length || settlementState(workflow, 'node-version', nodeVersionSubject(phase, pin)) === 'undone') return false;
+  // SFlow's check runs the newest first: a failure on it, on this code, means none it tried passed.
+  const { head } = await import('./git.mjs');
+  const tried = pin.tried ?? await nodeTryWords(root, workflow.workItem.id, pin.version, { head: head(root) }).catch(() => null);
+  return !(tried?.current && tried.known && !tried.passed);
+}
+
+/**
+ * What a gate refusal says when SFlow tries other installed Nodes before the next run (node-version-settle.mjs) [owner,
+ * 2026-11-19], or null: none to try, or SFlow already checked the newest on this code (then a person chooses, never a loop).
+ */
+export async function nodeChecksBeforeRun(root, workflow, pin) {
+  if (!pin?.candidates?.length || pin.replaces) return null;
+  const { head } = await import('./git.mjs');
+  if ((await nodeTryWords(root, workflow.workItem.id, pin.version, { head: head(root) }).catch(() => null))?.current) return null;
+  return `Before the next run SFlow runs them on the other installed Node${pin.candidates.length > 1 ? 's, newest first,' : ` ${pin.node}`} and pins one they pass on in `
+    + `${pin.file}, settled with an undo on the decisions card: run the same gate again.`;
 }
 
 /** Another major version installed here, for a Node runner's failed run; null when there is none or the repository already pins one. */

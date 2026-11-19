@@ -14,13 +14,17 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
       'ede8edc40a1344342e8668202f33fd0beee614cf30064154f2b6c2c681ffab63',
       '07788c17b175c7cd6abe11d719022fa041c28f28227d3e01664c3aee3c61ae8a',
       // Before broader return routes (2026-10-12).
-      'f69c7d96643df7084e58aa5eb6692a703be004d21d31d06942dbb9a6962a25d3'
+      'f69c7d96643df7084e58aa5eb6692a703be004d21d31d06942dbb9a6962a25d3',
+      // Before approve twice: steps other than the plan and those that may change source files approved automatically when ready (2026-11-19).
+      '7a7103892a8196fc57254ab39442e2b090492bf9bbeaa01e16873d1c00e151d3'
     ]),
     bugfix: Object.freeze([
       '3ac82069488a0728421c7c86d9a47b29b13bed568be47a8c67fab7c75a0287c3',
       'c1f0c3bf9e28757f0a60dea93412dd258890d73b82802227a825ada21bce4ef4',
       // Before broader return routes (2026-10-12).
-      '39ac9d457a906eeeae595d44fa379b709c4ecb77f2992b30d54b327c1312fc24'
+      '39ac9d457a906eeeae595d44fa379b709c4ecb77f2992b30d54b327c1312fc24',
+      // Before approve twice: steps other than the plan and those that may change source files approved automatically when ready (2026-11-19).
+      '3e763732474cf68c7d25b0f889f87f8f901004265f9b06b5dd116b2540d4da5f'
     ]),
     chore: Object.freeze([
       '327de2a67c41d50bccc308a5925c2025f19efb170e1a4f1aa20cec5df9f63c67',
@@ -28,7 +32,9 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
       // Before the chore intake became its scope-and-plan checkpoint.
       'bbb46f247a676e737505f28c6b06638dddbf47108d324ea6c4b15d97632aa9ba',
       // Before broader return routes (2026-10-12).
-      '7d55217aa976c51a702616daeccd8829ca91778839985ae8c4dabc3336645597'
+      '7d55217aa976c51a702616daeccd8829ca91778839985ae8c4dabc3336645597',
+      // Before approve twice: steps other than the plan and those that may change source files approved automatically when ready (2026-11-19).
+      '749198a9f0d3678e05476ef857fecfc1886fba47d2ceb9e037927e5752f67120'
     ]),
     // Before quick-fix gained its scope-and-plan intake and POC Lite replaced its planned-claim
     // opt-out with a declared scope omission.
@@ -37,13 +43,17 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'figma-mobile': Object.freeze([
       'd165709b28aa97f2a2d4416d19cf7cdde14bb9fa0f1632b30733ff4e2c266e52',
       // Before broader return routes (2026-10-12).
-      '145c68b32584aea0b8b6332db9558c5f06b3cb85e346d737a57c8b7e5f07c6ee'
+      '145c68b32584aea0b8b6332db9558c5f06b3cb85e346d737a57c8b7e5f07c6ee',
+      // Before approve twice: steps other than the plan and those that may change source files approved automatically when ready (2026-11-19).
+      '183fab75a69bc986f9c1a3f9a8aa55884396366f22ca4d367f66e9d933feec63'
     ]),
     // Modern v2 predecessor immediately before the guarded REV pilot was added.
     'classic-delivery': Object.freeze([
       '8334062f0d4d0e5295d3ba1e3ccc64bef8901d3cdbccdb2ab880cd33fed20111',
       // Before broader return routes (2026-10-12).
-      '98cc169510f82d9e046df5471975cf354b7afb7d1acacd0ef0c91b5c51d4f039'
+      '98cc169510f82d9e046df5471975cf354b7afb7d1acacd0ef0c91b5c51d4f039',
+      // Before approve twice: steps other than the plan and those that may change source files approved automatically when ready (2026-11-19).
+      'fc15e98913f4c0cbe6941b0005bd397c36812308d53ffd9cf3e0c04ec9a9ee6f'
     ]),
     // Previous spec-driven starter preserved only three specification headings in downstream
     // briefs and left implementation clause coverage advisory. The second revision took no
@@ -52,13 +62,17 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
       '3f354e9fe3bf1de8bf2c5c2c1e4e135e9bf5ecbc13d34b2e8514000f784d03ce',
       'cf9cda3f0927f3b32fbfd585e5c2c7bedd9f6e7d0821bfbe7a0bf6d0e46d2461',
       // Before broader return routes (2026-10-12).
-      '6528062cd8e1ce663f60ebf361720562f778a03bc808e52158de07bb6cabeacf'
+      '6528062cd8e1ce663f60ebf361720562f778a03bc808e52158de07bb6cabeacf',
+      // Before approve twice: steps other than the plan and those that may change source files approved automatically when ready (2026-11-19).
+      'c4006042d4bc9388096e5a71da3d1831ab4ef2cbbf123a6fd0612300549ff30e'
     ]),
     // Took no supporting documents after Story start.
     'reference-driven-build': Object.freeze([
       'ee3b8742aaadf5fcc04735833a3db98431b34fd11231d3caa50279e8eb3eed74',
       // Before broader return routes (2026-10-12).
-      'a577515ed38c8f6d12c82890cc7076ac3ddf06d22370028d3e52c3f911acbc71'
+      'a577515ed38c8f6d12c82890cc7076ac3ddf06d22370028d3e52c3f911acbc71',
+      // Before approve twice: steps other than the plan and those that may change source files approved automatically when ready (2026-11-19).
+      'b786e7026caae3a2a41130bd55b97f656de6e3c0c0a2e3390963532f996f9b62'
     ]),
     // Before its phase overrides stopped naming (empty) World Model views.
     'benchmarking-b': Object.freeze([
@@ -69,7 +83,11 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     // Before broader return routes (2026-10-12).
     'benchmarking-a': Object.freeze(['0a18e2ce95010eee32b209c98e1e9ab9d3a9993e78ca10f23938b2d3fe3d13cd']),
     // Before its description said its validation gates run TypeScript Playwright through npm.
-    'poc-workflow': Object.freeze(['dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75'])
+    'poc-workflow': Object.freeze(['dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75']),
+    // Before approve twice (2026-11-19).
+    'findings-remediation': Object.freeze(['34e975e5c19105aba55707169ec1cc8ab75d9db7601d9d062741a81b458c0499']),
+    // Before approve twice (2026-11-19).
+    'spec-code-test-loop': Object.freeze(['f6a911e589320f8fd63b4933c61b2656068c9757d55267e60f2e47c6e5259e3b'])
   }),
   phases: Object.freeze({
     testing: Object.freeze([
@@ -265,21 +283,21 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
     'benchmarking-a': '683792ad3e475d6150b924c42fef6a78c8df657b331fd6dde45417db2797491a',
     'benchmarking-b': '96868ea267f0f37892d70bca6b527dfbf378b7892c9abdb062e2375b0acb104d',
-    bugfix: '3e763732474cf68c7d25b0f889f87f8f901004265f9b06b5dd116b2540d4da5f',
-    chore: '749198a9f0d3678e05476ef857fecfc1886fba47d2ceb9e037927e5752f67120',
-    'classic-delivery': 'fc15e98913f4c0cbe6941b0005bd397c36812308d53ffd9cf3e0c04ec9a9ee6f',
+    bugfix: '4102c9f0f0574eba7aeb2e0c9bf6cc4fd30169525ad3ce3c1c64fc65693f789b',
+    chore: '45d990b4cae0c7d18465d11d82369a2f0e89f38b8e91bca4e496dd1a189e120b',
+    'classic-delivery': '0b245f5b482f1baaf8507cdec69ecbf97734adf2e2d0c61d6fac3c2b6317057f',
     'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
     'demo-web-e2e-testing': '6161336401af54bd15e26c17cee6e45f43cadff36a424e051d0fbf285fb4af9a',
     'demo-check-repair-close': '8b7a856aa801154f306e6a42375fe65d00f6977bac9129d98f202b6ba01ce8f9',
-    feature: '7a7103892a8196fc57254ab39442e2b090492bf9bbeaa01e16873d1c00e151d3',
-    'figma-mobile': '183fab75a69bc986f9c1a3f9a8aa55884396366f22ca4d367f66e9d933feec63',
+    feature: '4d7a236a08e4489a2c5ec695c48ee8869237cfac75bd0c9126d2845557ff260a',
+    'figma-mobile': '4bf49f8560fc79d59bc91ce46fd209a64723a9d4cc35ee649364b84c189a8772',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
     'poc-workflow': '2d703ea2ba9712a859cb29a4f26346d9e23071ca6445fcca6ec821bb5cd1ef3b',
     'quick-fix': '01398a0d4124462b07ee451bd27ee9b1b4af94046df803a31170f2efbf87d0e6',
-    'reference-driven-build': 'b786e7026caae3a2a41130bd55b97f656de6e3c0c0a2e3390963532f996f9b62',
-    'spec-code-test-loop': 'f6a911e589320f8fd63b4933c61b2656068c9757d55267e60f2e47c6e5259e3b',
-    'spec-driven-standard': 'c4006042d4bc9388096e5a71da3d1831ab4ef2cbbf123a6fd0612300549ff30e',
-    'findings-remediation': '34e975e5c19105aba55707169ec1cc8ab75d9db7601d9d062741a81b458c0499'
+    'reference-driven-build': '459ae3ff12dbb941ca7e603b2bdac2fb062868717ca364ea4c6dcebc3c6f7f4b',
+    'spec-code-test-loop': '82064c8180434a842b252dcc1dd447ce1c9bf82d0e2a9926a49afee18abda6eb',
+    'spec-driven-standard': '46ffc1360346b4e65bea9f074fa08f6f904fd93b67fa15948b4405619887c3ba',
+    'findings-remediation': '452621b65a60839a2eb8933f632d9fc7f2d5a6a491e17f6e93c5ec86208b39a0'
   }),
   phases: Object.freeze({
     'test-run': '7fecbf9f931ba41decfe666646cce84428b715e2964bb191ceff08a87151f845',

@@ -96,7 +96,7 @@ test('in a person\'s own terminal, choices typed with the approval need no diges
   // The list's digest is derived by the approval itself and bound to what it shows [no hashes shown].
   const typed = await typedInTerminal({ argv: [process.execPath, '--experimental-test-module-mocks', '--no-warnings', ENDING_STEP_CLI, '--no-model',
     'approve', 'planning', '--work-id', WORK, '--choose', `${issue.id}=dismiss`], cwd: path.resolve(item, '../../..'),
-  env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'History Tester' }, prompt: 'Type planning to approve', answer: 'planning' });
+  env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'History Tester' }, prompt: 'Approve Planning v1? [y/N]', answer: 'y' });
   assert.equal(typed.status, 0, typed.output);
   assert.match(typed.output, /Recorded with this approval, in the same commit:/u);
   assert.doesNotMatch(typed.output, /sha256:[0-9a-f]|[0-9a-f]{40}/u, 'the person reads the choices, never the list\'s digest');

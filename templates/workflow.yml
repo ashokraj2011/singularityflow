@@ -486,11 +486,14 @@ workTypes:
       design: feature/design.md
       implementation-spec: feature/implementation-spec.md
     # Every reviewed step may return the Story to any earlier step or to itself.
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
-      requirements: { inputs: [intake] }
+      intake: { approval: { automatic: when-ready } }
+      requirements: { inputs: [intake], approval: { automatic: when-ready } }
       design:
         inputs: [requirements]
-        approval: { rejectTo: [intake, requirements, design] }
+        approval: { automatic: when-ready, rejectTo: [intake, requirements, design] }
       implementation-spec: { inputs: [requirements, design] }
       implementation:
         inputs: [design, implementation-spec]
@@ -500,7 +503,7 @@ workTypes:
         approval: { rejectTo: [intake, requirements, design, implementation-spec, implementation, verification] }
       conformance:
         inputs: [implementation-spec, implementation, verification]
-        approval: { rejectTo: [intake, requirements, design, implementation-spec, implementation, verification, conformance] }
+        approval: { automatic: when-ready, rejectTo: [intake, requirements, design, implementation-spec, implementation, verification, conformance] }
   bugfix:
     label: Bug fix
     phases: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance]
@@ -514,9 +517,12 @@ workTypes:
       fix-design: bugfix/fix-design.md
       fix-spec: bugfix/fix-spec.md
     # Every reviewed step may return the Story to any earlier step or to itself.
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
-      reproduction: { inputs: [intake] }
-      fix-design: { inputs: [reproduction] }
+      intake: { approval: { automatic: when-ready } }
+      reproduction: { inputs: [intake], approval: { automatic: when-ready } }
+      fix-design: { inputs: [reproduction], approval: { automatic: when-ready } }
       fix-spec: { inputs: [reproduction, fix-design] }
       implementation:
         inputs: [fix-spec]
@@ -526,12 +532,14 @@ workTypes:
         approval: { rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification] }
       conformance:
         inputs: [fix-spec, implementation, verification]
-        approval: { rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance] }
+        approval: { automatic: when-ready, rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance] }
   chore:
     label: Chore
     phases: [intake, implementation, verification, conformance]
     templateOverrides:
       intake: chore/intake.md
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
       # The intake is the scope-and-plan checkpoint: maintenance outcomes and the supporting files
       # that deliver them, signed off before anything changes.
@@ -547,7 +555,7 @@ workTypes:
         approval: { rejectTo: [intake, implementation, verification] }
       conformance:
         inputs: [implementation, verification]
-        approval: { rejectTo: [intake, implementation, verification, conformance] }
+        approval: { automatic: when-ready, rejectTo: [intake, implementation, verification, conformance] }
   # Security findings and TLM items from the findings register, as a Story of their own [CQF:REQ-067].
   # `singularity-flow findings start` opens one for a group; each picked item is a clause with its proof.
   findings-remediation:
@@ -559,7 +567,10 @@ workTypes:
       mode: required
       clausePhases: [findings-intake]
       owners: { implementation: remediation-plan }
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
+      findings-intake: { approval: { automatic: when-ready } }
       remediation-plan: { inputs: [findings-intake] }
       implementation:
         inputs: [findings-intake, remediation-plan]
@@ -569,7 +580,7 @@ workTypes:
         approval: { rejectTo: [findings-intake, remediation-plan, implementation, verification] }
       conformance:
         inputs: [remediation-plan, implementation, verification]
-        approval: { rejectTo: [findings-intake, remediation-plan, implementation, verification, conformance] }
+        approval: { automatic: when-ready, rejectTo: [findings-intake, remediation-plan, implementation, verification, conformance] }
   figma-mobile:
     label: Figma export to mobile app
     phases: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance]
@@ -604,9 +615,11 @@ workTypes:
       implementation: figma-mobile/implementation.md
       visual-verification: figma-mobile/visual-verification.md
       conformance: figma-mobile/conformance.md
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
-      design-inventory: { inputs: [design-intake] }
-      component-mapping: { inputs: [design-inventory] }
+      design-inventory: { inputs: [design-intake], approval: { automatic: when-ready } }
+      component-mapping: { inputs: [design-inventory], approval: { automatic: when-ready } }
       mobile-spec: { inputs: [design-inventory, component-mapping] }
       implementation:
         inputs: [component-mapping, mobile-spec]
@@ -614,7 +627,7 @@ workTypes:
       visual-verification: { inputs: [design-inventory, mobile-spec, implementation] }
       conformance:
         inputs: [mobile-spec, implementation, visual-verification]
-        approval: { authorities: [design-reviewers, architecture-reviewers, quality-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance] }
+        approval: { automatic: when-ready, authorities: [design-reviewers, architecture-reviewers, quality-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance] }
     sequenceGates:
       documentPhase: hard
   quick-fix:
@@ -685,6 +698,8 @@ workTypes:
       intake: classic-delivery/intake.md
       testing: classic-delivery/testing.md
       conformance: classic-delivery/code-checking.md
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
       intake:
         artifact: { kind: requirements }
@@ -698,12 +713,12 @@ workTypes:
         inputs: [intake, implementation]
         writeScope: artifact-only
         testEvidenceFrom: implementation
-        approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [intake, implementation, testing] }
+        approval: { automatic: when-ready, authorities: [quality-reviewers], minimum: 1, rejectTo: [intake, implementation, testing] }
       conformance:
         label: Code checking
         inputs: [intake, implementation, testing]
         testEvidenceFrom: implementation
-        approval: { authorities: [quality-reviewers, engineering-reviewers], minimum: 1, rejectTo: [intake, implementation, testing, conformance] }
+        approval: { automatic: when-ready, authorities: [quality-reviewers, engineering-reviewers], minimum: 1, rejectTo: [intake, implementation, testing, conformance] }
 
   spec-code-test-loop:
     label: Spec → code → Playwright review
@@ -722,6 +737,8 @@ workTypes:
       specification: spec-code-test-loop/specification.md
       testing: spec-code-test-loop/testing.md
       conformance: spec-code-test-loop/conformance.md
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
       implementation:
         label: Code
@@ -751,7 +768,7 @@ workTypes:
         artifact:
           validation: { requiredHeadings: [Exact generation bindings, Clause-by-clause comparison, Unplanned changes and evidence gaps, Correction and final decision] }
         testEvidenceFrom: implementation
-        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [specification, implementation, testing, conformance] }
+        approval: { automatic: when-ready, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [specification, implementation, testing, conformance] }
 
   document-test-repair:
     label: Document-led acceptance & repair
@@ -1059,7 +1076,10 @@ workTypes:
       convergence: spec-driven/convergence.md
     # Every reviewed step may return the Story to any earlier step or to itself; the shared
     # planning, convergence and release steps already declare these returns.
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
+      specification: { approval: { automatic: when-ready } }
       planning: { inputs: [specification] }
       implementation:
         inputs: [specification, planning]
@@ -1068,7 +1088,7 @@ workTypes:
       verification:
         inputs: [specification, planning, implementation]
         approval: { rejectTo: [specification, planning, implementation, convergence, verification] }
-      release: { inputs: [verification] }
+      release: { inputs: [verification], approval: { automatic: when-ready } }
 
   spec-driven-standard:
     label: Spec-Driven Standard
@@ -1116,7 +1136,10 @@ workTypes:
     # are projected into approval-bound agent briefs. Exact wording remains available through the
     # source artifact's hash-bound sfref handle; older pinned work items retain their full inputs.
     # Every reviewed step may return the Story to any earlier step or to itself.
+    # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
+    # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
+      specification: { approval: { automatic: when-ready } }
       planning:
         inputs:
           - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
@@ -1140,6 +1163,7 @@ workTypes:
         inputs:
           - { phase: convergence }
           - { phase: verification, projection: approved-summary, preserve: [Acceptance and specification results, "Negative, regression, security, and non-functional checks"], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
+        approval: { automatic: when-ready }
 phases:
   intake:
     label: Intake
@@ -1781,7 +1805,7 @@ phases:
     label: Convergence
     defaultTemplate: spec-driven/convergence.md
     # The convergence-report kind is what makes a step convergence, whatever it is called: the
-    # engine generates it, and only explicit human advancement and approval pass it [E2G-001].
+    # engine generates it, and only a person's approval advances it [SPK:REQ-032]; recognised by its kind [E2G-001].
     artifact: { path: artifacts/convergence/convergence.md, kind: convergence-report, minimumBytes: 200 }
     generation: { requirement: required, producer: deterministic, task: analyze }
     writeScope: artifact-only

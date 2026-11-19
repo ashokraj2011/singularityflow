@@ -825,7 +825,7 @@ export async function finalizeStoryDelivery(root, config, workflow, { persist = 
   // approval timestamp so repeating finalization over the same source and phase
   // evidence does not mint a different hash merely because wall-clock time moved.
   const completedAt = [...(workflow.history ?? [])].reverse()
-    .find((entry) => ['phase_approved', 'phase_self_approved'].includes(entry.event))?.at
+    .find((entry) => ['phase_approved', 'phase_self_approved', 'phase-approved-automatically'].includes(entry.event))?.at
     ?? workflow.workItem.createdAt;
   const base = {
     schemaVersion: currentSchemaVersion('story-finalization-packet'),

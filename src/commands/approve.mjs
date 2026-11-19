@@ -100,7 +100,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   // left out, as for an agent. Questions asked in a person's own terminal stay as they are.
   const quiet = forAgent || optionBoolean(options, 'json');
   if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
-    throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
+    throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the person\'s Yes.');
   }
   const { root, config, workflow, phase, session, receipt, receiptToken, requestedPhase } = await decisionWorkflow(positionals, options, 'approve');
   const selfApproval = sameApprover(phase.generatedBy ?? {}, session.actor);
@@ -153,7 +153,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
     const { approvalDecisionFlags, prepareApprovalDecisions } = await import('../approval-decisions.mjs');
     const flags = await approvalDecisionFlags(options);
     // Choices typed with the approval in a person's own terminal: bound to the list this process reads, shown below
-    // and confirmed by the typed phase, as the interactive prompt is, so a person never copies a digest [no hashes shown].
+    // and confirmed by the person's Yes, as the interactive prompt is, so a person never copies a digest [no hashes shown].
     const packet = !flags.digest && asking && !forAgent && processInput.isTTY && processOutput.isTTY
       ? await (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId: phase.id }) : null;
     confirmDecisions = Boolean(packet);
@@ -166,10 +166,10 @@ export async function approveCommand(positionals, options, dependencies = {}) {
     for (const line of decisions.summary) console.log(`  ${line}`);
   }
   try {
-    // Decisions answered after the command was typed are confirmed by the typed phase, like the review.
+    // Decisions answered after the command was typed are confirmed by the person's Yes, like the review.
     if (asking && (!confirmedByCommand || prompt || confirmDecisions)) {
       const typed = prompt
-        ? (await prompt.ask(`Type ${phase.id} to approve ${phase.label} and record these decisions: `))?.trim() === phase.id
+        ? /^(?:y|yes)$/iu.test((await prompt.ask(`Approve ${phase.label ?? phase.id} v${phase.generation} and record these decisions? [y/N] `))?.trim() ?? '')
         : await confirm(phase);
       if (!typed) throw new SingularityFlowError('Approval cancelled.');
     }
@@ -238,6 +238,8 @@ export async function approveCommand(positionals, options, dependencies = {}) {
       return approvePhase(root, config, aggregate, {
       phaseId: phase.id,
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
+      // How the person's Yes was bound, so an audit can tell each approval's apart (owner, 2026-11-19).
+      confirmedBy: receipt ? (forAgent ? 'bound-yes' : 'approval-page') : optionBoolean(options, 'yes') ? 'terminal-yes-flag' : 'terminal',
       actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
       checklist,
       witnessMappings,
@@ -311,6 +313,11 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);
   if (completion && !quiet) printCompletionVerdict(completion);
+  // SFlow never merges (owner, 2026-11-19): after a person's Yes to the delivered code, finalizing and opening the pull
+  // request follow once the remaining steps pass; merging stays the person's click on the Git host (story-landing.mjs).
+  const landing = completion ? (await postPublicationStep('finalizing and the pull request', workflow.workItem.id,
+    async () => (await import('../story-landing.mjs')).landAfterLastApproval(root, workflow.workItem.id))).value : null;
+  if (landing && !quiet) for (const line of landing.lines) console.log(line);
   emitCommandResult(commandResult({
     operation: { id: 'approve', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -329,6 +336,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
         label: presenceModule.personRecordLabel(workflow, result.approval) } } : {}),
       ...(result.decisions ? { decisions: result.decisions } : {}),
       artifactSetSha256: result.approval.artifactSetSha256,
+      ...(landing ? { landing: { finalized: landing.finalized, pullRequest: landing.pullRequest, next: landing.next } } : {}),
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
   }), { postState: workflow, json: optionBoolean(options, 'json'), forAgent,
@@ -351,7 +359,7 @@ async function withApprovalDecisions(aggregate, decisions, approve) {
 
 /**
  * In an interactive terminal, the decision list's items this approver can answer in the approval,
- * asked before the typed phase. Nothing is asked when there are none.
+ * asked before the approval question. Nothing is asked when there are none.
  */
 async function askApprovalDecisions(root, config, workflow, phase, who) {
   const [{ readPendingList }, { approvalDecisionItems, prepareApprovalDecisions }, { promptDecisionAnswers }] = await Promise.all([

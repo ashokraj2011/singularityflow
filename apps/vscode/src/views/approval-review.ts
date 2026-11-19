@@ -3,8 +3,9 @@
  *
  * When a pinned policy requires Specification-quality articles, the extension renders the exact
  * checklist carried by the review bundle, leaves every decision empty, and requires reasons for
- * exceptions and not-applicable decisions. The starter policy has no such articles. Every approval
- * still requires the phase confirmation to be typed; nothing is inferred or preselected.
+ * exceptions and not-applicable decisions. The starter policy has no such articles. One screen asks one question,
+ * "Approve <Step> v<N>?", answered by the person's own choice of "Approve <Step> v<N>", bound to the version shown
+ * (owner, 2026-11-19); nobody types the step's ID, and nothing is inferred or preselected.
  */
 import * as vscode from 'vscode';
 
@@ -109,6 +110,37 @@ export interface ApprovalReviewRequest {
    * (`approvals --json`). Advisory: a label never refuses; the approval gate verifies signatures.
    */
   sfGuard?: { summary: string | null; labels: string[]; approvals: ApprovalStanding[] } | null;
+  /**
+   * Approve twice: the steps SFlow approved when they were ready since the last person approval, which this approval
+   * also covers (the decision list's approval item `details.covers`): each version, its documents and what was checked.
+   */
+  covers?: Array<{ label: string; generation: number; documents: string[]; words: string }> | null;
+}
+
+/** "Approve Requirements v1", the one choice that approves; the question is the same words with a question mark. */
+export function approvalChoice(request: Pick<ApprovalReviewRequest, 'phaseLabel' | 'generation'>): string {
+  return `Approve ${request.phaseLabel} v${Number(request.generation) || 0}`;
+}
+
+/** The covered steps the decision list's approval item names (`details.covers`), or null when there are none. */
+export function coversOf(listed: unknown): ApprovalReviewRequest['covers'] {
+  const items = (listed as { items?: Array<{ kind?: string; details?: { covers?: unknown } }> } | null)?.items;
+  const covers = Array.isArray(items) ? items.find((item) => item?.kind === 'approval')?.details?.covers : null;
+  if (!Array.isArray(covers) || !covers.length) return null;
+  return covers.filter((entry) => entry && typeof entry.label === 'string').map((entry) => ({ label: entry.label, generation: Number(entry.generation) || 0,
+    documents: Array.isArray(entry.documents) ? entry.documents.filter((file: unknown): file is string => typeof file === 'string') : [],
+    words: typeof entry.words === 'string' ? entry.words : 'approved automatically' }));
+}
+
+/** What this approval also covers: the steps SFlow approved since the last person approval, by version and documents. */
+export function approvalCoversHtml(covers: ApprovalReviewRequest['covers']): string {
+  if (!covers?.length) return '';
+  return `<section class="approval-covers" aria-label="Also covered by this approval">
+    <h2>Also covered by this approval</h2>
+    <p class="muted">SFlow approved these steps when their reviewer said ready and nothing was open. Your Yes covers them too; send one back if it is wrong.</p>
+    <ul>${covers.map((entry) => `<li><strong>${escape(entry.label)} v${Number(entry.generation) || 0}</strong> · ${escape(entry.words)}${entry.documents.length
+      ? `<br>${entry.documents.map((file) => `<code>${escape(file)}</code>`).join(' ')}` : ''}</li>`).join('')}</ul>
+  </section>`;
 }
 
 /** The packet's labels and this step's decisions under SF Guard, before the person approves. */
@@ -274,10 +306,10 @@ export function validateApprovalReviewSubmission(
       errors.push(`Choose a decision for ${mapping.clauseId} → ${mapping.sourcePath}.`);
     }
   }
-  // The typed phase is the one deliberate act; a self-approval is stated, as the CLI and Copilot do,
-  // and recorded as self-approval by the engine. A second tick the engine never read added nothing.
+  // The person's choice of "Approve <Step> v<N>" is the one deliberate act; a self-approval is stated, as the CLI and
+  // Copilot do, and recorded as self-approval by the engine. A second tick the engine never read added nothing.
   const answered = inApprovalDecisions(request, raw, errors);
-  if (confirmation !== request.expected) errors.push(`Type exactly '${request.expected}' to approve.`);
+  if (confirmation !== request.expected) errors.push(`Choose ${approvalChoice(request)} to approve it.`);
   return {
     value: errors.length ? null : { confirmation, decisions, witnessDecisions, ...(answered.length ? { inApprovalDecisions: answered } : {}) },
     errors
@@ -463,24 +495,23 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
   </section>` : '';
   return `<form class="approval-form" data-expected="${escape(request.expected)}">
     <div class="approval-review-content" tabindex="0" aria-label="Approval review details"><header>
-      <h1>${escape(request.title)}</h1>
-      <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
+      <h1>${escape(approvalChoice(request))}?</h1>
+      <p class="meta">${escape(request.title)}. Review this version and answer any decision below, then choose ${escape(approvalChoice(request))}. Nothing is approved until you do.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
+    ${approvalCoversHtml(request.covers)}
     ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${carried}${tests}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">
-        <h2>Confirm your decision</h2>
-        <label for="approval-confirm">Type <code>${escape(request.expected)}</code></label>
-        <input id="approval-confirm" data-confirmation autocomplete="off" spellcheck="false">
-        <p class="muted">This value is never filled in or remembered.</p>
+        <h2>${escape(approvalChoice(request))}?</h2>
+        <p class="muted">${escape(approvalChoice(request))} records your approval of this exact version, with your answers above. Nothing is chosen for you.</p>
       </section>
       <div class="approval-errors" role="alert">${errors.map((error) => `<p>${escape(error)}</p>`).join('')}</div>
     </div>
       <div class="form-actions">
         <p class="approval-progress muted" data-progress aria-live="polite"></p>
-        <button type="submit" disabled>Record approval</button>
-        <button type="button" class="secondary" data-cancel>Cancel</button>
+        <button type="submit" disabled>${escape(approvalChoice(request))}</button>
+        <button type="button" class="secondary" data-cancel>Not now</button>
       </div>
     </form>`;
 }
@@ -533,8 +564,8 @@ export const REVIEW_SCRIPT = `
   const decisionRows = Array.from(form.querySelectorAll('.approval-decision'));
   const progress = form.querySelector('[data-progress]');
   const api = window.__sfVscode;
-  // Decisions survive a hidden tab or a host-side error re-render. The typed confirmation is never
-  // remembered: it is made fresh, every time.
+  // Decisions survive a hidden tab or a host-side error re-render. The Yes is never remembered: it is
+  // chosen fresh, every time.
   function facets(row) {
     return Array.from(row.querySelectorAll('[data-facet]')).filter((box) => box.checked).map((box) => box.dataset.facet);
   }
@@ -612,8 +643,7 @@ export const REVIEW_SCRIPT = `
     const complete = [...decisions(), ...witnessDecisions()].every((entry) => entry.decision
       && (entry.decision === 'satisfied' || entry.reason)
       && (entry.decision !== 'exception' || !('expiresAt' in entry) || (entry.expiresAt && entry.inadequate.length)));
-    const confirmed = form.querySelector('[data-confirmation]').value === form.dataset.expected;
-    return complete && confirmed;
+    return complete;
   }
   function sync(event) {
     for (const row of rows) {
@@ -657,8 +687,7 @@ export const REVIEW_SCRIPT = `
     if (reasons) missing.push(count(reasons, 'reason', 'reasons'));
     if (expiries) missing.push(count(expiries, 'expiry date', 'expiry dates'));
     if (shortfalls) missing.push(count(shortfalls, 'choice of what falls short', 'choices of what falls short'));
-    if (form.querySelector('[data-confirmation]').value !== form.dataset.expected) missing.push('the typed confirmation');
-    const text = missing.length ? 'Still needed: ' + missing.join(', ') + '.' : 'Ready to record.';
+    const text = missing.length ? 'Still needed: ' + missing.join(', ') + '.' : 'Ready when you are.';
     if (progress && progress.textContent !== text) progress.textContent = text;
   }
   form.addEventListener('input', sync);
@@ -674,12 +703,12 @@ export const REVIEW_SCRIPT = `
     event.preventDefault();
     sync();
     if (!valid()) {
-      error.textContent = 'Complete every decision, required reason, and the exact confirmation.';
+      error.textContent = 'Complete every decision and required reason first.';
       return;
     }
     window.__sfVscode.postMessage({
       type: 'approval.submit',
-      confirmation: form.querySelector('[data-confirmation]').value,
+      confirmation: form.dataset.expected,
       decisions: decisions(),
       witnessDecisions: witnessDecisions(),
       inApprovalDecisions: inApprovalDecisions()

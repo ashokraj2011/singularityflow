@@ -1093,10 +1093,11 @@ test('approval skill reuses only an exact complete review and accepts a human ph
   assert.match(content, /argument-hint: "\[PHASE-ID\] \[--work-id WORK-ID\]/);
   assert.match(content, /Positional argument selects \*\*PHASE-ID\*\*, never Work ID/);
   assert.match(content, /choices begin approve <WORK-ID> --fetch --for-agent --json/);
-  assert.match(content, /phase-confirmation <TYPED-PHASE>/);
+  // One question with a Yes replaces the typed step ID (owner, 2026-11-19).
+  assert.match(content, /phase-confirmation <PHASE-ID>/);
   assert.match(content, /match `approvalPacket\.review`, receipt, `reviewBinding`, artifacts and briefs to `approvalContext`/);
   assert.match(content, /Read once/);
-  assert.match(content, /approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
+  assert.match(content, /approve <PHASE-ID> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
   assert.match(content, /Never add `--yes`/);
   assert.match(content, /receipt is consumed once/i);
   assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('`approvalPacket.review`'));
@@ -1104,9 +1105,9 @@ test('approval skill reuses only an exact complete review and accepts a human ph
   assert.match(content, /exactly matching non-null `displayBinding`/);
   assert.match(content, /New chat, changed\/null binding, omissions or truncation require fresh human review/);
   assert.match(content, /Require human review of complete bound documents; never infer it from opened previews/);
-  assert.match(content, /human `\/sf-approve <PHASE-ID>` or exact phase answer \*\*after\*\* complete review of this exact `reviewBinding`/);
-  assert.match(content, /do not ask again/);
-  assert.match(content, /A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match/);
+  assert.match(content, /Ask `act\.ask\.question` \("Approve <Step> v<N>\?"\) exactly with ask_user, its choices "Approve <Step> v<N>" and `Not now`, nothing preselected/);
+  assert.match(content, /nor does a Yes given before a new or changed packet review: that is not its confirmation/);
+  assert.doesNotMatch(content, /TYPED-PHASE|exact phase ID/);
   assert.match(content, /missing\/mismatched bindings stop/);
   assert.match(content, /sflow-turn-boundary: approval-only/);
   assert.match(content, /approval CLI is the sole permitted lifecycle mutation/i);
@@ -1457,8 +1458,8 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.doesNotMatch(start, /examples\/manual-story\.yml/);
   assert.match(start, /Otherwise `--jira`\/`--story-file`/);
   const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
-  assert.match(approve, /ask for the exact phase ID to confirm linked-document review and approval; wait/);
-  assert.match(approve, /human `\/sf-approve <PHASE-ID>` or exact phase answer/);
+  assert.match(approve, /Never answer it yourself; Not now approves nothing/);
+  assert.match(approve, /Positional argument selects \*\*PHASE-ID\*\*/);
   const reject = await readFile(path.join(pluginRoot, 'skills', 'sflow-reject', 'SKILL.md'), 'utf8');
   assert.match(reject, /Obtain the human's reason and target/);
   assert.doesNotMatch(approve, /Choose governed agent/);

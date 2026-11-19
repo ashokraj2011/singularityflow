@@ -306,7 +306,7 @@ test('convergence readiness returns its guarded advance route rather than generi
   assert.equal(result.command, 'singularity-flow story advance --work-id READY-1');
   assert.equal(result.nextCommand, result.command);
   assert.equal(result.nextSkill, '/sf-submit');
-  assert.match(submissionReadinessText(result), /ready for advancement/);
+  assert.match(submissionReadinessText(result), /ready to submit for approval/);
 });
 
 test('every phase kind routes an unpublished generation to its guarded authoring skill', () => {

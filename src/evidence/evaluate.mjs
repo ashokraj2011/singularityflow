@@ -56,7 +56,9 @@ export function reviewFacet(phase, workflow = null) {
   const active = countedApprovals(workflow, recorded);
   // Approvals were recorded but none of them counts: the step still waits for a person's approval.
   if (recorded.length && !active.length) return 'pending';
-  if (!active.length) return policy.mode === 'policy' ? 'policy-approved' : 'approved';
+  if (!active.length) return policy.mode === 'policy' ? 'policy-approved'
+    // Approve twice: SFlow approved it when its reviewer said ready and nothing was open; never a person's approval.
+    : phase.approvalDisposition === 'approved_automatically' ? 'approved-automatically' : 'approved';
   if (!approvalRequirementsMet(policy, active)) return 'pending';
   return active.every((item) => item.selfApproval) ? 'self-approved' : 'approved';
 }
@@ -122,7 +124,7 @@ function holders(workflow, responsibility) {
 /** The strongest single review word across the steps that review: self-approval is never hidden. */
 function combinedReview(facets) {
   if (!facets.length) return 'not-required';
-  for (const facet of ['pending', 'self-approved', 'policy-approved']) if (facets.includes(facet)) return facet;
+  for (const facet of ['pending', 'self-approved', 'approved-automatically', 'policy-approved']) if (facets.includes(facet)) return facet;
   return facets.every((facet) => facet === 'not-required') ? 'not-required' : 'approved';
 }
 

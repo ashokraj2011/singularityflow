@@ -92,7 +92,13 @@ function optionLines(item, packet) {
   if (item.kind === 'approval') {
     const command = item.options[0]?.action?.command;
     const phase = item.details?.phase ?? packet?.phase;
-    return [`- ${bare(item.options[0]?.label ?? 'Review and approve')}: /sf-approve${phase ? ` ${phase}` : ''} --work-id ${packet?.workId} opens its documents${command ? `; or in your terminal: \`${command}\`` : ''}.`];
+    // One question with a Yes (owner, 2026-11-19): /sf-approve shows the documents, with those of the steps SFlow approved
+    // since the last approval, and asks "Approve <Step> v<N>?" once.
+    const strings = (value) => (Array.isArray(value) ? value : []).filter((file) => typeof file === 'string' && file);
+    const documents = [...strings(item.details?.documents), ...(Array.isArray(item.details?.covers) ? item.details.covers : []).flatMap((cover) => strings(cover?.documents))];
+    const covered = (Array.isArray(item.details?.covers) ? item.details.covers : []).map((cover) => `${cover?.label} v${Number(cover?.generation) || 0}`);
+    return [`- ${bare(item.options[0]?.label ?? 'Review and approve')}: /sf-approve${phase ? ` ${phase}` : ''} --work-id ${packet?.workId} shows ${documents.length ? documents.map((file) => `\`${file}\``).join(', ') : 'its documents'} and asks for your Yes once${command ? `; or in your terminal: \`${command}\`` : ''}.`,
+      ...(covered.length ? [`  Your Yes also covers ${covered.join(', ')}: SFlow approved them when they were ready.`] : [])];
   }
   const check = checkOf(item);
   const live = recommendedFirst(item, item.options.filter((option) => option.available !== false && option.decidedBy?.allowed));

@@ -164,8 +164,10 @@ export async function collectInputs(root, workflow, phase, {
           && Number(entry.generation) === Number(producer.generation));
         const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
           entry.phase === producer.id && Number(entry.generation) === Number(producer.generation));
-        const waived = ['none', 'policy'].includes(producer.approvalPolicy?.mode)
-          && producer.status === 'approved';
+        // Approve twice: a producer SFlow approved when it was ready is accepted as its own kind, never as a person's.
+        const automatic = producer.status === 'approved' && producer.approvalDisposition === 'approved_automatically'
+          && Number(producer.automaticApproval?.generation) === Number(producer.generation);
+        const waived = (['none', 'policy'].includes(producer.approvalPolicy?.mode) && producer.status === 'approved') || automatic;
         const skillProducer = workflow.resolution?.phases?.some((entry) =>
           entry.id === producer.id && entry.kind === 'skill');
         if (!submission || (!activeApproval && !waived)) {
@@ -220,7 +222,7 @@ export async function collectInputs(root, workflow, phase, {
                 approvedSha256: current.sha256,
                 submittedBundleSha256: producer.artifactSet?.submittedBundleSha256 ?? null,
                 bundleSha256: producer.artifactSet?.bundleSha256 ?? null,
-                acceptance: activeApproval ? 'human-approved' : 'policy-approved'
+                acceptance: activeApproval ? 'human-approved' : automatic ? 'automatic-approved' : 'policy-approved'
               };
             }
           } catch {

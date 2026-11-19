@@ -423,6 +423,41 @@ export async function unboundAnswerReason(file, record, options, { localChat = f
   return null;
 }
 
+/**
+ * One approval with a Yes (owner, 2026-11-19): approving a step in a chat stands only on the person's own Yes, in this turn,
+ * to the exact question its review asks, "Approve <Step> v<N>?" (`question`, from the receipt on this machine). It replaces
+ * typing the step's ID: the receipt binds the Yes to the version reviewed, and the agent never supplies it. A Yes to
+ * another version's question never counts (v1 is not v10); "Approve <Step> v<N>", its outcome label, is a Yes; one Yes
+ * carries one approval. VS Code's own chat, whose answers have never been seen to reach SFlow, approves on the approval
+ * page instead. Words the command carries (an article's reason) must be the person's. Null when it stands, else why
+ * nothing was recorded and what to do next in this same turn.
+ */
+export async function approvalAnswerReason(file, record, question, { localChat = false, options = {}, positionals = [] } = {}) {
+  const page = 'They can approve it on the approval page, which the Decide card opens (sflowDecide or sflow_decide with the Story ID), or in their own terminal.';
+  if (localChat) return `${REFUSAL} In VS Code's own chat the person's Yes cannot be read, so an approval is not recorded here; do not ask again in this chat. ${page}`;
+  if (!question) return `${REFUSAL} This approval names no review opened on this machine, so the person's Yes cannot be bound to it. Open the review again (singularity-flow choices begin approve <WORK-ID> --fetch --for-agent --json --review-packet) and ask its question.`;
+  const ledger = await readLedger(file, record.turnId);
+  const asked = comparable(question);
+  const row = `approval ${asked}`;
+  // The question itself, its version bounded: "approve requirements v1" never matches a question about v10.
+  const thisQuestion = new RegExp(`(?:^|\\s)${asked.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}(?![\\p{L}\\p{N}])`, 'u');
+  const words = { yes: [asked, 'approve', 'approve it'], no: ['not yet', "don't approve", 'do not approve', 'send back', 'send it back'] };
+  const replies = ledger.replies.map((reply, index) => ({ reply, index, side: sideOf(reply, words) }))
+    .filter((entry) => entry.side && thisQuestion.test(entry.reply.asked) && (!entry.reply.usedBy || entry.reply.usedBy === row));
+  const last = replies.at(-1);
+  if (!last) {
+    return `${REFUSAL} Approving is the person's Yes, never this turn's. After they have the documents, ask them "${question}" exactly with your question tool (ask_user), its choices "${question.replace(/\?$/u, '')}" and "Not now", and record it only after their Yes (VS Code's own chat, vscode_askQuestions, cannot record it). ${page}`;
+  }
+  if (last.side !== 'yes') return `${REFUSAL} The person did not say Yes to "${question}": approve nothing, and tell them the step waits for them.`;
+  const unsaid = await unboundAnswerReason(file, record, options, { positionals });
+  if (unsaid) return unsaid;
+  if (last.reply.usedBy !== row) {
+    const current = await readLedger(file, record.turnId);
+    await writeLedger(file, { ...current, replies: current.replies.map((reply, index) => (index === last.index ? { ...reply, usedBy: row } : reply)) });
+  }
+  return null;
+}
+
 /** The person's yes that starts `version` in this turn, as the host delivered it: `{ asked, texts }`, or null. */
 export async function successorReply(file, record, version, step = null) {
   const ledger = await readLedger(file, record.turnId);

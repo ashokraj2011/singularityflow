@@ -481,15 +481,15 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   await writeFile(path.join(root, 'singularity/agents/product-owner.agent.md'), '---\ninvalid: [\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'Refresh live authoring resources before Story submission');
-  cli(root, 'submit', 'specification', '--skip-checks');
-  const approveRoute = reviewRoute(root, 'specification');
-  assert.equal(approveRoute.nextCommand, `singularity-flow approve specification --work-id ${WORK_ID} --fetch`);
-  assert.equal(approveRoute.copilotCommand, `/sf-approve specification --work-id ${WORK_ID}`);
-  const approval = spawnSync(process.execPath, [executable, 'approve', 'specification', '--yes'], {
-    cwd: root, encoding: 'utf8', timeout: childTimeout(30000)
-  });
-  assert.equal(approval.status, 0, `approval after a ready review failed:\n${approval.stderr}\n${approval.stdout}`);
-  assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
+  // With every statement dispositioned and the review ready, nothing is open: SFlow approves the specification right after
+  // its submission (approve twice, owner 2026-11-19), through the same approval check a person's approval runs, which
+  // still finds the review describing the artifact it reviewed.
+  const submission = cli(root, 'submit', 'specification', '--skip-checks');
+  assert.doesNotMatch(submission, /source review is stale/);
+  assert.match(submission, /Approved Specification v1 automatically: the reviewer said ready/u);
+  const approved = JSON.parse(await readFile(path.join(root, 'singularity/work-items', WORK_ID, 'workflow.json'), 'utf8')).phases.specification;
+  assert.equal(approved.status, 'approved');
+  assert.equal(approved.approvalDisposition, 'approved_automatically');
   assert.equal(reviewRoute(root, 'specification').nextCommand,
     `singularity-flow nextsteps ${WORK_ID} --json`, 'a historical review cannot reopen or resubmit its phase');
 });

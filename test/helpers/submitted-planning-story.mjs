@@ -107,8 +107,17 @@ export async function approvedSpecificationStory(t, WORK, options = {}) {
   // A walk with reviews on reviews the step here, as its independent reviewer would (step-review.mjs).
   await options.review?.('specification', { cli, root });
   cli('submit', 'specification', '--skip-checks');
-  cli('approve', 'specification', '--yes');
+  await approveUnlessAutomatic(cli, item, 'specification');
   return { directory, root, run, git, cli, item };
+}
+
+/**
+ * Approve `phase` as its person would, unless SFlow approved it when its review was ready (approve twice, owner
+ * 2026-11-19: a step marked automatic, reviewed ready with nothing open, needs no person).
+ */
+export async function approveUnlessAutomatic(cli, item, phase) {
+  const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  if (workflow.phases?.[phase]?.status === 'awaiting_approval') cli('approve', phase, '--yes');
 }
 
 /** A Story whose planning is published and not yet submitted, in a repository of its own. */

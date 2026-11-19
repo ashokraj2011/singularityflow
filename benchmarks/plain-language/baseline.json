@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6269,
-  "jargon": 1358,
-  "length": 658
+  "generic-route": 6268,
+  "jargon": 1352,
+  "length": 656
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -2038,7 +2038,6 @@
    "ed5692bbff52": "length"
   },
   "apps/vscode/src/views/approval-review.ts": {
-   "18505f40bd6b": "jargon:generation",
    "70c4a83289a5": "length",
    "9fa38b21653d": "jargon:deterministic"
   },
@@ -3104,7 +3103,6 @@
    "fbe863b9280a": "jargon:generation"
   },
   "src/commands/submit.mjs": {
-   "4d3746a9b4c6": "jargon:deterministic jargon:digest length",
    "99e10fedaaac": "jargon:retained",
    "a6054cbede72": "jargon:projection"
   },
@@ -3262,7 +3260,6 @@
   },
   "src/decision-list.mjs": {
    "10baf212aed6": "length",
-   "1d8034aa463d": "jargon:generation",
    "23ccd0738d93": "count-without-name",
    "32cf2099889e": "length",
    "41e7249454a3": "length",
@@ -4280,7 +4277,6 @@
    "3a0ced4211b1": "jargon:projection",
    "3f9a7bf64e11": "jargon:generation jargon:packet",
    "4adfad1cb089": "length",
-   "4d3746a9b4c6": "jargon:deterministic jargon:digest length",
    "50e221cbaae2": "jargon:staging",
    "565e159db8c8": "jargon:revalidate",
    "5b28dbba488c": "length",

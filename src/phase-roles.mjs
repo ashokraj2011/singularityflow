@@ -191,3 +191,57 @@ export function phaseResponsibilityPin() {
 export function ownerStepChecks(workflow, level = 1) {
   return Number(workflow?.resolution?.phaseResponsibility?.ownerStepChecks ?? 0) >= level;
 }
+
+// Approve twice (owner, 2026-11-19): which steps may be approved automatically, by structure [E2G-001]. Configuration
+// refuses `approval.automatic` elsewhere, and Workflow Studio offers its switch only where it may be on.
+
+/** Whether a step may change source files (a code step always may: configuration holds it to that scope). */
+export const editsSource = (phase) => (phase?.writeScope ?? 'artifact-only') === 'source-and-artifact';
+
+const approvedByPeople = (phase) => phase?.approval !== 'none' && (phase?.approval?.mode ?? 'required') !== 'none';
+
+/** The plan: the steps owning a code step's planned claims, or else the last step people approve before the first that edits source. */
+export function planStepIds(workType, phases) {
+  const owners = Object.values(workType?.plannedClaims?.owners ?? {}).filter((id) => typeof id === 'string');
+  if (owners.length) return new Set(owners);
+  const first = phases.findIndex(editsSource);
+  const plan = first > 0 ? phases.slice(0, first).filter(approvedByPeople).at(-1) : null;
+  return new Set(plan ? [plan.id] : []);
+}
+
+/** Why `phase` is never approved automatically in this work type ("it is the plan"), or null when it may be. */
+export function automaticApprovalRefusal(phase, { workType = null, phases = [] } = {}) {
+  if (!phase) return null;
+  if (planStepIds(workType, phases).has(phase.id)) return 'it is the plan, which a person approves';
+  if (editsSource(phase)) return 'it may change source files, so a person approves it';
+  if (isConvergencePhase(phase)) return 'only a person\'s approval moves the Story on from convergence';
+  if (workType?.designSources && (workType.designSources.capturePhase ?? 'design-intake') === phase.id) {
+    return 'a person approves which design versions the Story builds on';
+  }
+  const loop = (workType?.reworkLoops ?? []).find((entry) => entry?.from === phase.id);
+  if (loop) return `it can send the work back to ${loop.to}, which a person decides`;
+  return null;
+}
+
+/** The steps SFlow approved since the last step people approved, before `phaseId`: a person's approval of it covers them. */
+export function automaticApprovalsBefore(workflow, phaseId) {
+  const order = workflow?.phaseOrder ?? [];
+  const covered = [];
+  for (let index = order.indexOf(phaseId) - 1; index >= 0; index -= 1) {
+    const phase = workflow.phases?.[order[index]];
+    if (!phase || phase.status === 'skipped' || (phase.approvalPolicy?.mode ?? 'required') === 'none') continue;
+    if (phase.status !== 'approved' || phase.approvalDisposition !== 'approved_automatically' || !phase.automaticApproval) break;
+    covered.unshift(phase);
+  }
+  return covered;
+}
+
+/** A covered step as approval screens list it. */
+export function coveredStep(phase) {
+  return {
+    phase: phase.id, label: phase.label ?? phase.id, generation: Number(phase.generation ?? 0),
+    reviewPacketSha256: phase.automaticApproval?.reviewPacketSha256 ?? null,
+    documents: [...new Set((phase.artifacts ?? []).map((artifact) => artifact?.path).filter((file) => typeof file === 'string' && file))],
+    words: `approved automatically: ${(phase.automaticApproval?.checked ?? []).join('; ') || 'its reviewer said ready and nothing was open'}`
+  };
+}

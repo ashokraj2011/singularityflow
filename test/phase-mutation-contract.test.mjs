@@ -686,6 +686,15 @@ test('/sf-run-app and /sf-test turns run the declared application and tests; no 
   assert.match(unbind.permissionDecisionReason, /OPERATION_NOT_ALLOWED: environment values are bound and removed only by the person.*env unbind <ENV> --json/u);
 });
 
+/** An approval receipt on this machine that asks its one question (owner, 2026-11-19), and the person's Yes to it in a turn. */
+async function approvalReceipt(f, token, question = 'Approve Custom step v1?') {
+  await mkdir(path.join(f.root, '.git', 'singularity-flow', 'choices'), { recursive: true });
+  await writeFile(path.join(f.root, '.git', 'singularity-flow', 'choices', `${token}.json`), JSON.stringify({ action: 'approve', workId: 'PMC-1',
+    approvalContext: { phase: 'custom-step', label: 'Custom step', generation: 1 }, choiceSets: [{ id: 'phase-confirmation', question }] }));
+}
+const saidYes = (payload, question = 'Approve Custom step v1?') => mutationPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question },
+  toolResult: { textResultForLlm: `User responded: ${question.replace(/\?$/u, '')}`, resultType: 'success' } });
+
 /** The person answered in this turn, as Copilot CLI and VS Code's agent host hand it to the post-tool hook. */
 const personSaid = (payload, ...words) => mutationPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question: 'Why?' },
   toolResult: { textResultForLlm: `User responded: ${words.join(', ')}`, resultType: 'success' } });
@@ -733,13 +742,20 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
   for (const target of ['src/App.jsx', 'singularity/work-items/PMC-1/artifacts/custom-step/doc.md', f.workflowFile]) {
     assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: target } })).permissionDecision, 'deny');
   }
-  // A failed approval does not end a decision turn, and a failed decision does not end an approval turn.
+  // A failed approval does not end a decision turn, and a failed decision does not end an approval turn. A chat approves
+  // only through the receipt its person's Yes is bound to (owner, 2026-11-19).
+  const token = inventedValue('33333333-3333-4333', '-8333-333333333333');
+  await mkdir(path.join(f.root, '.git', 'singularity-flow', 'choices'), { recursive: true });
+  await writeFile(path.join(f.root, '.git', 'singularity-flow', 'choices', `${token}.json`), JSON.stringify({ action: 'approve', workId: 'PMC-1',
+    approvalContext: { phase: 'custom-step', label: 'Custom step', generation: 1 }, choiceSets: [{ id: 'phase-confirmation', question: 'Approve Custom step v1?' }] }));
   const approve = async sessionId => ({ ...(await f.enter('/sf-approve', sessionId)), toolName: 'bash',
-    toolArgs: { command: 'singularity-flow approve custom-step --work-id PMC-1', cwd: f.root } });
+    toolArgs: { command: `singularity-flow approve custom-step --work-id PMC-1 --selection-receipt ${token}`, cwd: f.root } });
   await approve('approver-1');
   await endMutationDecisionTurns(f.root);
   assert.deepEqual(await shell(choose), {}, 'a failed approval ended the decision turn');
   const approval = await approve('approver-2');
+  await mutationPostToolGuard({ ...approval, toolName: 'ask_user', toolArgs: { question: 'Approve Custom step v1?' },
+    toolResult: { textResultForLlm: 'User responded: Approve Custom step v1', resultType: 'success' } });
   // `--yes` approves with no review receipt: an /sf-approve chat never runs it (approvals research, 2026-11-19).
   const yes = await mutationToolGuard({ ...approval, toolArgs: { ...approval.toolArgs, command: 'singularity-flow approve custom-step --work-id PMC-1 --yes' } });
   assert.equal(yes.permissionDecision, 'deny', 'an /sf-approve chat approved with --yes, no review receipt');
@@ -804,8 +820,10 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
     const denied = await shell(payload, `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest}`);
     assert.equal(denied.permissionDecision, 'deny', skill);
   }
-  // /sf-approve opens the list in its own turn: the same issue-only rule, until the approval turn has ended.
+  // /sf-approve opens the list in its own turn: the same issue-only rule, held to the person's answers on its one screen
+  // (owner, 2026-11-19), until the approval turn has ended.
   const approve = await f.enter('/sf-approve', 'approver');
+  await personSaid(approve, 'Dismiss it');
   const issueOnly = `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest}`;
   assert.deepEqual(await shell(approve, issueOnly), {});
   assert.equal((await shell(approve, `singularity-flow decisions record PMC-1 --choose d1=reuse --confirm ${digest}`)).permissionDecision, 'deny');
@@ -820,7 +838,20 @@ test('an approval in a chat turn carries only the upstream-issue options a chat 
   const token = inventedValue('11111111-1111-4111', '-8111-111111111111');
   const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   const approve = (extra = '') => `singularity-flow approve custom-step --work-id PMC-1 --fetch --selection-receipt ${token} --for-agent --json${extra}`;
+  // The approval's receipt on this machine asks one question; only the person's Yes to it in this turn approves (owner, 2026-11-19).
+  await mkdir(path.join(f.root, '.git', 'singularity-flow', 'choices'), { recursive: true });
+  await writeFile(path.join(f.root, '.git', 'singularity-flow', 'choices', `${token}.json`), JSON.stringify({ action: 'approve', workId: 'PMC-1',
+    approvalContext: { phase: 'custom-step', label: 'Custom step', generation: 1 }, choiceSets: [{ id: 'phase-confirmation', question: 'Approve Custom step v1?' }] }));
+  const yes = (payload, answer = 'Approve Custom step v1', question = 'Approve Custom step v1?') => mutationPostToolGuard({ ...payload, toolName: 'ask_user',
+    toolArgs: { question }, toolResult: { textResultForLlm: `User responded: ${answer}`, resultType: 'success' } });
   const approval = await f.enter('/sf-approve', 'chat-approver');
+  const unanswered = await shell(approval, approve());
+  assert.equal(unanswered.permissionDecision, 'deny', 'an approval stands only on the person\'s Yes');
+  assert.match(unanswered.permissionDecisionReason, /ask them "Approve Custom step v1\?" exactly with your question tool \(ask_user\)/u);
+  await yes(approval, 'Yes', 'Approve Custom step v10?');
+  assert.equal((await shell(approval, approve())).permissionDecision, 'deny', 'a Yes to another version\'s question approves nothing');
+  await yes(approval);
+  await personSaid(approval, 'Not a defect in what was delivered.');
   for (const command of [approve(), approve(` --choose d1=dismiss --reason "d1=Not a defect in what was delivered." --decisions ${digest}`),
     approve(` --choose d1=accept-risk --expires d1=2026-12-01 --decisions ${digest}`)]) {
     assert.deepEqual(await shell(approval, command), {}, command);
@@ -830,8 +861,11 @@ test('an approval in a chat turn carries only the upstream-issue options a chat 
     assert.equal((await shell(approval, command)).permissionDecision, 'deny', command);
   }
   const decide = await f.enter('/sf-decide PMC-1', 'chat-decider');
+  const confirmation = `singularity-flow choices answer ${token} phase-confirmation custom-step --json`;
+  assert.equal((await shell(decide, confirmation)).permissionDecision, 'deny', 'the /sf-decide approval stands only on the person\'s Yes too');
+  await yes(decide);
   for (const command of ['singularity-flow choices begin approve PMC-1 --fetch --for-agent --json --review-packet',
-    `singularity-flow choices answer ${token} phase-confirmation custom-step --json`, approve(),
+    confirmation, approve(),
     approve(` --choose d1=dismiss --decisions ${digest}`)]) {
     assert.deepEqual(await shell(decide, command), {}, command);
   }
@@ -1515,7 +1549,9 @@ test('a person staging or editing during an authoring turn is not blamed on the 
 
 test('an approval that ends its own turn is not stopped afterwards for want of a shell baseline', async t => {
   const f = await fixture(t);
+  await approvalReceipt(f, '11111111-1111-4111-8111-111111111111');
   const payload = await f.enter('/sf-approve', 'approval-ends');
+  await saidYes(payload);
   const approve = { ...payload, toolName: 'bash', toolArgs: { cwd: f.root,
     command: 'singularity-flow approve custom-step --work-id PMC-1 --fetch --selection-receipt 11111111-1111-4111-8111-111111111111 --for-agent --json' } };
   assert.deepEqual(await mutationToolGuard(approve), {});
@@ -1823,7 +1859,8 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-sgos-create': [[/^(?:process (?:start|step|run)|intent (?:ratify|compile))\b/u, 'named only as commands it never runs']],
   'sflow-auto': [[/^auto flight-step\b/u, 'named only as a command it never invokes directly']],
   'sflow-integrations': [[/^integrations deliver\b/u, 'for pipelines; not run from chat']],
-  'sflow-confirm': [[/^confirm x1\b/u, 'runs only the code the person typed; a turn bound by a typed code is checked in confirm-code.test.mjs']]
+  'sflow-confirm': [[/^confirm x1\b/u, 'runs only the code the person typed; a turn bound by a typed code is checked in confirm-code.test.mjs']],
+  'sflow-approve': [[/^(?:choices answer \S+ phase-confirmation|approve \S+ --work-id \S+ --fetch --selection-receipt)\b/u, 'runs only after the person\'s Yes to "Approve <Step> v<N>?"; checked in the chat approval test and approve-one-yes.test.mjs']]
 });
 /** Commands of a skill that needs no Story which act on a bound Story, so only a Story-bound turn runs them. */
 const NEEDS_A_STORY = Object.freeze({
@@ -2524,16 +2561,24 @@ test('a /sf-submit command scoped to the checkout runs, and a refused tool form 
 });
 
 test('a failed decision locks only approval operations, never granting authoring or raw-shell permission', async t => {
-  const f = await fixture(t); const payload = await f.enter('/sf-approve');
+  const f = await fixture(t);
+  // A chat approves only through the receipt its person's Yes is bound to (owner, 2026-11-19).
+  const token = '44444444-4444-4444-8444-444444444444';
+  await approvalReceipt(f, token);
+  const payload = await f.enter('/sf-approve');
+  await saidYes(payload);
+  const receipt = ` --selection-receipt ${token}`;
   const shell = command => ({ ...payload, toolName: 'bash', toolArgs: { command } });
-  assert.deepEqual(await mutationToolGuard(shell('singularity-flow approve custom-step --work-id PMC-1 --for-agent --json')), {});
-  assert.deepEqual(await mutationToolGuard(shell(`cd '${f.root}' && 'singularity-flow' 'approve' 'custom-step' '--work-id' 'PMC-1' '--for-agent' '--json'`)), {});
+  assert.deepEqual(await mutationToolGuard(shell(`singularity-flow approve custom-step --work-id PMC-1${receipt} --for-agent --json`)), {});
+  assert.deepEqual(await mutationToolGuard(shell(`cd '${f.root}' && 'singularity-flow' 'approve' 'custom-step' '--work-id' 'PMC-1' '--selection-receipt' '${token}' '--for-agent' '--json'`)), {});
+  // Never without its receipt: nothing would bind the person's Yes to the version reviewed.
+  assert.equal((await mutationToolGuard(shell('singularity-flow approve custom-step --work-id PMC-1 --for-agent --json'))).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard(shell(`cd '${path.dirname(f.root)}' && singularity-flow approve custom-step --work-id PMC-1`))).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard(shell(`cd '${f.root}' && singularity-flow approve custom-step --work-id PMC-1 && npm test`))).permissionDecision, 'deny');
   // A shell that cannot set its cwd (a VS Code agent-host chat) scopes the command with `env -C`, to
   // exactly the bound checkout like `cd <root> &&` (2026-10-26).
-  assert.deepEqual(await mutationToolGuard(shell(`env -C ${f.root} singularity-flow approve custom-step --work-id PMC-1 --for-agent --json`)), {});
-  assert.deepEqual(await mutationToolGuard(shell(`env --chdir='${f.root}' singularity-flow approve custom-step --work-id PMC-1 --for-agent --json`)), {});
+  assert.deepEqual(await mutationToolGuard(shell(`env -C ${f.root} singularity-flow approve custom-step --work-id PMC-1${receipt} --for-agent --json`)), {});
+  assert.deepEqual(await mutationToolGuard(shell(`env --chdir='${f.root}' singularity-flow approve custom-step --work-id PMC-1${receipt} --for-agent --json`)), {});
   for (const command of [`env -C ${path.dirname(f.root)} singularity-flow approve custom-step --work-id PMC-1`,
     `env -C ${f.root} FOO=1 singularity-flow approve custom-step --work-id PMC-1`, `env -C ${f.root} npm test`]) {
     const refused = await mutationToolGuard(shell(command));
@@ -2564,7 +2609,10 @@ test('receipt-backed approval crosses the tool guard for every seeded and future
     f.workflow.phaseOrder = [phase];
     f.workflow.phases = { [phase]: f.phase };
     await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+    // The receipt asks its one question, and the person said Yes to it in this turn (owner, 2026-11-19).
+    await approvalReceipt(f, receipt, `Approve ${phase} v1?`);
     const payload = await f.enter(`/sf-approve ${phase} --work-id PMC-1`);
+    await saidYes(payload, `Approve ${phase} v1?`);
     const argv = ['singularity-flow', 'approve', phase, '--work-id', 'PMC-1', '--fetch', '--selection-receipt', receipt, '--for-agent', '--json'];
     for (const platform of ['darwin', 'win32']) {
       const command = renderPlatformCommand(argv, platform);
@@ -3492,9 +3540,11 @@ test('only the turns that own these decisions are held to it, and only these com
   for (const command of ['singularity-flow decision show PMC-1 --json', 'singularity-flow decisions PMC-1 --for-agent --json', 'singularity-flow evidence scope PMC-1 --json']) {
     assert.deepEqual(await run(decide, command), {}, command);
   }
-  // A typed /sf-approve keeps its own confirmation; nothing asks it for an ask_user answer.
+  // An /sf-approve turn holds the approval's confirmation to the person's Yes (owner, 2026-11-19); a bare approve with no
+  // receipt is refused by the turn itself, never for an answer.
   const approving = await f.enter('/sf-approve', 'bound-approve');
   assert.doesNotMatch(String((await run(approving, 'singularity-flow approve custom-step --work-id PMC-1 --fetch')).permissionDecisionReason), UNBOUND);
+  assert.match(String((await run(approving, `singularity-flow choices answer ${inventedValue('22222222-2222-4222', '-8222-222222222222')} phase-confirmation custom-step --json`)).permissionDecisionReason), UNBOUND);
   // An ended turn leaves no answers behind.
   const ledgers = async () => (await readdir(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries'))).filter((name) => name.endsWith('.answers.json')).length;
   const before = await ledgers();

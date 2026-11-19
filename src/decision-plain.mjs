@@ -133,8 +133,9 @@ function question(workflow, item) {
       return `${title}?`;
     case 'generation-rollover':
       return `${title}?`;
+    // One approval question everywhere, by step and version (owner, 2026-11-19): "Approve Requirements v1?".
     case 'approval':
-      return `Approve ${step}?`;
+      return `Approve ${step}${Number.isSafeInteger(details.generation) && details.generation > 0 ? ` v${details.generation}` : ''}?`;
     // A refusal's own route: what clears it, asked of what it says.
     case 'approval-hold':
       return `Clear this first: ${title}?`;
@@ -165,7 +166,7 @@ function why(workflow, item) {
     case 'scope-completeness':
       return 'Nothing waits on it; it records that you looked for what is missing or unclear.';
     case 'approval':
-      return details.ready ? 'Nothing on this list holds it; its documents are ready to review.' : 'It waits for the questions above.';
+      return details.ready ? `Nothing on this list holds it; its documents are ready to review${details.covers?.length ? `, with ${details.covers.map((entry) => `${entry.label} v${entry.generation}`).join(', ')}, which SFlow approved when ready` : ''}.` : 'It waits for the questions above.';
     default:
       return plainSentence(item.why);
   }

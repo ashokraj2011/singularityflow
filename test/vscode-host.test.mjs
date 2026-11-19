@@ -4855,7 +4855,8 @@ test('the packaged POC release candidate journey survives publication, review, C
   const approvalReview = await until(() => reviewHost.registered.panels
     .find((entry) => entry.id === 'singularityFlow.approvalReview') ?? null,
   { what: 'the governed POC phase approval form to open' });
-  assert.match(approvalReview.webview.html, /Type <code>poc-intake<\/code>/);
+  // One question with its one choice (owner, 2026-11-19): the step and version asked, never a step ID to type.
+  assert.match(approvalReview.webview.html, /<h2>Approve [^<]+ v1\?<\/h2>/);
   await approvalReview.post({
     type: 'approval.submit', confirmation: 'poc-intake',
     acknowledgeSelfApproval: false, decisions: []

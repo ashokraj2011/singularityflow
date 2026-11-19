@@ -78,12 +78,12 @@ test('an instruction to write a file names the file and gives its shape in the s
   }
 });
 
-test('the first convergence review act already says to ask in this chat, show the digest and confirm once', () => {
-  // Only the loop warning on the third repeat said it (session mining N4, 2026-11-11).
+test('the first convergence act submits the report for approval in the same turn, with no separate confirmation', () => {
+  // The convergence confirmation folds into its approval (owner, 2026-11-19): the person says Yes once, at the approval.
   const act = agentAct({ resultType: 'sflow-submission-readiness', workId: 'W', phaseId: 'convergence', head: 'h0',
     classification: 'convergence-advance-required', nextCommand: 'singularity-flow story advance --work-id W', nextSkill: '/sf-submit' });
-  assert.equal(act.state, 'confirm-review');
-  assert.match(act.said, /Run do\.shell once to show the review and its digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once\./u);
+  assert.equal(act.state, 'next');
+  assert.match(act.said, /Run do\.shell once; when it says the report is ready, run its --submit command once in this same turn: it sends the report for approval, where the person reviews it and approves it with one Yes\. Never ask them to confirm it first\./u);
 });
 
 test('questions that hold the task say the task goes on after the answers', () => {

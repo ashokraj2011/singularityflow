@@ -553,8 +553,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         skills: clone(workflow.skills || []), plannedClaims: workflow.plannedClaims && workflow.plannedClaims.declared ? clone(workflow.plannedClaims.declared) : null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: approvalDraft(step.approval), inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow),
-          template: step.template || null, optionalInputs: (step.optionalInputs || []).slice(), definesClauses: Boolean(step.definesClauses) };
+        draft.steps[workflow.id][step.id] = { approval: Object.assign(approvalDraft(step.approval), step.automaticApproval && step.automaticApproval.on ? { automatic: true } : {}), inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow),
+          template: step.template || null, optionalInputs: (step.optionalInputs || []).slice(), definesClauses: Boolean(step.definesClauses),
+          automaticApproval: step.automaticApproval || null };
       });
     });
     (model.phases || []).forEach(function (phase) {
@@ -646,6 +647,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (groups.length > 1) change.groups = groups;
     var required = (step.approval.required || []).filter(function (id) { return groups.indexOf(id) >= 0; });
     if (required.length) change.required = required;
+    // Approve twice: sent when it is on, or when it was turned off here.
+    if (step.approval.automatic === true) change.automatic = true;
+    else if (step.approval.automatic === false) change.automatic = false;
     return change;
   }
 
@@ -3192,6 +3196,25 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         control || null),
       open ? el('div', { class: 'prop-body' }, body) : null);
   }
+  /**
+   * Approve twice (owner, 2026-11-19): SFlow approves the step when its reviewer says ready, its checks pass and nothing
+   * is open, and records what it checked; otherwise these people approve it. Offered only where the workflow allows it:
+   * the plan, steps that may change source files, convergence and the design sources are always a person's.
+   */
+  function automaticApprovalEditor(settings) {
+    var view = settings.automaticApproval;
+    if (!view) return null;
+    var on = settings.approval.automatic === undefined ? Boolean(view.on) : Boolean(settings.approval.automatic);
+    if (!view.allowed && !on) return view.why ? el('span', { class: 'hint', text: 'A person approves this step: ' + view.why + '.' }) : null;
+    return el('div', { class: 'studio-row spread' },
+      el('span', null, el('strong', { text: 'Approve automatically when ready' }),
+        el('span', { class: 'hint', text: view.allowed ? ' When its reviewer says ready, its checks pass and nothing is open, SFlow approves it and records what it checked; otherwise these people approve it.'
+          : ' A person must approve this step: ' + view.why + '. Turn this off.' })),
+      switchControl('step-automatic-approval', 'Approve automatically when ready', on, function (value) {
+        if (value && !view.allowed) { setStatus('A person must approve this step: ' + view.why + '.'); render(); return; }
+        settings.approval.automatic = value; changed();
+      }));
+  }
   function switchControl(key, label, on, onChange) {
     return el('label', { class: 'switch', title: label },
       el('input', { type: 'checkbox', role: 'switch', 'data-key': key, checked: on, 'aria-checked': on ? 'true' : 'false', 'aria-label': label, onchange: function (event) { onChange(event.target.checked); } }),
@@ -3810,6 +3833,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         signoff.push(el('div', { class: 'callout bad' }, (state.draft.groups[id] || { label: id }).label + ' must approve, but nobody is in it.'));
       });
       signoff.push(el('div', { class: 'studio-row' }, button('Manage people', function () { state.returnTo = boardReturn(); state.view = 'people'; render(); }, { class: 'secondary' })));
+      var automatic = automaticApprovalEditor(settings);
+      if (automatic) signoff.push(automatic);
       signoff.push(sendBackEditor(workflow, phaseId, earlier));
     } else {
       signoff.push(el('span', { class: 'hint', text: 'No sign-off: when the agent submits, the Story goes straight on. Turn it on to have people approve this step.' }));

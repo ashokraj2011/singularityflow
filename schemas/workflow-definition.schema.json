@@ -1513,6 +1513,7 @@
         "mode": { "enum": ["required", "none", "policy"] },
         "policy": { "type": ["string", "null"], "minLength": 1 },
         "maximumChangedPaths": { "type": ["integer", "null"], "minimum": 1 },
+        "automatic": { "enum": ["when-ready"], "description": "Approved automatically right after it is submitted when its reviewer said ready, its checks passed and nothing is open; otherwise its people approve it." },
         "authorities": {
           "type": "array",
           "minItems": 1,

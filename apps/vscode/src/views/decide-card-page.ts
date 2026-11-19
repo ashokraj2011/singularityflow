@@ -190,7 +190,16 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
 export function evidencePaths(packet: DecisionPacket): string[] {
   const evidence = packet.approvalEvidence;
   return [...new Set([...(evidence?.coverage?.files ?? []).map((file) => file.path), ...(evidence?.proof?.assertionCheck?.tests ?? []).map((entry) => entry.path),
-    ...(evidence?.findings?.letThrough ?? []).map((finding) => finding.file)].filter((file): file is string => typeof file === 'string' && file.length > 0))];
+    ...(evidence?.findings?.letThrough ?? []).map((finding) => finding.file), ...approvalDocuments(packet)].filter((file): file is string => typeof file === 'string' && file.length > 0))];
+}
+
+type ApprovalCover = { label?: unknown; generation?: unknown; documents?: unknown; words?: unknown };
+const stringsOf = (value: unknown): string[] => (Array.isArray(value) ? value : []).filter((file): file is string => typeof file === 'string' && file.length > 0);
+const coversOf = (item: DecisionItemPacket): ApprovalCover[] => (Array.isArray(item.details?.covers) ? item.details.covers as ApprovalCover[] : []);
+
+/** The documents the approval row asks about: its step's, and those of the steps SFlow approved since (approve twice). */
+export function approvalDocuments(packet: DecisionPacket): string[] {
+  return approvalRows(packet).flatMap((item) => [...stringsOf(item.details?.documents), ...coversOf(item).flatMap((cover) => stringsOf(cover.documents))]);
 }
 
 const fileLink = (file: string) => `<button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>`;
@@ -270,8 +279,10 @@ export function versionOpeningHtml(packet: DecisionPacket, { declined = null as 
 function approvalHtml(packet: DecisionPacket): string {
   return approvalRows(packet).map((item) => ({ item, plain: plainWords(item) })).map(({ item, plain }) => `<section class="dc-approval" aria-label="${escape(item.title)}"><h2>${escape(plain.question ?? item.title)}</h2>
     ${plain.why ? `<p class="muted dc-why">${escape(plain.why)}</p>` : ''}${plain.recommended ? `<p class="dc-rec">${escape(plain.recommended)}</p>` : ''}
+    ${stringsOf(item.details?.documents).length ? `<p class="dc-docs">Documents: ${stringsOf(item.details?.documents).map(fileLink).join(' ')}</p>` : ''}
+    ${coversOf(item).map((cover) => `<p class="dc-docs">Also covered: ${escape(String(cover.label ?? ''))} v${Number(cover.generation) || 0} (${escape(String(cover.words ?? 'approved automatically'))}) ${stringsOf(cover.documents).map(fileLink).join(' ')}</p>`).join('')}
     ${item.decidedBy?.allowed ? `<div class="dc-own"><button type="button" data-approval="${escape(item.id)}">Review and approve</button>
-      <span class="muted">Opens the approval page with the documents to review; nothing is approved until you confirm there.</span></div>`
+      <span class="muted">Opens the approval page: these documents, the same question, and its one choice. Nothing is approved until you choose it there.</span></div>`
     : `<p class="muted">${escape(item.decidedBy?.words ?? '')}${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</p>`}</section>`).join('');
 }
 

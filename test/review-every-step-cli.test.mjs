@@ -322,9 +322,25 @@ test('a spec-driven Story reviews every authored step, its specification to its 
   cli('artifact', 'scan', '--phase', 'release');
   cli('phase', 'publish', 'release', '--authored', 'human', '--channel', 'manual-in-place');
   kinds.release = reviewStep((args) => JSON.parse(cli(...args).stdout), 'release').packet.kind;
-  cli('submit', 'release');
-  cli('approve', 'release', '--yes');
+  // A Story started from its seed, as one from Jira or a story file is: finalizing binds the seed's inputs.
+  await story.write(`singularity/seeds/${W}.yml`, `story:\n  workId: ${W}\n  title: Return the approved value\n`);
+  const { spawnSync } = await import('node:child_process');
+  for (const args of [['add', `singularity/seeds/${W}.yml`], ['commit', '-qm', 'Story seed']]) {
+    assert.equal(spawnSync('git', args, { cwd: story.root, encoding: 'utf8' }).status, 0, args.join(' '));
+  }
+  const submitted = cli('submit', 'release');
+  // Approve twice (owner, 2026-11-19): release, reviewed ready with nothing open, is approved by SFlow at its submission,
+  // as the specification was; people approved the plan, the code and verification, which may change source files.
+  const ended = await workflow();
+  for (const step of ['specification', 'release']) {
+    assert.equal(ended.phases[step].approvalDisposition, 'approved_automatically', step);
+    assert.match(ended.phases[step].automaticApproval.checked.join('; '), /the reviewer said ready/u, step);
+  }
+  for (const step of ['planning', 'implementation', 'verification']) assert.equal(ended.phases[step].approvals.filter((entry) => !entry.invalidatedAt).length, 1, step);
   assert.deepEqual(kinds, { specification: 'specification', planning: 'planning', implementation: 'code', verification: 'document', release: 'document' },
     'every authored step was reviewed, each as what it is');
   assert.equal((await workflow()).status, 'closed', 'the reviewed Story ends');
+  // SFlow never merges: after the person's Yes to the code, the Story finalized by itself when it ended (owner, 2026-11-19).
+  assert.equal((await workflow()).lineage?.finalizations?.length, 1, `the Story finalized by itself when it ended\n${String(submitted?.stdout ?? '').slice(-1500)}`);
+  assert.match(String(submitted?.stdout ?? ''), /SFlow never merges/u);
 });

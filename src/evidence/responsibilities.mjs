@@ -28,11 +28,11 @@ function artifactKind(phase) {
   return phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
 }
 
-/** How a step's review is given: by a person, by a configured policy, or not at all. */
+/** How a step's review is given: by a person, by a configured policy, by SFlow when it is ready, or not at all. */
 export function reviewKind(phase) {
   const approval = approvalOf(phase);
   if (!approval || approval === 'none' || approval.mode === 'none') return null;
-  return approval.mode === 'policy' ? 'policy' : 'human';
+  return approval.mode === 'policy' ? 'policy' : approval.automatic ? 'automatic' : 'human';
 }
 
 /** The responsibilities one resolved step holds, in the closed vocabulary's order. */

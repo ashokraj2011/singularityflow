@@ -43,6 +43,11 @@ function options(entries) {
   return entries.map(([id, item]) => ({ id, label: item.label ?? id, description: item.description ?? '' }));
 }
 
+/** The one approval question, by step and version: "Approve Requirements v1?" (owner, 2026-11-19). */
+export function approvalQuestion(phase) {
+  return `Approve ${phase?.label ?? phase?.id} v${Number(phase?.generation) || 0}?`;
+}
+
 function approvalContext(workflow) {
   const phase = workflow?.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
   if (!phase || phase.status !== 'awaiting_approval') {
@@ -203,11 +208,15 @@ async function choiceSets(root, definition, action, workflow = null) {
   if (action === 'approve') {
     const context = approvalContext(workflow);
     const phase = workflow.phases[context.phase];
+    // One approval with a Yes (owner, 2026-11-19): the person answers this question after the documents; their Yes, bound
+    // to this receipt and so to the version reviewed, is the confirmation. Nobody types the step's ID.
+    const question = approvalQuestion(phase);
     return [
       {
         id: 'phase-confirmation',
-        label: 'Exact phase confirmation',
-        options: [{ id: phase.id, label: `Approve ${phase.label}`, description: `The reviewer must explicitly type '${phase.id}' to approve generation ${phase.generation}.` }]
+        label: question,
+        question,
+        options: [{ id: phase.id, label: question.replace(/\?$/u, ''), description: `Your Yes approves ${phase.label ?? phase.id} version ${phase.generation} as you reviewed it.` }]
       }
     ];
   }
@@ -424,7 +433,7 @@ export async function answerSelectionReceipt(root, token, choiceId, selectedId) 
     if (!choices) throw new SingularityFlowError(`The selection receipt has no choice '${choiceId}'.`);
     if (!Array.isArray(choices.options) || !choices.options.some((item) => item.id === selectedId)) {
       const allowed = Array.isArray(choices.options) ? choices.options.map((item) => item.id).join(', ') : 'none';
-      throw new SingularityFlowError(`Unknown ${String(choices.label ?? choiceId).toLowerCase()} '${selectedId}'. Allowed: ${allowed}.`);
+      throw new SingularityFlowError(`Unknown ${choices.question ? `answer to "${choices.question}"` : String(choices.label ?? choiceId).toLowerCase()} '${selectedId}'. Allowed: ${allowed}.`);
     }
     receipt.answers[choiceId] = { id: selectedId, answeredAt: nowIso() };
     receipt.ready = receipt.choiceSets.every((item) => receipt.answers[item.id]?.id);

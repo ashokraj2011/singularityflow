@@ -8,7 +8,6 @@ import type { DecisionInputSpec, SubmissionReadiness } from './cli/snapshot.ts';
 import { decisionInputPrompt } from './decisions.ts';
 import { unsavedRepositoryPaths } from './generation-guards.ts';
 import { showCompactWarningMessage } from './compact-message.ts';
-import { collectReviewConfirmation } from './views/review-confirmation.ts';
 import { parseModelFreeTarget } from '../../../src/model-free-commands.mjs';
 
 export type LifecycleChatCommand = 'submit' | 'publish' | 'approve' | 'continue';
@@ -27,16 +26,15 @@ interface LifecycleChatPlan {
     commands?: Record<string, string | null> } | null;
 }
 
-/** `story advance --json` before its confirmation: the digest the host binds, and the short code the person types. */
+/** `story advance --json` before it submits: the digest the host binds. Nobody types a code (owner, 2026-11-19). */
 interface ConvergencePreview {
   resultType?: string; status?: string; workId?: string; iteration?: number; findings?: number;
-  confirmationDigest?: string; confirmationCode?: string;
+  confirmationDigest?: string;
 }
 
-/** The exact digest to confirm, only when the preview is this Story's and carries both the digest and its code. */
+/** The exact digest to submit, only when the preview is this Story's and carries it. */
 export function convergenceDigest(preview: ConvergencePreview | null | undefined, workId: string): string | null {
   if (preview?.resultType !== 'sflow-convergence-advance' || preview.status !== 'ready-to-confirm' || preview.workId !== workId) return null;
-  if (typeof preview.confirmationCode !== 'string' || !/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/u.test(preview.confirmationCode)) return null;
   return typeof preview.confirmationDigest === 'string' && /^sha256:[a-f0-9]{64}$/u.test(preview.confirmationDigest) ? preview.confirmationDigest : null;
 }
 
@@ -44,7 +42,7 @@ export function convergenceDigest(preview: ConvergencePreview | null | undefined
 export function convergencePreviewText(preview: ConvergencePreview): string {
   return [`Convergence iteration ${Number(preview.iteration) || 0} has no unresolved blockers and every item is dispositioned.`,
     `Findings: ${Number(preview.findings) || 0}.`,
-    'No lifecycle state, file, commit, or remote changed yet. Submitting sends convergence for approval.'].join('\n');
+    'Submitting sends it for approval, where you review it and approve it with one Yes.'].join('\n');
 }
 
 function inline(value: string): string {
@@ -181,22 +179,20 @@ export async function runLifecycleChat(
   stream.markdown(`Story ${inline(active.workId)} · phase ${inline(active.phaseId)} · generation ${Number(status.phases[active.phaseId]?.generation) || 0}\n\n`);
   let completed = false;
   if (kind === 'approve') {
-    // Same typed confirmation, checklist, identity and exact-hash receipt as the native UI.
+    // The same one approval screen with its one choice, checklist, identity and exact-hash receipt as the native UI.
     completed = await approveWithReceipt(active.client, {
       kind: 'story', workId: active.workId, phaseId: active.phaseId, expected: active.phaseId,
       summary: `Approve ${active.workId} / ${active.phaseId}`
     }, output, stillCurrent);
   } else if (selected.argv[0] === 'story' && selected.argv[1] === 'advance') {
-    // Convergence submission is a distinct digest-reviewed contract, not generic submit. The digest comes from the
-    // preview's JSON and is bound below; the person reviews the result and types its short code, never the digest.
+    // Convergence submission is a distinct digest-bound contract, not generic submit. Its confirmation folds into its
+    // approval (owner, 2026-11-19): the previewed result is submitted as it is, and the person reviews it at the approval and
+    // approves it with one Yes there, which binds the same result. No code is typed here.
     const preview = await active.client.run<ConvergencePreview>([...selected.argv, '--json'], signal);
     const digest = convergenceDigest(preview, active.workId);
     if (!digest) throw new Error('No exact convergence review was returned. Inspect /sf-converge; no submission was recorded.');
-    const reviewed = await collectReviewConfirmation({
-      title: `Review convergence for ${active.workId}`, summary: 'Confirm this convergence result before submission.',
-      detail: convergencePreviewText(preview), expected: preview.confirmationCode, confirmLabel: 'Submit reviewed convergence'
-    });
-    if (!reviewed || !(await stillCurrent())) { stream.markdown('Cancelled; convergence was not submitted.\n'); return; }
+    if (!(await stillCurrent())) { stream.markdown('Cancelled; convergence was not submitted.\n'); return; }
+    stream.markdown(`${convergencePreviewText(preview)}\n\n`);
     output.appendLine(await active.client.runText([...selected.argv, '--confirm', digest], { signal }));
     completed = true;
   } else {

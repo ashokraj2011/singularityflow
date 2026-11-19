@@ -26,6 +26,6 @@ export function convergenceTransitionRoute(workflow, phase, { needsGeneration = 
     classification: 'convergence-advance-required', lifecycleReady: true,
     reasonCode: 'CONVERGENCE_ADVANCE_REQUIRED', skill: '/sflow-submit',
     command: `singularity-flow story advance --work-id ${workflow.workItem.id}`,
-    reason: 'Review the convergence result and confirm it before a person approves the step.'
+    reason: 'Submit the convergence report for approval; the person reviews it there and approves it with one Yes.'
   };
 }

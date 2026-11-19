@@ -939,11 +939,13 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     'refused direct convergence submission mutated workflow state'
   );
 
-  // A person reads the preview with its short confirmation code, never the digest; the JSON carries the digest it binds.
+  // A person reads the preview with its one route, never the digest or a code: it submits the report for approval, where
+  // they approve it with one Yes (owner, 2026-11-19); the JSON carries the digest a host binds.
   const advancePreview = sflow(root, ['story', 'advance', '--work-id', WORK]);
   assert.doesNotMatch(advancePreview.output, /(?<![0-9A-Za-z_])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,64}(?![0-9A-Za-z_])/u,
     'the convergence preview shows a person no digest');
-  assert.match(advancePreview.output, /Shell: singularity-flow confirm [0-9A-Z]{4}-[0-9A-Z]{4}\n/u);
+  assert.match(advancePreview.output, /Shell: singularity-flow story advance --work-id \S+ --submit\n/u);
+  assert.doesNotMatch(advancePreview.output, /singularity-flow confirm [0-9A-Z]{4}-[0-9A-Z]{4}/u, 'no code to type');
   const confirmation = JSON.parse(sflow(root, ['story', 'advance', '--work-id', WORK, '--json']).stdout).confirmationDigest;
   assert.match(confirmation ?? '', /^sha256:[0-9a-f]{64}$/,
     'convergence preview omitted its exact confirmation digest');

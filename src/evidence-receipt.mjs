@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { approvesAutomatically } from './approval-authority.mjs';
 
 import {
   changedRepositoryPaths, loadActiveSpecRecords, mergeObservedClaimRecords, mergePlannedClaimRecords
@@ -53,10 +54,13 @@ function checkProjection(phase, packet) {
 
 function approvalProjection(phase, packet, workflow) {
   const mode = phase?.approvalPolicy?.mode ?? 'required';
-  const required = ['none', 'policy'].includes(mode) ? 0 : phase?.approvalPolicy?.minimum ?? 1;
+  // Approve twice: a step SFlow approves when it is ready says so; one it approved needs no person's approval.
+  const automatic = approvesAutomatically(phase?.approvalPolicy)
+    ? (phase.status === 'approved' && phase.approvalDisposition === 'approved_automatically' ? 'approved' : 'when-ready') : null;
+  const required = ['none', 'policy'].includes(mode) || automatic === 'approved' ? 0 : phase?.approvalPolicy?.minimum ?? 1;
   // On a Story SF Guard requires, only an approval whose presence signature verifies counts (M4).
   const decisions = countedApprovals(workflow, (packet.approvals ?? []).filter((entry) => !entry.invalidatedAt && entry.decision === 'approved'));
-  return { status: 'exact', mode, required, current: decisions.length };
+  return { status: 'exact', mode, required, current: decisions.length, ...(automatic ? { automatic } : {}) };
 }
 
 /**
@@ -225,6 +229,8 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
 export function receiptApprovalText(receipt) {
   const { approvals } = receipt;
   if (approvals.mode === 'none') return 'not required (approval mode none)';
+  if (approvals.automatic === 'approved') return 'approved automatically (no person; the reviewer said ready, its checks passed, nothing was open)';
+  if (approvals.automatic === 'when-ready') return `${approvals.current}/${approvals.required}; approved automatically when its reviewer says ready and nothing is open, otherwise by a person`;
   if (approvals.mode === 'policy') {
     return receipt.nextHumanAction === REVIEW_ACTION
       ? `${approvals.current} recorded; the low-risk policy did not waive this phase, so it needs human approval`

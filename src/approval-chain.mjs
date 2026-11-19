@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { approvalPolicyCapacity, approvalRequirementsMet, remainingRequiredAuthorities } from './approval-authority.mjs';
+import { approvalPolicyCapacity, approvalRequirementsMet, approvesAutomatically, remainingRequiredAuthorities } from './approval-authority.mjs';
 import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
 import { noCurrentPhaseLabel, storyStatusLabel } from './progress.mjs';
 
@@ -80,6 +80,9 @@ function policyPhaseReviewedByPeople(phase, activeApprovals) {
 function approvalState(phase, mode, met, minimum, reviewedByPeople = false) {
   if (phase.status === 'skipped') return 'skipped';
   if (mode === 'none') return 'not-required';
+  // Approve twice: SFlow approved it when it was ready, or will once it is submitted ready with nothing open.
+  if (automaticApprovalDisposition(phase) === 'approved_automatically') return 'approved-automatically';
+  if (approvesAutomatically(phase.approvalPolicy) && ['in_progress', 'pending'].includes(phase.status)) return 'approved-automatically-when-ready';
   // Policy approval means the waiver completed the phase; a phase it did not cover reads as any
   // human-reviewed phase does.
   if (mode === 'policy' && !reviewedByPeople) return phase.status === 'approved' ? 'policy-approved' : 'policy-pending';
@@ -122,7 +125,8 @@ export function approvalChainSnapshot(workflow, { presence = null } = {}) {
     const activeApprovals = decisions.filter((entry) => entry.active && entry.decision === 'approved' && entry.counted !== false);
     // A policy-mode phase needs people's approvals only once the waiver did not cover it.
     const reviewedByPeople = mode === 'policy' && policyPhaseReviewedByPeople(phase, activeApprovals.length);
-    const minimum = mode === 'none' || (mode === 'policy' && !reviewedByPeople) ? 0 : (policy.minimum ?? 1);
+    const automatic = automaticApprovalDisposition(phase) === 'approved_automatically';
+    const minimum = mode === 'none' || automatic || (mode === 'policy' && !reviewedByPeople) ? 0 : (policy.minimum ?? 1);
     const authorities = Object.freeze((policy.authorities ?? []).map((id) => authority(workflow, id)));
     const capacity = approvalPolicyCapacity(workflow.resolution?.approvalAuthorities, policy);
     const peopleDecide = minimum > 0;
@@ -188,7 +192,7 @@ function names(documents) {
 
 function requirement(approval) {
   if (approval.mode === 'none') return 'not required';
-  if (approval.mode === 'policy' && approval.minimum === 0) return approval.state.replaceAll('-', ' ');
+  if ((approval.mode === 'policy' || approval.state === 'approved-automatically') && approval.minimum === 0) return approval.state.replaceAll('-', ' ');
   return `${approval.received}/${approval.minimum}`;
 }
 

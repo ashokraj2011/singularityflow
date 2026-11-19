@@ -13,6 +13,7 @@ import { commandResult, noop, noEffects, succeeded, effects } from '../narration
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { withRefusalMemory } from './shared/with-refusal-memory.mjs';
 import { actionActor } from './kernel.mjs';
+import { automaticApprovalOn } from '../approval-authority.mjs';
 import { phaseUsesDeterministicGeneration } from '../manual-authorship.mjs';
 import { createStoryReviewPacket } from '../story-lineage.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
@@ -99,7 +100,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     if (typeof convergenceConfirmation !== 'string'
         || !/^sha256:[0-9a-f]{64}$/.test(convergenceConfirmation)) {
       throw new SingularityFlowError(
-        `Convergence can be submitted only through explicit human advancement. Run singularity-flow story advance --work-id ${resolvedWorkId} to review the deterministic result and receive its digest-bound confirmation command.`,
+        `Convergence is submitted with singularity-flow story advance --work-id ${resolvedWorkId} --submit, which checks the report first; a person then reviews it and approves it with one Yes.`,
         { code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED', details: { workId: resolvedWorkId, nextAction: `singularity-flow story advance --work-id ${resolvedWorkId}` } }
       );
     }
@@ -213,6 +214,20 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       )
     : { ok: false, value: null };
   const evidenceReceipt = evidenceReceiptResult.value;
+  // Approve twice (owner, 2026-11-19): a step SFlow approves when it is ready is approved now, in its own commit, when its
+  // reviewer said ready, its checks passed and nothing is open for it; otherwise its people approve it and are told why.
+  let automaticApproval = null;
+  if (phase.status === 'awaiting_approval' && automaticApprovalOn(phase.approvalPolicy)) {
+    const submittedId = phase.id;
+    automaticApproval = (await postPublicationStep('the automatic approval', workflow.workItem.id, async () => {
+      const current = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+      return (await import('../automatic-approval.mjs')).approveAutomaticallyAfterSubmission(root, current.config, current.workflow, submittedId, { actor: actionActor(root) });
+    })).value;
+    if (automaticApproval?.approved) {
+      workflow = automaticApproval.workflow;
+      phase = workflow.phases[submittedId];
+    }
+  }
   const approvalMode = phase.approvalPolicy?.mode ?? 'required';
   const completedWithoutReview = phase.status === 'approved' && approvalMode === 'none';
   const completedByPolicy = phase.status === 'approved' && approvalMode === 'policy';
@@ -234,12 +249,14 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   const pushedTo = publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : null;
   if (!json) {
     if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
+    else if (automaticApproval?.approved) console.log(`\nApproved ${phase.label ?? phase.id} v${phase.generation} automatically: ${automaticApproval.checked.join('; ')}.`);
     else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
     else console.log(`\nSubmitted ${phase.id} phase for approval.`);
+    if (automaticApproval?.applies && !automaticApproval.approved) console.log((await import('../automatic-approval.mjs')).needsPersonWords(phase, automaticApproval));
     for (const repair of registrationRepairs) {
       console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
     }
-    console.log(`Committed: ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
+    console.log(`Committed: ${automaticApproval?.approved ? 'request approval, then approved automatically' : phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
     console.log(`Push: ${pushedTo ?? 'disabled by git.publish: off'}`);
     if (receiptsLine) console.log(receiptsLine);
     if (fixedOnTheWay?.moved.length) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
@@ -261,6 +278,11 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   // An approval-free last phase ends the Story here; its transaction passed the final evaluation.
   const completion = !advanced ? recordedCompletion(workflow) : null;
   if (completion && !json) printCompletionVerdict(completion);
+  // SFlow never merges (owner, 2026-11-19): when the last steps were approved by themselves after a person's Yes to the
+  // delivered code, finalizing and opening the pull request follow here (story-landing.mjs).
+  const landing = completion ? (await postPublicationStep('finalizing and the pull request', workflow.workItem.id,
+    async () => (await import('../story-landing.mjs')).landAfterLastApproval(root, workflow.workItem.id))).value : null;
+  if (landing && !json) for (const line of landing.lines) console.log(line);
   emitCommandResult(commandResult({
     operation: { id: 'submit', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -278,7 +300,10 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       registrationRepairs,
       generation: phase.generation,
       pushedTo,
+      ...(automaticApproval?.applies ? { automaticApproval: { approved: automaticApproval.approved === true, checked: automaticApproval.checked ?? [],
+        open: automaticApproval.open ?? [], ...(automaticApproval.approved ? { commit: automaticApproval.publication?.sha ?? null } : {}) } } : {}),
       ...(fixedOnTheWay?.moved.length ? { fixedOnTheWay: fixedOnTheWay.moved } : {}),
+      ...(landing ? { landing: { finalized: landing.finalized, pullRequest: landing.pullRequest, next: landing.next } } : {}),
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
   }), {

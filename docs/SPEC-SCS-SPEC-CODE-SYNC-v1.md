@@ -246,7 +246,7 @@ so it offers the same answer in the same words ("Still holds (N rows)" under "On
 - `[SCS:CON-003]` Nothing new holds publish or submit. Every new hold is on approval and names who clears it.
 - `[SCS:CON-004]` No workflow gains a step. Convergence stays where it is.
 - `[SCS:CON-005]` Skill edits add no stop or hand-off reason and keep within their token budgets.
-- `[SCS:CON-006]` A recorded text, a departure reason or a slot never holds a secret: redaction runs
+- `[SCS:CON-006]` A recorded text, a departure reason or a slot never holds a secret; redaction runs
   before anything is written.
 
 ## Not in scope

@@ -75,13 +75,13 @@ function fixtureBody(theme: VisualTheme): string {
 
 /** A standalone, offline page that can be opened in any browser for deterministic visual review. */
 export function enterpriseVisualFixture(review: VisualReviewCase): string {
-  const token = 'singularity-flow-visual-fixture';
-  const overrides = `<style nonce="${token}">:root{${PALETTES[review.theme]}}body{max-width:${review.width}px}</style>`;
+  const styleNonce = 'singularity-flow-visual-fixture';
+  const overrides = `<style nonce="${styleNonce}">:root{${PALETTES[review.theme]}}body{max-width:${review.width}px}</style>`;
   return page(
     `Singularity Flow ${review.theme} ${review.width}`,
     `${overrides}${fixtureBody(review.theme)}`,
     // No script-src at all: this opens in a browser with no extension behind it, so the shared
     // footer is omitted rather than rendered as navigation that leads nowhere.
-    `default-src 'none'; style-src 'nonce-${token}'`, token, '', { nav: false }
+    `default-src 'none'; style-src 'nonce-${styleNonce}'`, styleNonce, '', { nav: false }
   );
 }

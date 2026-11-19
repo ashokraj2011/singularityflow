@@ -26,7 +26,7 @@ export class RepositoryEpochGuard {
     this.epoch += 1;
   }
 
-  isCurrent(token: RepositoryEpochToken): boolean {
-    return token.repository === this.repository && token.epoch === this.epoch;
+  isCurrent(captured: RepositoryEpochToken): boolean {
+    return captured.repository === this.repository && captured.epoch === this.epoch;
   }
 }

@@ -21,7 +21,9 @@ const ENVIRONMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const VARIABLE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 /** The amendment's list: a name with any of these words is a secret, whatever its value. */
-const SECRET_NAME = /password|passwd|secret|token|key|credential|private/i;
+const SENSITIVE_NAME = /password|passwd|secret|token|key|credential|private/i;
+/** The kind such a name is given. */
+const PRIVATE_KIND = 'secret';
 const PLACEHOLDER = /^(?:\$\{[^}]*\}|\$[A-Za-z_]\w*|%[A-Za-z_]\w*%)$/;
 const MAX_ARGV = 256;
 
@@ -111,10 +113,10 @@ export function repositoryRelative(value: unknown): string | null {
 export function secretArgument(argv: readonly string[]): { index: number; name: string } | null {
   for (const [index, argument] of argv.entries()) {
     const pair = /^(?:--?|-D)?([A-Za-z_][\w.-]*)=(.*)$/s.exec(argument);
-    if (pair && SECRET_NAME.test(pair[1]!) && pair[2] && !PLACEHOLDER.test(pair[2])) return { index, name: pair[1]! };
+    if (pair && SENSITIVE_NAME.test(pair[1]!) && pair[2] && !PLACEHOLDER.test(pair[2])) return { index, name: pair[1]! };
     const flag = /^--?([A-Za-z_][\w.-]*)$/.exec(argument);
     const next = argv[index + 1];
-    if (flag && SECRET_NAME.test(flag[1]!) && next !== undefined && !next.startsWith('-') && !PLACEHOLDER.test(next)) {
+    if (flag && SENSITIVE_NAME.test(flag[1]!) && next !== undefined && !next.startsWith('-') && !PLACEHOLDER.test(next)) {
       return { index: index + 1, name: flag[1]! };
     }
   }
@@ -160,7 +162,7 @@ function namesFrom(value: unknown): SuggestedName[] {
     seen.add(`${name}\u0000${scope}`);
     const declared = text(entry.kind);
     // A secret-looking name is a secret even when the engine called it something else.
-    const kind = declared === 'secret' || SECRET_NAME.test(name) ? 'secret' : declared === 'endpoint' ? 'endpoint' : 'flag';
+    const kind = declared === 'secret' || SENSITIVE_NAME.test(name) ? PRIVATE_KIND : declared === 'endpoint' ? 'endpoint' : 'flag';
     const raw = typeof entry.default === 'string' && !CONTROL.test(entry.default) ? entry.default : null;
     const given = typeof entry.value === 'string' && !CONTROL.test(entry.value) ? entry.value : null;
     let fallback: string | null = null;
@@ -304,7 +306,7 @@ export function checkedEnvironmentsDraft(draft: string | null): { draft: string 
     const object = record(value);
     if (!object) return;
     const name = text(object.name);
-    if (name && (object.kind === 'secret' || SECRET_NAME.test(name)) && (object.value !== undefined || object.default !== undefined)) leaks.add(name);
+    if (name && (object.kind === 'secret' || SENSITIVE_NAME.test(name)) && (object.value !== undefined || object.default !== undefined)) leaks.add(name);
     Object.values(object).forEach(visit);
   };
   visit(parsed);

@@ -87,10 +87,10 @@ export function lifecycleActionKind(action: LifecycleChatAction, phase: string, 
   return null;
 }
 
-async function decisionAnswers(inputs: DecisionInputSpec[], token: vscode.CancellationToken): Promise<Record<string, string> | null> {
+async function decisionAnswers(inputs: DecisionInputSpec[], cancellation: vscode.CancellationToken): Promise<Record<string, string> | null> {
   const values: Record<string, string> = {};
   for (const input of inputs) {
-    if (token.isCancellationRequested) return null;
+    if (cancellation.isCancellationRequested) return null;
     const prompt = decisionInputPrompt(input);
     const answer = prompt.choices
       ? await vscode.window.showQuickPick(prompt.choices, { title: prompt.title, ignoreFocusOut: true })
@@ -106,7 +106,7 @@ async function decisionAnswers(inputs: DecisionInputSpec[], token: vscode.Cancel
 /** Injected session resolver is rechecked after every human interaction and before every write. */
 export async function runLifecycleChat(
   command: LifecycleChatCommand, prompt: string, stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken, signal: AbortSignal,
+  cancellation: vscode.CancellationToken, signal: AbortSignal,
   getSession: (signal: AbortSignal) => Promise<LifecycleChatSession>,
   isPaused: () => boolean, output: vscode.OutputChannel
 ): Promise<void> {
@@ -116,7 +116,7 @@ export async function runLifecycleChat(
     throw new Error('The requested phase or Story is not the verified active session. Select it first; nothing was executed.');
   }
   const stillCurrent = async () => {
-    if (token.isCancellationRequested || signal.aborted || isPaused()) return false;
+    if (cancellation.isCancellationRequested || signal.aborted || isPaused()) return false;
     const current = await getSession(signal);
     if (unsavedRepositoryPaths(vscode.workspace.textDocuments ?? [], active.editorRoot).length) {
       throw new Error('Save the edited repository buffers before reviewing or executing a lifecycle action; unsaved changes were not published or approved.');
@@ -135,7 +135,7 @@ export async function runLifecycleChat(
   if (command === 'submit' || command === 'continue') {
     const readiness = await active.client.run<SubmissionReadiness>(['status', active.workId, '--submission-readiness', '--json'], signal);
     if (readiness.phaseId === active.phaseId && readiness.lifecycleReady && readiness.decisionInputs?.length) {
-      const answers = await decisionAnswers(readiness.decisionInputs, token);
+      const answers = await decisionAnswers(readiness.decisionInputs, cancellation);
       if (!answers || !(await stillCurrent())) { stream.markdown('Cancelled; no lifecycle action was executed.\n'); return; }
       values = answers;
     }

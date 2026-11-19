@@ -22,14 +22,14 @@ export class BackgroundWorkGovernor {
 
   /** Hold optional work until `release`. Holds nest; the last release lets waiters run. */
   hold(reason: string): BackgroundHold {
-    const token = Symbol(reason);
-    this.holds.add(token);
+    const marker = Symbol(reason);
+    this.holds.add(marker);
     let released = false;
     return {
       release: () => {
         if (released) return;
         released = true;
-        this.holds.delete(token);
+        this.holds.delete(marker);
         if (!this.holds.size) for (const waiter of [...this.waiters]) waiter();
       }
     };

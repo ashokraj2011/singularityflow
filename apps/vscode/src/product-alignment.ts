@@ -148,7 +148,7 @@ function failureText(error: unknown): string {
 }
 
 /**
- * One background pass: status, then alignment only when the machine can repair a surface itself.
+ * One background run of status, then alignment only when the machine can repair a surface itself.
  * Returns what happened, for the caller's log and for tests.
  */
 export async function alignProductSurfaces(host: ProductAlignmentHost, {

@@ -504,7 +504,7 @@ export function createWorkflowDraftRecoveryStore(directory: string, secrets: Wor
   if (!literal(directory, 8192) || !path.isAbsolute(directory) || path.resolve(directory) !== directory
       || directory === path.parse(directory).root || /[\0\r\n]/u.test(directory)
       || !secrets || typeof secrets.get !== 'function' || typeof secrets.store !== 'function') invalid();
-  const secretName = `singularityFlow.workflowDraftRecovery.aes256.${hash(directory)}`;
+  const keychainEntry = `singularityFlow.workflowDraftRecovery.aes256.${hash(directory)}`;
   const queueKey = (scope: WorkflowDraftRecoveryScope) => `${directory}\0${scopeHash(scope)}`;
   const location = (scope: WorkflowDraftRecoveryScope) => path.join(directory, `${scopeHash(scope)}.wdr.enc`);
   interface Review { scope: WorkflowDraftRecoveryScope; directory: Directory; name: string;
@@ -597,7 +597,7 @@ export function createWorkflowDraftRecoveryStore(directory: string, secrets: Wor
       return queued(queueKey(scope), () => guarded(async () => {
         const folder = await directoryAt(directory, false);
         if (!folder) return null;
-        return (await readCheckpoint(folder, location(scope), scope, secrets, secretName))?.checkpoint ?? null;
+        return (await readCheckpoint(folder, location(scope), scope, secrets, keychainEntry))?.checkpoint ?? null;
       }));
     },
     async write(input, expectedCheckpointId = null) {
@@ -611,14 +611,14 @@ export function createWorkflowDraftRecoveryStore(directory: string, secrets: Wor
         const folder = (await directoryAt(directory, true))!;
         return lock(folder, `.${scopeHash(scope)}.lock`, async () => {
           const file = location(scope);
-          const prior = await readCheckpoint(folder, file, scope, secrets, secretName);
+          const prior = await readCheckpoint(folder, file, scope, secrets, keychainEntry);
           if (prior?.checkpoint.checkpointId === captured.checkpoint.checkpointId) {
             if (prior.bytes.equals(captured.bytes)) return;
             return refuse('WORKFLOW_DRAFT_RECOVERY_CHECKPOINT_CHANGED', 'A private checkpoint ID was reused with different content. Nothing was replaced.');
           }
           if ((prior?.checkpoint.checkpointId ?? null) !== expected) return refuse('WORKFLOW_DRAFT_RECOVERY_CONFLICT',
             'A different or newer private checkpoint exists. Read and review it; no private buffer was overwritten.');
-          const key = await keyFor(folder, secrets, secretName, true);
+          const key = await keyFor(folder, secrets, keychainEntry, true);
           try {
             const nonce = randomBytes(12); const keyId = hash(key);
             const cipher = createCipheriv('aes-256-gcm', key, nonce);
@@ -641,7 +641,7 @@ export function createWorkflowDraftRecoveryStore(directory: string, secrets: Wor
         if (!folder) return false;
         return lock(folder, `.${scopeHash(scope)}.lock`, async () => {
           const file = location(scope);
-          const prior = await readCheckpoint(folder, file, scope, secrets, secretName);
+          const prior = await readCheckpoint(folder, file, scope, secrets, keychainEntry);
           if (!prior || prior.checkpoint.checkpointId !== expected) return false;
           await unchanged(folder);
           const current = await regular(file);

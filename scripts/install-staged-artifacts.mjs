@@ -713,13 +713,13 @@ function journalMutationLockPath(journal) {
 async function withJournalMutationLock(journal, mutate) {
   const directory = journalMutationLockPath(journal);
   const ownerFile = path.join(directory, 'owner.json');
-  const token = randomUUID();
+  const nonce = randomUUID();
   let acquired = false;
   for (let attempt = 0; attempt < JOURNAL_MUTATION_LOCK_ATTEMPTS; attempt += 1) {
     try {
       await mkdir(directory, { mode: 0o700 });
       try {
-        await writeFile(ownerFile, `${JSON.stringify({ pid: process.pid, token })}\n`, {
+        await writeFile(ownerFile, `${JSON.stringify({ pid: process.pid, token: nonce })}\n`, {
           flag: 'wx', mode: 0o600
         });
         await chmod(directory, 0o700);
@@ -768,7 +768,7 @@ async function withJournalMutationLock(journal, mutate) {
     }).catch(() => null);
     let owner = null;
     try { owner = input ? JSON.parse(input.bytes.toString('utf8')) : null; } catch { owner = null; }
-    if (owner?.pid !== process.pid || owner?.token !== token) {
+    if (owner?.pid !== process.pid || owner?.token !== nonce) {
       fail('activation journal mutation lock ownership changed during the write.');
     }
     const released = `${directory}.released-${process.pid}-${randomUUID()}`;

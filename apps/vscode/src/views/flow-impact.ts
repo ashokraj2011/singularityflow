@@ -17,6 +17,9 @@ import {
   configurationSaveDisposition, configurationSavePlan, configurationSavePlanCliArgs
 } from './configuration-save.ts';
 
+/** The word a guardrail that held is shown with. */
+const OK = 'pass';
+
 interface ImpactGroup { id: string; label: string; assistanceMode: string }
 export interface ImpactStudy {
   id: string; label: string; enabled: boolean; method: string;
@@ -184,7 +187,7 @@ function comparisonHtml(result: ImpactComparison | null): string {
     <p>Bootstrap confidence interval <strong>${numeric(result.result.confidenceInterval.lower)}% to ${numeric(result.result.confidenceInterval.upper)}%</strong></p>
     ${result.hypothesis ? `<p><strong>Predeclared hypothesis:</strong> ${escape(result.hypothesis)}</p>` : ''}
     ${result.promptAdherence ? `<p>Prompt adherence: <strong>${result.promptAdherence.exact} exact</strong> · ${result.promptAdherence.partial} partial · ${result.promptAdherence.unavailable} unavailable.</p>` : ''}</div>
-  <table><thead><tr><th>Guardrail</th><th>Regression</th><th>Maximum</th><th>Result</th></tr></thead><tbody>${result.guardrails.map((item) => `<tr><td>${escape(item.metric)}</td><td>${item.regressionPercent == null ? 'Unavailable' : `${numeric(item.regressionPercent)}%`}</td><td>${numeric(item.maximumRegressionPercent)}%</td><td><span class="pill ${item.passed ? 'ok' : 'bad'}">${item.passed ? 'pass' : 'fail'}</span></td></tr>`).join('')}</tbody></table>`;
+  <table><thead><tr><th>Guardrail</th><th>Regression</th><th>Maximum</th><th>Result</th></tr></thead><tbody>${result.guardrails.map((item) => `<tr><td>${escape(item.metric)}</td><td>${item.regressionPercent == null ? 'Unavailable' : `${numeric(item.regressionPercent)}%`}</td><td>${numeric(item.maximumRegressionPercent)}%</td><td><span class="pill ${item.passed ? 'ok' : 'bad'}">${item.passed ? OK : 'fail'}</span></td></tr>`).join('')}</tbody></table>`;
 }
 
 export function flowImpactBody(state: FlowImpactState, tab = 'overview'): string {

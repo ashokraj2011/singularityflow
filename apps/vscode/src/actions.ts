@@ -573,10 +573,11 @@ export async function approveWithReceipt(
   }
 
   // One builder for the CLI's argument forms (a witness exception carries its facets).
+  const liveReceipt = receipt.token;
   const argv = request.kind === 'story'
     ? (await import('./views/approval-review.ts')).storyApprovalArguments({ workId: request.workId, phaseId: request.phaseId,
-      receiptToken: receipt.token, checklist, witnessDecisions, inApprovalDecisions: answered, decisionsDigest: inApproval?.digest ?? null })
-    : ['initiative', 'approve', request.subject, '--selection-receipt', receipt.token];
+      receiptToken: liveReceipt, checklist, witnessDecisions, inApprovalDecisions: answered, decisionsDigest: inApproval?.digest ?? null })
+    : ['initiative', 'approve', request.subject, '--selection-receipt', liveReceipt];
   const run = async (extra: string[] = []): Promise<boolean> => {
     if (!(await stillCurrent())) return false;
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay([...argv, ...extra])}`);

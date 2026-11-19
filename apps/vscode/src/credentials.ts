@@ -1,17 +1,19 @@
 import type * as vscode from 'vscode';
 
 const JIRA_CONFIG = 'singularityFlow.jira.config';
-const JIRA_TOKEN = 'singularityFlow.jira.token';
+const JIRA_ACCESS = 'singularityFlow.jira.token';
 const STORAGE_PREFIX = 'singularityFlow.storage.';
 const STORAGE_INDEX = 'singularityFlow.storage.index';
 const TEAMS_WEBHOOK = 'singularityFlow.teams.webhook';
 const INTEGRATION_PREFIX = 'singularityFlow.integration.';
 const INTEGRATION_INDEX = 'singularityFlow.integration.index';
 /** An environment secret an integration target names, such as SFLOW_SECRET_EVENTS_KEY (the engine's rule). */
-export const INTEGRATION_SECRET_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
+export const INTEGRATION_SECRET_NAME =
+  /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
 
 /** Where an integration secret comes from on this machine, if anywhere. */
-export type IntegrationSecretSource = 'stored' | 'environment' | 'missing';
+export type IntegrationSecretSource =
+  'stored' | 'environment' | 'missing';
 
 /** The environment variable the engine reads a storage provider's token from. */
 export function storageTokenVariable(providerId: string): string {
@@ -32,7 +34,7 @@ export class SecureCredentials {
 
   async jiraStatus(): Promise<{ connected: boolean; config: JiraSecretConfig | null }> {
     const raw = await this.secrets.get(JIRA_CONFIG);
-    const token = await this.secrets.get(JIRA_TOKEN);
+    const token = await this.secrets.get(JIRA_ACCESS);
     if (!raw || !token) return { connected: false, config: null };
     try { return { connected: true, config: JSON.parse(raw) as JiraSecretConfig }; }
     catch { return { connected: false, config: null }; }
@@ -43,17 +45,17 @@ export class SecureCredentials {
     if (baseUrl.protocol !== 'https:') throw new Error('Jira must use HTTPS.');
     if (!token.trim()) throw new Error('Jira API token or PAT is required.');
     await this.secrets.store(JIRA_CONFIG, JSON.stringify({ ...config, baseUrl: baseUrl.toString().replace(/\/$/, '') }));
-    await this.secrets.store(JIRA_TOKEN, token);
+    await this.secrets.store(JIRA_ACCESS, token);
   }
 
   async resetJira(): Promise<void> {
-    await Promise.all([this.secrets.delete(JIRA_CONFIG), this.secrets.delete(JIRA_TOKEN)]);
+    await Promise.all([this.secrets.delete(JIRA_CONFIG), this.secrets.delete(JIRA_ACCESS)]);
   }
 
   async environment(base: NodeJS.ProcessEnv = process.env): Promise<NodeJS.ProcessEnv> {
     const env = { ...base };
     const status = await this.jiraStatus();
-    const token = await this.secrets.get(JIRA_TOKEN);
+    const token = await this.secrets.get(JIRA_ACCESS);
     if (status.connected && status.config && token) {
       env.JIRA_BASE_URL = status.config.baseUrl;
       env.JIRA_DEPLOYMENT = status.config.deployment;

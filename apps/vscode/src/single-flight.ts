@@ -18,9 +18,9 @@ export class MicrotaskCoalescer {
   request(): void {
     if (this.disposed || this.pending) return;
     this.pending = true;
-    const token = ++this.token;
+    const ticket = ++this.token;
     queueMicrotask(() => {
-      if (this.disposed || !this.pending || token !== this.token) return;
+      if (this.disposed || !this.pending || ticket !== this.token) return;
       this.pending = false;
       this.action();
     });

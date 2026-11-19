@@ -165,7 +165,7 @@ export class RunTesting implements vscode.Disposable {
   }
 
   /** The Run profile: each selected capability's commands, one task at a time. */
-  private async run(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
+  private async run(request: vscode.TestRunRequest, cancellation: vscode.CancellationToken): Promise<void> {
     const include = request.include ? request.include.map((item) => this.target(item)).filter((value): value is TestTarget => value !== null) : null;
     // The engine runs whole commands, so a case cannot be left out of its command's run.
     const exclude = (request.exclude ?? []).filter((item) => this.data.get(item)?.kind !== 'case')
@@ -175,8 +175,8 @@ export class RunTesting implements vscode.Disposable {
     const run = this.controller.createTestRun(request, undefined, true);
     try {
       for (const plan of testRunPlans(include, exclude, all)) {
-        if (token.isCancellationRequested || this.disposed) break;
-        await this.runPlan(run, plan, all[plan.capability] ?? [], token);
+        if (cancellation.isCancellationRequested || this.disposed) break;
+        await this.runPlan(run, plan, all[plan.capability] ?? [], cancellation);
       }
     } finally {
       run.end();
@@ -195,7 +195,7 @@ export class RunTesting implements vscode.Disposable {
     return { ended, dispose: () => { subscription?.dispose(); if (pending) this.pending.delete(pending); } };
   }
 
-  private async runPlan(run: vscode.TestRun, plan: TestRunPlan, every: readonly string[], token: vscode.CancellationToken): Promise<void> {
+  private async runPlan(run: vscode.TestRun, plan: TestRunPlan, every: readonly string[], cancellation: vscode.CancellationToken): Promise<void> {
     const { capability } = plan;
     const items = (plan.commands.length ? plan.commands : every).map((id) => this.known.get(`${capability}/${id}`))
       .filter((item): item is vscode.TestItem => Boolean(item));
@@ -211,7 +211,7 @@ export class RunTesting implements vscode.Disposable {
       return;
     }
     for (const item of items) run.started(item);
-    const cancel = token.onCancellationRequested(() => this.runner.cancelTests(capability));
+    const cancel = cancellation.onCancellationRequested(() => this.runner.cancelTests(capability));
     let end: TestsEnded | null;
     try { end = await next.ended; } finally { cancel.dispose(); }
     if (!end || end.cancelled) {

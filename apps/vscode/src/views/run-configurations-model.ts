@@ -56,7 +56,7 @@ const same = (left: unknown, right: unknown): boolean => canonical(left) === can
 // ---------------------------------------------------------------------------------------------
 // Secrets: the engine's rule (src/app-suggestions.mjs), ported exactly; a test pins the parity.
 
-const SECRET_NAME = /pass|secret|token|key|credential|private|auth/i;
+const SENSITIVE_NAME = /pass|secret|token|key|credential|private|auth/i;
 
 function entropy(value: string): number {
   const counts = new Map<string, number>();
@@ -66,7 +66,7 @@ function entropy(value: string): number {
   return bits;
 }
 
-export const looksSecretName = (name: unknown): boolean => SECRET_NAME.test(String(name ?? ''));
+export const looksSecretName = (name: unknown): boolean => SENSITIVE_NAME.test(String(name ?? ''));
 
 /** A JWT, a cloud key, a URL with userinfo, a private key or a long random token. */
 export function looksSecretValue(raw: unknown): boolean {
@@ -104,10 +104,10 @@ export function secretInArguments(tokens: readonly string[]): string | null {
     return !assignment && looksSecretValue(piece) ? 'a value' : null;
   };
   for (let index = 0; index < tokens.length; index += 1) {
-    const token = String(tokens[index]);
-    const flag = /^--?([A-Za-z][\w.-]*)$/.exec(token);
+    const arg = String(tokens[index]);
+    const flag = /^--?([A-Za-z][\w.-]*)$/.exec(arg);
     if (flag && looksSecretName(flag[1]) && index + 1 < tokens.length && !String(tokens[index + 1]).startsWith('-')) return flag[1]!;
-    const property = /^(-D[\w.-]+=|--[\w.-]+=)(.*)$/s.exec(token);
+    const property = /^(-D[\w.-]+=|--[\w.-]+=)(.*)$/s.exec(arg);
     if (property && /\s/.test(property[2]!)) {
       const name = property[1]!.replace(/^-D|^--|=$/g, '');
       if (looksSecretName(name)) return name;
@@ -115,7 +115,7 @@ export function secretInArguments(tokens: readonly string[]): string | null {
       if (found) return found;
       continue;
     }
-    const found = part(token);
+    const found = part(arg);
     if (found) return found;
   }
   return null;
@@ -978,8 +978,8 @@ export function sanitizedEntry(raw: Entry): { entry: Entry; dropped: string[]; r
   collect(entry);
   for (const own of Object.values(record(entry.perEnvironment) ?? {})) if (record(own)) collect(record(own)!);
   for (const list of lists) {
-    const secret = Array.isArray(list) ? secretInArguments(list.map(String)) : null;
-    if (secret) return { entry, dropped, refusal: `An argument looks like it carries ${secret === 'a value' ? 'a secret value' : `the value of ${secret}`}; it cannot be kept as written.` };
+    const flagged = Array.isArray(list) ? secretInArguments(list.map(String)) : null;
+    if (flagged) return { entry, dropped, refusal: `An argument looks like it carries ${flagged === 'a value' ? 'a secret value' : `the value of ${flagged}`}; it cannot be kept as written.` };
   }
   return { entry, dropped, refusal: null };
 }

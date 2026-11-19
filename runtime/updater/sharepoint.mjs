@@ -51,7 +51,8 @@ export function folderMetadata(page, effectiveUrl) {
     try { base = decodeURIComponent(libraryUrl.pathname).replace(/\/$/u, ''); }
     catch { fail('SharePoint supplied an invalid library path.'); }
     if (!item.startsWith(base + '/') && item !== base) continue;
-    return { drive: driveUrl.href.replace(/\/$/u, ''), token: token.replace(/^[?&]/u, ''), folder: item.slice(base.length).replace(/^\//u, '') };
+    const accessQuery = token.replace(/^[?&]/u, '');
+    return { drive: driveUrl.href.replace(/\/$/u, ''), token: accessQuery, folder: item.slice(base.length).replace(/^\//u, '') };
   }
   fail('SharePoint did not expose public folder download details. Check that the link opens the folder without signing in and allows downloading.');
 }

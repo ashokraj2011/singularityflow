@@ -12,7 +12,12 @@
  *   too): nothing changes;
  * - an installed Node matches: the highest one goes first on the run's PATH, with the npm beside it;
  * - nothing installed matches, or the file names no version: the run goes ahead on what PATH finds
- *   and says so. SFlow never installs a Node, and a failed run shows the reason (test-run-cause.mjs).
+ *   and says so, with the install command for the version manager found here. SFlow never installs a
+ *   Node, and a failed run shows the reason (test-run-cause.mjs);
+ * - unless SFlow settled another installed Node for this Story's tests (node-version-settle.mjs, with an
+ *   undo on the decisions card) [owner, 2026-11-19]: that one goes first on PATH, status `settled`, and
+ *   the version file is left as it is. The settlement is kept beside the repository's Git data and
+ *   counts for the Story's branch and for the detached checkouts SFlow runs its tests in.
  *
  * The file's text only chooses among the version folders of known version managers: it is read as
  * a version or not at all, and never becomes a path. A failure here never stops a run. The record
@@ -33,6 +38,9 @@ const LTS_MAJORS = Object.freeze({
 });
 
 const valueOf = (environment, name) => environment[Object.keys(environment).find((key) => key.toUpperCase() === name) ?? name];
+
+/** Where SFlow keeps the Nodes it settled for Stories' tests, under the repository's shared Git folder. */
+export const NODE_OVERRIDES_FILE = Object.freeze(['singularity-flow', 'node-overrides.json']);
 
 /** What a version file asks for: `{ wanted, ... }`, or null when its text names no version. */
 export function parseNodeVersionRequest(text) {
@@ -151,8 +159,81 @@ async function nvmLtsMajor(environment, name, home) {
 }
 
 /**
+ * The checkout's own Git folders, read from its `.git` without starting Git: `{ common, head }`, or null.
+ * A linked worktree's `.git` file names its own folder, whose `commondir` names the shared one.
+ */
+async function checkoutGitFolders(root) {
+  const dotGit = path.join(root, '.git');
+  const info = await stat(dotGit).catch(() => null);
+  if (info?.isDirectory()) return { common: dotGit, head: path.join(dotGit, 'HEAD') };
+  if (!info?.isFile() || info.size > 4096) return null;
+  const pointer = /^gitdir:\s*(.+?)\s*$/mu.exec(await readFile(dotGit, 'utf8').catch(() => ''))?.[1];
+  if (!pointer) return null;
+  const own = path.resolve(root, pointer);
+  const common = (await readFile(path.join(own, 'commondir'), 'utf8').catch(() => null))?.trim();
+  return { common: common ? path.resolve(own, common) : own, head: path.join(own, 'HEAD') };
+}
+
+/**
+ * The Node SFlow settled for a Story's tests in place of what `file` asks for (`wanted`, null when it names no version),
+ * or null. It counts on the Story's branch, and in a detached checkout (an isolated or base run SFlow made of it).
+ */
+export async function settledNodeOverride(root, { file, wanted }) {
+  const folders = await checkoutGitFolders(path.resolve(root)).catch(() => null);
+  if (!folders) return null;
+  const kept = await readFile(path.join(folders.common, ...NODE_OVERRIDES_FILE), 'utf8').then(JSON.parse, () => null);
+  const head = (await readFile(folders.head, 'utf8').catch(() => '')).trim();
+  const branch = head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : null;
+  const matching = (Array.isArray(kept?.overrides) ? kept.overrides : []).filter((entry) => entry && entry.file === file
+    && (entry.wanted ?? null) === (wanted ?? null) && /^\d{1,4}$/u.test(String(entry.version ?? '')) && (branch === null || entry.branch === branch));
+  return matching.at(-1) ?? null;
+}
+
+/**
+ * How a person installs Node `wanted` here: `{ manager, command }` for the first version manager this machine has
+ * (nvm, fnm, Volta, asdf, mise, n, then Homebrew), else `{ manager: null, command: null }`. Reads folders only.
+ */
+export async function nodeInstallCommand(wanted, environment = process.env, {
+  platform = process.platform, home = valueOf(environment, 'HOME') ?? os.homedir(), homebrewPrefixes = HOMEBREW_PREFIXES
+} = {}) {
+  const request = parseNodeVersionRequest(String(wanted ?? ''));
+  const text = request?.wanted ?? null;
+  const major = request?.parts?.[0] ?? request?.major ?? null;
+  if (!text || request.any) return { manager: null, command: null };
+  const there = (folder) => stat(folder).then((entry) => entry.isDirectory(), () => false);
+  const commands = {
+    nvm: `nvm install ${text}`, fnm: `fnm install ${text}`, volta: major ? `volta install node@${major}` : null,
+    asdf: major ? `asdf install nodejs latest:${major}` : null, mise: major ? `mise install node@${major}` : null, n: `n install ${text}`
+  };
+  for (const { manager, root } of nodeInstallRoots(environment, { platform, home })) {
+    if (!commands[manager]) continue;
+    // nvm keeps its Nodes under versions/node once one is installed; its own folder says it is there before that.
+    const folder = manager === 'nvm' && platform !== 'win32' ? path.dirname(path.dirname(root)) : manager === 'n' ? path.dirname(root) : root;
+    if (await there(folder)) return { manager, command: commands[manager] };
+  }
+  if (major && platform !== 'win32') {
+    for (const prefix of homebrewPrefixes) {
+      if (await isFile(path.join(prefix, 'bin', 'brew'))) return { manager: 'Homebrew', command: `brew install node@${major}` };
+    }
+  }
+  return { manager: null, command: null };
+}
+
+/** The highest installed Node of `major` that runs, as `{ version, manager, directory }`, or null. */
+async function installedOfMajor(major, context, { environment, platform, home, homebrewPrefixes }) {
+  const candidates = (await installedNodes(environment, { platform, home, homebrewPrefixes }))
+    .filter((entry) => versionParts(entry.version)?.[0] === Number(major)).sort(descending);
+  for (const candidate of candidates) {
+    if (await nodeVersion(candidate.executable, context) === candidate.version) {
+      return { version: candidate.version, manager: candidate.manager, directory: path.dirname(candidate.executable) };
+    }
+  }
+  return null;
+}
+
+/**
  * What the nearest version file asks of this run, or null with no file. `status` is `current`,
- * `selected`, `not-installed` or `not-a-version`; `directory` is what goes first on PATH.
+ * `selected`, `settled`, `not-installed` or `not-a-version`; `directory` is what goes first on PATH.
  */
 export async function requestedNodeVersion({
   cwd, root = cwd, environment = process.env, platform = process.platform,
@@ -163,26 +244,43 @@ export async function requestedNodeVersion({
   const context = { cwd, environment };
   const current = await nodeVersion('node', context);
   const request = found.text == null ? null : parseNodeVersionRequest(found.text);
-  if (!request) return { file: found.file, wanted: null, status: 'not-a-version', node: current };
+  const machine = { environment, platform, home, homebrewPrefixes };
+  // What SFlow settled for this Story's tests when the file cannot be honoured here [owner, 2026-11-19].
+  const settled = async (shown) => {
+    const override = await settledNodeOverride(root, shown).catch(() => null);
+    if (!override) return null;
+    if (current && versionParts(current)?.[0] === Number(override.version)) return { ...shown, status: 'settled', node: current, settled: override.version };
+    const other = await installedOfMajor(override.version, context, machine);
+    return other ? { ...shown, status: 'settled', node: other.version, manager: other.manager, directory: other.directory, settled: override.version } : null;
+  };
+  if (!request) return await settled({ file: found.file, wanted: null }) ?? { file: found.file, wanted: null, status: 'not-a-version', node: current };
   if (request.lts && request.lts !== '*' && request.major === null) request.major = await nvmLtsMajor(environment, request.lts, home);
   const shown = { file: found.file, wanted: request.wanted };
   if (current && nodeVersionMatches(request, current)) return { ...shown, status: 'current', node: current };
-  const candidates = (await installedNodes(environment, { platform, home, homebrewPrefixes }))
+  const candidates = (await installedNodes(environment, machine))
     .filter((entry) => nodeVersionMatches(request, entry.version)).sort(descending);
   for (const candidate of candidates) {
     // Its folder says the version; only the Node itself says that it runs.
     if (await nodeVersion(candidate.executable, context) !== candidate.version) continue;
     return { ...shown, status: 'selected', node: candidate.version, manager: candidate.manager, directory: path.dirname(candidate.executable) };
   }
-  return { ...shown, status: 'not-installed', node: current };
+  return await settled(shown) ?? { ...shown, status: 'not-installed', node: current };
 }
 
-/** What a person reads about this run's Node, or null when the run is what the file asks for. */
-export function nodeVersionNote({ file, wanted, status, node, manager }) {
+/**
+ * What a person reads about this run's Node, or null when the run is what the file asks for. `install`: the command
+ * nodeInstallCommand found for the version asked, when one was found.
+ */
+export function nodeVersionNote({ file, wanted, status, node, manager }, { install = null } = {}) {
   const ran = node ? `This run used Node ${node}.` : 'No Node was found for this run.';
   if (status === 'selected') return `Using Node ${node} from ${manager} for this run: ${file} asks for ${wanted}.`;
+  if (status === 'settled') {
+    return `Using Node ${node}${manager ? ` from ${manager}` : ''} for this Story's tests: ${file} ${wanted ? `asks for Node ${wanted}, which is not installed here` : 'names no Node version SFlow can read'}. `
+      + 'SFlow settled it; undo it on the decisions card to choose another.';
+  }
   if (status === 'not-installed') {
-    return `${file} asks for Node ${wanted}, and no installed Node matches. ${ran} Install it with your version manager, such as: nvm install ${wanted}`;
+    return `${file} asks for Node ${wanted}, and no installed Node matches. ${ran} Install it${install?.command ? ` with ${install.manager}: ${install.command}`
+      : `, for example with nvm: nvm install ${wanted}`}`;
   }
   return status === 'not-a-version' ? `${file} does not name a Node version SFlow can read. ${ran}` : null;
 }
@@ -207,7 +305,9 @@ export async function withRequestedNode(environment, {
   } catch { /* the run goes ahead on what PATH finds */ }
   if (!requested) return { environment, nodeVersion: null, explained: (result) => result.stderr };
   const { directory = null, ...nodeVersionRecord } = requested;
-  const note = nodeVersionNote(nodeVersionRecord);
+  const install = requested.status === 'not-installed' ? await nodeInstallCommand(requested.wanted, environment, {
+    platform, ...(home ? { home } : {}), ...(homebrewPrefixes ? { homebrewPrefixes } : {}) }).catch(() => null) : null;
+  const note = nodeVersionNote(nodeVersionRecord, { install });
   if (note && !reported.has(note)) { reported.add(note); report(note); }
   const unmet = requested.status === 'not-installed' || requested.status === 'not-a-version';
   const key = Object.keys(environment).find((name) => name.toUpperCase() === 'PATH') ?? 'PATH';

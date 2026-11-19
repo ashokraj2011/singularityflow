@@ -7,8 +7,9 @@
  * specs only by failing at the end of the step (bin-opr, ws-graph, myl-graph; study of 2026-11-06).
  *
  * Everything here only reads: no test runs and nothing is installed or written. An early check says what
- * it found and what a person can do, and it never refuses: only the existing gates refuse. A check that
- * cannot read what it needs says nothing, so a line here is always something seen in this checkout.
+ * it found and what a person can do (or that SFlow does it itself, `by: 'sflow'`), and it never refuses: only
+ * the existing gates refuse. A check that cannot read what it needs says nothing, so a line here is always
+ * something seen in this checkout.
  */
 import { readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
@@ -187,8 +188,12 @@ function upFrom(directory) {
 // What a Node command's steps start from node_modules/.bin: its runner, or what wraps it.
 const NODE_RUNNER_BINARIES = new Set([...['vitest', 'jest', 'mocha', 'playwright', 'cypress', 'karma', 'ng'].flatMap((key) => TEST_RUNNERS[key].launchers), 'nyc', 'c8', 'tsx']);
 
-/** Whether the runners a Node command reaches are installed here: the first run otherwise stops with "command not found". */
-async function dependencyChecks(root, commands, reads) {
+/**
+ * Whether the runners a Node command reaches are installed here: the first run otherwise stops with "command not found".
+ * A folder with a lock file is SFlow's to make ready before the tests run (repository-dependency-setup.mjs), unless the
+ * repository or this machine turned that off (`setupOff`).
+ */
+async function dependencyChecks(root, commands, reads, { setupOff = false } = {}) {
   const found = [];
   const seen = new Set();
   for (const command of commands) {
@@ -211,6 +216,13 @@ async function dependencyChecks(root, commands, reads) {
     seen.add(key);
     const install = await installCommand(directory, reads);
     if (!installed && (binaries.length || Object.keys(dependenciesOf(manifest)).length)) {
+      // `npm install` is what a folder with no lock file needs: it writes one, so it stays the person's.
+      if (!setupOff && install !== 'npm install') {
+        found.push(check('dependencies-not-installed', `Dependencies are not installed in ${where(directory)} yet; a new Story checkout starts without them. `
+          + `SFlow makes them ready itself before the tests run: a copy of the main checkout's when its lock file is the same, else ${install}.`,
+        'Nothing to do. If that fails, SFlow says why and gives the command to run in your own terminal.', { by: 'sflow', install, workingDirectory: directory }));
+        continue;
+      }
       found.push(check('dependencies-not-installed', `Dependencies are not installed in ${where(directory)}, so the first test run would stop with "command not found".`,
         `Run ${install} in ${where(directory)}. A new Story checkout starts without them.`, { command: install, workingDirectory: directory }));
     } else if (missing.length) {
@@ -423,21 +435,32 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
   const { runnerFamily, nodeVersion } = await import('./test-toolchain.mjs');
   const node = commands.filter((command) => runnerFamily(command) === 'node');
   if (!node.length) return [];
-  const { installedNodeVersions, nodeVersionNote, requestedNodeVersion } = await import('./project-node-version.mjs');
+  const { installedNodeVersions, nodeInstallCommand, nodeVersionNote, requestedNodeVersion } = await import('./project-node-version.mjs');
   const found = [];
   for (const directory of new Set(node.map((command) => command.workingDirectory ?? '.'))) {
     const cwd = path.join(root, directory);
     const requested = await requestedNodeVersion({ cwd, root, environment }).catch(() => null);
     if (requested?.status === 'not-installed' || requested?.status === 'not-a-version') {
-      // A version file naming what is not installed is answered by installing it, or by a person changing it to what is.
+      // A version file naming what is not installed: SFlow runs the tests on an installed Node the repository accepts
+      // instead, for this Story only, settled with an undo (node-version-settle.mjs) [owner, 2026-11-19]. With none, a
+      // person installs it, with the command for the version manager found here.
       const here = requested.status === 'not-installed' && requested.file === '.nvmrc' ? await installedNodeVersions(environment).catch(() => []) : [];
       const asks = parsedManifest(await reads.read(joined(directory, 'package.json')))?.engines?.node;
-      const newest = here.find((version) => typeof asks !== 'string' || nodeRangeAccepts(asks, version) !== false);
+      // One per major, newest first: what the settlement chooses among (a probe run when there are several).
+      const candidates = here.filter((version) => typeof asks !== 'string' || nodeRangeAccepts(asks, version) !== false)
+        .filter((version, index, all) => all.findIndex((other) => major(other) === major(version)) === index);
+      const newest = candidates[0];
+      const install = requested.status === 'not-installed' ? await nodeInstallCommand(requested.wanted, environment).catch(() => null) : null;
+      const action = newest ? `Nothing to do: SFlow runs this Story's tests on Node ${newest}${candidates.length > 1 ? ' or another installed Node the tests pass on' : ''} instead, `
+        + `and ${requested.file} stays as it is. You can undo that on the decisions card${install?.command ? `, or install Node ${requested.wanted} (${install.command})` : ''}.`
+        : install?.command ? `Install Node ${requested.wanted}: ${install.command}. SFlow then runs the tests on it; nothing else changes.`
+          : requested.status === 'not-installed' ? `Install Node ${requested.wanted} (https://nodejs.org), or change ${requested.file} to a Node installed here.`
+            : `Change ${requested.file} to a Node version, such as 22.`;
       // `cause`: the same fact in a line a person reads on the decisions card [owner, 2026-11-16].
-      found.push(check('node-version', nodeVersionNote(requested), `Install the version it asks for, or change ${requested.file}.`,
-        { file: requested.file, ...(newest ? { pin: { file: '.nvmrc', version: String(major(newest)), node: newest, replaces: requested.wanted,
-          cause: requested.status === 'not-installed' ? `${requested.file} asks for Node ${requested.wanted}, which is not installed here; Node ${newest} is`
-            : `${requested.file} names no Node version SFlow can read; Node ${newest} is installed here` } } : {}) }));
+      found.push(check('node-version', nodeVersionNote(requested, { install }), action,
+        { file: requested.file, ...(install?.command ? { command: install.command } : {}), ...(newest ? { pin: { file: '.nvmrc', version: String(major(newest)), node: newest, replaces: requested.wanted,
+          candidates, ...(typeof asks === 'string' ? { range: { file: joined(directory, 'package.json'), range: asks } } : {}),
+          cause: `${requested.file} asks for Node ${requested.wanted}, which is not installed here; Node ${newest} is` } } : {}) }));
       continue;
     }
     // SFlow runs tests on what a version file asks for, so the Node below is only for a repository with none.
@@ -455,10 +478,13 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
       // with this evidence instead of asking (node-version-settle.mjs) [owner, 2026-11-13].
       const accepted = others.filter((other) => nodeRangeAccepts(range, other) === true);
       const named = new Set(accepted.map(major)).size === 1 ? { source: { file: joined(directory, 'package.json'), field: 'engines.node', range } } : {};
+      // Several: SFlow runs the tests once on each, newest first, and the first they pass on is the answer (node-version-settle.mjs) [owner, 2026-11-19].
+      const candidates = accepted.filter((other, index) => accepted.findIndex((entry) => major(entry) === major(other)) === index);
       const offered = pin(accepted[0]);
       found.push(check('node-version', `${joined(directory, 'package.json')} asks for Node ${range}, and tests here would run on Node ${version}.${offer}`,
-        'Switch Node before starting, or a person pins it: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.',
-        { node: version, installed, ...(offered.pin ? { pin: { ...offered.pin, ...named,
+        accepted.length ? 'Nothing to do: before the tests run, SFlow pins an installed Node the range accepts in .nvmrc (a repository change it adds to the plan), settled with an undo on the decisions card.'
+          : `Install a Node that ${joined(directory, 'package.json')} accepts (${range}); SFlow then pins it in .nvmrc for the tests.`,
+        { node: version, installed, ...(offered.pin ? { pin: { ...offered.pin, ...named, ...(candidates.length > 1 ? { candidates } : {}),
           cause: `${joined(directory, 'package.json')} asks for Node ${range}, but this machine runs Node ${version}; Node ${offered.pin.node} is installed` } } : {}) }));
       continue;
     }
@@ -476,8 +502,9 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
  * What would surprise someone at the end of this step, found before it starts. Each entry is
  * `{ id, words, action }`; never a refusal, and it never rejects: a check that fails to read says nothing.
  */
-export async function earlyTestChecks(root, commands, { planned = [], environment = process.env } = {}) {
+export async function earlyTestChecks(root, commands, { planned = [], environment = process.env, config = null } = {}) {
   const reads = fileReads(root);
+  const setupOff = String(environment.SINGULARITY_FLOW_DEPENDENCY_SETUP ?? '').toLowerCase() === 'off' || config?.repositoryReadiness?.dependencyHydration === 'off';
   const moduleOf = async (file) => {
     const { resolveAffectedModule } = await import('./code-delivery-tests.mjs');
     return resolveAffectedModule(root, file).then((module) => module.root ?? '.', () => '.');
@@ -485,7 +512,7 @@ export async function earlyTestChecks(root, commands, { planned = [], environmen
   const guarded = async (found) => { try { return await found(); } catch { return []; } };
   const plannedTests = [...new Set(planned)];
   return (await Promise.all([
-    guarded(() => dependencyChecks(root, commands, reads)),
+    guarded(() => dependencyChecks(root, commands, reads, { setupOff })),
     guarded(() => toolChecks(root, commands, environment)),
     guarded(() => nodeVersionChecks(root, commands, { environment, reads })),
     guarded(() => plannedRunnerChecks({ planned: plannedTests, reads, moduleOf })),

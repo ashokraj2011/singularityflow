@@ -836,6 +836,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // starts by itself waits for an idle laptop (owner, 2026-11-19): the operating system's input idle time is read through
     // the registered process owner (platform-process.mjs osIdleMilliseconds, +1,388). The gate, the stamp and the queue
     // (machine-activity.mjs, automatic-work.mjs) stay lazy. No new eager file.
+    // 9,763,900 (measured 9,763,868 for submit.mjs, +1,363 over 9,762,505; start.mjs 9,762,331): SFlow prepares the code
+    // environment itself (owner, 2026-11-19, ceremony cut 5): the gates make a Story checkout's dependencies ready before
+    // its tests and say why when they cannot (state.mjs +1,363). The install, the copy, the Node probe and the Node kept for
+    // a Story stay lazy (repository-dependency-setup.mjs, loaded by its path; node-version-settle.mjs; node-pin.mjs). No new eager file.
     assert.ok(closure.bytes <= 9_763_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }

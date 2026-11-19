@@ -491,7 +491,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
             ? uncoveredTestDeliveryPaths(planned, phase.sourceBoundary, prospective.map((command) =>
               ({ ...command, provenance: testCommandProvenance(phase, command) }))) : [];
           // What would otherwise surface at the end of the step, said before it starts. It informs; only a gate refuses.
-          const earlyChecks = await (await import('./test-plan.mjs')).earlyTestChecks(root, prospective, { planned: planned.testPaths }).catch(() => []);
+          const earlyChecks = await (await import('./test-plan.mjs')).earlyTestChecks(root, prospective, { planned: planned.testPaths, config }).catch(() => []);
           if (earlyChecks.length) testExecution.earlyChecks = earlyChecks;
           // A unit command would take a planned browser spec by its folder, so "available" read true for a suite nothing can run yet (bin-opr).
           const needsRunner = earlyChecks.filter((entry) => entry.id === 'planned-runner-missing').flatMap((entry) => entry.paths ?? []);
@@ -516,7 +516,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         });
         // What the change so far would meet at its gate: a spec the unit runner would collect, a Node that does not suit it.
         if (!publishedCodeGeneration) {
-          const earlyChecks = await (await import('./test-plan.mjs')).earlyTestChecks(root, normalized, { planned: deliveryEvidence?.testPaths ?? [] }).catch(() => []);
+          const earlyChecks = await (await import('./test-plan.mjs')).earlyTestChecks(root, normalized, { planned: deliveryEvidence?.testPaths ?? [], config }).catch(() => []);
           if (earlyChecks.length) testExecution.earlyChecks = earlyChecks;
         }
         // Publication refuses affected paths no command covers; say so now, not after the tests ran.
@@ -722,7 +722,9 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   // A pin the evidence names (a known clash, the repository's range) and nobody undid is settled before the tests run, never a
   // person's action (node-version-settle.mjs).
   const pinned = (testExecution.earlyChecks ?? []).find((entry) => entry.pin);
-  const nodePin = pinned && !(await import('./settled-decisions.mjs')).settleableNodePin(workflow, phase, pinned.pin) ? pinned : null;
+  const nodePin = pinned && !await (await import('./node-pin.mjs')).sflowSettlesNodePin(root, workflow, phase, pinned.pin) ? pinned : null;
+  // SFlow's own: the handoff says so, and asks no one (test-execution-handoff.mjs).
+  if (pinned && !nodePin) pinned.pin = { ...pinned.pin, by: 'sflow' };
   if (nodePin) {
     const afterOwn = actions.reduce((last, entry, index) => (entry.authoringSkill ? index + 1 : last), 0);
     actions.splice(afterOwn, 0, action({

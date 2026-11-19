@@ -4518,9 +4518,11 @@ export async function attachRequiredTestExecution(error, root, command, check, {
     const pin = offered && workflowOf ? await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'node-version-settle.mjs')).href)).withEarlierPin(root, workflowOf, offered).catch(() => offered) : offered;
     // Evidence that names the Node settles it before the next run (node-version-settle.mjs): the agent runs the gate again.
     const settles = Boolean(pin && workflowOf && (await import('./settled-decisions.mjs')).settleableNodePin(workflowOf, workflowOf.phases?.[workflowOf.currentPhase], pin));
+    // Other installed Nodes nobody checked on this code yet: SFlow tries them before the next run (node-pin.mjs).
+    const checks = !settles && pin && workflowOf ? await (await import('./node-pin.mjs')).nodeChecksBeforeRun(root, workflowOf, pin).catch(() => null) : null;
     if (pin) {
-      refusal.details.nodePin = { file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, words: pin.words, ...(pin.replaces ? { replaces: pin.replaces } : {}), ...(settles ? { settles: true } : {}) };
-      refusal.message += settles ? ` ${pin.words} SFlow pins Node ${pin.version} in ${pin.file} itself before the next run, settled with an undo on the decisions card: run the same gate again.`
+      refusal.details.nodePin = { file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, words: pin.words, ...(pin.replaces ? { replaces: pin.replaces } : {}), ...(settles || checks ? { settles: true } : {}), ...(checks ? { checks: true } : {}) };
+      refusal.message += checks ? ` ${pin.words} ${checks}` : settles ? ` ${pin.words} SFlow pins Node ${pin.version} in ${pin.file} itself before the next run, settled with an undo on the decisions card: run the same gate again.`
         : ` ${pin.words} A person can choose ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`} on the decision list: singularity-flow decisions ${workId ?? '<WORK-ID>'}. It ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step.`;
     } else {
       // Nothing here says the Node is at fault, but another one is installed: a command answers that, with no chain of shell commands.
@@ -4528,6 +4530,9 @@ export async function attachRequiredTestExecution(error, root, command, check, {
       if (other) refusal.details.otherNode = other;
     }
   }
+  // Dependencies SFlow could not make ready come first (repository-dependency-setup.mjs).
+  const unready = /^CODE_TEST_/u.test(refusal.code ?? '') ? check?.dependencySetup : null;
+  if (unready) Object.assign(refusal, { message: `${unready.words} ${unready.nextAction?.label ?? ''} ${refusal.message}`.replace(/ {2,}/gu, ' ') }).details.dependencySetup = unready;
   return refusal;
 }
 
@@ -4998,6 +5003,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
   let activeTransientRestore = null;
   let isolatedResultRestore = null;
+  // A new Story checkout has no dependencies: made ready before any test or candidate copy (repository-dependency-setup.mjs).
+  const dependencySetup = !candidateRoot && commands.some((entry) => entry?.kind === 'test') ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'repository-dependency-setup.mjs')).href)
+    .then((setup) => setup.prepareRepositoryDependencies(root, { config, directories: commands.map((entry) => entry?.workingDirectory ?? '.') })).catch(() => null) : null;
   // Changed files no plan names stay in the worktree, and verification runs on exactly the
   // candidate in a worktree materialized beside it [E2G-027, D9].
   const isolationNeed = commands.length && !candidateRoot ? await candidateIsolationNeed(root, config, workflow) : null;
@@ -5272,6 +5280,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         countsForStep: environmentGate.run.countsForStep
       } : {})
     };
+    if (dependencySetup?.failure && policy.kind === 'test') Object.defineProperty(check, 'dependencySetup', { value: dependencySetup.failure });
     if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
       // At submission the changed files would be the published step's next version, which opens on the person's yes [D3].
       const next = published ? versionQuestionRoute(workflow, phase) : null;

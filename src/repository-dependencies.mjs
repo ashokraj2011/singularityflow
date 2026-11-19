@@ -1,7 +1,8 @@
 /**
  * Copy the dependency folders a checkout has installed into another checkout of its repository
  * [E2G-027, TCE:REQ-085]: the isolated run of a candidate and an Auto flight's two worktrees, which
- * start with none. Nothing is installed and no writable directory is shared.
+ * start with none, and a Story's checkout whose lock file matches the main checkout's
+ * (repository-dependency-setup.mjs). Nothing is installed here and no writable directory is shared.
  */
 import { constants } from 'node:fs';
 import { cp, lstat, mkdir, mkdtemp, readdir, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
@@ -63,9 +64,10 @@ async function copyDependencies(root, target, relative) {
  * or that `target`'s own ignore rules would let into a commit, is left out with its reason:
  * `{ copied, refused: [{ path, reason }] }`. Links are bound to `target`'s own source, and one whose
  * package `target` does not have is dropped, as an import of it would fail either way. Another
- * repository's checkout gets nothing, whatever it happens to have installed.
+ * repository's checkout gets nothing, whatever it happens to have installed. `only`, a test of each
+ * folder's repository path, narrows what is copied.
  */
-export async function copyRepositoryDependencies(root, target) {
+export async function copyRepositoryDependencies(root, target, { only = null } = {}) {
   root = await realpath(root);
   target = await realpath(target);
   const result = { copied: [], refused: [] };
@@ -73,6 +75,8 @@ export async function copyRepositoryDependencies(root, target) {
   const copies = [];
   for (const relative of ignoredDirectories(root)) {
     if (!DEPENDENCY_DIRECTORIES.has(path.posix.basename(relative))) continue;
+    // `only(relative)`: the folders a caller asked for (one package's, whose lock file matched).
+    if (only && !only(relative)) continue;
     const source = path.join(root, relative);
     if (!(await stat(source).catch(() => null))?.isDirectory()) continue;
     if (await lstat(path.join(target, relative)).catch(() => null)) continue;

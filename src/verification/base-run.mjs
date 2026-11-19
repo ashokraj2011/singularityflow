@@ -58,7 +58,7 @@ const listed = (names) => names.slice(0, MAX_NAMES).join(', ') + (names.length >
 export async function storyTestNode(root, cwd) {
   const { requestedNodeVersion } = await import('../project-node-version.mjs');
   const requested = await requestedNodeVersion({ cwd, root, environment: process.env }).catch(() => null);
-  if (requested && ['current', 'selected'].includes(requested.status) && requested.node) {
+  if (requested && ['current', 'selected', 'settled'].includes(requested.status) && requested.node) {
     const file = path.join(root, requested.file);
     const text = path.dirname(file) === path.resolve(root) ? await readFile(file, 'utf8').catch(() => null) : null;
     return { version: requested.node, versionFile: text == null ? null : { name: path.basename(file), text } };

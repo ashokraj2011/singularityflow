@@ -97,15 +97,24 @@ test('each path says which suite covers it, from what changed, else from the pla
   assert.equal((await pathCoverage(root, [command])).from, null);
 });
 
-test('dependencies not installed: the exact install command the lockfile implies', async (t) => {
+test('dependencies not installed: SFlow makes them ready itself from the lock file, or names the install when that is off', async (t) => {
   const environment = await bareMachine(t);
   const root = await repository(t, { 'package.json': manifest({ scripts: { test: 'vitest run' }, devDependencies: { vitest: '4' } }), 'package-lock.json': '{}' });
   const [check] = await earlyTestChecks(root, await nodeCommands(root), { environment });
   assert.equal(check.id, 'dependencies-not-installed');
-  assert.equal(check.command, 'npm ci');
-  assert.match(check.words, /not installed in the repository root/u);
+  assert.deepEqual([check.by, check.install, check.command], ['sflow', 'npm ci', undefined], 'nothing for the agent or the person to run');
+  assert.match(check.words, /^Dependencies are not installed in the repository root yet; a new Story checkout starts without them\. SFlow makes them ready itself before the tests run/u);
+  assert.match(check.action, /^Nothing to do\./u);
+  // Turned off for the repository or for this machine: the person's own install, as before [owner, 2026-11-19].
+  const [off] = await earlyTestChecks(root, await nodeCommands(root), { environment, config: { repositoryReadiness: { dependencyHydration: 'off' } } });
+  assert.equal(off.command, 'npm ci');
+  assert.match(off.words, /not installed in the repository root/u);
+  assert.equal((await earlyTestChecks(root, await nodeCommands(root), { environment: { ...environment, SINGULARITY_FLOW_DEPENDENCY_SETUP: 'off' } }))[0].command, 'npm ci');
   const pnpm = await repository(t, { 'package.json': manifest({ scripts: { test: 'vitest run' }, devDependencies: { vitest: '4' } }), 'pnpm-lock.yaml': '' });
-  assert.equal((await earlyTestChecks(pnpm, await nodeCommands(pnpm), { environment }))[0].command, 'pnpm install --frozen-lockfile');
+  assert.equal((await earlyTestChecks(pnpm, await nodeCommands(pnpm), { environment }))[0].install, 'pnpm install --frozen-lockfile');
+  // No lock file: `npm install` would write one, so it stays the person's.
+  const unlocked = await repository(t, { 'package.json': manifest({ scripts: { test: 'vitest run' }, devDependencies: { vitest: '4' } }) });
+  assert.equal((await earlyTestChecks(unlocked, await nodeCommands(unlocked), { environment }))[0].command, 'npm install');
   // Installed, with the runner there: nothing to say.
   const ready = await repository(t, { 'package.json': manifest({ scripts: { test: 'vitest run' }, devDependencies: { vitest: '4' } }), 'node_modules/.bin/vitest': '' });
   assert.deepEqual(await earlyTestChecks(ready, await nodeCommands(ready), { environment }), []);
@@ -172,13 +181,21 @@ test('a Node version: what engines asks for and what the machine would run are c
   const [check] = await earlyTestChecks(root, await nodeCommands(root), { environment });
   assert.equal(check.id, 'node-version');
   assert.match(check.words, new RegExp(`asks for Node <4, and tests here would run on Node ${running.replaceAll('.', '\\.')}`, 'u'));
-  assert.match(check.action, /a \.nvmrc in the repository makes SFlow run tests on that version/u);
+  assert.match(check.action, /^Install a Node that package\.json accepts \(<4\); SFlow then pins it in \.nvmrc for the tests\.$/u);
   const fine = await repository(t, { 'package.json': manifest({ engines: { node: `>=${running.split('.')[0]}` }, scripts: { test: 'node --test' } }) });
   assert.deepEqual(await earlyTestChecks(fine, await nodeCommands(fine), { environment }), []);
   const asks = await repository(t, { 'package.json': manifest({ scripts: { test: 'node --test' } }), '.nvmrc': '4.0.0\n' });
   const [file] = await earlyTestChecks(asks, await nodeCommands(asks), { environment });
   assert.equal(file.id, 'node-version');
   assert.match(file.words, /\.nvmrc asks for Node 4\.0\.0, and no installed Node matches/u);
+  // How to install it is filled in, with the version manager found here [owner, 2026-11-19].
+  await mkdir(path.join(environment.HOME, '.nvm'), { recursive: true });
+  const [withNvm] = await earlyTestChecks(asks, await nodeCommands(asks), { environment });
+  assert.equal(withNvm.command, 'nvm install 4.0.0');
+  assert.match(withNvm.words, /Install it with nvm: nvm install 4\.0\.0$/u);
+  // A Node installed here (this machine's Homebrew ones count) runs this Story's tests instead; else the install is the action.
+  assert.match(withNvm.action, withNvm.pin ? /^Nothing to do: SFlow runs this Story's tests on Node .* \.nvmrc stays as it is\. .*nvm install 4\.0\.0/u
+    : /^Install Node 4\.0\.0: nvm install 4\.0\.0\. SFlow then runs the tests on it; nothing else changes\.$/u);
 });
 
 test('Vitest with a DOM environment on Node 25 or later says what will fail, only where the code uses localStorage', async (t) => {

@@ -39,8 +39,10 @@ export function testExecutionHandoff(testExecution, { published = false, command
   const earlyChecks = testExecution.earlyChecks ?? [];
   // A plan whose test needs a runner the package lacks does need one: "no runner change" misled bin-opr's first turn.
   const needsRunner = earlyChecks.some((entry) => entry.id === 'planned-runner-missing');
-  const pin = earlyChecks.find((entry) => entry.pin)?.pin ?? null;
-  const earlyWords = earlyChecks.length ? ` Before starting, read testExecution.earlyChecks: ${earlyChecks.length === 1 ? 'one thing' : `${earlyChecks.length} things`} found in this checkout that would otherwise surface at the end of the step, each with what to do. None of them stops the step. Say each to the person in your next message, in a sentence, and carry on.${pin ? ` One has a choice for them: Pin Node ${pin.version}, on /sf-decide. Another Node on PATH does not get past it: only the gate's own run counts.` : ''}` : '';
+  // A Node SFlow settles itself before the tests run (`by: 'sflow'`, recovery-plan.mjs) is no one's choice [owner, 2026-11-19].
+  const pinned = earlyChecks.find((entry) => entry.pin)?.pin ?? null;
+  const pin = pinned?.by === 'sflow' ? null : pinned;
+  const earlyWords = earlyChecks.length ? ` Before starting, read testExecution.earlyChecks: ${earlyChecks.length === 1 ? 'one thing' : `${earlyChecks.length} things`} found in this checkout that would otherwise surface at the end of the step, each with what to do. None of them stops the step. Say each to the person in your next message, in a sentence, and carry on.${pin ? ` One has a choice for them: Pin Node ${pin.version}, on /sf-decide. Another Node on PATH does not get past it: only the gate's own run counts.` : pinned ? ' SFlow settles which Node the tests run on itself before they run, with an undo on the decisions card: nothing to ask.' : ''}` : '';
   if (blockedByDelivery) return {
     runnerStatus: 'blocked', configurationRequired: false, repositoryEditsRequired: null,
     executionOwner: null, command: null, onSuccess: null,

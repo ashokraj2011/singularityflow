@@ -125,3 +125,45 @@ test('every person\'s own step the Decide card records has the card as its Copil
     assert.equal(guidance.command, command);
   }
 });
+
+test('a person\'s own command that a VS Code screen finishes names that screen, never "not available" [audit 2026-11-19, entry 4]', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { VSCODE_SCREENS, VSCODE_DECIDE_CARD, VSCODE_WITNESS_REVIEW, commandRouteRows } = await import('../src/model-free-commands.mjs');
+  const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
+  const titles = new Set(manifest.contributes.commands.map((entry) => entry.category ? `${entry.category}: ${entry.title}` : entry.title));
+  // Each route names a Command Palette entry the extension contributes, by its exact title.
+  for (const route of [...Object.values(VSCODE_SCREENS), VSCODE_DECIDE_CARD, VSCODE_WITNESS_REVIEW]) {
+    const title = route.replace(/^Command Palette: /u, '').replace(/, then .*$/u, '');
+    assert.ok(titles.has(title), `${route}: no VS Code command is titled "${title}"`);
+  }
+  const routes = (command) => commandRouteRows(safeCommandGuidance(command))[2].command ?? null;
+  for (const [command, screen] of [
+    ['singularity-flow reject build --work-id PAY-1 --to design --reason "<REASON>"', VSCODE_SCREENS.reject],
+    ['singularity-flow reject PAY-1 --fetch --phase build --to design --reason "The design names the wrong table."', VSCODE_SCREENS.reject],
+    ['singularity-flow reopen PAY-1 --to release --reason "<REASON>"', VSCODE_SCREENS.reopen],
+    ['singularity-flow cancel PAY-1 --reason "<REASON>" --confirm PAY-1', VSCODE_SCREENS.cancel],
+    ['singularity-flow start PAY-2 --from-branch main --title "<TITLE>"', VSCODE_SCREENS.start],
+    ['singularity-flow session workspace payments', VSCODE_SCREENS.sessionWorkspace],
+    ['singularity-flow workspace use payments', VSCODE_SCREENS.workspaceUse],
+    ['singularity-flow configuration approve sflow/proposals/people-1 --confirm 0123456789abcdef0123456789abcdef01234567', VSCODE_SCREENS.configuration],
+    ['singularity-flow configuration reject sflow/proposals/people-1 --confirm 0123456789abcdef0123456789abcdef01234567 --reason "<REASON>"', VSCODE_SCREENS.configuration],
+    ['singularity-flow story test-policy amend --work-id PAY-1 --phase build --reason "<REASON>"', VSCODE_SCREENS.testPolicy],
+    ['singularity-flow story test-policy show --work-id PAY-1', VSCODE_SCREENS.testPolicy],
+    ['singularity-flow appeal repair-plan --work-id PAY-1 --phase build', VSCODE_SCREENS.appeal],
+    ['singularity-flow appeal preflight --work-id PAY-1 --phase build', VSCODE_SCREENS.appeal]
+  ]) {
+    assert.equal(routes(command), screen, command);
+    assert.equal(modelFreeCommandForCommand(command), screen, command);
+  }
+  // What no screen runs keeps no route: a clause-scoped return, releasing a cancelled checkout, a start the form cannot
+  // express, a workspace's other repository, a configuration of another lead, test-policy steps the page has no choice
+  // for, and an appeal it hands to chat.
+  for (const command of ['singularity-flow reject build --work-id PAY-1 --to design --clause PAY-1:AC-001 --reason "<REASON>"',
+    'singularity-flow cancel PAY-1 --release --apply --confirm PAY-1',
+    'singularity-flow start PAY-2 --from-branch main --test-policy-confirm sha256:0123',
+    'singularity-flow workspace use payments --repository api',
+    'singularity-flow configuration approve sflow/proposals/people-1 --lead https://example.test/lead.git',
+    'singularity-flow story test-policy repair --work-id PAY-1 --plan',
+    'singularity-flow appeal prepare --phase build --add-location PAY-1:AC-001=src/a.mjs --reason "<REASON>"'
+  ]) assert.equal(modelFreeCommandForCommand(command), null, command);
+});

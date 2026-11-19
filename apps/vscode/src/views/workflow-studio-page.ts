@@ -3881,7 +3881,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // workflows share, each keeps its own. Configuration names secrets but never holds them; each
   // machine keeps its own, and VS Code stores them in the operating-system keychain.
 
-  var INTEGRATION_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
+  var BOUND_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
   var TOKEN_FORMATS = ['splunk-hec', 'datadog', 'elastic'];
   var TRIGGER_WORDS = { submitted: 'submitted', approved: 'approved', rejected: 'rejected' };
   var SEND_WORDS = { event: 'the event', summary: 'a summary', artifact: 'the document' };
@@ -4031,7 +4031,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   /** Ask the host which secrets this machine has, once per name; storing or removing one updates it. */
   function askSecretStatus(names) {
     var view = integrationsState();
-    var unknown = names.filter(function (name, index) { return INTEGRATION_NAME.test(name) && !view.asked[name] && names.indexOf(name) === index; });
+    var unknown = names.filter(function (name, index) { return BOUND_NAME.test(name) && !view.asked[name] && names.indexOf(name) === index; });
     var jira = !view.askedJira && targetIds().some(function (id) { return state.draft.integrations[id].kind === 'jira'; });
     if (jira) view.askedJira = true;
     if (!unknown.length && !jira) return;
@@ -4044,9 +4044,13 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
   function editTargetForm(id) {
     var target = state.draft.integrations[id];
-    var signingName = target.signingSecret || '', bearerName = target.tokenSecret || '', addressName = target.urlSecret || '';
     return { mode: 'edit', id: id, label: target.label || '', kind: target.kind, url: target.url || '', format: target.format || 'json',
-      signingSecret: signingName, tokenSecret: bearerName, urlSecret: addressName,
+      signingSecret:
+        target.signingSecret || '',
+      tokenSecret:
+        target.tokenSecret || '',
+      urlSecret:
+        target.urlSecret || '',
       labels: Object.keys(target.labels || {}).map(function (key) { return key + '=' + target.labels[key]; }).join('\n'),
       network: target.network || 'public', timeoutSeconds: target.timeoutSeconds ? String(target.timeoutSeconds) : '',
       issue: target.issue || '', transitions: jiraTransitionFields(target.transition),
@@ -4089,7 +4093,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     function secret(name, label, required) {
       var value = String(form[name] || '').trim();
       if (!value) return required ? label + ' is required.' : null;
-      if (!INTEGRATION_NAME.test(value)) return label + ' must start with SFLOW_SECRET_ and use capitals, digits and underscores, such as ' + suggestedSecret(id, 'KEY') + '.';
+      if (!BOUND_NAME.test(value)) return label + ' must start with SFLOW_SECRET_ and use capitals, digits and underscores, such as ' + suggestedSecret(id, 'KEY') + '.';
       target[name] = value;
       return null;
     }
@@ -4286,7 +4290,6 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   function renderTargetForm(form) {
     var kinds = state.model.choices.integrationKinds || [];
-    /** Sets a form field to the trimmed text typed into it. */
     var keepName = function (key) { return function (value) { form[key] = value.trim(); }; };
     var card = el('section', { class: 'studio-card', 'aria-label': form.mode === 'create' ? 'New target' : 'Change target ' + form.id });
     card.appendChild(el('h2', { text: form.mode === 'create' ? 'New target' : 'Change ' + form.id }));
@@ -4403,7 +4406,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         target.kind === 'jira' ? jiraRow()
           : target.kind === 'git' ? el('span', { class: 'hint', text: 'Uses the Git credentials of the machine that moves the Story; the first delivery proves it can write.' })
           : secrets.length ? el('div', { class: 'secrets' }, secrets.map(secretRow))
-            : el('span', { class: 'hint', text: target.kind === 'webhook' ? 'No signing secret, so requests are sent unsigned.' : 'No token, so entries are sent without one.' }),
+            : el('span', { class: 'hint', text: target.kind === 'webhook' ? 'No signing secret; requests are sent unsigned.' : 'No token; entries are sent without one.' }),
         testPanel(id, target)));
     });
     if (ids.length) main.appendChild(grid);
@@ -7214,9 +7217,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     } else if (message.type === 'studio.mcpSourcesListed') {
       var offered = library(); offered.busy = null; offered.mcp = message.result; offered.mcpForms = {}; render();
     } else if (message.type === 'studio.secretStatus') {
-      var keychainView = integrationsState(); keychainView.canStore = message.canStore !== false;
-      if (message.jira) keychainView.jira = message.jira;
-      Object.keys(message.status || {}).forEach(function (name) { keychainView.secrets[name] = message.status[name]; });
+      var keysView = integrationsState(); keysView.canStore = message.canStore !== false;
+      if (message.jira) keysView.jira = message.jira;
+      Object.keys(message.status || {}).forEach(function (name) { keysView.secrets[name] = message.status[name]; });
       render();
     } else if (message.type === 'studio.secretStored') {
       setStatus(message.name + ' is stored in the keychain on this machine.');

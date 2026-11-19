@@ -75,7 +75,12 @@ export async function planStoryTestSelection(root, config, workflow, { phaseId =
 
 /** A supplied digest selects the card. Only live terminal presentation can authorize it. */
 export async function confirmStoryTestSelection(root, config, workflow, { phaseId = null, confirmation = null } = {}) {
-  if (!/^sha256:[a-f0-9]{64}$/u.test(confirmation ?? '')) fail('First inspect the plan, then select its exact --confirm digest.', 'TRP_TEST_SELECTION_CONFIRMATION_REQUIRED');
+  if (!/^sha256:[a-f0-9]{64}$/u.test(confirmation ?? '')) {
+    // The plan gives the whole confirming command; the person never copies a digest.
+    fail('Read the test selection first: it gives the whole command that confirms it.', 'TRP_TEST_SELECTION_CONFIRMATION_REQUIRED',
+      { nextAction: { command: `singularity-flow story test-policy plan --work-id ${workflow.workItem.id}${phaseId ? ` --phase ${phaseId}` : ''}`,
+        label: 'Read the test selection and the command that confirms it' } });
+  }
   const pending = await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false });
   if (pending) fail('Publish the pending Story publication first (singularity-flow sync), then confirm another selection.',
     'TRP_PUBLICATION_PENDING', { pending, legalActions: [legalRecovery(workflow.workItem.id)] });

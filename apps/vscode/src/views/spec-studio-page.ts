@@ -714,7 +714,7 @@ export const SPEC_STUDIO_SCRIPT = `
     const shown = form.querySelector('[data-slice-option]');
     const command = form.querySelector('[data-start-command]');
     if (shown) shown.textContent = option || 'Choose at least one clause.';
-    if (command) command.textContent = option ? 'singularity-flow start <WORK-ID> --from-branch <BRANCH> --title "<TITLE>" ' + option : '';
+    if (command) command.textContent = option ? 'singularity-flow start <NEW-WORK-ID> --title "<TITLE>" ' + option : '';
     for (const button of form.querySelectorAll('[data-copy-slice],[data-copy-start]')) button.disabled = !option || form.dataset.reviewed !== 'true';
   }
   function syncDecide() {
@@ -741,7 +741,7 @@ export const SPEC_STUDIO_SCRIPT = `
     if (copySlice && !copySlice.disabled) {
       const form = copySlice.closest('form');
       const option = sliceText(form);
-      if (option) post({ type: 'spec.copy', text: copySlice.hasAttribute('data-copy-start') ? 'singularity-flow start <WORK-ID> --from-branch <BRANCH> --title "<TITLE>" ' + option : option });
+      if (option) post({ type: 'spec.copy', text: copySlice.hasAttribute('data-copy-start') ? 'singularity-flow start <NEW-WORK-ID> --title "<TITLE>" ' + option : option });
       return;
     }
     const button = event.target.closest('[data-message]');

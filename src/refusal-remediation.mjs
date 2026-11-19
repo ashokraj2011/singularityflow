@@ -1028,7 +1028,7 @@ const KNOWN = Object.freeze({
     'The approved configuration adds nobody to this Story\'s groups yet. A person joins the group through approved configuration first; then preview the refresh again.',
     'singularity-flow configuration add-current-identity --target story:<GROUP>', 'remediation')],
   APR_CONFIRMATION_REQUIRED: () => [step('confirm-in-own-terminal',
-    'A person in one of the refreshed groups confirms the refresh plan digest in their own terminal; an agent never confirms it.', null, 'remediation')],
+    'A person in one of the refreshed groups runs the confirming command the refusal gives in their own terminal; an agent never confirms it.', null, 'remediation')],
   APR_REFRESH_BLOCKED: (argv, error) => (Array.isArray(error?.details?.blockers) ? error.details.blockers : []).slice(0, PLAN_STEP_LIMIT)
     .map((blocker, index) => step(`clear-refresh-blocker-${index + 1}`,
       String(blocker?.words ?? blocker?.label ?? 'Resolve this record before refreshing approvers.').slice(0, 2000),

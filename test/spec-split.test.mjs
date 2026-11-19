@@ -136,10 +136,10 @@ test('each Story slice becomes one ready start command; one depending on a claus
   const analysis = analyzeSplit(revision(), PLAN);
   assert.deepEqual(analysis.findings, []);
   const [s1, s2] = analysis.stories;
-  assert.equal(s1.command, `singularity-flow start <WORK-ID> --from-branch <BRANCH> --title 'No discount outside INR' --description 'A USD cart'\\''s total is never discounted.' --spec ${SPEC}@1=REQ-002,AC-002`);
+  assert.equal(s1.command, `singularity-flow start <NEW-WORK-ID> --title 'No discount outside INR' --description 'A USD cart'\\''s total is never discounted.' --spec ${SPEC}@1=REQ-002,AC-002`);
   assert.match(s2.command, new RegExp(`--spec ${SPEC}@1=AC-001 --allow-partial-dependency --reason 'Delivered elsewhere by the split of ${SPEC}@1: ${SPEC}:REQ-001 \\(child ${CHILD}\\)'$`, 'u'));
   const whole = analyzeSplit(revision(), { stories: [{ title: 'Everything', workId: 'ENG-7', clauses: ['REQ-001', 'REQ-002', 'CON-001', 'AC-001', 'AC-002'] }] });
-  assert.equal(whole.stories[0].command, `singularity-flow start ENG-7 --from-branch <BRANCH> --title 'Everything' --spec ${SPEC}@1`);
+  assert.equal(whole.stories[0].command, `singularity-flow start ENG-7 --title 'Everything' --spec ${SPEC}@1`);
 });
 
 test('a child draft carries its clauses under its own ID with the parent\'s numbers, and the parent decisions on them', () => {
@@ -413,7 +413,9 @@ test('a slice\'s start command runs as written: the Story starts with that slice
   const { stories: [, slice] } = analyzeSplit(revision(), PLAN);
   const argv = words(slice.command);
   const from = argv.indexOf('--spec');
-  assert.deepEqual(argv.slice(0, 3), ['singularity-flow', 'start', '<WORK-ID>']);
+  // Only the new Story's ID is the person's to give; start asks for, or offers, the base itself.
+  assert.deepEqual(argv.slice(0, 3), ['singularity-flow', 'start', '<NEW-WORK-ID>']);
+  assert.ok(!argv.includes('--from-branch') && !argv.includes('<BRANCH>'), slice.command);
   const story = await startedSpecificationStory(t, 'SPL-1', {
     beforeStart: async ({ directory, cli }) => {
       const file = path.join(directory, 'library-spec.md');

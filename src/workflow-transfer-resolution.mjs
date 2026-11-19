@@ -283,16 +283,20 @@ export function planEntriesText(entries = []) {
 }
 
 /**
- * Plain-text preview of an import plan, with the exact flags that resolve each open conflict.
+ * Plain-text preview of an import plan, with the whole command that resolves each open conflict.
  * A preview asked with `--propose` prints commands that keep it: without it the import changes
- * only this checkout's files and never reaches review.
+ * only this checkout's files and never reaches review. A person never composes one: each choice
+ * is the whole preview command with that choice added, and the import itself is confirmed by the
+ * routes `routeLines` gives its command (the CLI: a short /sf-confirm code, never the digest).
  */
-export function importPlanText(plan, file, { propose = false, identity = null } = {}) {
+export function importPlanText(plan, file, { propose = false, identity = null, routeLines = null } = {}) {
   const counts = plan.counts ?? {};
   const fileArgument = shellWord(file);
   const proposeText = propose ? ' --propose' : '';
   const chosen = resolveArguments(plan.resolutions);
   const chosenText = chosen.length ? ` ${chosen.map(shellWord).join(' ')}` : '';
+  // The same preview with one more choice made: the whole command, never a flag to add by hand.
+  const previewWith = (flag) => `singularity-flow workflow import ${fileArgument} --dry-run${proposeText}${chosenText} --resolve ${shellWord(flag)}`;
   const open = plan.unresolved ?? [];
   const lines = [plan.status === 'ready'
     ? 'Workflow import preview: ready.'
@@ -321,7 +325,7 @@ export function importPlanText(plan, file, { propose = false, identity = null } 
       entry.removes.length ? `takes out ${entry.removes.map(person).join(', ')}` : ''].filter(Boolean).join('; ')}.`);
     if (entry.adds.some(isYou)) lines.push(`  ${entry.ifReplaced ? 'Replacing it' : 'This import'} puts you in ${entry.group}.`);
     if (entry.removes.some(isYou)) lines.push(`  ${entry.ifReplaced ? 'Replacing it' : 'This import'} takes you out of ${entry.group}.`);
-    if (entry.existed && !entry.ifReplaced) lines.push(`    Keep this repository's ${entry.group} instead: --resolve ${shellWord(`approval-group:${entry.group}=keep`)}`);
+    if (entry.existed && !entry.ifReplaced) lines.push(`    Keep this repository's ${entry.group} instead: ${previewWith(`approval-group:${entry.group}=keep`)}`);
   }
   // What approval would refuse, settled here: placeholders SFlow added, and what it could not fix itself.
   for (const repair of plan.repairs ?? []) lines.push(`  ${repair.text}`);
@@ -334,8 +338,8 @@ export function importPlanText(plan, file, { propose = false, identity = null } 
     lines.push('  Fix each where the bundle was made (Workflow Studio, /sf-build-workflow or the markup), export it again, then preview the new file.');
   }
   if (plan.status === 'ready') {
-    lines.push(`  Confirm plan: ${plan.planSha256}`);
-    lines.push(`  Apply it: singularity-flow workflow import ${fileArgument} --confirm ${plan.planSha256}${chosenText}${proposeText}`);
+    const apply = `singularity-flow workflow import ${fileArgument} --confirm ${plan.planSha256}${chosenText}${proposeText}`;
+    lines.push(...(routeLines ? ['  Apply it:', ...routeLines(apply, '  ')] : [`  Apply it: ${apply}`]));
     return lines;
   }
   for (const item of open) {
@@ -350,12 +354,11 @@ export function importPlanText(plan, file, { propose = false, identity = null } 
     const ordered = [item.suggested, ...item.choices.filter((action) => action !== item.suggested)];
     for (const action of ordered) {
       const flag = `${item.subject}=${action === 'rename' ? `rename:${item.renameTo}` : action}`;
-      lines.push(`    --resolve ${shellWord(flag)}  ${explain(item, action)}${action === item.suggested ? ' (suggested)' : ''}`);
+      lines.push(`    To ${explain(item, action)}${action === item.suggested ? ' (suggested)' : ''}:`, `      ${previewWith(flag)}`);
     }
   }
   if (open.some((item) => item.choices.length)) {
-    lines.push('', '  Choose one --resolve for each, then preview again:',
-      `    singularity-flow workflow import ${fileArgument} --dry-run${proposeText}${chosenText} --resolve …`,
+    lines.push('', '  Each choice previews again with it made, until none is left.',
       '  Or take every suggestion, including conflicts the new names cause:',
       `    singularity-flow workflow import ${fileArgument} --dry-run${proposeText}${chosenText} --resolve-all suggested`);
   }

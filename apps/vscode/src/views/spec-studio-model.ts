@@ -390,8 +390,12 @@ export function sliceOption(specId: string, revision: number, chosen: readonly s
   return `--spec ${specId}@${revision}${every ? '' : `=${all.filter((clause) => chosen.includes(clause)).map((clause) => shortClause(specId, clause)).join(',')}`}`;
 }
 
+/**
+ * The terminal form of "Continue to Story intake": only the new Story's ID and title are the person's to give. It names
+ * no base branch: start asks for one, or offers each as a whole command [audit 2026-11-19, entry 24].
+ */
 export function startCommand(slice: string): string {
-  return `singularity-flow start <WORK-ID> --from-branch <BRANCH> --title "<TITLE>" ${slice}`;
+  return `singularity-flow start <NEW-WORK-ID> --title "<TITLE>" ${slice}`;
 }
 
 /** The revision a publication will create: the next after the highest this clone can see. */

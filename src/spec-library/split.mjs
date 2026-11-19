@@ -185,12 +185,15 @@ export function analyzeSplit(revision, raw) {
   return { plan, findings, stories: stated, order };
 }
 
-/** The one `start` command a Story slice becomes; it runs as written, `<WORK-ID>` and `<BRANCH>` filled in. */
+/**
+ * The one `start` command a Story slice becomes. It runs as written; only a new Story's ID, when the plan names
+ * none, is the person's to give. It names no base: start asks for one, or offers each as a whole command.
+ */
 function startCommand(revision, story, all, plan) {
   const name = `${revision.specId}@${revision.revision}`;
   const every = all.every((clause) => story.clauses.includes(clause));
   const local = all.filter((clause) => story.clauses.includes(clause)).map((clause) => clause.slice(revision.specId.length + 1));
-  const parts = ['singularity-flow start', story.workId ?? '<WORK-ID>', '--from-branch <BRANCH>', '--title', quote(story.title)];
+  const parts = ['singularity-flow start', story.workId ?? '<NEW-WORK-ID>', '--title', quote(story.title)];
   if (story.description) parts.push('--description', quote(story.description));
   parts.push('--spec', every ? name : `${name}=${local.join(',')}`);
   if (story.outside.length) {

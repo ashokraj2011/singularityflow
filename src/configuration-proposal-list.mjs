@@ -17,6 +17,21 @@ const STATE_WORDS = Object.freeze({
 });
 
 const approveCommand = (branch) => `singularity-flow configuration approve ${branch}`;
+const REVISION = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+/**
+ * A row's two ways on, whole [audit 2026-11-19, entry 23]: approve or reject exactly the revision listed, so only the
+ * reason is the person's to write. A proposal that needs a choice, or that approval would refuse, is read first, so
+ * its approve route names no revision; with no revision known, neither does its reject route.
+ */
+export function proposalRoutes(branch, revision, state, lead = null) {
+  const on = lead ? ` --lead ${lead}` : '';
+  const exact = REVISION.test(revision ?? '') ? ` --confirm ${revision}` : '';
+  return {
+    act: { label: state === 'needs-choice' ? 'Approve, keeping one value for each field both changed' : 'Read it, then approve or reject it',
+      command: `${approveCommand(branch)}${on}${['needs-choice', 'blocked'].includes(state) ? '' : exact}` },
+    reject: { label: 'Reject it, saying why (its author reads the reason)', command: `singularity-flow configuration reject ${branch}${on}${exact} --reason "<REASON>"` }
+  };
+}
 
 function engineRow(entry) {
   const kind = entry.kind ?? configurationProposalKind(entry.branch) ?? 'workflow';
@@ -29,8 +44,7 @@ function engineRow(entry) {
     author: entry.proposer ? { name: entry.proposer.name ?? null, email: entry.proposer.email ?? null } : null,
     createdAt: entry.proposalCreatedAt ?? null, subjects,
     ...(entry.failure?.message ? { reason: entry.failure.message } : {}),
-    act: state === 'approved' ? null : { label: state === 'needs-choice' ? 'Approve, keeping one value for each field both changed' : 'Read it, then approve or reject it',
-      command: approveCommand(entry.branch) }
+    ...(state === 'approved' ? { act: null } : proposalRoutes(entry.branch, entry.proposalCommit, state))
   };
 }
 
@@ -82,11 +96,11 @@ export async function listEveryConfigurationProposal(root, { lead = null, env = 
       const { listCapabilityProposals } = await import('./organisation.mjs');
       const listed = await listCapabilityProposals(leadUrl, { includeDiff: false, env });
       for (const entry of listed) {
-        proposals.push({ kind: 'capability', id: entry.branch, branch: entry.branch, revision: entry.proposalCommit ?? null,
-          state: entry.merged ? 'approved' : entry.valid === false ? 'blocked' : 'proposed',
+        const state = entry.merged ? 'approved' : entry.valid === false ? 'blocked' : 'proposed';
+        proposals.push({ kind: 'capability', id: entry.branch, branch: entry.branch, revision: entry.proposalCommit ?? null, state,
           author: entry.proposer ?? null, subjects: [entry.capabilityId ?? entry.capability?.id].filter(Boolean),
           // Approved like every other proposal [SCF:REQ-010].
-          act: { label: 'Read it, then approve or reject it', command: `${approveCommand(entry.branch)} --lead ${leadUrl}` } });
+          ...proposalRoutes(entry.branch, entry.proposalCommit, state, leadUrl) });
       }
       return listed.length;
     });
@@ -94,9 +108,9 @@ export async function listEveryConfigurationProposal(root, { lead = null, env = 
       const { listRepositoryOnboardingProposals } = await import('./repository-onboarding.mjs');
       const listed = await listRepositoryOnboardingProposals(leadUrl, { env });
       for (const entry of listed) {
-        proposals.push({ kind: 'onboarding', id: entry.branch, branch: entry.branch, revision: entry.proposalCommit ?? null,
-          state: entry.merged ? 'approved' : 'proposed', author: null, subjects: ['Repository setup'],
-          act: { label: 'Read it, then approve or reject it', command: `${approveCommand(entry.branch)} --lead ${leadUrl}` } });
+        const state = entry.merged ? 'approved' : 'proposed';
+        proposals.push({ kind: 'onboarding', id: entry.branch, branch: entry.branch, revision: entry.proposalCommit ?? null, state,
+          author: null, subjects: ['Repository setup'], ...proposalRoutes(entry.branch, entry.proposalCommit, state, leadUrl) });
       }
       return listed.length;
     });
@@ -116,6 +130,7 @@ export function proposalListLines(result) {
     if (entry.reason) lines.push(`  why not yet: ${entry.reason}`);
     if (entry.act?.command) lines.push(`  next: ${entry.act.command}`);
     else if (entry.act?.label) lines.push(`  next: ${entry.act.label}`);
+    if (entry.reject?.command) lines.push(`  or reject it: ${entry.reject.command}`);
   }
   for (const source of result.sources.filter((entry) => entry.status !== 'read')) {
     lines.push(`Could not read the ${source.source} list: ${source.reason}`);

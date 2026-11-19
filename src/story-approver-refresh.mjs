@@ -54,7 +54,9 @@ async function staleningRecords(root, config, workflow, at) {
   const revoked = new Set(decisions.filter((entry) => entry.revokes).map((entry) => entry.revokes));
   for (const entry of decisions) {
     if (entry.revokes || revoked.has(entry.id) || Date.parse(entry.expiresAt) <= Date.parse(at)) continue;
-    records.push({ id: entry.id, kind: 'quality-risk', command: `singularity-flow appeal risk-revoke ${entry.id} --confirm <DECISION-SHA256> --reason "<why>"`,
+    // The revocation confirms the record it ends: the same digest `appeal risk-revoke` checks (phase-quality-risk.mjs).
+    const decision = `sha256:${createHash('sha256').update(canonicalJson(entry)).digest('hex')}`;
+    records.push({ id: entry.id, kind: 'quality-risk', command: `singularity-flow appeal risk-revoke ${entry.id} --confirm ${decision} --reason "<why>"`,
       words: `${entry.id} (${entry.gate ?? 'accepted risk'}) is still in force until ${String(entry.expiresAt).slice(0, 10)}; revoke it or let it lapse` });
   }
   return records;
@@ -85,6 +87,13 @@ async function refreshAncestry(candidate, snapshot, source) {
     return adoptConfigurationWithoutAncestry(snapshot, source, { cause, confirmedBy: candidate.actor });
   }
 }
+
+/** The refresh as previewed, confirmed in the person's own terminal: the whole command, its plan filled. */
+const refreshCommand = (candidate) => `singularity-flow story approvers refresh ${candidate.workId} --reason ${quotedReason(candidate.reason)}`
+  + `${candidate.adoptWithoutAncestry ? ' --adopt-without-ancestry' : ''} --confirm ${candidate.planSha256}`;
+/** Who the refresh adds, by name: "a@x.test and b@x.test to developers". */
+const additionWords = (additions) => Object.entries(additions ?? {}).map(([group, members]) => `${members
+  .map((member) => member?.email ?? member?.githubLogin ?? 'a member').join(', ')} to ${group}`).join('; ');
 
 function adoptionCommand(candidate, { confirm = true } = {}) {
   return `singularity-flow story approvers refresh ${candidate.workId} --reason ${quotedReason(candidate.reason)} --adopt-without-ancestry`
@@ -160,7 +169,7 @@ function preview(candidate, ancestry = null) {
       : held ? [{ id: 'upgrade-first', command: ancestry.nextAction?.command ?? null, label: ancestry.nextAction?.label ?? ancestry.message }]
       : adopt ? [{ id: 'adopt-without-ancestry', command: adoptionCommand(candidate),
         label: 'After reviewing the additions: adopt it without ancestry' }]
-      : [{ id: 'refresh-approvers', command: `singularity-flow story approvers refresh ${candidate.workId} --reason ${quotedReason(candidate.reason)}${candidate.adoptWithoutAncestry ? ' --adopt-without-ancestry' : ''} --confirm ${candidate.planSha256}`,
+      : [{ id: 'refresh-approvers', command: refreshCommand(candidate),
         label: 'In your own terminal, after reviewing the added members: record the refresh' }] };
 }
 
@@ -209,7 +218,12 @@ export async function applyStoryApproverRefresh(root, config, workflow, options 
     fail(`Refreshing approvers would make ${initial.blockers.length === 1 ? 'a record' : 'records'} it binds stale: ${initial.blockers.map((entry) => entry.words).join('; ')}.`,
       'APR_REFRESH_BLOCKED', { blockers: initial.blockers });
   }
-  if (options.confirm !== initial.planSha256) fail('Preview the refresh, then confirm its exact plan digest with --confirm.', 'APR_CONFIRMATION_REQUIRED');
+  // A confirmation of another plan (an older preview, or a changed configuration): the refresh as it stands, filled in.
+  if (options.confirm !== initial.planSha256) {
+    fail(`That confirmation is not this refresh as it stands now. It adds ${additionWords(initial.additions)}; if that is right, confirm it in your own terminal.`,
+      'APR_CONFIRMATION_REQUIRED', { workId: initial.workId, nextAction: { command: refreshCommand(initial),
+        label: 'Confirm the refresh as it stands now, in your own terminal' } });
+  }
   const card = { plan: { planId: initial.id, planHash: initial.planSha256, reviewer: initial.actor,
     subject: { workId: initial.workId, phaseId: workflow.currentPhase ?? null }, revision: initial.sourceHead,
     additions: initial.additions, reason: initial.reason, testsWaived: false, phaseApproved: false },

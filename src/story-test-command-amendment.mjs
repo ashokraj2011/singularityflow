@@ -362,9 +362,10 @@ export async function assertSignedTestCommandAmendments(workflow) {
   const unsigned = summaries.filter((summary) => !counted.has(summary));
   if (!unsigned.length) return;
   const workId = workflow.workItem.id;
-  const command = `singularity-flow story test-policy amend --work-id ${workId} --phase ${unsigned.at(-1).phaseId} --reason "<why>" --apply --confirm <PLAN-DIGEST>`;
-  throw new SingularityFlowError(`SF Guard: test command amendment ${unsigned.map((summary) => summary.id).join(', ')} on ${workId} carries no verified signature from the approver who applied it, so the runner policy it set is not counted and its tests cannot run here. Nothing was written. An approver records the amendment again in their own terminal, where SF Guard takes their Touch ID: ${command}`,
-    { code: 'PSS_RECORD_UNSIGNED', details: { workId, amendments: unsigned.map((summary) => summary.id), nextAction: { command, label: 'Record the test-policy amendment again, signed' } } });
+  // The preview, never `--apply --confirm` with a digest to copy: it prints the whole confirming command (publicPreview).
+  const command = `singularity-flow story test-policy amend --work-id ${workId} --phase ${unsigned.at(-1).phaseId} --reason "<why>"`;
+  throw new SingularityFlowError(`SF Guard: test command amendment ${unsigned.map((summary) => summary.id).join(', ')} on ${workId} has no verified signature from its approver, so its tests cannot run here. Nothing was written. An approver previews it again and confirms it.`,
+    { code: 'PSS_RECORD_UNSIGNED', details: { workId, amendments: unsigned.map((summary) => summary.id), nextAction: { command, label: 'Preview the amendment again to record it, signed' } } });
 }
 
 /** Protect direct domain callers as well as CLI readers after an accepted amendment. */

@@ -25,7 +25,14 @@ export async function refreshStoryApprovers({ root, positionals = [], options = 
   const optionId = optionString(options, 'work-id');
   if (positional && optionId && positional !== optionId) fail('The positional Story ID and --work-id disagree.', 'APR_ARGUMENT_INVALID');
   const confirm = optionString(options, 'confirm');
-  if (confirm && !/^sha256:[a-f0-9]{64}$/u.test(confirm)) fail('--confirm takes the exact plan digest the preview printed.', 'APR_CONFIRMATION_REQUIRED');
+  if (confirm && !/^sha256:[a-f0-9]{64}$/u.test(confirm)) {
+    // The preview prints the whole confirming command; the person never copies a digest by hand.
+    const reason = optionString(options, 'reason');
+    const preview = `singularity-flow story approvers refresh${/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(optionId ?? positional ?? '') ? ` ${optionId ?? positional}` : ''}`
+      + ` --reason "${reason && !/["\\$`\x00-\x1f]/u.test(reason) ? reason : '<REASON>'}"`;
+    throw new SingularityFlowError('That is not a confirmation the refresh preview gave. Preview it again: it prints the whole command to confirm.',
+      { code: 'APR_CONFIRMATION_REQUIRED', details: { nextAction: { command: preview, label: 'Preview the refresh again' } } });
+  }
   const loaded = await dependencies.loadAcceptedStoryExecution(root, optionId ?? positional);
   const config = loaded.config ?? loaded.definition;
   const workflow = loaded.workflow;

@@ -389,16 +389,20 @@ test('the CLI lists each conflict with its --resolve choices and imports with th
   const blocked = flow('workflow', 'import', 'release.bundle.json', '--dry-run');
   assert.equal(blocked.status, 0, blocked.stderr);
   assert.match(blocked.stdout, /blocked; 6 conflicts need choices/);
-  assert.match(blocked.stdout, /--resolve phase:release-plan=rename:release-plan-imported {2}import theirs as release-plan-imported; yours stays as it is \(suggested\)/);
-  assert.match(blocked.stdout, /--resolve phase:release-plan=replace {2}replace yours with theirs; this also changes story:mobile-release/);
-  assert.match(blocked.stdout, /--resolve approval-group:release-managers=keep {2}keep yours; the import uses your approval group \(suggested\)/);
+  // Each choice is the whole preview command with it made, never a flag to add [audit 2026-11-19, entry 14].
+  assert.match(blocked.stdout, /To import theirs as release-plan-imported; yours stays as it is \(suggested\):\n {6}singularity-flow workflow import release\.bundle\.json --dry-run --resolve phase:release-plan=rename:release-plan-imported\n/);
+  assert.match(blocked.stdout, /To replace yours with theirs; this also changes story:mobile-release:\n {6}singularity-flow workflow import release\.bundle\.json --dry-run --resolve phase:release-plan=replace\n/);
+  assert.match(blocked.stdout, /To keep yours; the import uses your approval group \(suggested\):\n {6}singularity-flow workflow import release\.bundle\.json --dry-run --resolve approval-group:release-managers=keep\n/);
+  assert.doesNotMatch(blocked.stdout, /--resolve …/);
   assert.doesNotMatch(blocked.stdout, /Confirm plan/);
 
   const refused = flow('workflow', 'import', 'release.bundle.json', '--confirm', `sha256:${'0'.repeat(64)}`);
   assert.notEqual(refused.status, 0);
   const ready = flow('workflow', 'import', 'release.bundle.json', '--dry-run', '--resolve-all', 'suggested');
   assert.equal(ready.status, 0, ready.stderr);
-  const apply = /Apply it: singularity-flow (.+)$/m.exec(ready.stdout)?.[1];
+  // Applied by the plan's short code, as a copy is: the person never copies its digest.
+  assert.doesNotMatch(ready.stdout, /Confirm plan|sha256:[0-9a-f]{64}/);
+  const apply = /Apply it:\n(?:.*\n)*?.*- Shell: singularity-flow (confirm [0-9A-Z]{4}-[0-9A-Z]{4})$/m.exec(ready.stdout)?.[1];
   assert.ok(apply, ready.stdout);
   const applied = flow(...apply.split(' '));
   assert.equal(applied.status, 0, applied.stderr || applied.stdout);

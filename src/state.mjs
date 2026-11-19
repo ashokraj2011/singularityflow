@@ -7456,6 +7456,7 @@ export async function evaluateApproval(root, config, workflow, {
         authorityGroup: authority.authorityGroup,
         identityAssurance: authority.identityAssurance,
         channel,
+        ...(confirmedBy ? { confirmedBy } : {}),
         generation: phase.generation,
         artifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
         // `[SPK:CON-045]`: a reviewer may discuss one member, but the approval binds the whole bundle.

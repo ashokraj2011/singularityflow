@@ -207,7 +207,8 @@ test('approval receipt crosses the native tool guard, keeps exact confirmation a
   assert.match(wrongConfirmation.stderr, /Allowed: intake/);
   const incomplete = flow(root, ['approve', workId, '--selection-receipt', begun.token], { allowFailure: true });
   assert.equal(incomplete.status, 1);
-  assert.match(incomplete.stderr, /incomplete: Exact phase confirmation/);
+  // One question with a Yes (owner, 2026-11-19): "Approve Intake v1?" is what stays unanswered.
+  assert.match(incomplete.stderr, /incomplete: Approve Intake v1\? has not been answered/);
   const ready = JSON.parse(flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']).stdout);
   assert.equal(ready.ready, true);
   const wrongPhase = flow(root, [
@@ -230,6 +231,10 @@ test('approval receipt crosses the native tool guard, keeps exact confirmation a
   const decisionCommand = ['singularity-flow', ...decisionArgs].join(' ');
   const wrongTurnOperation = guard(`singularity-flow approve requirements --work-id ${workId} --selection-receipt ${begun.token}`);
   assert.equal(wrongTurnOperation.permissionDecision, 'deny', 'the actual hook must be active, not silently bypassed');
+  // A chat approves only on the person's own Yes to the receipt's one question, in this turn (owner, 2026-11-19).
+  assert.match(guard(decisionCommand).permissionDecisionReason, /ask them "Approve Intake v1\?" exactly/u);
+  flow(root, ['hook', 'boundary-after'], { input: JSON.stringify({ ...hook, toolName: 'ask_user', toolArgs: { question: 'Approve Intake v1?' },
+    toolResult: { resultType: 'success', textResultForLlm: 'User responded: Approve Intake v1' } }) });
   assert.deepEqual(guard(decisionCommand), {}, 'the exact receipt-bearing command passes the actual serialized hook');
   const approved = flow(root, decisionArgs);
   assert.equal(JSON.parse(approved.stdout).outcome.status, 'succeeded');

@@ -295,8 +295,9 @@ test('every host shows the recommendation and what each choice does; the approva
   const table = decisionsTable(awaiting);
   assert.match(table, /\nRecommended: Fix the environment and run unit again\.\n/u);
   assert.ok(table.includes(`- ${accept.label}: ${accept.does}`), table);
-  assert.ok(table.includes('**2. Approve Implementation?**'), table);
-  assert.ok(table.includes('- Review and approve Implementation: /sf-approve implementation --work-id DEC-7 opens its documents; or in your terminal: `singularity-flow approve implementation --work-id DEC-7 --fetch`.'), table);
+  // One approval question by step and version (owner, 2026-11-19).
+  assert.match(table, /\*\*2\. Approve Implementation(?: v\d+)?\?\*\*/u, table);
+  assert.match(table, /- Review and approve Implementation: \/sf-approve implementation --work-id DEC-7 shows [^\n]* and asks for your Yes once; or in your terminal: `singularity-flow approve implementation --work-id DEC-7 --fetch`\./u, table);
   assert.equal(cardRows(awaiting).some((item) => item.kind === 'approval'), false, 'the approval is never answered on a form');
   // A choice's own form says what it does before its own words on when to choose it.
   assert.ok(detailForm(risk, accept).message.startsWith(`${risk.title}: ${accept.label}. ${accept.does} ${accept.words}`), detailForm(risk, accept).message);

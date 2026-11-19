@@ -51,17 +51,18 @@ test('the approval form keeps decisions across a hidden tab but never the confir
   const script = review.slice(review.indexOf('const REVIEW_SCRIPT = `'), review.indexOf('`;', review.indexOf('const REVIEW_SCRIPT = `')));
   const remember = script.slice(script.indexOf('function remember()'), script.indexOf('const restored'));
   assert.match(remember, /api\.setState\(\{ decisions: saved \}\)/);
-  assert.doesNotMatch(remember, /data-confirmation/, 'the typed confirmation is made fresh every time');
+  assert.doesNotMatch(remember, /data-confirmation|expected/, 'the Yes is chosen fresh every time');
   assert.match(script, /api\.getState\(\)/, 'a re-rendered or re-shown form restores the reviewer\'s decisions');
-  assert.doesNotMatch(review, /data-confirmation[^>]*placeholder=/,
-    'a placeholder holding the expected value makes the field look already filled in');
+  // One question with its one choice (owner, 2026-11-19): no field to type the step's ID in.
+  assert.doesNotMatch(review, /data-confirmation/, 'nobody types the step\'s ID');
+  assert.match(review, /<h2>\$\{escape\(approvalChoice\(request\)\)\}\?<\/h2>/);
 });
 
-test('a disabled Record approval button says what is still needed', async () => {
+test('a disabled Approve button says what is still needed', async () => {
   const review = await source('apps/vscode/src/views/approval-review.ts');
-  assert.match(review, /<p class="approval-progress muted" data-progress aria-live="polite"><\/p>\s*<button type="submit" disabled>Record approval<\/button>/);
+  assert.match(review, /<p class="approval-progress muted" data-progress aria-live="polite"><\/p>\s*<button type="submit" disabled>\$\{escape\(approvalChoice\(request\)\)\}<\/button>/);
   assert.match(review, /'Still needed: ' \+ missing\.join\(', '\) \+ '\.'/);
-  assert.match(review, /missing\.push\('the typed confirmation'\)/);
+  assert.doesNotMatch(review, /missing\.push\('the typed confirmation'\)/);
 });
 
 test('a lock only a person can end: the card offers its reviewed release first, then the read, never a Copilot route', async () => {

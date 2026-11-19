@@ -6,7 +6,7 @@
  * phase awaiting approval: three Copilot round trips with no decision between them. This runs the
  * same three. The output is the selection receipt unchanged plus `approvalPacket` (the readiness
  * result and the `phase show --for-agent` review). Nothing is answered or approved here: the
- * person's review, their typed phase, `choices answer` and `approve` stay separate, exactly as before.
+ * person's review, their Yes to "Approve <Step> v<N>?", `choices answer` and `approve` stay separate.
  * Terminal obligations stop before a receipt exists, as the skill did.
  */
 import { step, stop } from '../cli-steps.mjs';

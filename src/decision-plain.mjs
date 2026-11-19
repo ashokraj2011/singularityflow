@@ -133,8 +133,9 @@ function question(workflow, item) {
       return `${title}?`;
     case 'generation-rollover':
       return `${title}?`;
+    // One approval question everywhere, by step and version (owner, 2026-11-19): "Approve Requirements v1?".
     case 'approval':
-      return `Approve ${step}?`;
+      return `Approve ${step}${Number.isSafeInteger(details.generation) && details.generation > 0 ? ` v${details.generation}` : ''}?`;
     // A refusal's own route: what clears it, asked of what it says.
     case 'approval-hold':
       return `Clear this first: ${title}?`;

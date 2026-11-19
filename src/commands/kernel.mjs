@@ -43,16 +43,16 @@ export function summary(workflow) {
   if (workflow.sequenceOverrides?.length) console.warn(`Warning: ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
 }
 
-/** Typing the phase id to approve it. Deliberately not a y/n: approval should cost a moment. */
+/** One question with a Yes, by step and version (owner, 2026-11-19): the review the person just read. */
 export async function confirm(phase) {
-  // The remediation plan names the same command with --yes added, for the person approving.
-  if (!input.isTTY || !output.isTTY) throw new SingularityFlowError('Approval needs an interactive terminal or the explicit --yes flag.', {
+  // The remediation plan names the same command with --yes added, for the person approving in their own terminal.
+  if (!input.isTTY || !output.isTTY) throw new SingularityFlowError(`Approving asks "Approve ${phase.label ?? phase.id} v${Number(phase.generation) || 0}?" in your own terminal; run it there, where --yes answers Yes.`, {
     code: 'APPROVAL_CONFIRMATION_REQUIRED', details: { phase: phase.id }
   });
   const io = readline.createInterface({ input, output });
   try {
-    const answer = await io.question(`Type ${phase.id} to approve ${phase.label}: `);
-    return answer.trim() === phase.id;
+    const answer = await io.question(`Approve ${phase.label ?? phase.id} v${Number(phase.generation) || 0}? [y/N] `);
+    return /^(?:y|yes)$/iu.test(answer.trim());
   } finally {
     io.close();
   }

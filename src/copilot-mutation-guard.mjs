@@ -770,8 +770,9 @@ export function argvAllowed(argv, mode, value) {
     // `--yes` approves with no review receipt: it is a person's own terminal answer, never a chat's. A chat approves only
     // through the receipt the person's review binds (`choices begin|answer`, then `--selection-receipt`); a bare approve
     // with no terminal is refused by the command itself [approvals research, 2026-11-19; owner rule 11-01].
+    // Nor does a chat approve with no receipt at all: the receipt is what binds the person's Yes to the version reviewed.
     return positionals[0] === action && (!positionals[1] || positionals[1] === value.originPhase)
-      && (action !== 'approve' || (options.yes === undefined && approvalChatDecisions(options)));
+      && (action !== 'approve' || (options.yes === undefined && typeof options['selection-receipt'] === 'string' && approvalChatDecisions(options)));
   }
   if (classification === 'read') return true;
   // While an amendment proposed from this step waits, nothing moves the step it is bound to [owner, 2026-11-13].
@@ -1550,6 +1551,38 @@ function successorConfirmationOfCall(call, cwd) {
     return positionals[0] === 'phase' && positionals[1] === 'rollover' && typeof options.confirm === 'string';
   }) ?? null;
 }
+/**
+ * An approval's confirmation in a shell call: `choices answer <TOKEN> phase-confirmation <STEP>` or `approve …
+ * --selection-receipt <TOKEN>`, as `{ token, positionals, options }`; null for anything else.
+ */
+function approvalConfirmationOfCall(call, cwd) {
+  if (!SHELL_INPUT_TOOLS.has(call.name)) return null;
+  const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars].find(value => typeof value === 'string');
+  if (!text || !/singularity-flow|sflow/iu.test(text)) return null;
+  for (const { argv } of shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd)) {
+    const { positionals, options } = parseCli(argv);
+    if (positionals[0] === 'choices' && positionals[1] === 'answer' && positionals[3] === 'phase-confirmation') return { token: String(positionals[2] ?? ''), positionals, options };
+    if (positionals[0] === 'approve' && typeof options['selection-receipt'] === 'string') return { token: options['selection-receipt'], positionals, options };
+  }
+  return null;
+}
+
+/** The question an approval receipt on this machine asks ("Approve Requirements v1?"), or null when there is none. */
+async function approvalQuestionOf(payload, token) {
+  try {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(token)) return null;
+    const value = await boundedRecord(recordFile(payload)).catch(() => null);
+    const { gitDirectories } = await import('./story-version-acceptance.mjs');
+    const directories = gitDirectories(value?.contract?.repositoryRoot ?? value?.repositoryRoot ?? payload.cwd);
+    if (!directories) return null;
+    const receipt = JSON.parse(await readFile(path.join(directories.gitDir, 'singularity-flow', 'choices', `${token}.json`), 'utf8'));
+    const context = receipt?.approvalContext;
+    if (receipt?.action !== 'approve' || !context?.phase) return null;
+    return receipt.choiceSets?.find((entry) => entry?.id === 'phase-confirmation')?.question
+      ?? `Approve ${context.label ?? context.phase} v${Number(context.generation) || 0}?`;
+  } catch { return null; }
+}
+
 function personStepCall(call, cwd) {
   const step = personStepOfCall(call, cwd);
   return step ? personStepRefusal(step) : null;
@@ -2093,6 +2126,15 @@ async function answerBoundDenial(payload, record) {
     await consent.grantConsent(proposed.commonDir, { record: proposed.record, surface: 'question-tool',
       question: reply?.asked, session: payload.sessionId ?? payload.session_id ?? null, turnId: record.turnId ?? null,
       host: typeof payload.tool_name === 'string' ? 'vscode' : 'copilot-cli' }).catch(() => null);
+  }
+  // One approval with a Yes (owner, 2026-11-19): a chat approves only on the person's own Yes, in this turn, to the
+  // question its review asks ("Approve <Step> v<N>?"); VS Code's own chat sends them to the approval page instead.
+  if (['decide', 'approve'].includes(skillName(record.skill))) for (const call of toolCalls) {
+    const found = approvalConfirmationOfCall(call, payload.cwd);
+    if (!found) continue;
+    const reason = await (await answerBinding()).approvalAnswerReason(file, record, await approvalQuestionOf(payload, found.token),
+      { localChat: typeof payload.tool_name === 'string', options: found.options, positionals: found.positionals }).catch(() => null);
+    if (reason) return { ...mutationDenial(null, reason, [], { alone: true, turn: record.skill }), recoverable: true };
   }
   if (!ANSWER_BOUND_SKILLS.has(skillName(record.skill))) return null;
   // The turn's contract, read once and only for a proposal: whether change impact holds it to a yes.

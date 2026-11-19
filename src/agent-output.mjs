@@ -389,9 +389,14 @@ export function agentAct(result) {
     return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness', 'nextAction'],
       said: 'This phase is not awaiting approval. Preserve the existing draft. End this approval turn; follow the returned route in a new turn. No receipt or approval exists; do not set aside the draft.' }, result.nextAction);
   }
-  // A review packet's action context is its approval context again, word for word.
-  if (result.approvalPacket && result.approvalContext && result.ready !== undefined && !result.resultType) return { state: 'read', do: null, said: null,
-    read: ['approvalPacket', 'approvalContext', 'choiceSets'] };
+  // A review packet's action context is its approval context again, word for word. One screen with a Yes (owner,
+  // 2026-11-19): the documents, the steps it also covers, any decisions owed, and one question, "Approve Requirements v1?".
+  if (result.approvalPacket && result.approvalContext && result.ready !== undefined && !result.resultType) {
+    const question = (result.choiceSets ?? []).find((entry) => entry?.id === 'phase-confirmation')?.question ?? null;
+    return { state: question ? 'ask-person' : 'read', do: null, said: null, read: ['approvalPacket', 'approvalContext', 'choiceSets'],
+      ...(question ? { ask: { question, choices: [{ label: question.replace(/\?$/u, '') }, { label: 'Not now' }],
+        how: 'Show the documents as links, with those of approvalPacket.review.approvalCovers, then ask the person ask.question exactly with ask_user (its choices as given, nothing preselected); in VS Code\'s own chat do not ask: send them to the approval page on the Decide card (vscode_askQuestions cannot record an approval). Record it only after their Yes; never answer it yourself.' } } : {}) };
+  }
   // A step already submitted says so first, as a submission does: Copilot session usage counts the read by act, which
   // every view keeps, whatever else it leaves out [owner, 2026-11-17: count everything].
   if (result.resultType === 'sflow-submission-readiness' && result.approvalContinuation) {

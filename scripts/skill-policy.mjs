@@ -375,7 +375,11 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   'sflow-approve': {
     required: [
       /sflow-turn-boundary: approval-only/i,
-      /explicit human phase ID confirms only the unchanged packet already reviewed in this conversation/i,
+      // One approval with a Yes (owner, 2026-11-19): the person's own Yes, bound to the packet, replaces the typed step ID.
+      /own Yes to "Approve <Step> v<N>\?" confirms only the unchanged packet already reviewed in this conversation/i,
+      /Ask `act\.ask\.question` \("Approve <Step> v<N>\?"\) exactly with ask_user, its choices "Approve <Step> v<N>" and `Not now`, nothing preselected/,
+      /In VS Code's own chat never ask: the person approves on the approval page/,
+      /Never answer it yourself; Not now approves nothing/,
       /approval CLI is the sole permitted lifecycle mutation/i,
       /positional argument selects \*\*PHASE-ID\*\*, never Work ID/i,
       /Review outside chat against the exact binding/i,
@@ -386,11 +390,10 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /`approvalChecklist` lists articles, ask for one answer per article[^.]*--article <ID>=<DECISION>/,
       /exactly matching non-null `displayBinding`/,
       /New chat, changed\/null binding, omissions or truncation require fresh human review/i,
-      /A phase supplied before a new or changed packet review is not its confirmation/i,
+      /nor does a Yes given before a new or changed packet review: that is not its confirmation/i,
       /document reuse never reuses approval consent/i,
       // SPEC-OAP M4: decisions chosen in /sf-decide land in the approval's one commit.
       /From \/sf-decide 14, add its `withApproval\.flags` \(decisions in this commit\)/,
-      /do not ask again/i,
       /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i,
       /failed approval ends this turn/i,
       /approval CLI advances and activates the next phase when the threshold is met/i,

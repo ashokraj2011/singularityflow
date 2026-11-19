@@ -45,7 +45,7 @@ test('the card shows every open decision as its question and who answers it, and
   assert.match(table, /- Clear it, in your terminal: `singularity-flow recover PAY-1 --json`/u);
   assert.match(table, /The Leads decide this\. Share this with them: \/sf-decide PAY-1/u);
   // One place [owner, 2026-11-13]: the approval is on the card, reviewed with its documents, never on a form.
-  assert.match(table, /\*\*6\. Approve Code\*\*\nWaits\.\n- Approve: \/sf-approve --work-id PAY-1 opens its documents; or in your terminal: `singularity-flow approve implementation`\./u);
+  assert.match(table, /\*\*6\. Approve Code\*\*\nWaits\.\n- Approve: \/sf-approve --work-id PAY-1 shows its documents and asks for your Yes once; or in your terminal: `singularity-flow approve implementation`\./u);
   assert.equal(cardRows(packet()).length, 5);
 });
 

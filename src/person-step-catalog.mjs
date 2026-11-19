@@ -144,8 +144,11 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
 export const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan', 'departure']);
 /** Options that write only upstream-issue records (a raise needs no authority; a decision needs its step's approvers). */
 export const ISSUE_ONLY_OPTIONS = DECISION_LIST_CHAT_OPTIONS;
-/** The turns whose decision commands are held to what the person answered, and the steps it holds (copilot-answer-binding.mjs); approvals keep their own typed confirmation. */
-export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge', 'reject', 'amend']);
+/**
+ * The turns whose decision commands are held to what the person answered, and the steps it holds (copilot-answer-binding.mjs).
+ * An approval is the person's Yes to "Approve <Step> v<N>?" in its own turn, never a typed step ID (owner, 2026-11-19).
+ */
+export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge', 'reject', 'amend', 'approve']);
 // Change impact on: a chat proposal waits for the person's yes, the one step held there [CIC:REQ-015].
 export const PROPOSAL_BOUND_TURNS = Object.freeze(['reject', 'amend']);
 export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record', 'intent-amendment-proposal']);

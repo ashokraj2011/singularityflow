@@ -1136,18 +1136,19 @@ test('each Auto binding refusal names its own recovery: the flight, the Story by
 
 // [owner, 2026-11-19] A person must never have to compose a command: a refused decision leads with the Decide card, which
 // holds every choice filled in, then the refusal's own filled commands; generic help, doctor and planner reads go.
-test('a refused decision leads with the Decide card, then its own filled commands, and never a command with a blank', () => {
+test('a refused decision leads with its own filled choices, then the Decide card, and never a command with a blank', () => {
   const refused = (code, details = {}) => Object.assign(new Error('Refused.'), { code, details });
   const plan = refusalRemediationPlan(refused('DEPARTURE_CLAUSE_REQUIRED', { departure: 'DEP-002', recoveryCommands: [
     { label: 'Accept it under AC-001, with your reason.', command: 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as accepted --clause PAY-1:AC-001 --reason "<REASON>"' },
     { label: 'Reject it, with your reason.', command: 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"' }] }),
   ['decision', 'departure', 'PAY-1', '--departure', 'DEP-002', '--as', 'accepted', '--reason', 'A reason.']);
+  // The refusal's filled choices lead; the card, which holds them all, follows [landing 2026-11-19].
   assert.deepEqual(plan.steps.map((entry) => [entry.id, entry.command]), [
-    ['open-decision-list', 'singularity-flow decisions PAY-1'],
     ['producer-1', 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as accepted --clause PAY-1:AC-001 --reason "<REASON>"'],
-    ['producer-2', 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"']]);
-  assert.equal(plan.steps[0].copilotCommand, '/sf-decide PAY-1');
-  assert.match(renderRefusalPlan(plan), /1\. Open the Decide card for PAY-1: it holds every choice this Story waits on, each filled in/u);
+    ['producer-2', 'singularity-flow decision departure PAY-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"'],
+    ['open-decision-list', 'singularity-flow decisions PAY-1']]);
+  assert.equal(plan.steps[2].copilotCommand, '/sf-decide PAY-1');
+  assert.match(renderRefusalPlan(plan), /1\. Accept it under AC-001, with your reason\./u);
   // A code of the family from another command, with only a blank-holding route of its own: the card, and nothing to compose.
   const blank = refusalRemediationPlan(refused('PLAN_AMENDMENT_INVALID', { workId: 'PAY-1', recoveryCommands: ['singularity-flow decision plan PAY-1 --add-location <clause>=a.js --reason <why>'] }), ['approve', 'code']);
   assert.equal(blank.steps[0].command, 'singularity-flow decisions PAY-1');

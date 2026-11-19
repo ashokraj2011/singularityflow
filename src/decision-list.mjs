@@ -35,6 +35,7 @@ import { finalScopeStep, isConformancePhase, ownerStepChecks } from './phase-rol
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
+import { returnRoute } from './action-command-map.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
 export const DECISION_LIST_REVISION = 'decision-list-v1';
@@ -1305,7 +1306,7 @@ function departureItem(workflow, context, entry, facts) {
     const open = facts.codeStepOpen === true;
     // Submitted: its approvers return it first, by the filled command, never one the person composes [owner, 2026-11-19].
     const submitted = !open && workflow.phases?.[departure.phase]?.status === 'awaiting_approval';
-    const back = `singularity-flow reject ${departure.phase} --work-id ${workId} --to ${departure.phase} --reason "<REASON>"`;
+    const back = returnRoute(workflow, workflow.phases?.[departure.phase] ?? { id: departure.phase }).command;
     accepts = [{ ...accept({ label: 'Accept', words: `${target}'s approved document takes this wording as its next version, amended by ${departure.id}; each later step that read it is checked again.`, writes: 'forward-amendment' }),
       ...(open ? { chat: { command: decide('accepted') } } : { available: false,
         words: `${target}'s wording is amended while ${name} is open. ${name} awaits approval now: ${submitted ? `return it for changes (${back}), then decide this.` : 'return it for changes (/sf-reject), then decide this.'}` }) },
@@ -1326,7 +1327,7 @@ function departureItem(workflow, context, entry, facts) {
       oneByOne: true, chat: { command: decide('accepted', ` --fulfillment ${kind}`) },
       terminal: `singularity-flow decision plan ${workId} --fetch --set-fulfillment ${departure.change?.clauseId}=${kind} --reason "<REASON>"` }));
     } else {
-      const words = `${departure.id} does not say its ${missing.join(' and ')}, so the change cannot be made as recorded. ${name}'s agent records it again with that named (/sf-code), or reject it.`;
+      const words = `${departure.id} does not say its ${missing.join(' and ')}, so the change cannot be made as recorded. ${name}'s agent records it again with that named, or reject it.`;
       accepts = [{ ...accept({ label: 'Accept', words, writes: 'plan-row-correction' }), available: false, recordable: false, does: words }];
     }
   } else if (['plan-row', 'test'].includes(departure.kind)) {

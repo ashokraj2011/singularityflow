@@ -86,7 +86,8 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
   assert.equal(phaseResolutionChoices(coding, open, unclaimed).choices[0].kind, 'scope-appeal');
   const published = phaseResolutionChoices(coding, { ...open, generationIntent: { status: 'consumed' } }, unclaimed).choices[0];
   assert.equal(published.kind, 'plan-amendment');
-  assert.match(published.command, /decision plan APPEAL-1 --add-location/u);
+  // The Decide card offers each row that can take the path, filled in: no <clause>=<path> to work out [owner, 2026-11-19].
+  assert.match(published.command, /^singularity-flow decisions APPEAL-1$/u);
   assert.equal(phaseResolutionChoices(workflow, phase, unclaimed).choices[0].kind, 'plan-amendment');
   // The author delivers first; the pilot risk a person may accept follows it (owner policy 2026-11-10).
   assert.deepEqual(phaseResolutionChoices(workflow, phase, { code: 'code.delivery.incomplete',

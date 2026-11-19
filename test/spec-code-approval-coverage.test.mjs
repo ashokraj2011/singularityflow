@@ -572,7 +572,8 @@ test('[PHR:REQ-002] finding 13: under recorded coverage the last code step\'s ap
   assert.equal(refused.code, 'SPEC_COVERAGE_INCOMPLETE');
   assert.deepEqual([refused.details.ownerPhase, refused.details.coverage.unimplemented], ['implementation', ['COVER-1:REQ-002']]);
   assert.equal(refused.details.repairCommand, 'singularity-flow reject implementation --work-id COVER-1 --fetch --reason <REASON>');
-  assert.match(refused.details.recoveryCommands[0].command, /^singularity-flow decision risk --obligation OBL:COVER-1:implement:REQ-002 /u);
+  // The Decide card holds the person's dated risk filled in: no --category or --expires to compose [owner, 2026-11-19].
+  assert.equal(refused.details.recoveryCommands[0].command, 'singularity-flow decisions COVER-1');
   // The quality gate reads the approval the same way, so its approvers can prepare a pilot risk for exactly this.
   await assert.rejects(assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision, { boundary: 'approve' }), { code: 'SPEC_COVERAGE_INCOMPLETE' });
   // A person's accepted implementation risk carries the clause, as the ending reads it.

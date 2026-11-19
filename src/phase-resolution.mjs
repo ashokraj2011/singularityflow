@@ -174,9 +174,10 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       gapRoutes = others.map((choice) => route(choice.kind, choice.owner, choice.argv, choice.detail, choice.skill));
     }
   } else if (code === 'plan_evidence_correction_review_required') {
-    // Recovery names the file's correction for each criterion it could prove, filled in: no clause to look up [owner, 2026-11-19].
-    resolution = route('human-review', 'plan-approval-authority', ['recover', workId, '--phase', phase.id, '--json'],
-      'Keep the pending evidence as it is. Recovery offers its evidence-contract correction for each criterion it could prove, filled in; the plan\'s approvers review it before publishing.', '/sf-recover');
+    resolution = route('human-review', 'plan-approval-authority',
+      ['appeal', 'evidence-prepare', '--phase', phase.id, '--path', finding.path ?? '<EVIDENCE-PATH>',
+        '--clause', '<CLAUSE-ID>', '--method', 'visual', '--reason', '<reason>', '--json'],
+      'Keep the pending evidence as it is. The plan\'s approvers review the evidence change before it is published, in SFlow\'s browser or your terminal; nothing here passes a visual check or skips a test.', '/sf-appeal');
   } else if (code.startsWith('generation_publication')) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'Check the saved publication and its files. Restore them as published, or return the step for a reviewed new version; refreshing configuration or accepting a risk cannot make changed files valid.', '/sf-doctor');

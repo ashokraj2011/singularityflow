@@ -89,10 +89,11 @@ test('[PHR:REQ-002] finding 10: the step that defines the scope is approved only
   const plan = refusalRemediationPlan(refusal, ['approve', 'intake', '--work-id', 'W-1']);
   // The repair is in this step and this turn [PHR:REQ-006]: the decision list leads, then the statement's two routes;
   // never "recover the phase", "end the turn" or a rejection, which could not clear it.
+  // The Decide card holds each statement's choices filled in, so the plan leads with it and shows no command with a
+  // blank such as <included|existing> or <CLAUSE-ID> to work out [owner, 2026-11-19].
   assert.deepEqual(plan.steps.map((entry) => [entry.id, entry.command]), [
-    ['open-decision-list', 'singularity-flow decisions W-1'],
-    ['include-scope-statement', refusal.details.recoveryCommands[0].command],
-    ['decide-scope-statement-otherwise', refusal.details.recoveryCommands[1].command]]);
+    ['open-decision-list', 'singularity-flow decisions W-1']
+  ]);
   assert.deepEqual([plan.context?.strategy, plan.context?.turn], ['person-decides-scope', 'current-turn']);
   assert.match(renderRefusalPlan(plan), /^Recovery plan:\n  Scope: phase intake — an approver of a step that defines the scope decides each source statement in the decision list now, then the phase is approved; nothing about the work needs repairing\.\n  1\. An approver of intake decides/u);
   assert.doesNotMatch(renderRefusalPlan(plan), /sf-recover|sf-reject|Turn boundary/u);

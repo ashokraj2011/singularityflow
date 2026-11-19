@@ -2105,8 +2105,10 @@ function remediationPlanBeforeFamily(error, argv = []) {
 // refusal's own filled commands follow it, and the generic help, doctor and planner reads, which name no choice, go.
 const DECISION_FAMILY_CODE = /^(?:DECISION|DEPARTURE_|PLAN_AMENDMENT_|SCOPE_|TEST_RUN_RISK_|TEST_COMMAND_DECISION_|EVIDENCE_REUSE_|SETTLED_DECISION_)/u;
 const GENERIC_STEP_IDS = new Set(['command-help', 'diagnose-repository', 'recommended-next']);
+// A generic step names no way out only while it is the generic read; a planner step that names the Story's next route is one.
+const genericStep = (entry) => GENERIC_STEP_IDS.has(entry.id) && (entry.command == null || /^singularity-flow (?:help|doctor|nextsteps)\b/u.test(entry.command));
 // What only the person can type: their reason or their words. Any other <...> is a value SFlow should have filled in.
-const FREE_TEXT_PLACEHOLDER = /^<(?:REASON|reason|why|WHY|TEXT|text)>$/u;
+const FREE_TEXT_PLACEHOLDER = /^<(?:REASON|reason|why|WHY|TEXT|text|ANSWER|answer|NOTE|note|PROBLEM|problem|what-[a-z-]+)>$/u;
 const composedCommand = (command) => (String(command ?? '').match(/<[^<>\s]+>/gu) ?? []).some((token) => !FREE_TEXT_PLACEHOLDER.test(token));
 
 /** A person's decision write: `decision <kind>`, `decisions record` or `decisions undo`; reading the list is not one. */
@@ -2116,8 +2118,8 @@ function decisionWrite(argv) {
 
 /** The model's or the author's own step, which the Decide card does not hold: recording a departure, writing or publishing a step. */
 function authorsOwnCommand(argv) {
-  return argv[0] === 'departure' || ['prepare', 'publish'].includes(argv[0])
-    || (argv[0] === 'phase' && ['prepare', 'prepublish', 'publish', 'begin', 'rollover', 'enter'].includes(argv[1]));
+  return argv[0] === 'departure' || /^(?:prepare|publish)$/u.test(argv[0] ?? '')
+    || (argv[0] === 'phase' && /^(?:prepare|prepublish|publish|begin|rollover|enter)$/u.test(argv[1] ?? ''));
 }
 
 function decisionFamilyWorkId(error, argv) {
@@ -2130,17 +2132,39 @@ function decisionFamilyPlan(plan, error, argv) {
   const code = String(error?.code ?? '');
   if (!decisionWrite(argv) && !(DECISION_FAMILY_CODE.test(code) && !authorsOwnCommand(argv))) return null;
   const workId = decisionFamilyWorkId(error, argv);
-  const card = step('open-decision-list', `Open the Decide card${workId ? ` for ${workId}` : ''}: it holds every choice this Story waits on, each filled in, with who decides it.`,
-    `singularity-flow decisions${workId ? ` ${workId}` : ''}`, 'remediation', '/sf-decide');
+  const cardCommand = `singularity-flow decisions${workId ? ` ${workId}` : ''}`;
+  // The refusal's own words for the card, when it names the card itself, say more than the general ones (who decides what).
+  const named = explicitCommands(error).find((entry) => entry.command === cardCommand && typeof entry.label === 'string');
+  const card = step('open-decision-list', named?.label ?? `Open the Decide card${workId ? ` for ${workId}` : ''}: it holds every choice this Story waits on, each filled in, with who decides it.`,
+    cardCommand, 'remediation', '/sf-decide');
   if (!card.command) return null;
-  const own = explicitCommands(error).filter((entry) => !composedCommand(entry.command)).map((entry, index) => step(`producer-${index + 1}`,
-    entry.label ?? 'Follow the recovery action supplied by the refusing operation.', entry.command, 'remediation', entry.skill));
-  const rest = plan.steps.filter((entry) => !GENERIC_STEP_IDS.has(entry.id) && !composedCommand(entry.command)
+  const rest = plan.steps.filter((entry) => !genericStep(entry) && !composedCommand(entry.command)
     && !(entry.id === 'open-decision-list' && entry.command === card.command));
+  // A command the plan already holds keeps its own step (and its name); only the refusal's other commands are added.
+  const planned = new Set(rest.map((entry) => entry.command).filter(Boolean));
+  const own = explicitCommands(error).filter((entry) => !composedCommand(entry.command) && entry.command !== card.command && !planned.has(entry.command))
+    .map((entry, index) => step(`producer-${index + 1}`, entry.label ?? 'Follow the recovery action supplied by the refusing operation.', entry.command, 'remediation', entry.skill));
   // A decision the card does not record (a person's own terminal step) keeps its own filled retry first [PHR:REQ-006].
   const same = modelFreeCommandForArgv(argv) ? null : explicitCommands(error).find((entry) => entry.argv?.[0] === argv[0] && entry.argv?.[1] === argv[1]);
   const retry = same ? step('producer-retry', same.label ?? 'Follow the recovery action supplied by the refusing operation.', same.command, 'remediation', same.skill) : null;
-  // Recording the card's own list leads with its own way out; the card follows, never the same route first.
+  // The plan keeps a way out it already names [landing 2026-11-19]. Its specific steps are the remediation steps and any
+  // list of this Story's decisions; a read of state or the generic help names no way out. Steps holding a blank go only
+  // while a complete way out remains: a blank is better than a circle.
+  const isSpecific = (entry) => !genericStep(entry) && Boolean(entry.command || entry.skill)
+    && !/^singularity-flow (?:nextsteps|help|doctor|status|phase show|decision show)\b/u.test(entry.command ?? '')
+    && (entry.kind === 'remediation' || GENERIC_STEP_IDS.has(entry.id) || /^singularity-flow decisions\b/u.test(entry.command ?? ''));
+  const plain = plan.steps.filter((entry) => !composedCommand(entry.command));
+  const kept = plain.some(isSpecific) ? plain : plan.steps;
+  const lead = kept.find(isSpecific) ?? null;
+  const recording = argv[0] === 'decisions' && ['record', 'undo'].includes(argv[1]);
+  if (!recording && lead) {
+    // A way out elsewhere (another step republishes, returns or raises it; the Story's next step; a list of one step's
+    // decisions) stays as the plan has it, with no card: the card would show the same item again, a circle (finding 6).
+    if (!/^singularity-flow decision /u.test(lead.command ?? '')) return Object.freeze({ ...plan, steps: Object.freeze(deduplicate([retry, ...kept, ...own])) });
+    // Filled alternatives of this decision lead; the card, which holds them all, follows.
+    return Object.freeze({ ...plan, steps: Object.freeze(deduplicate([retry, ...kept.filter((entry) => !genericStep(entry)), ...own, card])) });
+  }
+  // No way out named (only help, doctor and the planner): the card leads, with the refusal's own filled commands after it.
   return Object.freeze({ ...plan, steps: Object.freeze(deduplicate(argv[0] === 'decisions' ? [...own, card, ...rest] : [retry, card, ...own, ...rest])) });
 }
 

@@ -161,7 +161,9 @@ test('the installed finding offers narrow accounting in the current phase, not a
   assert.equal(result.policy.riskEligible, false);
   assert.equal(result.status, 'needs-human');
   assert.equal(result.choices[0].kind, 'plan-amendment');
-  assert.ok(result.choices[0].command.includes('<CLAUSE>=index.html'));
+  // The Decide card offers index.html under each row that can take it, filled in: no <CLAUSE> left to work out [owner, 2026-11-19].
+  assert.match(result.choices[0].command, /\bdecisions TEAM\b/u);
+  assert.doesNotMatch(result.choices[0].command, /</u);
   assert.ok(!result.choices.some(choice => choice.argv?.[0] === 'reject'));
 });
 

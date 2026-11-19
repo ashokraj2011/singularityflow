@@ -844,7 +844,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (out-of-plan-classes.mjs, test-support-detection.mjs). No new eager file.
     // 9,767,400 (measured 9,767,375 for submit.mjs, +63, 2026-11-19): `--recommended` is a boolean option the parser knows
     // (util.mjs BOOLEAN_OPTIONS), the recommended answer recorded in chat with no reason [owner, 2026-11-19, C10]. No new eager file.
-    assert.ok(closure.bytes <= 9_767_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,767,900 (measured 9,767,892 for submit.mjs, +517 over 9,767,375, 2026-11-19): an undo of what was settled and an
+    // approved amendment's acknowledgement are a /sf-decide turn's bound yes (person-step-catalog.mjs, copilot-mutation-guard.mjs
+    // decide-turn admissions, copilot-answer-binding.mjs) and the catalog says why thirteen steps stay terminal-only
+    // [owner, 2026-11-19, terminal-to-card]. No new eager file.
+    assert.ok(closure.bytes <= 9_767_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1305,7 +1309,9 @@ test('the common session projection does not import attach, state stores or publ
   // (plan-amendments.mjs, source-boundary.mjs, supporting-changes.mjs, specifications.mjs) and untracked files in the importer
   // search (git.mjs) [owner, 2026-11-19, C3]. No new eager file.
   // 4,297,800 (measured 4,297,767, +63, 2026-11-19): `--recommended` in the parser's boolean options (util.mjs) [C10]. No new eager file.
-  assert.ok(current.bytes <= 4_297_800, `session current loads ${current.bytes} source bytes`);
+  // 4,298,300 (measured 4,298,284, +517, 2026-11-19): the two bound yeses in /sf-decide and the terminal-only reasons
+  // (person-step-catalog.mjs, copilot-mutation-guard.mjs, copilot-answer-binding.mjs) [terminal-to-card]. No new eager file.
+  assert.ok(current.bytes <= 4_298_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

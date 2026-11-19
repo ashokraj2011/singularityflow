@@ -425,7 +425,13 @@ function stillHoldsYesNo(workflow, item) {
 export function advisedItem(workflow, item) {
   const options = item.options.map((entry) => ({ ...entry, does: optionDoes(workflow, item, entry) }));
   const advised = { ...item, options };
-  if (item.settled) return { ...advised, chatYesNo: false };
+  if (item.settled) {
+    // Undo in chat, as a bound yes: "Undo: ask me instead?" [owner, 2026-11-19]. Its question names the settlement.
+    const undo = options.find((entry) => entry.id === 'undo' && entry.chat?.command);
+    const yesNo = undo && item.details?.settledId ? { question: `${String(item.title ?? '').replace(/[.!?]+$/u, '')}. Undo: ask me instead (${item.details.settledId})?`,
+      yes: 'undo', no: null, route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` } : null;
+    return { ...advised, chatYesNo: Boolean(yesNo), ...(yesNo ? { yesNo } : {}) };
+  }
   const recommended = itemRecommendation(workflow, advised);
   // The reasons are settled before the question is asked: its words say which side takes one (C10).
   const reasoned = { ...advised, options: reasonOptional(item, options, recommended), recommended };

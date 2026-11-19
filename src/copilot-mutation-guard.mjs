@@ -793,7 +793,12 @@ export function argvAllowed(argv, mode, value) {
   // A /sf-decide turn records the decision list's upstream-issue options for the bound Story, with the
   // list's digest; a reused run or a test-run risk stays the person's own terminal step.
   if (mode === 'decision-only' && positionals[0] === 'decisions') return !value.decisionEnded
-    && decisionListChatRecord(positionals, options, value.contract.workId);
+    && (decisionListChatRecord(positionals, options, value.contract.workId)
+      // An undo of what was settled, on the person's own yes to its question [owner, 2026-11-19].
+      || (positionals[1] === 'undo' && positionals[2] === value.contract.workId && positionals.length === 3 && /^STL-\d{3,}$/u.test(options.settled ?? '')));
+  // Acknowledging an approved intent amendment, on the person's own yes to its question [owner, 2026-11-19].
+  if (mode === 'decision-only' && positionals[0] === 'story') return !value.decisionEnded && positionals[1] === 'intent-amendment'
+    && positionals[2] === 'acknowledge' && /^AMD-\d{3,}$/u.test(positionals[3] ?? '') && positionals.length === 4 && options['work-id'] === value.contract.workId;
   // The /sf-decide turn boundary: the decision commands its skill names, for the bound Story only.
   // `decision risk` and `decision witness` stay outside it; a witness needs the human terminal.
   // Raising one for an earlier step is the route a final check names, and /sf-decide is where it is
@@ -1448,7 +1453,8 @@ function personStepRefusal({ id, argv, owners }, turn = null) {
   const card = id.startsWith('intent-amendment-') ? decisionsCardRoute(argv)
     : id === 'settled-undo' ? decisionsCardRoute(argv, parseCli(argv).positionals[2] ?? null) : null;
   const routes = witness ? [witness] : card ? [card] : guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
-  const said = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
+  // An undo or an acknowledgement a /sf-decide turn takes on the person's yes keeps its own words elsewhere [owner, 2026-11-19].
+  const said = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners && !OWN_STEP_DENIALS[id] ? personDecisionReason(owners)
     : PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
   const reason = card?.copilotCommand.includes(' ') ? said.replace('/sf-decide <WORK-ID>', card.copilotCommand) : said;
   // In the chat it names, a route to that chat's own command becomes the card or the person's line (mutationDenial).

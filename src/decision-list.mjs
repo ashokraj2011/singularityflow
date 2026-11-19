@@ -841,9 +841,11 @@ function intentAmendmentItem(workflow, context, amendment) {
       kind: 'intent-amendment', title: `Acknowledge intent amendment ${id}`,
       // Which steps, and what acknowledging lets them do, in plain words [owner, 2026-11-18: "the reopened step can revalidate"].
       why: `${id} was approved and changed ${clauses}, so ${listWords((amendment.affectedPhases ?? []).map((phaseId) => stepName(workflow, phaseId))) || 'the steps it reopened'} can be submitted again once someone acknowledges it.`,
+      // A bound yes in chat too, unless SF Guard signs it [owner, 2026-11-19].
       options: [{ ...option(workflow, context, { id: 'acknowledge', label: `I read ${id}: acknowledge it`,
         words: 'Anyone working on this Story may acknowledge it, here or in their own terminal, once they have read what it changed.',
-        effects: [{ kind: 'intent-amendment-acknowledge', amendment: id }], needs: {} }), oneByOne: true, terminal: acknowledge }],
+        effects: [{ kind: 'intent-amendment-acknowledge', amendment: id }], needs: {} }), oneByOne: true, terminal: acknowledge,
+      ...(presenceRequires(workflow) ? {} : { chat: { command: acknowledge } }) }],
       details: { amendment: id, status: 'approved', statusCommand: status, ...shown, commands: [acknowledge] }
     };
   }
@@ -1739,8 +1741,10 @@ function settledItems(workflow, context) {
       kind: 'settled', settled: true, title: String(entry.answer).slice(0, 200), subject: entry.subject,
       answerWords: entry.answer, evidenceWords: evidence, evidence: (entry.evidence ?? []).map((fact) => `${fact.what} (${fact.where})`), by: entry.by, at: entry.at,
       why: `${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. Undo it only if it is wrong.`,
+      // Also a bound yes in /sf-decide, "Undo: ask me instead?", unless SF Guard signs it [owner, 2026-11-19].
       options: [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
-        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo }],
+        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo,
+      ...(presenceRequires(workflow) ? {} : { chat: { command: undo } }) }],
       // What it changed, for its one line on every host (decision-plain.mjs) [owner, 2026-11-16].
       details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence, ...(entry.effect ? { effect: entry.effect } : {}),
         reraised: route, commands: [undo] }
@@ -2169,7 +2173,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const settled = settledItems(workflow, context).map((item, index) => advisedItem(workflow, { id: `d${items.length + offered.length + index + 1}`, ...item,
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
     decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
-    .map((item) => ({ ...item, answer: { where: 'card', words: `Nothing to answer. Undo it on the Decide card (/sf-decide ${workflow.workItem.id} opens it) only if it is wrong; a chat turn cannot undo it.` } }));
+    .map((item) => ({ ...item, answer: item.chatYesNo ? { where: 'chat', words: `Nothing to answer. Undo it only if it is wrong: on the Decide card, or say yes to its question in /sf-decide ${workflow.workItem.id}.` }
+      : { where: 'card', words: `Nothing to answer. Undo it on the Decide card (/sf-decide ${workflow.workItem.id} opens it) only if it is wrong; a chat turn cannot undo it.` } }));
   if (door) {
     const advised = advisedItem(workflow, { id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true, holds: 'approval', holdsWords: HOLDS_WORDS.approval });
     items.unshift({ ...advised, answer: itemAnswer(advised, workflow.workItem.id) });

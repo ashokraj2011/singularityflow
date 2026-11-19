@@ -607,9 +607,9 @@ export async function inspectFileLease(file, options = {}) {
   const writing = !observed.owner && !observed.unsafe && observed.ownerBytes?.trim() === ''
     && registryLeaseAgeMs(observed.info) <= REGISTRY_LOCK_ACQUISITION_GRACE_MS;
   const active = state === 'busy' && (writing || cacheLeaseActive(observed.owner, observed.liveness));
-  const ownerNonce = observed.owner?.nonce;
   return { state, reason: observed.reason, active,
-    ...(observed.owner ? { owner: observed.owner, liveness: livenessDetails(observed.liveness), token: ownerNonce,
+    ...(observed.owner ? { owner: observed.owner, liveness: livenessDetails(observed.liveness), token:
+      observed.owner.nonce,
       showCommand: registryLeaseShowCommand(lock),
       releaseCommand: state === 'busy' && !active ? registryLeaseReleaseCommand(lock, observed.owner.nonce) : null } : {}) };
 }

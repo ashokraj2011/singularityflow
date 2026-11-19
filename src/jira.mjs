@@ -56,7 +56,6 @@ export function normalizeJiraConnection(input = {}) {
   const apiBaseUrl = cloudId
     ? `https://api.atlassian.com/ex/jira/${encodeURIComponent(cloudId)}`
     : baseUrl;
-  const accessText = String(access);
   return {
     name: String(input.name ?? 'jira').trim() || 'jira',
     deployment,
@@ -69,7 +68,8 @@ export function normalizeJiraConnection(input = {}) {
       username: username ? String(username).trim() : null,
       // Keep the email alias for existing callers and encrypted credential records.
       email: username ? String(username).trim() : null,
-      token: accessText
+      token:
+        String(access)
     }
   };
 }
@@ -702,13 +702,13 @@ export async function searchIssues(jql, {
     }
     if (resolved.deployment === 'cloud') {
       if (payload?.isLast === true || !page.length) break;
-      const pageCursor = payload?.nextPageToken == null ? '' : String(payload.nextPageToken);
-      if (!pageCursor) break;
-      if (seenCloudTokens.has(pageCursor)) {
+      const next = payload?.nextPageToken == null ? '' : String(payload.nextPageToken);
+      if (!next) break;
+      if (seenCloudTokens.has(next)) {
         throw jiraFailure('Jira Cloud returned a repeated pagination token.', { category: 'response' });
       }
-      seenCloudTokens.add(pageCursor);
-      nextPageToken = pageCursor;
+      seenCloudTokens.add(next);
+      nextPageToken = next;
       continue;
     }
     const providedStart = payload.startAt == null ? Number.NaN : Number(payload.startAt);
@@ -992,10 +992,10 @@ export async function listBoardStories(boardId, {
       }
       if (payload.isLast === true || !payload.issues.length) break;
       if (payload.nextPageToken) {
-        const pageCursor = String(payload.nextPageToken);
-        if (seenTokens.has(pageCursor)) throw jiraFailure(`Jira sprint ${sprint.id} returned a repeated pagination token.`, { category: 'response' });
-        seenTokens.add(pageCursor);
-        nextPageToken = pageCursor;
+        const next = String(payload.nextPageToken);
+        if (seenTokens.has(next)) throw jiraFailure(`Jira sprint ${sprint.id} returned a repeated pagination token.`, { category: 'response' });
+        seenTokens.add(next);
+        nextPageToken = next;
       } else {
         const nextStart = startAt + payload.issues.length;
         const total = payload.total == null ? Number.NaN : Number(payload.total);

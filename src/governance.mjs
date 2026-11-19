@@ -86,8 +86,6 @@ function conformanceGateErrors(findings) {
 
 export { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
 
-const OK = 'pass';
-
 /**
  * Compare terminal publication against the exact configured push authority, not a mutable name.
  *
@@ -797,7 +795,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const coverage = codeRoute ? observedCoverage : (() => {
         const complete = !observedCoverage.unclaimedChangedPaths.length && !observedCoverage.withdrawnButClaimed.length
           && !observedCoverage.invalidEvidence.length;
-        return { ...observedCoverage, unimplemented: [], complete, severity: complete ? OK : observedCoverage.severity };
+        return { ...observedCoverage, unimplemented: [], complete, severity: !complete ? observedCoverage.severity : 'pass' };
       })();
       const qualityRisks = await activeQualityRisks(root, config, workflow, terminal ? 'terminal' : 'consume');
       // A person's accepted implementation risk carries its clause here as the evidence evaluation

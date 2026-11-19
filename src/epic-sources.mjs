@@ -438,8 +438,8 @@ function invalidateInitiativeSourceCone(initiative, cone, decisionSha256, at) {
 
 export function sourceRuntime(runtime, providerId) {
   const envName = `SINGULARITY_FLOW_STORAGE_TOKEN_${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
-  const storageAccess = runtime.token ?? process.env[envName] ?? null;
-  return { ...runtime, token: storageAccess };
+  return { ...runtime, token:
+    runtime.token ?? process.env[envName] ?? null };
 }
 
 /** The same check a Story document gets. Only the `local` provider commits what it is given. */

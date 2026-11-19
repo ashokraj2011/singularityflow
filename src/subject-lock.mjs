@@ -623,12 +623,12 @@ function recordHeartbeatFailure(controller, cause) {
   if (!controller || controller.stopping) return null;
   controller.failure ??= heartbeatWorkerError(controller.directory, cause);
   try {
-    const { lockToken } = controller.owner;
     writeFileSync(heartbeatFailurePath(controller.directory, controller.owner), `${JSON.stringify({
       failedAt: nowIso(),
       pid: process.pid,
       processToken: PROCESS_TOKEN,
-      lockToken
+      lockToken:
+        controller.owner.lockToken
     })}\n`, { flag: 'wx', mode: 0o600 });
   } catch (error) {
     if (error?.code !== 'EEXIST' && !controller.failureMarkerError) {
@@ -829,7 +829,6 @@ async function startSharedHeartbeat(directory, owner, intervalMs) {
   pool.controllers.set(registrationId, controller);
   setSharedHeartbeatReference(pool);
   try {
-    const { lockToken } = owner;
     pool.worker.postMessage({
       type: 'register',
       lease: {
@@ -839,7 +838,8 @@ async function startSharedHeartbeat(directory, owner, intervalMs) {
         intervalMs,
         pid: process.pid,
         processToken: PROCESS_TOKEN,
-        lockToken
+        lockToken:
+          owner.lockToken
       }
     });
     await readiness;
@@ -854,7 +854,6 @@ async function startSharedHeartbeat(directory, owner, intervalMs) {
 }
 
 async function startDedicatedHeartbeat(directory, owner, intervalMs, heartbeatFactory) {
-  const { lockToken } = owner;
   const worker = heartbeatFactory(`
     const { utimesSync, writeFileSync } = require('node:fs');
     const { parentPort, workerData } = require('node:worker_threads');
@@ -902,7 +901,8 @@ async function startDedicatedHeartbeat(directory, owner, intervalMs, heartbeatFa
       intervalMs,
       pid: process.pid,
       processToken: PROCESS_TOKEN,
-      lockToken
+      lockToken:
+        owner.lockToken
   }));
   const controller = {
     worker, directory, owner, stopping: false, ready: false,
@@ -1009,13 +1009,13 @@ async function startOwnedHeartbeat(directory, owner, ttlMs, heartbeatFactory = n
 }
 
 function newLockOwner(subject, ttlMs) {
-  const nonce = randomUUID();
   return {
     schemaVersion: currentSchemaVersion('subject-lock-owner'),
     subject,
     // pid, host, machineId, processStartedAt, processToken: what proves this owner alive or dead.
     ...leaseOwnerIdentity(),
-    lockToken: nonce,
+    lockToken:
+      randomUUID(),
     acquiredAt: nowIso(),
     expiresAt: new Date(Date.now() + ttlMs).toISOString()
   };

@@ -165,7 +165,7 @@ export function tokenizeJavaScript(source) {
         push({ type: 'template', raw: part.raw, value: decodeStringLiteral(part.raw), substitutions: false, start, end: index, line: startLine });
       } else {
         push({ type: 'template', raw: part.raw, value: null, substitutions: true, start, end: null, line: startLine, open: true });
-        templateFrames.push({ depth: braceDepth, lexeme: tokens.at(-1) });
+        templateFrames.push({ depth: braceDepth, tok: tokens.at(-1) });
       }
       continue;
     }
@@ -174,11 +174,11 @@ export function tokenizeJavaScript(source) {
       index += 1;
       const frame = templateFrames.at(-1);
       const part = scanTemplate(start, startLine);
-      frame.lexeme.raw += `\${…}${part.raw}`;
+      frame.tok.raw += `\${…}${part.raw}`;
       if (part.closed) {
         templateFrames.pop();
-        frame.lexeme.end = index;
-        delete frame.lexeme.open;
+        frame.tok.end = index;
+        delete frame.tok.open;
       }
       continue;
     }
@@ -230,7 +230,7 @@ export function tokenizeJavaScript(source) {
     index += value.length;
   }
   if (templateFrames.length) {
-    throw new LexError('JAVASCRIPT_SOURCE_UNREADABLE', `unterminated template expression starting on line ${templateFrames.at(-1).lexeme.line}`, templateFrames.at(-1).lexeme.line);
+    throw new LexError('JAVASCRIPT_SOURCE_UNREADABLE', `unterminated template expression starting on line ${templateFrames.at(-1).tok.line}`, templateFrames.at(-1).tok.line);
   }
   return tokens;
 }
@@ -248,12 +248,12 @@ function matchingClose(tokens, openIndex) {
   const close = open === '(' ? ')' : open === '[' ? ']' : '}';
   let depth = 0;
   for (let index = openIndex; index < tokens.length; index += 1) {
-    const lexeme = tokens[index];
-    if (lexeme.type !== 'punct') continue;
-    if (['(', '[', '{'].includes(lexeme.value)) depth += 1;
-    else if ([')', ']', '}'].includes(lexeme.value)) {
+    const tok = tokens[index];
+    if (tok.type !== 'punct') continue;
+    if (['(', '[', '{'].includes(tok.value)) depth += 1;
+    else if ([')', ']', '}'].includes(tok.value)) {
       depth -= 1;
-      if (depth === 0) return lexeme.value === close ? index : -1;
+      if (depth === 0) return tok.value === close ? index : -1;
     }
   }
   return -1;
@@ -263,8 +263,8 @@ function matchingClose(tokens, openIndex) {
 function literalTableCount(tokens, table) {
   if (!table) return null;
   if (table.kind === 'template') {
-    if (table.lexeme.substitutions === false && !table.lexeme.raw.trim()) return 0;
-    const rows = table.lexeme.raw.split(/\r?\n/u).map((row) => row.trim()).filter(Boolean);
+    if (table.tok.substitutions === false && !table.tok.raw.trim()) return 0;
+    const rows = table.tok.raw.split(/\r?\n/u).map((row) => row.trim()).filter(Boolean);
     return rows.length > 1 ? rows.length - 1 : null;
   }
   const [open, close] = table.range;
@@ -275,16 +275,16 @@ function literalTableCount(tokens, table) {
   let elements = 0;
   let sawElement = false;
   for (let index = open + 2; index < arrayClose; index += 1) {
-    const lexeme = tokens[index];
-    if (lexeme.type === 'punct' && ['(', '[', '{'].includes(lexeme.value)) depth += 1;
-    if (lexeme.type === 'punct' && [')', ']', '}'].includes(lexeme.value)) depth -= 1;
-    if (depth === 0 && lexeme.type === 'punct' && lexeme.value === '...') return null;
-    if (depth === 0 && lexeme.type === 'punct' && lexeme.value === ',') {
+    const tok = tokens[index];
+    if (tok.type === 'punct' && ['(', '[', '{'].includes(tok.value)) depth += 1;
+    if (tok.type === 'punct' && [')', ']', '}'].includes(tok.value)) depth -= 1;
+    if (depth === 0 && tok.type === 'punct' && tok.value === '...') return null;
+    if (depth === 0 && tok.type === 'punct' && tok.value === ',') {
       if (sawElement) elements += 1;
       sawElement = false;
       continue;
     }
-    if (lexeme.type !== 'comment') sawElement = true;
+    if (tok.type !== 'comment') sawElement = true;
   }
   return elements + (sawElement ? 1 : 0);
 }
@@ -375,16 +375,16 @@ function topLevelArgs(tokens, openParen, closeParen) {
   let current = [];
   let depth = 0;
   for (let i = openParen + 1; i < closeParen; i += 1) {
-    const lexeme = tokens[i];
-    if (lexeme.type === 'comment') continue;
-    if (lexeme.type === 'punct' && ['(', '[', '{'].includes(lexeme.value)) depth += 1;
-    else if (lexeme.type === 'punct' && [')', ']', '}'].includes(lexeme.value)) depth -= 1;
-    if (depth === 0 && lexeme.type === 'punct' && lexeme.value === ',') {
+    const tok = tokens[i];
+    if (tok.type === 'comment') continue;
+    if (tok.type === 'punct' && ['(', '[', '{'].includes(tok.value)) depth += 1;
+    else if (tok.type === 'punct' && [')', ']', '}'].includes(tok.value)) depth -= 1;
+    if (depth === 0 && tok.type === 'punct' && tok.value === ',') {
       args.push(current);
       current = [];
       continue;
     }
-    current.push(lexeme);
+    current.push(tok);
   }
   if (current.length) args.push(current);
   return args;
@@ -399,10 +399,10 @@ export function analyzeTestDeclarationAssertions(tokens, callOpen, callClose, so
   let bodyStart = callOpen + 1;
   let depth = 0;
   while (bodyStart < callClose) {
-    const lexeme = tokens[bodyStart];
-    if (lexeme.type === 'punct' && ['(', '[', '{'].includes(lexeme.value)) depth += 1;
-    else if (lexeme.type === 'punct' && [')', ']', '}'].includes(lexeme.value)) depth -= 1;
-    else if (depth === 0 && lexeme.type === 'punct' && lexeme.value === ',') { bodyStart += 1; break; }
+    const tok = tokens[bodyStart];
+    if (tok.type === 'punct' && ['(', '[', '{'].includes(tok.value)) depth += 1;
+    else if (tok.type === 'punct' && [')', ']', '}'].includes(tok.value)) depth -= 1;
+    else if (depth === 0 && tok.type === 'punct' && tok.value === ',') { bodyStart += 1; break; }
     bodyStart += 1;
   }
   let count = 0;
@@ -411,24 +411,24 @@ export function analyzeTestDeclarationAssertions(tokens, callOpen, callClose, so
   let boundary = false;
   let nullability = false;
   for (let i = bodyStart; i < callClose; i += 1) {
-    const lexeme = tokens[i];
-    if (!lexeme || lexeme.type === 'comment') continue;
-    if (lexeme.type === 'identifier') {
-      if (['throws', 'rejects', 'toThrow', 'toThrowError', 'catch', 'allowFailure'].includes(lexeme.value)) negative = true;
-      if (['null', 'undefined', 'toBeNull', 'toBeUndefined'].includes(lexeme.value)) nullability = true;
+    const tok = tokens[i];
+    if (!tok || tok.type === 'comment') continue;
+    if (tok.type === 'identifier') {
+      if (['throws', 'rejects', 'toThrow', 'toThrowError', 'catch', 'allowFailure'].includes(tok.value)) negative = true;
+      if (['null', 'undefined', 'toBeNull', 'toBeUndefined'].includes(tok.value)) nullability = true;
       if (['NaN', 'Infinity', 'MAX_SAFE_INTEGER', 'MIN_SAFE_INTEGER', 'toBeGreaterThan', 'toBeGreaterThanOrEqual',
-        'toBeLessThan', 'toBeLessThanOrEqual', 'toBeNaN'].includes(lexeme.value)) boundary = true;
-    } else if (lexeme.type === 'number') {
-      const raw = source.slice(lexeme.start, lexeme.end);
+        'toBeLessThan', 'toBeLessThanOrEqual', 'toBeNaN'].includes(tok.value)) boundary = true;
+    } else if (tok.type === 'number') {
+      const raw = source.slice(tok.start, tok.end);
       if (raw === '0' || raw === '1' || (tokens[i - 1]?.type === 'punct' && tokens[i - 1].value === '-')) boundary = true;
-    } else if (lexeme.type === 'string' && lexeme.value === '') {
+    } else if (tok.type === 'string' && tok.value === '') {
       nullability = true;
       boundary = true;
-    } else if (lexeme.type === 'punct' && lexeme.value === '[' && tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === ']') {
+    } else if (tok.type === 'punct' && tok.value === '[' && tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === ']') {
       nullability = true;
       boundary = true;
     }
-    if (lexeme.type === 'identifier' && lexeme.value === 'expect' && tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '(') {
+    if (tok.type === 'identifier' && tok.value === 'expect' && tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '(') {
       const subjectClose = matchingClose(tokens, i + 1);
       if (subjectClose < 0 || subjectClose >= callClose) continue;
       const subjectArgs = topLevelArgs(tokens, i + 1, subjectClose);
@@ -475,7 +475,7 @@ export function analyzeTestDeclarationAssertions(tokens, callOpen, callClose, so
       }
       continue;
     }
-    if (lexeme.type === 'identifier' && lexeme.value === 'assert') {
+    if (tok.type === 'identifier' && tok.value === 'assert') {
       if (tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '.' && tokens[i + 2]?.type === 'identifier'
           && ASSERT_METHODS.has(tokens[i + 2].value) && tokens[i + 3]?.type === 'punct' && tokens[i + 3].value === '(') {
         const method = tokens[i + 2].value;
@@ -577,22 +577,22 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
   const controlBodyStart = new Set();
   const controlHeaders = new Map();
   for (let index = 0; index < tokens.length; index += 1) {
-    const lexeme = tokens[index];
-    if (lexeme.type === 'comment') continue;
-    if (lexeme.type === 'punct' && ['(', '[', '{'].includes(lexeme.value)) {
+    const tok = tokens[index];
+    if (tok.type === 'comment') continue;
+    if (tok.type === 'punct' && ['(', '[', '{'].includes(tok.value)) {
       const suite = pendingSuiteBodies.get(index) ?? null;
-      const controlled = lexeme.value === '{' && controlBodyStart.has(index);
-      frames.push({ value: lexeme.value, index, suite, suiteCall: pendingSuiteCalls.has(index), controlled });
+      const controlled = tok.value === '{' && controlBodyStart.has(index);
+      frames.push({ value: tok.value, index, suite, suiteCall: pendingSuiteCalls.has(index), controlled });
       // A control keyword's header `(`: the statement after its `)` is conditional.
       let previous = index - 1;
       while (previous >= 0 && tokens[previous].type === 'comment') previous -= 1;
-      if (lexeme.value === '(' && tokens[previous]?.type === 'identifier' && CONTROL_KEYWORDS.has(tokens[previous].value)) {
+      if (tok.value === '(' && tokens[previous]?.type === 'identifier' && CONTROL_KEYWORDS.has(tokens[previous].value)) {
         const close = matchingClose(tokens, index);
         if (close > 0) controlHeaders.set(close, true);
       }
       continue;
     }
-    if (lexeme.type === 'punct' && [')', ']', '}'].includes(lexeme.value)) {
+    if (tok.type === 'punct' && [')', ']', '}'].includes(tok.value)) {
       frames.pop();
       if (controlHeaders.has(index)) {
         let next = index + 1;
@@ -601,13 +601,13 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
       }
       continue;
     }
-    if (lexeme.type === 'identifier' && ['else', 'do'].includes(lexeme.value)) {
+    if (tok.type === 'identifier' && ['else', 'do'].includes(tok.value)) {
       let next = index + 1;
       while (next < tokens.length && tokens[next].type === 'comment') next += 1;
       if (next < tokens.length && !(tokens[next].type === 'identifier' && tokens[next].value === 'if')) controlBodyStart.add(next);
       continue;
     }
-    if (lexeme.type !== 'identifier' || !(TEST_FUNCTIONS.has(lexeme.value) || SUITE_FUNCTIONS.has(lexeme.value))) continue;
+    if (tok.type !== 'identifier' || !(TEST_FUNCTIONS.has(tok.value) || SUITE_FUNCTIONS.has(tok.value))) continue;
     const position = statementStart(tokens, index, text, controlBodyStart);
     if (!position.start) continue;
     // The callee chain: `test.skip.each(table)(title, fn)`, `it.skipIf(x)(title, fn)`, …
@@ -619,7 +619,7 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
     while (tokens[cursor]?.type === 'punct' && tokens[cursor].value === '.' && tokens[cursor + 1]?.type === 'identifier') {
       const modifier = tokens[cursor + 1].value;
       // Playwright's suites are test.describe(...), optionally .serial or .parallel.
-      if (framework === 'playwright' && lexeme.value === 'test'
+      if (framework === 'playwright' && tok.value === 'test'
           && (modifier === 'describe' ? !modifiers.length && !suiteCall : suiteCall && ['serial', 'parallel'].includes(modifier))) {
         suiteCall = true;
         cursor += 2;
@@ -629,7 +629,7 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
       modifiers.push(modifier);
       cursor += 2;
       if (['each', 'for'].includes(modifier)) {
-        if (tokens[cursor]?.type === 'template') { table = { kind: 'template', lexeme: tokens[cursor] }; cursor = nextOutside(tokens, cursor); }
+        if (tokens[cursor]?.type === 'template') { table = { kind: 'template', tok: tokens[cursor] }; cursor = nextOutside(tokens, cursor); }
         else if (tokens[cursor]?.value === '(') {
           const close = matchingClose(tokens, cursor);
           if (close < 0) { malformed = true; break; }
@@ -647,11 +647,11 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
     const callOpen = cursor;
     const callClose = matchingClose(tokens, callOpen);
     if (callClose < 0) continue;
-    const titleLexeme = tokens[callOpen + 1];
-    const literalTitle = titleLexeme && (titleLexeme.type === 'string' || (titleLexeme.type === 'template' && titleLexeme.substitutions === false))
+    const titleTok = tokens[callOpen + 1];
+    const literalTitle = titleTok && (titleTok.type === 'string' || (titleTok.type === 'template' && titleTok.substitutions === false))
       && [',', ')'].includes(tokens[callOpen + 2]?.value);
-    const title = literalTitle ? titleLexeme.value : null;
-    const isSuite = SUITE_FUNCTIONS.has(lexeme.value) || suiteCall;
+    const title = literalTitle ? titleTok.value : null;
+    const isSuite = SUITE_FUNCTIONS.has(tok.value) || suiteCall;
     // Static only at the top level or directly in a describe body: every open frame is either a
     // literal describe call's parentheses or its body.
     const dynamicContext = position.controlled || frames.some((frame) => !frame.suite && !frame.suiteCall);
@@ -670,8 +670,8 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
             dynamic: !literalTitle || modifiers.includes('each') || modifiers.includes('for') || dynamicContext
               || enclosingSuites.some((suite) => suite.dynamic),
             path: [...enclosingSuites.map((suite) => suite.title), title],
-            skipped: lexeme.value === 'xdescribe' || modifiers.includes('skip') || modifiers.includes('fixme') || enclosingSuites.some((suite) => suite.skipped),
-            focused: lexeme.value === 'fdescribe' || modifiers.includes('only')
+            skipped: tok.value === 'xdescribe' || modifiers.includes('skip') || modifiers.includes('fixme') || enclosingSuites.some((suite) => suite.skipped),
+            focused: tok.value === 'fdescribe' || modifiers.includes('only')
           });
           break;
         }
@@ -684,7 +684,7 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
         for (const commentIndex of comments) attachedCommentIndexes.add(commentIndex);
         // A tag on a describe ties the criterion to a group, not to one test.
         declarations.push({
-          suiteTag: true, line: lexeme.line, clauseIds,
+          suiteTag: true, line: tok.line, clauseIds,
           gaps: [gap('AC_TAG_ON_SUITE', 'the tag is above a describe block; place it directly above the test that verifies the criterion')]
         });
       }
@@ -693,7 +693,7 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
     for (const commentIndex of comments) attachedCommentIndexes.add(commentIndex);
     let end = tokens[callClose].end;
     if (tokens[callClose + 1]?.type === 'punct' && tokens[callClose + 1].value === ';') end = tokens[callClose + 1].end;
-    const start = lexeme.start;
+    const start = tok.start;
     const gaps = [];
     if (!literalTitle) gaps.push(gap('DYNAMIC_TITLE', 'the test title is not a string literal'));
     if (dynamicContext) gaps.push(gap('DECLARATION_IN_DYNAMIC_CONTEXT', 'the test is declared inside a loop, condition, function or expression rather than at the top level or directly in a describe body'));
@@ -710,18 +710,18 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
       if (title && !pattern) gaps.push(gap('PARAMETER_TITLE_NOT_DISTINCT', 'the title template has no literal text to tell its instances apart'));
     }
     const suitePath = enclosingSuites.map((suite) => suite.title);
-    if (framework === 'node:test' && !nativeImports.has(lexeme.value)) gaps.push(gap('NODE_TEST_IMPORT_UNSUPPORTED', 'use a direct named node:test import (or default test import) for an exact native declaration'));
+    if (framework === 'node:test' && !nativeImports.has(tok.value)) gaps.push(gap('NODE_TEST_IMPORT_UNSUPPORTED', 'use a direct named node:test import (or default test import) for an exact native declaration'));
     const identity = { schema: JAVASCRIPT_DECLARATION_SCHEMA, framework, sourcePath, suitePath, name: title };
     declarations.push({
       ...identity,
       logicalTestId: `sha256:${sha256(canonical(identity))}`,
-      line: lexeme.line,
+      line: tok.line,
       span: { start, end },
       declarationSha256: `sha256:${sha256(Buffer.from(text.slice(start, end), 'utf8'))}`,
       modifiers,
-      skipped: ['xit', 'xtest'].includes(lexeme.value) || modifiers.includes('skip') || modifiers.includes('todo') || modifiers.includes('fixme')
+      skipped: ['xit', 'xtest'].includes(tok.value) || modifiers.includes('skip') || modifiers.includes('todo') || modifiers.includes('fixme')
         || enclosingSuites.some((suite) => suite.skipped),
-      focused: lexeme.value === 'fit' || modifiers.includes('only') || enclosingSuites.some((suite) => suite.focused),
+      focused: tok.value === 'fit' || modifiers.includes('only') || enclosingSuites.some((suite) => suite.focused),
       parameters,
       clauseIds,
       assertions: analyzeTestDeclarationAssertions(tokens, callOpen, callClose, text),

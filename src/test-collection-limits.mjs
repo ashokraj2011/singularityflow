@@ -45,9 +45,9 @@ function literalOptions(text, { keys, opaque = [], within: block = null }) {
   }
   const values = {};
   for (let index = start; index < end; index += 1) {
-    const lexeme = tokens[index];
-    if (lexeme.value === '...') return { unread: true };
-    const name = lexeme.type === 'identifier' || lexeme.type === 'string' ? lexeme.value : null;
+    const tok = tokens[index];
+    if (tok.value === '...') return { unread: true };
+    const name = tok.type === 'identifier' || tok.type === 'string' ? tok.value : null;
     if (tokens[index + 1]?.value !== ':' || tokens[index - 1]?.value === '.' || !name) continue;
     if (opaque.includes(name)) return { unread: true };
     if (!keys.includes(name)) continue;

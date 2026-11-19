@@ -224,18 +224,18 @@ function ceilingOverrides(value, label) {
     if (value[field] != null) output[field] = positive(value[field], null, `${label}.${field}`);
   }
   if (value.tokenBudget != null) {
-    const requested = object(value.tokenBudget, `${label}.tokenBudget`);
-    keys(requested, ['maximum', 'assurance'], `${label}.tokenBudget`);
+    const given = object(value.tokenBudget, `${label}.tokenBudget`);
+    keys(given, ['maximum', 'assurance'], `${label}.tokenBudget`);
     output.tokenBudget = {};
     const budget = output.tokenBudget;
-    if (requested.maximum != null) budget.maximum = positive(requested.maximum, null, `${label}.tokenBudget.maximum`);
-    if (requested.assurance != null) {
-      if (!['exact-required', 'best-available'].includes(requested.assurance)) {
+    if (given.maximum != null) budget.maximum = positive(given.maximum, null, `${label}.tokenBudget.maximum`);
+    if (given.assurance != null) {
+      if (!['exact-required', 'best-available'].includes(given.assurance)) {
         throw new SingularityFlowError(`${label}.tokenBudget.assurance must be exact-required or best-available.`, {
           code: 'AUTO_PLAN_INVALID'
         });
       }
-      budget.assurance = requested.assurance;
+      budget.assurance = given.assurance;
     }
   }
   return output;

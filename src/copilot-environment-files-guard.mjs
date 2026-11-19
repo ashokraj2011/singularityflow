@@ -25,7 +25,8 @@ const DECLARATION = path.join('singularity', 'environments.yml');
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin', 'write_bash']);
 const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent', 'grep_search']);
 // A search for one of these words may print the line that holds a credential (copilot-search-exposure.mjs). The launchers test the same words.
-const CREDENTIAL_WORD = /pass|pwd|secret|credential|token|key|auth/iu;
+const CREDENTIAL_WORD =
+  /pass|pwd|secret|credential|token|key|auth/iu;
 const SHELL_SEARCH = /(?:^|[\s/;&|('"])(?:e?f?grep|rg|ag|ack)(?:[\s'"]|$)/u;
 const MAXIMUM_RECORD_BYTES = 262_144;
 const MAXIMUM_SCANNED_BYTES = 262_144;

@@ -129,9 +129,9 @@ function javascriptLexicalProjection(value) {
     const character = source[index];
     if (character === "'" || character === '"') {
       const end = quotedLiteralEnd(source, index, character);
-      const token = `__SFLOW_LITERAL_${literals.size}__`;
-      literals.set(token, source.slice(index + 1, Math.max(index + 1, end - 1)));
-      replacements.push({ start: index, end, token, quote: character });
+      const literalMarker = `__SFLOW_LITERAL_${literals.size}__`;
+      literals.set(literalMarker, source.slice(index + 1, Math.max(index + 1, end - 1)));
+      replacements.push({ start: index, end, token: literalMarker, quote: character });
       index = Math.max(end, index + 1);
       continue;
     }

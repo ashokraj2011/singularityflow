@@ -41,7 +41,8 @@ const ADVICE = Object.freeze({
   'git-unavailable': 'Install Git or add the approved Git executable to PATH, restart the calling application, then retry.',
   'working-directory-unavailable': 'Restore or reopen the local repository directory, then retry the same operation.',
   'local-storage-unavailable': 'Git cannot read this repository\'s own files: some are cloud placeholders this computer has not downloaded. Download the repository folder and keep it downloaded, or move the workspace out of the synced folder, then retry.',
-  'credential-helper-unavailable': 'Install or repair the configured Git credential helper, then sign in and retry. Do not put a token in the URL.',
+  'credential-helper-unavailable':
+    'Install or repair the configured Git credential helper, then sign in and retry. Do not put a token in the URL.',
   'local-hook-tool-unavailable': 'Repair the command named by the local Git hook and make its runtime available in the calling IDE or terminal environment. For Node version managers, configure Husky initialization for GUI launches, then restart the IDE and retry the retained operation. Do not disable repository hooks globally.',
   'local-hook-failed': 'Review the local Git hook output and repair the reported check or runtime. Preserve authored work and hook-generated files, then retry the retained operation; do not recreate the Story or disable hooks globally.',
   'authentication-required': 'Sign in to Git or configure its credential helper, then retry. Do not put a token in the URL.',
@@ -815,7 +816,7 @@ export function gitFailureDiagnostic(result) {
 }
 
 function tlsTrustFailure(output) {
-  // Keep this narrower than a bare "certificate" token: repository names and policy prose can
+  // Keep this narrower than a bare "certificate" token, because repository names and policy prose can
   // legally contain that word. These are concrete TLS trust-chain diagnostics from Git/cURL,
   // Schannel, OpenSSL, and common enterprise proxies.
   return /ssl certificate problem|certificate (?:verify|verification) failed|unable to get local issuer certificate|self[ -]signed certificate|server certificate verification failed|tls certificate verification failed|schannel:\s*(?:sec_e_|next initializesecuritycontext failed)|unknown ca/i.test(output);

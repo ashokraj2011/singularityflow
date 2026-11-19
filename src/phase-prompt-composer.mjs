@@ -1050,15 +1050,16 @@ export async function compose(root, options, {
   // legitimately predate tokenEconomy; applying today's live repository default to those immutable
   // executions would make the composer and persistence verifier disagree and could block an
   // otherwise valid legacy prompt. They continue on their exact legacy bytes with no TKR claim.
-  const pinnedTokenEconomyPolicy = workflow?.resolution?.tokenEconomy ?? null;
+  const pinnedTokenEconomyPolicy =
+    workflow?.resolution?.tokenEconomy ?? null;
   const tokenEconomyPolicy = pinnedTokenEconomyPolicy ?? definition.tokenEconomy ?? {};
   const effectiveCapability = workflow?.resolution?.capability?.effectiveResolution
     ?? config.repositoryCapability?.effectiveResolution ?? null;
   const workflowSnapshotSha256 = workflow?.workflowSnapshot?.snapshotHash ?? null;
   const sourceSnapshotSha256 = workSource.record?.sha256
     ? `sha256:${workSource.record.sha256}` : null;
-  const tokenReductionReceiptContext = workflow
-    && pinnedTokenEconomyPolicy
+  const tokenReductionReceiptContext = pinnedTokenEconomyPolicy
+    && workflow
     && effectiveCapability?.repository?.identitySha256
     && workflowSnapshotSha256
     && sourceSnapshotSha256
@@ -1071,7 +1072,8 @@ export async function compose(root, options, {
           generation: nextPhaseGeneration(phase)
         },
         authority: {
-          tokenEconomyPolicySha256: `sha256:${tokenEconomyDigest(tokenEconomyPolicy)}`,
+          tokenEconomyPolicySha256:
+            `sha256:${tokenEconomyDigest(tokenEconomyPolicy)}`,
           // Shadow evidence cannot claim a phase-context-policy authority until the registered
           // WMP/TKR owner exposes one. `resolution.contextPolicy` controls Copilot chat hand-off
           // (keep/compact/new) and is deliberately not substituted for that separate authority.
@@ -1095,7 +1097,8 @@ export async function compose(root, options, {
       && (tokenEconomyPolicy.composer ?? 'legacy-v1') === 'legacy-v1'
     ? await resolveOptionalTokenReductionShadowRuntime()
     : null;
-  const tokenReductionRuntime = tokenReductionResolution?.runtime ?? null;
+  const tokenReductionRuntime =
+    tokenReductionResolution?.runtime ?? null;
   let tokenReductionShadowUnavailable = null;
   if (tokenReductionResolution?.error) {
     try {
@@ -1150,8 +1153,10 @@ export async function compose(root, options, {
     { id: 'final-clarification-guard', text: clarificationGuard, mandatory: true, priority: 0 }
   ], tokenEconomyPolicy, {
     ...(tokenReductionRuntime ? {
-      evaluateTokenReductionShadow: tokenReductionRuntime.evaluateTokenReductionShadow,
-      tokenReductionShadowFailure: tokenReductionRuntime.tokenReductionShadowFailure
+      evaluateTokenReductionShadow:
+        tokenReductionRuntime.evaluateTokenReductionShadow,
+      tokenReductionShadowFailure:
+        tokenReductionRuntime.tokenReductionShadowFailure
     } : {}),
     ...(tokenReductionShadowUnavailable ? { tokenReductionShadowUnavailable } : {}),
     // Observe one deterministic TKR candidate while retaining the exact legacy prompt as the
@@ -1164,7 +1169,8 @@ export async function compose(root, options, {
   promptCompilation.warnings.forEach((warning) => console.error(`Token-economy warning: ${warning}`));
   const candidateText = promptCompilation.text;
   const { text: _compiledPromptText, ...promptComposition } = promptCompilation;
-  const tokenReductionReceipt = promptComposition.tokenReduction?.record?.receipt ?? null;
+  const tokenReductionReceipt =
+    promptComposition.tokenReduction?.record?.receipt ?? null;
   if (promptComposition.tokenReduction?.record) {
     const { receipt: _receipt, ...shadowSummary } = promptComposition.tokenReduction.record;
     promptComposition.tokenReduction = {

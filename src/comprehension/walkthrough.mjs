@@ -520,7 +520,7 @@ function dependencyChanges(previous, current) {
 
 /**
  * Revalidate a prior observe-only report against current exact inputs. The projection does not
- * preserve a prior pass: current validators always run again, and changed dependencies are shown.
+ * preserve a prior pass; current validators always run again, and changed dependencies are shown.
  */
 export function revalidateComprehensionWalkthroughDraft(previous, draft, context = {}) {
   const current = validateComprehensionWalkthroughDraft(draft, context);

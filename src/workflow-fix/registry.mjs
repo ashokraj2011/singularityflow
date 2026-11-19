@@ -1036,7 +1036,8 @@ export const WORKFLOW_FIXERS = Object.freeze({
   CHECK_SKILL_STEP_UNUSED: either(14, 'Whether a skill belongs in other teams\' workflows is a decision for the people who own them.', skillStepUnused),
   // Templates: a missing one is made first, its tokens fixed, then anchors before the table that cites them.
   CHECK_TEMPLATE_MISSING: change(20, templateMissing),
-  CHECK_TEMPLATE_TOKEN_UNSUPPORTED: change(22, templateTokens, { group: byTemplate }),
+  CHECK_TEMPLATE_TOKEN_UNSUPPORTED:
+    change(22, templateTokens, { group: byTemplate }),
   CHECK_TEMPLATE_CLAUSE_NAMESPACE: change(23, templateNamespaceFix, { group: byTemplate }),
   CHECK_TEMPLATE_CLAUSE_ANCHORS: change(24, templateAnchorsFix, { group: byTemplate }),
   CHECK_TEMPLATE_PLANNED_TABLE: change(26, templatePlannedTable, { group: byTemplate }),

@@ -69,16 +69,16 @@ export async function issueActionAuthorization(root, plan, action, {
   // also takes the person's touch where SF Guard applies; a terminal review already took it.
   if (!presenceSigned) await (await import('./presence/repository-steps.mjs')).signTerminalReview(root, plan, action);
   const createdAt = nowIso();
-  const token = randomUUID();
+  const nonce = randomUUID();
   const authorizationId = randomUUID();
   const questionId = recordSha256({ planId: plan.planId, actionId: action.actionId, channel }).slice(0, 24);
   const record = {
     schemaVersion: currentSchemaVersion('action-authorization'),
     kind: 'governed-action-authorization',
-    token,
+    token: nonce,
     authorizationId,
     questionId,
-    answerReceipt: recordSha256({ token, authorizationId, planHash: plan.planHash, actionId: action.actionId }),
+    answerReceipt: recordSha256({ token: nonce, authorizationId, planHash: plan.planHash, actionId: action.actionId }),
     planId: plan.planId,
     planHash: plan.planHash,
     actionId: action.actionId,
@@ -92,7 +92,7 @@ export async function issueActionAuthorization(root, plan, action, {
   };
   try {
     await mkdir(authorizationDirectory(root), { recursive: true, mode: 0o700 });
-    await writeAtomic(authorizationPath(root, token), canonicalJson(record), { mode: 0o600 });
+    await writeAtomic(authorizationPath(root, nonce), canonicalJson(record), { mode: 0o600 });
   } catch {
     throw authorizationStorageFailure('write the local authorization');
   }

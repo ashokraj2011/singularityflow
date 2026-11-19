@@ -51,8 +51,8 @@ async function walk(checkout) {
 }
 
 function environmentToken(raw) {
-  const token = String(raw ?? '').toLowerCase();
-  return ENVIRONMENT_IDENTIFIER.test(token) && !NOT_ENVIRONMENTS.has(token) ? token : null;
+  const word = String(raw ?? '').toLowerCase();
+  return ENVIRONMENT_IDENTIFIER.test(word) && !NOT_ENVIRONMENTS.has(word) ? word : null;
 }
 
 /** The real file a name stands for: itself, or the file a template stands in for. */

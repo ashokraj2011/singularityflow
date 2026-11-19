@@ -140,7 +140,8 @@ const REFRESH_CACHE_LOCK_STALE_MS = 60 * 1000;
 const REFRESH_CACHE_PROCESS_STARTED_AT = new Date(
   Date.now() - Math.max(0, Math.round(process.uptime() * 1000))
 ).toISOString();
-const REFRESH_CACHE_PROCESS_TOKEN = randomUUID();
+const REFRESH_CACHE_PROCESS_TOKEN =
+  randomUUID();
 // Ordinary configuration refresh retains its established three-way behavior. These two standard
 // profiles are the only historical exception: the product has always restored them when absent.
 // The broader seeded-only replacement contract is opt-in and used by workspace reinitialize.
@@ -2252,12 +2253,13 @@ async function acquireRefreshCacheLock(boundary) {
         || !(await reclaimStaleRefreshCacheLock(boundary, lock))) return null;
       continue;
     }
+    const nonce = randomUUID();
     const owner = {
       format: REFRESH_CACHE_LOCK_FORMAT,
       pid: process.pid,
       processStartedAt: REFRESH_CACHE_PROCESS_STARTED_AT,
       processToken: REFRESH_CACHE_PROCESS_TOKEN,
-      token: randomUUID(),
+      token: nonce,
       acquiredAt: new Date().toISOString()
     };
     try {

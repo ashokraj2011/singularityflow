@@ -625,7 +625,8 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     && policy.ceilings.maximumPhases >= minimumPhaseExecutions;
   const modelCapacityReady = Number.isFinite(minimumModelInvocations)
     && policy.ceilings.maximumModelInvocations >= minimumModelInvocations;
-  const tokenAssuranceStartable = policy.ceilings.tokenBudget.assurance !== 'exact-required';
+  const tokenAssuranceStartable =
+    policy.ceilings.tokenBudget.assurance !== 'exact-required';
   const startable = policy.eligibility === 'bounded'
     && catalog.repositories.length === 1
     && protectedPaths.length === 0

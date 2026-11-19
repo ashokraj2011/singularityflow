@@ -469,12 +469,12 @@ async function oneDriveTest(target, record, { operation, json, sendIt }) {
   const plan = { drive: target.drive, site: target.site ?? null, file: oneDriveItemPath(record), replaces: false };
   const checks = [];
   if (sendIt) {
-    const token = String(process.env[target.tokenSecret] ?? '').trim();
-    if (!token) checks.push({ check: `Secret ${target.tokenSecret}`, ok: false, detail: 'not set on this machine' });
+    const access = String(process.env[target.tokenSecret] ?? '').trim();
+    if (!access) checks.push({ check: `Secret ${target.tokenSecret}`, ok: false, detail: 'not set on this machine' });
     else {
       const answer = await pinnedHttpRequest({
         url: `${GRAPH_BASE}${graphDrivePath(target)}/root`, method: 'GET', timeoutMs: (target.timeoutSeconds ?? 10) * 1000,
-        network: 'public', maxResponseBytes: 256 * 1024, headers: { accept: 'application/json', authorization: `Bearer ${token}` }
+        network: 'public', maxResponseBytes: 256 * 1024, headers: { accept: 'application/json', authorization: `Bearer ${access}` }
       });
       if (answer.transport) checks.push({ check: 'Can reach Microsoft Graph', ok: false, detail: answer.transport.detail });
       else {
@@ -507,11 +507,11 @@ async function confluenceTest(target, record, { operation, json, sendIt }) {
   const plan = { url: target.url, parentPage: target.parentPage, title, body: confluencePageBody(record) };
   const checks = [];
   if (sendIt) {
-    const token = String(process.env[target.tokenSecret] ?? '').trim();
-    if (!token) checks.push({ check: `Secret ${target.tokenSecret}`, ok: false, detail: 'not set on this machine' });
+    const access = String(process.env[target.tokenSecret] ?? '').trim();
+    if (!access) checks.push({ check: `Secret ${target.tokenSecret}`, ok: false, detail: 'not set on this machine' });
     else {
       const cloud = target.deployment !== 'data-center';
-      const authorization = cloud ? `Basic ${Buffer.from(`${target.user}:${token}`).toString('base64')}` : `Bearer ${token}`;
+      const authorization = cloud ? `Basic ${Buffer.from(`${target.user}:${access}`).toString('base64')}` : `Bearer ${access}`;
       const route = cloud ? `/api/v2/pages/${encodeURIComponent(target.parentPage)}` : `/rest/api/content/${encodeURIComponent(target.parentPage)}`;
       const answer = await pinnedHttpRequest({
         url: `${String(target.url).replace(/\/+$/, '')}${route}`, method: 'GET', timeoutMs: (target.timeoutSeconds ?? 10) * 1000,

@@ -970,7 +970,8 @@ function economicsAccounting(lineage, state) {
       providerOutputTokens: knownSum((entry) => entry.output.providerTokens),
       toolOutput: {
         assurance: providerToolOutputTokensKnown ? 'provider-reported'
-          : estimatedToolOutputTokensKnown ? 'estimated-bytes-per-token-4.0' : 'unavailable',
+          : estimatedToolOutputTokensKnown ? 'estimated-bytes-per-token-4.0'
+            : 'unavailable',
         observedBytes: toolOutputBytesKnown ? toolSum('toolOutputBytes') : null,
         estimatedTokens: estimatedToolOutputTokensKnown
           ? toolSum('estimatedToolOutputTokens') : null,
@@ -1056,11 +1057,13 @@ function qualityFloorProjection(lineage) {
     // AUT can report the observed floor, but it cannot claim a token-saving improvement without a
     // registered comparison baseline. Keeping that decision explicit prevents "cheaper" from
     // being presented as "better" and does not score an individual developer.
-    tokenSavingComparison: 'not-evaluated',
+    tokenSavingComparison:
+      'not-evaluated',
     reasons,
-    firstPassVerified: receipts.filter((entry) => (
-      entry.quality.verification === 'passed' && entry.quality.firstPass
-    )).length,
+    firstPassVerified:
+      receipts.filter((entry) => (
+        entry.quality.verification === 'passed' && entry.quality.firstPass
+      )).length,
     verifiedAfterRepair: receipts.filter((entry) => (
       entry.quality.verification === 'passed' && !entry.quality.firstPass
     )).length,
@@ -1090,7 +1093,8 @@ function autoOutcomeMetrics(lineage, state) {
     humanRequests: lineage['auto-human-request'].length,
     executionUnitSwitches: lineage['auto-execution-unit-switch'].length,
     verifiedOutcomes: verified.length,
-    firstPassVerifiedOutcomes: verified.filter((entry) => entry.quality.firstPass).length,
+    firstPassVerifiedOutcomes:
+      verified.filter((entry) => entry.quality.firstPass).length,
     manualTakeover: state.status === 'manual-takeover' || state.stopReason === 'manual-takeover',
     haltReason: state.stopReason ?? null,
     latencyToFirstVerifiedOutcomeMilliseconds: Number.isFinite(firstVerifiedAt)

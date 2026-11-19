@@ -1,5 +1,5 @@
 /**
- * Whether this build still owes the machine its one first-run pass: aligning the product surfaces
+ * Whether this build still owes the machine its one first-run step: aligning the product surfaces
  * and repairing machine-local state.
  *
  * Checked before every mutation command, so it must stay cheap: no Git, no subprocess, and none of

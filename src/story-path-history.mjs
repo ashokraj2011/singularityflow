@@ -28,19 +28,19 @@ export function readStoryPathHistory(root, relative, label, { runCommand = run }
     const touches = [], additions = [];
     let commit = null;
     for (let index = 0; index < tokens.length; index++) {
-      const token = tokens[index].replace(/^\n/u, '');
-      if (!token) continue;
-      const header = /^sflow-commit:([a-f0-9]{40}|[a-f0-9]{64})$/u.exec(token);
+      const field = tokens[index].replace(/^\n/u, '');
+      if (!field) continue;
+      const header = /^sflow-commit:([a-f0-9]{40}|[a-f0-9]{64})$/u.exec(field);
       if (header) { commit = header[1]; touches.push(commit); continue; }
-      if (!commit || !/^[ACDMRTUXB][0-9]*$/u.test(token)) {
+      if (!commit || !/^[ACDMRTUXB][0-9]*$/u.test(field)) {
         throw new SingularityFlowError(`${label} returned invalid Git history.`, { code: 'WFA_DEPENDENCY_UNAVAILABLE' });
       }
       const source = tokens[++index];
-      const target = /^[RC]/u.test(token) ? tokens[++index] : source;
+      const target = /^[RC]/u.test(field) ? tokens[++index] : source;
       if (source == null || target == null || (source !== relative && target !== relative)) {
         throw new SingularityFlowError(`${label} returned an unexpected Git path.`, { code: 'WFA_DEPENDENCY_UNAVAILABLE' });
       }
-      if (token === 'A' && target === relative) additions.push(commit);
+      if (field === 'A' && target === relative) additions.push(commit);
     }
     return { history: additions, touches };
   };

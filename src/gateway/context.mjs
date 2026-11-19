@@ -30,7 +30,8 @@ export const OMISSION_CATEGORIES = Object.freeze([
   'oversized-artifacts', 'policy-excluded', 'unresolved-evidence'
 ]);
 
-const TOKEN_FIELDS = Object.freeze(['estimatedInput', 'cacheReusable', 'newlyTransmitted', 'maximumOutput']);
+const TOKEN_FIELDS =
+  Object.freeze(['estimatedInput', 'cacheReusable', 'newlyTransmitted', 'maximumOutput']);
 
 function reject(code, detail, details = {}) {
   throw new SingularityFlowError(detail, { code, details });

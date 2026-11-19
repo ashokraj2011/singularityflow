@@ -364,7 +364,8 @@ async function author(walk, stepId, facts) {
   const record = walk.step(stepId);
   if (facts.code) {
     // A step walked again (a loop) writes a change of its own: a new generation must change something.
-    for (const [relative, text] of Object.entries(codeChange(walk.clauses, { pass: walk.visits.get(stepId) ?? 1 }))) await walk.writeText(relative, text);
+    const visit = walk.visits.get(stepId) ?? 1;
+    for (const [relative, text] of Object.entries(codeChange(walk.clauses, { pass: visit }))) await walk.writeText(relative, text);
     record.notes.push(walk.clauses.length ? `The stub author changed src/value.mjs and its test, tagging ${walk.clauses.join(', ')}.`
       : 'The stub author changed src/value.mjs and its test; the Story defines no clauses, so nothing is tagged.');
   }

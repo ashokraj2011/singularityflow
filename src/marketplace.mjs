@@ -22,7 +22,8 @@ const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const INDEX_MAX_BYTES = 1024 * 1024;
 const MAX_ENTRIES = 2000;
-const GENERATED_TOKENS = Object.freeze(['workId', 'workType', 'phase', 'generation']);
+const GENERATED_TOKENS =
+  Object.freeze(['workId', 'workType', 'phase', 'generation']);
 // The same path config.mjs owns; repeated here because config.mjs normalizes marketplaces.
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 

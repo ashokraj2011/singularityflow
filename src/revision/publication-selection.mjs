@@ -192,14 +192,14 @@ export async function prepareRevisionPublicationSelection({
     candidateReference, context });
   assertPrecheckInput(input, state, candidate, scope, candidateReference);
   const receipt = assertReceipt(precheckReceipt, input, state);
-  const token = Object.freeze({ kind: 'revision-publication-preflight-token' });
-  PREPARED.set(token, {
+  const handle = Object.freeze({ kind: 'revision-publication-preflight-token' });
+  PREPARED.set(handle, {
     root, loopStore, scope: structuredClone(scope), state: structuredClone(state),
     candidate: structuredClone(candidate), candidateReference: structuredClone(candidateReference),
     receipt: structuredClone(receipt), contextSha256: hash(context),
     readCurrentContext
   });
-  return token;
+  return handle;
 }
 
 /**

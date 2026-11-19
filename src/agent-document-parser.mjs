@@ -4,7 +4,8 @@ import { parseYamlText } from './yaml-parse-cache.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 import { DEFAULT_REMOTE_MAX_BYTES as DEFAULT_MAX_BYTES, HARD_REMOTE_MAX_BYTES as HARD_MAX_BYTES, validatePublicHttpsUrl } from './remote-fetch.mjs';
 import { LIBRARY_SKILL_TABLE, normalizeSkillUse } from './skill-library.mjs';
-export const AGENT_ALLOWED_TOKENS = Object.freeze(['workId', 'workType', 'phase', 'generation']);
+export const AGENT_ALLOWED_TOKENS =
+  Object.freeze(['workId', 'workType', 'phase', 'generation']);
 /**
  * The ID every Workflow Studio subject uses (steps, workflows, agents, skills, instructions, groups):
  * lower-case kebab-case, like vendor-analysis. One pattern for every route that makes one; it lives

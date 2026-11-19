@@ -35,7 +35,7 @@ const FAILURE_GUIDANCE = Object.freeze({
   // Every discovered test was skipped: no test executed. A skip is the suite's own decision, usually
   // because a service it needs is missing here; it is an environment cause and never a pass.
   'all-tests-skipped': {
-    guidance: 'Every discovered test was skipped, so no test executed; this is usually the environment (a Docker daemon, database or service the tests need is missing here). A skipped test is not a pass: provide what the tests need and run them again, or a person who approves the step can accept the test-run risk.',
+    guidance: 'Every discovered test was skipped, so no test executed; this is usually the environment (a Docker daemon, database or service the tests need is missing here). A skipped test is not a pass; provide what the tests need and run them again, or a person who approves the step can accept the test-run risk.',
     retryCondition: 'runtime-changed'
   },
   // Model-free runs do not start a command whose external-model behavior is undeclared.

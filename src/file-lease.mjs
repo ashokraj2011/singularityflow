@@ -208,7 +208,8 @@ async function reclaimRegistryFileLease(lock, observed, options = {}) {
       return false;
     }
 
-    const claimToken = randomUUID();
+    const claimToken =
+      randomUUID();
     await writeFile(path.join(claim, 'claim.json'), `${JSON.stringify({
       ...leaseOwnerIdentity(),
       claimToken,
@@ -396,7 +397,7 @@ export async function withRegistryFileLease(file, operation, options = {}) {
   const lock = `${path.resolve(file)}.lock`;
   await mkdir(path.dirname(lock), { recursive: true });
   const started = Date.now();
-  const token = randomUUID();
+  const nonce = randomUUID();
   const timeoutMs = options.timeoutMs ?? REGISTRY_LOCK_TIMEOUT_MS;
   let handle;
   let acquiredInfo;
@@ -430,11 +431,11 @@ export async function withRegistryFileLease(file, operation, options = {}) {
       // retired while this process still holds the original descriptor.
       candidateHeartbeat = startRegistryLeaseHeartbeat(candidate, options);
       await invokeRegistryLeaseHook(options.hooks, 'afterLockOpened', {
-        lock, token, acquiredInfo
+        lock, token: nonce, acquiredInfo
       });
       const ownerBytes = `${JSON.stringify({
         ...leaseOwnerIdentity(),
-        token,
+        token: nonce,
         createdAt: nowIso()
       })}\n`;
       await candidate.writeFile(ownerBytes);
@@ -461,7 +462,7 @@ export async function withRegistryFileLease(file, operation, options = {}) {
         && String(current.info.ino) === String(acquiredInfo?.ino)) {
       try {
         const owner = JSON.parse(current.ownerBytes);
-        if (owner?.token === token
+        if (owner?.token === nonce
             && owner.processToken === LEASE_PROCESS_TOKEN
             && owner.processStartedAt === LEASE_PROCESS_STARTED_AT) {
           await rm(lock, { force: true }).catch(() => {});
@@ -606,8 +607,9 @@ export async function inspectFileLease(file, options = {}) {
   const writing = !observed.owner && !observed.unsafe && observed.ownerBytes?.trim() === ''
     && registryLeaseAgeMs(observed.info) <= REGISTRY_LOCK_ACQUISITION_GRACE_MS;
   const active = state === 'busy' && (writing || cacheLeaseActive(observed.owner, observed.liveness));
+  const ownerNonce = observed.owner?.nonce;
   return { state, reason: observed.reason, active,
-    ...(observed.owner ? { owner: observed.owner, liveness: livenessDetails(observed.liveness), token: observed.owner.nonce,
+    ...(observed.owner ? { owner: observed.owner, liveness: livenessDetails(observed.liveness), token: ownerNonce,
       showCommand: registryLeaseShowCommand(lock),
       releaseCommand: state === 'busy' && !active ? registryLeaseReleaseCommand(lock, observed.owner.nonce) : null } : {}) };
 }

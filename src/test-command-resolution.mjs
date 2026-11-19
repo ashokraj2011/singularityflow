@@ -141,12 +141,12 @@ export function repositoryRelative(directory, value) {
 function flagValues(tokens, flags) {
   const values = [];
   for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (token === '--') break;
-    const equals = token.indexOf('=');
-    const name = token.startsWith('--') && equals > 0 ? token.slice(0, equals) : token;
+    const arg = tokens[index];
+    if (arg === '--') break;
+    const equals = arg.indexOf('=');
+    const name = arg.startsWith('--') && equals > 0 ? arg.slice(0, equals) : arg;
     if (!flags.has(name)) continue;
-    if (name !== token) values.push(token.slice(equals + 1));
+    if (name !== arg) values.push(arg.slice(equals + 1));
     else if (index + 1 < tokens.length) values.push(tokens[index += 1]);
   }
   return values;

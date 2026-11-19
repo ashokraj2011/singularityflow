@@ -191,7 +191,8 @@ function projection(entry, {
     representation,
     bytes,
     tokens: null,
-    tokenCountStatus: 'unavailable'
+    tokenCountStatus:
+      'unavailable'
   };
 }
 

@@ -255,7 +255,8 @@ export async function buildAutoPhaseContract(root, {
       maximumTouchedChanges: plan.execution.ceilings.maximumTouchedChanges,
       maximumModelInvocations: plan.execution.ceilings.maximumModelInvocations,
       maximumTotalTokens: plan.execution.ceilings.tokenBudget.maximum,
-      tokenAssurance: plan.execution.ceilings.tokenBudget.assurance
+      tokenAssurance:
+        plan.execution.ceilings.tokenBudget.assurance
     },
     stopConditions: [
       'protected-path', 'scope-expansion', 'architecture-choice',

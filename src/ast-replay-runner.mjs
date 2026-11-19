@@ -4,6 +4,8 @@ import { BUILTIN_AST_EXTRACTOR, extractBuiltinAstFacts } from './ast-builtin-ext
 import { extractPolyglotSyntax } from './polyglot-syntax-core.mjs';
 import { applySelectionPriority } from './ast-fact-order.mjs';
 
+const OK = 'pass';
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === 'object') {
@@ -155,7 +157,7 @@ function replayPredicates(facts, predicates = [], envelopeAssurance = 'text') {
     if (!languageApplicable || !profileApplicable) outcome = 'unknown';
     else if (negativeConstraint && assuranceSatisfies(envelopeAssurance, requiredAssurance)) outcome = matching.length ? 'fail' : 'pass';
     else if (predicate.type === 'public-signature-changed' && assuranceSatisfies(envelopeAssurance, requiredAssurance)) {
-      outcome = observedSha256 !== predicate.expectedSha256 ? 'pass' : 'fail';
+      outcome = observedSha256 !== predicate.expectedSha256 ? OK : 'fail';
     } else if (adequate) outcome = 'pass';
     else if (!matching.length && assuranceSatisfies(envelopeAssurance, requiredAssurance)) outcome = 'fail';
     const { id: _id, mode: _mode, minimumAssurance: _minimum, ...inputs } = predicate;

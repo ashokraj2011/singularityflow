@@ -157,8 +157,8 @@ function checkFields(type, fields, at, problems) {
     if (problem) { problems.push({ field: `${at}${name}`, message: problem }); continue; }
     const tokens = kind === 'arguments' || kind === 'argv' ? value
       : kind === 'properties' ? Object.entries(value).map(([key, entry]) => `-D${key}=${entry}`) : [];
-    const secret = tokens.findIndex(secretArgument);
-    if (secret !== -1) problems.push({ field: `${at}${name}${kind === 'properties' ? '' : `[${secret}]`}`, message: SECRET_WORDS });
+    const flagged = tokens.findIndex(secretArgument);
+    if (flagged !== -1) problems.push({ field: `${at}${name}${kind === 'properties' ? '' : `[${flagged}]`}`, message: SECRET_WORDS });
     const { refusals } = debuggerListeners(tokens);
     if (refusals.length) problems.push({ field: `${at}${name}`, message: refusals[0] });
   }
@@ -227,8 +227,8 @@ function stepProblems(value, at) {
     const argv = argumentProblem(step.argv, { minimum: 1, maximum: 256 });
     if (argv) problems.push({ field: `${field}.argv`, message: argv });
     else {
-      const secret = step.argv.findIndex(secretArgument);
-      if (secret !== -1) problems.push({ field: `${field}.argv[${secret}]`, message: SECRET_WORDS });
+      const flagged = step.argv.findIndex(secretArgument);
+      if (flagged !== -1) problems.push({ field: `${field}.argv[${flagged}]`, message: SECRET_WORDS });
       const { refusals } = debuggerListeners(step.argv);
       if (refusals.length) problems.push({ field: `${field}.argv`, message: refusals[0] });
     }

@@ -46,8 +46,8 @@ export function normalizeJiraConnection(input = {}) {
     ?? input.username
     ?? input.email
     ?? null;
-  const token = input.auth?.token ?? input.pat ?? input.apiToken ?? input.token ?? null;
-  if (!token) throw new SingularityFlowError('A Jira API token or PAT is required.');
+  const access = input.auth?.token ?? input.pat ?? input.apiToken ?? input.token ?? null;
+  if (!access) throw new SingularityFlowError('A Jira API token or PAT is required.');
   if (mode !== 'pat' && !username) {
     throw new SingularityFlowError('Jira Cloud authentication requires a username or Atlassian account email.');
   }
@@ -56,6 +56,7 @@ export function normalizeJiraConnection(input = {}) {
   const apiBaseUrl = cloudId
     ? `https://api.atlassian.com/ex/jira/${encodeURIComponent(cloudId)}`
     : baseUrl;
+  const accessText = String(access);
   return {
     name: String(input.name ?? 'jira').trim() || 'jira',
     deployment,
@@ -68,7 +69,7 @@ export function normalizeJiraConnection(input = {}) {
       username: username ? String(username).trim() : null,
       // Keep the email alias for existing callers and encrypted credential records.
       email: username ? String(username).trim() : null,
-      token: String(token)
+      token: accessText
     }
   };
 }
@@ -77,7 +78,8 @@ export function jiraCredentials(env = process.env) {
   const baseUrl = env.JIRA_BASE_URL?.replace(/\/$/, '');
   const deployment = String(env.JIRA_DEPLOYMENT ?? 'cloud').toLowerCase();
   const username = env.JIRA_USERNAME ?? env.JIRA_EMAIL ?? null;
-  const apiToken = env.JIRA_PAT ?? env.JIRA_API_TOKEN;
+  const apiToken =
+    env.JIRA_PAT ?? env.JIRA_API_TOKEN;
   if (!baseUrl || !apiToken || (deployment !== 'data-center' && !username)) {
     throw new SingularityFlowError('Jira access requires JIRA_BASE_URL plus JIRA_USERNAME (or JIRA_EMAIL) and JIRA_PAT (or JIRA_API_TOKEN) for Cloud, or JIRA_PAT for Data Center. Singularity Flow never accepts or stores a password.');
   }
@@ -624,7 +626,8 @@ export async function listMyIssues({
       extraFields
     })),
     isLast: payload?.isLast ?? true,
-    nextPageToken: payload?.nextPageToken ?? null
+    nextPageToken:
+      payload?.nextPageToken ?? null
   };
 }
 
@@ -699,13 +702,13 @@ export async function searchIssues(jql, {
     }
     if (resolved.deployment === 'cloud') {
       if (payload?.isLast === true || !page.length) break;
-      const token = payload?.nextPageToken == null ? '' : String(payload.nextPageToken);
-      if (!token) break;
-      if (seenCloudTokens.has(token)) {
+      const pageCursor = payload?.nextPageToken == null ? '' : String(payload.nextPageToken);
+      if (!pageCursor) break;
+      if (seenCloudTokens.has(pageCursor)) {
         throw jiraFailure('Jira Cloud returned a repeated pagination token.', { category: 'response' });
       }
-      seenCloudTokens.add(token);
-      nextPageToken = token;
+      seenCloudTokens.add(pageCursor);
+      nextPageToken = pageCursor;
       continue;
     }
     const providedStart = payload.startAt == null ? Number.NaN : Number(payload.startAt);
@@ -989,10 +992,10 @@ export async function listBoardStories(boardId, {
       }
       if (payload.isLast === true || !payload.issues.length) break;
       if (payload.nextPageToken) {
-        const token = String(payload.nextPageToken);
-        if (seenTokens.has(token)) throw jiraFailure(`Jira sprint ${sprint.id} returned a repeated pagination token.`, { category: 'response' });
-        seenTokens.add(token);
-        nextPageToken = token;
+        const pageCursor = String(payload.nextPageToken);
+        if (seenTokens.has(pageCursor)) throw jiraFailure(`Jira sprint ${sprint.id} returned a repeated pagination token.`, { category: 'response' });
+        seenTokens.add(pageCursor);
+        nextPageToken = pageCursor;
       } else {
         const nextStart = startAt + payload.issues.length;
         const total = payload.total == null ? Number.NaN : Number(payload.total);

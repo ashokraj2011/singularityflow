@@ -34,6 +34,8 @@ import {
   safeGitDiagnosticReference, stateRefreshError
 } from './git-remote-diagnostics.mjs';
 
+const OK = 'pass';
+
 export const LEDGER_SCHEMA_VERSION = currentSchemaVersion('ledger-entry');
 export { LEDGER_INTENT_DIRECTORY };
 export const LEDGER_EVENT_TYPES = Object.freeze([
@@ -1270,11 +1272,11 @@ export async function ledgerDoctor(root, rawConfig = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const checks = [];
   const remoteAvailable = hasRemote(root, config.remote);
-  checks.push({ id: 'enabled', status: config.enabled ? 'pass' : 'warn', detail: config.enabled ? 'ledger enabled' : 'ledger disabled (no lifecycle dual-write)' });
-  checks.push({ id: 'remote', status: remoteAvailable ? 'pass' : 'warn', detail: remoteAvailable ? `${config.remote} is configured` : `${config.remote} is not configured` });
+  checks.push({ id: 'enabled', status: config.enabled ? OK : 'warn', detail: config.enabled ? 'ledger enabled' : 'ledger disabled (no lifecycle dual-write)' });
+  checks.push({ id: 'remote', status: remoteAvailable ? OK : 'warn', detail: remoteAvailable ? `${config.remote} is configured` : `${config.remote} is not configured` });
   await ensureRemoteBranchFetchedAsync(root, config);
   const ref = ledgerHead(root, config);
-  checks.push({ id: 'branch', status: ref ? 'pass' : 'fail', detail: ref ? `${config.branch} exists` : `${config.branch} is not initialized` });
+  checks.push({ id: 'branch', status: ref ? OK : 'fail', detail: ref ? `${config.branch} exists` : `${config.branch} is not initialized` });
   if (ref) {
     const applicationBranch = defaultBranchName(root, rawConfig, config.remote);
     const applicationRef = refExists(root, `refs/heads/${applicationBranch}`)
@@ -1292,7 +1294,7 @@ export async function ledgerDoctor(root, rawConfig = {}) {
     const configured = git(root, ['config', '--get-all', `remote.${config.remote}.fetch`], { allowFailure: true }).stdout;
     checks.push({
       id: 'pin-refspec',
-      status: configured.split(/\r?\n/).includes(refspec) ? 'pass' : 'warn',
+      status: configured.split(/\r?\n/).includes(refspec) ? OK : 'warn',
       detail: configured.split(/\r?\n/).includes(refspec) ? 'custom pin refs are fetched by this clone' : 'run ledger init to install the custom pin refspec'
     });
   } else {
@@ -1303,7 +1305,7 @@ export async function ledgerDoctor(root, rawConfig = {}) {
     : git(root, ['config', '--get', 'user.signingkey'], { allowFailure: true }).status === 0;
   checks.push({
     id: 'signing',
-    status: signingReady ? 'pass' : 'fail',
+    status: signingReady ? OK : 'fail',
     detail: config.signing === 'off' ? `commit signing is off for ${config.trustTier}` : signingReady ? 'Git signing key is configured' : 'ledger signing is required but user.signingkey is missing'
   });
   return {

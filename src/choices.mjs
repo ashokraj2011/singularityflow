@@ -327,12 +327,12 @@ async function removeExpired(root) {
     if (error?.code !== 'ENOENT') throw receiptStorageFailure('inspect local receipts');
   }
   await Promise.all(files.filter((file) => file.endsWith('.json')).map(async (file) => {
-    const token = file.slice(0, -'.json'.length);
-    if (!TOKEN_PATTERN.test(token)) return;
+    const stem = file.slice(0, -'.json'.length);
+    if (!TOKEN_PATTERN.test(stem)) return;
     try {
-      await withReceiptMutation(root, token, async () => {
-        const receipt = await readReceipt(root, token);
-        if (receipt.binding !== REVIEW_BOUND && Date.parse(receipt.expiresAt) <= Date.now()) await unlink(receiptPath(root, token));
+      await withReceiptMutation(root, stem, async () => {
+        const receipt = await readReceipt(root, stem);
+        if (receipt.binding !== REVIEW_BOUND && Date.parse(receipt.expiresAt) <= Date.now()) await unlink(receiptPath(root, stem));
       });
     } catch { /* Invalid local receipts remain unusable and are handled when explicitly referenced. */ }
   }));
@@ -379,12 +379,12 @@ export async function removeApprovalReceipts(root, workId, drop = () => true) {
   try { files = await readdir(receiptDirectory(root)); }
   catch { return; }
   await Promise.all(files.filter((file) => file.endsWith('.json')).map(async (file) => {
-    const token = file.slice(0, -'.json'.length);
-    if (!TOKEN_PATTERN.test(token)) return;
+    const stem = file.slice(0, -'.json'.length);
+    if (!TOKEN_PATTERN.test(stem)) return;
     try {
-      await withReceiptMutation(root, token, async () => {
-        const receipt = await readReceipt(root, token);
-        if (receipt.action === 'approve' && receipt.workId === workId && drop(receipt)) await unlink(receiptPath(root, token));
+      await withReceiptMutation(root, stem, async () => {
+        const receipt = await readReceipt(root, stem);
+        if (receipt.action === 'approve' && receipt.workId === workId && drop(receipt)) await unlink(receiptPath(root, stem));
       });
     } catch { /* An unreadable receipt stays unusable and is reported when it is referenced. */ }
   }));
@@ -397,9 +397,10 @@ export async function beginCustomSelectionReceipt(root, { action, workId, choice
   const repositoryHead = head(root);
   const boundContext = bindActionContext(action, workId, repositoryHead, context);
   const reviewBound = action === 'approve' && Boolean(boundContext?.reviewPacketSha256);
+  const nonce = randomUUID();
   const receipt = {
     schemaVersion: currentSchemaVersion('selection-receipt'),
-    token: randomUUID(),
+    token: nonce,
     action,
     workId,
     repositoryHead,

@@ -289,17 +289,17 @@ export async function run(_argv, { positionals, options }) {
   const json = optionBoolean(options, 'json');
   const goalId = optionString(options, 'goal');
   const storyId = optionString(options, 'story');
-  const token = positionals[1] ?? (goalId || storyId ? 'plan' : 'status');
-  const shorthand = !SUBCOMMANDS.has(token);
-  const nearest = nearestNames(token, [...SUBCOMMANDS], { limit: 1 })[0] ?? null;
-  if (shorthand && nearest && Math.abs(String(token).length - nearest.length) <= 2) {
+  const word = positionals[1] ?? (goalId || storyId ? 'plan' : 'status');
+  const shorthand = !SUBCOMMANDS.has(word);
+  const nearest = nearestNames(word, [...SUBCOMMANDS], { limit: 1 })[0] ?? null;
+  if (shorthand && nearest && Math.abs(String(word).length - nearest.length) <= 2) {
     throw new SingularityFlowError(
-      `'auto' has no subcommand '${token}'.${didYouMean(token, [...SUBCOMMANDS])} `
+      `'auto' has no subcommand '${word}'.${didYouMean(word, [...SUBCOMMANDS])} `
       + 'For an intentional requirement, use `singularity-flow auto plan "<requirement>"`.',
       { code: 'UNKNOWN_SUBCOMMAND' }
     );
   }
-  const subcommand = shorthand ? 'plan' : token;
+  const subcommand = shorthand ? 'plan' : word;
   if (goalId && subcommand !== 'plan') throw new SingularityFlowError(
     '--goal is valid only for Auto Plan creation.', { code: 'AUTO_ARGUMENT_CONFLICT' }
   );

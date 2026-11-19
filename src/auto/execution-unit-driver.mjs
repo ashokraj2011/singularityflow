@@ -8,6 +8,8 @@ import { canonicalJson, recordSha256 } from '../records.mjs';
 import { commandExists, run } from '../util.mjs';
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
 
+const OK = 'pass';
+
 function sha256(value) {
   return createHash('sha256').update(String(value ?? '')).digest('hex');
 }
@@ -20,7 +22,7 @@ export async function executionUnitDriverDoctor(root, definition, phaseId) {
   const executable = providerConfig.executable ?? null;
   const task = generationTaskForPhase(definition, phaseId);
   const checks = [];
-  const check = (id, passed, detail) => checks.push({ id, status: passed ? 'pass' : 'fail', detail });
+  const check = (id, passed, detail) => checks.push({ id, status: passed ? OK : 'fail', detail });
   check('provider-configured', Boolean(providerConfig.type && executable), executable ?? 'provider executable is absent');
   check('adapter-installed', modelProviderIds().includes(adapter), adapter);
   check('executable-resolved', Boolean(executable && commandExists(executable)), executable ?? 'absent');

@@ -177,12 +177,12 @@ function positionalReceiptIndex(argv) {
   const indexes = [];
   let passthrough = false;
   for (let index = 0; index < argv.length; index += 1) {
-    const token = String(argv[index]);
+    const arg = String(argv[index]);
     if (passthrough) { indexes.push(index); continue; }
-    if (token === '--') { passthrough = true; continue; }
-    if (!token.startsWith('--')) { indexes.push(index); continue; }
-    if (token.startsWith('--no-') || token.includes('=')) continue;
-    const key = token.slice(2);
+    if (arg === '--') { passthrough = true; continue; }
+    if (!arg.startsWith('--')) { indexes.push(index); continue; }
+    if (arg.startsWith('--no-') || arg.includes('=')) continue;
+    const key = arg.slice(2);
     if (!BOOLEAN_OPTIONS.has(key) && index + 1 < argv.length
         && !String(argv[index + 1]).startsWith('--')) index += 1;
   }
@@ -340,10 +340,10 @@ export function redactCommandArgv(argv) {
     const safeFlags = new Set(['--stdin', '--json', '--timings', '--no-model']);
     const environmentId = /^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
     return source.map((raw, index) => {
-      const token = String(raw);
-      if (index === environmentIndex || index === bindIndex || safeFlags.has(token)) return token;
+      const arg = String(raw);
+      if (index === environmentIndex || index === bindIndex || safeFlags.has(arg)) return arg;
       if (bindIndex === environmentIndex + 1
-          && index === bindIndex + 1 && environmentId.test(token)) return token;
+          && index === bindIndex + 1 && environmentId.test(arg)) return arg;
       return REDACTED;
     });
   }
@@ -366,13 +366,13 @@ export function redactCommandArgv(argv) {
     && source.some((value) => ['answer', 'status'].includes(String(value)));
   let secretIntervened = false;
   for (const [index, raw] of source.entries()) {
-    const token = String(raw);
+    const arg = String(raw);
     if (String(source[index - 1] ?? '').toLowerCase() === '--document') {
       projected.push('[redacted-path]');
       continue;
     }
-    if (/^--document=/i.test(token)) {
-      projected.push(`${token.slice(0, token.indexOf('=') + 1)}[redacted-path]`);
+    if (/^--document=/i.test(arg)) {
+      projected.push(`${arg.slice(0, arg.indexOf('=') + 1)}[redacted-path]`);
       continue;
     }
     // Feedback prose and local attachment paths are private evidence, never activity-log inputs.
@@ -381,25 +381,25 @@ export function redactCommandArgv(argv) {
       projected.push(REDACTED);
       continue;
     }
-    if (revisionAttachment && /^(--file|--feedback)=/.test(token)) {
-      projected.push(token.slice(0, token.indexOf('=') + 1) + REDACTED);
+    if (revisionAttachment && /^(--file|--feedback)=/.test(arg)) {
+      projected.push(arg.slice(0, arg.indexOf('=') + 1) + REDACTED);
       continue;
     }
-    if (token.length > MAX_VALUE_CHARS) {
+    if (arg.length > MAX_VALUE_CHARS) {
       if (pending.length > 0) {
         projected.push(pending.pop() === 'remote' ? '[redacted-remote]' : REDACTED);
         continue;
       }
       projected.push(REDACTED);
-      const classificationToken = normalizeSensitiveSyntax(token.slice(0, MAX_VALUE_CHARS));
+      const classificationToken = normalizeSensitiveSyntax(arg.slice(0, MAX_VALUE_CHARS));
       const equals = classificationToken.indexOf('=');
       const flag = equals >= 0 ? classificationToken.slice(0, equals) : classificationToken;
       if (classificationToken.startsWith('--') && equals < 0 && isSecretOptionKey(flag)) pending.push('secret');
       if (equals < 0 && REMOTE_OPTION.test(flag)) pending.push('remote');
       continue;
     }
-    const normalizedToken = normalizeSensitiveSyntax(token);
-    if (normalizedToken !== token && normalizedToken.startsWith('--')) {
+    const normalizedToken = normalizeSensitiveSyntax(arg);
+    if (normalizedToken !== arg && normalizedToken.startsWith('--')) {
       const equals = normalizedToken.indexOf('=');
       const flag = equals >= 0 ? normalizedToken.slice(0, equals) : normalizedToken;
       if (isSecretOptionKey(flag)) {
@@ -413,60 +413,60 @@ export function redactCommandArgv(argv) {
         continue;
       }
     }
-    if ((capabilityBearing || receiptFamily) && CAPABILITY_UUID.test(token)) {
+    if ((capabilityBearing || receiptFamily) && CAPABILITY_UUID.test(arg)) {
       projected.push(REDACTED);
       continue;
     }
     if (index === receiptIndex) { projected.push(REDACTED); continue; }
-    if (secretIntervened && !token.startsWith('--')) {
+    if (secretIntervened && !arg.startsWith('--')) {
       projected.push(REDACTED);
       continue;
     }
-    if (token === '--' && pending.includes('secret')) {
+    if (arg === '--' && pending.includes('secret')) {
       secretIntervened = true;
       projected.push('--');
       continue;
     }
-    if (pending.includes('secret') && token.startsWith('--')) {
+    if (pending.includes('secret') && arg.startsWith('--')) {
       secretIntervened = true;
-      const interveningEquals = token.indexOf('=');
+      const interveningEquals = arg.indexOf('=');
       if (interveningEquals >= 0) {
-        projected.push(`${token.slice(0, interveningEquals)}=${REDACTED}`);
+        projected.push(`${arg.slice(0, interveningEquals)}=${REDACTED}`);
         continue;
       }
-      if (CAPABILITY_UUID.test(token.slice(2))) {
+      if (CAPABILITY_UUID.test(arg.slice(2))) {
         projected.push(`--${REDACTED}`);
         continue;
       }
       projected.push(REDACTED);
       continue;
     }
-    if (pending.length > 0 && !token.startsWith('--')) {
-      projected.push(pending.pop() === 'secret' ? REDACTED : redactRemoteOperand(token));
+    if (pending.length > 0 && !arg.startsWith('--')) {
+      projected.push(pending.pop() === 'secret' ? REDACTED : redactRemoteOperand(arg));
       continue;
     }
-    const bareEquals = !token.startsWith('--') ? token.indexOf('=') : -1;
-    if (bareEquals > 0 && isSecretOptionKey(token.slice(0, bareEquals))) {
-      projected.push(`${token.slice(0, bareEquals)}=${REDACTED}`);
+    const bareEquals = !arg.startsWith('--') ? arg.indexOf('=') : -1;
+    if (bareEquals > 0 && isSecretOptionKey(arg.slice(0, bareEquals))) {
+      projected.push(`${arg.slice(0, bareEquals)}=${REDACTED}`);
       continue;
     }
-    const equals = token.startsWith('--') ? token.indexOf('=') : -1;
-    const flag = equals >= 0 ? token.slice(0, equals) : token;
-    if (token.startsWith('--') && isSecretOptionKey(flag)) {
-      projected.push(equals >= 0 ? `${flag}=${REDACTED}` : token);
+    const equals = arg.startsWith('--') ? arg.indexOf('=') : -1;
+    const flag = equals >= 0 ? arg.slice(0, equals) : arg;
+    if (arg.startsWith('--') && isSecretOptionKey(flag)) {
+      projected.push(equals >= 0 ? `${flag}=${REDACTED}` : arg);
       if (equals < 0) pending.push('secret');
       continue;
     }
     if (REMOTE_OPTION.test(flag)) {
       projected.push(equals >= 0
-        ? `${flag}=${redactRemoteOperand(token.slice(equals + 1))}`
-        : token);
+        ? `${flag}=${redactRemoteOperand(arg.slice(equals + 1))}`
+        : arg);
       if (equals < 0) pending.push('remote');
       continue;
     }
-    projected.push(remoteOperandContainsSensitiveMaterial(token)
+    projected.push(remoteOperandContainsSensitiveMaterial(arg)
       ? REDACTED
-      : (hierarchicalOrScp(token) ? redactRemoteOperand(token) : redactText(token)));
+      : (hierarchicalOrScp(arg) ? redactRemoteOperand(arg) : redactText(arg)));
   }
   return projected;
 }

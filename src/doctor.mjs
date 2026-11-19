@@ -33,6 +33,8 @@ import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, redactDiagnosticText
 } from './git-remote-diagnostics.mjs';
 
+const OK = 'pass';
+
 function check(id, status, message, fix = null, details = {}) { return { id, status, message, fix, ...details }; }
 
 async function appendPerformanceCheck(checks, root, definition = null, workflow = null) {
@@ -134,7 +136,7 @@ export async function doctorSnapshot(root, {
   let performanceReport = null;
   let schemaReport = null;
   const node = nodeRequirement();
-  checks.push(check('node', node.met ? 'pass' : 'fail', `${node.editor ? "VS Code's " : ''}Node.js ${node.version}`,
+  checks.push(check('node', node.met ? OK : 'fail', `${node.editor ? "VS Code's " : ''}Node.js ${node.version}`,
     node.met ? null : `Install Node.js ${node.required}.`));
   const editor = await vscodeVersionCheck(editorVersion);
   if (editor) checks.push(editor);
@@ -203,7 +205,7 @@ export async function doctorSnapshot(root, {
   const shellReady = commandExists(buildShell.command);
   checks.push(check(
     'platform',
-    shellReady ? 'pass' : 'warn',
+    shellReady ? OK : 'warn',
     `${process.platform} · commands run through ${buildShell.command}${shellReady ? '' : ', which was not found'}.`,
     shellReady
       ? null
@@ -229,7 +231,7 @@ export async function doctorSnapshot(root, {
     const matches = Boolean(stamped) && stamped === actual;
     checks.push(check(
       'documentation',
-      matches ? 'pass' : 'fail',
+      matches ? OK : 'fail',
       matches
         ? `CLI ${VERSION} · ${topics.length} documentation topics, content matching ${manifest.sourceCommit ? 'its build' : 'an unstamped build'}.`
         : stamped
@@ -244,7 +246,7 @@ export async function doctorSnapshot(root, {
 
   const gitName = run('git', ['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const gitEmail = run('git', ['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
-  checks.push(check('git-identity', gitName && gitEmail ? 'pass' : 'fail', gitName && gitEmail ? `Git identity ${gitName} <${gitEmail}>.` : 'Git user.name and/or user.email is missing.', gitName && gitEmail ? null : 'Configure git user.name and git user.email before creating lifecycle commits.'));
+  checks.push(check('git-identity', gitName && gitEmail ? OK : 'fail', gitName && gitEmail ? `Git identity ${gitName} <${gitEmail}>.` : 'Git user.name and/or user.email is missing.', gitName && gitEmail ? null : 'Configure git user.name and git user.email before creating lifecycle commits.'));
   // A canonical Story carries exactly its pinned configuration (often only its own workflow's
   // closure), so today's packaged inventory is not what it should hold; `init --check` agrees.
   const storyPin = existsSync(path.join(root, CONFIGURATION_SOURCE_PATH))
@@ -255,7 +257,7 @@ export async function doctorSnapshot(root, {
     : await initializationStatus(root);
   checks.push(check(
     'initialization-assets',
-    initialization.complete ? 'pass' : initialization.configurationError ? 'fail' : 'warn',
+    initialization.complete ? OK : initialization.configurationError ? 'fail' : 'warn',
     initialization.complete
       ? initialization.pinned
         ? `All ${initialization.expectedFiles.length} configuration assets this Story pins are present and valid.`
@@ -324,7 +326,7 @@ export async function doctorSnapshot(root, {
     const transportReady = transport.state === 'ready' || transport.state === 'not-applicable';
     checks.push(check(
       'model-provider-prompt-transport',
-      transportReady ? 'pass' : providerUnavailable ? 'warn' : 'fail',
+      transportReady ? OK : providerUnavailable ? 'warn' : 'fail',
       transport.state === 'ready'
         ? `Model provider '${configuredProvider.provider}' supports private ${transport.transport} prompt transport.`
         : transport.state === 'not-applicable'
@@ -353,7 +355,7 @@ export async function doctorSnapshot(root, {
   const mcpReadiness = await mcpDoctor(root, definition);
   for (const server of mcpReadiness.servers) {
     const status = server.readiness === 'ready'
-      ? 'pass'
+      ? OK
       : server.readiness === 'misconfigured' ? 'fail' : 'warn';
     checks.push(check(
       `mcp-${server.id}`,
@@ -406,7 +408,7 @@ export async function doctorSnapshot(root, {
   });
   checks.push(check(
     'copilot-telemetry',
-    telemetryLaunches.status === 'captured' ? 'pass' : 'warn',
+    telemetryLaunches.status === 'captured' ? OK : 'warn',
     telemetryLaunches.status === 'captured'
       ? `Local usage was captured for ${telemetryLaunches.counts.captured} SFlow-owned launch(es).`
       : `${telemetryCapability.mode} is ${telemetryCapability.available ? 'available' : 'unavailable'}; local usage status is ${telemetryLaunches.status}.`,
@@ -441,7 +443,7 @@ export async function doctorSnapshot(root, {
       // the read model already passes it; stopping it here is what put 42 network fetches behind
       // every snapshot.
       const validation = await validateWorkflow(root, definition, workflow, { offline });
-      checks.push(check('workflow-state', validation.valid ? 'pass' : 'fail', validation.valid ? `${selected.id} state is internally consistent.` : validation.errors.join(' '), validation.valid ? null : `Run singularity-flow recover ${selected.id} to inspect safe recovery options.`));
+      checks.push(check('workflow-state', validation.valid ? OK : 'fail', validation.valid ? `${selected.id} state is internally consistent.` : validation.errors.join(' '), validation.valid ? null : `Run singularity-flow recover ${selected.id} to inspect safe recovery options.`));
       const planes = await inspectStatePlanes(root, {
         definition,
         reference: selected.id,
@@ -450,7 +452,7 @@ export async function doctorSnapshot(root, {
       });
       checks.push(check(
         'state-planes',
-        planes.healthy ? 'pass' : 'fail',
+        planes.healthy ? OK : 'fail',
         planes.healthy
           ? 'Lifecycle authority, local selection, publication recovery, ledger mirror, and projections agree on the current commit.'
           : planes.issues.map((issue) => issue.message).join(' '),
@@ -467,7 +469,7 @@ export async function doctorSnapshot(root, {
         const registration = await inspectRequiredArtifactRegistration(root, definition, workflow, active);
         const status = registration.status === 'unsafe' ? 'fail'
           : registration.status === 'repairable' ? 'warn'
-            : registration.status === 'current' ? 'pass' : 'skip';
+            : registration.status === 'current' ? OK : 'skip';
         const message = registration.status === 'repairable'
           ? `${active.id} has stale registration for engine-managed artifact bytes; the next submit will repair it transactionally and continue.`
           : registration.status === 'unsafe'
@@ -491,7 +493,7 @@ export async function doctorSnapshot(root, {
       }
       const assignmentMode = workflow.resolution?.collaboration?.assignmentMode ?? 'off';
       const assigned = active ? workflow.collaboration?.assignments?.[active.id] : null;
-      if (active && assignmentMode !== 'off') checks.push(check('assignment', assigned ? 'pass' : assignmentMode === 'required' ? 'fail' : 'warn', assigned ? `${active.id} is assigned to ${assigned.assignee}.` : `${active.id} is unassigned (${assignmentMode}).`, assigned ? null : `Run singularity-flow assign ${active.id} <assignee>.`));
+      if (active && assignmentMode !== 'off') checks.push(check('assignment', assigned ? OK : assignmentMode === 'required' ? 'fail' : 'warn', assigned ? `${active.id} is assigned to ${assigned.assignee}.` : `${active.id} is unassigned (${assignmentMode}).`, assigned ? null : `Run singularity-flow assign ${active.id} <assignee>.`));
     } catch (error) {
       checks.push(check('workflow-state', 'fail', error.message, `Inspect ${workflowPath(root, definition, selected.id)} in Git history.`));
     }
@@ -565,7 +567,7 @@ export async function doctorSnapshot(root, {
       const empty = probe.status === 2;
       checks.push(check(
         'remote',
-        probe.status === 0 ? 'pass' : empty ? 'warn' : 'fail',
+        probe.status === 0 ? OK : empty ? 'warn' : 'fail',
         probe.status === 0 ? `Remote '${remote}' is reachable.`
           : empty ? `Remote '${remote}' is reachable but has no branches yet.`
             : `Remote '${remote}' could not be reached.`,
@@ -578,7 +580,7 @@ export async function doctorSnapshot(root, {
         redactDiagnosticText(error.message)));
     }
   }
-  checks.push(check('upstream', hasUpstream(root) ? 'pass' : 'warn', hasUpstream(root) ? `Branch '${currentBranch}' tracks an upstream.` : `Branch '${currentBranch}' has no upstream.`, hasUpstream(root) ? null : 'The first successful lifecycle publication will establish it.'));
+  checks.push(check('upstream', hasUpstream(root) ? OK : 'warn', hasUpstream(root) ? `Branch '${currentBranch}' tracks an upstream.` : `Branch '${currentBranch}' has no upstream.`, hasUpstream(root) ? null : 'The first successful lifecycle publication will establish it.'));
   return summarize(root, checks, workflow, session, definition, activeSubject, performanceReport, schemaReport);
 }
 

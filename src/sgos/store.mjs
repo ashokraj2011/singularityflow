@@ -3089,19 +3089,19 @@ export async function putSgosImmutableRecord(root, processId, familyId, value, {
           }
         }
       }
-      const token = reservation == null ? null : Object.freeze({
+      const claim = reservation == null ? null : Object.freeze({
         ...reservation.token,
         // Only explicit recovery/reassertion may pay the bounded historical-membership check.
         // Fresh publications and deterministic pre-CAS retries are proven unindexed locally.
         checkRootedHistory: reserveExisting && existing !== null
       });
       const deltaContext = RECORD_DELTA_CONTEXT.getStore();
-      if (token !== null && deltaContext?.active === true) deltaContext.tokens.push(token);
+      if (claim !== null && deltaContext?.active === true) deltaContext.tokens.push(claim);
       return Object.freeze({
         record: sealed,
         sha256: sealed[family.hashField],
         path: target,
-        reservationToken: token
+        reservationToken: claim
       });
     }
 

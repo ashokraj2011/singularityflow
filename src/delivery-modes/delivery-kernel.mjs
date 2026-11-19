@@ -158,7 +158,8 @@ export function normalizeDeliveryRequest(value) {
     touchedResources: integer(value.predicted.touchedResources, 'predicted.touchedResources', 0, 10_000),
     protectedPaths: value.predicted.protectedPaths === true,
     externalEffects: value.predicted.externalEffects === true,
-    credentialUse: value.predicted.credentialUse === true,
+    credentialUse:
+      value.predicted.credentialUse === true,
     architectureDecision: value.predicted.architectureDecision === true,
     publicContractChange: value.predicted.publicContractChange === true,
     databaseMigration: value.predicted.databaseMigration === true
@@ -243,7 +244,9 @@ export function buildEffectPolicy({ workId, request } = {}) {
     workId: normalized.workId,
     allowedEffects: normalized.allowedEffects,
     forbiddenEffects: normalized.forbiddenEffects,
-    externalEffects: 'forbidden', protectedPaths: 'promote', credentialUse: 'forbidden'
+    externalEffects: 'forbidden', protectedPaths: 'promote',
+    credentialUse:
+      'forbidden'
   });
 }
 

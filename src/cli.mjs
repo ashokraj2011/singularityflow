@@ -180,6 +180,8 @@ import { buildConstitutionException, constitutionIndex, constitutionPolicy, gene
 import { VERSION } from './version.mjs';
 import { HELP } from './help-text.mjs';
 
+const OK = 'pass';
+
 /** The route to show instead of submitting: the review's next step while it is not ready, the submit with the decision
  * values it must record, or the decision list when a submission that completes the step would be refused for it. */
 async function submitHeldRoute(root, config, workflow, phase, options) {
@@ -1773,7 +1775,7 @@ async function impactCommand(positionals, options) {
     console.log(`${result.label}\nStudy: ${result.studyRunId ?? result.study}${result.studyDefinitionSha256 ? ` · definition ${result.studyDefinitionSha256.slice(0, 12)}` : ''} · method ${result.method} · evidence grade ${result.evidenceGrade}`);
     console.log(`Matched cohorts: baseline ${result.cohorts.matchedBaseline}, treatment ${result.cohorts.matchedTreatment}; privacy floor ${result.cohorts.privacyFloor}`);
     console.log(`Primary ${result.primaryMetric.id}: ${result.result.gainPercent.toFixed(2)}% · CI ${result.result.confidenceInterval.lower.toFixed(2)}%..${result.result.confidenceInterval.upper.toFixed(2)}%`);
-    for (const guardrail of result.guardrails) console.log(`Guardrail ${guardrail.metric}: ${guardrail.passed ? 'pass' : 'fail'} (${guardrail.regressionPercent == null ? 'unavailable' : `${guardrail.regressionPercent.toFixed(2)}%`})`);
+    for (const guardrail of result.guardrails) console.log(`Guardrail ${guardrail.metric}: ${guardrail.passed ? OK : 'fail'} (${guardrail.regressionPercent == null ? 'unavailable' : `${guardrail.regressionPercent.toFixed(2)}%`})`);
     if (result.promptAdherence) console.log(`Prompt adherence: exact ${result.promptAdherence.exact}, partial ${result.promptAdherence.partial}, unavailable ${result.promptAdherence.unavailable}.`);
     return;
   }
@@ -4931,7 +4933,7 @@ async function ledgerCommand(positionals, options) {
     return;
   }
   if (subcommand === 'deployment-check') {
-    result.checks.forEach((check) => console.log(`  ${check.status === 'pass' ? 'PASS' : check.status === 'warn' ? 'WARN' : 'FAIL'} ${check.id}: ${check.detail}`));
+    result.checks.forEach((check) => console.log(`  ${['pass', 'warn'].includes(check.status) ? check.status.toUpperCase() : 'FAIL'} ${check.id}: ${check.detail}`));
     if (result.recordedPath) console.log(`Recorded deployment validation: ${result.recordedPath}`);
     if (!result.valid) throw new SingularityFlowError(`Ledger deployment is not ready for trust tier ${result.trustTier}.`, { exitCode: 2 });
     return;
@@ -7124,7 +7126,7 @@ async function capabilityCommand(positionals, options) {
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     for (const item of result.checks) {
-      console.log(`${style.mark(item.status === 'info' ? 'pass' : item.status)} ${item.id}: ${item.summary}`);
+      console.log(`${style.mark(item.status === 'info' ? OK : item.status)} ${item.id}: ${item.summary}`);
       if (item.branch) console.log(`  branch: ${item.branch}`);
       if (item.remediation) console.log(`  remediation: ${item.remediation}`);
       for (const alternative of item.details?.alternatives ?? []) console.log(`  option: ${alternative}`);

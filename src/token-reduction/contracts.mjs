@@ -37,14 +37,10 @@ export const TKR_CONTRACT_FAMILIES = Object.freeze([
   'token-reduction-normalization-rules'
 ]);
 
-const KIND_BY_FAMILY = Object.freeze({
-  'token-reduction-composer-contract': 'tkr/composer-contract',
-  'token-reduction-representation-rules': 'tkr/representation-rules',
-  'token-reduction-deduplication-rules': 'tkr/deduplication-rules',
-  'token-reduction-protected-text-rules': 'tkr/protected-text-rules',
-  'token-reduction-ordering-rules': 'tkr/ordering-rules',
-  'token-reduction-normalization-rules': 'tkr/normalization-rules'
-});
+// Each family's record kind is its name under tkr/, as tkr/composer-contract for token-reduction-composer-contract.
+const KIND_BY_FAMILY = Object.freeze(Object.fromEntries(
+  TKR_CONTRACT_FAMILIES.map((family) => [family, `tkr/${family.replace(/^token-reduction-/u, '')}`])
+));
 
 const FAMILY_BY_KIND = Object.freeze(Object.fromEntries(
   Object.entries(KIND_BY_FAMILY).map(([family, kind]) => [kind, family])

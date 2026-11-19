@@ -105,6 +105,8 @@ import {
   retireCapabilityAuthorityLink
 } from './capability-authority-link.mjs';
 
+const OK = 'pass';
+
 export {
   forgetLeadRepository, leadRegistryFile, listLeadRepositories, rememberLeadRepository
 };
@@ -5343,7 +5345,7 @@ export async function capabilityFsck(url, {
               : 'The capability is active, but this delivery repository has no portable authority link yet.';
         return capabilityFsckCheck(
           `portable-discovery:${delivery.repositoryId}`,
-          current ? 'pass' : invalid ? 'fail' : 'warn', summary,
+          current ? OK : invalid ? 'fail' : 'warn', summary,
           current ? {
             branch: link.stateBranch, commit: link.stateCommit,
             details: { repositoryId: delivery.repositoryId, capabilities: delivery.capabilityIds }
@@ -5525,7 +5527,7 @@ export async function capabilityFsck(url, {
       const localTree = capabilityTree(localDefinition);
       const agrees = canonicalJson(localTree) === canonicalJson(organisation?.capabilities ?? []);
       checks.push(capabilityFsckCheck(
-        checkId, agrees ? 'pass' : 'fail',
+        checkId, agrees ? OK : 'fail',
         agrees
           ? 'The branch-local capability map agrees with approved configuration.'
           : `The canonical application checkout carries an unpinned capability map that diverges from approved '${CONFIGURATION_BRANCH}'.`,

@@ -3,7 +3,8 @@ import { recordSha256 } from '../records.mjs';
 import { classifyTokenOptimization } from '../token-economy.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
-const TOKEN_FIELDS = Object.freeze({
+const TOKEN_FIELDS =
+  Object.freeze({
   'input-tokens': 'inputTokens',
   'output-tokens': 'outputTokens',
   'cached-input-tokens': 'cachedInputTokens',
@@ -141,7 +142,8 @@ export function buildAutoQualityComparison({
     tokenMetric: {
       id: comparison.primaryMetric.id, unit: comparison.primaryMetric.unit,
       gainPercent: comparison.result.gainPercent,
-      providerTokenEvidence: comparison.measurementAssurance?.primary?.providerTokenEvidence === true
+      providerTokenEvidence:
+        comparison.measurementAssurance?.primary?.providerTokenEvidence === true
     },
     quality: {
       gatePassed: comparison.qualityGatePassed === true,

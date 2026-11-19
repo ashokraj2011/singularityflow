@@ -25,6 +25,8 @@ import { applyPlanCorrections } from './plan-row-corrections.mjs';
 import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue, pathDefect, shown } from './draft-diagnostics.mjs';
 import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
+const OK = 'pass';
+
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
 export const SPECIFICATION_DEFINITION_KINDS = Object.freeze(['requirements', 'implementation-spec']);
@@ -1837,7 +1839,7 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     invalidEvidence: [...new Set(invalidEvidence)].sort(),
     complete: !unimplemented.length && !unclaimedChangedPaths.length && !withdrawnButClaimed.length && !invalidEvidence.length
   };
-  result.severity = result.complete || normalized.coverage === 'off' ? 'pass' : normalized.coverage === 'enforce' ? 'error' : 'warning';
+  result.severity = result.complete || normalized.coverage === 'off' ? OK : normalized.coverage === 'enforce' ? 'error' : 'warning';
   return result;
 }
 

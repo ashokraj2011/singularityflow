@@ -4,11 +4,11 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "d89eedd0dbd56423a356ff49200a564ae597743e",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-17-LANDING.md",
+    "reviewedAtCommit": "6790cfedbb85e4593ef9a340b263abd258b601c9",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-19-OFFICE-SCANNER.md",
     "companionIds": [
-      "migration-registry",
-      "publication-unit-of-work"
+      "action-authorization",
+      "migration-registry"
     ]
   },
   "companions": [
@@ -90,12 +90,12 @@
     {
       "id": "action-authorization",
       "path": "src/action-authorization.mjs",
-      "sha256": "sha256:e2784c495f83113b26ae5c7edefd2a352a9de4d106258f039b76bf5b7dff4b04"
+      "sha256": "sha256:dc0ea89fceea38ca56200bdad636b7c2d29f0ae95bb5cf08c845593f3a603608"
     },
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:935c0c360faa4e7d208639c35fff3e15a61da77a71aff1f4efd2a0c33b647f25"
+      "sha256": "sha256:c2c081ba362f87fd981c7e99b381347963e896ee9a337d0eefe46b97335bec11"
     },
     {
       "id": "smart-initialization-v1",

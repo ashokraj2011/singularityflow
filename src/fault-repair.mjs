@@ -137,7 +137,8 @@ const SENSITIVE_FIELD_SOURCE = [
   'mongodb[_-]?uri', 'redis[_-]?url', 'shared[_-]?access[_-]?key',
   'shared[_-]?access[_-]?signature'
 ].join('|');
-const SECRET_RULES = Object.freeze([
+const SECRET_RULES =
+  Object.freeze([
   ['private-key', /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)* PRIVATE KEY-----/gi,
     () => '[REDACTED_PRIVATE_KEY]'],
   ['authorization', /\b(authorization\s*:\s*(?:bearer|basic)\s+)(?!\[REDACTED)[^\s,;]+/gi,

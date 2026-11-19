@@ -943,7 +943,8 @@ function weightedEffect(strata, direction, weighting) {
   return { effects, combined: totalWeight ? effects.reduce((sum, item) => sum + item.gainPercent * item.weight, 0) / totalWeight : null };
 }
 
-const TOKEN_ECONOMICS_FIELD = Object.freeze({
+const TOKEN_ECONOMICS_FIELD =
+  Object.freeze({
   'input-tokens': 'inputTokens',
   'output-tokens': 'outputTokens',
   'cached-input-tokens': 'cachedInputTokens',

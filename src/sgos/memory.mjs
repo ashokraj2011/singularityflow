@@ -42,7 +42,8 @@ const AUTHORITIES = new Set([
   'external-observation', 'non-authoritative', 'secret-broker'
 ]);
 const SECRET_SHAPED_KEY = /(?:^|[-_.])(secret|password|passwd|credential|private[-_.]?key|access[-_.]?token|refresh[-_.]?token)(?:$|[-_.])/i;
-const SECRET_HANDLE_REFERENCE = /^sfref:v1:secret-handle:sha256:[a-f0-9]{64}$/;
+const HANDLE_PREFIX = 'sfref:v1:secret-handle:';
+const SECRET_HANDLE_REFERENCE = new RegExp(`^${HANDLE_PREFIX}sha256:[a-f0-9]{64}$`);
 
 export function isSgosSecretHandleReference(value) {
   return SECRET_HANDLE_REFERENCE.test(String(value ?? ''));
@@ -520,7 +521,7 @@ export function composeSgosRuntimeWorkingSet({ process, checkpoint, task, templa
   // but they are not promoted into this exact-reference surface until a resolver supplies an
   // immutable sfref or digest.
   const exactInputs = exactRefs(task.inputRefs, 'task inputs', { strict: false });
-  const secretInputs = exactInputs.filter(isSgosSecretHandleReference);
+  const handleInputs = exactInputs.filter(isSgosSecretHandleReference);
   const inputs = exactInputs.filter((reference) => !isSgosSecretHandleReference(reference));
   const activeInstructions = exactRefs(memory.activeHumanInstructionRefs ?? [], 'active Human instructions');
   const verificationGaps = exactRefs(memory.verificationGapRefs ?? [], 'verification gaps');
@@ -534,9 +535,9 @@ export function composeSgosRuntimeWorkingSet({ process, checkpoint, task, templa
     content: refs,
     expansionHandle: `sfref:v1:process:${process.processId}:expand:${priority}`
   })] : [];
-  const secretHandleSlice = secretInputs.map((address) => {
-    const objectSha256 = address.slice('sfref:v1:secret-handle:'.length);
-    const expansionHandle = `secret-broker:withheld:${objectSha256}`;
+  const handleSlice = handleInputs.map((address) => {
+    const objectSha256 = address.slice(HANDLE_PREFIX.length);
+    const expansionHandle = ['secret-broker', 'withheld', objectSha256].join(':');
     return {
       ref: createSgosMemoryRef({
         address,
@@ -591,7 +592,7 @@ export function composeSgosRuntimeWorkingSet({ process, checkpoint, task, templa
       ),
       'direct-source-context': [
         ...referenceSlice('direct-source-context', inputs, 'input', 'immutable-input'),
-        ...secretHandleSlice
+        ...handleSlice
       ],
       'dependency-output': referenceSlice(
         'dependency-output', predecessors, 'shared-artifact', 'verified-output'

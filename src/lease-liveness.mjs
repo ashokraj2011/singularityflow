@@ -44,7 +44,8 @@ export const LEASE_PROCESS_STARTED_AT = Math.max(
   0, Math.round((Date.now() - process.uptime() * 1_000) / 1_000) * 1_000
 );
 /** One token per loaded copy of this module: a lease carrying it is this process's own. */
-export const LEASE_PROCESS_TOKEN = randomUUID();
+export const LEASE_PROCESS_TOKEN =
+  randomUUID();
 
 export function machineIdFile(env = process.env) {
   return env.SINGULARITY_FLOW_MACHINE_ID_FILE

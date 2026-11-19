@@ -94,7 +94,8 @@ export async function reviewStoryBaselineAdmission(root, config, workflow, optio
   }, `Re-review exact baseline admission for ${workflow.workItem.id}`, async current => {
     const fresh = await resolve(root, config, current, options);
     if (!fresh.preview.ready || fresh.preview.planDigest !== options.confirmation) fail('Baseline, candidate or policy changed during review.', 'TRP_RISK_REVIEW_STALE');
-    const witness = await consumeTrpAuthority(root, { record, ...fresh.authority, review, token: authorization.token });
+    const nonce = authorization.token;
+    const witness = await consumeTrpAuthority(root, { record, ...fresh.authority, review, token: nonce });
     await appendTrpRecord(workDir(root, config, current.workItem.id), record);
     const saved = await appendTrpAuthorityReceipt(workDir(root, config, current.workItem.id), witness);
     const entry = { action: 'accepted', planDigest: options.confirmation, record: ref(record), authorityReceipt: ref(saved.receipt), reviewedAt: saved.receipt.issuedAt };

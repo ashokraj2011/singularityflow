@@ -787,12 +787,13 @@ async function recoverInterruptedTransportCutover(requestedRoot, storeId) {
 }
 
 function authorityLockOwner(storeId, now = Date.now()) {
+  const nonce = randomUUID();
   const identity = leaseOwnerIdentity();
   const core = {
     lockFormat: AUTHORITY_LOCK_FORMAT,
     lockVersion: AUTHORITY_LOCK_VERSION,
     storeId,
-    token: randomUUID(),
+    token: nonce,
     host: identity.host,
     ...(identity.machineId ? { machineId: identity.machineId } : {}),
     ...(identity.pidNamespace ? { pidNamespace: identity.pidNamespace } : {}),
@@ -833,7 +834,8 @@ function authorityLockHolder(lock) {
     pid: lock.owner.pid,
     acquiredAt: lock.owner.acquiredAt,
     expiresAt: lock.owner.expiresAt,
-    token: lock.owner.token,
+    token:
+      lock.owner.token,
     liveness: {
       state: liveness.state, reason: liveness.reason, heartbeat: liveness.heartbeat,
       lastHeartbeatAt: liveness.lastHeartbeatAt
@@ -1097,7 +1099,8 @@ async function withStableCutoverLock(parent, storeId, operation) {
       await writeExclusive(authorityHeartbeatPath(directory, owner), {
         lockFormat: `${AUTHORITY_LOCK_FORMAT}.heartbeat`,
         lockVersion: AUTHORITY_LOCK_VERSION,
-        token: owner.token
+        token:
+          owner.token
       });
       await rename(pendingOwner, path.join(directory, 'owner.json'));
       await fsyncDirectory(directory);
@@ -1662,7 +1665,8 @@ export async function openFilesystemAuthorityStore({
       await writeExclusive(authorityHeartbeatPath(lockDirectory, owner), {
         lockFormat: `${AUTHORITY_LOCK_FORMAT}.heartbeat`,
         lockVersion: AUTHORITY_LOCK_VERSION,
-        token: owner.token
+        token:
+          owner.token
       });
       await rename(pending, path.join(lockDirectory, 'owner.json'));
       await fsyncDirectory(lockDirectory);
@@ -1838,7 +1842,8 @@ export async function openFilesystemAuthorityStore({
     await writeExclusive(authorityHeartbeatPath(replica, owner), {
       lockFormat: `${AUTHORITY_LOCK_FORMAT}.heartbeat`,
       lockVersion: AUTHORITY_LOCK_VERSION,
-      token: owner.token
+      token:
+        owner.token
     });
     await fsyncDirectory(replica);
   }

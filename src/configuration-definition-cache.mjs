@@ -111,10 +111,10 @@ async function compiledConfigurationFresh(root, configurationRoot, rows, compile
     directory = path.join(gitCommonDir(root), 'singularity-flow', 'compiled-configuration-v1');
     key = digest(JSON.stringify([FORMAT, await configurationEngineIdentity(), rows]));
   } catch { return compile(); }
-  const secretFile = path.join(directory, 'key');
+  const keyFile = path.join(directory, 'key');
   const receiptFile = path.join(directory, 'definition.v8');
   let secret = null;
-  const loadSecret = () => readPrivateSidecar(root, secretFile, { ...privacy, maximumBytes: 32, optional: true });
+  const loadSecret = () => readPrivateSidecar(root, keyFile, { ...privacy, maximumBytes: 32, optional: true });
   try {
     secret = await loadSecret();
     const receipt = await readPrivateSidecar(root, receiptFile, { ...privacy, maximumBytes: MAXIMUM_BYTES, optional: true });
@@ -140,7 +140,7 @@ async function compiledConfigurationFresh(root, configurationRoot, rows, compile
   const definition = await measureCommandSpan('configuration.compile', compile);
   try {
     if (!secret) {
-      try { await writeImmutablePrivateSidecar(root, secretFile, randomBytes(32), { ...privacy, maximumBytes: 32 }); }
+      try { await writeImmutablePrivateSidecar(root, keyFile, randomBytes(32), { ...privacy, maximumBytes: 32 }); }
       catch { /* A concurrent compiler may have installed its private key first. */ }
       secret = await loadSecret();
     }

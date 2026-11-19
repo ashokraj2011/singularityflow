@@ -535,6 +535,7 @@ function compactOmission(omissions, handle = null) {
 }
 
 function packetIdentity(binding, items, omissions, manifest) {
+  const { tokenEconomyMode, tokenEconomyProfile, tokenEconomyConfigurationDigest } = binding;
   return {
     compilerVersion: EVIDENCE_PACKET_COMPILER_VERSION,
     binding: {
@@ -542,9 +543,9 @@ function packetIdentity(binding, items, omissions, manifest) {
       sourceRevision: binding.sourceRevision, lifecycleRevision: binding.lifecycleRevision,
       intentSha256: binding.intentSha256, workType: binding.workType,
       intervalId: binding.intervalId, operationId: binding.operationId,
-      tokenEconomyMode: binding.tokenEconomyMode,
-      tokenEconomyProfile: binding.tokenEconomyProfile,
-      tokenEconomyConfigurationDigest: binding.tokenEconomyConfigurationDigest
+      tokenEconomyMode,
+      tokenEconomyProfile,
+      tokenEconomyConfigurationDigest
     },
     items: items.map((item) => ({ itemId: item.itemId, source: item.source, bytes: item.bytes })),
     omissions: omissions.map((item) => item.itemId), cacheKey: manifest.cacheKey,
@@ -708,8 +709,10 @@ export async function compileEvidencePacket(root, request = {}) {
     workType: workflow?.workItem?.workType ?? null,
     intervalId: workflow?.workIntervals?.current?.intervalId ?? null,
     operationId: request.operationId ?? operationContext()?.operation?.id ?? null,
-    tokenEconomyMode: tokenEconomy.mode,
-    tokenEconomyProfile: selectedProfile.id,
+    tokenEconomyMode:
+      tokenEconomy.mode,
+    tokenEconomyProfile:
+      selectedProfile.id,
     tokenEconomyConfigurationDigest: tokenEconomyDigest(tokenEconomy)
   };
   const ranked = rankContextCandidates(candidates);

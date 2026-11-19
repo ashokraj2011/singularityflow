@@ -623,11 +623,12 @@ function recordHeartbeatFailure(controller, cause) {
   if (!controller || controller.stopping) return null;
   controller.failure ??= heartbeatWorkerError(controller.directory, cause);
   try {
+    const { lockToken } = controller.owner;
     writeFileSync(heartbeatFailurePath(controller.directory, controller.owner), `${JSON.stringify({
       failedAt: nowIso(),
       pid: process.pid,
       processToken: PROCESS_TOKEN,
-      lockToken: controller.owner.lockToken
+      lockToken
     })}\n`, { flag: 'wx', mode: 0o600 });
   } catch (error) {
     if (error?.code !== 'EEXIST' && !controller.failureMarkerError) {
@@ -688,9 +689,10 @@ function createSharedHeartbeatPool() {
     };
     const fail = (lease, error) => {
       try {
+        const { processToken, lockToken } = lease;
         writeFileSync(lease.failureFile, JSON.stringify({
           failedAt: new Date().toISOString(), pid: lease.pid,
-          processToken: lease.processToken, lockToken: lease.lockToken
+          processToken, lockToken
         }) + '\\n', { flag: 'wx', mode: 0o600 });
       } catch (markerError) {
         if (markerError && markerError.code !== 'EEXIST') {
@@ -827,6 +829,7 @@ async function startSharedHeartbeat(directory, owner, intervalMs) {
   pool.controllers.set(registrationId, controller);
   setSharedHeartbeatReference(pool);
   try {
+    const { lockToken } = owner;
     pool.worker.postMessage({
       type: 'register',
       lease: {
@@ -836,7 +839,7 @@ async function startSharedHeartbeat(directory, owner, intervalMs) {
         intervalMs,
         pid: process.pid,
         processToken: PROCESS_TOKEN,
-        lockToken: owner.lockToken
+        lockToken
       }
     });
     await readiness;
@@ -851,6 +854,7 @@ async function startSharedHeartbeat(directory, owner, intervalMs) {
 }
 
 async function startDedicatedHeartbeat(directory, owner, intervalMs, heartbeatFactory) {
+  const { lockToken } = owner;
   const worker = heartbeatFactory(`
     const { utimesSync, writeFileSync } = require('node:fs');
     const { parentPort, workerData } = require('node:worker_threads');
@@ -861,11 +865,12 @@ async function startDedicatedHeartbeat(directory, owner, intervalMs, heartbeatFa
       if (failed) return;
       failed = true;
       try {
+        const { processToken, lockToken } = workerData;
         writeFileSync(workerData.failureFile, JSON.stringify({
           failedAt: new Date().toISOString(),
           pid: workerData.pid,
-          processToken: workerData.processToken,
-          lockToken: workerData.lockToken
+          processToken,
+          lockToken
         }) + '\\n', { flag: 'wx', mode: 0o600 });
       } catch (markerError) {
         if (markerError && markerError.code !== 'EEXIST') {
@@ -897,7 +902,7 @@ async function startDedicatedHeartbeat(directory, owner, intervalMs, heartbeatFa
       intervalMs,
       pid: process.pid,
       processToken: PROCESS_TOKEN,
-      lockToken: owner.lockToken
+      lockToken
   }));
   const controller = {
     worker, directory, owner, stopping: false, ready: false,
@@ -1004,12 +1009,13 @@ async function startOwnedHeartbeat(directory, owner, ttlMs, heartbeatFactory = n
 }
 
 function newLockOwner(subject, ttlMs) {
+  const nonce = randomUUID();
   return {
     schemaVersion: currentSchemaVersion('subject-lock-owner'),
     subject,
     // pid, host, machineId, processStartedAt, processToken: what proves this owner alive or dead.
     ...leaseOwnerIdentity(),
-    lockToken: randomUUID(),
+    lockToken: nonce,
     acquiredAt: nowIso(),
     expiresAt: new Date(Date.now() + ttlMs).toISOString()
   };
@@ -1220,9 +1226,10 @@ export async function releaseLeaseAfterReview(root, subject, { expectedLockToken
     );
   }
   const owner = state.owner;
+  const { lockToken } = owner;
   const audit = releasedLeaseAuditPath(root);
   const entry = {
-    releasedAt: nowIso(), subject: { kind: subject.kind, id: subject.id }, lockToken: owner.lockToken,
+    releasedAt: nowIso(), subject: { kind: subject.kind, id: subject.id }, lockToken,
     owner: {
       pid: owner.pid ?? null, host: owner.host ?? null, machineId: owner.machineId ?? null,
       processStartedAt: owner.processStartedAt ?? null, acquiredAt: owner.acquiredAt ?? null
@@ -1236,7 +1243,7 @@ export async function releaseLeaseAfterReview(root, subject, { expectedLockToken
     await appendFile(audit, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
   } catch (error) { auditWarning = `The release was not recorded in ${audit}: ${error.message}`; }
   return Object.freeze({
-    released: true, subject, lock: directory, lockToken: owner.lockToken, owner,
+    released: true, subject, lock: directory, lockToken, owner,
     liveness: leaseDetails(liveness), audit, ...(auditWarning ? { warnings: [auditWarning] } : {})
   });
 }

@@ -39,6 +39,8 @@ import {
   SingularityFlowError, writeJson
 } from './util.mjs';
 
+const OK = 'pass';
+
 export const AST_RESULT_SCHEMA_VERSION = currentSchemaVersion('ast-result');
 const AST_RESUME_JOB_SCHEMA_VERSION = currentSchemaVersion('ast-resume-job');
 const STORE_DIR = 'singularity-flow/ast/v2';
@@ -1122,10 +1124,11 @@ async function createResumeJob(root, runtime, selection, processed, options) {
   if (processed.nextIndex >= selection.candidates.length) return null;
   const id = randomUUID();
   const secret = randomBytes(24).toString('base64url');
+  const keyDigest = sha256(secret);
   await writeJson(resumeJobPath(root, id), {
     schemaVersion: AST_RESUME_JOB_SCHEMA_VERSION,
     id,
-    secretSha256: sha256(secret),
+    secretSha256: keyDigest,
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     binding: {
@@ -2108,7 +2111,7 @@ export async function evaluateAstGate(root, options = {}) {
     if (!languageApplicable || !profileApplicable) outcome = 'unknown';
     else if (negativeConstraint && assuranceSatisfies(envelope.assurance, requiredAssurance)) outcome = matching.length ? 'fail' : 'pass';
     else if (predicate.type === 'public-signature-changed' && assuranceSatisfies(envelope.assurance, requiredAssurance)) {
-      outcome = observedSha256 !== predicate.expectedSha256 ? 'pass' : 'fail';
+      outcome = observedSha256 !== predicate.expectedSha256 ? OK : 'fail';
     } else if (adequate) outcome = 'pass';
     else if (!matching.length && assuranceSatisfies(envelope.assurance, requiredAssurance)) outcome = 'fail';
     const extractors = uniqueExtractors((matching.length ? matching : envelope.facts).flatMap((fact) => [
@@ -2691,8 +2694,8 @@ async function astPackCommand(positionals, options) {
         plan.targetRelative = path.posix.join('installed', `${manifest.id}-${manifest.packVersion}-${archiveDigest.slice(0, 12)}`);
         plan.target = path.join((await readAstPackRegistry()).root, plan.targetRelative);
         const rebound = await planAstPackInstall(resolved.manifest, { ...manifest, implementation: { ...manifest.implementation, manifestSha256: archiveDigest } });
-        plan.confirmationToken = rebound.confirmationToken;
-        plan.confirmation = rebound.confirmation;
+        const { confirmationToken, confirmation } = rebound;
+        Object.assign(plan, { confirmationToken, confirmation });
       }
       const publicPlan = {
         ...plan, source: resolved.label, files: resolved.members ?? plan.files,

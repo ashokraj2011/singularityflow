@@ -98,7 +98,7 @@ const AUTHORIZATION = /^(?:basic|bearer|token)\s+(\S{8,})$/iu;
 /** A file or a store path: `certs/client.key`, `kv/data/app`. */
 const A_PATH = /^[\w.-]+(?:\/[\w.-]+)*\.(?:key|pem|crt|cer|p12|pfx|jks|json|ya?ml|txt|env|properties)$|^[a-z0-9_-]+(?:\/[a-z0-9_-]+)+$/u;
 
-/** A word such as a label, a name or a constant, not a credential: `Password`, `prod-db-2`, `my-secret-v2`, `DB_CREDENTIALS`. */
+/** A word such as a label, a name or a constant, not a credential (`Password`, `prod-db-2`, `my-secret-v2`, `DB_CREDENTIALS`). */
 const namedLikeAThing = (value) => /^[A-Z]?[a-z]+$/u.test(value) || /^[A-Z]+(?:_[A-Z0-9]+)+$/u.test(value)
   || /^[a-z]+\d{0,4}(?:[-_.](?:[a-z]+\d{0,4}|\d{1,4}))+$/u.test(value);
 // A token has a digit and no run of whole words: `build-cache-v2-linux-x64-22` is a cache's name, a UUID is not.
@@ -154,7 +154,7 @@ export function proseValueFindings(content) {
       for (const match of line.matchAll(pattern)) {
         const value = match[2].replace(/[.)\]>]+$/u, '');
         if (!/^[\w+/=@#$%^&*!~.:-]+$/u.test(value) || !/[\d!@#$%^&*~]/u.test(value)) continue;
-        const name = pattern === SQL_PASSWORD ? 'password' : match[1].replace(/[ -]/gu, '_');
+        const name = pattern !== SQL_PASSWORD ? match[1].replace(/[ -]/gu, '_') : 'password';
         if (settingHoldsSecret(name, value)) found.push({ name, value, line: index + 1 });
       }
     }

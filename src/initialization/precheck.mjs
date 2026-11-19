@@ -13,6 +13,8 @@ import { resolveRepositoryManifest } from '../repository-manifest.mjs';
 import { captureSmartInitSnapshot } from './source-snapshot.mjs';
 import { readLatestSmartInitActivation } from './recovery.mjs';
 
+const OK = 'pass';
+
 function sha(bytes) { return `sha256:${createHash('sha256').update(bytes).digest('hex')}`; }
 
 async function regularFile(file, { executable = false, root = null } = {}) {
@@ -55,14 +57,14 @@ async function commandAvailability(root, command) {
     const candidates = process.platform === 'win32' ? ['mvnw.cmd', 'mvnw'] : ['mvnw', 'mvnw.cmd'];
     const selected = candidates.map((name) => path.join(cwd, name));
     const available = (await Promise.all(selected.map((file) => regularFile(file, { root, executable: process.platform !== 'win32' })))).some(Boolean);
-    return { status: available ? 'pass' : 'unavailable', reason: available ? 'repository-wrapper' : 'wrapper-missing' };
+    return { status: available ? OK : 'unavailable', reason: available ? 'repository-wrapper' : 'wrapper-missing' };
   }
   if (launcher === 'gradle-wrapper') {
     const candidates = process.platform === 'win32' ? ['gradlew.bat', 'gradlew'] : ['gradlew', 'gradlew.bat'];
     const available = (await Promise.all(candidates.map((name) => regularFile(path.join(cwd, name), { root, executable: process.platform !== 'win32' })))).some(Boolean);
-    return { status: available ? 'pass' : 'unavailable', reason: available ? 'repository-wrapper' : 'wrapper-missing' };
+    return { status: available ? OK : 'unavailable', reason: available ? 'repository-wrapper' : 'wrapper-missing' };
   }
-  return { status: await pathExecutable(launcher, process.env, cwd) ? 'pass' : 'unavailable', reason: 'path-metadata' };
+  return { status: await pathExecutable(launcher, process.env, cwd) ? OK : 'unavailable', reason: 'path-metadata' };
 }
 
 function verifySelfHash(record, field) {
@@ -80,20 +82,20 @@ export async function smartInitPrecheck(root) {
   if (!receiptSource) checks.push({ id: 'activation-receipt', status: 'unavailable', subject: 'smart-init', reason: 'receipt-missing' });
   else checks.push({
     id: 'activation-receipt',
-    status: verifySelfHash(receiptSource.record, 'receiptSha256') ? 'pass' : 'fail',
+    status: verifySelfHash(receiptSource.record, 'receiptSha256') ? OK : 'fail',
     subject: path.relative(root, receiptSource.file).replaceAll(path.sep, '/')
   });
   let workflow = null; let workflowBytes = null;
   try {
     workflowBytes = await readFile(workflowFile);
     workflow = YAML.parse(workflowBytes.toString('utf8'));
-    checks.push({ id: 'configuration-parse', status: workflow?.version === 2 ? 'pass' : 'fail', subject: 'singularity/workflow.yml' });
+    checks.push({ id: 'configuration-parse', status: workflow?.version === 2 ? OK : 'fail', subject: 'singularity/workflow.yml' });
   } catch {
     checks.push({ id: 'configuration-parse', status: 'fail', subject: 'singularity/workflow.yml' });
   }
   if (receiptSource && workflowBytes) checks.push({
     id: 'configuration-binding',
-    status: receiptSource.record.installed?.configurationSha256 === sha(workflowBytes) ? 'pass' : 'fail',
+    status: receiptSource.record.installed?.configurationSha256 === sha(workflowBytes) ? OK : 'fail',
     subject: 'singularity/workflow.yml'
   });
   const originPath = path.join(root, 'singularity', 'configuration-origin.json');
@@ -101,7 +103,7 @@ export async function smartInitPrecheck(root) {
     const originBytes = await readFile(originPath);
     const origin = readRecord('configuration-origin-map', originBytes).record;
     const receiptBound = !receiptSource || receiptSource.record.installed?.originMapSha256 === sha(originBytes);
-    checks.push({ id: 'configuration-origin', status: verifySelfHash(origin, 'originMapSha256') && receiptBound ? 'pass' : 'fail', subject: 'singularity/configuration-origin.json' });
+    checks.push({ id: 'configuration-origin', status: verifySelfHash(origin, 'originMapSha256') && receiptBound ? OK : 'fail', subject: 'singularity/configuration-origin.json' });
   } catch { checks.push({ id: 'configuration-origin', status: 'unavailable', subject: 'singularity/configuration-origin.json' }); }
   const policy = workflow?.initialization ?? null;
   const presetPath = policy?.preset?.id && policy?.preset?.version
@@ -113,7 +115,7 @@ export async function smartInitPrecheck(root) {
       checks.push({
         id: 'preset-binding',
         status: verifySelfHash(preset, 'presetSha256')
-          && (!receiptSource || receiptSource.record.installed?.presetSha256 === preset.presetSha256) ? 'pass' : 'fail',
+          && (!receiptSource || receiptSource.record.installed?.presetSha256 === preset.presetSha256) ? OK : 'fail',
         subject: path.relative(root, presetPath).replaceAll(path.sep, '/')
       });
     } catch { checks.push({ id: 'preset-binding', status: 'fail', subject: path.relative(root, presetPath).replaceAll(path.sep, '/') }); }
@@ -125,14 +127,14 @@ export async function smartInitPrecheck(root) {
       if (receiptSource.record.sourceManifestSha256) checks.push({
         id: 'detector-inputs',
         status: currentSnapshot.sourceManifestSha256 === receiptSource.record.sourceManifestSha256
-          ? 'pass' : 'fail',
+          ? OK : 'fail',
         subject: 'tracked manifests and lockfiles',
         ...(currentSnapshot.sourceManifestSha256 === receiptSource.record.sourceManifestSha256
           ? {} : { reason: 'detector-inputs-changed' })
       });
       checks.push({
         id: 'repository-identity',
-        status: currentSnapshot.subject.repositoryFingerprint === receiptSource.record.subject.repositoryFingerprint ? 'pass' : 'fail',
+        status: currentSnapshot.subject.repositoryFingerprint === receiptSource.record.subject.repositoryFingerprint ? OK : 'fail',
         subject: 'credential-free-remote'
       });
     } catch {
@@ -146,10 +148,10 @@ export async function smartInitPrecheck(root) {
     const journal = path.join(gitCommonDir(root), 'singularity-flow', 'journals', 'init', `${receiptSource.record.proposalSha256.slice(7, 19)}.json`);
     try {
       const record = readRecord('smart-init-activation-journal', await readFile(journal)).record;
-      checks.push({ id: 'activation-recovery', status: record.status === 'complete' ? 'pass' : 'fail', subject: 'git-private-init-journal', reason: record.status });
+      checks.push({ id: 'activation-recovery', status: record.status === 'complete' ? OK : 'fail', subject: 'git-private-init-journal', reason: record.status });
     } catch { checks.push({ id: 'activation-recovery', status: 'unavailable', subject: 'git-private-init-journal', reason: 'journal-missing' }); }
   }
-  checks.push({ id: 'implicit-capability', status: policy?.capability?.id === 'repository-root' ? 'pass' : 'unavailable', subject: 'repository-root' });
+  checks.push({ id: 'implicit-capability', status: policy?.capability?.id === 'repository-root' ? OK : 'unavailable', subject: 'repository-root' });
   const configured = Object.values(policy?.commands ?? {}).flat();
   for (const command of configured) {
     const shapeValid = command && typeof command === 'object'
@@ -201,7 +203,7 @@ export async function smartInitPrecheck(root) {
       });
     }
     checks.push({
-      id: 'test-tool-discovery', status: unit.length ? 'pass' : 'unavailable',
+      id: 'test-tool-discovery', status: unit.length ? OK : 'unavailable',
       subject: unit.length ? unit.map((command) => command.id).join(', ') : 'repository-manifest',
       reason: unit.length ? 'structured-unit-test-command-found' : 'structured-unit-test-command-missing'
     });
@@ -219,10 +221,10 @@ export async function smartInitPrecheck(root) {
   }
   try {
     const actor = identity(root, { offline: true });
-    checks.push({ id: 'git-identity', status: actor.email ? 'pass' : 'unavailable', subject: actor.email ? 'configured-local' : 'missing-email' });
+    checks.push({ id: 'git-identity', status: actor.email ? OK : 'unavailable', subject: actor.email ? 'configured-local' : 'missing-email' });
   } catch { checks.push({ id: 'git-identity', status: 'unavailable', subject: 'configured-local' }); }
   const readiness = policy?.proof?.readiness ?? 'unavailable';
-  checks.push({ id: 'proof-readiness', status: readiness === 'ready' ? 'pass' : 'unavailable', subject: policy?.proof?.profile ?? 'standard' });
+  checks.push({ id: 'proof-readiness', status: readiness === 'ready' ? OK : 'unavailable', subject: policy?.proof?.profile ?? 'standard' });
   const status = checks.some((entry) => entry.status === 'fail') ? 'fail'
     : checks.some((entry) => entry.status === 'unavailable') ? 'unavailable' : 'pass';
   const core = {

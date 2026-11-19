@@ -348,7 +348,8 @@ const WM_READ_OPERATIONS = new Set([
 ]);
 const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);
 /** Scanning for credentials is pattern matching. A model in this path would be both slower and a way to leak the thing being looked for. */
-export const SECRETS_SUBCOMMANDS = Object.freeze(['scan', 'protect']);
+export const SECRETS_SUBCOMMANDS =
+  Object.freeze(['scan', 'protect']);
 export const ENV_READ_SUBCOMMANDS = Object.freeze(['status', 'audit']);
 export const ENV_MUTATION_SUBCOMMANDS = Object.freeze(['bind', 'unbind']);
 export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MUTATION_SUBCOMMANDS, 'files']);
@@ -471,7 +472,8 @@ const IMPACT_SUBCOMMANDS = Object.freeze([...IMPACT_READ_SUBCOMMANDS, ...IMPACT_
 const CONTEXT_READ_SUBCOMMANDS = Object.freeze(['xray', 'doctor']);
 const CONTEXT_MUTATION_SUBCOMMANDS = Object.freeze(['compile', 'expand']);
 const CONTEXT_SUBCOMMANDS = Object.freeze([...CONTEXT_READ_SUBCOMMANDS, ...CONTEXT_MUTATION_SUBCOMMANDS]);
-const TOKENS_SUBCOMMANDS = Object.freeze(['status', 'report', 'compare']);
+const TOKENS_SUBCOMMANDS =
+  Object.freeze(['status', 'report', 'compare']);
 const AUTO_SUBCOMMANDS = Object.freeze([
   'plan', 'show-plan', 'start', 'list', 'status', 'report', 'compare',
   'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step',
@@ -1196,16 +1198,16 @@ function resolveReturnOperation(definition, options) {
 }
 
 function resolveAutoOperation(definition, positionals, options = {}) {
-  const token = positionals[1]
+  const word = positionals[1]
     ?? (optionString(options, 'goal') || optionString(options, 'story') ? 'plan' : 'status');
-  // A token outside the closed subcommand vocabulary is the documented shorthand requirement.
+  // A word outside the closed subcommand vocabulary is the documented shorthand requirement.
   // A near spelling of a control verb is a typo, not a requirement that may consume a model call.
-  const nearest = nearestNames(token, AUTO_SUBCOMMANDS, { limit: 1 })[0] ?? null;
-  if (!AUTO_SUBCOMMANDS.includes(token) && nearest
-      && Math.abs(String(token).length - nearest.length) <= 2) {
-    return unknownSubcommand('auto', token, AUTO_SUBCOMMANDS);
+  const nearest = nearestNames(word, AUTO_SUBCOMMANDS, { limit: 1 })[0] ?? null;
+  if (!AUTO_SUBCOMMANDS.includes(word) && nearest
+      && Math.abs(String(word).length - nearest.length) <= 2) {
+    return unknownSubcommand('auto', word, AUTO_SUBCOMMANDS);
   }
-  const subcommand = AUTO_SUBCOMMANDS.includes(token) ? token : 'plan';
+  const subcommand = AUTO_SUBCOMMANDS.includes(word) ? word : 'plan';
   if (subcommand === 'plan' && optionString(options, 'story')) {
     return never('auto.plan.story', definition, 'read');
   }

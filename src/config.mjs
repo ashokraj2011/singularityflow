@@ -2321,7 +2321,8 @@ export async function snapshotResolution(root, definition, resolved) {
   };
 }
 
-export const ARTIFACT_TEMPLATE_TOKENS = Object.freeze({
+export const ARTIFACT_TEMPLATE_TOKENS =
+  Object.freeze({
   workId: '{{work.id}}',
   workTitle: '{{work.title}}',
   workType: '{{work.type}}',

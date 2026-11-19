@@ -447,11 +447,12 @@ export async function recordAutoAttemptAuthored(root, flightId, attemptId, {
   if (state.activePhaseRunId) await updatePhaseRunRecord(root, flightId, state.activePhaseRunId, {
     status: 'verifying', activeAttemptId: attemptId
   });
+  const firstAttempt = attempt.attemptKind !== 'repair';
   const receipt = await persistAutoTokenEconomicsReceipt(root, {
     flightId, attemptId, contextManifestSha256: attempt.contextManifestSha256,
     ...observed,
     quality: {
-      verification: 'pending', firstPass: attempt.attemptKind !== 'repair',
+      verification: 'pending', firstPass: firstAttempt,
       repairAttempts: attempt.attemptKind === 'repair' ? 1 : 0,
       reviewReturned: false, missingContextIncident: false
     },

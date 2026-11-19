@@ -93,16 +93,16 @@ function batchedHistory(root, relative, label) {
     const histories = new Map(), tokens = result.stdout.split('\0');
     let commit = null, merged = false;
     for (let index = 0; index < tokens.length; index++) {
-      const token = tokens[index].replace(/^\n/u, '');
-      if (!token) continue;
-      const header = /^sflow-commit:([a-f0-9]{40}|[a-f0-9]{64}):((?:[a-f0-9]{40}|[a-f0-9]{64})(?: (?:[a-f0-9]{40}|[a-f0-9]{64}))*)?$/u.exec(token);
+      const field = tokens[index].replace(/^\n/u, '');
+      if (!field) continue;
+      const header = /^sflow-commit:([a-f0-9]{40}|[a-f0-9]{64}):((?:[a-f0-9]{40}|[a-f0-9]{64})(?: (?:[a-f0-9]{40}|[a-f0-9]{64}))*)?$/u.exec(field);
       if (header) { commit = header[1]; merged ||= (header[2] ?? '').includes(' '); continue; }
-      if (!commit || !/^[ACDMRTUXB][0-9]*$/u.test(token)) throw new SingularityFlowError(
+      if (!commit || !/^[ACDMRTUXB][0-9]*$/u.test(field)) throw new SingularityFlowError(
         `${label} returned invalid Git history.`, { code: 'WFA_DEPENDENCY_UNAVAILABLE' });
-      const source = tokens[++index], target = /^[RC]/u.test(token) ? tokens[++index] : source;
+      const source = tokens[++index], target = /^[RC]/u.test(field) ? tokens[++index] : source;
       // A multi-path diff may detect a rename that an exact-path log reports as add/delete.
       // Do not substitute that different first-add interpretation for the original owner.
-      merged ||= /^[RC]/u.test(token);
+      merged ||= /^[RC]/u.test(field);
       if (!source || !target || ![source, target].some(value => scope.prefixes.some(prefix => value.startsWith(prefix)))) {
         throw new SingularityFlowError(`${label} returned an unexpected Git path.`, { code: 'WFA_DEPENDENCY_UNAVAILABLE' });
       }
@@ -110,7 +110,7 @@ function batchedHistory(root, relative, label) {
         if (!scope.prefixes.some(prefix => name.startsWith(prefix))) continue;
         const item = histories.get(name) ?? { history: [], touches: [] };
         if (item.touches.at(-1) !== commit) item.touches.push(commit);
-        if (token === 'A' && name === target) item.history.push(commit);
+        if (field === 'A' && name === target) item.history.push(commit);
         histories.set(name, item);
       }
     }

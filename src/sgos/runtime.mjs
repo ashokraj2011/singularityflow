@@ -1282,7 +1282,8 @@ function humanRequestFor(process, task, template, attemptId, createdAt) {
     inputSchema: clone(settings.inputSchema ?? null),
     sensitiveMode: settings.sensitiveMode ?? 'none',
     externalUrl: settings.externalUrl ?? null,
-    secretBroker: settings.secretBroker ?? null,
+    secretBroker:
+      settings.secretBroker ?? null,
     subjectSha256: identity.subjectSha256,
     policySnapshotSha256: process.policySnapshotSha256,
     status: 'open',

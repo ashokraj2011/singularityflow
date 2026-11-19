@@ -28,6 +28,8 @@ import * as style from '../style.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import { readSourceReviewStatus } from '../source-review-lifecycle.mjs';
 
+const OK = 'pass';
+
 /** Map a checkpoint to the NCL rest state, or null when the journey continues. */
 function restStateFor(result) {
   if (result.outcome === 'milestone-reached' && !result.next.length) return 'complete';
@@ -99,7 +101,7 @@ export async function runVerb(verb, argv, { positionals, options }) {
     return {};
   }
 
-  const mark = reached ? 'pass' : plan.outcome === 'blocked' ? 'fail' : 'warn';
+  const mark = reached ? OK : plan.outcome === 'blocked' ? 'fail' : 'warn';
   console.log(`${style.mark(mark)} ${verb} · ${plan.milestone}`);
   console.log(`  ${plan.checkpoint.reason}`);
   if (plan.underlyingOperations.length) {

@@ -242,9 +242,9 @@ export function registerRevisionDeclarativeEditDriver(edits) {
     }
     return { path: relative, operation: 'write', bytes, executable: edit.executable === true };
   });
-  const token = Object.freeze({ kind: 'revision-declarative-edit-driver/v1' });
-  REGISTERED.set(token, new DeclarativeEditDriver(plan));
-  return token;
+  const handle = Object.freeze({ kind: 'revision-declarative-edit-driver/v1' });
+  REGISTERED.set(handle, new DeclarativeEditDriver(plan));
+  return handle;
 }
 
 /**

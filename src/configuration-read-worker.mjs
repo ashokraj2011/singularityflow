@@ -39,8 +39,8 @@ process.once('message', async start => {
       || start.identity.engine !== await configurationEngineIdentity()
       || !/^[a-f0-9]{64}$/u.test(start.token ?? '') || !/^[a-f0-9]{64}$/u.test(start.key ?? '')) return process.exit(1);
   registration = start;
-  const token = Buffer.from(start.token, 'hex');
-  const authenticate = value => createHmac('sha256', token).update(JSON.stringify(value)).digest();
+  const hmacKey = Buffer.from(start.token, 'hex');
+  const authenticate = value => createHmac('sha256', hmacKey).update(JSON.stringify(value)).digest();
   const common = await realpath(gitCommonDir(start.root));
   if (common !== await realpath(start.identity.common)) return process.exit(1);
   directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-read-'));

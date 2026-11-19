@@ -676,13 +676,15 @@ function autoTokenEconomicsV1ToV2(source) {
     : ['pending', 'passed', 'failed'].includes(source.quality?.status)
       ? source.quality.status : 'pending';
   const repairAttempts = Math.min(1, autoP1Counter(source.quality?.repairAttempts, 0));
-  const firstPass = typeof source.quality?.firstPass === 'boolean'
-    ? source.quality.firstPass : repairAttempts === 0;
+  const firstPass =
+    typeof source.quality?.firstPass === 'boolean' ? source.quality.firstPass : repairAttempts === 0;
   const classification = verification === 'passed'
-    ? firstPass && repairAttempts === 0 ? 'verified-first-pass' : 'verified-after-one-repair'
+    ? firstPass && repairAttempts === 0 ? 'verified-first-pass'
+      : 'verified-after-one-repair'
     : verification === 'failed' ? 'verification-failed'
       : firstPass && repairAttempts === 0
-        ? 'first-pass-pending-verification' : 'repair-pending-verification';
+        ? 'first-pass-pending-verification'
+        : 'repair-pending-verification';
   const amount = Number.isFinite(source.cost?.amount) && source.cost.amount >= 0
     ? source.cost.amount : null;
   return autoP1Reseal(source, {
@@ -760,10 +762,14 @@ function autoFlightReportQualityFloorV3(lineage) {
   return {
     status: !receipts.length ? 'unavailable'
       : failed ? 'failed' : reasons.includes('verification-pending') ? 'pending' : 'passed',
-    basis: 'observed-task-outcomes', tokenSavingComparison: 'not-evaluated', reasons,
-    firstPassVerified: receipts.filter((entry) => (
-      entry?.quality?.verification === 'passed' && entry?.quality?.firstPass === true
-    )).length,
+    basis: 'observed-task-outcomes',
+    tokenSavingComparison:
+      'not-evaluated',
+    reasons,
+    firstPassVerified:
+      receipts.filter((entry) => (
+        entry?.quality?.verification === 'passed' && entry?.quality?.firstPass === true
+      )).length,
     verifiedAfterRepair: receipts.filter((entry) => (
       entry?.quality?.verification === 'passed' && entry?.quality?.firstPass !== true
     )).length,
@@ -787,9 +793,10 @@ function autoFlightReportOutcomeMetricsV3(source, lineage) {
     humanRequests: records('auto-human-request').length,
     executionUnitSwitches: records('auto-execution-unit-switch').length,
     verifiedOutcomes: verified.length,
-    firstPassVerifiedOutcomes: verified.filter(
-      (entry) => entry?.quality?.firstPass === true
-    ).length,
+    firstPassVerifiedOutcomes:
+      verified.filter(
+        (entry) => entry?.quality?.firstPass === true
+      ).length,
     manualTakeover: source.status === 'manual-takeover' || source.stopReason === 'manual-takeover',
     haltReason: source.stopReason ?? null,
     latencyToFirstVerifiedOutcomeMilliseconds: null,
@@ -1921,9 +1928,12 @@ function contextPacketTelemetryV2ToV3(source) {
       launchId: null,
       sessionId: null
     }),
-    tokenEconomyMode: source.tokenEconomyMode ?? null,
-    tokenEconomyProfile: source.tokenEconomyProfile ?? null,
-    tokenEconomyConfigurationDigest: source.tokenEconomyConfigurationDigest ?? null,
+    tokenEconomyMode:
+      source.tokenEconomyMode ?? null,
+    tokenEconomyProfile:
+      source.tokenEconomyProfile ?? null,
+    tokenEconomyConfigurationDigest:
+      source.tokenEconomyConfigurationDigest ?? null,
     cacheManifestId: source.cacheManifestId ?? null,
     itemUsage: clone(source.itemUsage ?? []),
     outcome: clone(source.outcome ?? null)

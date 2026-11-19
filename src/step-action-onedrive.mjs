@@ -46,8 +46,8 @@ export function graphAttempt(status, text) {
 /** Upload the approved artifact without replacing anything. Returns an attempt result; never throws. */
 export async function deliverToOneDrive(record, { env = process.env, request = pinnedHttpRequest, timeoutMs = 10_000 } = {}) {
   const target = record.action.targetSpec;
-  const token = String(env[target.tokenSecret] ?? '').trim();
-  if (!token) return { outcome: 'unavailable', code: 'STEP_ACTION_SECRET_MISSING', detail: `Secret ${target.tokenSecret} is not set on this machine.` };
+  const access = String(env[target.tokenSecret] ?? '').trim();
+  if (!access) return { outcome: 'unavailable', code: 'STEP_ACTION_SECRET_MISSING', detail: `Secret ${target.tokenSecret} is not set on this machine.` };
   if (!record.artifact?.base64) {
     return { outcome: 'failed', code: 'STEP_ACTION_ARTIFACT_UNAVAILABLE', detail: record.artifact?.problem ?? 'The approved artifact was not recorded with this delivery.' };
   }
@@ -57,7 +57,7 @@ export async function deliverToOneDrive(record, { env = process.env, request = p
     const answer = await request({
       url: `${GRAPH_BASE}${graphDrivePath(target)}/root:/${encoded}:/content?@microsoft.graph.conflictBehavior=fail`,
       method: 'PUT', timeoutMs, network: 'public', maxResponseBytes: MAX_GRAPH_RESPONSE_BYTES,
-      headers: { authorization: `Bearer ${token}`, accept: 'application/json', 'content-type': record.artifact.mediaType ?? 'text/markdown', 'user-agent': USER_AGENT, 'x-sflow-delivery': record.key },
+      headers: { authorization: `Bearer ${access}`, accept: 'application/json', 'content-type': record.artifact.mediaType ?? 'text/markdown', 'user-agent': USER_AGENT, 'x-sflow-delivery': record.key },
       body: Buffer.from(record.artifact.base64, 'base64')
     });
     if (answer.transport) return answer.transport;

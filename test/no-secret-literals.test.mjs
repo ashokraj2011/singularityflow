@@ -6,6 +6,10 @@
  * file holds no such value itself. They include, at least as wide, every rule of the office scanner that
  * refuses a push: its provider key rules (AWS, GitHub, Slack, JWT, private key block, sk-/pk-/rk- keys),
  * a password in a URL (four characters or more) and an SSH key fingerprint after --key.
+ *
+ * The office scanner also refuses plain code: a credential word followed by `=` or `:` and a value it
+ * does not read as a placeholder, and a credential word quoted right after `?`. The last tests hold
+ * every tracked file to its exact rules (test/helpers/office-secret-scan.mjs), with no line reported.
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -15,6 +19,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { inventedValue } from './helpers/invented-secrets.mjs';
+import { officeLineFindings, officeScannedFiles, officeTextFindings } from './helpers/office-secret-scan.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -54,9 +59,7 @@ const FAMILIES = [
 /** Product code whose matches are not values. Each names how many it allows, so a new one beside it still fails. */
 const ALLOWED = [
   { file: 'src/presence/local-keys.mjs', family: 'provider key shape', count: 1, why: 'a pattern that finds an OpenSSH key armour header; it holds no key' },
-  { file: 'src/jira.mjs', family: 'named credential', count: 2, why: "Jira's X-Atlassian-Token header, whose fixed value turns off its XSRF check" },
-  { file: 'src/instruction-test-commands.mjs', family: 'named credential', count: 1, why: "the words 'a secret' and 'secrets' in a sentence" },
-  { file: 'apps/vscode/src/views/visual-fixture.ts', family: 'named credential', count: 1, why: 'the style nonce of an offline visual fixture page' }
+  { file: 'src/jira.mjs', family: 'named credential', count: 2, why: "Jira's X-Atlassian-Token header, whose fixed value turns off its XSRF check" }
 ];
 
 function credentialShapes(text) {
@@ -126,4 +129,46 @@ test('the rules find each shape and pass placeholders, references and patterns',
     `const pattern = /gh[pousr]_[A-Za-z0-9]{20,}/u;`
   ];
   for (const line of passed) assert.deepEqual(credentialShapes(line), [], line);
+});
+
+/**
+ * Lines the office scanner passes only because they hold its allow marker. Each names how many it
+ * allows and why the words have to stay, so a new marker that hides a finding still fails.
+ */
+const OFFICE_ALLOWED = [];
+
+test('no tracked file holds a line the office secret scanner refuses', () => {
+  const findings = officeScannedFiles(ROOT).flatMap(({ file, text }) => officeTextFindings(text).map((finding) => ({ file, ...finding })));
+  const refused = findings.filter((finding) => !finding.allowed).map((finding) => `${finding.file}:${finding.line} [${finding.rule}] ${finding.text}`);
+  assert.deepEqual(refused, [], `${refused.length} line(s) match the office scanner, whose push protection refuses them even when nothing is a credential. `
+    + 'Reword the line: give a local a name without the credential word; keep a stored or printed field and take its value from a camelCase name, '
+    + 'shorthand or the next line; take a status word such as the passing one from a constant instead of quoting it after `?`. '
+    + 'Only a line that must keep the words takes the allow marker with its reason, listed in OFFICE_ALLOWED.');
+  const marked = new Map();
+  for (const finding of findings.filter((entry) => entry.allowed)) marked.set(finding.file, [...(marked.get(finding.file) ?? []), finding.line]);
+  const unlisted = [...marked].filter(([file, lines]) => (OFFICE_ALLOWED.find((entry) => entry.file === file)?.count ?? 0) < lines.length)
+    .map(([file, lines]) => `${file}:${lines.join(',')}`);
+  assert.deepEqual(unlisted, [], 'An allow marker hides a finding that OFFICE_ALLOWED does not list; reword the line, or list it with why the words must stay.');
+  const stale = OFFICE_ALLOWED.filter((entry) => (marked.get(entry.file)?.length ?? 0) !== entry.count)
+    .map((entry) => `${entry.file}: allows ${entry.count}, found ${marked.get(entry.file)?.length ?? 0}`);
+  assert.deepEqual(stale, [], 'An office allowance no longer matches what the file holds; lower or remove it.');
+});
+
+test('the office rules find credential-shaped code and pass placeholders, kept fields and constants', () => {
+  const caught = [
+    `const ${'tok'}en = randomUUID();`,
+    `status: ok ? '${'pa'}ss' : 'fail',`,
+    `first${'Pass'}Verified: receipts.filter((entry) => entry.ok).length,`,
+    `${'cred'}ential-helper: 'Install the helper'`,
+    `const ${'SEC'}RET_RULES = Object.freeze([`,
+    `${'pass'}word = os.environ["DB"]`
+  ];
+  for (const line of caught) assert.notDeepEqual(officeLineFindings(line), [], line);
+  const passed = [
+    'token: nonce,', 'processToken: processNonce,', 'tokenEconomyMode:', "const OK = 'pass';", 'INTEGRATION_SECRET_NAME =',
+    'secret: SFLOW_SECRET_EVENTS_KEY', 'password: ${DB_PASSWORD}', 'const access = String(raw);', "'not-evaluated',"
+  ];
+  for (const line of passed) assert.deepEqual(officeLineFindings(line), [], line);
+  const [marked] = officeTextFindings(`const ${'tok'}en = randomUUID(); // ${'sflow-allow'}-secret: a fixture's own value`);
+  assert.equal(marked.allowed, true);
 });

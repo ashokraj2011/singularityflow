@@ -35,7 +35,9 @@ export const SDA_NAMES = Object.freeze({
   // M2: the read index
   INDEX_COMMAND_INVALID: ['src/commands/read-index.mjs'],
   // The isolation switch itself lives with the machine-state list (src/machine-state-locations.mjs), which the test runner and workflow walk apply.
-  SINGULARITY_FLOW_INDEX_REFRESH: ['src/index-refresh-launcher.mjs', 'src/projection-refresh.mjs', 'src/repository-check-cache.mjs', 'src/machine-state-locations.mjs'],
+  // machine-activity.mjs reads it with the same meaning: a background replay, so never a person's activity.
+  SINGULARITY_FLOW_INDEX_REFRESH: ['src/index-refresh-launcher.mjs', 'src/projection-refresh.mjs', 'src/repository-check-cache.mjs', 'src/machine-state-locations.mjs',
+    'src/machine-activity.mjs'],
   'sflow-index-': ['src/commands/read-index.mjs', 'src/help-pages.mjs', 'src/narration/migration-status.mjs'],
   'refresh.json': ['src/repository-check-cache.mjs'],
   // Sweep batch 4: the read index answers from the right repository, replaces its records, and names

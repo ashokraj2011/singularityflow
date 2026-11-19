@@ -2253,7 +2253,8 @@ function decisionFamilyPlan(plan, error, argv) {
   // The plan keeps a way out it already names [landing 2026-11-19]. Its specific steps are the remediation steps and any
   // list of this Story's decisions; a read of state or the generic help names no way out. Steps holding a blank go only
   // while a complete way out remains: a blank is better than a circle.
-  const isSpecific = (entry) => !genericStep(entry) && Boolean(entry.command || entry.skill)
+  // An instruction with no command counts (reopen at the final step), except leaving this chat, which is no way out.
+  const isSpecific = (entry) => !genericStep(entry) && Boolean(entry.command || entry.skill || !/^leave-/u.test(entry.id))
     && !/^singularity-flow (?:nextsteps|help|doctor|status|phase show|decision show)\b/u.test(entry.command ?? '')
     && (entry.kind === 'remediation' || GENERIC_STEP_IDS.has(entry.id) || /^singularity-flow decisions\b/u.test(entry.command ?? ''));
   const plain = plan.steps.filter((entry) => !composedCommand(entry.command));

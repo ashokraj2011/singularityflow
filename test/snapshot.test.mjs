@@ -1321,7 +1321,7 @@ test('visual editor preserves unchanged legacy workflows but rejects new or mate
   };
   await assert.rejects(
     () => saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(materiallyChanged)),
-    /migration-required planned-claim contract/
+    /cannot be added or materially changed under the old planned-claim contract/
   );
   assert.equal(YAML.parse(await readFile(workflowPath, 'utf8')).workTypes['legacy-custom'].spec, undefined);
 });

@@ -157,6 +157,18 @@ are always byte-checked; the current path-bearing inventory also byte-checks pac
 
 Expected version: `0.9.0`. Start a new Copilot session after plugin installation so the refreshed skills and bundled agent are discovered.
 
+### Install and update from the SharePoint folder
+
+Without a clone, install once from the `.tgz` and `.vsix` your team shares in SharePoint: download
+both into one folder, then run `npm install -g ./singularity-flow-<version>.tgz`,
+`code --install-extension singularity-flow-vscode-<version>.vsix --force` and
+`singularity-flow plugin install` there. After that, update from VS Code with **Singularity Flow:
+Update SFlow…**, or from a terminal with `singularity-flow update`. The first time, paste the
+SharePoint link you were given; it is saved, so later updates only ask you to confirm. The update
+installs the CLI where it already is, reinstalls the Copilot plugin and installs the extension, then
+asks you to reload VS Code and restart Copilot CLI sessions. See
+[DISTRIBUTION.md](DISTRIBUTION.md#update-sflow).
+
 ## 2. Initialize an application repository
 
 Run this inside the repository where the team will do the actual feature or bugfix work:
@@ -490,6 +502,7 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 | Goal | Copilot | Terminal |
 |---|---|---|
 | About the product | `/sflow-about` | `sflow-about` |
+| Update SFlow from the SharePoint link | VS Code: **Update SFlow…** | `singularity-flow update` |
 | Open cockpit | `/sflow-home` | `singularity-flow cockpit` |
 | Diagnose setup | `/sflow-doctor` | `singularity-flow doctor` |
 | Guided phase execution | `/sflow-run` | `singularity-flow run` |

@@ -52,6 +52,7 @@ test('the extracted updater runs without a repository or node_modules, including
 test('first use asks for a link once and subsequent invocations use saved settings', async t => {
   const directory = await area(t), fixture = pair(); let asked = 0, installed = 0;
   const dependencies = { environment: { SINGULARITY_FLOW_PACKAGE_UPDATER_HOME: directory }, log() {},
+    detect: () => ({ route: 'managed', engineHome: '/nonexistent/engine', fresh: true, others: [] }),
     askSource: async () => { asked++; return 'https://files.sharepoint.com/public'; },
     downloader: async (source, work) => {
       assert.equal(source, 'https://files.sharepoint.com/public');
@@ -129,4 +130,16 @@ test('failed extension removal stops before installation and an ignored hook can
   assert.throws(() => hooks.execute('code', ['--install-extension', 'candidate.vsix'], {}), /EXACT_EXTENSION_LOCK_ERROR/);
   assert.deepEqual(calls, ['--list-extensions', '--uninstall-extension']);
   assert.throws(() => hooks.verify(), /did not perform/);
+});
+
+test('VS Code\'s menu reinstalls only the Copilot plugin: the running extension is installed over, never removed first', async () => {
+  const calls = [];
+  const hooks = reinstallHooks({ log() {}, vscode: false,
+    runProcess(command, args) { calls.push(args[0]); return { status: 0, stdout: '' }; },
+    async runNode(command, args) { calls.push('plugin ' + args[2]); return { stdout: '', stderr: '' }; } });
+  assert.throws(() => hooks.verify(), /did not perform/, 'nothing reinstalled yet');
+  hooks.execute('code', ['--install-extension', 'candidate.vsix', '--force'], {});
+  await hooks.executeNode('node', ['cli.mjs', 'plugin', 'install'], {});
+  assert.deepEqual(calls, ['--install-extension', 'plugin uninstall', 'plugin install']);
+  hooks.verify();
 });

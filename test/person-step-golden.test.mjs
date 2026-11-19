@@ -95,6 +95,7 @@ const COMMANDS = Object.freeze({
   'spec-slice-change': ['singularity-flow spec attach PMC-1 --drop SPEC-CHK-004:REQ-001 --reason "Delivered by another Story."'],
   'spec-split-publication': ['singularity-flow spec split SPEC-CHK-004@1 --publish'],
   'person-specification-view': ['singularity-flow spec author show SPEC-CHK-004 --local --for-person --json', 'singularity-flow spec author status SPEC-CHK-004 --quick --for-person'],
+  'product-update': ['singularity-flow update', 'singularity-flow update --check-only --json', "singularity-flow update --source 'https://contoso.sharepoint.com/:f:/s/team/link'", 'sflow update --reinstall'],
   'browser-workspace': ['singularity-flow ui open', 'singularity-flow ui open --no-open --json', 'singularity-flow ui serve --idle-minutes 5', 'singularity-flow ui stop --drain --json'],
   // A "still holds" row's yes or no is a /sf-decide turn's own, held to the person's answer [owner, 2026-11-14]; for no Story named, it is not.
   'upstream-issue-decision': ['singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Already handled."',

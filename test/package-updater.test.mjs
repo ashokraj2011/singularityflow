@@ -20,6 +20,8 @@ import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const exec = promisify(execFile), root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex'), silent = () => {};
+// Every runUpdate here names its route: detection must never find this machine's own CLI and update it.
+const managed = () => ({ route: 'managed', engineHome: '/nonexistent/engine', fresh: true, version: null, cli: null, others: [] });
 async function area(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow folder updater '));
   t.after(() => rm(directory, { recursive:true, force:true, maxRetries:10, retryDelay:100 }));
@@ -85,7 +87,7 @@ test('pair identity rejects mismatched versions/builds and downloaded HTML', asy
 
 test('link is remembered and a repeated run needs no URL; successful stages are cleaned', async t => {
   const directory=await area(t), state=path.join(directory,'state'), fixture=pair(), seen=[];
-  const options={environment:{...process.env,SINGULARITY_FLOW_PACKAGE_UPDATER_HOME:state},log:silent,
+  const options={environment:{...process.env,SINGULARITY_FLOW_PACKAGE_UPDATER_HOME:state},log:silent,detect:managed,
     downloader:async(url,work)=>{seen.push(url);return writePair(work,fixture);},
     installer:()=>assert.fail('Check-only must not install')};
   await runUpdate({source:'https://files.sharepoint.com/folder?e=cap',checkOnly:true},options);
@@ -99,7 +101,7 @@ test('link is remembered and a repeated run needs no URL; successful stages are 
 test('native installer error is retained, and the next bare run resumes using the saved link', async t => {
   const directory=await area(t), state=path.join(directory,'state'), fixture=pair();
   let calls=0;
-  const dependencies={environment:{...process.env,SINGULARITY_FLOW_PACKAGE_UPDATER_HOME:state},log:silent,
+  const dependencies={environment:{...process.env,SINGULARITY_FLOW_PACKAGE_UPDATER_HOME:state},log:silent,detect:managed,
     downloader:(url,work)=>writePair(work,fixture),
     installer:async actual=>{calls++;assert.equal(actual.cliSha256,sha(fixture.cli));throw Error('EXACT_INSTALL_RECOVERY_ERROR');}};
   await assert.rejects(runUpdate({source:'https://files.sharepoint.com/folder'},dependencies),/EXACT_INSTALL_RECOVERY_ERROR[\s\S]*retained/);
@@ -110,7 +112,7 @@ test('native installer error is retained, and the next bare run resumes using th
 
 test('a failed new pair cannot change the remembered good link or invoke installation', async t => {
   const directory=await area(t),state=path.join(directory,'state');
-  const dependencies={environment:{...process.env,SINGULARITY_FLOW_PACKAGE_UPDATER_HOME:state},log:silent,
+  const dependencies={environment:{...process.env,SINGULARITY_FLOW_PACKAGE_UPDATER_HOME:state},log:silent,detect:managed,
     downloader:(url,work)=>writePair(work,pair()),installer:()=>assert.fail('No installation')};
   await runUpdate({source:'https://files.sharepoint.com/good',checkOnly:true},dependencies);
   await assert.rejects(runUpdate({source:'https://files.sharepoint.com/bad',checkOnly:true},

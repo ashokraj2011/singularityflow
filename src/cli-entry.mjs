@@ -39,7 +39,7 @@ const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local
 // factory reset detect itself as an in-flight command, while wrapping local reset would recreate
 // the private state it has just removed.
 const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
-  'ui',
+  'ui', 'update',
   ...LOCAL_STATE_RESET_COMMANDS,
   'fresh-install',
   // A governance rebuild holds the repository reset barrier itself and refuses while any subject
@@ -56,7 +56,7 @@ const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
 // repository-scoped and may safely use the repository explicitly selected by `workspace use` when
 // Copilot or another host starts the CLI outside a Git checkout.
 export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
-  'ui',
+  'ui', 'update',
   'about', 'help', 'guide', 'show', 'quickstart', 'home', 'pause',
   'init', 'precheck', 'bootstrap', 'onboard', 'authority', 'cache',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall', 'product',
@@ -692,7 +692,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   const effectiveArgv = stripGlobalModelOptions(argv);
   // Product reinstall and product alignment are intentionally not repository operations. Resolving
   // a root would invoke Git before the command even reached its strict no-repository boundary.
-  const localOnlyRequest = ['about', 'ui', 'reinstall', 'product', 'pause'].includes(effectiveArgv[0])
+  const localOnlyRequest = ['about', 'ui', 'reinstall', 'update', 'product', 'pause'].includes(effectiveArgv[0])
     || (effectiveArgv[0] === 'skill'
       && parseArgs(effectiveArgv).positionals[1] === 'inspect');
   let root = null;

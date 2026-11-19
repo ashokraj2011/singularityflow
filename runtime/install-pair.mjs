@@ -43,7 +43,7 @@ export async function installPair(options, { execute = processCommand, executabl
   const module = await import(pathToFileURL(api).href);
   if (typeof module.installManagedProduct !== 'function') throw Error('The CLI package has no compatible full-product installer.');
   let hooks;
-  if (options.reinstall) {
+  if (options.reinstall || options.reinstallCopilot) {
     const [processOwner, nodeOwner] = await Promise.all([
       import(pathToFileURL(path.join(packageRoot, 'src', 'util.mjs')).href),
       import(pathToFileURL(path.join(packageRoot, 'runtime', 'install.mjs')).href)
@@ -51,7 +51,7 @@ export async function installPair(options, { execute = processCommand, executabl
     if (typeof processOwner.run !== 'function' || typeof nodeOwner.installerProcess !== 'function') {
       throw new Error('The downloaded CLI has no compatible reinstallation process owners. Existing installation was preserved.');
     }
-    hooks = reinstallHooks({ runProcess: processOwner.run, runNode: nodeOwner.installerProcess });
+    hooks = reinstallHooks({ runProcess: processOwner.run, runNode: nodeOwner.installerProcess, vscode: Boolean(options.reinstall) });
   }
   const result = await module.installManagedProduct({ tarball, sha256: options.cliSha256, vsix,
     nodeExecutable: executable, ...(hooks ? { execute: hooks.execute, executeNode: hooks.executeNode } : {}) });
@@ -66,6 +66,7 @@ if (await isMainModule(import.meta.url)) {
     const options = {}, fields = { '--tarball': 'tarball', '--vsix': 'vsix', '--cli-sha256': 'cliSha256', '--vsix-sha256': 'vsixSha256' };
     for (let i = 2; i < process.argv.length; i++) {
       if (process.argv[i] === '--reinstall') { options.reinstall = true; continue; }
+      if (process.argv[i] === '--reinstall-copilot') { options.reinstallCopilot = true; continue; }
       const field = fields[process.argv[i]];
       if (!field || !process.argv[i + 1] || process.argv[i + 1].startsWith('--')) throw Error('Invalid package-install helper arguments.');
       options[field] = process.argv[++i];

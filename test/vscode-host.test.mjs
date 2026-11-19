@@ -11031,7 +11031,7 @@ test('Upgrade or Repair… offers each route once and runs the one chosen', asyn
   api.workspace.workspaceFolders = undefined;
   const extension = loadExtension(api);
   await extension.activate(context());
-  const routes = ['singularityFlow.refreshCapability', 'singularityFlow.upgradeWorkspaces',
+  const routes = ['singularityFlow.updateSflow', 'singularityFlow.refreshCapability', 'singularityFlow.upgradeWorkspaces',
     'singularityFlow.repairRepositorySetup', 'singularityFlow.refreshRepositorySetup', 'singularityFlow.afterInstall'];
   const dispatch = api.commands.executeCommand;
   const routed = [];
@@ -11048,7 +11048,7 @@ test('Upgrade or Repair… offers each route once and runs the one chosen', asyn
   assert.equal(shown.options.title, 'Upgrade or repair');
   assert.deepEqual(shown.items.map((item) => item.command), routes);
   assert.ok(shown.items.every((item) => item.detail), 'every choice says what it does');
-  assert.deepEqual(routed, [routes[0]], 'the first choice runs the capability upgrade');
+  assert.deepEqual(routed, [routes[0]], 'the first choice runs Update SFlow…');
 
   const pick = api.window.showQuickPick;
   api.window.showQuickPick = async (items) => items.find((item) => /Git URL/.test(item.label));
@@ -11057,6 +11057,74 @@ test('Upgrade or Repair… offers each route once and runs the one chosen', asyn
   await run();
   api.window.showQuickPick = pick;
   assert.deepEqual(routed, [routes[0], 'singularityFlow.refreshRepositorySetup'], 'dismissing the list runs nothing');
+  assert.deepEqual(registered.errors, []);
+});
+
+test('Update SFlow… confirms once with the saved link, runs the updater its VSIX ships in a terminal, and ends with a next action', async (t) => {
+  if (!requireBundle(t)) return;
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow vscode update '));
+  const updater = path.join(directory, 'updater');
+  const link = 'https://contoso.sharepoint.com/:f:/s/team/Ab1';
+  const previous = { home: process.env.SINGULARITY_FLOW_PACKAGE_UPDATER_HOME, path: process.env.PATH };
+  // Its own updater folder, and a PATH with no singularity-flow on it: the menu reads this machine only to word its confirmation.
+  process.env.SINGULARITY_FLOW_PACKAGE_UPDATER_HOME = updater;
+  process.env.PATH = path.dirname(process.execPath);
+  t.after(async () => {
+    for (const [name, value] of [['SINGULARITY_FLOW_PACKAGE_UPDATER_HOME', previous.home], ['PATH', previous.path]]) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+    await rm(directory, { recursive: true, force: true });
+  });
+  const { saveConfig } = await import('../runtime/updater/source.mjs');
+  await saveConfig(updater, { schemaVersion: 1, mode: 'folder', source: link, timeoutSeconds: 900 });
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const state = new Map();
+  const extension = loadExtension(api);
+  await extension.activate(context(state));
+  registered.warningAnswers.push('Update');
+  await registered.commands.get('singularityFlow.updateSflow')();
+
+  assert.equal(registered.quickPicks.length, 0, 'a saved link is used without asking for it');
+  const asked = registered.warnings.indexOf('Update SFlow?');
+  assert.ok(asked >= 0, 'one confirmation before anything changes');
+  assert.match(registered.warningDetails[asked], new RegExp(`From: SharePoint link ${link.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}`));
+  assert.match(registered.warningDetails[asked], /1 download the \.tgz \+ \.vsix · 2 check they are one build · 3 install the CLI/);
+  assert.match(registered.warningDetails[asked], /4 install the \.vsix into this VS Code · 5 uninstall \+ reinstall the Copilot plugin/);
+  assert.match(registered.warningDetails[asked], /Nothing changes until you confirm/);
+  assert.deepEqual(registered.warningActions[asked].slice(0, 2), ['Update', 'Change source…']);
+  const terminal = registered.terminals.at(-1);
+  assert.equal(terminal.options.name, 'Update SFlow');
+  assert.equal(terminal.options.shellPath, process.execPath);
+  const [script, ...args] = terminal.options.shellArgs;
+  assert.match(script, /vscode-runs[\\/]run-[^\\/]+[\\/]updater[\\/]runtime[\\/]update\.mjs$/);
+  assert.ok(script.startsWith(updater), 'the run copy lives in the private updater folder');
+  assert.equal(readFileSync(script, 'utf8'), readFileSync(path.join(packageRoot, 'runtime', 'update.mjs'), 'utf8'), 'the updater this extension ships');
+  assert.deepEqual(args.slice(0, 3), ['--source', link, '--reinstall-copilot']);
+  const resultFile = args[args.indexOf('--result') + 1];
+  const pending = state.get('singularityFlow.sflowUpdate.pending.v1');
+  assert.equal(pending.resultFile, resultFile, 'a reloaded window can find the run');
+
+  registered.informationAnswer = 'Reload Window';
+  await writeFile(resultFile, JSON.stringify({ schemaVersion: 1, pid: process.pid, status: 'complete', version: '0.9.1', route: 'npm-global' }));
+  for (let waited = 0; waited < 50 && !registered.infos.includes('SFlow 0.9.1 is installed'); waited++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.ok(registered.infos.includes('SFlow 0.9.1 is installed'));
+  for (let waited = 0; waited < 20 && !registered.executedCommands.some(entry => entry.id === 'workbench.action.reloadWindow'); waited++) await new Promise(resolve => setTimeout(resolve, 50));
+  assert.ok(registered.executedCommands.some(entry => entry.id === 'workbench.action.reloadWindow'), 'Reload Window reloads');
+  assert.equal(state.get('singularityFlow.sflowUpdate.pending.v1'), undefined);
+
+  // A refused link: the end screen leads with Change source…, and says where nothing was kept.
+  registered.warningAnswers.push('Update');
+  await registered.commands.get('singularityFlow.updateSflow')();
+  const second = registered.terminals.at(-1).options.shellArgs;
+  const secondResult = second[second.indexOf('--result') + 1];
+  await writeFile(secondResult, JSON.stringify({ schemaVersion: 1, pid: process.pid, status: 'failed', sourceProblem: true, work: null,
+    error: 'This link asks people to sign in, so the updater cannot download from it.' }));
+  for (let waited = 0; waited < 50 && !registered.warnings.includes('SFlow was not updated'); waited++) await new Promise(resolve => setTimeout(resolve, 100));
+  const failed = registered.warnings.indexOf('SFlow was not updated');
+  assert.ok(failed >= 0);
+  assert.match(registered.warningDetails[failed], /asks people to sign in/);
+  assert.equal(registered.warningActions[failed][0], 'Change source…');
   assert.deepEqual(registered.errors, []);
 });
 

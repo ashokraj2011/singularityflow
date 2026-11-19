@@ -4,16 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installerProcess } from '../runtime/install.mjs';
 import { isMainModule } from '../runtime/updater/entry.mjs';
+import { UPDATER_FILES } from '../runtime/updater/files.mjs';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
-export const STANDALONE_UPDATER_FILES = Object.freeze([
-  'update-sflow.sh', 'update-sflow.ps1',
-  'runtime/update.mjs', 'runtime/install-pair.mjs', 'runtime/install.mjs', 'runtime/resolve.cjs',
-  'runtime/bootstrap.sh', 'runtime/bootstrap.ps1', 'runtime/node-runtime.lock',
-  'runtime/updater/artifacts.mjs', 'runtime/updater/sharepoint.mjs', 'runtime/updater/installer.mjs',
-  'runtime/updater/process.mjs', 'runtime/updater/reinstall.mjs', 'runtime/updater/entry.mjs',
-  'scripts/install-staged-artifacts.mjs'
-]);
+export const STANDALONE_UPDATER_FILES = UPDATER_FILES;
 
 async function portableModes(archive) {
   // Windows ZIP writers do not set Unix executable bits. Set them on our own bounded archive so a

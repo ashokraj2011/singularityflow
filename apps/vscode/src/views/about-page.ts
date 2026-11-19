@@ -68,7 +68,7 @@ export function aboutHtml(info: AboutInfo | null, window: AboutWindow, error: st
         ${[info.running, ...info.vscode].filter(item => item.path).map(item => `<dt>${escape(item.label)}</dt><dd><code>${escape(item.path)}</code></dd>`).join('')}</dl></details>`
       : !error ? '<p role="status" aria-live="polite">Reading local build information…</p>' : ''}
     <ul class="command-guidance-routes">${commandRouteRows({ copilotCommand: '/sf-about', command: 'singularity-flow about' }).map(row => `<li><strong>${escape(row.label)}:</strong> ${row.command ? `<code>${escape(row.command)}</code>` : escape(row.unavailable)}</li>`).join('')}</ul>
-    <p><button data-about="after-install" class="secondary">Open After install</button></p>`;
+    <p><button data-about="update-sflow">Update SFlow…</button> <button data-about="after-install" class="secondary">Open After install</button></p>`;
 }
 
 export const ABOUT_STYLE = BRAND_ART_STYLE + '.about-table{overflow-x:auto}.about-table code{overflow-wrap:anywhere;white-space:normal}.about-facts{display:grid;grid-template-columns:minmax(9rem,auto) 1fr;gap:.6rem 1.2rem}.about-facts dd{margin:0;overflow-wrap:anywhere}';

@@ -1024,6 +1024,8 @@ test('every step only a person takes in their own terminal is refused in every t
     'person-specification-view': ['singularity-flow spec author show SPEC-CHK-004 --local --for-person --json',
       'singularity-flow spec author status SPEC-CHK-004 --quick --for-person'],
     // The browser workspace's grant and its service are the person's own; `ui status` stays anyone's.
+    // Updating reinstalls the product, the Copilot plugin a turn runs in included [owner, 2026-11-19].
+    'product-update': ['singularity-flow update', 'singularity-flow update --check-only --json', 'sflow update --reinstall'],
     'browser-workspace': ['singularity-flow ui open', 'singularity-flow ui open --no-open --json', 'singularity-flow ui serve --idle-minutes 5',
       'singularity-flow ui stop --drain --json'],
     // A "still holds" row's `revalidate` is a /sf-decide turn's own, held to the person's answer [owner, 2026-11-14]: not listed here.

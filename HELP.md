@@ -261,6 +261,33 @@ file bytes, and selected lifecycle state. Matching `--if-revision` requests retu
 not source content. PR descriptions are deterministic local projections. `--write`
 can edit an existing PR through `gh`; the command never creates one.
 
+## Update SFlow
+
+SFlow is installed from the `.tgz` and `.vsix` in the SharePoint folder your team gives you. To get
+the next build:
+
+- **VS Code:** run **Singularity Flow: Update SFlow…** (it is also first in **Upgrade or Repair…**,
+  in the Singularity Flow view's title bar, and in **Help & diagnostics**). The first time, paste the
+  SharePoint link you were given; it is saved on this computer, so later updates only ask you to
+  confirm. **Change source…** takes another link, or **Use files I already downloaded…** takes a
+  folder that holds the `.tgz` and `.vsix`.
+- **Terminal:** `singularity-flow update --source 'SHAREPOINT_FOLDER_LINK'` once, then
+  `singularity-flow update`. `--local-folder FOLDER` uses downloaded files; `--check-only` only
+  downloads and checks them.
+
+One confirmation names the link, what is installed now, and each step. Then, in a terminal named
+"Update SFlow", the update downloads both files, checks they are one build, installs the CLI where
+it is installed now (with `npm install -g` when it was installed with npm, so there is never a second
+`singularity-flow` on PATH), uninstalls and reinstalls the SFlow Copilot plugin, and installs the
+VS Code extension into the VS Code you ran it from. When it ends, choose **Reload Window** and
+restart any Copilot CLI sessions. If it fails, the message says why and where the downloaded files
+were kept, with **Try again** and **Change source…**.
+
+The link must be the folder link shared with **Anyone with the link** (no sign-in). A link to one
+file, a site page, or a link only people in your organisation can open is refused with a plain
+reason; choose **Change source…** and paste the folder link. On an older SFlow without this menu,
+install the new `.tgz` and `.vsix` once by hand (see [DISTRIBUTION.md](DISTRIBUTION.md#update-sflow)).
+
 ## Reset and fresh reinstall
 
 There are five intentionally different reset and replacement boundaries:
@@ -3766,6 +3793,7 @@ singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 sf-local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
 sf-local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
+singularity-flow update [--source LINK | --local-folder FOLDER] [--check-only] [--reinstall] [--timeout-seconds N] [--json]
 singularity-flow reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry] [--skip-tests]
 sf-reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry] [--skip-tests]
 singularity-flow product status|align|reviews [--dry-run] [--json]

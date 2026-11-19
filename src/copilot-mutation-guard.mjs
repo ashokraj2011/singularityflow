@@ -694,7 +694,8 @@ function confirmCodeArgv(positionals, options) {
  * conversational context changes no work, plan, workspace selection or lifecycle record `[INT:REQ-101]`.
  */
 function hostOnlyCommand(positionals) {
-  return ['hook', 'exec'].includes(positionals[0])
+  // `update` reinstalls the product, the Copilot plugin a turn runs in included: only a person starts it.
+  return ['hook', 'exec', 'update'].includes(positionals[0])
     || (positionals[0] === 'ui' && positionals[1] !== 'status')
     || (positionals[0] === 'gateway' && !['tools', 'events', 'session'].includes(positionals[1] ?? 'tools'));
 }

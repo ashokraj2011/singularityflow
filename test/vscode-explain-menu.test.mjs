@@ -59,6 +59,7 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
     ['singularityFlow.openCodeExplainer', 'navigation'],
     ['singularityFlow.openCodeExplanation', '1_explain'],
     ['singularityFlow.openComprehensionCenter', '1_explain'],
+    ['singularityFlow.updateSflow', '2_maintain'],
     ['singularityFlow.upgradeOrRepair', '2_maintain']
   ]);
   assert.equal((menus['editor/context'] ?? []).some((entry) => entry.command), false,
@@ -68,7 +69,7 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   // Upgrade or Repair… is the exception on purpose: with no repository open it still offers the
   // registered workspaces and repair by Git URL, which is when a person most needs them. Refresh is the
   // other: in a window with no repository open it brings the Story selected in Copilot here [office, 2026-11-12].
-  const repositoryFree = new Set(['singularityFlow.upgradeOrRepair', 'singularityFlow.refresh']);
+  const repositoryFree = new Set(['singularityFlow.updateSflow', 'singularityFlow.upgradeOrRepair', 'singularityFlow.refresh']);
   for (const menu of ['editor/context', 'explorer/context', 'editor/title', 'scm/title', 'scm/resourceState/context', 'view/title']) {
     for (const entry of (menus[menu] ?? []).filter((item) => !repositoryFree.has(item.command))) {
       assert.match(entry.when ?? '', new RegExp(`\\b${REPOSITORY.replace('.', '\\.')}\\b`), `${menu}: ${entry.command ?? entry.submenu}`);

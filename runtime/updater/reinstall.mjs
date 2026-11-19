@@ -3,8 +3,13 @@ const EXTENSION = 'singularityflow.singularity-flow-vscode';
 const containsExtension = result => String(result.stdout || '').split(/\r?\n/u)
   .some(line => line.trim().toLowerCase().split('@')[0] === EXTENSION);
 
-export function reinstallHooks({ runProcess, runNode, log = console.log }) {
-  const observed = { vscode: false, copilot: false };
+/**
+ * `vscode: false` reinstalls only the Copilot plugin. VS Code's Update SFlow… menu runs inside the
+ * extension being replaced, so it installs the VSIX over itself (--force) instead of removing it first:
+ * a failed install after a removal would leave that VS Code with no menu to try again from.
+ */
+export function reinstallHooks({ runProcess, runNode, log = console.log, vscode = true }) {
+  const observed = { vscode: !vscode, copilot: false };
   function checked(command, args, options) {
     const result = runProcess(command, args, { ...options, allowFailure: true, stdio: 'pipe' });
     if (result.status !== 0) throw new Error('SFlow reinstallation failed: '
@@ -13,7 +18,7 @@ export function reinstallHooks({ runProcess, runNode, log = console.log }) {
   }
   return {
     execute(command, args, options) {
-      if (args[0] === '--install-extension') {
+      if (vscode && args[0] === '--install-extension') {
         log('Removing the existing SFlow VS Code extension before reinstalling…');
         if (containsExtension(checked(command, ['--list-extensions'], options))) {
           checked(command, ['--uninstall-extension', EXTENSION], options);

@@ -66,6 +66,7 @@ const entries = {
   local: ['sf-local'],
   'fresh-install': ['sf-fresh-install'],
   reinstall: ['sf-reinstall'],
+  update: ['sf-about'],
   product: ['sf-product'],
   repositories: ['sf-repositories'],
   choices: ['sf-start', 'sf-approve'],
@@ -326,6 +327,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   repositories: route('sf-repositories', { 'cache clear': null }),
   gateway: route('sf-home', { serve: null }),
   ui: route(null, { status: 'sf-ui' }),
+  update: route(null),
   // Installing agent packages changes which agents run, and publishing them what other teams run:
   // the person's own steps (OWN_TERMINAL_STEPS).
   // attach is a configuration change reviewed like an import, so its turn is the import skill's.

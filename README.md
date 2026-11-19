@@ -212,13 +212,13 @@ that a change was proved. See `sflow explain goals-and-outcomes`.
 
 ## Install and initialize
 
-To update from a public SharePoint folder containing the CLI `.tgz` and VSIX, give its link once:
-
-- Mac: `bash update-sflow.sh 'YOUR_SHAREPOINT_FOLDER_LINK'`
-- Windows PowerShell: `.\update-sflow.ps1 'YOUR_SHAREPOINT_FOLDER_LINK'`
-
-Later, run the same script without the link. It remembers the location, checks the matching builds,
-and updates CLI, VS Code and Copilot together. No extra release packaging is needed.
+To update from the SharePoint folder that holds the CLI `.tgz` and VSIX, use **Singularity Flow:
+Update SFlow…** in VS Code, or run `singularity-flow update --source 'YOUR_SHAREPOINT_FOLDER_LINK'`
+once and `singularity-flow update` after that. The link is remembered; the update checks that the two
+files are one build and updates the CLI (where it is installed now), the Copilot plugin and the VS
+Code extension together. `bash update-sflow.sh` and `.\update-sflow.ps1` take the same arguments.
+A first install, or an install older than the menu, is done once by hand: see
+[DISTRIBUTION.md](DISTRIBUTION.md#update-sflow).
 See [SharePoint folder updates](docs/package-updater.md) for checks, timeouts and recovery.
 
 ```bash

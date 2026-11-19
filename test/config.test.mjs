@@ -78,7 +78,8 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.equal(bugfix.phases.find((item) => item.id === 'fix-spec').template, 'bugfix/fix-spec.md');
   assert.deepEqual(feature.documents.allowedPhases, ['intake', 'requirements', 'design', 'implementation-spec']);
   assert.deepEqual(bugfix.documents.allowedPhases, ['intake', 'reproduction', 'fix-design', 'fix-spec']);
-  assert.deepEqual(feature.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
+  // The chat is kept between steps; the next step's command is put in for one Enter (owner, 2026-11-19).
+  assert.deepEqual(feature.contextPolicy, { onApproval: 'keep', onRejection: 'keep', phaseOverrides: {} });
   assert.match(await agentPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'enforce');
   // The registered World Model's grounding setting was removed: the shipped default has none.

@@ -315,9 +315,10 @@ export function agentAct(result) {
   // /sf-nextsteps", so the person saw three competing next steps (Story anu-bin verification, 2026-11-11).
   if (result.resultType === 'sflow-approval-agent-result' && result.outcome?.status === 'succeeded' && result.turnBoundary === 'end') {
     const boundary = Array.isArray(result.contextBoundary?.commands) && result.contextBoundary.commands.length ? result.contextBoundary.commands.join(', then ') : null;
-    return { state: 'end-turn', do: null, read: ['outcome', 'decision', 'warnings', ...(result.contextBoundary ? ['contextBoundary'] : [])],
+    return { state: 'end-turn', do: null, read: ['outcome', 'decision', 'warnings', ...(result.contextBoundary ? ['contextBoundary'] : []), ...(result.nextStep ? ['nextStep'] : [])],
       said: boundary ? `Approved. End this turn; the one next step is ${boundary} (${result.contextBoundary.nextPhase ?? 'the next step'}). Offer no other route.`
-        : 'Approved. End this turn; the next step continues in a new turn. Offer no other route.' };
+        : result.nextStep?.copilotCommand ? `Approved. End this turn; the one next step is ${result.nextStep.copilotCommand} (${result.nextStep.phase ?? 'the next step'}), in this same chat: VS Code puts it in the chat input for one Enter. Offer no other route.`
+          : 'Approved. End this turn; the next step continues in a new turn. Offer no other route.' };
   }
   // `result last` (agent-result-keeper.mjs): a kept result is acted on as the command returned it;
   // otherwise it says to wait for the command, run it once more, or that nothing was kept.
@@ -454,37 +455,33 @@ export function agentAct(result) {
   const at = result.publishIfReady?.published ? 'publishIfReady.' : '';
   if (reviewer) return { state: 'start-reviewer', do: null,
     read: [`${at}reviewSubagent`, ...(at ? ['publishIfReady.output', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])] : [])],
-    said: `Published. Start the reviewer now as ${at}reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.${(at ? result.publishIfReady.outcomeReview : result.outcomeReview)
-      ? ` Ask the application and outcome questions (${['applicationStart', 'outcomeReview'].filter((key) => (at ? result.publishIfReady : result)[key]).map((key) => `${at}${key}`).join(', ')}) only after a ready review, never before it.` : ''}` };
+    said: `Published. Start the reviewer now as ${at}reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.${(at ? result.publishIfReady.applicationStart : result.applicationStart)?.declared
+      ? ` Once a ready review is submitted, ask ${at}applicationStart's one question; never before it.` : ''}` };
   const codeOffer = result.publishIfReady?.published ? result.publishIfReady.outcomeReview
     : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
-  // Published with its tests passing: ask once whether to start the application (application-start-offer.mjs).
+  // Published with its tests passing: one question, only when the checkout declares an application to try (owner, 2026-11-19).
   const start = result.publishIfReady?.published ? result.publishIfReady.applicationStart : codeOffer ? result.applicationStart : null;
-  if (codeOffer && start?.declared) return { state: 'ask-person',
+  const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
+  // The outcome review is one optional line, never a question: it records nothing (owner, 2026-11-19).
+  const line = codeOffer?.line ? { show: codeOffer.line } : {};
+  // Published, no review owed, its submission next: this same turn submits it once, never a separate submit turn (owner, 2026-11-19).
+  if (result.publishIfReady?.published && done?.inTurn?.command) return withRoute({ state: 'submit', do: null, ...line,
+    read: ['publishIfReady.next', 'publishIfReady.output', ...(start?.declared ? ['publishIfReady.applicationStart'] : [])],
+    said: oneLine(`Published; it owes no review, so submit it now in this same turn: run do.shell once, asking the person only for a decisionInputs value it names; never an approval.${start?.declared
+      ? ' Then ask publishIfReady.applicationStart\'s one question.' : ''}${codeOffer?.line ? ' Show act.show as one optional line, never a question.' : ''}`) },
+  { command: done.inTurn.command, skill: done.inTurn.skill, reason: done.inTurn.reason });
+  if (codeOffer && start?.declared) return { state: 'ask-person', ...line,
     ask: { kind: 'choice', question: start.question, choices: start.choices.map(({ id, label, copilotCommand = null, command = null, routes: onward = null }) => ({ id, label,
       ...(copilotCommand || command ? { copilot: copilotCommand, shell: command } : {}), ...(onward ? { routes: onward } : {}) })),
     how: 'Ask the person now and only once. Never start the application yourself: on Start, hand off to /sf-run-app start; on Not now, give the step\'s next routes.' },
-    do: null, read: result.publishIfReady?.published ? ['publishIfReady.applicationStart', 'publishIfReady.outcomeReview'] : ['applicationStart', 'outcomeReview'],
-    said: 'Code published and its tests pass. Ask the person whether to start the application to try it now; the outcome review stays available.' };
-  // The outcome review is read in this same turn, as the work command's own step says (sflow-code step 10), and its
-  // question asked here: it is no hand-off to another skill. The step's next action (afterReview) is unchanged, so every
-  // view names the same next step [OSA:REQ-020, b38].
-  if (codeOffer) return {
-    state: 'read', read: result.publishIfReady?.published ? ['publishIfReady.outcomeReview', 'publishIfReady.afterReview'] : ['outcomeReview', ...(result.applicationReview ? ['applicationReview'] : [])],
-    do: { reason: oneLine(codeOffer.reason), copilot: null, shell: codeOffer.agentCommand ?? codeOffer.command, vscode: null },
-    said: `${start?.words ? `${start.words} ` : ''}Code published. Run do.shell once in this turn, then ask its validation.question with the returned choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. A summary without that question is not the human handoff. Opening the review starts no app and records no acceptance or approval.`
-  };
+    do: null, read: result.publishIfReady?.published ? ['publishIfReady.applicationStart'] : ['applicationStart'],
+    said: 'Code published and its tests pass. Ask the person this one question, whether to start the application to try it now.' };
+  // What /sf-outcome shows: one line of optional choices, never a required question; it records nothing (owner, 2026-11-19).
   if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
-    state: 'await-human', do: null, read: ['data.outcome'],
-    ...(result.data.outcome.validation ? { ask: { kind: 'choice', question: result.data.outcome.validation.question,
-      choices: result.data.outcome.validation.choices.map(({ id, label, description, how = null }) => ({ id, label, description, ...(how ? { how } : {}) })),
-      tool: { name: 'sflowDeliveryValidation', input: { workId: result.data.outcome.workId,
-        ...(result.data.outcome.application?.capability ? { capability: result.data.outcome.application.capability } : {}) } },
-      how: 'Ask now using the native tool or host question tool. Execute only the selected returned route if this skill permits it (a Start in the terminal tool\'s background mode, as its choice says, never the foreground); otherwise relay its exact skill. Cancellation records nothing; do not repeat the question unchanged.' } } : {}),
-    said: 'Show actual retained test results, diagnostic runs separately, application readiness and outstanding human checks. Ask the returned validation question now. Start or configure the app, run tests, or open evidence only after the person chooses. Continue preserves all existing sign-offs; never accept, submit or approve from this choice.' };
-  const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
+    state: 'read', do: null, read: ['data.outcome'], ...(result.data.outcome.validation?.line ? { show: result.data.outcome.validation.line } : {}),
+    said: 'Show the actual retained test results, diagnostic runs separately, application readiness and outstanding human checks, then act.show as one line of optional choices. Ask nothing: run a choice\'s route only when the person picks one (a Start in the terminal tool\'s background mode, as its how says). Never accept, submit or approve from it.' };
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.
-  if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
+  if (done) return { state: 'next', said: oneLine(`${done.instruction?.split('. ')[0] ?? 'Done.'}${codeOffer?.line ? ' Show act.show as one optional line, never a question.' : ''}`), ...line,
     read: result.publishIfReady?.published ? [...(result.publishIfReady.reviewSubagent ? ['publishIfReady.reviewSubagent'] : []), 'publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : []), ...(result.artifacts ? ['artifacts'] : [])]
       : ['submitIfReady.next', 'submitIfReady.result'],
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,
@@ -622,6 +619,16 @@ export function agentAct(result) {
       said: oneLine(`No review of ${result.phase} generation ${result.generation} is retained${result.incomplete ? '; its staged draft is incomplete' : ''}. `
         + 'A correction the step needs is the review\'s blocking finding: never open a generation with your own reason (phase rollover --reason). '
         + `Start the step's reviewer as a sub-agent, prompt /sf-review-source ${result.phase}${result.incomplete ? ' (a fresh turn, new repair budget)' : ''}; with no sub-agent tool, relay the route in a new chat.`) }, result.continuation.actions[0]);
+  }
+  // A ready review is submitted by the turn that wrote the version and started its reviewer, once: no separate submit
+  // turn follows (owner, 2026-11-19). A review turn of its own still ends on the presentation, for the person.
+  if (result.resultType === 'source-review-status' && result.reportSha256 && result.continuation?.inTurn?.command) {
+    const inTurn = result.continuation.inTurn;
+    return withRoute({ state: 'submit', do: null, read: ['status', 'findings', 'continuation'],
+      ...(result.continuation.presentation ? { show: result.continuation.presentation } : {}),
+      said: oneLine(`The review is ready (${result.status}). The turn that wrote this version and started its reviewer submits it now: run do.shell once, `
+        + 'asking the person only for a decisionInputs value it names; never a separate submit turn, never an approval. A review turn of its own ends its reply with act.show exactly as given.', 700) },
+    { command: inTurn.command, skill: inTurn.skill, reason: inTurn.reason });
   }
   // A retained review, as its submission or its status returns it: what comes after retention, from its own
   // continuation (the author's successor, submission, or a person's disposition); never retain it again.

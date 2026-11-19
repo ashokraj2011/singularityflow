@@ -49,37 +49,39 @@ test('all code-producing phases offer human validation without adopting policy o
   assert.equal(codeOutcomeReviewOffer(workflow, phase), null, 'cancelled Stories keep manual inspection but do not auto-open a handoff');
 });
 
-test('code publication hands to outcome review while preserving the unchanged submission route', () => {
+test('code publication keeps its submission next; the outcome review is one optional line, never a question (owner, 2026-11-19)', () => {
   const { workflow, phase } = delivery();
   const offer = codeOutcomeReviewOffer(workflow, phase);
+  assert.equal(offer.line, 'Optional: /sf-outcome TRY-1 shows each requirement with its tests, and the application to try.');
   const shown = { continuation: { copilotCommand: '/sf-submit', nextCommand: 'singularity-flow submit implementation --work-id TRY-1',
     modelFreeCommand: '@sflow /submit implementation --work-id TRY-1', nextAction: { reason: 'Submit the checked generation.' } } };
   const result = afterPublication({ outcomeReview: offer }, shown);
-  assert.equal(result.next.commandGuidance.command, 'singularity-flow outcome TRY-1');
+  assert.equal(result.next.commandGuidance.command, shown.continuation.nextCommand, 'the submission stays the next step');
   assert.equal(result.afterReview.commandGuidance.command, shown.continuation.nextCommand);
   assert.equal(afterPublication({}, shown).next.commandGuidance.command, shown.continuation.nextCommand);
-  const act = agentAct({ resultType: 'sflow-phase-publication', status: 'published', outcomeReview: offer });
-  // Read and asked in the same turn, as the work command's own step says: no hand-off to another skill, so the step's
-  // next action stays the one every view names [OSA:REQ-020, b38].
-  assert.equal(act.state, 'read');
-  assert.equal(act.do.copilot, null);
-  assert.equal(act.do.shell, offer.agentCommand, 'Copilot reads the structured packet rather than terminal prose');
-  const combined = agentAct({ publishIfReady: { published: true, ...result } });
-  assert.equal(combined.do.shell, offer.agentCommand);
-  assert.deepEqual(combined.read, ['publishIfReady.outcomeReview', 'publishIfReady.afterReview'],
-    'the handoff does not ask Copilot to reread the publication artifacts');
-  const human = agentAct({ data: { outcome: { resultType: 'sflow-outcome-review' } } });
-  assert.equal(human.state, 'await-human');
-  assert.equal(human.do, null, 'reading cannot start an app or advance the Story');
+  // No review owed: the author's turn submits it once, by /sf-submit's own entry, with no separate submit turn.
+  const inTurn = { command: 'singularity-flow status TRY-1 --submission-readiness --for-agent --json --submit-if-ready', skill: '/sf-submit', reason: 'Submit now.' };
+  const submitting = afterPublication({ outcomeReview: offer }, shown, null, inTurn);
+  assert.deepEqual(submitting.next.inTurn, inTurn);
+  assert.equal(afterPublication({}, shown, { instruction: 'Start the reviewer.' }, inTurn).next.inTurn, undefined, 'a review owed comes first');
+  const act = agentAct({ publishIfReady: { published: true, ...submitting } });
+  assert.equal(act.state, 'submit');
+  assert.equal(act.do.shell, inTurn.command);
+  assert.equal(act.show, offer.line, 'the outcome is said in one line, never asked');
+  assert.equal(act.ask, undefined);
+  const relayed = agentAct({ publishIfReady: { published: true, ...result } });
+  assert.equal(relayed.state, 'next');
+  assert.equal(relayed.do.shell, shown.continuation.nextCommand);
+  assert.equal(relayed.show, offer.line);
+  // /sf-outcome itself: the checks in one line of optional choices; nothing is asked and nothing runs by reading it.
   const outcome = buildOutcomeReview({ workflow });
-  const question = agentAct({ data: { outcome } });
-  assert.equal(question.ask.kind, 'choice');
-  assert.equal(question.ask.question, outcome.validation.question);
-  assert.deepEqual(question.ask.tool, { name: 'sflowDeliveryValidation', input: { workId: 'TRY-1' } });
-  assert.deepEqual(question.ask.choices.map(choice => choice.id), outcome.validation.choices.map(choice => choice.id));
-  assert.equal(question.do, null, 'the model cannot select a runtime action by reading the result');
-  const scoped = buildOutcomeReview({ workflow, application: { status: 'none-declared', capability: 'api' } });
-  assert.deepEqual(agentAct({ data: { outcome: scoped } }).ask.tool.input, { workId: 'TRY-1', capability: 'api' });
+  assert.equal(outcome.validation.asked, 'optional');
+  assert.match(outcome.validation.line, /^Check version 1 yourself \(optional\): Run tests · /u);
+  const read = agentAct({ data: { outcome } });
+  assert.equal(read.state, 'read');
+  assert.equal(read.ask, undefined);
+  assert.equal(read.show, outcome.validation.line);
+  assert.equal(read.do, null, 'the model cannot select a runtime action by reading the result');
 });
 
 test('VS Code offers only the exact engine-selected delivery and rejects stale, future and completed targets', () => {
@@ -152,10 +154,11 @@ test('real code publication offers the review and its snapshot without starting 
     delete repo.env.SINGULARITY_FLOW_AGENT_OUTPUT;
     agentReview = completeAgentResult(repo.sflow('outcome', 'QF-1', '--for-agent', '--json'));
   } finally { repo.env.SINGULARITY_FLOW_AGENT_OUTPUT = display; }
-  assert.equal(agentReview.act.state, 'await-human');
+  // One line of optional choices, never a question (owner, 2026-11-19).
+  assert.equal(agentReview.act.state, 'read');
   assert.equal(agentReview.act.do, null);
-  assert.equal(agentReview.act.ask.kind, 'choice', 'the bounded Copilot output still contains the explicit question');
-  assert.equal(agentReview.act.ask.tool.input.workId, 'QF-1');
+  assert.equal(agentReview.act.ask, undefined);
+  assert.match(agentReview.act.show, /^Check version 1 yourself \(optional\): /u, 'the bounded Copilot output still carries the choices');
   assert.equal(agentReview.data.outcome.workId, 'QF-1');
   assert.equal(outcome.value.data.outcome.routes.continue.command, 'singularity-flow nextsteps QF-1 --for-agent --json');
   // A published step's repair is its next version, opened on the person's yes for what they say to repair [OSA:REQ-030].

@@ -44,7 +44,9 @@ Approval, nextsteps, phase continuation and phase entry expose the same `context
 next-phase authoring. In a conversation that worked on an earlier phase, `new` means `/clear`, then
 the next step's own command (`/sf-phase`, or `/sf-code` for a code step); `compact` means `/compact`, then
 that command. It is the command VS Code puts in the chat box. Nextsteps marks Copilot's authoring timing as
-`after-context-boundary`. Fresh conversations proceed without another reset; `keep` has no reset.
+`after-context-boundary`. Fresh conversations proceed without another reset; `keep`, shipped since
+2026-11-19, has no reset: the approval names the next step's own command, which VS Code puts in the chat
+for one Enter. A ready review is submitted in the turn that wrote the version, with no separate `/sf-submit` turn.
 These are chat operations, not Shell or model-free workflow gates. The approval remains recorded.
 Pending publication, recovery and required after-step actions keep their priority.
 

@@ -42,7 +42,7 @@ test('a returned reviewer comes first, whatever else the publication offers', ()
     assert.equal(act.ask, undefined, where);
     assert.equal(act.read[0], 'publishIfReady.reviewSubagent', where);
     assert.doesNotMatch(JSON.stringify({ ask: act.ask, do: act.do }), /\/sf-review-source/u, where);
-    if (outcome) assert.match(act.said, /only after a ready review, never before it/u, where);
+    if (start?.declared) assert.match(act.said, /Once a ready review is submitted, ask publishIfReady\.applicationStart's one question; never before it/u, where);
   }
   // Without a reviewer to start, the code step's question stays where it was.
   assert.equal(agentAct(published({ review: false, start: declared })).state, 'ask-person');

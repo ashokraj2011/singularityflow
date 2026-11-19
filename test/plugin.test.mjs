@@ -449,8 +449,9 @@ test('code skill reads readiness and task policy from their real structured sour
   assert.match(content, /Require entry `phase`, `phaseAgent.valid: true`; `generatesCode: true` is a code step \(Code below\), otherwise a document step \(Document below\)/);
   assert.match(content, /never draft sign-off/);
   assert.match(content, /no duplicate lookups/i);
-  // Published code goes to the outcome review (638b83ce4); the review packet is the approver's to read.
-  assert.match(content, /[Pp]ublished: read `outcomeReview\.agentCommand` once/);
+  // Published code's outcome is one optional line, never a question; the review packet is the approver's to read (owner, 2026-11-19).
+  assert.match(content, /the outcome `line` is optional, never asked/);
+  assert.doesNotMatch(content, /read `outcomeReview\.agentCommand` once/);
   assert.doesNotMatch(content, /`publishIfReady\.review/);
 });
 
@@ -1148,10 +1149,12 @@ test('submit skill links generated documents without treating a summary as appro
 
 test('phase publication never confuses publication with submission or review readiness', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
-  assert.match(content, /Not submission\/review readiness/);
-  assert.match(content, /Relay `handoff`'s `copilotCommand`\/`command`/);
+  // A published version is submitted only by its `submit` act (a ready review, or none owed), in the same turn, never by
+  // publication itself; approval stays the person's (owner, 2026-11-19).
+  assert.match(content, /Act `submit` \(review ready, or none owed\): run its `do\.shell` once now/);
+  assert.match(content, /Then relay its `handoff` \(`copilotCommand`\/`command`\)/);
   assert.doesNotMatch(content, /publish-ready/);
-  assert.match(content, /Never submit(?: or approve here|\/approve)/);
+  assert.match(content, /Never approve\./);
 });
 
 test('source review follows the returned schema and a bounded read-only format check before retaining evidence', async () => {
@@ -1284,7 +1287,9 @@ test('next skill executes one action and preserves explicit approval controls', 
   assert.match(content, /Relay, never run, human-decision routes \(`\/sf-approve`, `\/sf-confirm`, `\/sf-decide`, `\/sf-review-decide`/);
   assert.match(content, /the person types them; a route's arguments are never their answer/);
   assert.doesNotMatch(content, /Before approval run|require the exact phase name/);
-  assert.match(content, /Do not automatically submit a generation you just published/);
+  // A ready version is submitted in the turn that wrote it (owner, 2026-11-19).
+  assert.match(content, /Work step 10 submits a ready version here\./);
+  assert.doesNotMatch(content, /Do not automatically submit/);
 });
 
 test('guided run and world-model skills preserve consent and crash-recovery boundaries', async () => {

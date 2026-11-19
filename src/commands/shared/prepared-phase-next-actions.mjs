@@ -72,7 +72,8 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
     narrationAction({
       id: 'convergence.intent-amendment',
       label: 'Propose the intent amendment required by the convergence decisions',
-      command: 'singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <reason>',
+      // The draft from these decisions gives the whole command that proposes it.
+      command: `singularity-flow story intent-amendment draft --work-id ${workflow.workItem.id}`,
       kind: 'review'
     }),
     inputs

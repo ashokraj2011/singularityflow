@@ -32,7 +32,10 @@ export async function decisionWitnessExceptionCommand(positionals, options) {
   const workflow = accepted.workflow;
   const id = workflow.workItem.id;
   if (workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; reopen it at its final step to renew a witness exception.`, { code: 'WITNESS_EXCEPTION_STORY_CLOSED' });
+    // Its final step, named, so reopening it is one whole command [audit 2026-11-19, entry 28].
+    const finalStep = workflow.phaseOrder?.at(-1) ?? null;
+    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; reopen it at its final step${finalStep ? `, ${finalStep},` : ''} to renew a witness exception.`,
+      { code: 'WITNESS_EXCEPTION_STORY_CLOSED', details: { workId: id, ...(finalStep ? { finalStep } : {}) } });
   }
   const phaseId = optionString(options, 'phase');
   const mappingSha256 = optionString(options, 'mapping');

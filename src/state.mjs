@@ -273,7 +273,7 @@ import {
 } from './auto/auto-candidate.mjs';
 import {
   configuredTestModuleOverrides, normalizeRequiredTestCommand, parseTestResult,
-  resolveAffectedModule, runEnvironmentSha256, structuredTestCommandRequiredError, testCommandCoversPath, testReceiptPassing
+  resolveAffectedModule, runEnvironmentSha256, testCommandCoversPath, testCommandRequiredRefusal, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import { admitTestAttempts, recordRunsBeforeRefusal, recordTestAttempt, unchangedTestRun } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
@@ -1920,10 +1920,16 @@ export async function assertPlannedSpecificationClaims(root, config, workflow, c
           label: `An approver of ${owner.id} plans ${clause}'s test in their own terminal.` }
         : { command: `singularity-flow decision plan ${workflow.workItem.id} --owner ${owner.id} --add-row ${clause}=<PATH> --test <TEST> --reason <why>`,
           label: `An approver of ${owner.id} plans ${clause}, which the specification holds, in their own terminal.` })),
-      ...(raised ? [{ command: raised.command.replace('<clause-or-section>', gaps.join(',')), skill: '/sf-decide',
+      ...(raised ? [{ command: raised.command.replace('<clause-or-section>', gaps.join(',')).replace('<what-is-wrong>', `"The plan has no test for ${gaps.join(', ')}."`), skill: '/sf-decide',
         label: `Or record it for ${owner.id}'s approvers: they decide a plan correction, a return, an accepted risk or a dismissal.` }] : [])] : [];
+    // The way back to the plan step leads, whole [audit 2026-11-19, entry 18]: its approvers return it to its author
+    // while it waits for approval; once approved, the upstream issue with the clauses and the problem filled in.
+    const returnPlan = owner?.status === 'awaiting_approval' && (owner.approvalPolicy?.rejectTo ?? [owner.id]).includes(owner.id)
+      ? { command: `singularity-flow reject ${owner.id} --work-id ${workflow.workItem.id} --to ${owner.id} --reason "<REASON>"`, skill: '/sf-reject',
+        label: `Return ${owner.id} to its author to plan a test for ${gaps.join(', ') || 'each clause'}.` } : null;
+    const leading = returnPlan ?? planCorrections.find((entry) => / upstream-issue raise /u.test(entry.command));
     // Its owner's correction, never recovery of a healthy step [D4].
-    const route = owner ? planCorrections[0] ?? upstreamChangeRoutes(workflow, owner.id).routes[0] : null;
+    const route = owner ? leading ?? planCorrections[0] ?? upstreamChangeRoutes(workflow, owner.id).routes[0] : null;
     const recoveryCommand = route?.command ?? `singularity-flow recover ${workflow.workItem.id} --phase ${owner?.id ?? codePhase.id}`;
     throw new SingularityFlowError(
       refusalMessage,
@@ -5413,7 +5419,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       }
     }));
   if (!commands.length) {
-    throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id, paths: deliveryEvidence?.sourcePaths });
+    throw await testCommandRequiredRefusal(root, phase, { workId: workflow.workItem.id, paths: deliveryEvidence?.sourcePaths });
   }
   let trpSelection = null;
   if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
@@ -5815,7 +5821,7 @@ async function submitPhaseTransition(root, config, workflow, {
         }
       }));
     if (!requiredTestCommands.length) {
-      throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id, paths: evidence?.sourcePaths });
+      throw await testCommandRequiredRefusal(root, phase, { workId: workflow.workItem.id, paths: evidence?.sourcePaths });
     }
     if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
       trpSelection = await resolveTrpDeliverySelection(root, config, workflow, phase, evidence, [

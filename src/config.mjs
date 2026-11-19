@@ -471,18 +471,32 @@ export function assertWorkTypeStartable(resolved) {
   );
 }
 
+/**
+ * The planned-claim contract a workflow's own steps suggest: the steps that write requirements or an implementation
+ * spec, and for each code step the step just before it, as the inference reads them. Null when its steps give none.
+ * A refusal offers it as one whole `workflow edit` [audit 2026-11-19, entry 26].
+ */
+export function plannedClaimsProposal(resolved) {
+  const phases = resolved?.phases ?? [];
+  const clausePhases = phases.filter((phase) => currentSpecificationDefinitionPhase(phase)).map((phase) => phase.id);
+  const owners = Object.fromEntries(phases.map((phase, index) => [phase, phases[index - 1]])
+    .filter(([phase, before]) => phaseRequiresCodeDelivery(phase) && before && !phaseRequiresCodeDelivery(before)
+      && clausePhases.some((id) => phases.findIndex((entry) => entry.id === id) < index))
+    .map(([phase, before]) => [phase.id, before.id]));
+  return clausePhases.length && Object.keys(owners).length ? { clausePhases, owners } : null;
+}
+
 /** Refuse starting new work from a readable-but-unmigrated legacy workflow. */
 export function assertPlannedClaimsReady(resolved) {
   if (resolved?.plannedClaims?.mode !== 'migration-required') return resolved;
   const id = resolved.id ?? 'unknown';
+  const proposal = plannedClaimsProposal(resolved);
   throw new SingularityFlowError(
-    `Workflow '${id}' predates the planned-claim contract and cannot start a new Story. `
-    + 'Review it with singularity-flow workflow validate, then run workflow edit with '
-    + '--planned-claims required --clause-phases <PHASES> --claim-owners <CODE>=<OWNER> (comma-separate several), '
-    + 'or, for a workflow that defines no requirement clauses, declare omits for scope with a reason and the approval group that decides. Existing Stories keep their pinned policy.',
+    `Workflow '${id}' predates the planned-claim contract, so it cannot start a new Story; existing Stories keep theirs. `
+    + (proposal ? 'Its steps suggest one: review it, then record it with the command below.' : 'Its check (workflow validate) names the steps that can plan it.'),
     {
       code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
-      details: { workType: id, reason: resolved.plannedClaims.reason ?? null }
+      details: { workType: id, reason: resolved.plannedClaims.reason ?? null, ...(proposal ? { proposal } : {}) }
     }
   );
   return resolved;
@@ -536,7 +550,8 @@ export function assertWorkflowReadinessChanges(previousDefinition, candidateDefi
       + 'omits with responsibility scope, a reason, and the approval group as authority.',
       {
         code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
-        details: { workType: workTypeId, reason: candidate.plannedClaims.reason ?? null }
+        details: { workType: workTypeId, reason: candidate.plannedClaims.reason ?? null,
+          ...(plannedClaimsProposal(candidate) ? { proposal: plannedClaimsProposal(candidate) } : {}) }
       }
     );
   }

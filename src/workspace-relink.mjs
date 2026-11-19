@@ -24,7 +24,7 @@ import path from 'node:path';
 
 import { executeGitQuery } from './git-query.mjs';
 import { addBranchWorktree, forgetMissingWorktree, repairWorktreeLinks } from './git.mjs';
-import { readWorkspace, readWorkspaceRegistry, WORKSPACE_FILE, workspaceRepositoryPath } from './workspace-manifest.mjs';
+import { readWorkspace, readWorkspaceRegistry, WORKSPACE_FILE, workspaceRepositoryPath, workspaceUseCommands } from './workspace-manifest.mjs';
 import { samePlatformPath, SingularityFlowError } from './util.mjs';
 import { assertConfirmation } from './text-lines.mjs';
 
@@ -141,7 +141,9 @@ export async function activeWorkspaceMovedRefusal(context, cwd) {
     + 'it was moved or renamed. workspace repair, run in its new folder, saves it there and re-links its Story checkouts.', {
     code: 'ACTIVE_WORKSPACE_MOVED',
     details: { workspaceId: context.workspaceId, workspacePath: context.workspacePath, newFolder: route.folder,
-      nextAction: route.command, recoveryCommands: ['singularity-flow workspace use <WORKSPACE>'] }
+      // Another workspace this machine knows, as a whole command [audit 2026-11-19, entry 13].
+      nextAction: route.command, recoveryCommands: await workspaceUseCommands(
+        (await import('./workspace-context.mjs')).workspaceRegistryFile(), { except: context.workspaceId }) }
   });
 }
 

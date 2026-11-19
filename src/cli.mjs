@@ -2672,9 +2672,10 @@ async function clarificationCommand(positionals, options) {
       requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, answerPolicy, session.actor);
     } catch (error) {
       throw new SingularityFlowError(
-        `Only a member of ${phase.id}'s approval groups (${answerPolicy.authorities.join(', ')}) can answer its clarification questions, because the answers decide what the phase produces. `
-        + `One of them answers in their own clone, in their own terminal, with singularity-flow clarification answer ${phase.id} --question "<QUESTION>" --answer "<ANSWER>"; then this checkout records it with singularity-flow clarification import ${phase.id}. The author cannot answer for them. ${error.message}`,
-        { code: 'CLARIFICATION_AUTHORITY_REQUIRED', details: { ...error.details, phase: phase.id, workId: workflow.workItem.id, authorities: [...answerPolicy.authorities] } }
+        `Only ${phase.id}'s approvers (${answerPolicy.authorities.join(', ')}) answer its questions, each in their own clone with the command given for it; this checkout then imports the answers. ${error.message}`,
+        // The questions as asked, so each is one whole command with only the answer left to write [audit 2026-11-19, entry 9].
+        { code: 'CLARIFICATION_AUTHORITY_REQUIRED', details: { ...error.details, phase: phase.id, workId: workflow.workItem.id, authorities: [...answerPolicy.authorities],
+          questions: responses.slice(0, 20).map((entry) => ({ question: entry.question, ...(entry.marker ? { marker: entry.marker } : {}) })) } }
       );
     }
   }
@@ -9670,7 +9671,10 @@ async function workspaceCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
       if (subcommand === 'prompt') return console.log('');
       console.log('No active workspace.');
-      printCommandRoutes('singularity-flow workspace use <WORKSPACE>', { label: 'Select one' });
+      // Each workspace this machine knows, as a whole command [audit 2026-11-19, entry 13].
+      const known = await (await import('./workspace-manifest.mjs')).knownWorkspaces(registry);
+      if (!known.length) console.log('This machine knows no workspace yet. Create one in VS Code (Singularity Flow: Create a Workspace), or with /sf-workspace in Copilot.');
+      for (const [index, entry] of known.slice(0, 3).entries()) printCommandRoutes(`singularity-flow workspace use ${entry.id}`, { label: `${index ? 'Or' : 'Select one'}: ${entry.name}` });
       return;
     }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({

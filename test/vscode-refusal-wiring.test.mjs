@@ -242,7 +242,7 @@ test('a World Model failure offers the Repository brief, never wm doctor, and bo
   for (const error of failures) {
     const { view: card } = refusalFor(error, { headline: 'Could not read the World Model' });
     assert.deepEqual(card.actions.map(({ command }) => command), [
-      'singularity-flow wm brief --phase <phase>',
+      'singularity-flow wm brief',
       'singularity-flow nextsteps --json'
     ], error.message);
     assert.doesNotMatch(JSON.stringify(card.actions), /wm doctor|registered-v4/);
@@ -252,7 +252,7 @@ test('a World Model failure offers the Repository brief, never wm doctor, and bo
   assert.equal(refusalFor(failures[0]).view.details.code, 'WMB_VIEW_UNKNOWN');
   const repositoryRoot = '/Users/example/RuleEngineUI';
   assert.deepEqual(refusalFor(failures[0], { repositoryRoot }).view.actions.map(({ command }) => command), [
-    terminalCommand(repositoryRoot, ['wm', 'brief', '--phase', '<phase>']),
+    terminalCommand(repositoryRoot, ['wm', 'brief']),
     terminalCommand(repositoryRoot, ['nextsteps', '--json'])
   ], 'the brief is copied bound to the exact repository');
 });

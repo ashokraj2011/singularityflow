@@ -1635,11 +1635,8 @@ export async function storyConvergeCommand(positionals, options) {
     printCommandRoutes('singularity-flow story rework --confirm', { indent: '  ', label: 'Create rework' });
   }
   if (projection.allowedNext.includes('propose-intent-amendment')) {
+    // The draft gives the whole command that proposes it; nobody types its file path.
     printCommandRoutes(`singularity-flow story intent-amendment draft --work-id ${workflow.workItem.id}`, { indent: '  ', label: 'Draft the amendment from these decisions' });
-    printCommandRoutes(
-      'singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <TEXT>',
-      { indent: '  ', label: 'Propose intent amendment' }
-    );
   }
   if (projection.allowedNext.includes('advance-to-verification')) {
     printCommandRoutes(`singularity-flow story advance --work-id ${workflow.workItem.id}`, {

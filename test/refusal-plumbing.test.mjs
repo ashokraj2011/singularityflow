@@ -136,19 +136,25 @@ test('the self-approval and distinct-identity refusals are coded where approval 
 
 test('a clarification answer from an approver is answered in their own clone and imported, never self-recorded', async () => {
   const plan = refusalRemediationPlan(refusal('CLARIFICATION_AUTHORITY_REQUIRED', {
-    phase: 'requirements', workId: 'W-1', authorities: ['product-owners'], eligibleApprovers: ['owner@example.test']
+    phase: 'requirements', workId: 'W-1', authorities: ['product-owners'], eligibleApprovers: ['owner@example.test'],
+    questions: [{ question: 'Which currency rounds down?' }, { question: 'Who signs refunds?', marker: 'Who signs refunds?' }]
   }), ['clarification', 'record', 'requirements', '--response-file', 'answers.json', '--json']);
   // Before 2026-10-28 the only way was the author's checkout under the approver's swapped identity.
   assert.equal(plan.steps[0].id, 'answer-in-own-clone');
   assert.match(plan.steps[0].label, /product-owners \(owner@example\.test\)/u);
   assert.match(plan.steps[0].label, /in their own clone, in their own terminal/u);
-  assert.equal(plan.steps[0].command, 'singularity-flow clarification answer requirements --question "<QUESTION>" --answer "<ANSWER>"');
-  assert.equal(plan.steps[1].id, 'import-answers');
-  assert.equal(plan.steps[1].command, 'singularity-flow clarification import requirements');
-  assert.equal(plan.steps[2].command, 'singularity-flow clarification status requirements --json');
+  // One whole command per question as asked; only the answer is the approver's to write [audit 2026-11-19, entry 9].
+  assert.equal(plan.steps[0].command, "singularity-flow clarification answer requirements --question 'Which currency rounds down?' --answer \"<ANSWER>\"");
+  assert.equal(plan.steps[1].command, "singularity-flow clarification answer requirements --marker 'Who signs refunds?' --answer \"<ANSWER>\"");
+  assert.equal(plan.steps[2].id, 'import-answers');
+  assert.equal(plan.steps[2].command, 'singularity-flow clarification import requirements');
+  // With no question in hand, no command with one to fill in: its status lists them.
+  const unnamed = refusalRemediationPlan(refusal('CLARIFICATION_AUTHORITY_REQUIRED', { phase: 'requirements', authorities: ['product-owners'] }), ['clarification', 'record', 'requirements']);
+  assert.deepEqual(unnamed.steps.map((entry) => [entry.id, entry.command]), [['answer-in-own-clone', null],
+    ['import-answers', 'singularity-flow clarification import requirements'], ['inspect-clarification-checkpoint', 'singularity-flow clarification status requirements --json']]);
   const cli = await source('cli.mjs');
   assert.doesNotMatch(cli, /One of them records the answer in this checkout, under their own Git identity/u);
-  assert.match(cli, /One of them answers in their own clone, in their own terminal, with singularity-flow clarification answer/u);
+  assert.match(cli, /answer its questions, each in their own clone with the command given for it/u);
 });
 
 async function twoStoryFixture(t) {

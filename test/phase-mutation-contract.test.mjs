@@ -3086,6 +3086,9 @@ test('an agent turn may preview a workflow delete and propose an archive, but co
     const refused = await shell(payload, confirm);
     assert.equal(refused.permissionDecision, 'deny', label);
     assert.match(refused.permissionDecisionReason, /confirming a workflow delete is the person's own step.*Workflow Studio → Delete…/u, label);
+    // Its own preview, named whole, gives the short code; never a <PLAN-SHA256> to fill in [audit 2026-11-19, entry 31].
+    assert.match(refused.permissionDecisionReason, /singularity-flow workflow delete mine --dry-run/u, label);
+    assert.doesNotMatch(refused.permissionDecisionReason, /<ID>|<PLAN-SHA256>/u, label);
   }
 });
 

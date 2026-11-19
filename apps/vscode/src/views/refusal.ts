@@ -329,10 +329,11 @@ function messageOnlyRecovery(error: unknown, text: string,
   if (worldModelFailure) {
     return reviewableActions([
       {
-        // The registered World Model was removed; what a phase gets now is the Repository brief.
+        // The registered World Model was removed; what a phase gets now is the Repository brief, the current step's
+        // when it names none: a whole command, never --phase <phase> [audit 2026-11-19, entry 31].
         id: 'repository-brief',
-        label: 'See the Repository brief a phase receives.',
-        command: 'singularity-flow wm brief --phase <phase>'
+        label: 'See the Repository brief the current step receives.',
+        command: 'singularity-flow wm brief'
       },
       {
         // The repository's planner: recommend needs an active workspace and refuses without one.

@@ -1152,10 +1152,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
         || definition.name === 'review-source' && positionals[1] === 'decide')) {
       await import('./copilot-mutation-guard.mjs').then(module => module.endMutationDecisionTurns(root)).catch(() => {});
     }
-    // A refused `decision …` or `decisions record` changed nothing, so it leaves a /sf-decide turn open: the person's
-    // answers in it are still recorded there, each held to their own words by the hook and to the question it answers
-    // by the command's own checks. Ending the turn here blocked the right command next and sent the person back to
-    // /sf-decide, where it happened again (office laptop, 2026-11-19, a departure's yes never recorded).
+    // A refused decision changed nothing: its /sf-decide turn stays open, held to the person's words (2026-11-19 loop).
     // A refusal may change what a turn stands on (a failed test records its task stage): it is the agent's to repair in the turn.
     await refreshTurns(root, definition, operation, { refused: true });
     timer.stage('execute');

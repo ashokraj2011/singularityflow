@@ -25,7 +25,7 @@ import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { readOnlyAgent } from './phase-actor-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 // Already loaded with departures.mjs.
-import { clausesTakingPaths, planRowsOf, rowTakesPaths } from './plan-amendments.mjs';
+import { clausesTakingPaths, leftOutWords, planRowsOf, rowTakesPaths } from './plan-amendments.mjs';
 import { posix, SingularityFlowError, nowIso } from './util.mjs';
 
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -342,39 +342,41 @@ export async function departureAuthorities(workflow, departure) {
 }
 
 const shortClause = (workId, clauseId) => (String(clauseId).toUpperCase().startsWith(`${String(workId).toUpperCase()}:`) ? String(clauseId).slice(String(workId).length + 1) : String(clauseId));
-const wordList = (items) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 
 /**
  * The plan amendment changes accepting a file departure writes, `{ changes, leftOut }`: its file under each clause it
  * serves, or as the supporting change it is. `clause` is the row a person chose; without one, the clauses the
- * departure names whose row can take its files. A row that only checks tests takes no file that is not a test, so
- * it is left out and `leftOut` says so; when no named row can take them, the refusal gives the exact command for
- * each row that can, and the reject command [owner, 2026-11-19]. `rows` are the plan's rows (planRowsOf).
+ * departure names whose row can take its files. A row that only checks tests takes no file that is not a test, and
+ * a clause the plan has no row for takes nothing, so each is left out and `leftOut` says so; when no named row can
+ * take them, the refusal gives the exact command for each row that can, and the reject command [owner, 2026-11-19].
+ * `rows` are the plan's rows (planRowsOf).
  */
 export function departureAmendmentChanges(departure, { clause = null, reason, rows = [], workId }) {
   if (departure.kind === 'supporting') {
     return { changes: departure.paths.map((file) => ({ kind: 'add-supporting', path: file, class: departure.class, reason: String(reason).slice(0, 500) })), leftOut: null };
   }
   const named = clause ? [String(clause).toUpperCase()] : departure.clauses ?? [];
-  const { takes, testOnly } = clausesTakingPaths(named, rows, departure.paths);
-  if (!takes.length) {
+  const fit = clausesTakingPaths(named, rows, departure.paths);
+  const files = departure.paths.length === 1 ? departure.paths[0] : `${departure.paths.slice(0, -1).join(', ')} and ${departure.paths.at(-1)}`;
+  const said = { name: (id) => shortClause(workId, id), subject: files, plural: departure.paths.length !== 1 };
+  if (!fit.takes.length) {
     const command = (as, extra = '') => `singularity-flow decision departure ${workId} --fetch --departure ${departure.id} --as ${as}${extra} --reason "<REASON>"`;
     const others = rows.filter((row) => rowTakesPaths(row, departure.paths)).slice(0, 12);
-    const files = wordList(departure.paths);
     const them = departure.paths.length === 1 ? 'it' : 'them';
-    const lead = testOnly.length
-      ? `${departure.id} cannot be accepted under ${wordList(testOnly.map((id) => shortClause(workId, id)))}: ${testOnly.length === 1 ? 'it only checks' : 'they only check'} tests, so ${files} cannot be added to ${testOnly.length === 1 ? 'it' : 'them'}.`
+    const lead = fit.testOnly.length || fit.noRow.length ? `${departure.id} cannot be accepted as recorded. ${leftOutWords(fit, { ...said, mode: 'cannot' })}`
       : `${departure.id} does not say which row of the plan ${files} ${departure.paths.length === 1 ? 'belongs' : 'belong'} to.`;
-    const commands = [...others.map((row) => command('accepted', ` --clause ${row.clauseId}`)), command('rejected')];
+    const routes = [...others.map((row) => ({ label: `Accept it under ${shortClause(workId, row.clauseId)}, with your reason.`, command: command('accepted', ` --clause ${row.clauseId}`) })),
+      { label: `Reject it, with your reason: the model restores ${files}.`, command: command('rejected') }];
+    const commands = routes.map((entry) => entry.command);
     if (!others.length) {
-      departureRefusal(`${lead} No ${testOnly.length ? 'other ' : ''}row of the plan can take ${them}. Reject it, and the model restores ${them}:\n  ${commands.join('\n  ')}\nTo keep ${them}, the scope changes first so a clause covers ${them}: an intent amendment, which the scope's approvers decide (/sf-amend drafts it).`,
-        'DEPARTURE_NO_PLAN_ROW', { departure: departure.id, testOnly, commands });
+      departureRefusal(`${lead} No ${fit.testOnly.length || fit.noRow.length ? 'other ' : ''}row of the plan can take ${them}. Reject it, and the model restores ${them}:\n  ${commands.join('\n  ')}\nTo keep ${them}, the scope changes first so a clause covers ${them}: an intent amendment, which the scope's approvers decide (/sf-amend drafts it).`,
+        'DEPARTURE_NO_PLAN_ROW', { departure: departure.id, testOnly: fit.testOnly, noRow: fit.noRow, commands, recoveryCommands: routes });
     }
     departureRefusal(`${lead} Accept it under a row that can take ${them}, or reject it, each with your reason:\n  ${commands.join('\n  ')}`,
-      'DEPARTURE_CLAUSE_REQUIRED', { departure: departure.id, testOnly, rows: others.map((row) => row.clauseId), commands });
+      'DEPARTURE_CLAUSE_REQUIRED', { departure: departure.id, testOnly: fit.testOnly, noRow: fit.noRow, rows: others.map((row) => row.clauseId), commands, recoveryCommands: routes });
   }
-  const leftOut = testOnly.length ? `${wordList(testOnly.map((id) => shortClause(workId, id)))} only ${testOnly.length === 1 ? 'checks' : 'check'} tests, so ${wordList(departure.paths)} ${departure.paths.length === 1 ? 'was' : 'were'} not added to ${testOnly.length === 1 ? 'it' : 'them'}.` : null;
-  return { changes: departure.paths.flatMap((file) => takes.map((clauseId) => ({ kind: 'add-location', clauseId, path: file }))), leftOut };
+  return { changes: departure.paths.flatMap((file) => fit.takes.map((clauseId) => ({ kind: 'add-location', clauseId, path: file }))),
+    leftOut: leftOutWords(fit, { ...said, mode: 'was' }) || null };
 }
 
 /** The plan's rows, every one, as accepting a file departure chooses among them. */
@@ -472,7 +474,11 @@ const shellWord = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : 
 export function acceptanceCommand(workflow, departure) {
   const workId = workflow.workItem.id;
   if (departure.kind === 'clause') {
-    return `singularity-flow story intent-amendment propose --work-id ${workId} --file ${shellWord(departure.proposal?.path ?? '<FILE>')} --departure ${departure.id} --reason "<REASON>"`;
+    // A record with no saved draft starts from one drafted for its clauses: never a file name to make up [owner, 2026-11-19].
+    if (!departure.proposal?.path) {
+      return `singularity-flow story intent-amendment draft --work-id ${workId}${(departure.clauses ?? []).map((id) => ` --clause ${shellWord(id)}`).join('')}`;
+    }
+    return `singularity-flow story intent-amendment propose --work-id ${workId} --file ${shellWord(departure.proposal.path)} --departure ${departure.id} --reason "<REASON>"`;
   }
   const change = departure.change ?? {};
   const flag = { 'add-test': `--add-test ${shellWord(`${change.clauseId}=${change.test}`)}`, 'replace-test': `--replace-test ${shellWord(`${change.clauseId}=${change.from}:${change.to}`)}`,

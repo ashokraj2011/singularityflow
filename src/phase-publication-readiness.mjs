@@ -55,7 +55,9 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   if (evidence.errors.length) {
     blockers.push(...evidence.errors.map((message, index) => ({ code: 'phase.evidence-contract.not-ready',
       category: 'evidence-contract', path: evidence.paths?.[index] ?? null, message,
-      details: { sourceCode: evidence.sourceCode ?? 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED', draftRepairAllowed: true } })));
+      details: { sourceCode: evidence.sourceCode ?? 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED', draftRepairAllowed: true,
+        // The criteria this file could prove, so its route names one instead of leaving it blank [owner, 2026-11-19].
+        eligibleClauseIds: (evidence.actions ?? []).find((action) => action.evidence?.path === evidence.paths?.[index])?.evidence?.eligibleClauseIds ?? [] } })));
     actions.push(...(evidence.actions ?? []));
     if (!evidence.actions?.length) actions.push({ id: `resolve-evidence-contract:${phase.id}`,
       safe: false, automatic: false, mode: 'guided', confirmation: 'human-authority',

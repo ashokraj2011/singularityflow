@@ -52,6 +52,13 @@ test('a card holding only what was settled still records its Undo on every host,
   const text = packetText(packet);
   assert.match(text, /Undo one on the Decide card:\n- Copilot: \/sf-decide STL-1\n- Shell: singularity-flow decisions undo STL-1 --settled STL-001\n- VS Code \(model-free\): Command Palette: Singularity Flow: Decide Everything/u);
   assert.doesNotMatch(text, /not available/u);
+  // Two settled: one filled undo line each, never one with the ID left blank [owner, 2026-11-19].
+  recordSettledDecision(workflow, { kind: 'story-selection', subject: 'STL-1 again', answer: 'Kept STL-1: the only Story here.',
+    evidence: [{ what: 'one Story', where: 'workflow.json' }], by: 'sflow', at: AT });
+  const two = packetText({ ...withPlainWords(workflow, decisionPacket(workflow, { phaseId: 'implement', gaps: [], issues: [], pending: {}, state: {} },
+    { authorities, actor: { name: 'Person', email: 'person@example.invalid' }, at: AT })), phaseLabel: 'Implement' });
+  assert.match(two, /Or in your own terminal:\n- singularity-flow decisions undo STL-1 --settled STL-002\n- singularity-flow decisions undo STL-1 --settled STL-001/u);
+  assert.doesNotMatch(two, /<STL-ID>/u);
 });
 
 test('a settled item and an advised one on the same card; Undo from the card hands the question back with its recommendation', slowLane({ timeout: 900_000 }), async (t) => {

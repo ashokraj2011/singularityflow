@@ -63,6 +63,7 @@ test('a row that only checks tests refuses a file that is not a test and names t
   assert.equal(refusal.message, `${W}:AC-002 only checks tests (its row is test-only), so only a test or test-support file can be added to it, and src/pages/form-page.ts is not one. `
     + `Add it to a row that can take it instead: ${W}:AC-001.`);
   assert.deepEqual(refusal.details.rows, [`${W}:AC-001`]);
+  assert.deepEqual(refusal.details.recoveryCommands.map((entry) => entry.command), [`singularity-flow decision plan ${W} --fetch --add-location ${W}:AC-001=src/pages/form-page.ts --reason "<REASON>"`]);
   const tests = { [`${W}:AC-002`]: plan[`${W}:AC-002`], [`${W}:AC-003`]: { ...plan[`${W}:AC-002`] } };
   assert.throws(() => amend(story(), [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'src/pages/form-page.ts' }], { plan: tests }),
     (error) => error.code === 'PLAN_AMENDMENT_INVALID' && /No other row of the plan can take it: every row only checks tests\.$/u.test(error.message) && error.details.rows.length === 0);

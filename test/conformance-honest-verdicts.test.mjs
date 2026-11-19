@@ -180,7 +180,8 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
   assert.deepEqual(gapAdvisory.choices.map((choice) => choice.kind),
     ['upstream-issue', 'repair-return', 'evidence-reuse', 'fresh-recorded-run']);
   assert.match(gapAdvisory.choices[0].command, new RegExp(`^singularity-flow upstream-issue raise --phase implementation --about ${AC1} `, 'u'));
-  assert.match(gapAdvisory.choices[2].command, new RegExp(`^singularity-flow decision evidence-reuse ${W} --phase implementation --from-attempt <ATTEMPT-ID> --reason <TEXT>$`, 'u'));
+  // The Decide card names the recorded run, so no attempt ID is left to compose [owner, 2026-11-19].
+  assert.equal(gapAdvisory.choices[2].command, `singularity-flow decisions ${W}`);
   assert.match(gapAdvisory.choices[2].detail, /never certifies a run that was not recorded/u);
   assert.match(gapAdvisory.choices[3].detail, /cannot record test runs/u);
   assert.equal(prepublish.resolution.advisories.find((entry) => entry.code === 'conformance.verdict-contradicted').requiredBefore, null);
@@ -202,7 +203,7 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
   assert.match(unraisedText, /Code checking can't be approved yet: 1 decision needed\. Decide them in one place\.\n- Copilot: \/sf-decide VERDICT-1\n/u);
   assert.match(planText, /^Recovery plan:\n  Scope: phase conformance — people decide what is open; nothing about the report needs repairing\. Open the decision list now\.\n  1\. [^\n]*\n {5}- Copilot: \/sf-decide VERDICT-1\n {5}- Shell: singularity-flow decisions VERDICT-1\n/u);
   assert.match(planText, new RegExp(`Shell: singularity-flow upstream-issue raise --phase implementation --about ${AC1} `, 'u'));
-  assert.match(planText, new RegExp(`Shell: singularity-flow decision evidence-reuse ${W} --phase implementation --from-attempt <ATTEMPT-ID> --reason <TEXT>`, 'u'));
+  assert.doesNotMatch(planText, /<ATTEMPT-ID>/u, 'the card names the recorded run');
   assert.match(planText, /Shell: singularity-flow reject conformance --work-id VERDICT-1 --to implementation/u);
   assert.match(planText, /Never edit the verdict to clear this check/u);
   assert.doesNotMatch(planText, /Inspect and repair only phase/u);

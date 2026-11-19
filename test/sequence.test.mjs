@@ -387,3 +387,11 @@ test('agent approval emits one bounded receipt; an already-approved phase never 
   assert.doesNotMatch(JSON.stringify(refusal.next), /prepare|publish|sf-code/);
   assert.equal(await readFile(path.join(root, 'unrelated-human-draft.txt'), 'utf8'), 'preserve this draft');
 });
+
+test('a routing choice is guided by one filled command per option, never one with the option left blank', () => {
+  // [owner, 2026-11-19] A person never composes a command: only the reason is theirs to type.
+  const guidance = sequenceGuidance({ workItem: { id: 'RT-1' }, phaseOrder: [], phases: {},
+    pendingDecision: { key: 'K-1', label: 'After review', by: ['leads'], options: [{ id: 'ship', label: 'Ship' }, { id: 'rework', label: 'Rework' }] } });
+  assert.deepEqual(guidance.actions.map((action) => action.command), ['singularity-flow decision show RT-1',
+    'singularity-flow decision choose RT-1 --option ship --reason <reason> --expected K-1', 'singularity-flow decision choose RT-1 --option rework --reason <reason> --expected K-1']);
+});

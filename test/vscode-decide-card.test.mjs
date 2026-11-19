@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DECIDE_SCRIPT, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, GUARD_WORDS, guardRoute, openRows, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
+import { commandSlots, DECIDE_SCRIPT, decideChoicesFrom, decideDraftFrom, decideHtml, filledCommand, decideRows, decideSummary, draftFileOf, draftsOnly, GUARD_WORDS, guardRoute, openRows, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionAnswersFromChoices } from '../apps/vscode/src/views/decision-list-model.ts';
 
 const allowed = { allowed: true, words: 'You may decide this (Plan approvers).', groups: ['planners'] };
@@ -186,7 +186,9 @@ test('beside the departures the card shows coverage, each criterion\'s tests, th
   assert.match(html, /<span class="dc-check dc-check-failed">failed<\/span>/u);
   // Evidence is never a choice: nothing to pick, nothing preselected, nothing added to what is recorded.
   assert.equal((html.match(/data-choice/gu) ?? []).length, (decideHtml(packet({ items: list.items })).match(/data-choice/gu) ?? []).length);
-  assert.doesNotMatch(evidenceHtml(list), /<select|<input|data-review|data-item=/u);
+  // No choice is recorded from the evidence; a held package's own command only collects the reason and date it types in [owner, 2026-11-19].
+  assert.doesNotMatch(evidenceHtml(list), /<select|data-review|data-item=/u);
+  assert.equal((evidenceHtml(list).match(/<input/gu) ?? []).length, (evidenceHtml(list).match(/data-own-(?:reason|expires)=/gu) ?? []).length);
   assert.equal(evidenceHtml(packet()), '', 'a list without evidence shows none');
 });
 
@@ -219,7 +221,9 @@ test('the extension types a held package\'s command only from the list it read, 
   const source = await readFile(new URL('../apps/vscode/src/views/decide-card.ts', import.meta.url), 'utf8');
   assert.match(source, /packet\.approvalEvidence\?\.hold\?\.entries\?\.\[Number\(hold\)\]/u);
   assert.match(source, /entry\?\.allowed === true && typeof entry\.command === 'string' \? entry\.command : null/u);
-  assert.match(source, /'decide\.terminal': \(message\) => \{\n\s+const command = commandOf\(message\);/u);
+  // The whole command, with the reason and date typed in the row [owner, 2026-11-19].
+  assert.match(source, /'decide\.terminal': \(message\) => \{\n\s+const command = completeCommandOf\(message\);/u);
+  assert.match(source, /const completeCommandOf = \(message: InboundMessage\) => \{\n\s+const command = commandOf\(message\);[\s\S]*filledCommand\(command,/u);
   assert.match(source, /evidencePaths\(packet\)\.includes\(file\)/u, 'only files the list names open');
 });
 
@@ -263,4 +267,24 @@ test('evidence carried by a step\'s "still holds" is never silent on the card: w
       words: "PAY-1:AC-001: Code's evidence predates AMD-001's wording; Code Approver, for the Code approvers (engineering-reviewers), said it still holds." }] } } }));
   assert.match(html, /<section class="dc-ev dc-ev-warn"><h3>Carried by &quot;still holds&quot;<\/h3><p class="muted">Counted on a person&#39;s word, not a new run/u);
   assert.match(html, /<li>PAY-1:AC-001: Code&#39;s evidence predates AMD-001&#39;s wording; Code Approver, for the Code approvers \(engineering-reviewers\), said it still holds\.<\/li>/u);
+});
+
+test('"Put it in a terminal" types the whole command: the row collects the reason and date, and a blank is never typed', () => {
+  // [owner, 2026-11-19] A person never composes a command: the card fills in what they typed.
+  const back = 'singularity-flow reject code --work-id PAY-1 --to code --reason "<REASON>"';
+  const step = { id: 'return', label: 'Return Code for changes', recommended: false, recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: back } };
+  const html = decideHtml(packet({ items: [{ id: 'd1', kind: 'departure', title: 'DEP-001: wording', why: 'Waits.', decidedBy: allowed, options: [step] }] }));
+  assert.match(html, /data-own-reason="return"[^>]*placeholder="Your reason, typed into the command"/u);
+  assert.doesNotMatch(html, /data-own-expires="return"/u, 'no date where the command takes none');
+  assert.deepEqual(commandSlots(back), { reason: true, expires: false });
+  assert.deepEqual(filledCommand(back, { reason: '  ' }), { missing: 'reason' });
+  assert.deepEqual(filledCommand(back, { reason: "The wording's owner fixes it first." }),
+    { command: `singularity-flow reject code --work-id PAY-1 --to code --reason 'The wording'"'"'s owner fixes it first.'` });
+  assert.deepEqual(filledCommand(back, { reason: "It's ready." }, true), { command: "singularity-flow reject code --work-id PAY-1 --to code --reason 'It''s ready.'" });
+  const risk = 'singularity-flow decision finding-risk PAY-1 --phase code --finding F-1 --reason "<why the step may keep it>" --expires <YYYY-MM-DD>';
+  assert.deepEqual(filledCommand(risk, { reason: 'Patched upstream next week.' }), { missing: 'expires' });
+  assert.equal(filledCommand(risk, { reason: 'Patched upstream next week.', expires: '2026-12-01' }).command,
+    "singularity-flow decision finding-risk PAY-1 --phase code --finding F-1 --reason 'Patched upstream next week.' --expires 2026-12-01");
+  assert.deepEqual(filledCommand('singularity-flow decision plan PAY-1 --add-location <clause>=a.js --reason "<REASON>"', { reason: 'A reason long enough.' }), { missing: 'value' });
+  assert.match(DECIDE_SCRIPT, /data-own-reason/u, 'the page sends what was typed beside the step');
 });

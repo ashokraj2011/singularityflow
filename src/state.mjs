@@ -2115,12 +2115,13 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved because the Story's ending would refuse its specification coverage:\n- ${lines.join('\n- ')}\n`
         + `It is the last code step, so this is where it is delivered: return ${phase.id} for its author to complete the source and test evidence in a reviewed new generation, `
-        + `or use singularity-flow decision plan to amend exact planned locations. Never hand-edit an observed claim map.${routes.text}`,
+        + `or decide it on the Decide card (singularity-flow decisions ${workflow.workItem.id}): a plan correction, or a risk accepted until a date. Never hand-edit an observed claim map.${routes.text}`,
         { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, ownerPhase: phase.id,
           evidenceCommit, coverage: owed, ...routes.details,
           repairCommand: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --reason <REASON>`,
-          recoveryCommands: await Promise.all(owed.unimplemented.slice(0, 3).map(async (id) => ({ label: 'Or a person who may accept this risk records it, with its category and expiry.',
-            command: `singularity-flow decision risk --obligation ${(await import('./evidence/vocabulary.mjs')).obligationId(workflow.workItem.id, 'implement', id)} --category <category> --expires <YYYY-MM-DD> --reason "<why>"` }))) } }
+          // The card holds each risk filled in, with its category and a date to choose: no command to compose [owner, 2026-11-19].
+          recoveryCommands: [{ label: 'Or a person who may accept this risk records it on the Decide card, with its category and expiry.',
+            command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' }] } }
       );
     }
     const advisory = lines.map((line) => `${line}; ${ownerCheck ? `approving ${phase.id} refuses it until it is delivered or its risk is accepted`
@@ -2129,7 +2130,7 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
   }
   const findings = [
     ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
-    ...coverage.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}; add it to a row with singularity-flow decision plan --add-location <clause>=${candidate} --reason <why>, or list it as a supporting change`),
+    ...coverage.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}; say where it belongs on the Decide card (singularity-flow decisions ${workflow.workItem.id}): a row of the plan, or a supporting change`),
     ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
     ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
   ];
@@ -2143,10 +2144,11 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
         workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
         evidenceCommit, coverage, ...routes.details,
         // An unplanned path is accounted for by a narrow plan amendment, not by deleting it [E2G-012].
-        // Which row is the approver's choice, so the rows go with it: nobody should have to open the plan to find them.
+        // Which row is the approver's choice, so the rows go with it: the Decide card offers each one filled in, and
+        // a command with the row left blank is no route [owner, 2026-11-19].
         ...(coverage.unclaimedChangedPaths.length ? {
-          recoveryCommands: coverage.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
-            `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`),
+          nextAction: routes.details.nextAction ?? { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide',
+            label: 'An approver of the plan says where each changed file belongs on the Decide card; preserve the submitted code and test evidence.' },
           planRows: planRowsOf(planned)
         } : {})
       }

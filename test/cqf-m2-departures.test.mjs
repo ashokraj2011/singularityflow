@@ -288,7 +288,7 @@ test('a row that only checks tests is left out of accepting a file, said so, and
   const refused = repo.run(process.execPath, [cli, '--no-model', 'decision', 'departure', 'QF-1', '--departure', 'DEP-002', '--as', 'accepted', '--reason', reason]);
   assert.notEqual(refused.status, 0);
   const said = refused.stdout + refused.stderr;
-  assert.match(said, /DEP-002 cannot be accepted under AC-002: it only checks tests, so index\.html cannot be added to it\./u);
+  assert.match(said, /DEP-002 cannot be accepted as recorded\. AC-002 only checks tests, so index\.html cannot be added to it\./u);
   assert.ok(said.includes('singularity-flow decision departure QF-1 --fetch --departure DEP-002 --as accepted --clause QF-1:AC-001 --reason "<REASON>"'), said);
   assert.ok(said.includes('singularity-flow decision departure QF-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"'), said);
   assert.doesNotMatch(said, /<CLAUSE>/u);

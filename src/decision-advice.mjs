@@ -108,8 +108,8 @@ export function optionDoes(workflow, item, entry) {
           : kind === 'finding' ? 'The fix is taken out, and the findings it fixed are open again.' : 'The approved document stays as it was, and the change is undone.';
       }
       if (effect.writes === 'plan-amendment' && effect.changes?.length) {
-        // A named row that only checks tests is left out, and the words say so [owner, 2026-11-19].
-        const leftOut = kind === 'path' && item.details?.testOnly?.words ? ` ${item.details.testOnly.words}` : '';
+        // A named row that cannot take the files is left out, and the words say so [owner, 2026-11-19].
+        const leftOut = kind === 'path' && item.details?.leftOut?.words ? ` ${item.details.leftOut.words}` : '';
         return `${listWords(effect.changes.map((change) => planChangeWords(workflow, change))).replace(/^./u, (first) => first.toUpperCase())}; the change stays and no step is reset.${leftOut}`;
       }
       if (effect.writes === 'forward-amendment') return 'The earlier step\'s approved document is amended to this wording as its next version; each later step that read it is listed to be checked again.';
@@ -270,7 +270,7 @@ export function itemRecommendation(workflow, item) {
       if (accept && details.departureKind === 'finding') return rec(item, 'accept', 'It fixes findings from the register; rejecting it opens them again.');
       if (accept && details.departureKind === 'supporting') return rec(item, 'accept', 'It is a supporting file the change needs; accepting lists it in the plan, and no step is reset.');
       if (accept && details.departureKind === 'path' && details.clauses?.length) {
-        const kept = details.clauses.filter((id) => !(details.testOnly?.clauses ?? []).includes(id));
+        const kept = details.clauses.filter((id) => !(details.leftOut?.clauses ?? []).includes(id));
         return rec(item, 'accept', `The code step names ${listWords(kept.map((id) => clauseName(workflow, id)))} as what it serves; accepting adds it to the plan, and no step is reset.`);
       }
       // No row of the plan can take its files: Accept is not offered, and keeping them needs the scope to change first.

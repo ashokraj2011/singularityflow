@@ -18,7 +18,7 @@ import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, 
   justAQuestionArgv, nextWords, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { approvalRows, checkNames, checkOf, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
+import { approvalRows, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
   guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
 
 // How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
@@ -144,6 +144,17 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       const entry = /^\d{1,2}$/u.test(hold) ? packet.approvalEvidence?.hold?.entries?.[Number(hold)] : undefined;
       return entry?.allowed === true && typeof entry.command === 'string' ? entry.command : null;
     };
+    // The whole command, with the reason and date the person typed in the row: never one with a blank left in it [owner, 2026-11-19].
+    const completeCommandOf = (message: InboundMessage) => {
+      const command = commandOf(message);
+      if (!command) return null;
+      const filled = filledCommand(command, { reason: stringField(message, 'reason'), expires: stringField(message, 'expires') }, process.platform === 'win32');
+      if ('command' in filled) return filled.command;
+      void vscode.window.showWarningMessage(filled.missing === 'reason' ? 'Write your reason in the row first: it goes into the command, so there is nothing left to fill in.'
+        : filled.missing === 'expires' ? 'Choose the date in the row first: it goes into the command, so there is nothing left to fill in.'
+          : `This step needs a value the card cannot fill in. Decide it from your terminal instead: singularity-flow decisions ${workId}`);
+      return null;
+    };
     const router = registerMessageRouter('singularityFlow.decide', {
       'decide.cancel': () => finish(notNow()),
       // "Check first", chosen on a row: what the person typed stays on the page.
@@ -168,12 +179,12 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         if (typeof file === 'string' && path.isAbsolute(file)) await openBeside(file);
       },
       'decide.copy': async (message) => {
-        const command = commandOf(message);
+        const command = completeCommandOf(message);
         if (command) { await vscode.env.clipboard.writeText(command); void vscode.window.setStatusBarMessage('$(clippy) Copied.', 3_000); }
       },
       // Typed, not run: the person presses Enter themselves, in a terminal this page opened in the Story's checkout.
       'decide.terminal': (message) => {
-        const command = commandOf(message);
+        const command = completeCommandOf(message);
         if (!command) return;
         const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
         terminal.show(false);

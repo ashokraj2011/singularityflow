@@ -18,6 +18,35 @@ export { checkOf, laterOf, plainWords };
 export type DecideDraft = ReadonlyMap<string, { option: string; reason: string; cause: string; expires: string; clause: string; article: DecisionArticleAnswer[] }>;
 
 const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
+
+// What only the person can give a command typed into their terminal: their reason, and a date. The row collects them, so
+// "Put it in a terminal" types the whole command, never one with a blank to fill in [owner, 2026-11-19].
+const REASON_SLOT = /"<(?:REASON|reason|why|TEXT|why [^<>"]*)>"|<(?:REASON|reason|why|TEXT)>/u;
+const DATE_SLOT = /<YYYY-MM-DD>/u;
+/** The values a command's own step asks for in its row: a reason, a date, or neither. */
+export const commandSlots = (command: string) => ({ reason: REASON_SLOT.test(command), expires: DATE_SLOT.test(command) });
+const quoted = (value: string, windows: boolean) => (windows ? `'${value.replaceAll("'", "''")}'` : `'${value.replaceAll("'", `'"'"'`)}'`);
+
+/**
+ * The command with the person's reason and date in it, quoted for their shell (PowerShell on Windows), or what is still
+ * missing: 'reason', 'expires', or 'value' for a blank no row can fill. Never a command with a blank in it.
+ */
+export function filledCommand(command: string, given: { reason?: string | null; expires?: string | null }, windows = false): { command: string } | { missing: 'reason' | 'expires' | 'value' } {
+  const slots = commandSlots(command);
+  const reason = String(given.reason ?? '').trim();
+  const expires = String(given.expires ?? '').trim();
+  if (slots.reason && !reason) return { missing: 'reason' };
+  if (slots.expires && !/^\d{4}-\d{2}-\d{2}$/u.test(expires)) return { missing: 'expires' };
+  const filled = command.replace(new RegExp(REASON_SLOT.source, 'gu'), () => quoted(reason, windows)).replace(new RegExp(DATE_SLOT.source, 'gu'), expires);
+  return /<[^<>\s]+>/u.test(filled) ? { missing: 'value' } : { command: filled };
+}
+
+/** The fields an own step's command needs, in its row: shown only where the command takes them. */
+const slotFields = (command: string, key: string, name: string) => {
+  const slots = commandSlots(command);
+  return `${slots.reason ? `<input data-own-reason="${escape(key)}" aria-label="Your reason, for ${escape(name)}" placeholder="Your reason, typed into the command" maxlength="1000">` : ''}${slots.expires
+    ? `<label class="dc-date">Until <input type="date" data-own-expires="${escape(key)}" aria-label="Until when, for ${escape(name)}"></label>` : ''}`;
+};
 const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const witnesses = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
 
@@ -147,7 +176,7 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   // A drafted amendment is written in the editor before its command runs [SCS:REQ-021]: the page opens the engine's own file.
   const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">This one stays in your terminal.</span>
       ${option.action?.file ? `<span class="muted">${escape(option.words ?? '')}</span><button type="button" data-draft="${escape(option.id)}">Open the draft</button>` : ''}
-      <code>${escape(option.action!.command!)}</code>
+      <code>${escape(option.action!.command!)}</code>${slotFields(option.action!.command!, option.id, option.label)}
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   // A choice recorded here may also be made in the person's own terminal, with its exact command (SF Guard signs it there).
@@ -188,7 +217,7 @@ export function evidenceHtml(packet: DecisionPacket): string {
     ? `<span class="muted">Share this with them: <code>/sf-decide ${escape(packet.workId)}</code></span>`
     : offered.has(entry.command) ? '<span class="muted">Its command is on the hold\'s row above.</span>'
       : `<div class="dc-own"><span>Accept it with your reason and an expiry of at most 90 days.</span> <span class="muted">This one stays in your terminal.</span>
-      <code>${escape(entry.command)}</code>
+      <code>${escape(entry.command)}</code>${slotFields(entry.command, `hold-${index}`, 'the held package')}
       <button type="button" class="secondary" data-hold-terminal="${index}">Put it in a terminal</button>
       <button type="button" class="secondary" data-hold-copy="${index}">Copy</button></div>`);
   const parts = [
@@ -434,14 +463,20 @@ document.addEventListener('click', (event) => {
   if (open) return vscode.postMessage({ type: 'decide.open', path: open.dataset.open });
   // A held package's own command, by its place in the evidence: the extension reads the command from the list itself.
   const held = event.target.closest('[data-hold-terminal],[data-hold-copy]');
-  if (held) return vscode.postMessage({ type: held.dataset.holdTerminal !== undefined ? 'decide.terminal' : 'decide.copy', hold: held.dataset.holdTerminal ?? held.dataset.holdCopy });
+  // The reason and date typed beside a step go with it, so the terminal gets the whole command.
+  const typed = (key) => ({ reason: document.querySelector('[data-own-reason="' + key + '"]')?.value ?? '', expires: document.querySelector('[data-own-expires="' + key + '"]')?.value ?? '' });
+  if (held) return vscode.postMessage({ type: held.dataset.holdTerminal !== undefined ? 'decide.terminal' : 'decide.copy', hold: held.dataset.holdTerminal ?? held.dataset.holdCopy,
+    ...typed('hold-' + (held.dataset.holdTerminal ?? held.dataset.holdCopy)) });
   const drafted = event.target.closest('[data-draft]');
   if (drafted) return vscode.postMessage({ type: 'decide.draft', item: drafted.closest('tr[data-item]').dataset.item, option: drafted.dataset.draft });
   const step = event.target.closest('[data-terminal],[data-copy],[data-witness]');
   if (step) {
     const row = step.closest('tr[data-item]');
     const type = step.dataset.terminal ? 'decide.terminal' : step.dataset.copy ? 'decide.copy' : 'decide.witness';
-    return vscode.postMessage({ type, item: row.dataset.item, option: step.dataset.terminal ?? step.dataset.copy ?? step.dataset.witness, rows: answers() });
+    const id = step.dataset.terminal ?? step.dataset.copy ?? step.dataset.witness;
+    const own = row.querySelector('[data-own-reason="' + id + '"],[data-own-expires="' + id + '"]') ? { reason: row.querySelector('[data-own-reason="' + id + '"]')?.value ?? '',
+      expires: row.querySelector('[data-own-expires="' + id + '"]')?.value ?? '' } : {};
+    return vscode.postMessage({ type, item: row.dataset.item, option: id, rows: answers(), ...own });
   }
   if (event.target.closest('[data-route]')) return vscode.postMessage({ type: 'decide.route' });
   // A waiting next version: the answer with the digest of the proposal this page showed.

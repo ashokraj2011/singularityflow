@@ -369,8 +369,10 @@ export function packetText(packet) {
   else if (packet.next) lines.push('Next:', ...formatCommandRouteLines({ ...packet.next, modelFreeCommand: packet.next.modelFreeCommand ?? modelFreeCommandForCommand(packet.next.command) }));
   // Only what was settled for the person: its Undo is on the Decide card, never "not available" [owner, 2026-11-13].
   else if (settled.length) {
+    // One filled undo per settled decision, each under its own row above; never one with the ID left blank [owner, 2026-11-19].
     lines.push('Undo one on the Decide card:', ...formatCommandRouteLines({ copilotCommand: packet.record.share, modelFreeCommand: VSCODE_DECISIONS_CARD,
-      command: settled.length === 1 ? settled[0].details?.commands?.[0] ?? null : `singularity-flow decisions undo ${packet.workId} --settled <STL-ID>` }));
+      command: settled.length === 1 ? settled[0].details?.commands?.[0] ?? null : null }));
+    if (settled.length > 1) lines.push('Or in your own terminal:', ...settled.flatMap((item) => (item.details?.commands?.[0] ? [`- ${item.details.commands[0]}`] : [])));
   } else lines.push(...formatCommandRouteLines({ copilotCommand: packet.record.share }));
   return `${lines.join('\n')}\n`;
 }

@@ -118,7 +118,9 @@ test('test findings route to what can act without a test-recovery agreement', ()
   const risk = first({ code: 'code.delivery.incomplete', details: { sourceCode: 'CODE_TEST_FAILED', testRunRisk: route } });
   assert.equal(risk.kind, 'test-run-risk');
   assert.equal(risk.owner, 'phase-approval-authority');
-  assert.equal(risk.command, `singularity-flow decision test-risk ENV-2 --phase implement --command .-node-tests --cause-class all-tests-skipped --cause <cause> --reason <reason> --expires <YYYY-MM-DD> --argv-sha256 ${ARGV}`);
+  // The Decide card holds the risk filled in (command, run and cause), so the route is the card, never a command with
+  // the cause and date left blank [owner, 2026-11-19].
+  assert.equal(risk.command, 'singularity-flow decisions ENV-2');
   // A person records it on the Decide card or in their own terminal [owner, 2026-11-15]: /sf-decide opens the card, and no turn runs it.
   assert.equal(risk.skill, '/sf-decide');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED', details: { testRunRisk: route } }).status, 'needs-human');
@@ -130,7 +132,7 @@ test('test findings route to what can act without a test-recovery agreement', ()
   const renew = first({ code: 'PRIOR_CODE_TEST_EVIDENCE_REQUIRED', details: { testRunRiskRenewals: renewals } });
   assert.equal(renew.kind, 'test-run-risk');
   assert.match(renew.detail, /the decision that let it through lapsed/u);
-  assert.match(renew.command, new RegExp(`--argv-sha256 ${ARGV}$`, 'u'));
+  assert.match(renew.command, /^singularity-flow decisions \S+$/u);
   for (const sourceCode of ['TEST_MODULE_AMBIGUOUS', 'TEST_MODULE_UNCOVERED', 'GRADLE_TEST_TARGET_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED']) {
     const setup = first({ code: 'code.delivery.incomplete', details: { sourceCode } });
     assert.equal(setup.kind, 'runner-setup', sourceCode);

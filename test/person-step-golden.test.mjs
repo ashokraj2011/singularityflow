@@ -24,6 +24,7 @@ import { recordableInApproval } from '../src/approval-decisions.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS, OWN_TERMINAL_STEPS, ownTerminalStep, skillForCommandLine } from '../src/command-skills.mjs';
 import { captureMutationTurn, mutationPostToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
+import { routesToSkill, TURN_RENEWAL_CODE, turnSkills } from '../src/phase-mutation-contract.mjs';
 import { recordRepositoryBoundaryTurn, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
 import { ISSUE_ONLY_OPTIONS } from '../src/decision-list.mjs';
 import { PERSON_STEP_FAMILIES } from '../src/presence/person-steps.mjs';
@@ -187,6 +188,22 @@ function outcome(decision, root) {
   return `deny ${text.split(/[.:]/u)[0].slice(0, 80)} [${createHash('sha256').update(text).digest('hex').slice(0, 16)}] route ${route?.copilotCommand ?? '-'} | ${String(route?.command ?? '-').replaceAll(root, '<ROOT>').slice(0, 60)}`;
 }
 
+/**
+ * No refusal sends the person back to the chat they are in [owner, 2026-11-19, loop 1]: inside /sf-decide a refused
+ * command's route was /sf-decide again. Every denial's routes avoid the chat's own skill, except a renewal (its permissions
+ * really ended), and words that name it say never to send the person there again. mutationDenial holds it for every caller.
+ */
+function ownSkillLoops(turn, command, decision, root) {
+  if (decision.permissionDecision !== 'deny' || SPECIAL_TURNS.includes(turn)) return [];
+  const text = String(decision.permissionDecisionReason ?? '');
+  if (TURN_RENEWAL_CODE.test(text)) return [];
+  const skills = turnSkills(turn);
+  const where = `${turn}: ${command.replaceAll(root, '<ROOT>').slice(0, 90)}`;
+  return [...(decision.next ?? []).filter((route) => routesToSkill(route, skills)).map((route) => `${where} routes to ${route.copilotCommand ?? route.skill}`),
+    ...(skills[0] === '/sf-decide' && /(?:^|[\s(`'"])\/sf-decide(?![\w-])/u.test(text) && !text.includes('Never send the person to /sf-decide again') ? [`${where} names /sf-decide as a way on`] : [])];
+}
+const LOOPS = [];
+
 async function turnMatrix(t, status, turns) {
   const { root, enter } = await fixture(t, status);
   const rows = Object.entries(COMMANDS).flatMap(([id, commands]) => commands.map((command) => ({ id, command, outcomes: new Map() })));
@@ -200,6 +217,7 @@ async function turnMatrix(t, status, turns) {
       for (const row of rows) {
         const decision = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: row.command, cwd: root } });
         row.outcomes.set(turn, outcome(decision, root));
+        LOOPS.push(...ownSkillLoops(turn, row.command, decision, root));
       }
     } finally { if (turn === '(paused)') await setCopilotPaused(false); }
   }
@@ -301,6 +319,7 @@ test('the tables, and every person\'s step against the turns that differ most, h
     }
     noneMoved(moved, `${field}: a person's step changed who may run it or how it refuses`);
   }
+  noneMoved(LOOPS.splice(0), 'a refusal routes the person back to the chat they are in');
 });
 
 test('every person\'s step, against every turn: who may run it and how it refuses have not moved', slowLane({ timeout: 900_000 }), async (t) => {
@@ -331,4 +350,5 @@ test('every person\'s step, against every turn: who may run it and how it refuse
   ...golden.answered.filter((row) => !found.answered.some((entry) => answered(entry) === answered(row))).map((row) => `dropped: ${row.command}`)],
   'what a person\'s answer lets their own turn run changed');
   noneMoved(tableChanges(found.tables, golden.tables), 'a table of person steps changed');
+  noneMoved(LOOPS.splice(0), 'a refusal routes the person back to the chat they are in');
 });

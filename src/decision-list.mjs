@@ -1890,8 +1890,10 @@ export function decisionRecordCommand(workId, { phaseId = null, choices = [], di
 export function decisionChatSteps(packet, steps) {
   const items = [...packet.items, ...(packet.offered ?? [])];
   return steps.flatMap((step) => {
-    const template = items.find((item) => item.id === step.item)?.options.find((option) => option.id === step.option)?.chat?.command;
+    const chat = items.find((item) => item.id === step.item)?.options.find((option) => option.id === step.option)?.chat;
     const { reason = '', clause = [] } = step.values ?? {};
+    // The recommended answer runs with --recommended; the person's own words, when they gave some, with them [C10].
+    const template = reason && chat?.withReason ? chat.withReason : chat?.command;
     const command = template?.replaceAll('"<REASON>"', () => (reason ? shellQuoted(reason) : '<REASON>')).replaceAll('<CLAUSES>', () => clause.join(',') || '<CLAUSES>');
     return command && !/<[A-Z][A-Z-]*>/u.test(command) ? [{ item: step.item, command }] : [];
   });

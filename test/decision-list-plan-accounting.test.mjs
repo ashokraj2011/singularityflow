@@ -55,7 +55,8 @@ test('each changed path is its own item, and a row is a real option an approver 
     assert.equal(option.decidedBy.allowed, true);
     assert.doesNotMatch(option.chat.command, /<clause>|<why>/u, 'the row is named');
   }
-  assert.equal(source.options[0].chat.command, 'singularity-flow decision plan W-1 --fetch --add-location W-1:REQ-001=src/helper.mjs --reason "<REASON>"');
+  // The recommended row needs no reason in chat either: --recommended, which the command checks [C10].
+  assert.equal(source.options[0].chat.command, 'singularity-flow decision plan W-1 --fetch --add-location W-1:REQ-001=src/helper.mjs --recommended');
   assert.equal(build.options[1].chat.command, 'singularity-flow decision plan W-1 --fetch --add-supporting package.json=build-configuration --supporting-reason "<REASON>" --reason "<REASON>"');
   assert.equal(packet.record.copilotCommand, '/sf-decide W-1');
   assert.equal(packet.next.copilotCommand, '/sf-decide W-1');
@@ -176,7 +177,10 @@ test('a person who answered in chat is not sent to a terminal: each choice with 
   const supporting = decisionChatSteps(packet, steps)[1].command;
   assert.doesNotMatch(supporting, /<REASON>/u, 'every blank of it is filled');
   assert.match(supporting, /--add-supporting package\.json=build-configuration --supporting-reason 'Build configuration this change needs'/u);
-  assert.deepEqual(decisionChatSteps(packet, [{ item: source.id, option: 'row-w-1-req-001', values: {} }]), [], 'one still short of an answer is not offered');
+  // The recommended row needs no reason: with none typed it runs with --recommended [C10]; a weighed one still waits for words.
+  assert.deepEqual(decisionChatSteps(packet, [{ item: source.id, option: 'row-w-1-req-001', values: {} }]),
+    [{ item: source.id, command: 'singularity-flow decision plan W-1 --fetch --add-location W-1:REQ-001=src/helper.mjs --recommended' }]);
+  assert.deepEqual(decisionChatSteps(packet, [{ item: build.id, option: 'supporting', values: {} }]), [], 'one still short of an answer is not offered');
   assert.deepEqual(decisionChatSteps(packet, [{ item: 'd9', option: 'none', values: { reason: 'x' } }]), [], 'nor one with no chat command');
 });
 

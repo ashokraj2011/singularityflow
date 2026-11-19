@@ -2882,7 +2882,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2316 body tokens</span>
+          <span class="pill">~2321 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-decide</code></dd></div>
@@ -2923,7 +2923,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 6. For each `applicability` entry not `satisfied`, show `responsibility`, `declaredReason` and who decides (`authority`); ask yes or no that it does not apply, and their reason. On yes run `singularity-flow decision applicability &lt;WORK-ID&gt; --fetch --responsibility &lt;RESPONSIBILITY&gt; --reason &quot;&lt;REASON&gt;&quot;`; report the commit; stop.
 7. Scope statements are decided on the Decide card (12), never asked here.
 8. The completeness review too: a review, not proof of correct scope.
-9. A `chatYesNo` item: `ask_user` its `yesNo.question` (Yes, No, Not now), saying what the `yesNo.yes` option and the `yesNo.no` one (null: leave it) each `does`, then their reason. Run that option&#39;s `chat.command` once with it at `&lt;REASON&gt;`; report what it recorded; go on to the next item.
+9. A `chatYesNo` item: `ask_user` its `yesNo.question` (Yes, No, Not now), saying what the `yesNo.yes` option and the `yesNo.no` one (null: leave it) each `does`, then the reason its question asks for. Run that option&#39;s `chat.command` once with it at `&lt;REASON&gt;`; report what it recorded; go on to the next item.
 10. For `singularity-flow upstream-issue raise`, ask what&#39;s wrong (20+ characters); use their words. Existing issues: show `id`, `phase`, `about`, allowed outcomes and `recommended.words`; they are decided on the Decide card (12). Never duplicate a linked issue.
 11. Lead with `data.plain.headline`; show each item&#39;s `plain.question`, `plain.why` and `plain.recommended`, each option&#39;s `label` and `does`, recommended first, and `answer.words`; each `plain.later` is one &quot;Later:&quot; line. Not yours (`decidedBy.allowed` false): say `decidedBy.words`, give `decidedBy.share`, skip it. `data.settled` was settled for the person, never asked: show its `plain.settled`; its undo is theirs, on the card or `details.commands[0]` in their own terminal, never yours.
 12. Use the native review at 1 for `action.humanReview`, and 9 for `chatYesNo` items. Never ask any other item here: say how many wait and end with `data.next`, &quot;Open the Decide card&quot;, with its routes, never `/sf-decide` again (no card: `data.record.interactive`, their own terminal). `action` is theirs to do: give `action.command`; never record it.

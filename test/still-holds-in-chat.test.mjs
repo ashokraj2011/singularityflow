@@ -60,12 +60,15 @@ test('a "still holds" row is a yes or no in chat: yes still holds, no redoes it,
   assert.equal(row.options.find((entry) => entry.id === 'return-step').needs.reason.minimum, 20);
   assert.doesNotMatch(row.yesNo.question, /\n/u);
   const command = (id) => row.options.find((entry) => entry.id === id).chat.command;
-  assert.equal(command('still-holds'), 'singularity-flow upstream-issue revalidate fix-design --work-id D-1 --amendment AMD-001 --outcome unchanged --reason "<REASON>"');
+  // The recommended side needs no reason in chat: its command says so, and the command checks it [owner, 2026-11-19, C10].
+  assert.equal(command('still-holds'), 'singularity-flow upstream-issue revalidate fix-design --work-id D-1 --amendment AMD-001 --outcome unchanged --recommended');
   assert.equal(command('return-step'), 'singularity-flow upstream-issue revalidate fix-design --work-id D-1 --amendment AMD-001 --outcome return --reason "<REASON>"');
   // What a /sf-decide turn runs for the person's answer: that command, with their words, quoted for the shell.
   assert.deepEqual(decisionChatSteps(packet, [{ item: row.id, option: 'return-step', values: { reason: 'It relies on the numeric wording, so it is redone.' } }]),
     [{ item: row.id, command: 'singularity-flow upstream-issue revalidate fix-design --work-id D-1 --amendment AMD-001 --outcome return --reason \'It relies on the numeric wording, so it is redone.\'' }]);
-  assert.deepEqual(decisionChatSteps(packet, [{ item: row.id, option: 'still-holds', values: {} }]), [], 'no reason, nothing to run');
+  assert.deepEqual(decisionChatSteps(packet, [{ item: row.id, option: 'still-holds', values: {} }]), [{ item: row.id, command: command('still-holds') }],
+    'the recommended answer runs with no reason');
+  assert.deepEqual(decisionChatSteps(packet, [{ item: row.id, option: 'return-step', values: {} }]), [], 'the other side waits for the person\'s reason');
   // Its document names a path the changed clause expects: redo it, and the question says so.
   const redo = rowOf(packetOf(story(), { recommend: 'return', namedPaths: ['src/value.mjs'] }));
   assert.equal(redo.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: no, redo it. Fix design\'s document names src/value.mjs, which AC-001 expects. A yes says why in at least 20 characters.');

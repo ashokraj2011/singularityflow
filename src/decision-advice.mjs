@@ -265,8 +265,12 @@ export function itemRecommendation(workflow, item) {
     }
     case 'plan-accounting': {
       // A dependency, a build, CI or runner configuration, or governance metadata is weighed by a person [owner, 2026-11-19, C3].
-      const named = details.path ? personClass(details.path) : null;
-      if (named) return lean(`list ${details.path} as a supporting change only if this change needs it (${named.words.replace(/, so a person decides it\.$/u, '').replace(/^It /u, 'it ').replace(/\.$/u, '')}); otherwise add it to the row it serves.`);
+      const files = details.paths ?? (details.path ? [details.path] : []);
+      const weighed = files.find((file) => personClass(file));
+      if (weighed) {
+        const named = personClass(weighed);
+        return lean(`list ${weighed} as a supporting change only if this change needs it (${named.words.replace(/, so a person decides it\.$/u, '').replace(/^It /u, 'it ').replace(/\.$/u, '')}); otherwise add it to the row it serves.`);
+      }
       const supporting = options.find((entry) => entry.id === 'supporting');
       if (supporting) return rec(item, 'supporting', 'It is a supporting file (its kind serves no single requirement), so it belongs in the plan as a supporting change.');
       if (only) return rec(item, only.id, 'The plan has one row it can join.');
@@ -446,6 +450,8 @@ export function exceptionOption(entry) {
 // An intent amendment's decision (kind 1) keeps its own optional reason, and an approval takes none.
 const OWN_REASON_KINDS = new Set(['intent-amendment', 'approval', 'settled']);
 export const RECOMMENDATION_REASON = 'Followed SFlow\'s recommendation: ';
+// The chat commands that check --recommended themselves (recommended-answer.mjs).
+const RECOMMENDED_COMMANDS = /^singularity-flow (?:decision (?:departure|plan)|upstream-issue (?:revalidate|decide)) /u;
 
 /**
  * No reason is asked when the person picks the item's single recommended option [owner, 2026-11-19, C10]: picked as it is,
@@ -461,6 +467,11 @@ export function reasonOptional(item, options, recommended) {
     // An exception keeps its reason even when it is the recommended answer: the person says why it may stand.
     if (entry.id !== recommended.option || !need || exceptionOption(entry) || entry.recordable === false || need.minimum === 0) return entry;
     const because = `${RECOMMENDATION_REASON}${String(recommended.why ?? '').replace(/\s+/gu, ' ').trim()}`.slice(0, need.maximum);
-    return { ...entry, needs: { ...entry.needs, reason: { ...need, minimum: 0, default: because, recommended: true } } };
+    // In chat, after the person's own Yes, its command says --recommended and carries no reason: the command checks it [C10].
+    const command = entry.chat?.command;
+    // Their own words, when they give some anyway, still go in the command that takes them (`withReason`).
+    const chat = command && RECOMMENDED_COMMANDS.test(command)
+      ? { chat: { ...entry.chat, command: command.replace(/ --supporting-reason "<REASON>"/gu, '').replace(/ --reason "<REASON>"/u, ' --recommended'), withReason: command } } : {};
+    return { ...entry, ...chat, needs: { ...entry.needs, reason: { ...need, minimum: 0, default: because, recommended: true } } };
   });
 }

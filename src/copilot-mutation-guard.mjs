@@ -805,7 +805,8 @@ export function argvAllowed(argv, mode, value) {
       || positionals[1] === 'raise' && positionals.length === 2 && typeof options.phase === 'string'
         && typeof options.about === 'string' && typeof options.problem === 'string'
       || positionals[1] === 'revalidate' && positionals.length === 3 && /^(?:FAM|AMD)-\d{3,}$/u.test(options.amendment ?? '')
-        && ['unchanged', 'return'].includes(options.outcome) && typeof options.reason === 'string')
+        // Its recommended answer takes no reason: --recommended, which the command checks and the binding holds to a Yes [C10].
+        && ['unchanged', 'return'].includes(options.outcome) && (typeof options.reason === 'string' || options.recommended === true))
     && options['work-id'] === value.contract.workId;
   if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
     && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3

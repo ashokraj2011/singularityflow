@@ -67,13 +67,25 @@ test('on a step nobody approves, clear files are settled and a behaviour change 
   assert.match(held.value.error.message, /before it is submitted/u);
   assert.notEqual((await workflowOf(root)).phases.implement.status, 'approved');
 
-  // A plan approver keeps it on the card with the recommended answer, nothing typed; then the submission completes the step.
+  // A plan approver keeps it with the recommended answer and no reason, as /sf-decide runs it after their Yes [C10]: the
+  // command checks the answer is the recommended one, so Reject with no reason is refused before anything is written.
   const listed = sflowJson('decisions', 'QF-1').value.data;
   const departure = listed.items.find((entry) => entry.kind === 'departure');
-  const answers = path.join(repo.base, 'keep.json');
-  await writeFile(answers, JSON.stringify({ choose: { [departure.id]: departure.recommended.option }, confirm: listed.packetSha256 }));
-  const kept = sflowJson('decisions', 'record', 'QF-1', '--answers', answers);
+  assert.equal(departure.recommended.option, 'accept');
+  const accept = departure.options.find((entry) => entry.id === 'accept');
+  assert.match(accept.chat.command, / --as accepted --recommended$/u);
+  const notRecommended = sflowJson('decision', 'departure', 'QF-1', '--departure', after.departures[0].id, '--as', 'rejected', '--recommended');
+  assert.notEqual(notRecommended.status, 0);
+  assert.equal(notRecommended.value.error.code, 'DECISION_NOT_RECOMMENDED', JSON.stringify(notRecommended.value).slice(0, 1000));
+  // Its way out is that option's own command, with the person's reason, and the turn keeps going.
+  assert.match(notRecommended.value.remediationPlan.steps[0].command, / --as rejected --reason "<REASON>"$/u, JSON.stringify(notRecommended.value).slice(0, 2500));
+  assert.equal((await workflowOf(root)).departureDecisions, undefined, 'nothing was recorded');
+  const kept = sflowJson('decision', 'departure', 'QF-1', '--departure', after.departures[0].id, '--as', 'accepted', '--recommended');
   assert.equal(kept.status, 0, JSON.stringify(kept.value).slice(0, 1500));
+  const decided = await workflowOf(root);
+  assert.match(decided.planAmendments.at(-1).reason, /^Followed SFlow's recommendation: /u);
+  assert.deepEqual(decided.adviceOutcomes.map((entry) => [entry.kind, entry.matched, entry.reason, entry.surface, entry.record]),
+    [['departure', true, 'recommendation', 'chat', decided.planAmendments.at(-1).id]]);
   const submitted = sflowJson('submit', 'implement');
   assert.equal(submitted.status, 0, JSON.stringify(submitted.value).slice(0, 2000));
   assert.equal((await workflowOf(root)).phases.implement.status, 'approved');

@@ -143,6 +143,11 @@ export function wordsOfCommand(options) {
 }
 
 const REFUSAL = 'PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded.';
+/** Whether a command records the recommended answer with no reason (`--recommended`), read as the CLI reads a boolean. */
+export const recommendedAnswer = (options) => {
+  const value = [options?.recommended].flat().at(-1);
+  return value !== undefined && !['false', '0', 'no', 'off'].includes(String(value).toLowerCase());
+};
 const NEVER = /(?!)/u;
 const ROUTES = 'A person can also answer on the decisions card (sflowDecide or sflow_decide with the Story ID) or in their own terminal (singularity-flow decisions record <WORK-ID>).';
 
@@ -160,6 +165,8 @@ export const REASON_RULES = Object.freeze({
 });
 
 function reasonLengthProblem(positionals, options) {
+  // The recommended answer takes no reason: the command records the recommendation's own, after checking it is one [C10].
+  if (recommendedAnswer(options)) return null;
   for (const [flag, [minimum, maximum]] of Object.entries(REASON_RULES[positionals.slice(0, 2).join(' ')] ?? {})) {
     if (flag === 'supporting-reason' && options['add-supporting'] === undefined) continue;
     const length = String(typeof options[flag] === 'string' ? options[flag] : '').trim().length;
@@ -190,6 +197,10 @@ function yesNoCommand([command, sub, third], options, version = null) {
       yes: ['accept', 'keep', 'keep it'], no: ['reject'], typed: { yes: /\bd\d{1,3}=accept[\w-]*/u, no: /\bd\d{1,3}=reject\b/u } } : null;
   }
   if (command === 'decision' && sub === 'applicability') return { records: 'yes', only: true, row: `applicability ${text('responsibility')[0]}`, names: text('responsibility'), yes: [], no: [] };
+  // An issue decided with its recommended outcome and no reason stands only on the person's Yes to a question naming it [C10].
+  if (command === 'upstream-issue' && sub === 'decide' && recommendedAnswer(options)) {
+    return { records: 'yes', only: true, recommended: true, row: `issue ${third}`, names: [third].filter(Boolean), yes: [], no: [] };
+  }
   // Proposing an intent amendment from chat, under SPEC-CIC switch 3 [CIC:REQ-015, owner decision 3]: only on the person's own
   // yes to its preview, their latest yes or no in this turn; a no, Not now or no answer proposes nothing. Never typed ahead.
   if (command === 'story' && sub === 'intent-amendment' && third === 'propose') {
@@ -217,7 +228,7 @@ function yesNoCommand([command, sub, third], options, version = null) {
   }
   if (command === 'decision' && sub === 'plan' && (options['add-location'] !== undefined || options['add-supporting'] !== undefined)) {
     const paths = [...text('add-location').map((entry) => entry.slice(entry.indexOf('=') + 1)), ...text('add-supporting').map((entry) => entry.split('=')[0])].sort();
-    return { records: 'yes', only: true, row: `plan ${paths.join(' ')}`, names: paths, yes: [], no: [] };
+    return { records: 'yes', only: true, ...(recommendedAnswer(options) ? { recommended: true } : {}), row: `plan ${paths.join(' ')}`, names: paths, yes: [], no: [] };
   }
   return null;
 }
@@ -276,8 +287,9 @@ function yesNoAnswer(ledger, yesNo) {
   // A one-choice item reads only a question that names it, never one about an amendment or a departure.
   const mine = replies.filter((entry) => names(entry) && !(yesNo.only && /\b(?:fam|amd|dep) \d{3,}\b/u.test(named(entry.reply.asked))));
   if (mine.length) return mine.at(-1);
-  // A row that must be shown before it is kept (a plan row correction) stands on no other answer.
-  if (yesNo.required) return { problem: 'none' };
+  // A row that must be shown before it is kept (a plan row correction), or a one-choice row kept with no reason because it is
+  // the recommended answer, stands on no other answer [C10].
+  if (yesNo.required || (yesNo.only && yesNo.recommended)) return { problem: 'none' };
   if (yesNo.only) return null;
   const free = replies.filter((entry) => !yesNo.ids.test(named(entry.reply.asked)));
   const last = free.at(-1);

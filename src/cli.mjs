@@ -4490,7 +4490,10 @@ async function decisionPlanCommand(positionals, options) {
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
   const { commitPlanAmendment } = await import('./commands/decision-plan-amendment.mjs');
-  const { amendment, publication } = await commitPlanAmendment(root, config, workflow, { changes, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
+  // The person's reason, or with --recommended the recommendation's own for the row the list recommends [C10, Q13].
+  const { planChatAnswer, withChatAdvice } = await import('./recommended-answer.mjs');
+  const answer = await planChatAnswer(root, config, workflow, changes, { recommended: optionBoolean(options, 'recommended'), reason: optionString(options, 'reason') ?? '' });
+  const { amendment, publication } = await withChatAdvice(answer.advice, () => commitPlanAmendment(root, config, workflow, { changes: answer.changes, reason: answer.reason }, { actor, agent }));
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded plan amendment ${amendment.id} for ${id} through ${amendment.authorityGroup}.`);
     console.log(publication.pushed

@@ -496,6 +496,12 @@ export function agentAct(result) {
     if (result.status === 'documents-required') return { state: 'ask-person', do: null,
       read: ['documentReadiness', 'next'],
       said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
+    // The review's findings on a version only its reviewer has seen: its next version starts on its own, run here, with an
+    // undo on the decisions card; nobody is asked (owner, 2026-11-19).
+    const settles = firstNow(result.next);
+    if (/\s--review-findings(?:\s|$)/u.test(settles?.commandGuidance?.command ?? settles?.command ?? '')) return withRoute({ state: 'next', do: null, read: ['next'],
+      said: oneLine(`Only the reviewer has seen ${result.phase ?? 'this step'}'s published version: run do.shell now, in this turn. SFlow starts the next version itself, with an undo on the decisions card; `
+        + 'say its line, refresh the entry once and fix the review\'s findings in this same turn. Ask the person nothing about it.') }, settles);
     // A review asked the published code for corrections: one yes from the person starts the next version, and this same
     // turn fixes the findings. Asked with the host's question tool, never answered by the agent [owner, 2026-11-16].
     // So does a change the person typed after it was published (successor.requests, their words quoted): one yes, then the
@@ -671,6 +677,12 @@ export function agentAct(result) {
     if (list.items?.length) return { state: 'ask-person', do: null, read: [`${at}items`, `${at}record`],
       said: 'Show each item\'s title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them. action.humanReview opens native #sflowWitnessReview with workId, criterion and slot only; the person supplies its checklist and reason there. If that tool is unavailable, give the exact human Shell command; do not send a witness back to /sf-decide. Recorded plan accounting is separate from pending visual sign-off.' };
     return { state: 'read', do: null, said: oneLine(list.headline) };
+  }
+  // The next version for a review's findings, started by SFlow because only the reviewer had seen the last one (owner,
+  // 2026-11-19): said in one line with its undo, and fixed in this same turn; nobody is asked.
+  if (result.resultType === 'sflow-generation-rollover' && result.kind === 'review-corrections' && result.mutates === true && result.settled && result.line) {
+    return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', 'requestedChange'],
+      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and fix the review's findings in this same turn; ask the person nothing about it.`) }, result.nextAction);
   }
   const action = genericAction(result);
   // A prepared scope-owning draft names the source statements it has yet to link, as entry does.

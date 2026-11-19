@@ -945,6 +945,7 @@ Usage:
   singularity-flow phase begin [PHASE] [--json]
     [--adopt-existing|--adopt-current-interval] [--confirm CHANGE-SET-DIGEST]
   singularity-flow phase rollover [PHASE] [--reason TEXT] [--json|[--as-question] --confirm CURRENT-DIGEST]
+  singularity-flow phase rollover [PHASE] --review-findings [--json]
   singularity-flow phase publish [PHASE]
     [--authored human|governed-agent|deterministic|external-tool]
     [--from FILE] [--channel manual-in-place|manual-import|copilot-host|kernel-model|kernel-generator|external-tool]

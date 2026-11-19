@@ -8,6 +8,24 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
+import { inTurnSubmitCommand, reviewFindingsOpenCommand } from './action-command-map.mjs';
+
+/**
+ * Whether only the reviewer has seen the published version its review asks to correct (owner, 2026-11-19, cut 10): the
+ * review asks for corrections, nobody answered or disposed of it, no approval or return names that version, and no person
+ * undid an earlier automatic start of this step. Its next version then starts on its own, with an undo
+ * (review-findings-opening.mjs, which checks again with the person's typed words and changed files).
+ */
+export function reviewerAloneSaw(workflow, phase, review) {
+  const version = Number(phase?.generation ?? 0);
+  // A retained report is what the reviewer saw; a status with none is no review to act on.
+  if (!(version >= 1) || phase.status !== 'in_progress' || workflow?.currentPhase !== phase.id || !reviewAsksForCorrection(review) || !review.reportSha256) return false;
+  if (review.generation !== undefined && Number(review.generation) !== version) return false;
+  if ((review.decisions ?? []).length || (review.carriedDecisions ?? []).length || (review.pendingDispositions ?? []).length) return false;
+  if ((phase.approvals ?? []).some((entry) => Number(entry.generation) === version) || phase.rejectedAt || phase.submittedAt) return false;
+  const undone = new Set((workflow.settledDecisions ?? []).map((entry) => entry?.undoes).filter(Boolean));
+  return !(workflow.settledDecisions ?? []).some((entry) => entry?.kind === 'review-corrections' && entry.phase === phase.id && undone.has(entry.id));
+}
 
 /**
  * When everything a review still holds is a reviewer finding about the approved specification, the
@@ -85,10 +103,13 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
       const code = phaseRequiresCodeDelivery(phase);
       if (operation === 'open-version' && inputs.consent === 'required') {
         // A published step's next version opens in its own work command, which asks the person, then fixes it in the same
-        // turn [D3, OSA:REQ-030]; /sf-recover found nothing to recover for unchanged bytes (owner, 2026-11-16).
+        // turn [D3, OSA:REQ-030]; /sf-recover found nothing to recover for unchanged bytes (owner, 2026-11-16). For a review's
+        // findings on a version only the reviewer has seen, it starts on its own, with an undo (owner, 2026-11-19).
         const skill = code ? '/sf-code' : String(author).replace(/^\/sflow-/u, '/sf-');
-        actions = [action(skill, `singularity-flow phase rollover ${phase.id} --json`,
-          fix ? `${skill} asks the person "Start version ${generation} of ${phase.label ?? phase.id} to fix the review's findings?" and, on their yes, fixes them in the same turn.`
+        const settles = Boolean(fix) && reviewerAloneSaw(workflow, phase, review);
+        actions = [action(skill, settles ? reviewFindingsOpenCommand(phase.id) : `singularity-flow phase rollover ${phase.id} --json`,
+          settles ? `Only the reviewer has seen version ${phase.generation}: ${skill} starts version ${generation} of ${phase.label ?? phase.id} to fix the review's findings on its own (undo on the decisions card) and fixes them in the same turn.`
+            : fix ? `${skill} asks the person "Start version ${generation} of ${phase.label ?? phase.id} to fix the review's findings?" and, on their yes, fixes them in the same turn.`
             : `${skill} previews version ${generation} of ${phase.id} and asks the person to confirm it; version ${phase.generation} stays as published.`, fix)];
       } else if (operation === 'author-version' && decision.version.published >= 1) {
         // Its next version is open: writing it is the next step. The published version's review is carried into it, so
@@ -125,7 +146,11 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     }
   }
   const presentation = continuationPresentation(actions[0]);
+  // A ready version is submitted by the turn that wrote it and started its reviewer: /sf-submit's own entry, run there once,
+  // so no separate /sf-submit turn follows (owner, 2026-11-19). A review turn of its own still ends on `presentation`.
+  const inTurn = classification === 'submission-required' && actions[0]?.skill
+    ? { command: inTurnSubmitCommand(workflow.workItem.id), skill: actions[0].skill, reason: 'Submit the ready version now, in the turn that wrote it.' } : null;
   return { classification, publishedGeneration: Number(phase.generation ?? 0), targetGeneration: generation,
-    automaticAdvance: false, actions, nextCommand: actions[0]?.command ?? null,
+    automaticAdvance: false, actions, ...(inTurn ? { inTurn } : {}), nextCommand: actions[0]?.command ?? null,
     nextSkill: actions[0]?.skill ?? null, copilotCommand: actions[0]?.copilotCommand ?? null, ...(presentation ? { presentation } : {}) };
 }

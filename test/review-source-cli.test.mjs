@@ -97,6 +97,16 @@ function openNextVersion(root, phaseId, reason) {
   return git(root, 'rev-parse', 'HEAD');
 }
 
+/** The review's findings on a version only the reviewer has seen: version 2 starts on its own, settled with an undo (owner, 2026-11-19). */
+function startForFindings(root, phaseId) {
+  const opened = completeAgentResult(cli(root, 'phase', 'rollover', phaseId, '--review-findings', '--json'));
+  assert.equal(opened.mutates, true, JSON.stringify(opened).slice(0, 2000));
+  assert.equal(opened.toGeneration, 2);
+  assert.equal(opened.settled.kind, 'review-corrections');
+  assert.match(opened.line, /^Only the reviewer had seen version 1 of .+, so SFlow started version 2 to fix its findings; undo it on the decisions card/u);
+  return git(root, 'rev-parse', 'HEAD');
+}
+
 /** A successor's preparation without the person's yes is refused before any change [owner; OSA Stage 2]. */
 function refusedWithoutYes(root, phaseId, args = ['prepare', phaseId, '--no-model']) {
   const head = git(root, 'rev-parse', 'HEAD');
@@ -269,28 +279,25 @@ test('a retained correction routes compact phase entry to explicit successor pre
     const stateBytes = await readFile(state, 'utf8');
     const before = git(root, 'rev-parse', 'HEAD');
     for (const options of [[], ['--compose']]) {
-      // The next version is the person's yes first [owner: a yes before every new version; OSA Stage 2, D3]: the entry asks
-      // the proposal's question, and its route is the step's preview, which prepares nothing.
+      // Only the reviewer has seen version 1: its next version starts on its own, with an undo, run by the entry's own
+      // route in the same turn; nobody is asked, and the entry prepares nothing first (owner, 2026-11-19, cut 10).
       const entry = completeAgentResult(cli(root, 'phase', 'enter', phaseId, ...options, '--for-agent', '--json'));
-      assert.equal(entry.status, 'successor-confirmation-required');
-      assert.equal(entry.authoringAllowed, false, 'the person\'s yes and preparation must precede composition');
+      assert.equal(entry.status, 'retained-generation');
+      assert.equal(entry.authoringAllowed, false, 'the version opens before composition');
       assert.equal(entry.context, null);
       assert.equal(entry.generation, 1);
       assert.equal(entry.inspectionGeneration, 1);
-      assert.equal(entry.successor.targetGeneration, 2);
-      assert.equal(entry.successor.automatic, false);
-      assert.match(entry.successor.question, /^Start version 2 of .+ to fix the review's findings\? Published version 1 will stay unchanged\.$/u);
-      assert.equal(entry.successor.preview.command, `singularity-flow phase rollover ${phaseId} --json`);
-      assert.equal(retained.continuation.nextCommand, `singularity-flow phase rollover ${phaseId} --json`);
+      assert.equal(entry.successor, undefined);
+      assert.equal(retained.continuation.nextCommand, `singularity-flow phase rollover ${phaseId} --review-findings --json`);
       assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).command, retained.continuation.nextCommand);
       assert.equal(await readFile(state, 'utf8'), stateBytes);
       assert.equal(await readFile(artifact, 'utf8'), bytes);
       assert.equal(git(root, 'rev-parse', 'HEAD'), before);
       assert.equal(git(root, 'status', '--short'), '');
     }
-    // Preparation without the person's yes is refused; their yes to the review's question opens version 2.
+    // Preparation before the version opens is refused; the entry's route starts version 2, settled with an undo.
     refusedWithoutYes(root, phaseId);
-    const opened = openNextVersion(root, phaseId);
+    const opened = startForFindings(root, phaseId);
     const corrected = `${bytes}\nThe saved status is displayed only after durable persistence.\n`;
     await writeFile(artifact, corrected);
     cli(root, 'prepare', phaseId, '--no-model', '--json');

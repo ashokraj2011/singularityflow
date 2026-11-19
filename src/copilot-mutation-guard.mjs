@@ -1069,7 +1069,7 @@ function pausedStepCommand(positionals, options, contract) {
   return command === 'phase' && named(third) && (['publish', 'begin'].includes(sub)
     || (sub === 'prepublish' && options['publish-if-ready'] === true)
     // The author's own correction opens the next generation as a confirmed rollover does [owner, 2026-11-13].
-    || (sub === 'rollover' && (Object.hasOwn(options, 'confirm') || Object.hasOwn(options, 'correction'))));
+    || (sub === 'rollover' && ['confirm', 'correction', 'review-findings'].some((name) => Object.hasOwn(options, name))));
 }
 function pausedStepCall(call, value) {
   const safe = verifiedShellForm(call, value);

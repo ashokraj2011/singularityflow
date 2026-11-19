@@ -7,7 +7,7 @@ import { copilotAction } from './copilot-guidance.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { consumedOpeningMismatch, versionNeed, versionNumbers } from './kernel/step-versions.mjs';
 import { versionProposal } from './story-version-proposal.mjs';
-import { ACTION_SKILLS, actionCommandLine } from './action-command-map.mjs';
+import { ACTION_SKILLS, actionCommandLine, reviewFindingsOpenCommand } from './action-command-map.mjs';
 
 const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AMENDMENT: 'amendment', AUTHOR_CONFLICT: 'author-conflict' });
 
@@ -69,6 +69,11 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
   if (continuation?.classification === 'successor-publication-required' && reviewAsksForCorrection(review)
       && continuation.nextCommand === actionCommandLine('open-version', 'preview', { step: phase.id })) {
     return successorAsk(workflow, phase, { route: continuation.actions[0], reason: 'review-corrections', findings: reviewCorrection(review, phase.generation)?.findings ?? [] });
+  }
+  // Only the reviewer has seen the version its review asks to correct: the next version starts on its own, with an undo,
+  // and this same turn fixes the findings; nobody is asked (owner, 2026-11-19).
+  if (continuation?.classification === 'successor-publication-required' && continuation.nextCommand === reviewFindingsOpenCommand(phase.id)) {
+    return { status: 'retained-generation', reason: 'review-findings-settle', actions: continuation.actions };
   }
   if (continuation?.classification === 'successor-publication-required'
       && !phaseRequiresCodeDelivery(phase) && !deterministic

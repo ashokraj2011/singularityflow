@@ -367,7 +367,9 @@ test('the import preview names who an approval group it brings puts in or takes 
   const replaced = await planWorkflowImport(root, bundle, { resolutions: { 'approval-group:product-approvers': { action: 'replace' } } });
   const text = importPlanText(replaced, bundleFile, { identity: me });
   assert.ok(text.includes('  This import puts you in product-approvers.'), text.join('\n'));
-  assert.ok(text.includes("    Keep this repository's product-approvers instead: --resolve approval-group:product-approvers=keep"), text.join('\n'));
+  // A whole command to run, never a fragment to splice in [audit 2026-11-19, entry 14].
+  assert.ok(text.some((line) => line.startsWith("    Keep this repository's product-approvers instead: singularity-flow workflow import ")
+    && line.includes('--resolve approval-group:product-approvers=keep')), text.join('\n'));
   const kept = await planWorkflowImport(root, bundle, { resolutions: { 'approval-group:product-approvers': { action: 'keep' } } });
   assert.equal(kept.memberships, undefined, 'keeping the repository\'s group changes nobody');
 });

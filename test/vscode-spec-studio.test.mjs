@@ -394,7 +394,7 @@ test('the whole loop in the Studio, by hand: save, settle, publish reviewed, the
   await settled(client, studio);
   let html = studio.webview.html;
   assert.match(html, /<code data-slice-option>--spec SPEC-CHK-004@1<\/code>/u, 'every clause: no clause list');
-  assert.match(html, /singularity-flow start &lt;WORK-ID&gt; --from-branch &lt;BRANCH&gt; --title &quot;&lt;TITLE&gt;&quot; --spec SPEC-CHK-004@1/u);
+  assert.match(html, /singularity-flow start &lt;NEW-WORK-ID&gt; --title &quot;&lt;TITLE&gt;&quot; --spec SPEC-CHK-004@1/u);
   studio.post({ type: 'spec.coverage' });
   await settled(client, studio);
   html = studio.webview.html;

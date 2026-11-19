@@ -58,10 +58,10 @@ test('team onboarding webview messages are a closed contract resolved by the hos
 test('provider repositories are explicitly selected before their locator can be inspected', () => {
   const prepared = methodBody('preparedLocator');
   assert.match(prepared,
-    /secret\.source === 'catalog'[\s\S]*if \(!secret\.selectionRef\)[\s\S]*incomplete or expired/,
+    /held\.source === 'catalog'[\s\S]*if \(!held\.selectionRef\)[\s\S]*incomplete or expired/,
     'catalog observations cannot fall back to an un-revalidated locator');
   assert.match(prepared,
-    /'repositories', 'select', secret\.selectionRef, '--action', 'inspect',[\s\S]*'--surface', 'vscode', '--json'/);
+    /'repositories', 'select', held\.selectionRef, '--action', 'inspect',[\s\S]*'--surface', 'vscode', '--json'/);
   assert.match(prepared, /gitRemoteProblem\(locator, row\.nameWithOwner\)/,
     'the selected locator is revalidated before it reaches Git');
 

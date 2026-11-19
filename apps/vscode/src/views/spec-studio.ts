@@ -638,6 +638,8 @@ export class SpecStudioPanel implements vscode.Disposable {
       if (this.running || minutes > 0 && !this.laptop().quiet(minutes).idle) return this.planSync();
       void this.flushEdits().then(ok => { if (ok) void this.sync(true, next); });
     }, delay);
+    // Sharing nobody asked for may wait half an hour: that wait never keeps a process alive by itself.
+    (this.syncTimer as { unref?: () => void }).unref?.();
   }
   /** A hold on refused writing lasts only while that writing is the draft; any later version is worth trying. */
   private syncHeld(spec: string): boolean {

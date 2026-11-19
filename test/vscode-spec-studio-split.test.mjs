@@ -194,7 +194,8 @@ test('the Studio splits a reviewed revision: a refused plan names its clause, a 
   html = studio.webview.html;
   assert.match(html, /Proposed the split on this clone; nothing is published yet\./u);
   assert.match(html, /data-split-proposal/u);
-  assert.match(html, /singularity-flow start &lt;WORK-ID&gt; --from-branch &lt;BRANCH&gt; --title &#39;No discount outside INR&#39; --spec SPEC-CHK-004@1=REQ-002,AC-002/u);
+  // No base to fill in: start asks for one, or offers each as a whole command [audit 2026-11-19, entry 24].
+  assert.match(html, /singularity-flow start &lt;NEW-WORK-ID&gt; --title &#39;No discount outside INR&#39; --spec SPEC-CHK-004@1=REQ-002,AC-002/u);
   assert.match(html, /<button type="button" data-message="spec\.splitPublish" data-revision="1">/u);
   assert.deepEqual(client.calls.filter((argv) => argv.includes('--propose')).map((argv) => argv.slice(0, 4)), [
     ['spec', 'split', `${SPEC}@1`, '--propose'], ['spec', 'split', `${SPEC}@1`, '--propose']]);

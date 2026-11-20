@@ -75,13 +75,16 @@ export function normalizeRepairBudget(value = null, { phaseId = 'phase', phases 
  * upstream issue's return usually comes from a step still in progress, and `reject` refuses a step
  * that is not submitted, so the route was named where it could not run (2026-10-28).
  */
+/** The return of `step` to `to`, its reason left for the person: one spelling for both routes below. */
+const returnLine = (workflow, step, to, reason = '<reason>') => `singularity-flow reject ${step} --work-id ${workflow.workItem?.id} --to ${to} --reason ${reason}`;
+
 function budgetResetRoute(workflow, policy, sourcePhase, targetPhase) {
   const reset = policy.resetOnPhase;
   if (!reset || !sourcePhase || reset === targetPhase) return null;
   const allowed = sourcePhase.approvalPolicy?.rejectTo ?? [sourcePhase.id];
   const order = workflow.phaseOrder ?? [];
   if (!allowed.includes(reset) || order.indexOf(reset) < 0 || order.indexOf(reset) > order.indexOf(sourcePhase.id)) return null;
-  return `singularity-flow reject ${sourcePhase.id} --work-id ${workflow.workItem?.id} --to ${reset} --reason <reason>`;
+  return returnLine(workflow, sourcePhase.id, reset);
 }
 
 /**
@@ -91,7 +94,7 @@ function budgetResetRoute(workflow, policy, sourcePhase, targetPhase) {
  */
 function oneMoreRoundCommand(workflow, sourcePhase, targetPhase) {
   if (!sourcePhase?.id || !PHASE_ID.test(targetPhase ?? '') || !workflow.workItem?.id) return null;
-  return `singularity-flow reject ${sourcePhase.id} --work-id ${workflow.workItem.id} --to ${targetPhase} --reason "<why one more round>" --beyond-budget`;
+  return `${returnLine(workflow, sourcePhase.id, targetPhase, '"<why one more round>"')} --beyond-budget`;
 }
 
 export function consumeRepairAttempt(workflow, phase, { targetPhase, actor, at, changeRequestId, sourcePhase = null, beyondBudget = false }) {

@@ -90,7 +90,7 @@ import { openUpstreamIssues } from './upstream-issues.mjs';
 export { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
-import { submitRoute } from './action-command-map.mjs';
+import { stepEntryCommand, submitRoute } from './action-command-map.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
@@ -2659,7 +2659,7 @@ async function clarificationCommand(positionals, options) {
     const answer = optionString(options, 'answer');
     if (!question || !answer) throw new SingularityFlowError(`No answers to record: write the person's answers in the file phase entry gave for them${issued ? ` (${issued})` : ''}, or give --question and --answer.`,
       { code: 'CLARIFICATION_RESPONSE_FILE_REQUIRED', details: { ...(issued ? { responseStagingPath: issued } : {}),
-        nextAction: { command: `singularity-flow phase enter ${phase.id} --work-id ${workflow.workItem.id} --compose --for-agent --json`, label: 'Read the step again: it names that file and the answers\' shape.' } } });
+        nextAction: { command: stepEntryCommand(phase.id, workflow.workItem.id), label: 'Read the step again: it names that file and the answers\' shape.' } } });
     responses = [{
       question,
       ...(marker ? { marker } : {}),

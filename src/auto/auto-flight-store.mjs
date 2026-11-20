@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 
+import { storyNextCommand } from '../action-command-map.mjs';
 import { gitCommonDir } from '../git.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { automaticApprovalDisposition } from '../lifecycle-transitions.mjs';
@@ -602,7 +603,7 @@ export async function resumeAutoFlight(root, id, confirmation, options = {}) {
   // Handed back after a halt: the Story goes on by hand or with Copilot, never as this flight again.
   if (current.stopReason === HANDED_BACK) {
     throw new SingularityFlowError(`Auto flight '${id}' was halted and handed back to Story ${current.story.workId}; it does not resume. Continue the Story as any other.`, {
-      code: 'AUTO_FLIGHT_HANDED_BACK', details: { workId: current.story.workId, nextAction: `singularity-flow nextsteps ${current.story.workId} --json` }
+      code: 'AUTO_FLIGHT_HANDED_BACK', details: { workId: current.story.workId, nextAction: `${storyNextCommand(current.story.workId)} --json` }
     });
   }
   if ((current.openHumanRequestIds ?? []).length) {

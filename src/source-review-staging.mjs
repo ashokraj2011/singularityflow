@@ -5,6 +5,7 @@ import { lstat, open, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { gitDir } from './git.mjs';
 import { safeSidecarTreeDirectory } from './private-sidecar.mjs';
 import { CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { reviewContextWords } from './action-command-map.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { sourceReviewStagingPath } from './phase-staging-paths.mjs';
 import { withSourceReviewSnapshot } from './source-review-snapshot.mjs';
@@ -136,7 +137,7 @@ export async function startSourceReviewTurn(root, stagingPath) {
 export function sourceReviewBudgetSpent(phaseId, stagingPath, record) {
   if (!record?.budgetSpent) return null;
   return { recorded: true, stagingPath, reason: record.reason,
-    nextAction: safeCommandGuidance({ argv: ['review-source', 'context', phaseId, '--for-agent', '--json'] }),
+    nextAction: safeCommandGuidance({ argv: reviewContextWords(phaseId) }),
     instruction: `This review turn's ${SOURCE_REVIEW_REPAIRS} repairs are spent and the report still cannot be retained (${record.reason}). The draft stays staged at ${stagingPath} and review-source status records the review as incomplete. End this review turn with that status and the remaining fields; a fresh review turn (/sf-review-source ${phaseId}, or the reviewer started again) resumes the draft with a new repair budget. Running the check is always allowed: it corrects what SFlow can and says what is left.` };
 }
 

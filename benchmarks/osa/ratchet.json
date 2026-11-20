@@ -739,9 +739,6 @@
       "skillChooserCalls": 1,
       "routeObjects": 1
     },
-    "source-review-staging.mjs": {
-      "lifecycleCommands": 1
-    },
     "state.mjs": {
       "intentReads": 3,
       "predicateCalls": 27,

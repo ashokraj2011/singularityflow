@@ -230,7 +230,10 @@ test('a plain prepublish that keeps what the person asked for is SFlow\'s own co
   assert.equal(checked.status, 'ready', JSON.stringify(checked.findings ?? checked).slice(0, 1500));
   assert.match(must('git', ['log', '-1', '--format=%s']), /^\[QF-1\]\[asked-for\] intake generation 1$/mu, 'the prepublish kept what the person asked for');
   assert.notEqual(must('git', ['rev-parse', 'HEAD']).trim(), before);
-  assert.deepEqual(hook('boundary-after', prepublish), {}, 'its own commit is no change made outside SFlow');
+  // The after-tool event carries what the terminal showed, as Copilot CLI sends it; an event with no result at all is the
+  // unread-result hook's case (unread-result.mjs), not this one.
+  const shown = { ...prepublish, toolResult: { resultType: 'success', textResultForLlm: JSON.stringify(checked) } };
+  assert.deepEqual(hook('boundary-after', shown), {}, 'its own commit is no change made outside SFlow');
   // A change no SFlow command made is still caught against the baseline moved past that commit.
   await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 2;\n');
   const other = { sessionId: 'author-chat', toolName: 'bash', toolArgs: { command: 'node tools/bump.mjs' } };

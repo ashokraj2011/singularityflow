@@ -29,7 +29,8 @@ export const ACTION_COMMANDS = Object.freeze({
   'open-version': entry('work', { preview: 'phase rollover <step> --json', begin: 'phase begin <step> --json', prepare: 'prepare <step>',
     findings: 'phase rollover <step> --review-findings --json' }),
   'build-version': entry('work', { prepare: 'prepare <step>', preview: 'phase rollover <step> --json' }),
-  'author-version': entry('work', { prepare: 'prepare <step>' }),
+  // `enter`: the step's own entry again, read to name the issued answers file and its shape [owner, 2026-11-20, limits].
+  'author-version': entry('work', { prepare: 'prepare <step>', enter: 'phase enter <step> --work-id <W> --compose --for-agent --json' }),
   // `account`: what the person typed, accounted for by the step's author before the submission that completes it [SCS:REQ-042].
   'repair-version': entry('work', { prepare: 'prepare <step>', account: 'departure account --work-id <W> --instruction <instruction> --clauses <CLAUSES>' }),
   // `prepublish` checks and publishes once ready; `check` checks a deterministic step's code; `draft` checks an authored draft.
@@ -111,6 +112,12 @@ export const authorCommand = (step) => actionCommandLine('author-version', 'prep
 export const authorRoute = (workflow, phase) => ({ skill: actionSkill('author-version', { phase, workflow }), command: authorCommand(phase.id) });
 export const showCommand = (step) => actionCommandLine('inspect', 'show', { step });
 export const storyNextCommand = (workId) => actionCommandLine('none', 'story', { workId });
+/** The approval's argv words, without the executable: a ready receipt's filled approve adds its own flags (choices.mjs). */
+export const approveWords = (step, workId) => (actionCommand('approve-step', 'approve', { step, workId }) ?? '').split(' ').filter(Boolean);
+/** The review's packet as argv words, without the executable (source-review-staging.mjs). */
+export const reviewContextWords = (step) => (actionCommand('review-version', 'context', { step }) ?? '').split(' ').filter(Boolean);
+/** The step's own entry again, which names the issued answers file and its shape (clarification answers, cli.mjs). */
+export const stepEntryCommand = (step, workId) => actionCommandLine('author-version', 'enter', { step, workId });
 const fixed = (skill, operation, form, workflow, phase, to) => ({ skill, command: actionCommandLine(operation, form, { step: phase.id, workId: workflow.workItem.id, to }) });
 export const approveRoute = (workflow, phase) => fixed(ACTION_SKILLS.approve, 'approve-step', 'approve', workflow, phase);
 export const returnRoute = (workflow, phase, to = phase.id) => fixed(ACTION_SKILLS.reject, 'approve-step', 'reject', workflow, phase, to);

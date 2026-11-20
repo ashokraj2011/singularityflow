@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, readFile, readdir, rm, unlink } from 'node:fs/prom
 import path from 'node:path';
 import { gitDir, head } from './git.mjs';
 import { loadCopilotSession } from './session.mjs';
+import { approveWords } from './action-command-map.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
 import { storyNextDetails } from './sequence.mjs';
 import { recordSha256 } from './records.mjs';
@@ -456,7 +457,7 @@ export function approvalReceiptCommands(receipt) {
   if (typeof phase !== 'string') return null;
   return {
     answer: ['choices', 'answer', receipt.token, 'phase-confirmation', phase, '--json'],
-    approve: ['approve', phase, '--work-id', receipt.workId, '--fetch', '--selection-receipt', receipt.token, '--for-agent', '--json']
+    approve: [...approveWords(phase, receipt.workId), '--selection-receipt', receipt.token, '--for-agent', '--json']
   };
 }
 

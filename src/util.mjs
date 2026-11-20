@@ -1059,7 +1059,7 @@ export function run(command, args = [], {
     throw new SingularityFlowError(`Unable to run ${command}: ${result.error.message}`);
   }
   if (timedOut && !allowFailure) {
-    throw new SingularityFlowError(`${command} did not respond within ${timeoutMs}ms.`, { code: 'SUBPROCESS_TIMEOUT' });
+    throw new SingularityFlowError(`${command} did not respond within ${timeoutMs}ms.`, { code: 'SUBPROCESS_TIMEOUT', details: { command: path.basename(String(command)), timeoutMs } });
   }
   if (status !== 0 && !allowFailure) {
     if (command === 'git' && gitDeveloperToolsUnavailable({ ...result, status }, platform)) {

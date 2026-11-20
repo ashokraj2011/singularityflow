@@ -118,8 +118,10 @@ test('a command that reaches the network gets a bound, and a timeout is not a re
   assert.equal(result.timedOut, true);
   assert.notEqual(result.status, 0);
 
-  // Without allowFailure the caller hears that it did not answer, not that it said no.
-  assert.throws(() => run('sleep', ['30'], { timeoutMs: 250 }), (error) => error.code === 'SUBPROCESS_TIMEOUT');
+  // Without allowFailure the caller hears that it did not answer, not that it said no; the program and its limit reach the
+  // plan's retry words (limit-remediation.mjs WAITS), never its arguments.
+  assert.throws(() => run('sleep', ['30'], { timeoutMs: 250 }), (error) => error.code === 'SUBPROCESS_TIMEOUT'
+    && error.details.command === 'sleep' && error.details.timeoutMs === 250 && Object.keys(error.details).length === 2);
 });
 
 test('every untyped Git launch is bounded and noninteractive without losing transport settings', () => {

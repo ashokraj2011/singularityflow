@@ -33,7 +33,9 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
-import { automaticApprovalRefusal, isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './phase-roles.mjs';
+import {
+  automaticApprovalRefusal, BECAUSE_SETTINGS, isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities, STEP_INTENTS
+} from './phase-roles.mjs';
 import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
@@ -959,6 +961,55 @@ function assertWorkflowFileVersionReadable(version) {
   );
 }
 
+const BECAUSE_REASON = Object.freeze({ minimum: 20, maximum: 1000 });
+const isMapping = (value) => value != null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * The problems with one step's `intent:` and `because:` as written, each `{ field, message }`; empty when both are
+ * absent or valid (step intents spec §7.1). `intent:` is one of STEP_INTENTS and is set on the step itself: a step
+ * means one thing in every workflow, so `override` (a work type's `phaseOverrides` entry) refuses it. `because:` maps
+ * each of BECAUSE_SETTINGS the step sets itself to its reason, in 20 to 1000 characters, the bounds of an `omits`
+ * reason. Read by people and `workflow check` only: resolveWorkType leaves both out of a Story's resolution.
+ */
+export function stepIntentFieldProblems(step, { label = 'This step', override = false } = {}) {
+  const problems = [];
+  if (!isMapping(step)) return problems;
+  if (Object.hasOwn(step, 'intent')) {
+    if (override) {
+      problems.push({ field: 'intent', message: `${label} sets intent, but what a step is for is set on the step itself, not per workflow. `
+        + 'Remove intent here, or copy the step and give the copy its own intent.' });
+    } else if (!STEP_INTENTS.includes(step.intent)) {
+      problems.push({ field: 'intent', message: `${label} has intent '${String(step.intent)}'. Use one of: ${STEP_INTENTS.join(', ')}.` });
+    }
+  }
+  if (!Object.hasOwn(step, 'because')) return problems;
+  if (!isMapping(step.because) || !Object.keys(step.because).length) {
+    problems.push({ field: 'because', message: `${label} because must map a setting the step sets itself to the reason, for example because: { writeScope: "..." }.` });
+    return problems;
+  }
+  for (const [setting, reason] of Object.entries(step.because)) {
+    if (!BECAUSE_SETTINGS.includes(setting)) {
+      problems.push({ field: `because.${setting}`, message: `${label} because names '${setting}', which is not a setting a step's intent gives. Use one of: ${BECAUSE_SETTINGS.join(', ')}.` });
+      continue;
+    }
+    const text = typeof reason === 'string' ? reason.trim() : '';
+    if (text.length < BECAUSE_REASON.minimum || text.length > BECAUSE_REASON.maximum || /\b(?:todo|tbd|fixme|placeholder)\b/iu.test(text)) {
+      problems.push({ field: `because.${setting}`, message: `${label} because.${setting} must say why in ${BECAUSE_REASON.minimum} to ${BECAUSE_REASON.maximum} characters, in plain words.` });
+    }
+  }
+  return problems;
+}
+
+/** A step's `intent:` and `because:` as written: refused at load when wrong, never read by the engine. */
+function assertStepIntentFields(value, label, { override = false } = {}) {
+  const [problem] = stepIntentFieldProblems(value, { label, override });
+  if (!problem) return;
+  throw new SingularityFlowError(problem.message, {
+    code: 'STEP_INTENT_INVALID',
+    details: { field: problem.field, nextAction: { command: 'singularity-flow workflow studio', label: 'Fix the step in Workflow Studio, or in workflow.yml.' } }
+  });
+}
+
 export function validateDefinition(definition, { storyBootstrap = false } = {}) {
   assertWorkflowFileVersionReadable(definition?.version);
   if (!WORKFLOW_FILE_VERSIONS.includes(definition?.version)) throw new SingularityFlowError('workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.', { details: { nextAction: { executable: 'singularity-flow', argv: ['factory-reset', '--dry-run'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
@@ -977,11 +1028,13 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     assertRepositoryTestSelection(phase, repositoryTests, `Phase '${phaseId}'`);
     if (phase && typeof phase === 'object') assertStepAuthoringSkill({ ...phase, id: phaseId }, `Phase '${phaseId}'`);
     else assertAuthoringSkillValue(phase?.authoringSkill, `Phase '${phaseId}'`);
+    assertStepIntentFields(phase, `Phase '${phaseId}'`);
     normalizeStepActions(phase?.afterStep, definition.integrations, `Phase '${phaseId}'`);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
       assertAuthoringSkillValue(override?.authoringSkill, `Work type '${workTypeId}' phase '${phaseId}' override`);
+      assertStepIntentFields(override, `Work type '${workTypeId}' phase '${phaseId}' override`, { override: true });
       assertRepositoryTestSelection(override, repositoryTests, `Work type '${workTypeId}' phase '${phaseId}' override`);
       testRunsPolicy(override?.testRuns, `Work type '${workTypeId}' phase '${phaseId}' override`);
       normalizeStepActions(override?.afterStep, definition.integrations, `Work type '${workTypeId}' phase '${phaseId}' override`);
@@ -2075,6 +2128,10 @@ export function resolveWorkType(definition, workTypeId) {
     const resolvedPhase = { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
     // Read by people in the Studio and in explanations; a Story's pinned contract and prompts never carry it.
     delete resolvedPhase.description;
+    // What the step is for and why it differs from that: read by people and `workflow check` only. Nothing derives a
+    // setting from them yet, so a Story's resolution is the same with or without them (step intents spec, Stage 1).
+    delete resolvedPhase.intent;
+    delete resolvedPhase.because;
     assertCodeDeliveryConfiguration(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
     assertStepAuthoringSkill(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
     // Pinned with each target's settings, so a running Story keeps the actions it started with. A step

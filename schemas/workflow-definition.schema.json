@@ -534,8 +534,9 @@
             "description": "Per-profile overrides for template phases. Compiled skill phases cannot be overridden; author a new reviewed binding.",
             "additionalProperties": {
               "type": "object",
-              "not": { "anyOf": [{ "required": ["kind"] }, { "required": ["skill"] }, { "required": ["contract"] }] },
+              "not": { "anyOf": [{ "required": ["kind"] }, { "required": ["skill"] }, { "required": ["contract"] }, { "required": ["intent"] }] },
               "properties": {
+                "because": { "$ref": "#/$defs/stepBecause" },
                 "inputs": { "$ref": "#/$defs/phaseInputs" },
                 "clarification": { "$ref": "#/$defs/clarificationPolicy" },
                 "authoringSkill": { "$ref": "#/$defs/authoringSkill" },
@@ -571,6 +572,8 @@
         "properties": {
           "kind": { "const": "skill" },
           "description": { "type": "string", "minLength": 1, "maxLength": 600, "description": "What the step is for, in plain words. Shown to people in Workflow Studio and workflow explanations; never sent in prompts or pinned with a Story." },
+          "intent": { "$ref": "#/$defs/stepIntent" },
+          "because": { "$ref": "#/$defs/stepBecause" },
           "skillBinding": { "$ref": "#/$defs/skpSkillBinding" },
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
           "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },
@@ -793,6 +796,17 @@
     }
   ],
   "$defs": {
+    "stepIntent": {
+      "enum": ["intake", "requirements", "design", "plan", "code", "test", "review", "release", "report", "document"],
+      "description": "What the step is for (src/phase-roles.mjs STEP_INTENTS; profiles in src/step-intents.mjs). Set on the step itself, never in a work type's phaseOverrides: a workflow that needs a different step copies it. Read by people and workflow check; nothing derives a setting from it yet."
+    },
+    "stepBecause": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Why the step sets a framework setting itself: the setting's name, then the reason in 20 to 1000 characters.",
+      "propertyNames": { "enum": ["writeScope", "sourceBoundary", "generation", "generation.task", "generation.producer", "generation.requirement", "artifact.kind", "clarification", "clarification.mode", "approval", "approval.mode", "approval.automatic", "approval.policy", "approval.rejectTo", "repositoryTests", "testEvidenceFrom", "testRuns", "repairBudget"] },
+      "additionalProperties": { "type": "string", "minLength": 20, "maxLength": 1000 }
+    },
     "secretName": {
       "type": "string",
       "pattern": "^SFLOW_SECRET_[A-Z0-9_]{1,51}$",

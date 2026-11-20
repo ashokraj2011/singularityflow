@@ -889,7 +889,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // SFlow fills the review report's copied values and the files it issued (track A), coded limits with their routes
     // (track B), the VS Code chat routes and approval-page fixes (track C), and optional rows never asked; their commands
     // come from the action-to-command map's named builders. No new eager file.
-    assert.ok(closure.bytes <= 9_805_483, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,811,199 (measured for submit.mjs, +5,716, 2026-11-20, intents-stage01): step intents stages 0 and 1, a workflow.yml
+    // from a newer SFlow refused with the update instead of a factory reset, and `intent:` and `because:` checked on steps
+    // when configuration loads (config.mjs), with the ten intents and the settings a reason may name (phase-roles.mjs).
+    // The profiles, inference and kind-of-software report load only in workflow check (step-intents.mjs, software-kinds.mjs).
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_811_199, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1380,7 +1385,9 @@ test('the common session projection does not import attach, state stores or publ
   // analysis-limits.mjs), a person's one more rework round (repair-budget.mjs) and `--beyond-budget` (util.mjs). No new eager file.
   // 4,310,976 (measured on landing-11, 2026-11-20): the three hardening tracks and the optional-questions fix together
   // (filled values and path-slip corrections, coded limits, VS Code chat routes, optional rows). No new eager file.
-  assert.ok(current.bytes <= 4_310_976, `session current loads ${current.bytes} source bytes`);
+  // 4,316,692 (measured, +5,716, 2026-11-20, intents-stage01): configuration's check of a newer SFlow's workflow.yml and of
+  // `intent:` and `because:` on steps (config.mjs), with the intent and reason lists (phase-roles.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_316_692, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

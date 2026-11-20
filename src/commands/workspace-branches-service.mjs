@@ -392,6 +392,23 @@ async function readAtRoot(options, root) {
           })
         } : {})
       };
+      // The start this preflight checked, filled from the flags it was given and its receipt [owner, 2026-11-20: SFlow
+      // fills what it knows]: the agent adds only the Story's own content (--story-file or --jira, --address,
+      // --target-url, a clone's flags), never retypes these choices or the receipt.
+      if (optionBoolean(options, 'mint-intake-receipt') && storyId) {
+        const { safeCommandGuidance } = await import('../safe-command-guidance.mjs');
+        const given = (name, fallback) => optionString(options, name, fallback);
+        const start = safeCommandGuidance({ argv: ['start', storyId, ...selectedBaseValues.flatMap((base) => ['--from-branch', base]),
+          ...(preflightWorkType ? ['--work-type', preflightWorkType] : []),
+          ...(given('capability') ? ['--capability', given('capability')] : []),
+          ...(storyBranch && storyBranch !== storyId ? ['--ref', storyBranch] : []),
+          ...receiptReferences.flatMap((request) => ['--reference-repository', `${request.id}=${request.repository}`, '--reference-branch', `${request.id}=${request.requestedBranch}`]),
+          '--readiness-baseline', given('readiness-baseline', 'reuse'), '--test-execution-mode', given('test-execution-mode', 'changed-and-affected'),
+          '--gate-mode', normalizeQualityGateMode(given('gate-mode', 'hard')),
+          ...(preflight.intakeReceipt?.issued ? ['--intake-receipt', preflight.intakeReceipt.id] : [])] });
+        if (start) preflight.startCommand = { command: start.command, argv: start.argv,
+          adds: 'The Story\'s own content only: --story-file or --jira, --address, --target-url, or a clone\'s --clone-from and --clone-source-commit.' };
+      }
     }
     const result = {
       resultType: 'capability-branches',

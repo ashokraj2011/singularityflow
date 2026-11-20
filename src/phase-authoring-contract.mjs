@@ -136,6 +136,29 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
 }
 
 /** Only for a newly rendered template; never rewrite an existing authored or published draft. */
+/**
+ * A conformance report's clause table, one row per approved clause ID, its other cells left TODO [owner, 2026-11-20:
+ * SFlow fills what it knows]: the IDs are the approved specification's, never the author's to retype; the evidence and
+ * the verdict stay the author's. Only a newly rendered template whose table holds placeholder rows alone; any other
+ * table or text is returned unchanged.
+ */
+export function scaffoldConformanceRows(markdown, clauseIds) {
+  const ids = [...new Set(clauseIds.map(id => String(id).toUpperCase()))].sort();
+  if (!ids.length) return markdown;
+  const newline = markdown.includes('\r\n') ? '\r\n' : '\n';
+  const lines = markdown.split(/\r?\n/u);
+  const header = lines.findIndex(line => /^\|\s*Clause(?: ID)?\s*\|/u.test(line) && /\|\s*Verdict\s*\|/u.test(line));
+  if (header < 0 || !/^\|[\s:|\-]+\|$/u.test(lines[header + 1] ?? '')) return markdown;
+  const columns = lines[header].split('|').slice(1, -1).map(value => value.trim());
+  let end = header + 2;
+  while (/^\|/u.test(lines[end] ?? '')) end += 1;
+  if (end === header + 2 || lines.slice(header + 2, end).some(line => !/TODO|TBD|<[^>]+>/iu.test(line))) return markdown;
+  const placeholder = lines[header + 2].split('|').slice(1, -1).map(value => value.trim());
+  const rows = ids.map(id => `| ${columns.map((column, index) => (index === 0 ? `\`${id}\`` : placeholder[index] || 'TODO')).join(' | ')} |`);
+  lines.splice(header + 2, end - header - 2, ...rows);
+  return lines.join(newline);
+}
+
 export function scaffoldPlanningRows(markdown, clauseIds) {
   const ids = [...new Set(clauseIds.map(id => String(id).toUpperCase()))].sort();
   if (!ids.length) return markdown;

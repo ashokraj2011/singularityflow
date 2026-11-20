@@ -71,5 +71,7 @@ export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runSt
   }
   const shown = await runStep(['phase', 'show', phase, '--for-agent', '--json'], cwd);
   if (!shown.ok) stopStep(shown, 'phase show');
-  return { ...begun.value, approvalPacket: { readiness, review: shown.value } };
+  // On the person's Yes, the filled command that records it on this receipt; its result names the approval, filled.
+  const filled = (await import('../choices.mjs')).approvalReceiptCommands(begun.value);
+  return { ...begun.value, ...(filled ? { onYes: safeCommandGuidance({ argv: filled.answer }) } : {}), approvalPacket: { readiness, review: shown.value } };
 }

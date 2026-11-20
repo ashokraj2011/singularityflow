@@ -8,7 +8,7 @@ import { sessionRepositoryAuthority } from './shared/session-repository-authorit
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { validateId, loadConfig, assertNoPendingPublication } from '../state-stores.mjs';
-import { beginSelectionReceipt, answerSelectionReceipt, selectionReceiptStatus } from '../choices.mjs';
+import { approvalReceiptCommands, beginSelectionReceipt, answerSelectionReceipt, selectionReceiptStatus } from '../choices.mjs';
 import { assertApprovalSubmitted } from '../approval-submitted.mjs';
 import { assertLifecycleWorktreeClean, heldForLaterCode, withSetAsideRoute } from '../lifecycle-worktree.mjs';
 import { printSelectionReceipt } from './shared/print-selection-receipt.mjs';
@@ -82,6 +82,14 @@ export async function choicesCommand(positionals, options) {
       requirePositional(positionals, 3, 'choice ID'),
       requirePositional(positionals, 4, 'selected option ID')
     );
+    // A ready receipt names the command it is for, filled: the token is never assembled into a command by hand.
+    const filled = receipt.ready ? approvalReceiptCommands(receipt) : null;
+    const { safeCommandGuidance } = await import('../safe-command-guidance.mjs');
+    if (filled) receipt = { ...receipt, next: safeCommandGuidance({ argv: filled.approve }) };
+    else if (receipt.ready && receipt.action === 'start') {
+      const start = safeCommandGuidance({ argv: ['start', receipt.workId, '--selection-receipt', receipt.token] });
+      if (start) receipt = { ...receipt, next: { ...start, adds: 'The Story\'s own content and policy flags only (--story-file or --jira, --readiness-baseline, --test-execution-mode, --gate-mode, --target-url); the receipt carries the person\'s choices.' } };
+    }
   } else if (subcommand === 'status') receipt = await selectionReceiptStatus(root, requirePositional(positionals, 2, 'selection receipt token'));
   else throw new SingularityFlowError(`Unknown choices subcommand: ${subcommand}`);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2));

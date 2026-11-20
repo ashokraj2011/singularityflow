@@ -42,6 +42,7 @@ import { action, commandResult, effects, noEffects, succeeded } from '../narrati
 import { emitCommandResult } from '../narration/emit.mjs';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { assertConfirmation, copySlip } from '../text-lines.mjs';
+import { confirmCommandByCode } from '../confirm-code.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card', 'probe', 'probe-wait']);
@@ -255,6 +256,11 @@ async function previewOf(workflow, packet, plan) {
     steps: plan.steps, refused: plan.refused, summary,
     record: command ? {
       command,
+      // The same command by its short code, for a /sf-decide turn: the list's digest is never retyped [owner, 2026-11-20].
+      ...(recordInChat ? (() => {
+        const confirm = confirmCommandByCode(command);
+        return confirm ? { confirm } : {};
+      })() : {}),
       recordInChat,
       ...(chatSteps.length ? { chatSteps } : {}),
       // A choice no /sf-decide turn may record is the person's on the Decide card, which /sf-decide opens where the host

@@ -176,9 +176,11 @@ test('a returned confirmation becomes an ask with its exact value, and its Copil
     nextCommand: `singularity-flow story advance --work-id W --confirm ${digest}`, nextSkill: '/sf-submit' });
   assert.equal(act.state, 'confirm');
   assert.equal(act.ask.value, digest);
-  assert.match(act.ask.how, /ask the person in this chat, and only on an explicit yes run do\.shell once/u);
+  // The agent runs it by its code, so the digest is never retyped [owner, 2026-11-20].
+  assert.match(act.ask.how, /ask the person in this chat, and only on an explicit yes run do\.confirm \(do\.shell by its code\) once/u);
   // The route a person types names the code that stands for this exact command, never the digest.
   assert.equal(act.do.copilot, `/sf-confirm ${confirmCode(`singularity-flow story advance --work-id W --confirm ${digest}`)}`);
+  assert.equal(act.do.confirm, `singularity-flow confirm ${confirmCode(`singularity-flow story advance --work-id W --confirm ${digest}`)}`);
 });
 
 test('document handoff asks for files, never requirements again, and reports restore without claiming advancement', () => {

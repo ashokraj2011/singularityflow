@@ -28,6 +28,7 @@ import { blockingHolds, sheetForAgent } from './step-sheet-route.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
 import { interpretsForAgent } from './cli-json-output.mjs';
 import { parseArgs, writeAtomic } from './util.mjs';
+import { confirmCommandByCode } from './confirm-code.mjs';
 
 // Copilot CLI shows a shell result inline only below 8,192 characters. From there it saves the result
 // outside the workspace, shows its first 500 characters and suggests rg/head/tail/jq on that file,
@@ -219,7 +220,7 @@ function routes(action) {
 function confirmation(route) {
   const value = String(route?.shell ?? '').match(/\s--confirm(?:-plan)?\s+(?!--)(\S+)/u)?.[1];
   return value ? { kind: 'confirm', value,
-    how: 'Show what it confirms in plain words (the step, its generation, its files; never this value, a hash or a commit SHA), ask the person in this chat, and only on an explicit yes run do.shell once; a changed value needs a fresh review.' } : null;
+    how: `Show what it confirms in plain words (the step, its generation, its files; never this value, a hash or a commit SHA), ask the person in this chat, and only on an explicit yes run ${route.confirm ? 'do.confirm (do.shell by its code)' : 'do.shell'} once; a changed value needs a fresh review.` } : null;
 }
 
 // An informational next action is an offer for the person, never the one thing to do now: a
@@ -280,8 +281,12 @@ function withRoute(act, action) {
   // A raw command (git diff, git stash) is the person's: a turn that is not authoring refuses raw shell.
   if (route.shell && !route.copilot && !/^\s*(?:singularity-flow|sflow)\s/u.test(route.shell)) return { ...act, state: 'ask-person', do: route,
     said: oneLine(`${act.said ? `${act.said} ` : ''}Show the person do.shell; it is theirs to run, not this turn's.`) };
-  const ask = confirmation(route);
-  return { ...act, ...(ask ? { state: 'confirm', ask } : {}), do: route };
+  // A confirming route runs by its short code (confirm-code.mjs): the agent never retypes a digest or quoted words. The
+  // guard admits it exactly as it admits do.shell, and the command still refuses a stale digest [owner, 2026-11-20].
+  const code = confirmCommandByCode(route.shell);
+  const confirmed = code ? { ...route, confirm: code } : route;
+  const ask = confirmation(confirmed);
+  return { ...act, ...(ask ? { state: 'confirm', ask } : {}), do: confirmed };
 }
 
 /**
@@ -352,7 +357,9 @@ export function agentAct(result) {
     said: 'The exact original is restored locally under the same ID. Report any preserved changed copy. No Story phase, approval or Git ref changed; resume the returned same-Story route.' }, genericAction(result));
   if (result.resultType === 'intake-entry') {
     if (result.status === 'preflight-ready') return { state: 'next', do: null, read: ['preflight', 'intake'],
-      said: 'The exact selected-base preview passed. Continue this invocation\'s Start step with identical explicit choices and the returned receipt, if any. Do not repeat preflight; creation still validates live authority.' };
+      said: result.preflight?.startCommand?.command
+        ? 'The exact selected-base preview passed. Continue this invocation\'s Start step with preflight.startCommand, its choices and receipt filled, adding only the Story\'s content flags. Do not repeat preflight; creation still validates live authority.'
+        : 'The exact selected-base preview passed. Continue this invocation\'s Start step with identical explicit choices and the returned receipt, if any. Do not repeat preflight; creation still validates live authority.' };
     if (result.status === 'choices-ready') return { state: 'ask-person', do: null,
       read: ['choices', 'intake', 'existingWork', 'preflight', 'personalization'],
       said: 'Use the returned catalog to ask for explicit base, workflow and intake-policy choices. Reuse this packet; do not repeat pause/workspace/version/status/catalog lookups. It does not authorize Story creation.' };
@@ -400,7 +407,9 @@ export function agentAct(result) {
     const question = (result.choiceSets ?? []).find((entry) => entry?.id === 'phase-confirmation')?.question ?? null;
     return { state: question ? 'ask-person' : 'read', do: null, said: null, read: ['approvalPacket', 'approvalContext', 'choiceSets'],
       ...(question ? { ask: { question, choices: [{ label: question.replace(/\?$/u, '') }, { label: 'Not now' }],
-        how: `Show the documents as links, with those of approvalPacket.review.approvalCovers${result.approvalPacket?.review?.reviewDisputes?.length ? ', and each of approvalPacket.review.reviewDisputes in its own words (a finding a person disputed, and why; returning the step is the person\'s if they agree with the reviewer)' : ''}, then ask the person ask.question exactly with ask_user (its choices as given, nothing preselected); in VS Code\'s own chat do not ask: call #sflowDecide with workId only, which opens the approval page when only the approval is left; the person approves there, so end the turn there and relay no approve route (vscode_askQuestions cannot record an approval). Record it only after their Yes; never answer it yourself.` } } : {}) };
+        // Their Yes is recorded by this filled command, whose result names the filled approval (next): no token typed.
+        ...(result.onYes?.command ? { onYes: result.onYes.command } : {}),
+        how: `Show the documents as links, with those of approvalPacket.review.approvalCovers${result.approvalPacket?.review?.reviewDisputes?.length ? ', and each of approvalPacket.review.reviewDisputes in its own words (a finding a person disputed, and why; returning the step is the person\'s if they agree with the reviewer)' : ''}, then ask the person ask.question exactly with ask_user (its choices as given, nothing preselected); in VS Code\'s own chat do not ask: call #sflowDecide with workId only, which opens the approval page when only the approval is left; the person approves there, so end the turn there and relay no approve route (vscode_askQuestions cannot record an approval). Record it only after their Yes; never answer it yourself.${result.onYes?.command ? ' On their Yes run ask.onYes, then the next.command its result returns when ready is true.' : ''}` } } : {}) };
   }
   // A step already submitted says so first, as a submission does: Copilot session usage counts the read by act, which
   // every view keeps, whatever else it leaves out [owner, 2026-11-17: count everything].
@@ -740,7 +749,7 @@ export function agentAct(result) {
     }
     const question = result.justAQuestion?.command ? result.justAQuestion : null;
     return { ...act, ask: { ...act.ask, question: result.question, choices: [{ label: 'Yes' }, { label: 'No' }, ...(question ? [{ label: question.answer }] : [])],
-      how: `Ask the person ask.question exactly, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run do.shell once; on No, or with no question tool, start nothing and give them do.copilot.${question
+      how: `Ask the person ask.question exactly, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run ${act.do?.confirm ? 'do.confirm (do.shell by its code)' : 'do.shell'} once; on No, or with no question tool, start nothing and give them do.copilot.${question
         ? ` Only on their "${question.answer}" run justAQuestion.command once: it keeps their words as a question and opens nothing.` : ''} Never answer it yourself.` } };
   }
   return act;

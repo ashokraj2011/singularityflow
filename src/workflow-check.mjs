@@ -32,6 +32,9 @@ import { phaseTopologyFindings } from './phase-semantics.mjs';
 import { sourceReviewPolicyNotice } from './source-review-policy.mjs';
 import { SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
 import { explainWorkflow } from './workflow-explanation.mjs';
+import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
+import { mergePhaseOverride } from './phase-overrides.mjs';
+import { inferStepIntents, PACKAGED_STEP_INTENTS } from './step-intents.mjs';
 import { simulateWorkflowRoutes } from './workflow-route-simulation.mjs';
 import { workflowStepPeople } from './workflow-step-people.mjs';
 import { buildStudioModel } from './workflow-studio.mjs';
@@ -649,6 +652,46 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
   return { findings, resolved, explanationGuidance, people };
 }
 
+const HEADING = /^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gmu;
+const isMapping = (value) => value != null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * What each step of a workflow is for, and how sure SFlow is (step intents spec §6.1): the step's own `intent:`, the
+ * packaged intent of a step SFlow ships unchanged, else its structure, place, words and agent. Read from workflow.yml
+ * as written and the workflow as it resolves; a workflow that does not resolve is read from its steps as written.
+ * Nothing here changes a setting or a finding.
+ */
+async function workflowStepIntents(workflow, { raw, resolved, templates }) {
+  const written = isMapping(raw?.phases) ? raw.phases : {};
+  const type = isMapping(raw?.workTypes?.[workflow.id]) ? raw.workTypes[workflow.id] : {};
+  const byId = new Map((resolved?.phases ?? []).map((phase) => [phase.id, phase]));
+  const steps = [];
+  for (const step of workflow.steps) {
+    const own = isMapping(written[step.id]) ? written[step.id] : {};
+    let phase = byId.get(step.id);
+    if (!phase) {
+      try { phase = mergePhaseOverride(structuredClone(own), structuredClone(isMapping(type.phaseOverrides?.[step.id]) ? type.phaseOverrides[step.id] : {})); }
+      catch { phase = own; }
+    }
+    const template = phase.template ?? phase.defaultTemplate ?? null;
+    const text = typeof template === 'string' ? (await templates(template).catch(() => null))?.text ?? null : null;
+    const headings = text ? [...text.matchAll(HEADING)].map((match) => match[1]).filter((heading) => !heading.includes('{{')).slice(0, 20) : [];
+    const shipped = Object.hasOwn(PACKAGED_STEP_INTENTS, step.id) && isKnownPackagedWorkflowValue('phases', step.id, written[step.id])
+      ? PACKAGED_STEP_INTENTS[step.id] : null;
+    steps.push({
+      id: step.id, label: step.label, description: step.description || null, headings, agent: step.agent ?? null,
+      declared: typeof own.intent === 'string' ? own.intent : null, shipped,
+      kind: phase.artifact?.kind ?? null,
+      task: isMapping(phase.generation) ? phase.generation.task ?? null : null,
+      writeScope: phase.writeScope ?? 'artifact-only',
+      testEvidenceFrom: phase.testEvidenceFrom ?? null,
+      repositoryTests: phase.repositoryTests ?? null
+    });
+  }
+  const owners = isMapping(type.plannedClaims?.owners) ? Object.values(type.plannedClaims.owners).filter((id) => typeof id === 'string') : [];
+  return inferStepIntents(steps, { planOwners: owners });
+}
+
 /** Findings about the repository's own agents, skills, instructions and links, not one workflow. */
 async function checkAssets({ model, definition, guidance, configRoot, attachmentsText }) {
   const findings = [];
@@ -954,6 +997,8 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
       id: workflow.id, label: workflow.label, readOnly: Boolean(workflow.readOnly),
       ...(workflow.changeImpact ? { changeImpact: workflow.changeImpact } : {}),
       explanation: explainWorkflow(model, workflow.id, { resolved, guidance: explanationGuidance, people }),
+      // What each step is for, declared or inferred, and how sure SFlow is: read only, nothing derives from it yet.
+      intents: await workflowStepIntents(workflow, { raw, resolved, templates }),
       counts: countsOf(findings), findings
     });
   }

@@ -59,6 +59,21 @@ export function checkoutProjectFiles(directory, { env = process.env } = {}) {
   return { root, repositoryUrl, commit: typedRevision(root, 'HEAD'), files: tree.files, text, manifestsTruncated: manifests.truncated || tree.truncated };
 }
 
+/**
+ * A checkout's committed files at HEAD and the text of the files `choose(files)` names (`{ files, truncated }`), read
+ * from its own objects with nothing fetched: what `workflow check` reads to tell each project's kind of software.
+ */
+export function checkoutFilesWithText(directory, choose, { env = process.env } = {}) {
+  let root;
+  try { root = repoRoot(directory); } catch {
+    throw new SingularityFlowError(`${directory} is not inside a Git checkout.`, { code: 'REPOSITORY_PROJECTS_NOT_A_CHECKOUT',
+      details: { nextAction: 'singularity-flow capability projects <GIT-URL> --json' } });
+  }
+  const tree = committedTree(root, env);
+  const chosen = choose(tree.files);
+  return { root, files: tree.files, text: manifestText(root, chosen.files, env) ?? new Map(), truncated: Boolean(chosen.truncated || tree.truncated) };
+}
+
 /** A remote repository's projects' input: its default branch, or `branch`, read without a working tree. */
 export async function remoteProjectFiles(remote, { branch = null, env = process.env, runRemoteCommand = runRemoteGitAsync } = {}) {
   const repositoryUrl = assertCredentialFreeRemote(remote);

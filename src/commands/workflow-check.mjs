@@ -3,6 +3,9 @@
  * and list, with where to look, what does not make sense in it (src/workflow-check.mjs). Read-only:
  * with a Studio change set it checks the configuration as that change set would leave it, without
  * writing anything.
+ *
+ * It also says what each step is for and how sure SFlow is (step intents), and, without a change set, what kind
+ * of software each project in the repository is (src/software-kinds.mjs). Both are reports: nothing uses them yet.
  */
 import { readFile } from 'node:fs/promises';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString } from '../util.mjs';
@@ -24,9 +27,43 @@ function printFindings(findings, indent) {
   }
 }
 
-function printSteps(explanation) {
+const SURE_WORDS = { certain: 'sure', likely: 'likely', unclear: 'not sure' };
+
+/** One step's intent as a person reads it: "test (SFlow is sure: its output kind is test-evidence)". */
+function intentWords(entry) {
+  const reason = entry.source === 'declared' ? 'workflow.yml says so' : `${entry.confidence === 'certain' ? 'SFlow is sure' : SURE_WORDS[entry.confidence]}: ${entry.why}`;
+  const differs = entry.inferred ? `; its settings look like ${entry.inferred.intent} (${entry.inferred.why})` : '';
+  return `${entry.intent} (${reason}${differs})`;
+}
+
+/** Every step's intent on one line; a step SFlow is not sure about says so. */
+function intentsLine(workflow) {
+  const labels = new Map(workflow.explanation.steps.map((step) => [step.id, step.label]));
+  return (workflow.intents ?? []).map((entry) => `${labels.get(entry.step) ?? entry.step}: ${entry.intent}${entry.confidence === 'certain' ? '' : ` (${SURE_WORDS[entry.confidence]})`}`).join(', ');
+}
+
+function printSoftware(software) {
+  if (!software) return;
+  if (software.unavailable) {
+    console.log(`What kind of software this is: SFlow could not read the repository's files (${software.unavailable}).`);
+    return;
+  }
+  console.log('What kind of software this is, from its files (nothing depends on it yet):');
+  for (const project of software.projects) {
+    const name = project.root ? `${project.name ?? project.id} (${project.root})` : 'This repository';
+    const kind = project.kind ? `${project.kind}${project.confidence === 'certain' ? '' : ` (${SURE_WORDS[project.confidence]})`}` : 'cannot tell';
+    const signals = project.signals.length ? `: ${project.signals.join('; ')}` : '';
+    const also = project.also.length ? `. Also looks like ${project.also.join(', ')}` : '';
+    console.log(`  ${name}: ${kind}${signals}${also}.`);
+  }
+  for (const note of software.notes ?? []) console.log(`  ${note}`);
+}
+
+function printSteps(explanation, intents = []) {
+  const forStep = new Map(intents.map((entry) => [entry.step, entry]));
   for (const step of explanation.steps) {
     console.log(`  ${step.number}. ${step.label}: ${step.what}`);
+    if (forStep.has(step.id)) console.log(`     For: ${intentWords(forStep.get(step.id))}.`);
     if (step.why) console.log(`     Why: ${step.why.text}`);
     console.log(`     Drafted by ${step.agent?.label ?? 'nobody yet'}${step.skills.length ? `, with ${step.skills.map((skill) => skill.label).join(', ')}` : ''}.`);
     if (step.reads.length) console.log(`     Reads ${step.reads.map((input) => `${input.label}${input.optional ? ' (if there)' : ''}`).join(', ')}.`);
@@ -55,7 +92,8 @@ export function printWorkflowCheck(result, { steps = false } = {}) {
     console.log(`${workflow.label} (${workflow.id}): ${workflow.explanation.summary}`);
     if (workflow.explanation.description) console.log(`  ${workflow.explanation.description}`);
     if (workflow.changeImpact) console.log(`  ${workflow.changeImpact.text}.`);
-    if (steps) printSteps(workflow.explanation);
+    if (steps) printSteps(workflow.explanation, workflow.intents);
+    else if (workflow.intents?.length) console.log(`  What each step is for: ${intentsLine(workflow)}.`);
     if (workflow.findings.length) printFindings(workflow.findings, '  ');
     else console.log('  Nothing to fix.');
   }
@@ -64,7 +102,23 @@ export function printWorkflowCheck(result, { steps = false } = {}) {
     console.log(`Agents, skills and instructions: ${countWords(result.configuration.valid ? result.repository.counts : countsOf(others))}`);
     printFindings(others, '  ');
   }
+  printSoftware(result.software);
   console.log(`In all: ${countWords(result.counts)}.`);
+}
+
+/**
+ * The kind of software of each project in the checkout at `root`, from its committed files (step intents spec
+ * §12.1). A report only: a checkout whose files cannot be read says so and changes nothing else.
+ */
+async function softwareReport(root) {
+  try {
+    const [{ checkoutFilesWithText }, { detectSoftwareKinds, softwareKindTextFiles }] = await Promise.all([
+      import('../repository-projects-source.mjs'), import('../software-kinds.mjs')]);
+    const read = checkoutFilesWithText(root, (files) => softwareKindTextFiles(files));
+    return detectSoftwareKinds(read);
+  } catch (error) {
+    return { unavailable: String(error?.message ?? error).split(/(?<=[.!?])\s+/u)[0] };
+  }
 }
 
 export async function run(argv, { positionals, options }) {
@@ -105,6 +159,8 @@ export async function run(argv, { positionals, options }) {
     }
   } else {
     result = await withApprovedConfigurationRead(root, () => checkWorkflowConfiguration(root, { workflows: only }), { preferAuthority: true });
+    // The repository's own files, not its configuration: what a change set would leave does not change them.
+    result.software = await softwareReport(root);
   }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   printWorkflowCheck(result, { steps: Boolean(only) });

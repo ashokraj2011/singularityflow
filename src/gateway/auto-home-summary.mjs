@@ -98,7 +98,11 @@ function summaryCard(projection) {
 }
 
 function refusalCard(flight, refusal) {
-  const command = `singularity-flow auto repair ${flight.flightId} --refusal ${refusal.refusalId}`;
+  // A refusal no automatic repair may take (manual-only, ineligible) is offered no repair: that preview refused and sent
+  // the person back here. Its way on is the work handed back to the Story [limit audit, item 10; owner decision 4].
+  const manual = ['manual-only', 'ineligible'].includes(refusal.repair?.eligibility);
+  const command = manual ? `singularity-flow auto takeover ${flight.flightId}`
+    : `singularity-flow auto repair ${flight.flightId} --refusal ${refusal.refusalId}`;
   return {
     kind: 'refusal', mode: 'auto', flightId: flight.flightId, planId: flight.planId,
     status: flight.status, story: flight.story,

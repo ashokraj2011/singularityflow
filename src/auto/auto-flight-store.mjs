@@ -394,7 +394,19 @@ async function reconcileExecutionStop(root, state) {
   return reconciled;
 }
 
-function terminalControlState(state, id, action) {
+/**
+ * A halted flight hands its work back to the Story [owner, 2026-11-20, decision 4]: `auto takeover` keeps the worktree and
+ * the Story goes on as any other, by hand or with Copilot and SFlow's own tools; no new Plan. The flight never resumes.
+ * Before, every halt said "create a replacement Plan", which no command makes for an existing Story, and takeover was refused.
+ */
+export const HANDED_BACK = 'handed-back-after-halt';
+export function handBackWords(flightId, workId) {
+  return `Hand the work back to Story ${workId}: singularity-flow auto takeover ${flightId} keeps the worktree, and the Story goes on as any other `
+    + `(singularity-flow nextsteps ${workId} names its way on); no new Plan is needed.`;
+}
+
+function terminalControlState(state, id, action, { allowHalted = false } = {}) {
+  if (allowHalted && state.status === 'halted') return;
   if (!['halted', 'completed', 'discarded'].includes(state.status)) return;
   throw new SingularityFlowError(`Auto flight '${id}' is ${state.status} and cannot ${action}.`, {
     code: 'AUTO_FLIGHT_TERMINAL'
@@ -403,12 +415,18 @@ function terminalControlState(state, id, action) {
 
 async function requestQuiescentTransition(root, id, {
   kind, finalStatus, finalReason, finalNextAction,
-  quiescenceTimeoutMs = 15_000, expectedCheckpoint = null
+  quiescenceTimeoutMs = 15_000, expectedCheckpoint = null, allowHalted = false
 }) {
   const requestId = randomUUID();
   const requestedAt = nowIso();
   let requested = await requestStopMutation(root, id, (state) => {
-    terminalControlState(state, id, kind === 'takeover' ? 'enter manual takeover' : kind);
+    terminalControlState(state, id, kind === 'takeover' ? 'enter manual takeover' : kind, { allowHalted });
+    // A halted flight taken over is handed back to its Story: it never resumes (resumeAutoFlight refuses it).
+    if (allowHalted && state.status === 'halted') {
+      finalReason = HANDED_BACK;
+      finalNextAction = `Continue Story ${state.story.workId} as any other: singularity-flow nextsteps ${state.story.workId} names its way on, `
+        + 'and Copilot may use SFlow\'s tools there. This flight does not resume.';
+    }
     if (state.status === 'recovery-required') {
       throw new SingularityFlowError(
         `Auto flight '${id}' requires recovery before another control transition.`,
@@ -577,7 +595,14 @@ export async function resumeAutoFlight(root, id, confirmation, options = {}) {
   if (!['paused', 'waiting-human', 'manual-takeover'].includes(current.status)) {
     const code = current.status === 'recovery-required' ? 'AUTO_RECOVERY_REQUIRED' : 'AUTO_FLIGHT_TERMINAL';
     throw new SingularityFlowError(`Auto flight '${id}' is ${current.status} and cannot resume.`, {
-      code, details: { stopRequested: current.stopRequested ?? null }
+      code, details: { stopRequested: current.stopRequested ?? null,
+        ...(current.status === 'halted' ? { nextAction: `singularity-flow auto takeover ${id}`, workId: current.story.workId } : {}) }
+    });
+  }
+  // Handed back after a halt: the Story goes on by hand or with Copilot, never as this flight again.
+  if (current.stopReason === HANDED_BACK) {
+    throw new SingularityFlowError(`Auto flight '${id}' was halted and handed back to Story ${current.story.workId}; it does not resume. Continue the Story as any other.`, {
+      code: 'AUTO_FLIGHT_HANDED_BACK', details: { workId: current.story.workId, nextAction: `singularity-flow nextsteps ${current.story.workId} --json` }
     });
   }
   if ((current.openHumanRequestIds ?? []).length) {
@@ -824,7 +849,7 @@ export function adoptHumanDecisions(state, continuation) {
 export async function haltAutoFlight(root, id, reason = 'human-halted', options = {}) {
   return requestQuiescentTransition(root, id, {
     kind: 'halt', finalStatus: 'halted', finalReason: reason,
-    finalNextAction: 'Create a replacement Plan to continue autonomous work.',
+    finalNextAction: 'Hand the work back to the Story with auto takeover: it keeps the worktree, and the Story goes on as any other; no new Plan is needed.',
     quiescenceTimeoutMs: options.quiescenceTimeoutMs,
     expectedCheckpoint: options.expectedCheckpoint ?? null
   });
@@ -835,7 +860,9 @@ export async function takeoverAutoFlight(root, id, options = {}) {
     kind: 'takeover', finalStatus: 'manual-takeover', finalReason: 'human-manual-takeover',
     finalNextAction: 'Continue manually in the preserved managed Story worktree, or resume with the exact checkpoint hash.',
     quiescenceTimeoutMs: options.quiescenceTimeoutMs,
-    expectedCheckpoint: options.expectedCheckpoint ?? null
+    expectedCheckpoint: options.expectedCheckpoint ?? null,
+    // A halted flight is handed back to its Story [owner, 2026-11-20, decision 4].
+    allowHalted: true
   });
 }
 

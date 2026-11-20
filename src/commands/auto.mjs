@@ -46,6 +46,9 @@ const BIN = path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs');
 
 function autoActionLines(command, label = 'Continue') {
   if (typeof command !== 'string' || !command.trim()) return [];
+  // A flight's next action is mostly words ("Resume with the exact checkpoint hash"): they are said as words, never printed
+  // as a Shell line a person would copy [limit audit, open point].
+  if (!/^singularity-flow\s/u.test(command.trim())) return [`${label}: ${command.trim()}`];
   return actionCommandLines({ command, skill: '/sf-auto' }, label);
 }
 

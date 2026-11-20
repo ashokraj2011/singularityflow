@@ -246,3 +246,16 @@ export function coveredStep(phase) {
     words: `approved automatically: ${(phase.automaticApproval?.checked ?? []).join('; ') || 'its reviewer said ready and nothing was open'}`
   };
 }
+
+/**
+ * What a step may say about what it is for (step intents spec §3, §7.1): `intent:`, one of these ten words, written on
+ * the step itself, and `because:`, the reason for each of these settings the step sets itself rather than taking
+ * from its intent (§7.3). Configuration checks both when it loads (config.mjs); the profiles that give each intent
+ * its settings are in step-intents.mjs. Names still decide nothing: nothing derives a setting from an intent yet.
+ */
+export const STEP_INTENTS = Object.freeze(['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review', 'release', 'report', 'document']);
+export const BECAUSE_SETTINGS = Object.freeze([
+  'writeScope', 'sourceBoundary', 'generation', 'generation.task', 'generation.producer', 'generation.requirement', 'artifact.kind',
+  'clarification', 'clarification.mode', 'approval', 'approval.mode', 'approval.automatic', 'approval.policy', 'approval.rejectTo',
+  'repositoryTests', 'testEvidenceFrom', 'testRuns', 'repairBudget'
+]);

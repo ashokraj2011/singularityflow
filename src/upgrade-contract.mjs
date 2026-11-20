@@ -30,6 +30,8 @@ export const UPGRADE_CONTRACT = Object.freeze({
   // An installed build meets these at runtime: each has an exact step in refusal-remediation.
   SCHEMA_VERSION_FUTURE: guided('product-alignment'),
   SCHEMA_VERSION_ARCHIVED: guided(),
+  // A workflow.yml a newer SFlow wrote: the refusal names the update, never a factory reset (step intents spec §7.7).
+  WORKFLOW_VERSION_NEWER: guided(),
   DOCS_MANIFEST_MISMATCH: guided('product-alignment'),
   // The registered World Model and its commands were removed; the refusal points to the Repository brief.
   WMB_REMOVED: guided(),

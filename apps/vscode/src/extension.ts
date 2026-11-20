@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { access, lstat, readFile, readdir, realpath as fsRealpath, rm } from 'node:fs/promises';
 import { gatewayDestinationRequest } from './gateway-destination.ts';
+import { DECISION_TOOLS, decisionToolAnswer } from './lm-decision-tools.ts';
 import { resolveCli, SingularityFlowClient, isCliReadSuperseded, type CliLocation } from './cli/client.ts';
 import {
   CliError, cliRefusalCode, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
@@ -747,7 +748,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planId: string; planHash: string; confirmation: string; effects: Readonly<Record<string, boolean>>;
     review: { digest: string; preview: Readonly<Record<string, unknown>> } | null;
     confirmationText: { title: string; detail: string };
-  }) {
+  }, onDeclined?: () => void) {
     const { kernel } = gatewaySession(route);
     const preview = (review.review?.preview ?? {}) as Record<string, any>;
     const subject = String(preview.subject?.id ?? preview.workspace?.id ?? preview.watchId ?? '');
@@ -756,13 +757,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const choice = await showCompactWarningMessage(
       review.confirmationText.title, { modal: true, detail: review.confirmationText.detail }, 'Confirm'
     );
-    if (choice !== 'Confirm') return null;
+    if (choice !== 'Confirm') { onDeclined?.(); return null; }
     if (review.confirmation === 'exact-confirm') {
       const typed = await vscode.window.showInputBox({
         title: 'Exact confirmation', prompt: `Type ${subject} to confirm exactly this record`, ignoreFocusOut: true,
         validateInput: (value) => (value === subject ? null : `Type ${subject} exactly`)
       });
-      if (typed !== subject) return null;
+      if (typed !== subject) { onDeclined?.(); return null; }
     }
     try {
       const receipt = kernel.confirmPlan({ planId: review.planId, planHash: review.planHash, reviewDigest: review.review?.digest ?? null });
@@ -788,6 +789,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   // A command can answer nothing, as a repository command does with no repository ready. JSON.stringify(undefined)
   // is undefined, and VS Code's chat crashes the whole turn on a text part with no value.
+  // `sflow_run` after the person declined VS Code's dialog: nothing ran, and the chat does not call it again for this plan.
+  const SFLOW_RUN_DECLINED = Object.freeze({ kind: 'refusal', operation: { id: 'gateway.run', classification: 'read' }, outcome: { status: 'refused' },
+    why: [{ code: 'gateway.confirmation-declined', source: 'deterministic' }], restState: 'blocked',
+    message: 'Not confirmed: the person declined this plan in VS Code\'s dialog, and nothing ran. Do not call sflow_run for it again; ask the person what they want instead.' });
   const toolAnswer = (answer: unknown, nothing: string) => new parts.LanguageModelToolResult([
     new parts.LanguageModelTextPart(JSON.stringify(answer ?? { status: 'blocked', recorded: null, message: nothing }))
   ]);
@@ -803,7 +808,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (name === 'sflow_explain') return kernel.explain?.({ question: input.question, topic: input.topic, subject: input.subject ?? null });
       let review;
       try { review = kernel.planReview(String(input.planId ?? '')); } catch { return kernel.run({ planId: String(input.planId ?? '') }); }
-      return (await confirmPlanOutOfBand(route, review)) ?? kernel.run({ planId: String(input.planId ?? '') });
+      // The person declined or closed the dialog: said so, as `gateway serve` says it. Run without a receipt, the refusal
+      // ("Confirm the exact reviewed Plan first") brought the same dialog back on the chat's next call [hardening C, F10].
+      let declined = false;
+      const ran = await confirmPlanOutOfBand(route, review, () => { declined = true; });
+      return ran ?? (declined ? SFLOW_RUN_DECLINED : kernel.run({ planId: String(input.planId ?? '') }));
     };
     const answer = async (name: string, input: Record<string, any>) => {
       const route = toolRoute();
@@ -823,60 +832,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   if (typeof lm?.registerTool === 'function' && typeof parts.LanguageModelToolResult === 'function') {
-    context.subscriptions.push(lm.registerTool('singularityFlow_deliveryValidation', {
-      invoke: async (options: { input?: Record<string, unknown> }) => {
-        let result;
-        try {
-          const input = options.input;
-          if (!input || Object.keys(input).some(key => !['workId', 'capability'].includes(key)) || typeof input.workId !== 'string'
-              || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(input.workId)
-              || input.capability !== undefined && (typeof input.capability !== 'string' || !/^[a-z0-9][a-z0-9-]*$/u.test(input.capability))) {
-            throw new Error('Delivery validation accepts only an exact Story ID and optional capability ID; the person chooses the action in VS Code.');
-          }
-          result = await vscode.commands.executeCommand('singularityFlow.guideDeliveryValidation', input);
-        }
-        catch (error) {
-          const failure = error as Error & { result?: unknown };
-          result = { status: 'blocked', recorded: null, message: failure.message, ...(failure.result ? { refusal: failure.result } : {}) };
-        }
-        return toolAnswer(result, 'Delivery validation could not open here, because this window has no SFlow repository ready. Nothing was recorded. Open the Story\'s checkout, check Singularity Flow: Diagnostics, then ask again.');
-      }
-    }));
-    context.subscriptions.push(lm.registerTool('singularityFlow_adjudicate', {
-      invoke: async (options: { input?: Record<string, unknown> }) => {
-        let result;
-        try { result = await vscode.commands.executeCommand('singularityFlow.adjudicate', options.input ?? {}); }
-        catch (error) {
-          const failure = error as Error & { result?: unknown };
-          result = { status: 'blocked', message: failure.message, recorded: null, ...(failure.result ? { refusal: failure.result } : {}) };
-        }
-        return toolAnswer(result, 'The decisions page could not open here, because this window has no SFlow repository ready. Nothing was recorded. Open the Story\'s checkout, or ask the person to run /sf-converge in it.');
-      }
-    }));
-    context.subscriptions.push(lm.registerTool('singularityFlow_decide', {
-      invoke: async (options: { input?: Record<string, unknown> }) => {
-        let result;
-        try { result = await vscode.commands.executeCommand('singularityFlow.decide', options.input ?? {}); }
-        catch (error) {
-          const failure = error as Error & { result?: unknown };
-          result = { status: 'blocked', message: failure.message, recorded: null, ...(failure.result ? { refusal: failure.result } : {}) };
-        }
-        return toolAnswer(result, 'The decisions page could not open here, because this window has no SFlow repository ready. Nothing was recorded. Open the Story\'s checkout, or ask the person to run /sf-decide in it.');
-      }
-    }));
-    context.subscriptions.push(lm.registerTool('singularityFlow_witnessReview', {
-      invoke: async (options: { input?: Record<string, unknown> }) => {
-        let result;
-        try { result = await vscode.commands.executeCommand('singularityFlow.reviewWitness', options.input ?? {}); }
-        catch (error) {
-          const failure = error as Error & { result?: unknown };
-          result = { status: 'blocked', message: failure.message, recorded: null,
-            ...(failure.result ? { refusal: failure.result } : {}),
-            next: 'Follow the returned repair or recovery route before reopening this review. A failed publication can retain a local record; inspect its outcome instead of repeating an unchanged witness.' };
-        }
-        return toolAnswer(result, 'Witness review could not open here, because this window has no SFlow repository ready. Nothing was recorded. Open the Story\'s checkout, check Singularity Flow: Diagnostics, then ask again.');
-      }
-    }));
+    // The four page tools, from the one table the VS Code journey host calls too (lm-decision-tools.ts).
+    for (const name of Object.keys(DECISION_TOOLS)) {
+      context.subscriptions.push(lm.registerTool(name, {
+        invoke: async (options: { input?: Record<string, unknown> }) => toolAnswer(await decisionToolAnswer(name, options.input,
+          (command, ...args) => vscode.commands.executeCommand(command, ...args)), DECISION_TOOLS[name]!.nothing)
+      }));
+    }
   }
 
   onAutoResultAction(async ({ command, repositoryRoot }) => {

@@ -10,7 +10,7 @@ import { PACKAGE_ROOT } from '../../../src/package-root.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-runtime-client.ts';
 import { commandGuidance, setChatModelsAvailable } from './copilot-command.ts';
-import { participantRequestEnded, participantRequestStarted } from './chat-prefill.ts';
+import { isChatRoute, participantRequestEnded, participantRequestStarted } from './chat-prefill.ts';
 import { commandGuidanceMarkdown } from './views/command-guidance.ts';
 import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
 import { commandClass, resolveCli, SingularityFlowClient } from './cli/client.ts';
@@ -1174,7 +1174,8 @@ function addParticipantButtons(
       arguments: [rendered.shell, command.id]
     });
   }
-  if (rendered.copilot) {
+  // Only a route VS Code's chat has (/sf-*, @sflow /*): never Copilot CLI's /decide [hardening C, F11].
+  if (isChatRoute(rendered.copilot)) {
     stream.button({
       command: 'singularityFlow.prefillParticipantAction', title: `Prepare ${rendered.copilot}`,
       arguments: [rendered.copilot, command.id]
@@ -1347,7 +1348,7 @@ export function registerSflowChat(
   ));
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.prefillParticipantAction', async (skill: string, commandId: string) => {
-      if (!skill) return;
+      if (!isChatRoute(skill)) return;
       await vscode.commands.executeCommand('workbench.action.chat.open', {
         query: `${skill} `, isPartialQuery: true
       });

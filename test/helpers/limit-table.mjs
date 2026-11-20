@@ -8,6 +8,8 @@
  *     route, a hook's answer (pre-tool, post-tool or the stop hook), a status a command returns, or a kept result.
  *   - every refusal code with its own route (refusal-remediation.mjs KNOWN, limit-remediation.mjs) is checked through its
  *     plan without a row: these rows add the limits a plan alone does not show.
+ *   - a wait is not a limit (limit-remediation.mjs WAITS: a timeout of the machine or a remote, a run that holds what the
+ *     command needs): its plan retries the same command once that answers, never with the limit's "unchanged input" words.
  *   - `GROUPS` and `NOT_LIMITS`: the limit-like codes that are not on a Story's path (opt-in subsystems, internal bounds) or
  *     are not limits at all (a setting's own validation, an environment variable's name), each with its reason. A new code
  *     must land in one of them, or get its route.
@@ -73,10 +75,11 @@ export const LIMITS = Object.freeze([
   { id: 'capability-token-budget', surface: 'refusal', code: 'CAPABILITY_TOKEN_BUDGET_EXCEEDED',
     source: ['src/state.mjs', "code: 'CAPABILITY_TOKEN_BUDGET_EXCEEDED'"], lives: 'story', resetBy: ['work-by-hand'],
     argv: ['phase', 'publish', 'build'], details: { capabilityId: 'web', used: 1200, budget: 1000 }, exit: { step: 'continue-without-model' }, reach: 'low' },
+  // A wait, not a limit (limit-remediation.mjs WAITS): the same command again once the machine answers [owner, 2026-11-21].
   { id: 'local-git-time', surface: 'refusal', code: 'SUBPROCESS_TIMEOUT',
-    source: ['src/limit-remediation.mjs', 'SUBPROCESS_TIMEOUT: ({ details, retried }) => ['], lives: 'process', resetBy: ['setting-raised', 'machine-less-busy'],
-    argv: ['session', 'open', 'W-1'], details: { command: 'git', timeoutMs: 30000 },
-    exit: { step: 'run-again-with-more-time', changes: 'the machine is less busy, or Git\'s time limit is raised' }, reach: 'medium' },
+    source: ['src/limit-remediation.mjs', 'SUBPROCESS_TIMEOUT: ({ details }) => {'], lives: 'process', resetBy: ['machine-less-busy', 'setting-raised'],
+    argv: ['session', 'open', 'W-1'], details: { command: 'git', timeoutMs: 15000 },
+    exit: { step: 'run-again-once-answered', changes: 'the machine is less busy', route: /^singularity-flow session open W-1$/u }, reach: 'medium' },
   { id: 'application-review-repairs', surface: 'refusal', code: 'ARA_REPAIR_LIMIT_REACHED',
     source: ['src/application-review.mjs', "araFail('ARA_REPAIR_LIMIT_REACHED'"], lives: 'story', resetBy: ['manual-repair', 'person-recheck'],
     argv: ['app-review', 'repair', 'ARA-0123456789abcdef01234567', '--work-id', 'W-1'],

@@ -10,7 +10,9 @@
  *      command again only with the change it waits for; never a rejected command, never the refused command unchanged;
  *   4. the kernel's repair budget is its own: a request's continuations never spend it (owner decision 2);
  *   5. a kept result older than the call it answers is never that call's;
- *   6. every high- or medium-reach row is walked by a test that still says so.
+ *   6. every high- or medium-reach row is walked by a test that still says so;
+ *   7. a wait (a timeout of the machine or a remote, a run that holds it) is retried once it answers, never told that
+ *      unchanged input meets it again; a real limit keeps those words.
  */
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -20,8 +22,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { KNOWN_REFUSAL_CODES, refusalRemediationPlan } from '../src/refusal-remediation.mjs';
-import { LIMIT_ROUTE_CODES } from '../src/limit-remediation.mjs';
+import { KNOWN_REFUSAL_CODES, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
+import { LIMIT_RETRY_LABEL, LIMIT_ROUTE_CODES, WAIT_ROUTE_CODES, waitRetryLabel } from '../src/limit-remediation.mjs';
 import { COVERAGE_REACH, GROUPS, LIMITS, NOT_LIMITS } from './helpers/limit-table.mjs';
 import { registryReader, routeEffect } from './helpers/route-walker.mjs';
 
@@ -159,6 +161,60 @@ test('every limit route\'s plan changes something: the person\'s change, a comma
   assert.deepEqual(problems, []);
   // None is also a KNOWN route: the KNOWN one would win, and this one would only look covered.
   assert.deepEqual(LIMIT_ROUTE_CODES.filter((code) => KNOWN_REFUSAL_CODES.includes(code)), []);
+});
+
+// A real test log [owner, 2026-11-21]: `git did not respond within 15000ms.` (SUBPROCESS_TIMEOUT) was shown "A limit refused
+// this, and running the same command on unchanged input meets it again". The machine was busy: running it again is the way on.
+const HARD_LIMIT_WORDS = /unchanged input meets it again/u;
+const refusedAt = (code, details, message = 'Refused.') => Object.assign(new Error(message), { code, details });
+
+test('a timeout is retried once the machine answers, never told that unchanged input meets it again', () => {
+  const plan = refusalRemediationPlan(refusedAt('SUBPROCESS_TIMEOUT', { command: 'git', timeoutMs: 15000 }, 'git did not respond within 15000ms.'),
+    ['session', 'open', 'W-1', '--json']);
+  const [retry, read] = plan.steps;
+  assert.deepEqual([retry.id, retry.command, retry.changes], ['run-again-once-answered', 'singularity-flow session open W-1', 'the machine is less busy']);
+  assert.match(retry.label, /^git did not answer within 15 seconds; .* Run the same command again once the machine is less busy\.$/u);
+  assert.deepEqual([read.id, read.command, read.kind], ['see-what-is-slow', 'singularity-flow doctor --json', 'diagnostic']);
+  assert.ok(plan.steps.some((entry) => entry.id === 'give-it-more-time' && /SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS/u.test(entry.label) && !entry.command));
+  assert.equal(plan.retry.label, waitRetryLabel('the machine is less busy'));
+  const text = renderRefusalPlan(plan);
+  assert.doesNotMatch(text, HARD_LIMIT_WORDS);
+  assert.match(text, /\n {2}1\. git did not answer within 15 seconds;/u);
+  assert.match(text, /\n {2}Then: This was a wait, not a limit: nothing about the input needs changing\. Run the same command again once the machine is less busy\.$/u);
+  // A program that is not Git names no Git setting.
+  const other = refusalRemediationPlan(refusedAt('SUBPROCESS_TIMEOUT', { command: 'npm', timeoutMs: 120000 }), ['session', 'open', 'W-1']);
+  assert.match(other.steps[0].label, /^npm did not answer within 120 seconds;/u);
+  assert.equal(other.steps.some((entry) => /SINGULARITY_FLOW_GIT_/u.test(entry.label)), false);
+});
+
+test('every wait\'s plan leads with the same command again, and only a real limit keeps the limit words', () => {
+  const argv = ['session', 'open', 'W-1'];
+  const waits = [...WAIT_ROUTE_CODES.map((code) => [code, {}]), ['AUTHORITY_UNAVAILABLE', { gitAccessCode: 'GAL_TIMEOUT' }],
+    ['CONFIGURATION_PROPOSAL_RETENTION_FAILED', { gitAccessCode: 'GAL_TIMEOUT' }]];
+  for (const [code, details] of waits) {
+    const plan = refusalRemediationPlan(refusedAt(code, details), argv);
+    assert.doesNotMatch(renderRefusalPlan(plan), HARD_LIMIT_WORDS, code);
+    const first = plan.steps.find((entry) => entry.command && !entry.wait);
+    assert.deepEqual([first?.id, first?.command, Boolean(first?.changes)], ['run-again-once-answered', 'singularity-flow session open W-1', true], code);
+    // The plan's last words name the same wait as the retry step.
+    assert.equal(plan.retry.label, waitRetryLabel(first.changes), code);
+  }
+  // A run that holds what the command needs is read first, as a wait; the same command follows it.
+  const flight = 'AFL-0123456789ABCDEF0123456789';
+  const busy = refusalRemediationPlan(refusedAt('AUTO_FLIGHT_BUSY', { active: [flight] }), ['auto', 'start', 'APL-0123456789ABCDEF0123456789']);
+  assert.deepEqual(busy.steps.slice(0, 2).map((entry) => [entry.id, entry.command, entry.wait ?? false, entry.changes ?? null]), [
+    ['see-what-holds-it', `singularity-flow auto status ${flight}`, true, null],
+    ['run-again-once-answered', 'singularity-flow auto start APL-0123456789ABCDEF0123456789', false, 'the other Auto run has ended']]);
+  assert.equal(busy.retry.label, 'This was a wait, not a limit: nothing about the input needs changing. Run the same command again once the other Auto run has ended.');
+  // Budgets, counts and sizes: the same command meets them again until the change the steps name.
+  const limits = [['CLARIFICATION_QUESTION_LIMIT', { maxQuestions: 3, given: 5 }], ['DOCUMENT_TOO_LARGE', {}], ['MODEL_TOKEN_BUDGET_EXCEEDED', {}],
+    ['CAPABILITY_TOKEN_BUDGET_EXCEEDED', { capabilityId: 'web', used: 1200, budget: 1000 }], ['AUTHORITY_UNAVAILABLE', { gitAccessCode: 'GAL_OUTPUT_LIMIT' }],
+    ['APP_READY_TIMEOUT', {}], ['UI_OPERATION_TIMEOUT', {}]];
+  for (const [code, details] of limits) {
+    const plan = refusalRemediationPlan(refusedAt(code, details), argv);
+    assert.equal(plan.retry.label, LIMIT_RETRY_LABEL, code);
+    assert.match(renderRefusalPlan(plan), /\n {2}Then: A limit refused this, and running the same command on unchanged input meets it again\./u, code);
+  }
 });
 
 test('each refusal row names its own exit, as the row says', async () => {

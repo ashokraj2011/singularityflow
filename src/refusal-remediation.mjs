@@ -21,7 +21,7 @@ import { nearestNames, parseArgs } from './util.mjs';
 import { actionCommandLine, authorCommand, returnRoute, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { WORK_COMMANDS } from './command-skills.mjs';
 import { modelFreeCommandForArgv, vscodeDecideCardChat } from './model-free-commands.mjs';
-import { LIMIT_RETRY_LABEL, limitRouteSteps } from './limit-remediation.mjs';
+import { limitRetryLabel, limitRouteSteps } from './limit-remediation.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -2008,10 +2008,12 @@ function limitPlan(error, argv, code) {
     autoPlanAgain: (why) => autoPlanAgainSteps(argv, why, autoStoryId(argv, error)) });
   if (!entries) return null;
   // A step the plan builder made already (the Decide card, a Plan again) stays as it is; the rest are built and checked here.
+  // A wait's read of what holds it keeps its mark: the step after it is the way through (STORY_PUBLICATION_IN_PROGRESS).
   const own = entries.map((entry) => {
     if ('execution' in entry) return entry;
     const built = step(entry.id, entry.label, entry.command ?? null, entry.kind ?? 'remediation', entry.skill ?? null);
-    return entry.changes ? afterChange(built, entry.changes) : built;
+    const held = entry.wait && built.command ? Object.freeze({ ...built, wait: true }) : built;
+    return entry.changes ? afterChange(held, entry.changes) : held;
   });
   const explicit = explicitCommands(error).map((command, index) => step(`producer-${index + 1}`,
     command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command, 'remediation', command.skill))
@@ -2022,7 +2024,8 @@ function limitPlan(error, argv, code) {
   const steps = deduplicate([...own, ...explicit, ...(routed ? phaseContainmentSteps(phaseRemediationContext(argv, error)) : [])]);
   if (!steps.length) return null;
   return Object.freeze({ schemaVersion: 1, status: 'blocked', code, steps: Object.freeze(steps),
-    retry: Object.freeze({ label: LIMIT_RETRY_LABEL, automatic: false }) });
+    // A wait (a timeout, a run that holds it) is retried once it answers; a limit only after the change [owner, 2026-11-21].
+    retry: Object.freeze({ label: limitRetryLabel(code, error), automatic: false }) });
 }
 
 /** Every refusal code with its own registered route (the dead-end audit checks each one). */

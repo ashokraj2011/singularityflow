@@ -8,6 +8,8 @@
  *     a step with no command, so an agent shows it and runs nothing (agent-output.mjs: every step is the person's);
  *   - a command that changes something (`ledger reconcile`, the step's own work, a policy amendment), filled in;
  *   - the same command again only with `changes`, the change it waits for.
+ * A wait is not a limit (WAITS): a timeout of the machine or a remote, or a run that holds what the command needs. Its way
+ * on is the same command again once that answers, and its plan never says that unchanged input meets it again.
  *
  * Pure: the plan builder passes its own step builders (`helpers`), so this module imports nothing and adds no load to a
  * refusal. test/limit-exits.test.mjs builds every code's plan and checks that each has an exit; test/helpers/limit-table.mjs
@@ -81,20 +83,17 @@ const PERSON_CHANGES = Object.freeze({
   UI_REQUEST_TOO_LARGE: 'Send a smaller change from the page (fewer items at once), then save again.',
   REV_LOOP_LIMIT: 'This revision loop reached its round limit: a person decides the remaining feedback (accept it as it is, or start a new revision), never another round of the same.',
   REV_FEEDBACK_TOO_LARGE: 'Shorten the feedback, or attach the detail as a file, then send it again.',
-  // Time limits a person or the machine changes.
+  // Time limits on the person's own application: they are set in its run configuration, and the application's own fault
+  // (a crash, a port in use, a failing build) meets them again. A wait for the machine or a remote is in WAITS below.
   APP_READY_TIMEOUT: 'The application did not answer before its start-up time limit: check its log (app status), fix what stops it, or raise its ready timeoutMs in the run configuration; then start it again.',
   APP_BEFORE_LAUNCH_TIMEOUT: 'The step before launch did not finish in time: check its output, fix it or raise its timeoutMs in the run configuration, then start the application again.',
-  AST_WARM_TIMEOUT: 'Indexing the code took longer than its fixed limit: run it again once the machine is less busy, or narrow the source roots it indexes.',
-  CLI_STEP_TIMEOUT: 'A step of this command did not finish in time: run it again once the machine is less busy; the steps already done are kept.',
-  MODEL_TIMEOUT: 'The model did not answer in time: run the same command again once the provider is responsive, or use a faster model.',
+  // A model's budgets for one command.
   MODEL_TURN_LIMIT: 'The model used every turn this command allows: narrow the request, or do the rest by hand, then run the same command again.',
   MODEL_TOOL_CALL_LIMIT: 'The model used every tool call this command allows: narrow the request, or do the rest by hand, then run the same command again.',
   MODEL_TOKEN_BUDGET_EXCEEDED: 'The model used this command\'s whole token budget: narrow the request, then run the same command again.',
   MODEL_SESSION_TURN_LIMIT: 'The model session used every turn it allows: start a new session for the rest of the work.',
-  MCP_TIMEOUT: 'The tool did not answer in time: check that its server is running and reachable, then run the same command again.',
-  OBJECT_REQUEST_TIMEOUT: 'A Git object request did not finish in time: check the network, then run the same command again.',
-  REMOTE_TIMEOUT: 'The remote did not answer in time: check the network or VPN (workspace doctor --network), then run the same command again.',
-  STEP_ACTION_TIMEOUT: 'The step\'s integration did not answer in time: check the service it calls, then retry it (integrations retry).',
+  // A page's save that ran out of time may still have been written: it is checked before it is sent again, never only
+  // retried (local-ui/cli-recovery.mjs: an uncertain write must not be repeated), so it is not a wait.
   UI_OPERATION_TIMEOUT: 'The page\'s request did not finish in time: check the previous save on the page, then save again.',
   // Expiries a person renews.
   VERSION_CONSENT_EXPIRED: 'The person\'s yes to the next version expired: ask them again, and record their new answer.',
@@ -113,19 +112,9 @@ const PERSON_CHANGES = Object.freeze({
 
 /** A route that changes something, by code. Each returns plain step entries; the plan builder fills and checks commands. */
 const ROUTES = Object.freeze({
-  // Local Git took longer than its limit: a busy machine, a cloud-synced folder or a virus scan. The person raises the limit,
-  // or runs it again once the machine is less busy.
-  SUBPROCESS_TIMEOUT: ({ details, retried }) => [
-    { id: 'give-git-more-time', label: words(`${details.command ? `${details.command} ` : 'A local Git command '}did not finish within ${details.timeoutMs ? `${Math.round(details.timeoutMs / 1000)} seconds` : 'its time limit'}. `
-      + 'A cloud-synced folder, a virus scan or a very large repository slows it. Run it again once the machine is less busy, or give Git more time: '
-      + 'SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS for reads (default 30000) or SINGULARITY_FLOW_GIT_MUTATION_TIMEOUT_MS for changes (default 180000), in milliseconds.', 2000), kind: 'remediation' },
-    retried && { id: 'run-again-with-more-time', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'the machine is less busy, or Git\'s time limit is raised' }],
   SUBPROCESS_OUTPUT_TOO_LARGE: ({ retried }) => [
     { id: 'raise-output-limit', label: 'A local command printed more than SFlow reads (64 MiB by default). Narrow what it reads, or raise SINGULARITY_FLOW_SUBPROCESS_MAX_BUFFER_BYTES, then run the same command again.', kind: 'remediation' },
     retried && { id: 'run-again-with-larger-limit', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'the output limit is raised or the read is narrower' }],
-  PRODUCT_COMMAND_TIMEOUT: ({ details, retried }) => [
-    { id: 'give-install-more-time', label: words(`The install step did not finish in time. Run it again once the machine is less busy, or give it more time with ${details.setting ?? 'SINGULARITY_FLOW_PRODUCT_MUTATION_TIMEOUT_MS'} (milliseconds).`), kind: 'remediation' },
-    retried && { id: 'run-install-again', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'the machine is less busy, or the install time limit is raised' }],
   // A capability's token budget is its reviewers' to raise; until then every publication of it is refused.
   CAPABILITY_TOKEN_BUDGET_EXCEEDED: ({ details }) => [
     { id: 'continue-without-model', label: words(`Capability ${details.capabilityId ?? ''} would use ${details.used ?? 'more than'} of its ${details.budget ?? ''} model tokens. `
@@ -166,19 +155,9 @@ const ROUTES = Object.freeze({
   RCP_NORMALIZATION_BUDGET_EXHAUSTED: (context) => stepWorkOrCard(context, 'The formatter changed the code on every allowed attempt. Fix the formatter or its configuration, or format the code by hand so it no longer changes it; a new version of the step starts a new budget.'),
   // An Auto Plan expired before it started: plan again (refusal-remediation.mjs autoPlanAgainSteps gives the filled command).
   AUTO_PLAN_EXPIRED: ({ autoPlanAgain }) => autoPlanAgain('The Auto Plan expired before it started; nothing ran. Create and review a new one.'),
-  AUTO_FLIGHT_BUSY: ({ details, retried }) => [
-    { id: 'wait-for-auto-flight', label: words(`Another Auto run is active${Array.isArray(details.active) && details.active.length ? ` (${details.active.slice(0, 3).join(', ')})` : ''}: it ends when it finishes, or a person pauses or stops it (auto status shows it).`), kind: 'remediation' },
-    retried && { id: 'run-again-after-flight', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'the other Auto run has ended' }],
   // A person's risk packet changed while they reviewed it: prepare the current one again and review that.
   PHASE_QUALITY_RISK_STALE: () => [
     { id: 'prepare-risk-again', label: 'The risk changed while it was reviewed, or this exact one is already recorded. Prepare the current packet again with appeal risk-prepare and the same options, review it, and accept that one; nothing was recorded.', kind: 'remediation' }],
-  // GitHub's limits: wait for the reset, or read the kept list.
-  REPOSITORY_PROVIDER_RATE_LIMITED: ({ retried }) => [
-    { id: 'wait-for-rate-limit', label: 'GitHub rate-limited this read. Wait for its limit to reset (within the hour), or read the list SFlow kept with --offline.', kind: 'remediation' },
-    retried && { id: 'run-again-after-reset', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'GitHub\'s rate limit has reset' }],
-  REPOSITORY_PROVIDER_TIMEOUT: ({ retried }) => [
-    { id: 'check-provider-network', label: 'GitHub did not answer in time. Check the network or VPN (repositories status --check), or read the list SFlow kept with --offline.', kind: 'remediation' },
-    retried && { id: 'run-again-when-reachable', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'GitHub answers again' }],
   REPOSITORY_CATALOG_LIMIT_REACHED: () => [
     { id: 'narrow-repository-list', label: 'Ask for fewer repositories at once: a smaller --limit, a narrower --scope or a search, then the next page with the cursor it returns. Clearing the cache does not raise this limit.', kind: 'remediation' }],
   // The Git reader SFlow uses stopped at a limit; the command that wraps it names its own retry.
@@ -194,14 +173,86 @@ const ROUTES = Object.freeze({
     { id: 'fix-bootstrap-blocker', label: 'The setup attempts are used. Fix what the last preflight reported (it is named in the refusal), then retry with your own --reason saying what you changed; an unchanged retry meets the same blocker.', kind: 'remediation' }]
 });
 
+/** The codes that wrap the Git reader's own (`details.gitAccessCode`). */
+const GIT_ACCESS_WRAPPERS = new Set(['AUTHORITY_UNAVAILABLE', 'CONFIGURATION_PROPOSAL_RETENTION_FAILED']);
+
 /** The Git reader's limits, through a command that wraps them (`details.gitAccessCode`); null for any other cause. */
 function gitAccessLimit(details, retried) {
-  const label = details.gitAccessCode === 'GAL_TIMEOUT' ? 'Git did not answer in time: run it again once the machine is less busy (SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS gives reads more time).'
-    : details.gitAccessCode === 'GAL_OUTPUT_LIMIT' ? 'Git printed more than SFlow reads: narrow what it reads (fewer refs or files), then run it again.'
-      : details.gitAccessCode === 'GAL_LIMIT_EXCEEDED' ? 'Git listed more entries than SFlow reads: remove refs or files no longer used, then run it again.' : null;
+  // A Git reader that ran out of time waited for the machine: its route is the wait's (WAITS).
+  if (details.gitAccessCode === 'GAL_TIMEOUT') return waitSteps({ retried }, GIT_READ_WAIT);
+  const label = details.gitAccessCode === 'GAL_OUTPUT_LIMIT' ? 'Git printed more than SFlow reads: narrow what it reads (fewer refs or files), then run it again.'
+    : details.gitAccessCode === 'GAL_LIMIT_EXCEEDED' ? 'Git listed more entries than SFlow reads: remove refs or files no longer used, then run it again.' : null;
   if (!label) return null;
   return [{ id: 'clear-git-limit', label, kind: 'remediation' },
-    retried && { id: 'run-again-after-git-limit', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'the machine is less busy, or Git reads less' }];
+    retried && { id: 'run-again-after-git-limit', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'Git reads less' }];
+}
+
+/**
+ * Waits, not limits [owner, 2026-11-21]: the machine was busy, a remote, a model or a tool server did not answer in time,
+ * or another running process holds what this command needs. Nothing about the input needs changing, and the same command
+ * again, once the machine or the remote answers, is the way on. A `git did not respond within 15000ms.` was shown the
+ * limit words (LIMIT_RETRY_LABEL: "unchanged input meets it again"), which told the person not to do the one thing that works.
+ *
+ * Each code gives what it waits for and why. A timeout's route is the same command again first, labelled as that retry
+ * (`changes`: what it waits for), then a read that shows what is slow or unreachable when one exists, then the person's
+ * way to give it more time. A run that holds what this command needs is read first (`readFirst`), as every held lock is
+ * (refusal-remediation.mjs STORY_PUBLICATION_IN_PROGRESS): the same command first only met the same hold. A wait's plan
+ * retries with waitRetryLabel; a real limit (a budget, a count, a size, an expiry) keeps LIMIT_RETRY_LABEL.
+ */
+const LOCAL_READ = Object.freeze({ label: 'If it times out again, read this repository\'s diagnostics.', command: 'singularity-flow doctor --json' });
+const NETWORK_READ = Object.freeze({ label: 'If it times out again, check the network, VPN and Git access.', command: 'singularity-flow workspace doctor --network --json' });
+const GIT_MORE_TIME = 'If Git keeps running out of time on this machine, give its default limits more time: SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS for reads '
+  + '(default 30000) or SINGULARITY_FLOW_GIT_MUTATION_TIMEOUT_MS for changes (default 180000), in milliseconds.';
+const GIT_READ_WAIT = Object.freeze({ why: 'Git did not answer in time; a busy machine, a cloud-synced folder or a virus scan slows it.',
+  waitsFor: 'the machine is less busy', read: LOCAL_READ, more: GIT_MORE_TIME });
+const PROGRAM = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/u;
+const SETTING = /^SINGULARITY_FLOW_[A-Z0-9_]{1,80}$/u;
+const FLIGHT_ID = /^AFL-[A-F0-9]{26}$/u;
+const seconds = (timeoutMs) => (Number(timeoutMs) > 0 ? `${Math.max(1, Math.round(Number(timeoutMs) / 1000))} seconds` : 'its time limit');
+
+const WAITS = Object.freeze({
+  // A local program (mostly Git, util.mjs run) did not answer within its limit.
+  SUBPROCESS_TIMEOUT: ({ details }) => {
+    const program = PROGRAM.test(String(details.command ?? '')) ? details.command : null;
+    const git = !program || program === 'git';
+    return { why: `${program ?? 'A local command'} did not answer within ${seconds(details.timeoutMs)}; a busy machine, a cloud-synced folder or a virus scan slows it.`,
+      waitsFor: 'the machine is less busy', read: LOCAL_READ, more: git ? GIT_MORE_TIME : null };
+  },
+  PRODUCT_COMMAND_TIMEOUT: ({ details }) => ({ why: 'The install step did not finish in time; a busy machine or a slow network slows it.',
+    waitsFor: 'the machine and the network are less busy',
+    more: `If it keeps running out of time, give it more time with ${SETTING.test(String(details.setting ?? '')) ? details.setting : 'SINGULARITY_FLOW_PRODUCT_MUTATION_TIMEOUT_MS'} (milliseconds).` }),
+  CLI_STEP_TIMEOUT: () => ({ why: 'A step of this command did not finish in time; the steps already done are kept.', waitsFor: 'the machine is less busy', read: LOCAL_READ }),
+  AST_WARM_TIMEOUT: () => ({ why: 'Indexing the code took longer than its limit.', waitsFor: 'the machine is less busy',
+    more: 'If it keeps running out of time, narrow the source roots it indexes.' }),
+  // A remote, a model, a tool server or a service did not answer in time.
+  REMOTE_TIMEOUT: () => ({ why: 'The remote did not answer in time; existing work was kept.', waitsFor: 'the remote answers', read: NETWORK_READ }),
+  OBJECT_REQUEST_TIMEOUT: () => ({ why: 'A Git object request did not finish in time.', waitsFor: 'the remote answers', read: NETWORK_READ }),
+  REPOSITORY_PROVIDER_TIMEOUT: () => ({ why: 'GitHub did not answer in time.', waitsFor: 'GitHub answers',
+    more: 'If it does not answer again, check the network or VPN, or read the list SFlow kept with --offline.' }),
+  REPOSITORY_PROVIDER_RATE_LIMITED: () => ({ why: 'GitHub rate-limited this read; its limit resets within the hour.', waitsFor: 'GitHub\'s rate limit has reset',
+    more: 'Until then, read the list SFlow kept with --offline.' }),
+  MODEL_TIMEOUT: () => ({ why: 'The model did not answer in time.', waitsFor: 'the model provider answers', more: 'If it keeps running out of time, use a faster model.' }),
+  MCP_TIMEOUT: () => ({ why: 'The tool server did not answer in time.', waitsFor: 'its server answers',
+    read: { label: 'If it does not answer again, see each tool server\'s state.', command: 'singularity-flow mcp doctor --json' } }),
+  STEP_ACTION_TIMEOUT: () => ({ why: 'The step\'s integration did not answer in time; its delivery is kept, and integrations retry sends it again.', waitsFor: 'the service it calls answers' }),
+  // Another running process holds what this command needs: read it first, then the same command once it has ended.
+  AUTO_FLIGHT_BUSY: ({ details }) => {
+    const active = (Array.isArray(details.active) ? details.active : []).filter((id) => FLIGHT_ID.test(String(id)));
+    return { readFirst: true, waitsFor: 'the other Auto run has ended',
+      why: `Another Auto run is active${active.length ? ` (${active.slice(0, 3).join(', ')})` : ''}: it ends when it finishes, or when a person pauses or stops it.`,
+      read: active.length ? { label: 'Wait: this shows that run and how far it is.', command: `singularity-flow auto status ${active[0]}` } : null };
+  }
+});
+
+/** A wait's steps (WAITS): the same command again once it answers, a read of what is slow, and the person's way to give it more time. */
+function waitSteps({ retried }, { why, waitsFor, read = null, more = null, readFirst = false }) {
+  const waitRead = readFirst && read?.command;
+  const retry = { id: 'run-again-once-answered', kind: 'remediation', ...(retried ? { command: retried, changes: waitsFor } : {}),
+    label: words(waitRead ? `Once ${waitsFor}, run the same command again.` : `${why} Run the same command again once ${waitsFor}.`, 2000) };
+  const see = read?.command ? { id: waitRead ? 'see-what-holds-it' : 'see-what-is-slow', kind: 'diagnostic', command: read.command,
+    label: words(waitRead ? `${why} ${read.label}` : read.label, 2000), ...(waitRead ? { wait: true } : {}) } : null;
+  const time = more ? { id: 'give-it-more-time', label: words(more, 2000), kind: 'remediation' } : null;
+  return waitRead ? [see, retry, time] : [retry, see, time];
 }
 
 /** A step's own work by hand, then the person's decision on the Decide card when it is theirs. */
@@ -214,8 +265,10 @@ function stepWorkOrCard({ argv, details, authorRoute, decideCard }, why) {
   workId ? decideCard('open-decision-list', 'If a decision is the person\'s, it is on the Decide card.', workId) : null];
 }
 
-/** Every code with its own limit route. */
-export const LIMIT_ROUTE_CODES = Object.freeze([...Object.keys(ROUTES), ...Object.keys(PERSON_CHANGES)]);
+/** Every code with its own limit route, waits included. */
+export const LIMIT_ROUTE_CODES = Object.freeze([...Object.keys(ROUTES), ...Object.keys(PERSON_CHANGES), ...Object.keys(WAITS)]);
+/** The codes that are waits, not limits: their plan retries the same command once the machine or the remote answers. */
+export const WAIT_ROUTE_CODES = Object.freeze(Object.keys(WAITS));
 
 /**
  * The steps of `code`'s limit route, or null for a code without one. `helpers`: the plan builder's own `decideCard(id,
@@ -223,6 +276,7 @@ export const LIMIT_ROUTE_CODES = Object.freeze([...Object.keys(ROUTES), ...Objec
  */
 export function limitRouteSteps(code, { argv = [], error = null, retried = null, ...helpers } = {}) {
   const details = error?.details && typeof error.details === 'object' ? error.details : {};
+  if (Object.hasOwn(WAITS, code)) return waitSteps({ retried }, WAITS[code]({ argv, details })).filter(Boolean);
   if (Object.hasOwn(ROUTES, code)) {
     const steps = ROUTES[code]({ argv, details, retried, ...helpers });
     return steps ? steps.filter(Boolean) : null;
@@ -233,3 +287,18 @@ export function limitRouteSteps(code, { argv = [], error = null, retried = null,
 
 /** The plan's retry words for a limit: the same command only after the change. */
 export const LIMIT_RETRY_LABEL = 'A limit refused this, and running the same command on unchanged input meets it again. Run it again only after the change the steps name.';
+/** The plan's retry words for a wait: the same command again, once what it waits for answers. */
+export const waitRetryLabel = (waitsFor) => `This was a wait, not a limit: nothing about the input needs changing. Run the same command again once ${waitsFor}.`;
+
+/** What `code`'s refusal waits for (WAITS, or a wrapped Git reader that ran out of time); null for a limit. */
+function waitsForOf(code, error) {
+  const details = error?.details && typeof error.details === 'object' ? error.details : {};
+  if (Object.hasOwn(WAITS, code)) return WAITS[code]({ details }).waitsFor;
+  return GIT_ACCESS_WRAPPERS.has(code) && details.gitAccessCode === 'GAL_TIMEOUT' ? GIT_READ_WAIT.waitsFor : null;
+}
+
+/** The retry words for `code`'s limit plan: a wait's retry once it answers, or a limit's "only after the change". */
+export function limitRetryLabel(code, error = null) {
+  const waitsFor = waitsForOf(code, error);
+  return waitsFor ? waitRetryLabel(waitsFor) : LIMIT_RETRY_LABEL;
+}

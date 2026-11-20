@@ -622,7 +622,7 @@ test('observed claims use exact changed and tested paths without proximity infer
   });
 });
 
-test('new observed claims require exact source and AC test bindings instead of path overlap', () => {
+test('new observed claims count changed planned files and an AC\'s own test binding, never a test by path overlap', () => {
   const planned = normalizeClaimMap({ claims: {
     'APP:REQ-001': { expectedPaths: ['src/app.mjs'], tests: ['test/app.test.mjs'] },
     'APP:AC-001': { expectedPaths: ['src/app.mjs'], tests: ['test/app.test.mjs', 'test/extra.test.mjs'] }
@@ -637,7 +637,9 @@ test('new observed claims require exact source and AC test bindings instead of p
   }, { clauseIds: ['APP:REQ-001', 'APP:AC-001'], requireSourceBindings: true });
   assert.deepEqual(observed.claims['APP:REQ-001'].observedPaths, ['src/app.mjs']);
   assert.equal(observed.claims['APP:REQ-001'].verdict, 'matched');
-  assert.deepEqual(observed.claims['APP:AC-001'].observedPaths, []);
+  // The planned file changed, so it counts for AC-001 too, without its own comment (owner, 2026-11-20); its unbound
+  // second test does not.
+  assert.deepEqual(observed.claims['APP:AC-001'].observedPaths, ['src/app.mjs']);
   assert.deepEqual(observed.claims['APP:AC-001'].testResults, ['test/app.test.mjs']);
   assert.equal(observed.claims['APP:AC-001'].verdict, 'partial');
 });
@@ -990,7 +992,7 @@ test('the clause trace merges every code phase the way the gate does', () => {
   assert.deepEqual(row.observed.observedPaths, ['src/export.mjs', 'src/import.mjs']);
 });
 
-test('under enforced source bindings a not-applicable row is observed by its exact path; others still need a binding', () => {
+test('under enforced source bindings every row is observed by its exact changed planned path, tagged or not', () => {
   const planned = normalizeClaimMap({ claims: {
     'APP:REQ-001': { expectedPaths: ['src/a.js'], tests: ['test/a.test.js'] },
     'APP:REQ-002': { expectedPaths: ['config/app.json'], tests: [], testDisposition: 'not-applicable', testReason: 'validated by schema load at boot' }
@@ -1000,5 +1002,37 @@ test('under enforced source bindings a not-applicable row is observed by its exa
     traceability: { bindings: [], sourceBindings: [] }
   }, { clauseIds: ['APP:REQ-001', 'APP:REQ-002'], requireSourceBindings: true });
   assert.deepEqual(observed.claims['APP:REQ-002'].observedPaths, ['config/app.json']);
-  assert.deepEqual(observed.claims['APP:REQ-001']?.observedPaths ?? [], [], 'a taggable source still needs its clause comment');
+  // A planned file that changed counts for its row; its clause comment locates and explains it (owner, 2026-11-20).
+  assert.deepEqual(observed.claims['APP:REQ-001'].observedPaths, ['src/a.js']);
+  assert.equal(observed.claims['APP:REQ-001'].verdict, 'matched');
+});
+
+test('fix-issues: three planned files changed and only one carries the comment, so the row is delivered', () => {
+  const ids = ['FIX-ISSUES:REQ-002', 'FIX-ISSUES:AC-002'];
+  const files = ['src/App.jsx', 'src/components/FunctionGrapher.jsx', 'src/index.css'];
+  const planned = normalizeClaimMap({ claims: {
+    [ids[0]]: { expectedPaths: files, tests: ['src/components/FunctionGrapher.test.jsx'] },
+    [ids[1]]: { expectedPaths: files, tests: ['src/components/FunctionGrapher.test.jsx'] }
+  } }, { kind: 'planned', clauseIds: ids });
+  const delivery = { sourcePaths: files, testPaths: ['src/components/FunctionGrapher.test.jsx'], traceability: {
+    sourceBindings: ids.map((clauseId) => ({ clauseId, sourcePath: 'src/components/FunctionGrapher.jsx', line: 1, tag: 'clause' })),
+    bindings: [{ clauseId: ids[1], testSource: 'src/components/FunctionGrapher.test.jsx' }] } };
+  const observed = deriveObservedClaimMap(planned, delivery, { clauseIds: ids, requireSourceBindings: true });
+  for (const id of ids) {
+    assert.deepEqual(observed.claims[id].observedPaths, files, id);
+    assert.equal(observed.claims[id].verdict, 'matched', id);
+  }
+  assert.equal(evaluateSpecCoverage({ indexes: [{ clauses: ids.map((id) => ({ id })) }], planned: [planned], observed: [observed] },
+    [...files, 'src/components/FunctionGrapher.test.jsx'], { coverage: 'enforce' }).complete, true);
+  // A planned file that did not change still leaves the row partial, and an unplanned one still needs a place.
+  const short = deriveObservedClaimMap(planned, { ...delivery, sourcePaths: files.slice(1) }, { clauseIds: ids, requireSourceBindings: true });
+  assert.equal(short.claims[ids[0]].verdict, 'partial');
+  const extra = evaluateSpecCoverage({ indexes: [{ clauses: ids.map((id) => ({ id })) }], planned: [planned], observed: [observed] },
+    [...files, 'src/components/FunctionGrapher.test.jsx', 'src/extra.js'], { coverage: 'enforce' });
+  assert.deepEqual([extra.complete, extra.unclaimedChangedPaths], [false, ['src/extra.js']]);
+  // An acceptance criterion's test still counts only through its own @ac binding: test evidence is not weakened.
+  const untagged = deriveObservedClaimMap(planned, { ...delivery, traceability: { ...delivery.traceability, bindings: [] } }, { clauseIds: ids, requireSourceBindings: true });
+  assert.deepEqual(untagged.claims[ids[1]].testResults, []);
+  assert.equal(untagged.claims[ids[1]].verdict, 'partial');
+  assert.deepEqual(untagged.claims[ids[0]].testResults, ['src/components/FunctionGrapher.test.jsx'], 'a requirement\'s planned test counts by its path');
 });

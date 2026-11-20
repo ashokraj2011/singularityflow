@@ -270,8 +270,9 @@ test('a final check names an upstream issue for what an earlier step owns, and s
   const rows = [row('APP:REQ-001', [obligation('implement', 'missing', 'fmly-implementation', 'APP:REQ-001')]),
     row('APP:AC-009', [obligation('verify', 'missing', 'fmly-implementation', 'APP:AC-009'), obligation('review', 'pending', 'fmly-release', 'APP:AC-009')])];
   const actions = terminalRecoveryActions('APP-1', { decision: { gate: 'block' }, rows }, null, workflow);
+  // What the code step did not deliver is said in SFlow's words, never a placeholder (owner, 2026-11-20).
   assert.deepEqual(actions.slice(0, 2), [
-    'singularity-flow upstream-issue raise --work-id APP-1 --phase fmly-implementation --about APP:REQ-001 --problem <what-is-wrong>',
+    'singularity-flow upstream-issue raise --work-id APP-1 --phase fmly-implementation --about APP:REQ-001 --problem "No delivered change of fmly-implementation implements APP:REQ-001"',
     'singularity-flow upstream-issue raise --work-id APP-1 --phase fmly-implementation --about APP:AC-009 --problem <what-is-wrong>'
   ]);
   assert.equal(terminalRecoveryActions('APP-1', { decision: { gate: 'block' }, rows }).some((command) => command.includes('upstream-issue')), false,
@@ -279,6 +280,24 @@ test('a final check names an upstream issue for what an earlier step owns, and s
   const open = rows.flatMap((entry) => entry.obligations);
   assert.deepEqual(terminalRisk(workflow, open), { eligible: true, authorities: ['developers'], maximumDays: null });
   assert.equal(terminalRisk(workflow, [open[2]]).eligible, false, 'a pending review is approved, never accepted as a risk');
+});
+
+// fix-issues (owner, 2026-11-20): quick-fix implement has no approvers, so the only step its gap could be raised with was
+// intake, and the ending told the person to raise REQ-002 against the requirements, with <what-is-wrong> to fill in.
+test('a code step nobody approves: its gap at the ending is never raised against an earlier step, and its return is filled', () => {
+  const workflow = (verifyStatus) => ({ workItem: { id: 'FIX-ISSUES' }, status: 'in_progress', currentPhase: 'verify',
+    phaseOrder: ['intake', 'implement', 'verify'],
+    phases: { intake: { generation: 1, status: 'approved', approvalPolicy: { authorities: ['engineering-reviewers'] } },
+      implement: { generation: 1, status: 'approved', approvalPolicy: { mode: 'none' } },
+      verify: { generation: 1, status: verifyStatus, approvalPolicy: { mode: 'policy', authorities: ['quality-reviewers'], rejectTo: ['intake', 'implement', 'verify'] } } } });
+  const rows = [{ id: 'FIX-ISSUES:REQ-002', result: 'missing', actions: [], obligations: [{ id: 'OBL:FIX-ISSUES:implement:REQ-002', responsibility: 'implement',
+    subject: 'FIX-ISSUES:REQ-002', status: 'partial', owningSteps: ['implement'], facets: { freshness: 'current' } }] }];
+  const submitting = terminalRecoveryActions('FIX-ISSUES', { decision: { gate: 'block' }, rows }, null, workflow('in_progress'));
+  assert.equal(submitting.some((command) => / upstream-issue raise .*--phase intake/u.test(command)), false, submitting.join('\n'));
+  assert.equal(submitting.some((command) => command.includes('<what-is-wrong>')), false);
+  const approving = terminalRecoveryActions('FIX-ISSUES', { decision: { gate: 'block' }, rows }, null, workflow('awaiting_approval'));
+  assert.ok(approving.includes('singularity-flow reject verify --work-id FIX-ISSUES --to implement --reason "implement delivered FIX-ISSUES:REQ-002 only in part: some of its planned files or tests are not in the version"'),
+    approving.join('\n'));
 });
 
 // No dead-ends: every refusal SFlow has its own recovery for builds a plan whose every command the route

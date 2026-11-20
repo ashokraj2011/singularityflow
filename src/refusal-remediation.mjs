@@ -1290,7 +1290,11 @@ const KNOWN = Object.freeze({
     const list = details.nextAction?.command?.startsWith('singularity-flow decisions ')
       ? step('open-decision-list', String(details.nextAction.label ?? 'Open the decision list.').slice(0, 2000), details.nextAction.command, 'remediation', '/sf-decide')
       : null;
-    const author = phase && !decision?.complete
+    // Refused at the step's own submission: its version is published, so the clauses are delivered in its next version,
+    // filled with what is missing, which the person confirms (owner, 2026-11-20). That route is the refusal's own
+    // nextAction, which leads the plan as the step's writing route; the published version is never prepublished again.
+    const nextVersion = phase && / phase rollover /u.test(details.nextAction?.command ?? details.nextAction ?? '');
+    const author = phase && !decision?.complete && !nextVersion
       ? step('deliver-missing-clauses', `Deliver the clauses this refusal lists (source, tests and their tags) in ${phase}'s open generation, then recheck.${decision ? ` Leave ${decision.issues.flatMap((entry) => entry.clauses).join(', ')} to the open upstream issue's decision.` : ''}`,
         `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-code')
       : null;

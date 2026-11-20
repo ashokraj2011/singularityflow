@@ -144,23 +144,30 @@ test('[PHR:REQ-003] a coverage gap at code submission and approval: a decided is
   assert.match(waiting.text, /every clause listed here waits on that decision by planning's approvers, not on this step's code/u);
   assert.equal(waiting.details.nextAction.command, 'singularity-flow decisions US-1 --json');
 
-  // Neither: the plan's own corrections and the upstream issue to its approvers, beside the delivery.
+  // Neither: the plan's own corrections beside the delivery. No issue is raised against the plan for an undelivered
+  // clause: the code step delivers it in its next version (owner, 2026-11-20; fix-issues blamed intake).
   const corrections = planCorrectionRoutes(codeStory(), 'planning', 'implementation', ['US-1:REQ-002'], { 'US-1:REQ-002': { expectedPaths: ['src/a.mjs'], tests: ['test/a.test.mjs'] } });
   assert.deepEqual(corrections.routes.map((entry) => entry.command), [
     'singularity-flow decision plan US-1 --replace-location US-1:REQ-002=src/a.mjs:<NEW-PATH> --reason <why>',
     'singularity-flow decision plan US-1 --remove-location US-1:REQ-002=src/a.mjs --reason <why>',
-    'singularity-flow decision plan US-1 --replace-test US-1:REQ-002=test/a.test.mjs:<NEW-TEST> --reason <why>',
-    'singularity-flow upstream-issue raise --work-id US-1 --phase planning --about US-1:REQ-002 --problem <what-is-wrong>']);
+    'singularity-flow decision plan US-1 --replace-test US-1:REQ-002=test/a.test.mjs:<NEW-TEST> --reason <why>']);
+  assert.doesNotMatch(corrections.text, /upstream-issue raise/u);
   assert.match(corrections.text, /an approver of planning corrects the row in their own terminal/u);
   const details = { workId: 'US-1', phase: 'implementation', planningOwner: 'planning', coverage: { unimplemented: ['US-1:REQ-002'] },
     diagnosticCommand: 'singularity-flow recover US-1 --phase implementation --json', planCorrections: corrections.routes };
   const plan = refusalRemediationPlan(refusal('SPEC_COVERAGE_INCOMPLETE', details), ['submit', 'implementation', '--work-id', 'US-1']);
   const ids = plan.steps.map((entry) => entry.id);
-  assert.ok(ids.includes('correct-plan-row') && ids.includes('raise-upstream-issue'), JSON.stringify(ids));
+  assert.ok(ids.includes('correct-plan-row') && !ids.includes('raise-upstream-issue'), JSON.stringify(ids));
   assert.ok(ids.indexOf('deliver-missing-clauses') < ids.indexOf('correct-plan-row'), 'delivery stays first');
   const choices = phaseResolutionChoices(codeStory(), codeStory().phases.implementation, { code: 'SPEC_COVERAGE_INCOMPLETE', details }).choices;
   assert.deepEqual(choices.filter((entry) => ['plan-correction', 'upstream-issue'].includes(entry.kind)).map((entry) => [entry.kind, entry.owner, entry.command]), [
-    ['plan-correction', 'planning-approval-authority', corrections.routes[0].command], ['upstream-issue', 'planning-approval-authority', corrections.routes[3].command]]);
+    ['plan-correction', 'planning-approval-authority', corrections.routes[0].command]]);
+  // Refused at the step's own submission: its next version, filled with what is missing, comes first.
+  const next = { command: 'singularity-flow phase rollover implementation --reason "Deliver US-1:REQ-002 (src/a.mjs does not change) where the plan puts it." --json',
+    skill: '/sf-code', label: 'Start version 2 of implementation for US-1:REQ-002' };
+  const submitted = refusalRemediationPlan(refusal('SPEC_COVERAGE_INCOMPLETE', { ...details, nextAction: next }), ['submit', 'implementation', '--work-id', 'US-1']);
+  assert.deepEqual([submitted.steps[0].command, submitted.steps[0].skill], [next.command, '/sf-code']);
+  assert.equal(submitted.steps.some((entry) => entry.id === 'deliver-missing-clauses'), false, 'a published version is never prepublished again');
 });
 
 /**

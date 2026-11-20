@@ -26,7 +26,7 @@ related:
   - workflow-decisions
   - rejection-and-rework
   - changing-requirements
-version: 38
+version: 39
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call. When a requirement or criterion itself changes after the scope is approved, see `sflow explain changing-requirements`.
 
@@ -66,6 +66,8 @@ Each planning owner's obligations survive aggregation independently. A later tes
 - **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
 
 A code step is judged by the rows allocated to it. Only new or modified rows need product source that carries a `@clause` comment; existing rows need their paths to still be there, with their planned tests run unchanged; removed rows need their paths to be gone, and a removed file is approved by its absence; test-only rows need their tests; document and configuration rows need exactly their paths to change. Each is recorded in the code-delivery receipt and checked again against the committed generation.
+
+A file the plan lists for a row counts for that row once the version changes it, with or without a comment of its own: the `@clause` comment locates and explains the change, and one per row, in one of its planned files, carries the explanation the step's reviewer approves. A file the plan lists nowhere still needs a place: a plan row or a supporting change, decided on the Decide card. A row's planned tests must still be in the version, and a criterion's test counts only with its own `@ac` tag. A person's plan correction counts the same way: a test or location it adds to a row is judged against the version already delivered, with no new version. The last code step's own submission checks all of this (a step nobody approves completes there), so a gap is delivered in that step's next version, which the refusal names filled in; it is never first found by a later step.
 
 `test-only` applies to requirements (`REQ`) as well as acceptance criteria (`AC`). A requirement needs that explicit fulfillment in its authoritative planning owner's reviewed row; an observed claim cannot grant it to itself. Its trace must name the exact planned test files, without an invented product-source path. Missing files leave the delivery incomplete. This is delivery evidence only: it does not prove the tests passed or waive execution, acceptance, or review gates. Submission, approval, convergence, and the matrix use the same distinction, including workflows with custom phase names.
 

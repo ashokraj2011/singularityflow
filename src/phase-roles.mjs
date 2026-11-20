@@ -178,10 +178,11 @@ export function isTestEvidencePhase(phase) {
  * Owner-step checks [PHR:REQ-002]: what a later step judges of an earlier step's output, its own step
  * checks first. Pinned at Story start [SPK:CON-039], so a Story already running keeps its policy.
  * Level 2 adds the checks decided after batch 2's first landing (2026-11-10): a failed visual comparison
- * held at the visual step, and an amendment's rows for the clauses it revises. A Story pinned at 1 keeps
- * level 1's checks and never meets level 2's.
+ * held at the visual step, and an amendment's rows for the clauses it revises. Level 3 (2026-11-20): the last code
+ * step's own submission refuses the coverage its approval would (a step with no approval completes there), so the gap
+ * is delivered in that step's next version. A Story pinned at a level keeps that level's checks and never meets a later one's.
  */
-export const OWNER_STEP_CHECKS = 2;
+export const OWNER_STEP_CHECKS = 3;
 
 export function phaseResponsibilityPin() {
   return { ownerStepChecks: OWNER_STEP_CHECKS };

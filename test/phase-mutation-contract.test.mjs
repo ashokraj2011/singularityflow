@@ -1859,8 +1859,8 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-sgos-create': [[/^(?:process (?:start|step|run)|intent (?:ratify|compile))\b/u, 'named only as commands it never runs']],
   'sflow-auto': [[/^auto flight-step\b/u, 'named only as a command it never invokes directly']],
   'sflow-integrations': [[/^integrations deliver\b/u, 'for pipelines; not run from chat']],
-  'sflow-confirm': [[/^confirm x1\b/u, 'runs only the code the person typed; a turn bound by a typed code is checked in confirm-code.test.mjs']],
-  'sflow-approve': [[/^(?:choices answer \S+ phase-confirmation|approve \S+ --work-id \S+ --fetch --selection-receipt)\b/u, 'runs only after the person\'s Yes to "Approve <Step> v<N>?"; checked in the chat approval test and approve-one-yes.test.mjs']]
+  // /sf-approve no longer names its receipt commands: it runs the filled ones the packet returns (act.ask.onYes, next.command).
+  'sflow-confirm': [[/^confirm x1\b/u, 'runs only the code the person typed; a turn bound by a typed code is checked in confirm-code.test.mjs']]
 });
 /** Commands of a skill that needs no Story which act on a bound Story, so only a Story-bound turn runs them. */
 const NEEDS_A_STORY = Object.freeze({

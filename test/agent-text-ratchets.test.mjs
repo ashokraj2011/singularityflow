@@ -300,8 +300,9 @@ test('every example a review schema description gives is a value that schema acc
     for (const [key, child] of Object.entries(node)) walk(child, `${trail}.${key}`);
   };
   for (const kind of ['specification', 'planning', 'document', 'code']) walk(sourceReviewReportSchema(kind), kind);
-  // A source ID is not derivable from its path, so the code schema gives no example: it says to copy sources[].id.
-  assert.match(JSON.stringify(sourceReviewReportSchema('code')), /sources\[\]\.id, copied exactly; it is not derivable from the path/u);
+  // A source ID is not derivable from its path, so the code schema gives no example: it names sources[].id, and the check
+  // writes the ID where the exact path was written [owner, 2026-11-20].
+  assert.match(JSON.stringify(sourceReviewReportSchema('code')), /sources\[\]\.id; its exact path is accepted too, and review-source check writes the ID in its place/u);
   for (const { trail, example, pattern, values } of examples) {
     if (pattern) assert.match(example, new RegExp(pattern, 'u'), trail);
     if (values) assert.ok(values.includes(example), trail);

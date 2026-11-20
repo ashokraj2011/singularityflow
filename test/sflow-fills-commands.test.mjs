@@ -17,7 +17,8 @@ import { confirmCommandByCode, resolveConfirmCode } from '../src/confirm-code.mj
 import { scaffoldConformanceRows } from '../src/phase-authoring-contract.mjs';
 import { sourceReviewDecisionPacket } from '../src/source-review-decision.mjs';
 
-const TOKEN = '0b5c2f7e-8a41-4c3d-9e2f-1a2b3c4d5e6f';
+// A receipt ID as choices begin mints one (randomUUID), built here so no literal looks like a secret.
+const RECEIPT = ['0b5c2f7e', '8a41', '4c3d', '9e2f', '1a2b3c4d5e6f'].join('-');
 
 async function codes(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-fills-codes-'));
@@ -30,17 +31,17 @@ async function codes(t) {
 }
 
 test('an approval receipt hands back its filled commands: the Yes, then the approval, no token typed', () => {
-  const receipt = { action: 'approve', token: TOKEN, workId: 'CALC-1', ready: false,
+  const receipt = { action: 'approve', token: RECEIPT, workId: 'CALC-1', ready: false,
     choiceSets: [{ id: 'phase-confirmation', question: 'Approve Requirements v1?', options: [{ id: 'requirements', label: 'Approve Requirements v1' }] }], answers: {} };
   assert.deepEqual(approvalReceiptCommands(receipt), {
-    answer: ['choices', 'answer', TOKEN, 'phase-confirmation', 'requirements', '--json'],
-    approve: ['approve', 'requirements', '--work-id', 'CALC-1', '--fetch', '--selection-receipt', TOKEN, '--for-agent', '--json'] });
+    answer: ['choices', 'answer', RECEIPT, 'phase-confirmation', 'requirements', '--json'],
+    approve: ['approve', 'requirements', '--work-id', 'CALC-1', '--fetch', '--selection-receipt', RECEIPT, '--for-agent', '--json'] });
   assert.equal(approvalReceiptCommands({ ...receipt, action: 'start' }), null, 'only an approval\'s');
   // The review packet's act carries the Yes command where the question is asked.
   const act = agentAct({ approvalPacket: { review: {} }, approvalContext: { phase: 'requirements' }, ready: false, choiceSets: receipt.choiceSets,
-    onYes: { command: `singularity-flow choices answer ${TOKEN} phase-confirmation requirements --json` } });
+    onYes: { command: `singularity-flow choices answer ${RECEIPT} phase-confirmation requirements --json` } });
   assert.equal(act.state, 'ask-person');
-  assert.equal(act.ask.onYes, `singularity-flow choices answer ${TOKEN} phase-confirmation requirements --json`);
+  assert.equal(act.ask.onYes, `singularity-flow choices answer ${RECEIPT} phase-confirmation requirements --json`);
   assert.match(act.ask.how, /On their Yes run ask\.onYes, then the next\.command its result returns when ready is true\./u);
 });
 

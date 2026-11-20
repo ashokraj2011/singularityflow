@@ -516,7 +516,7 @@ test('a question that arises after the checkpoint joins the same record until th
     assert.equal(checkpoint.remainingQuestions, maxQuestions - recorded);
     assert.equal(checkpoint.newQuestionAction.requiresActualHumanReplies, true);
     assert.deepEqual(checkpoint.newQuestionAction.commandGuidance.argv,
-      ['clarification', 'record', 'specification', '--response-file', staging, '--for-agent', '--json']);
+      ['clarification', 'record', 'specification', '--for-agent', '--json'], 'it reads the issued file: no path to type');
     await stage(`Later question ${recorded}?`);
     const added = invokeJson(...checkpoint.newQuestionAction.commandGuidance.argv.filter(arg => arg !== '--json'));
     assert.equal(added.outcome.slots.responses, recorded + 1, 'earlier answers are kept');

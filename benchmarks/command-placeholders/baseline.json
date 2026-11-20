@@ -182,8 +182,8 @@
     "src/copilot-answer-binding.mjs": [
       "singularity-flow phase rollover <step>",
       "singularity-flow phase rollover {} <step>",
-      "singularity-flow story intent-amendment propose --work-id <WORK-ID> --file \"{}\" --reason \"<why>\" --authored human",
-      "singularity-flow story intent-amendment propose --work-id {} --file \"{}\" --reason \"<why>\" --authored human <WORK-ID>"
+      "singularity-flow story intent-amendment propose --work-id <WORK-ID> --reason \"<why>\" --authored human",
+      "singularity-flow story intent-amendment propose --work-id {} --reason \"<why>\" --authored human <WORK-ID>"
     ],
     "src/copilot-mutation-guard.mjs": [
       "/sf-decide <WORK-ID>",

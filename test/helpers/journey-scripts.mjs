@@ -120,8 +120,12 @@ export function specDrivenAuthor(W, { clauses = [`${W}:AC-001`, `${W}:REQ-002`],
     if (phase === 'release') {
       await story.write(path.join(item, 'artifacts/release/verification/evidence-index.md'),
         `# Release verification evidence index — ${W}\n\nVerification is approved, and it reused the run Implementation recorded on this same source tree.\n`);
-      await artifact('conformance.md', (before) => fill(before.replace(`| \`${W}:REQ-001\` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |`,
-        clauses.map((clause) => `| \`${clause}\` | \`test/value.test.mjs\`, the run reused on this source tree | matched |`).join('\n')), `Compared ${clauses.join(' and ')} against the recorded run.`));
+      const row = (clause) => `| \`${clause}\` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |`;
+      const filled = (clause) => `| \`${clause}\` | \`test/value.test.mjs\`, the run reused on this source tree | matched |`;
+      // Prepare writes one row per approved clause [owner, 2026-11-20]; a template from before has the one example row.
+      await artifact('conformance.md', (before) => fill(clauses.every((clause) => before.includes(row(clause)))
+        ? clauses.reduce((text, clause) => text.replace(row(clause), filled(clause)), before)
+        : before.replace(row(`${W}:REQ-001`), clauses.map(filled).join('\n')), `Compared ${clauses.join(' and ')} against the recorded run.`));
       return true;
     }
     return false;

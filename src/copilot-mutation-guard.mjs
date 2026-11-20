@@ -513,8 +513,8 @@ export async function turnReturnedPaths(payload) {
   const owner = await boundedRecord(recordFile(payload)).catch(() => null);
   const root = owner?.contract?.repositoryRoot ?? owner?.repositoryRoot;
   if (!root || owner.turnId !== record.turnId) return null;
-  return [...new Set([...(owner.contract?.allow?.staging ?? []), ...(owner.draftStaging ?? []), ...(owner.specStaging ?? []), root])
-    .filter(entry => typeof entry === 'string' && path.isAbsolute(entry))];
+  return [...new Set([...(owner.contract?.allow?.staging ?? []), ...(owner.draftStaging ?? []), ...(owner.specStaging ?? []), root])]
+    .filter(entry => typeof entry === 'string' && path.isAbsolute(entry));
 }
 
 /** One reader classification for permission interception and native failure handling. */

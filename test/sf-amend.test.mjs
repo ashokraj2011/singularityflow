@@ -125,7 +125,8 @@ test('the skill is /sf-reject\'s intent-amendment route on its own, with the sha
   }
   assert.doesNotMatch(amend, /intent-amendment (?:decide|acknowledge)/u);
   // Proposed only on the person's own yes to its preview, with their words as the reason [CIC:REQ-015, owner decision 3].
-  assert.match(amend, /story intent-amendment propose --work-id <WORK-ID> --file <FILE> --reason "<THEIR WORDS>" --authored governed-agent --channel copilot-host --json/u);
+  // No --file: it proposes the Story's own draft, so no path is typed [owner, 2026-11-20].
+  assert.match(amend, /story intent-amendment propose --work-id <WORK-ID> --reason "<THEIR WORDS>" --authored governed-agent --channel copilot-host --json/u);
   // The decision and the acknowledgement, said as the product says them: a person's, on the card or in their own terminal.
   assert.match(amend, /The decision and the acknowledgement are a person's, never this turn's: a person who approves the scope decides it on the decisions card, `\/sf-decide <WORK-ID>`/u);
   assert.match(amend, /or in their own terminal/u);
@@ -207,8 +208,10 @@ test('a /sf-amend turn admits no command a /sf-reject turn refuses, and records 
   }
   assert.deepEqual(wider, [], 'a /sf-amend turn admitted what a /sf-reject turn refuses');
   assert.ok(rejectOnly > 0, '/sf-reject keeps its other routes; /sf-amend has none of them');
-  // Beyond what any turn runs, its one recorded step: proposing the bound Story's amendment from a file, before the turn's decision ended.
-  assert.deepEqual([...recorded], [`story intent-amendment propose work-id=${WORK} file=string ended=false`]);
+  // Beyond what any turn runs, its one recorded step: proposing the bound Story's amendment, from a file or, with no --file, from
+  // the Story's own draft [owner, 2026-11-20], before the turn's decision ended.
+  assert.deepEqual([...recorded].sort(), [`story intent-amendment propose work-id=${WORK} file=string ended=false`,
+    `story intent-amendment propose work-id=${WORK} file=undefined ended=false`].sort());
 });
 
 for (const [host, { enter, run, edit }] of Object.entries(HOSTS)) {
@@ -269,6 +272,6 @@ test('its turn rules name the draft it may write, as /sf-reject\'s do', async (t
   const files = readdirSync(records).filter((name) => name.endsWith('.mutation.json'));
   const summaries = await Promise.all(files.map(async (name) => JSON.parse(await readFile(path.join(records, name), 'utf8')).contract?.summary ?? ''));
   assert.ok(summaries.some((summary) => summary.includes(`Intent amendment only: draft the change only at the issued file ${f.draft}, `)
-    && summary.includes(`\`singularity-flow story intent-amendment propose --work-id ${WORK} --file ${f.draft} --reason "<why>" --authored governed-agent --channel copilot-host --json\``)), summaries.join('\n'));
+    && summary.includes(`\`singularity-flow story intent-amendment propose --work-id ${WORK} --reason "<why>" --authored governed-agent --channel copilot-host --json\``)), summaries.join('\n'));
   assert.ok(summaries.every((summary) => !summary.includes('Approval/rejection only')), summaries.join('\n'));
 });

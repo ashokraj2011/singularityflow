@@ -71,7 +71,9 @@ async function onTheWayRecord(root, config, workflow, options) {
   if (others.length) refused(`--on-the-way names the item and SFlow fills the rest; leave out --${others.join(', --')}.`);
   const phase = workflow.phases?.[workflow.currentPhase];
   const items = phase ? await (await import('../findings/register/on-the-way.mjs')).itemsOnTheWay(root, config, workflow, phase) : null;
-  const item = (items?.fix ?? []).find((entry) => entry.id === id && !entry.departure);
+  // An upgrade the agent just made reads as listed ("the manifest already pins …"): it is the same fix, now in place.
+  const item = (items?.fix ?? []).find((entry) => entry.id === id && !entry.departure)
+    ?? (items?.listed ?? []).find((entry) => entry.id === id && !entry.departure && /^the manifest already pins /u.test(entry.why ?? ''));
   if (!item) refused(`${id} is not an item this step's entry lists to fix on the way${items?.fix?.length ? ` (it lists ${items.fix.map((entry) => entry.id).join(', ')})` : ''}; record a finding with --kind finding --finding ID --path FILE --reason TEXT.`, 'DEPARTURE_ON_THE_WAY_UNKNOWN');
   return { kind: 'finding', paths: item.files, clauses: [], findings: [id], reason: `Fixes ${id} from the findings register on what this Story touches.` };
 }

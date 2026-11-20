@@ -107,6 +107,14 @@ const SCENARIOS = Object.freeze([
     start: 'singularity-flow appeal preflight --phase implementation --for-agent --json',
     reached: (result) => result?.operation?.id === 'appeal.preflight' && /^singularity-flow submit implementation\b/u.test(result?.act?.do?.shell ?? '')
       && !/^\/sf-(?:code|appeal)\b/u.test(result?.act?.do?.copilot ?? '') },
+  // No Node installed here is one the package accepts (code-env settles any that is): the failed run looped through repair,
+  // tests node and tests base on an unchanged machine. Its first step is now the person's install, filled for the version
+  // manager found (nvm here), and the same check runs only once that is done [owner, 2026-11-20].
+  { id: 'no-installed-node', meets: 'CODE_TEST_FAILED', real: 'landing-6: no installed Node the package accepts, and the refused run looped through repair, tests node and tests base',
+    setup: async (story) => { await onTheWrongNode(story, { majors: [] }); await mkdir(path.join(story.parent, 'other-node'), { recursive: true }); },
+    start: PREPUBLISH, reached: published, outcome: 'person-decision',
+    reasons: { CODE_TEST_FAILED: { mustMatch: new RegExp(`Install it with nvm: nvm install ${OTHER_MAJOR}, then run the same check again`, 'u'),
+      because: 'the refusal names the filled install command for the version manager found here' } } },
   { id: 'test-fails-for-a-real-bug', meets: 'CODE_TEST_FAILED', real: 'the same refusal when the code is at fault: a route that can change the state has a way through',
     setup: (story) => story.write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value to every caller\nexport const value = 3;\n`), start: PREPUBLISH, reached: published,
     writes: { '/sf-code': { 'src/value.mjs': `// @clause:${WORK}:AC-001 returns the approved value to every caller\nexport const value = 2;\n` } } },

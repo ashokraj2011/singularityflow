@@ -872,7 +872,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,792,077 (measured for submit.mjs on landing-6, 2026-11-20): code-env and the four ceremony branches above together.
     // 9,792,798 (measured for submit.mjs, +721, 2026-11-20): the full run's fixes: an automatic approval refused in its own stage of
     // the one check (state.mjs), its two owners and the gate's code (approval-check.mjs, gate-parity.mjs), and the routes of an undo. No new eager file.
-    assert.ok(closure.bytes <= 9_792_798, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,793,513 (measured for submit.mjs, +715, 2026-11-20): with no installed Node that can run the tests, the failed run's
+    // refusal names the filled install command and its plan waits on it (state.mjs, refusal-remediation.mjs, agent-output.mjs);
+    // the check that finds it stays lazy (node-pin.mjs nodeInstallOffer, test-plan.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_793_513, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

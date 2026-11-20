@@ -159,6 +159,21 @@ export async function nodeChecksBeforeRun(root, workflow, pin) {
     + `${pin.file}, settled with an undo on the decisions card: run the same gate again.`;
 }
 
+/**
+ * What a person installs when no installed Node can run these test commands: the repository asks for a Node this machine
+ * does not have and none installed suits it, so nothing SFlow or a code change does gets past the failed run
+ * [owner, 2026-11-20]. `{ version, manager, command, words }`: the command filled for the version manager found here
+ * (nvm, fnm, Volta, asdf, mise, n, Homebrew; nvm for Windows), or `command: null` with none; else null.
+ */
+export async function nodeInstallOffer(root, commands, { environment = process.env } = {}) {
+  const { runnerFamily } = await import('./test-toolchain.mjs');
+  const nodeCommands = commands.filter((command) => runnerFamily(command) === 'node');
+  if (!nodeCommands.length) return null;
+  const { nodeVersionChecks, fileReads } = await import('./test-plan.mjs');
+  const check = (await nodeVersionChecks(root, nodeCommands, { environment, reads: fileReads(root) })).find((entry) => entry.install && !entry.pin);
+  return check ? { ...check.install } : null;
+}
+
 /** Another major version installed here, for a Node runner's failed run; null when there is none or the repository already pins one. */
 export async function otherInstalledNode(root, command, { environment = process.env } = {}) {
   const { runnerFamily, nodeVersion } = await import('./test-toolchain.mjs');

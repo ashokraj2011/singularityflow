@@ -421,8 +421,21 @@ function requiredTestFailureSteps(argv, error) {
   // Dependencies SFlow could not install: the person runs the named command in their own terminal (no agent route), then
   // the same gate [owner, 2026-11-19].
   const dependencies = error?.details?.dependencySetup;
+  const ready = dependencies?.nextAction ? [step('make-dependencies-ready', `${dependencies.words} ${dependencies.nextAction.label}`.slice(0, 2000), null, 'remediation')] : [];
+  // No installed Node can run the tests: the person installs one in their own terminal (the command is filled for the version
+  // manager found here), then the same check runs again. Never a repair, another Node's probe or a base run meanwhile: each
+  // meets the same failure on an unchanged machine [owner, 2026-11-20].
+  const install = error?.details?.nodeInstall;
+  if (install?.version) {
+    return [...ready,
+      Object.freeze({ ...step('install-node', `${install.words ?? ''} No Node installed here can run these tests: a person installs one in their own terminal. ${install.command
+        ? `Install it with ${install.manager}: ${install.command}` : `Install Node ${install.version} from https://nodejs.org.`}`.trim(), null, 'remediation'),
+      ...(install.command ? { personCommand: install.command } : {}) }),
+      afterChange(step('run-tests-again', `Once Node ${install.version} is installed, run the same check again: SFlow runs the tests on it.`,
+        prepublishAgain(context?.phaseId), 'remediation', ownRepairSkill), `Node ${install.version} is installed`)];
+  }
   return [
-    ...(dependencies?.nextAction ? [step('make-dependencies-ready', `${dependencies.words} ${dependencies.nextAction.label}`.slice(0, 2000), null, 'remediation')] : []),
+    ...ready,
     ...(Array.isArray(fixes) ? fixes.slice(0, 3).map((command, index) => step(`fix-environment-${index + 1}`, index ? 'Or this.'
       : 'The environment is not set up here, so no change in the step passes it: fix it with this, then run the same check again.', command, 'remediation')) : []),
     ...(pin?.settles && context?.workId ? [step('rerun-on-pinned-node', `SFlow pins ${pin.checks ? 'an installed Node the tests pass on' : `Node ${pin.version}`} in ${pin.file} itself before the next run, settled with an undo on the decisions card: ${pin.words} Run the same gate again.`,
@@ -2509,6 +2522,8 @@ function remediationPlanFor(error, argv = []) {
     ? 'Do not retry approval in this turn. Repair and resubmit through phase actions, then begin a fresh approval turn.'
     : upstreamInputBlocked
     ? 'Retry only after the approved inputs read ready again: restored to their approved bytes, or replaced by an approved new generation of the earlier phase. Never edit them from this phase.'
+    : requiredTestBlocked && error?.details?.nodeInstall?.version
+    ? `Run the same check again only once Node ${error.details.nodeInstall.version} is installed; on this machine as it is, every run fails the same way.`
     : requiredTestBlocked && requiredTestFailure?.retryCondition === 'runtime-changed'
     ? 'Retry after the test runtime or dependency has actually changed; the same source may then be rechecked. Do not loop against an unchanged environment.'
     : requiredTestBlocked
@@ -2544,7 +2559,8 @@ function remediationPlanFor(error, argv = []) {
     ...(code === 'TEST_COMMAND_PIN_CHANGED' && phaseContext && error.details?.testCommandPin ? {
       repairContinuation: repairContinuationForPinChange(phaseContext, error.details.testCommandPin)
     } : {}),
-    ...(requiredTestBlocked && phaseContext && requiredTestExecutionForRefusal(error) ? {
+    // A Node to install is the person's, outside the step: no repair continues in this turn meanwhile.
+    ...(requiredTestBlocked && phaseContext && requiredTestExecutionForRefusal(error) && !error?.details?.nodeInstall?.version ? {
       repairContinuation: repairContinuationForTestFailure(phaseContext, requiredTestExecutionForRefusal(error))
     } : {}),
     ...(qualityFindingsBlocked && phaseContext && error.details?.qualityFindings ? {
@@ -2894,6 +2910,8 @@ export function refusalDetails(details) {
   if (details.setAside?.command) projected.setAside = { command: details.setAside.command, paths: (details.setAside.paths ?? []).slice(0, 20) };
   if (details.otherNode?.version) projected.otherNode = { version: details.otherNode.version, node: details.otherNode.node };
   if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null, ...(details.nodePin.replaces ? { replaces: details.nodePin.replaces } : {}), ...(details.nodePin.settles === true ? { settles: true } : {}), ...(details.nodePin.checks === true ? { checks: true } : {}) };
+  if (details.nodeInstall?.version) projected.nodeInstall = compact({ version: text(String(details.nodeInstall.version)), manager: text(details.nodeInstall.manager),
+    command: text(details.nodeInstall.command), words: text(details.nodeInstall.words) });
   if (details.dependencySetup?.words) projected.dependencySetup = compact({ words: text(details.dependencySetup.words), directory: text(details.dependencySetup.directory),
     nextAction: details.dependencySetup.nextAction ? compact({ label: text(details.dependencySetup.nextAction.label), command: text(details.dependencySetup.nextAction.command),
       workingDirectory: text(details.dependencySetup.nextAction.workingDirectory) }) : null });

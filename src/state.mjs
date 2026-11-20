@@ -4532,9 +4532,18 @@ export async function attachRequiredTestExecution(error, root, command, check, {
       refusal.message += checks ? ` ${pin.words} ${checks}` : settles ? ` ${pin.words} SFlow pins Node ${pin.version} in ${pin.file} itself before the next run, settled with an undo on the decisions card: run the same gate again.`
         : ` ${pin.words} A person can choose ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`} on the decision list: singularity-flow decisions ${workId ?? '<WORK-ID>'}. It ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step.`;
     } else {
-      // Nothing here says the Node is at fault, but another one is installed: a command answers that, with no chain of shell commands.
-      const other = await (await import('./node-pin.mjs')).otherInstalledNode(root, command).catch(() => null);
-      if (other) refusal.details.otherNode = other;
+      // No installed Node can run these tests: the person installs one, then the same check runs again. Never a repair, a
+      // probe of another Node or a base run meanwhile, which all meet the same failure [owner, 2026-11-20].
+      const install = await (await import('./node-pin.mjs')).nodeInstallOffer(root, [command]).catch(() => null);
+      if (install) {
+        refusal.details.nodeInstall = install;
+        refusal.message += ` ${install.words} No Node installed here can run these tests. ${install.command ? `Install it with ${install.manager}: ${install.command}`
+          : `Install Node ${install.version} from https://nodejs.org`}, then run the same check again.`;
+      } else {
+        // Nothing here says the Node is at fault, but another one is installed: a command answers that, with no chain of shell commands.
+        const other = await (await import('./node-pin.mjs')).otherInstalledNode(root, command).catch(() => null);
+        if (other) refusal.details.otherNode = other;
+      }
     }
   }
   // Dependencies SFlow could not make ready come first (repository-dependency-setup.mjs).

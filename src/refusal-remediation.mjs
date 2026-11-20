@@ -801,8 +801,8 @@ function repairBudgetSteps(_argv, error) {
     oneMore ? afterChange(step('grant-one-more-round',
       `${reset ? 'Or a' : 'A'} person who decides ${current ?? 'this step'} grants one more rework round past the budget, with their reason; it is recorded as a round beyond the budget, and each further round needs its own grant.`,
       oneMore, 'remediation'), 'a person grants one more round past the budget (--beyond-budget)') : null,
-    current && workId ? step('approve-as-it-stands', `Or a person who decides ${current} approves the submission as it stands.`,
-      `singularity-flow approve ${current} --work-id ${workId}`, 'remediation') : null,
+    // Its approval is bound to what the person reviewed, so its way is the Decide card's approval, never a bare approve.
+    current && workId ? decideCardPlanStep('approve-as-it-stands', `Or a person who decides ${current} approves the submission as it stands, on the Decide card.`, workId) : null,
     step('request-human-direction',
       reset || oneMore
         ? 'Further rework of the same phase needs a person\'s decision, never another unchanged rejection.'

@@ -62,7 +62,7 @@ test('a person grants one more rework round past a spent budget, recorded as bey
   const plan = refusalRemediationPlan(refused, ['reject', 'test', '--work-id', 'W-1', '--to', 'impl', '--reason', 'Again.']);
   assert.deepEqual(plan.steps.slice(0, 2).map((entry) => [entry.id, entry.command, entry.changes ?? null]), [
     ['grant-one-more-round', grant, 'a person grants one more round past the budget (--beyond-budget)'],
-    ['approve-as-it-stands', 'singularity-flow approve test --work-id W-1', null]]);
+    ['approve-as-it-stands', 'singularity-flow decisions W-1', null]]);
   assert.deepEqual(attempt('CR-2', { beyondBudget: true }).attempts.map((entry) => entry.beyondBudget ?? false), [false, true]);
   assert.throws(() => attempt('CR-3'), (error) => error.code === 'REPAIR_BUDGET_EXHAUSTED', 'each further round needs its own grant');
 });

@@ -114,6 +114,14 @@ function authorityAdmits(snapshot: RepositorySnapshot, authority: string, person
     || (person.login && lower(member.githubLogin ?? member.login) === person.login));
 }
 
+/** Whether an authority names its members only by GitHub login, so a person with no login known cannot be matched. */
+function loginOnly(snapshot: RepositorySnapshot, authority: string): boolean {
+  const definition = snapshot.workflow?.resolution?.approvalAuthorities?.[authority]
+    ?? snapshot.definition?.approvalAuthorities?.[authority]
+    ?? snapshot.portfolio?.approvalAuthorities?.[authority];
+  return Boolean(definition && !definition.allowAnyGitIdentity && (definition.members ?? []).some((member) => (member.githubLogin ?? member.login) && !member.email));
+}
+
 /** Whether a recorded identity is this person, by email or login. */
 function samePerson(value: unknown, person: Person): boolean {
   const identity = value as { email?: string; login?: string } | null | undefined;
@@ -186,6 +194,12 @@ function standingFor(
 
   const permitted = authorities.some((authority) => authorityAdmits(snapshot, authority, person));
   if (permitted) return { standing: 'yours', reason: null, authorities };
+  // A group that names its members only by GitHub login, and no login known here: whether it is theirs cannot be told on
+  // this page, so its Approve is offered and the approval itself checks it. "With someone else" with no button left the
+  // person nowhere [owner's Story arshy, 2026-11-20, hardening C].
+  if (!person.login && authorities.some((authority) => loginOnly(snapshot, authority))) {
+    return { standing: 'yours', reason: 'Your GitHub account is not known here, so SFlow cannot confirm you are in this group: approving checks it.', authorities };
+  }
 
   return {
     standing: 'others',

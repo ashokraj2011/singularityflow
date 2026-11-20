@@ -6,8 +6,9 @@
  * approval page loop (the tool, the skill text the chat follows after it, and the card's `remaining`, each green on its own)
  * could not be seen.
  *
- *   V1  /sf-approve with only the approval waiting: one #sflowDecide, the approval page on this Story's step, no second call
- *       and no approve route; the person approves there, and the Story's next step is its code step, as every view says.
+ *   V1  /sf-approve with only the approval waiting: one #sflowDecide, the approval page on this Story's step and the person's
+ *       own @sflow /approve, no second call and no approve route of the chat's; the person approves there, and the Story's
+ *       next step is its code step, as every view says.
  *   V1c the walk itself sees the incident: with /sf-decide step 1 as it was at a6b90f18d it reports the loop, and with the
  *       skills as they are it ends at the approval page.
  *   V1b the same, in a window that shows another Story: never "the approval page is open", but the route that selects the
@@ -78,13 +79,14 @@ test('journey V1: in VS Code, /sf-approve with only the approval waiting opens t
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings, [], report(walk));
   });
-  await check(t, 'exactly one #sflowDecide, answered approval-open with no next and no approve route', {}, () => {
+  await check(t, 'exactly one #sflowDecide, answered approval-open with the person\'s own @sflow /approve and no approve route of the chat\'s', {}, () => {
     const calls = decideCalls(vscode);
     assert.equal(calls.length, 1, JSON.stringify(vscode.calls, null, 1));
     assert.deepEqual(calls[0].input, { workId: W });
     assert.equal(calls[0].answer.status, 'approval-open');
-    assert.equal(calls[0].answer.next, null);
-    assert.doesNotMatch(JSON.stringify(calls[0].answer), APPROVE_ROUTE);
+    assert.deepEqual(calls[0].answer.next, { kind: 'approve-in-chat', title: 'Approve Scope and plan v1 yourself: type this in the chat box', command: null, copilotCommand: null,
+      modelFreeCommand: `@sflow /approve intake --work-id ${W}` });
+    assert.doesNotMatch(JSON.stringify({ ...calls[0].answer, next: null }), APPROVE_ROUTE);
     assert.match(calls[0].answer.message, /^The approval page is open for Scope and plan v1 with its documents\./u);
   });
   await check(t, 'the approval page opened on this Story\'s step, which this window shows', {}, () => {

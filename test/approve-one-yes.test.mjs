@@ -70,7 +70,7 @@ test('the review packet asks one question with its outcome-labelled choice, noth
   assert.deepEqual(act.ask.choices.map((choice) => choice.label), ['Approve Requirements v1', 'Not now']);
   assert.match(act.ask.how, /approvalCovers/u);
   // VS Code: #sflowDecide opens the approval page, and the turn ends there with no approve route [owner's Story, 2026-11-20].
-  assert.match(act.ask.how, /in VS Code's own chat do not ask: call #sflowDecide with workId only, which opens the approval page when only the approval is left; the person approves there, so end the turn there and relay no approve route/u);
+  assert.match(act.ask.how, /in VS Code's own chat do not ask: call #sflowDecide with workId only, which opens the approval page when only the approval is left; the person approves there, or types the tool's next \(@sflow \/approve\) in the chat box, so end the turn there and relay no other approve route/u);
   assert.match(act.ask.how, /Record it only after their Yes; never answer it yourself/u);
 });
 

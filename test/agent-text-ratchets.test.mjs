@@ -440,6 +440,6 @@ test('no two skills send VS Code\'s chat round between each other: /sf-approve a
   // The card says `approval-open` when it opened the page, and its tool tells the agent the turn ends there.
   const tool = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8')).contributes.languageModelTools
     .find((entry) => entry.name === 'singularityFlow_decide');
-  assert.match(tool.modelDescription, /status approval-open, next null\): end the turn there and relay no approve route/u);
+  assert.match(tool.modelDescription, /status approval-open\): end the turn there; its next is @sflow \/approve, which the person may type in the chat box to approve with no model: relay it as their own, and no other approve route/u);
   assert.match(tool.modelDescription, /\(status approval-elsewhere\), relay its next, which selects that Story there, and end the turn the same way/u);
 });

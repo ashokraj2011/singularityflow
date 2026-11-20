@@ -660,6 +660,19 @@ function testCommandItem(workflow, context, request) {
  * Who takes a person's own step: the approval groups it needs, whether this identity holds one, and,
  * when it does not, who does (their labels and up to five members) and the line to share with them.
  */
+/**
+ * Whether this read could tell who the person is for these groups: a Git email or GitHub login to match, and, for a group
+ * whose members are named only by GitHub login, that login looked up. Not, and "not yours" was a guess: VS Code's chat was
+ * told there was nothing to decide while the approval was theirs [owner's Story, 2026-11-20, hardening C].
+ */
+function identityUnknown(registry, groups, actor) {
+  if (!String(actor?.email ?? '').trim() && !String(actor?.login ?? '').trim()) return true;
+  // Only a lookup that says it did not resolve (git.mjs identity: not-checked or unavailable) leaves a login unknown.
+  if (actor?.login || !actor?.githubLookup || actor.githubLookup === GITHUB_RESOLVED) return false;
+  return groups.some((id) => !registry?.[id]?.allowAnyGitIdentity && (registry?.[id]?.members ?? []).some((member) => member.githubLogin && !member.email));
+}
+const GITHUB_RESOLVED = 'resolved';
+
 function stepDecidedBy(workflow, { authorities, actor }, groups, words) {
   if (!groups?.length) return nobodyNamed(words);
   let registry = null;
@@ -668,6 +681,12 @@ function stepDecidedBy(workflow, { authorities, actor }, groups, words) {
   let allowed = false;
   try { allowed = matchApprovalAuthority(authorities, { authorities: groups }, actor).authorized; } catch { allowed = false; }
   if (allowed) return { groups, labels, allowed: true, words: `You may do this (${listWords(labels)}). ${words}`.trimEnd() };
+  // Not established here: still not recorded as theirs, and said so; the step's own command checks it when they take it.
+  if (identityUnknown(registry, groups, actor)) {
+    return { groups, labels, allowed: false, established: false,
+      words: `SFlow could not tell here whether you are one of the ${listWords(labels)}: it checks that when you do this. ${words}`.trimEnd(),
+      share: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
+  }
   const people = [...new Set(groups.flatMap((id) => (registry?.[id]?.members ?? []).map((member) => member.name ?? member.email ?? member.githubLogin)))].slice(0, 5);
   return { groups, labels, allowed: false, ...(people.length ? { people } : {}),
     words: `The ${listWords(labels)}${people.length ? ` (${listWords(people)})` : ''} decide this; ask them.`,

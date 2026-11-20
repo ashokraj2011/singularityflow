@@ -78,11 +78,43 @@ export const settledRows = (packet: DecisionPacket): DecisionItemPacket[] => dec
 export const approvalRows = (packet: DecisionPacket): DecisionItemPacket[] => packet.items.filter((item) => item.kind === 'approval');
 
 /**
- * The step's approval when it is the only thing left and the person may give it now: theirs, and nothing above holds it.
- * A chat that opened this card then gets the approval page, never an approve route back [owner's Story, 2026-11-20].
+ * Whether the approval is plainly someone else's: `allowed` false, with the read sure who the person is, and who approves
+ * named. Anything less (unknown, not established, nobody named) is not: the approval page checks identity and authority
+ * when the person approves [owner's Story arshy, 2026-11-20, hardening C].
+ */
+export const othersApproval = (item: DecisionItemPacket): boolean => item.decidedBy?.allowed === false && item.decidedBy.established !== false
+  && Boolean(item.decidedBy.labels?.length || item.decidedBy.people?.length);
+
+/**
+ * The step's approval when it is the only thing left and the person may give it now: nothing above holds it, and it is not
+ * plainly someone else's. A chat that opened this card then gets the approval page, never an approve route back [owner's
+ * Story, 2026-11-20]; an approval whose approver this read could not establish opens it too ("nothing to decide" ended that
+ * chat with the approval theirs, owner's Story arshy, 2026-11-20).
  */
 export const readyApproval = (packet: DecisionPacket): DecisionItemPacket | null => (openRows(packet).length ? null
-  : approvalRows(packet).find((item) => item.decidedBy?.allowed === true && item.details?.ready !== false) ?? null);
+  : approvalRows(packet).find((item) => item.details?.ready !== false && !othersApproval(item)) ?? null);
+
+/**
+ * Someone else's approval, ready: who approves it, in the list's words, and where to see them and send it, never a bare
+ * "nothing to decide". The route is /sf-approvals, the step's approval chain with its groups and people.
+ */
+export function othersApprovalWords(item: DecisionItemPacket): string {
+  return [item.decidedBy.words, 'They approve it on their own approval page.'].join(' ');
+}
+export const approversNext = (workId: string) => ({ kind: 'approvers', title: `See who approves ${workId} and ask them`, command: `singularity-flow approvals ${workId}`,
+  copilotCommand: `/sf-approvals ${workId}`, modelFreeCommand: 'Command Palette: Singularity Flow: Approvals' });
+
+/**
+ * The approval in VS Code's chat box with no model between: `@sflow /approve <step> --work-id <W>`, which the person types and
+ * the extension takes through the one approval screen (lifecycle-chat.ts approveWithReceipt). The only approve route a chat is
+ * handed, and only as the person's model-free one: an approve turn never ends with no route [owner's Story arshy, 2026-11-20].
+ */
+export function approveInChat(packet: DecisionPacket, item?: DecisionItemPacket | null) {
+  const version = Number(item?.details?.generation);
+  const step = `${packet.phaseLabel}${Number.isSafeInteger(version) && version > 0 ? ` v${version}` : ''}`;
+  return { kind: 'approve-in-chat', title: `Approve ${step} yourself: type this in the chat box`, command: null, copilotCommand: null,
+    modelFreeCommand: `@sflow /approve ${approvalFocus(packet, item).phase} --work-id ${packet.workId}` };
+}
 
 /** The Story and step the approval page opens on: the approval row's own step. */
 export function approvalFocus(packet: DecisionPacket, item?: DecisionItemPacket | null): { workId: string; phase: string } {
@@ -132,6 +164,9 @@ export const approvesRoute = (route: unknown): boolean => routeFields(route).som
  */
 export function chatNext<T>(route: T | null | undefined): T | null {
   if (!route) return null;
+  // The person's own model-free @sflow /approve (approveInChat): no Copilot or terminal form for a chat to take itself.
+  const own = route as { kind?: unknown; copilotCommand?: unknown; command?: unknown };
+  if (own.kind === 'approve-in-chat' && !own.copilotCommand && !own.command) return route;
   const card = (route as { kind?: unknown }).kind === 'decide-card' || routeFields(route).some((value) => CARD_ROUTE.test(value.trim()));
   return approvesRoute(route) || card ? null : route;
 }

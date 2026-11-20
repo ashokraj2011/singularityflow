@@ -246,3 +246,84 @@ test('a skill names Copilot CLI\'s /decide only as Copilot CLI\'s, never as VS C
   }
   assert.deepEqual(found, []);
 });
+
+// ------------------------------------------------------------------------------------------- the approver nobody established
+
+test('an approver this read could not establish is said so, never "not yours", and the card and the approval page both leave it to the approval', async () => {
+  // Owner's Story arshy, 2026-11-20 (VS Code, build 6a510139b): a ready approval with no holds answered "nothing to decide"
+  // in VS Code's chat, because the row's decidedBy.allowed was not true, and the chat ended with no route. The read resolves
+  // the person as `approve` does (actionActor: Git email, and the GitHub login looked up), so when that lookup did not resolve
+  // and the group names its members only by GitHub login, who they are is unknown here, not "someone else".
+  const AUTHORITIES = { reviewers: { label: 'Engineering reviewers', members: [{ name: 'Pat', githubLogin: 'pat-reviews' }] } };
+  const workflow = { workItem: { id: W, workType: 'custom' }, status: 'in_progress', currentPhase: 'implementation', phaseOrder: ['implementation'], history: [],
+    resolution: { approvalAuthorities: AUTHORITIES },
+    phases: { implementation: { id: 'implementation', label: 'Implementation', status: 'awaiting_approval', generation: 5, approvals: [],
+      approvalPolicy: { authorities: ['reviewers'], minimum: 1, allowSelfApproval: true } } } };
+  const approvalOf = (actor) => decisionPacket(workflow, { phaseId: 'implementation' }, { authorities: AUTHORITIES, actor, at: '2026-11-20T09:00:00.000Z' })
+    .items.find((item) => item.kind === 'approval');
+  const unknown = approvalOf({ name: 'Me', email: 'me@example.invalid', login: null, githubLookup: 'unavailable' });
+  assert.equal(unknown.decidedBy.allowed, false);
+  assert.equal(unknown.decidedBy.established, false);
+  assert.match(unknown.decidedBy.words, /^SFlow could not tell here whether you are one of the Engineering reviewers: it checks that when you do this\./u);
+  // Resolved, or a login to match, or an actor no lookup was made for: as before.
+  for (const actor of [{ name: 'Me', email: 'me@example.invalid', login: null, githubLookup: 'resolved' }, { name: 'Me', email: null, login: 'someone-else', githubLookup: 'resolved' },
+    { name: 'Me', email: 'me@example.invalid' }]) {
+    const known = approvalOf(actor);
+    assert.equal(known.decidedBy.allowed, false);
+    assert.equal('established' in known.decidedBy, false, JSON.stringify(actor));
+    assert.match(known.decidedBy.words, /^The Engineering reviewers \(Pat\) decide this; ask them\./u);
+  }
+  // The card opens the approval page for the unknown one, and names who for the known one.
+  const cardPage = await import('../apps/vscode/src/views/decide-card-page.ts');
+  const list = (item) => ({ workId: W, phase: 'implementation', phaseLabel: 'Implementation', items: [item] });
+  assert.equal(cardPage.readyApproval(list(unknown)), unknown);
+  const theirs = approvalOf({ name: 'Me', email: 'me@example.invalid', login: null, githubLookup: 'resolved' });
+  assert.equal(cardPage.readyApproval(list(theirs)), null);
+  assert.equal(cardPage.othersApproval(theirs), true);
+  // The approval page: no login known and a group named by login only offers Approve, which checks it.
+  const { buildApprovals } = await import('../apps/vscode/src/views/approvals-model.ts');
+  const snapshot = (identities) => ({ initiative: null, initiatives: [], selectedInitiativeId: null, selectedWorkId: W, workItems: [{ id: W, title: 'A Story' }], identities,
+    workflow: { ...workflow, workItem: { ...workflow.workItem, title: 'A Story', branch: W }, phases: { implementation: { ...workflow.phases.implementation, artifacts: [] } } },
+    decisions: { schemaVersion: 1, workId: W, decisions: [], ahead: null, pending: null, skipped: [], log: [] } });
+  const [open] = buildApprovals(snapshot({ git: { email: 'me@example.invalid' } })).pending;
+  assert.equal(open.standing, 'yours');
+  assert.equal(open.reason, 'Your GitHub account is not known here, so SFlow cannot confirm you are in this group: approving checks it.');
+  const [other] = buildApprovals(snapshot({ git: { email: 'me@example.invalid' }, github: 'someone-else' })).pending;
+  assert.equal(other.standing, 'others');
+});
+
+test('an approve turn in VS Code always ends with the approval page opened or the person\'s own @sflow /approve, never with no route', async () => {
+  // Owner's Story arshy, 2026-11-20: /sf-approve ended "nothing to decide… please review on the approval page" with no route.
+  // Each list is the engine's own (decisionPacket, plain words, the list's next) for a step awaiting approval.
+  const AUTHORITIES = { planners: { label: 'Planners', allowAnyGitIdentity: true, members: [] } };
+  const workflow = { workItem: { id: W, workType: 'custom' }, status: 'in_progress', currentPhase: 'planning', phaseOrder: ['planning', 'implementation'], history: [],
+    phases: { planning: { id: 'planning', label: 'Planning', status: 'awaiting_approval', generation: 1, approvals: [], approvalPolicy: { authorities: ['planners'], minimum: 1 },
+      artifacts: [] }, implementation: { id: 'implementation', label: 'Implementation', status: 'pending', generation: 0 } },
+    resolution: { approvalAuthorities: AUTHORITIES } };
+  const engineList = () => withStoryNext({ ...withPlainWords(workflow, decisionPacket(workflow, { phaseId: 'planning' },
+    { authorities: AUTHORITIES, actor: { name: 'Person', email: 'person@example.invalid' }, at: '2026-11-20T09:00:00.000Z' })), repositoryPath: ROOT }, null);
+  const base = engineList();
+  const approval = base.items.find((item) => item.kind === 'approval');
+  const { allowed: ignored, ...noAllowed } = approval.decidedBy;
+  const cases = {
+    ready: base,
+    'approver not established': { ...base, items: [{ ...approval, decidedBy: { ...approval.decidedBy, allowed: false, established: false } }] },
+    'no allowed at all': { ...base, items: [{ ...approval, decidedBy: noAllowed }] },
+    held: { ...base, items: [{ ...approval, why: '0 of 1 approvals recorded. It waits for the review of the plan first.', details: { ...approval.details, ready: false } }] }
+  };
+  const PERSON = `@sflow /approve planning --work-id ${W}`;
+  for (const [name, list] of Object.entries(cases)) {
+    const client = { repository: ROOT, invalidateReads() {}, forkForRepository() { return client; },
+      run: async (argv) => { if (argv[0] !== 'decisions') throw new Error('not here'); return { resultType: 'command-result', data: list }; } };
+    const host = await vscodeHost({ workId: W, root: ROOT }, { client });
+    const answer = await host.callTool('singularityFlow_decide', { workId: W });
+    const opened = host.approvals.some((page) => page.focus?.workId === W && page.focus?.phase === 'planning');
+    assert.ok(opened || answer.next?.modelFreeCommand === PERSON, `${name}: ${JSON.stringify(answer)}`);
+    // Every approval the person may give carries their own model-free route, the page or not; nothing a chat would take itself.
+    assert.equal(answer.next?.modelFreeCommand, PERSON, `${name}: ${JSON.stringify(answer)}`);
+    assert.equal(answer.next?.copilotCommand ?? null, null, name);
+    assert.equal(answer.next?.command ?? null, null, name);
+    assert.equal(opened, name !== 'held', `${name}: the page opens for a ready approval, not a held one`);
+    assert.ok(onVscodeChat(names, PERSON), '@sflow /approve is a participant command VS Code has');
+  }
+});

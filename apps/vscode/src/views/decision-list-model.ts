@@ -23,7 +23,9 @@ export interface DecisionClauseNeed { known?: string[]; words?: string; label?: 
 /** A checklist answered one article at a time. */
 export interface DecisionArticleNeed { articles: Array<{ id: string; title: string; question: string }>; decisions: string[] }
 export interface DecisionNeeds { reason?: DecisionTextNeed; cause?: DecisionTextNeed; expires?: DecisionDateNeed; clause?: DecisionClauseNeed; article?: DecisionArticleNeed }
-export interface DecisionDecidedBy { groups?: string[]; labels?: string[]; allowed: boolean; words: string; share?: string }
+export interface DecisionDecidedBy { groups?: string[]; labels?: string[]; people?: string[]; allowed: boolean; words: string; share?: string;
+  /** False when the read could not tell who the person is for these groups (no email or GitHub login to match). */
+  established?: boolean }
 
 export interface DecisionOptionPacket {
   id: string; label: string; recommended: boolean; words?: string;

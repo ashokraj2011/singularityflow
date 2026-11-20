@@ -19,12 +19,13 @@ import { collectReviewConfirmation } from './review-confirmation.ts';
 import { createTerminalIn } from '../terminal-start.ts';
 import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
-  justAQuestionArgv, nextWords, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionPacket,
+  justAQuestionArgv, nextWords, versionConsentArgv, versionConsentOutcome, versionOpeningOf, type DecisionAnswers, type DecisionItemPacket, type DecisionPacket,
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
 import { guardCardDecisionsArgv, guardCardFrom, guardCardText, presenceCardArgs, type GuardCardRead } from './sf-guard-model.ts';
 import { approvalElsewhereWords, approvalFocus, approvalPageWords, approvalRows, chatNext, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows,
-  decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, joinedWords, openRows, readyApproval, selectStoryNext, type DecideDraft } from './decide-card-page.ts';
+  decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, joinedWords, openRows, othersApproval, othersApprovalWords, approveInChat, approversNext, readyApproval,
+  selectStoryNext, type DecideDraft } from './decide-card-page.ts';
 
 // How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
 const CHECK_SECONDS = 60;
@@ -98,7 +99,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
    * with no next step: the approve route it was handed back sent it round again [owner's Story, 2026-11-20]. Null when the
    * chat did not ask, something else is still open, or the approval is not theirs to give now.
    */
-  const approvalPage = async (): Promise<{ words: string; elsewhere: boolean } | null> => {
+  const approvalPage = async (): Promise<{ words: string; elsewhere: boolean; approval: DecisionItemPacket } | null> => {
     const approval = askedInChat ? readyApproval(packet) : null;
     if (!approval) return null;
     const page = await Promise.resolve(vscode.commands.executeCommand('singularityFlow.openApprovals', approvalFocus(packet, approval)))
@@ -106,12 +107,13 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     // The page shows this window's Story: one that shows another, or none, does not have this approval on it, and the chat
     // is never told it does [hardening C, F4]. A page that cannot tell yet (still reading) is taken at its word.
     const shown = (page.panel as { focusShown?: () => { status: string; story: string | null } } | null)?.focusShown?.();
-    return shown?.status === 'elsewhere' ? { words: approvalElsewhereWords(packet, approval, shown.story), elsewhere: true }
-      : { words: approvalPageWords(packet, approval, page.opened), elsewhere: false };
+    return shown?.status === 'elsewhere' ? { words: approvalElsewhereWords(packet, approval, shown.story), elsewhere: true, approval }
+      : { words: approvalPageWords(packet, approval, page.opened), elsewhere: false, approval };
   };
-  // A chat's answer once the approval page opened: nothing more to do in the chat, or the Story to select first.
-  const approvalAnswer = (page: { words: string; elsewhere: boolean }) => (page.elsewhere
-    ? { status: 'approval-elsewhere', next: selectStoryNext(workId) } : { status: 'approval-open', next: null });
+  // A chat's answer once the approval page opened: the person's own model-free @sflow /approve beside it, or the Story to select
+  // first (@sflow /approve takes only the Story this window shows).
+  const approvalAnswer = (page: { words: string; elsewhere: boolean; approval: DecisionItemPacket }) => (page.elsewhere
+    ? { status: 'approval-elsewhere', next: selectStoryNext(workId) } : { status: 'approval-open', next: approveInChat(packet, page.approval) });
   // What a chat is handed next: never an approve route or this card again (chatNext). A person who opened it keeps the Story's.
   const nextFor = <T>(route: T | null | undefined): T | null => (askedInChat ? chatNext(route) : route ?? null);
   // Nothing waits on this person: the Story's own next step ends it [owner, 2026-11-18].
@@ -120,9 +122,15 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     if (page) return { ...approvalAnswer(page), message: page.words };
     // An approval left that is not theirs to give now says why, in the list's words: what holds it, or who approves it.
     const approval = askedInChat ? approvalRows(packet)[0] : undefined;
+    // Someone else's, ready: who, and the route to see and ask them, never a bare "nothing to decide" [hardening C].
+    if (approval && approval.details?.ready !== false && othersApproval(approval)) {
+      return { status: 'approval-by-others', message: othersApprovalWords(approval), next: approversNext(workId) };
+    }
     const why = approval ? (approval.decidedBy?.allowed ? approval.why : approval.decidedBy?.words) : null;
+    // A held approval: the Story's next step, else the person's own @sflow /approve, which says what holds it and approves it
+    // once cleared. An approve turn never ends with no route [owner's Story arshy, 2026-11-20].
     return { status: 'nothing-to-decide', message: [packet.headline, why, nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' '),
-      next: nextFor(packet.storyNext ?? packet.next) };
+      next: nextFor(packet.storyNext ?? packet.next) ?? (approval ? approveInChat(packet, approval) : null) };
   }
   const panel = vscode.window.createWebviewPanel('singularityFlow.decide', `Decide · ${workId}`, vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });

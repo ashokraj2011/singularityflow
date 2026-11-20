@@ -1087,10 +1087,19 @@ async function vscodeTurn({ story, route, entries, phases, currentPhase, person,
     return afterTool(called.answer, null);
   };
 
-  if (skill === '/sf-approve') return approveSteps();
+  // An approve turn never ends with no route: the approval page opened, the person's own @sflow /approve, or a next step
+  // (owner's Story arshy, 2026-11-20: "nothing to decide… review on the approval page", and nothing to follow).
+  const pagesBefore = vscode.approvals.length;
+  const ended = (taken) => {
+    const approving = callers.has('/sf-approve') || answered.some(({ answer }) => /^approval-/u.test(answer?.status ?? '') || answer?.next?.kind === 'approve-in-chat');
+    const routed = vscode.approvals.length > pagesBefore || answered.some(({ answer }) => /^@sflow \/approve /u.test(answer?.next?.modelFreeCommand ?? '')) || taken.next;
+    return taken.finding || !approving || routed ? taken
+      : { ...taken, finding: { kind: 'approve-without-route', detail: `the approve turn ended with no approval page, no @sflow /approve and nothing to follow: ${answered.map(({ answer }) => answer?.status).join(', ')}` } };
+  };
+  if (skill === '/sf-approve') return ended(await approveSteps());
   const branch = branches.get('/sf-decide')?.[0];
   if (!branch) return finding('skill-without-entry', '/sf-decide names no page tool for VS Code');
   const called = await callTool(branch.reference, Object.fromEntries(branch.inputs.map((input) => [input, input === 'workId' ? workId : null])));
   if (called.finding) return called;
-  return afterTool(called.answer, branch.then);
+  return ended(await afterTool(called.answer, branch.then));
 }

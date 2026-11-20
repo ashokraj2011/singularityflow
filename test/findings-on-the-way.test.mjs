@@ -141,7 +141,8 @@ test('code step entry lists the critical finding on a planned file and the patch
     ['TLM-7', 'upgrade', ['package.json'], 'a manifest of a module the Story touches']]);
   assert.equal(listed.fix[1].upgrade, 'patch');
   assert.equal(listed.fix[0].title, '"Lookup value built from request text"', 'the team\'s words, quoted');
-  assert.equal(listed.fix[0].record, 'singularity-flow departure record --kind finding --finding SEC-101 --path src/value.mjs --reason \'Fixes SEC-101 from the findings register on what this Story touches.\'');
+  // SFlow fills the files and reason itself: the record names only the item [owner, 2026-11-20].
+  assert.equal(listed.fix[0].record, 'singularity-flow departure record --on-the-way SEC-101');
   assert.deepEqual(listed.person.map((row) => [row.id, row.upgrade, row.why]), [['TLM-8', 'major', 'a major upgrade: listed for a person, never made by itself']]);
   assert.deepEqual(listed.listed, []);
   assert.ok(![...listed.fix, ...listed.person].some((row) => row.id === 'SEC-102'), 'src/legacy/report.mjs is not touched');
@@ -178,6 +179,7 @@ test('the model fixes the two eligible items through the CLI, a person accepts t
     const recorded = repo.sflowJson(...args);
     assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
     assert.deepEqual(recorded.value.data.register.marked, [row.id]);
+    assert.deepEqual(recorded.value.data.departure.paths, row.files, 'SFlow filled the files the entry named');
   }
   const states = () => Object.fromEntries(repo.sflowJson('findings', 'list', '--state', 'all').value.items.map((item) => [item.id, [item.state, item.story]]));
   assert.deepEqual(states(), { 'SEC-101': ['in-story', 'QF-1'], 'SEC-102': ['open', null], 'TLM-7': ['in-story', 'QF-1'], 'TLM-8': ['open', null] });

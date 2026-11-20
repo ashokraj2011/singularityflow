@@ -25,10 +25,12 @@ const AUTO_FIX_FIELDS = Object.freeze(['autoFixVersions', 'autoFixVersionsByStep
 
 /** The automatic-fix settings as configured, validated; only the ones set, so a pin without them is unchanged. */
 function autoFixSettings(value, workTypeId, phases) {
+  // Corrected in the workflow itself; Workflow Studio writes the setting (owner, 2026-11-20).
+  const refused = (message) => new SingularityFlowError(message, { code: 'SOURCE_REVIEW_AUTO_FIX_INVALID',
+    details: { nextAction: { command: 'singularity-flow workflow studio', label: 'Set the number of review fixes in Workflow Studio.' } } });
   const count = (entry, label) => {
     if (!Number.isSafeInteger(entry) || entry < 0 || entry > MAX_AUTO_FIX_VERSIONS) {
-      throw new SingularityFlowError(`Work type '${workTypeId}' ${label} must be a whole number from 0 to ${MAX_AUTO_FIX_VERSIONS}: how many versions in a row SFlow starts on its own to fix a review's findings before it asks (0 asks every time).`,
-        { code: 'SOURCE_REVIEW_AUTO_FIX_INVALID' });
+      throw refused(`Work type '${workTypeId}' ${label} must be a whole number from 0 to ${MAX_AUTO_FIX_VERSIONS}: the versions SFlow starts on its own for a review's findings (0 always asks).`);
     }
     return entry;
   };
@@ -37,11 +39,11 @@ function autoFixSettings(value, workTypeId, phases) {
   const byStep = value?.autoFixVersionsByStep;
   if (byStep != null) {
     if (!byStep || typeof byStep !== 'object' || Array.isArray(byStep)) {
-      throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.autoFixVersionsByStep must map a step to a number.`, { code: 'SOURCE_REVIEW_AUTO_FIX_INVALID' });
+      throw refused(`Work type '${workTypeId}' sourceReview.autoFixVersionsByStep must map a step to a number.`);
     }
     const entries = Object.entries(byStep).map(([step, entry]) => {
       if (!phases.includes(step)) {
-        throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.autoFixVersionsByStep names '${step}', which is not one of its steps (${phases.join(', ')}).`, { code: 'SOURCE_REVIEW_AUTO_FIX_INVALID' });
+        throw refused(`Work type '${workTypeId}' sourceReview.autoFixVersionsByStep names '${step}', which is not one of its steps (${phases.join(', ')}).`);
       }
       return [step, count(entry, `sourceReview.autoFixVersionsByStep.${step}`)];
     }).sort(([left], [right]) => left.localeCompare(right));

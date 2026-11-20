@@ -4,18 +4,17 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "6790cfedbb85e4593ef9a340b263abd258b601c9",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-19-OFFICE-SCANNER.md",
+    "reviewedAtCommit": "1272d7ee6f0e6ee743ce5fb7b17eb25071690352",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-20-CEREMONY-LANDING.md",
     "companionIds": [
-      "action-authorization",
-      "migration-registry"
+      "workflow-configuration"
     ]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:bfa39c3fb714d62999b11b107b8b8393eba6e8f24770e2bb4123ba2979371816"
+      "sha256": "sha256:58f70922173ad2efdb6f253e32600c671769a8f8dd29f8fbf76c3c8d5bca25a3"
     },
     {
       "id": "sgos-portable-schema",

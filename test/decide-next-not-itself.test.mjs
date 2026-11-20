@@ -31,8 +31,10 @@ function story() {
 // AMD-001 approved and changed AC-001: only the Decide card (or the person's terminal) records its acknowledgement.
 const APPROVED = { id: 'AMD-001', status: 'approved', changedClauses: [`${W}:AC-001`], affectedPhases: ['implementation'], acknowledgementRequired: true, acknowledgedAt: null };
 
-function list() {
+// `signed`: a Story SF Guard signs, where the acknowledgement stays the card's (or the person's terminal), never a chat's yes.
+function list({ signed = false } = {}) {
   const workflow = story();
+  if (signed) workflow.resolution.presence = { status: 'on' };
   return { ...withPlainWords(workflow, decisionPacket(workflow, { phaseId: 'implementation', pending: { intentAmendments: [APPROVED] } },
     { authorities: AUTHORITIES, actor: ME, at: AT })), repositoryPath: '/repo' };
 }
@@ -45,7 +47,13 @@ test('the incident: the list read by /sf-decide pointed at /sf-decide itself', (
 });
 
 test('a /sf-decide result never names /sf-decide for the same Story as its next step: "Open the Decide card"', () => {
-  const shown = withStoryNext(list(), null);
+  // Terminal-to-card (ceremony-decisions, owner 2026-11-19): without SF Guard the acknowledgement is a yes or no this
+  // /sf-decide turn asks, so its act asks the person here and routes nowhere, least of all to /sf-decide.
+  const asked = agentAct(withStoryNext(list(), null));
+  assert.equal(asked.state, 'ask-person');
+  assert.equal(asked.do, null);
+  // Under SF Guard only the card (or the person's terminal) records it, as in the incident.
+  const shown = withStoryNext(list({ signed: true }), null);
   assert.deepEqual(shown.next, decideCardNext(W, shown.next.item));
   assert.deepEqual({ title: shown.next.title, copilot: shown.next.copilotCommand, shell: shown.next.command, vscode: shown.next.modelFreeCommand },
     { title: 'Open the Decide card', copilot: `/decide ${W}`, shell: `singularity-flow decisions record ${W}`, vscode: VSCODE_DECIDE_CARD });

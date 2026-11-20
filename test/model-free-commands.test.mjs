@@ -102,7 +102,7 @@ test('every decision the Decide card records has the card as its routes, never "
 
 test('every person\'s own step the Decide card records has the card as its Copilot route, and stays the person\'s [owner, 2026-11-15]', async () => {
   const { EFFECT_ORDER } = await import('../src/decision-list.mjs');
-  const { PERSON_STEPS, OWN_TERMINAL_STEPS } = await import('../src/person-step-catalog.mjs');
+  const { PERSON_STEPS, OWN_TERMINAL_STEPS, PERSON_DECISIONS, ANSWER_BOUND_STEPS } = await import('../src/person-step-catalog.mjs');
   const { ownTerminalStep } = await import('../src/command-skills.mjs');
   // One command form per catalog row the card records (decision-list.mjs EFFECT_ORDER): a new one fails until it is named here.
   const FORMS = {
@@ -118,11 +118,20 @@ test('every person\'s own step the Decide card records has the card as its Copil
   // The card's own steps named by their effects (an amendment's decision and acknowledgement, a settled one's undo).
   const named = [...Object.values(FORMS), 'singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001 --work-id PAY-1',
     'singularity-flow story intent-amendment acknowledge AMD-001 --work-id PAY-1', 'singularity-flow decisions undo PAY-1 --settled STL-001'];
+  // Terminal-to-card (ceremony-decisions, owner 2026-11-19): an acknowledgement and an undo are also a /sf-decide turn's
+  // bound yes, so they are the person's as answer-bound decisions of that turn, no longer own-terminal steps.
+  const decideYes = new Set(['singularity-flow story intent-amendment acknowledge AMD-001 --work-id PAY-1', 'singularity-flow decisions undo PAY-1 --settled STL-001']);
   for (const command of named) {
     const guidance = safeCommandGuidance(command);
     assert.equal(guidance?.copilotCommand, '/sf-decide PAY-1', command);
-    // Still the person's own terminal step: the guard refuses it in every turn, and the Shell line is the command itself.
-    assert.ok(OWN_TERMINAL_STEPS.some((step) => step.id === ownTerminalStep(command)), command);
+    if (decideYes.has(command)) {
+      const words = command.split(/\s+/u).slice(1).filter((word) => !word.startsWith('-'));
+      const decision = PERSON_DECISIONS.find((entry) => entry.matches(words, {}));
+      assert.deepEqual([decision?.owners, ANSWER_BOUND_STEPS.includes(decision?.id)], [['decide'], true], command);
+    } else {
+      // Still the person's own terminal step: the guard refuses it in every turn, and the Shell line is the command itself.
+      assert.ok(OWN_TERMINAL_STEPS.some((step) => step.id === ownTerminalStep(command)), command);
+    }
     assert.equal(guidance.command, command);
   }
 });

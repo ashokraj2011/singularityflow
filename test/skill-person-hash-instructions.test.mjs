@@ -40,7 +40,8 @@ function hashInstructions(text) {
 
 /** The allowlist: `skill: sentence` that still reads as showing a hash, and why it is not one to reword here. */
 const ALLOWED = new Map([
-  ['sflow-approve: **Review outside chat against the exact binding.** List each artifact/brief\'s name, generation and verified Markdown-preview link (no hashes);',
+  // Its wording since one approval with a Yes (ceremony-approvals, 2026-11-19): a version, and the steps it covers.
+  ['sflow-approve: **Review outside chat against the exact binding.** List each artifact/brief\'s name, version and verified Markdown-preview link (no hashes), and those of `approvalPacket.review.approvalCovers` (steps it covers);',
     'It says not to show one.'],
   ['sflow-documents: Preserve ID/hash/answers.',
     'A restored original keeps its document ID, digest and answers; nothing is shown.'],

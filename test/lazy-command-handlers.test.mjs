@@ -870,7 +870,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // one assumptions question (clarifications.mjs) and the kept chat's next step named, never run (approval-agent-result.mjs).
     // The settled opening and its records stay lazy (review-findings-opening.mjs, story-version-opening.mjs). No new eager file.
     // 9,792,077 (measured for submit.mjs on landing-6, 2026-11-20): code-env and the four ceremony branches above together.
-    assert.ok(closure.bytes <= 9_792_077, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,792,798 (measured for submit.mjs, +721, 2026-11-20): the full run's fixes: an automatic approval refused in its own stage of
+    // the one check (state.mjs), its two owners and the gate's code (approval-check.mjs, gate-parity.mjs), and the routes of an undo. No new eager file.
+    assert.ok(closure.bytes <= 9_792_798, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1348,7 +1350,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,295,220 (measured 4,295,215, +25): `guard card` and `guard setup` registered (command-registry.mjs) [owner, 2026-11-19].
   // No new eager file.
   // 4,305,601 (measured on landing-6, 2026-11-20): code-env and the four ceremony branches above together.
-  assert.ok(current.bytes <= 4_305_601, `session current loads ${current.bytes} source bytes`);
+  // 4,305,774 (measured, +173, 2026-11-20): the full run's route fixes for an undo and an acknowledgement (agent-output.mjs, copilot-guidance.mjs).
+  assert.ok(current.bytes <= 4_305_774, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

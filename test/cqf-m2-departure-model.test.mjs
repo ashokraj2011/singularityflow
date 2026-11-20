@@ -114,7 +114,8 @@ test('on the list a file departure is one of "Accept all", and a planned test ch
   const [fileRow, testRow] = packet.items.filter((item) => item.kind === 'departure');
   assert.deepEqual(fileRow.options.map((option) => [option.id, Boolean(option.oneByOne)]), [['accept', false], ['reject', false]]);
   assert.deepEqual(fileRow.options[0].effects[0].changes, [{ kind: 'add-location', clauseId: 'W-1:REQ-001', path: 'src/a.mjs' }]);
-  assert.match(fileRow.options[0].chat.command, /^singularity-flow decision departure W-1 --fetch --departure DEP-001 --as accepted --reason "<REASON>"$/u);
+  // The recommended answer takes no reason in chat (ceremony-decisions C10, owner 2026-11-19): the command checks it.
+  assert.match(fileRow.options[0].chat.command, /^singularity-flow decision departure W-1 --fetch --departure DEP-001 --as accepted --recommended$/u);
   // [owner, 2026-11-19] A person's Keep on the Decide card, or their answer in /sf-decide, records the plan row correction
   // (it was their own terminal step); the exact change is shown, and their own terminal still works.
   assert.deepEqual(testRow.options.map((option) => [option.id, Boolean(option.oneByOne), option.recordable !== false]), [['accept', true, true], ['reject', true, true]]);
@@ -152,7 +153,8 @@ test('Accept adds the files only to the named rows that can take them, and says 
   assert.match(accept.words, /part of AC-001 and AC-005's delivery/u);
   assert.match(accept.words, /AC-002 only checks tests, so these files are not added to it\./u);
   assert.match(accept.does, /AC-002 only checks tests, so these files are not added to it\./u, 'the card shows what Accept does, left-out row included');
-  assert.match(accept.chat.command, /--as accepted --reason "<REASON>"$/u, 'the command takes the same rows by itself');
+  // Recommended, so --recommended in place of the reason (ceremony-decisions C10, owner 2026-11-19).
+  assert.match(accept.chat.command, /--as accepted --recommended$/u, 'the command takes the same rows by itself');
   assert.deepEqual(item.details.leftOut.clauses, ['W-1:AC-002']);
   assert.match(item.recommended.why, /names AC-001 and AC-005 as what it serves/u);
 });
@@ -294,7 +296,8 @@ test('a row change recorded without its value asks the person for it, and the co
   assert.equal(item.options[0].id, 'accept-test-only', 'the kind its own reason names comes first');
   assert.equal(item.recommended.option, 'accept-test-only');
   assert.deepEqual(item.options.slice(0, -1).map((option) => option.effects[0].fulfillment), ['test-only', ...ROW_FULFILLMENTS.filter((kind) => kind !== 'test-only')]);
-  assert.equal(item.options[0].chat.command, 'singularity-flow decision departure W-1 --fetch --departure DEP-002 --as accepted --fulfillment test-only --reason "<REASON>"');
+  // The recommended kind takes no reason in chat (ceremony-decisions C10, owner 2026-11-19); the terminal's still asks one.
+  assert.equal(item.options[0].chat.command, 'singularity-flow decision departure W-1 --fetch --departure DEP-002 --as accepted --fulfillment test-only --recommended');
   assert.equal(item.options[0].terminal, 'singularity-flow decision plan W-1 --fetch --set-fulfillment W-1:AC-001=test-only --reason "<REASON>"');
   assert.ok(packet.items.every((entry) => entry.options.every((option) => !/=(?:\s|"|$)/u.test(`${option.terminal ?? ''} ${option.chat?.command ?? ''} ${option.action?.command ?? ''}`))),
     'no command with an empty value');

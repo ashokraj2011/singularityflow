@@ -272,6 +272,14 @@ test('future custom prepared phases preserve their selected authoring skill and 
   assert.doesNotMatch(decision.command, /publish/);
 });
 
+/**
+ * Approve twice (ceremony-approvals, owner 2026-11-19): requirements becomes the plan of a design step turned into code, and
+ * the plan is a person's to approve, so the team's change also takes it off automatic approval, as configuration requires.
+ */
+function personApprovesPlan(definition) {
+  delete definition.workTypes.feature.phaseOverrides.requirements.approval.automatic;
+}
+
 test('guidance renders verified code routes regardless of the phase name and drops unlisted skills', () => {
   assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare vendor-analysis', skill: '/sf-jira-board' }), null);
   const definition = starter();
@@ -280,6 +288,7 @@ test('guidance renders verified code routes regardless of the phase name and dro
     design: { inputs: ['requirements'], writeScope: 'source-and-artifact', generation: { requirement: 'required', producer: 'agent', task: 'code' }, authoringSkill: 'sf-code' }
   };
   definition.workTypes.feature.plannedClaims.owners.design = 'requirements';
+  personApprovesPlan(definition);
   const phase = resolveWorkType(validateDefinition(definition), 'feature').phases.find((entry) => entry.id === 'design');
   assert.equal(generationSkillForPhase(phase), '/sflow-code');
   assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare design', skill: generationSkillForPhase(phase) }).copilotCommand, '/sf-code');
@@ -314,6 +323,7 @@ test('a built-in step goes back to its specialised skill only on its automatic d
     design: { inputs: ['requirements'], writeScope: 'source-and-artifact', generation: { requirement: 'required', producer: 'agent', task: 'code' } }
   };
   definition.workTypes.feature.plannedClaims.owners.design = 'requirements';
+  personApprovesPlan(definition);
   const feature = resolveWorkType(validateDefinition(definition), 'feature').phases;
   assert.equal(legacyAuthoringSkill(feature.find((phase) => phase.id === 'requirements')), 'sf-requirements');
   assert.equal(legacyAuthoringSkill(feature.find((phase) => phase.id === 'design')), null, 'a design step changed into code goes to /sf-code');

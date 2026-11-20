@@ -15,7 +15,8 @@ const packaged = await readFile(fileURLToPath(new URL('../templates/workflow.yml
 const swap = (text, from, to) => { assert.ok(text.includes(from), `fixture anchor missing: ${from}`); return text.replace(from, () => to); };
 const TYPO = ['phases: [intake, requirements, design, implementation-spec, implementation, verification, conformance]',
   'phases: [intake, requirments, design, implementation-spec, implementation, verification, conformance]'];
-const INPUT = ['      requirements: { inputs: [intake] }', '      requirements: { inputs: [intak] }'];
+// The shipped line carries approve twice's marker since 2026-11-19 (ceremony-approvals); the typo is in its input.
+const INPUT = ['      requirements: { inputs: [intake], approval: { automatic: when-ready } }', '      requirements: { inputs: [intak], approval: { automatic: when-ready } }'];
 const TEMPLATE = ['      intake: feature/intake.md', '      intake: feature/intake-missing.md'];
 const INDENT = ['  feature:\n    label: Feature\n', '  feature:\n     label: Feature\n'];
 const lineOf = (text, fragment) => text.split('\n').findIndex(line => line.includes(fragment)) + 1;

@@ -267,8 +267,12 @@ function withRoute(act, action) {
   // A person's own terminal step is refused in every Copilot turn: "ask in chat, then run do.shell"
   // sent the agent into that refusal (route closure, 2026-10-28).
   const own = route.shell ? ownTerminalStep(route.shell) : null;
+  // An undo of what was settled or an approved amendment's acknowledgement: a /sf-decide turn records either only on the
+  // person's own yes to its question (ceremony-decisions, 2026-11-19), so a route to one is still the person's, on the card.
+  const bound = !own && /^\s*(?:singularity-flow|sflow)\s+(?:decisions\s+undo|story\s+intent-amendment\s+acknowledge)\s/u.test(route.shell ?? '');
   // An intent amendment's decision or acknowledgement is the person's on the decisions card, which /sf-decide opens [owner, 2026-11-13].
-  const work = own?.startsWith('intent-amendment-') ? /\s--work-id\s+([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(route.shell)?.[1] ?? '' : null;
+  const work = own?.startsWith('intent-amendment-') || bound ? /\s--work-id\s+([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(route.shell)?.[1]
+    ?? /\sdecisions\s+undo\s+([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(route.shell)?.[1] ?? '' : null;
   if (work !== null) return { ...act, state: 'confirm-in-terminal', do: { ...route, copilot: `/sf-decide ${work}`.trim() },
     said: oneLine(`${act.said ? `${act.said} ` : ''}This is the person's own step, on the decisions card: give them do.copilot, or do.shell for their own terminal; never run it.`) };
   if (own) return { ...act, state: 'confirm-in-terminal', do: { ...route, copilot: null },

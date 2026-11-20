@@ -738,6 +738,11 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   WEL_WITNESS_MAPPING_STALE: 'author-repairs',
   WEL_WITNESS_MAPPING_UNREVIEWED: 'you-decide',
   APPROVAL_SELF_APPROVAL_PROHIBITED: 'someone-decides',
+  // Approve twice: SFlow could not approve the step by itself (it needs more than one approval, or a workflow rule decides
+  // what follows), so its approvers approve it; and a step's configuration that may not be approved automatically is
+  // corrected in this checkout's workflow.
+  AUTOMATIC_APPROVAL_NOT_APPLICABLE: 'someone-decides',
+  AUTOMATIC_APPROVAL_NOT_ALLOWED: 'this-checkout',
   APPROVAL_INTENT_AMENDMENT_PENDING: 'someone-decides',
   // The step an amendment was proposed from waits while it is pending: a scope approver decides it, on the
   // decisions card or in their own terminal [owner, 2026-11-13, D3].

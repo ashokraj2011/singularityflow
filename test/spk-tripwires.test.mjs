@@ -168,24 +168,37 @@ test('the agent running convergence cannot create rework or advance', async () =
     assert.doesNotMatch(converge, new RegExp(`\\b${forbidden}\\s*\\(`), `story converge calls ${forbidden} itself`);
   }
 
-  // Advancement refuses without the exact digest of the fully verified convergence snapshot. A
+  // Submission for approval carries the exact digest of the fully verified convergence snapshot. A
   // boolean `--confirm` would merely prove that somebody supplied a flag; it would not prove what
   // they reviewed, and could survive source/evidence drift between preview and submission.
+  // Since 2026-11-19 (ceremony-approvals, C11) the person's review is the approval itself: `--submit`
+  // binds the snapshot this same command verified, a `--confirm` digest must still match it, and the
+  // person's one bound Yes at the approval, which re-checks that snapshot, is what advances [SPK:REQ-032].
   const advance = await commandFunction('storyAdvanceCommand');
   assert.match(advance, /advancementBlocked\(/, 'advancement does not check for unresolved blockers');
   assert.match(advance,
     /const reviewed = await assertConvergencePublicationReady\(root, config, workflow, subject\.phase\)/,
     'advancement does not compute the exact publishable convergence snapshot');
-  assert.match(advance, /const confirmation = optionString\(options, 'confirm'\)/,
-    'advancement does not require a digest-valued confirmation');
+  assert.match(advance, /const confirmation = optionBoolean\(options, 'submit'\) \? reviewed\.snapshotSha256 : optionString\(options, 'confirm'\)/,
+    'submission is not bound to the snapshot verified in the same command, or to a digest-valued confirmation');
   assert.match(advance, /if \(confirmation !== reviewed\.snapshotSha256\)/,
     'advancement does not reject a stale or unrelated confirmation digest');
-  assert.match(advance, /--confirm \$\{reviewed\.snapshotSha256\}/,
-    'the no-confirm preview does not return the exact digest a human must review');
+  assert.match(advance, /story advance --work-id \$\{workflow\.workItem\.id\} --submit/,
+    'the preview does not route to the submission the person then reviews at its approval');
   assert.match(advance, /submitConfirmedConvergenceCommand\([\s\S]*reviewed\.snapshotSha256/,
     'the reviewed digest is not carried into the private confirmed-submission boundary');
   assert.doesNotMatch(advance, /optionBoolean\(options, 'confirm'\)|options\.confirm\s*===\s*true/,
     'advancement still accepts a content-free boolean confirmation');
+  // The private boundary takes only a digest and checks it against the snapshot again; the approval, a
+  // person's, re-checks the same snapshot; and convergence is never approved automatically.
+  const state = withoutComments(await readFile(new URL('state.mjs', SOURCE), 'utf8'));
+  assert.match(state, /async function assertConvergenceConfirmation\([^)]*\) \{\s*if \(typeof confirmation !== 'string' \|\| !\/\^sha256:\[0-9a-f\]\{64\}\$\/\.test\(confirmation\)\)/,
+    'the confirmed-submission boundary accepts something other than a digest');
+  assert.match(state, /await stage\('convergence', async \(\) => \{\s*if \(isConvergencePhase\(phase\)\) \{\s*await assertConvergencePublicationReady\(root, config, workflow, phase\);/,
+    'the approval does not re-check the convergence snapshot it advances');
+  const { automaticApprovalRefusal } = await import('../src/phase-roles.mjs');
+  assert.match(automaticApprovalRefusal({ id: 'convergence', artifact: { kind: 'convergence-report' } }) ?? '', /only a person's approval/u,
+    'convergence may be approved automatically');
 
   // Every disposition except direct deterministic rework needs a human-authored reason.
   const facts = [{ id: 'CF-aaaaaaaaaaaa', kind: 'absent-observed-claim', clauseIds: [] }];

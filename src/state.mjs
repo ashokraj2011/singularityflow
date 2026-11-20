@@ -6820,11 +6820,13 @@ export async function evaluateApproval(root, config, workflow, {
   agent: decisionAgent = undefined,
   presence = null,
   preview = false,
-  // Approve twice (automatic-approval.mjs): every check a person's approval makes, with no person and no group.
-  automatic = false,
+  // Approve twice (automatic-approval.mjs): what SFlow checked before approving this step itself. Present, the approval is
+  // SFlow's: every check a person's approval makes, with no person and no group.
+  automaticApproval = null,
   // How the person's Yes was bound: bound-yes (a chat), approval-page, terminal or terminal-yes-flag.
   confirmedBy = null
 } = {}) {
+  const automatic = Boolean(automaticApproval);
   const holds = [];
   const warnings = [];
   const passed = new Set();
@@ -7546,6 +7548,14 @@ export async function evaluateApproval(root, config, workflow, {
         await assertPlannedSpecificationClaims(root, config, workflow, upcomingForApproval);
       }
     }, { needs: ['decision'] });
+    await stage('automatic', async () => {
+      // SFlow approves a step by itself only where this one approval completes it and the Story goes straight on; anything
+      // else leaves it with its people (approve twice). A stage of the one check, so a preview sees it as the gate does.
+      if (automatic && (!reached || (approvalOutcome && approvalOutcome.kind !== 'next'))) {
+        throw new SingularityFlowError(`${phase.label ?? phase.id} v${phase.generation} needs a person's approval: ${reached ? 'a workflow rule decides where the Story goes after it' : 'it needs more than one approval'}.`,
+          { code: 'AUTOMATIC_APPROVAL_NOT_APPLICABLE', details: { phase: phase.id, nextAction: approveRoute(workflow, phase) } });
+      }
+    }, { needs: ['planned-claims'] });
   } catch (error) {
     if (error !== APPROVAL_PREVIEW_STOP) throw error;
   }
@@ -7572,14 +7582,10 @@ export async function approvePhase(root, config, workflow, options = {}) {
   const { persist = true } = options;
   // Approve twice (automatic-approval.mjs): what SFlow checked before approving this step itself.
   const automatic = options.automaticApproval ?? null;
-  const checked = await evaluateApproval(root, config, workflow, { ...options, preview: false, automatic: Boolean(automatic) });
+  // Its refusals, an automatic one's included, are the check's own stages (evaluateApproval).
+  const checked = await evaluateApproval(root, config, workflow, { ...options, preview: false });
   const { phase, session, key, decision, reached, approvalOutcome } = checked;
   config = checked.config;
-  if (automatic && (!reached || (approvalOutcome && approvalOutcome.kind !== 'next'))) {
-    throw new SingularityFlowError(`${phase.label ?? phase.id} v${phase.generation} needs a person's approval: ${reached ? 'a workflow rule decides where the Story goes after it' : 'it needs more than one approval'}.`,
-      { code: 'AUTOMATIC_APPROVAL_NOT_APPLICABLE', details: { phase: phase.id,
-        nextAction: approveRoute(workflow, phase) } });
-  }
   if (!automatic) phase.approvals.push(decision);
   // A person decides this phase now, so an automatic completion recorded before (by a build that
   // kept it across a reopen) no longer describes it.

@@ -447,7 +447,15 @@ test('where a step names a turn, that turn\'s guard admits the command, filled i
     const sheet = stepSheet(workflow, packet, { approvalCheck: check, authorities: AUTHORITIES, actor: ME });
     for (const step of sheet.holds.flatMap((entry) => entry.steps).filter((entry) => entry.where.copilot)) {
       named.add(step.where.copilot.split(' ')[0]);
-      const decision = await repositoryToolGuard({ ...await turn(step.where.copilot), toolName: 'bash', toolArgs: { command: filled(step), cwd: root } });
+      const payload = await turn(step.where.copilot);
+      // The recommended answer takes no reason, only the person's own Yes to the question naming its row (ceremony-decisions
+      // C10, owner 2026-11-19): the person says Yes to it, as they would.
+      const rows = [...filled(step).matchAll(/\s--add-(?:location|supporting) (\S+)/gu)].map((match) => match[1].replace('=', '\'s plan row: '));
+      if (/\s--recommended(?:\s|$)/u.test(filled(step)) && rows.length) {
+        await mutationPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question: `${rows.join('; ')}. Keep it as recommended?` },
+          toolResult: { textResultForLlm: 'User responded: Yes' } });
+      }
+      const decision = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: filled(step), cwd: root } });
       if (decision.permissionDecision === 'deny') refused.push(`${code}: ${step.where.copilot}: ${step.command}: ${String(decision.permissionDecisionReason).slice(0, 90)}`);
     }
   }

@@ -38,8 +38,9 @@ const OTHER_MAJOR = Number(MAJOR) + 100;
 // or prepublish refuses the summary [owner, 2026-11-13].
 const SUMMARY = `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`;
 const namedInSummary = (...files) => async (story) => `${await readFile(path.join(story.root, SUMMARY), 'utf8')}\nChanged for the Node its tests need: ${files.map((file) => `\`${file}\``).join(', ')}.\n`;
-// Two installed Nodes the package accepts: which one is a person's choice, so these walks still meet the refusal a
-// person answers. With only one, SFlow settles the pin itself before the tests run [owner, 2026-11-13]: a walk of its own.
+// Installed Nodes the package accepts. Since code-env (ceremony cut 5, owner 2026-11-19) SFlow runs the tests on each and
+// settles the first they pass on, with an undo, so with one or two nothing refuses and these walks only have to publish
+// [owner, 2026-11-13 and 2026-11-19].
 const onTheWrongNode = async (story, { majors = [OTHER_MAJOR, OTHER_MAJOR + 1] } = {}) => {
   const home = path.join(story.parent, 'other-node');
   for (const major of majors) {
@@ -71,13 +72,16 @@ const SCENARIOS = Object.freeze([
     start: 'singularity-flow session current --for-agent --json --fetch', reached: (result) => result?.ready === true },
   { id: 'review-source-status-as-an-agent-asks', meets: null, real: 'REVIEW_SOURCE_OPTIONS_INVALID: 4 hits, 0 advanced: every command takes --for-agent, and this read refused it',
     start: 'singularity-flow review-source status implementation --for-agent --json', reached: (result) => Boolean(result?.outcome ?? result?.status ?? result?.required !== undefined) },
-  { id: 'release-on-a-reused-run', meets: 'next', real: 'a real Story: Release marked every clause partial because Verification reused its runs', template: 'release', phase: 'release',
+  // A publication that owes no review is submitted in the author's turn (ceremony-turns cut 2): its act is `submit`, not `next`.
+  { id: 'release-on-a-reused-run', meets: 'submit', real: 'a real Story: Release marked every clause partial because Verification reused its runs', template: 'release', phase: 'release',
     start: 'singularity-flow phase prepublish release --for-agent --json --publish-if-ready', reached: published },
   { id: 'release-says-less-than-the-record', meets: 'CONFORMANCE_BLOCKING_VERDICTS', real: 'a real Story: "raise one against implementation", with nothing wrong with Implementation', template: 'releasePartial', phase: 'release',
     setup: (story) => { story.cli('phase', 'publish', 'release', '--authored', 'human', '--channel', 'manual-in-place'); story.cli('submit', 'release'); },
     start: `singularity-flow approve release --work-id ${WORK} --yes --json`,
     reasons: { CONFORMANCE_BLOCKING_VERDICTS: { mustNotMatch: /raise one against/u, mustMatch: /reads it satisfied/u, because: 'the record reads these clauses satisfied, so nothing shows the step before it at fault' } } },
-  { id: 'node-version', meets: 'CODE_TEST_FAILED', real: 'a real Story: tests fail only on this Node; CODE_TEST_FAILED ranks first',
+  // Two installed Nodes the package accepts were a person's choice; since code-env (owner 2026-11-19) SFlow runs the tests on
+  // each, newest first, and settles the first they pass on: nothing refuses, and the walk only has to publish.
+  { id: 'node-version', meets: null, real: 'a real Story: tests fail only on this Node; CODE_TEST_FAILED ranks first',
     setup: onTheWrongNode, start: PREPUBLISH, reached: published,
     // The pin creates .nvmrc after the summary was written: the author says so, as on the real Story [owner, 2026-11-13].
     writes: { '/sf-code': { [SUMMARY]: namedInSummary('.nvmrc') } } },
@@ -85,7 +89,9 @@ const SCENARIOS = Object.freeze([
     setup: (story) => onTheWrongNode(story, { majors: [OTHER_MAJOR] }), start: PREPUBLISH, reached: published,
     // The settled pin writes .nvmrc after the summary was written: the author names it, as for a person's pin.
     writes: { '/sf-code': { [SUMMARY]: namedInSummary('.nvmrc') } } },
-  { id: 'nvmrc-names-a-node-not-here', meets: 'CODE_TEST_FAILED', real: 'the .nvmrc is the answer already, and names a Node this machine does not have',
+  // Since code-env (owner 2026-11-19) SFlow runs this Story's tests on an installed Node the package accepts, settled with an
+  // undo, and .nvmrc stays: nothing refuses (test/node-pin-flow.test.mjs), so the walk only has to publish.
+  { id: 'nvmrc-names-a-node-not-here', meets: null, real: 'the .nvmrc is the answer already, and names a Node this machine does not have',
     setup: async (story) => {
       await onTheWrongNode(story);
       await story.write('.nvmrc', `${OTHER_MAJOR + 50}\n`);
@@ -95,9 +101,12 @@ const SCENARIOS = Object.freeze([
     }, start: PREPUBLISH, reached: published },
   // /sf-appeal with nothing to appeal: it said to go back to /sf-code, which could not change the Node either.
   { id: 'appeal-with-none-open', meets: 'next', real: 'a real Story: the chain /sf-code, /sf-appeal, /sf-code on a Node only a person can pin',
+    // Since code-env (owner 2026-11-19) SFlow settles the Node and the version publishes, so with no appeal open the way on is
+    // the Story's own next step, its submission: never /sf-code or /sf-appeal again (before, the person's pin on /sf-decide).
     setup: async (story) => { await onTheWrongNode(story); story.raw(PREPUBLISH.split(' ').slice(1), story.env); },
     start: 'singularity-flow appeal preflight --phase implementation --for-agent --json',
-    reached: (result) => (result?.next ?? []).some((entry) => /^\/sf-decide/u.test(entry.copilotCommand ?? entry.commandGuidance?.copilotCommand ?? '')) && /No appeal is open/u.test(JSON.stringify(result)) },
+    reached: (result) => result?.operation?.id === 'appeal.preflight' && /^singularity-flow submit implementation\b/u.test(result?.act?.do?.shell ?? '')
+      && !/^\/sf-(?:code|appeal)\b/u.test(result?.act?.do?.copilot ?? '') },
   { id: 'test-fails-for-a-real-bug', meets: 'CODE_TEST_FAILED', real: 'the same refusal when the code is at fault: a route that can change the state has a way through',
     setup: (story) => story.write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value to every caller\nexport const value = 3;\n`), start: PREPUBLISH, reached: published,
     writes: { '/sf-code': { 'src/value.mjs': `// @clause:${WORK}:AC-001 returns the approved value to every caller\nexport const value = 2;\n` } } },

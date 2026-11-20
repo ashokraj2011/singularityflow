@@ -64,6 +64,8 @@ export const GATE_PARITY = Object.freeze({
   'gate.approval.threshold': entry('approver', 'approval'),
   'gate.approval.unauthorized': entry('approver', 'approval'),
   'gate.approval.waiver-invalid': entry('engine', 'integrity'),
+  // Approve twice: a step SFlow approved itself whose record no longer replays, detected after the fact like a waiver.
+  'gate.approval.automatic-invalid': entry('engine', 'integrity'),
   'gate.clarification.invalid': entry('engine', 'integrity'),
   'gate.clarification.uncommitted': entry('engine', 'integrity'),
   'gate.clause.invalid-evidence': entry('author', 'same-check', { checks: CODE_COVERAGE }),

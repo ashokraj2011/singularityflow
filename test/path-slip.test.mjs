@@ -16,7 +16,7 @@ import test from 'node:test';
 import { pathSlipAnswer, pathSlipOf } from '../src/path-slip.mjs';
 import { publishedSpecificationStory } from './helpers/source-review-fixture.mjs';
 import { recordRepositoryBoundaryTurn, repositoryToolFailure } from '../src/copilot-repository-boundary.mjs';
-import { captureMutationTurn } from '../src/copilot-mutation-guard.mjs';
+import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 
 const FOLDER = '.w-36c01dbdd0dd64e8addaee8d';
 const TYPED = '.w-36c01dbdd0dd64e8addaee8e8dd';
@@ -77,6 +77,12 @@ test('the failure hook hands the exact returned path back for a mistyped review 
   const staging = sourceReviewStagingPath(gitDir(root), workflow, workflow.phases[item.phaseId]);
   await sourceReviewContext(root, config, workflow, item.phaseId, staging);
   const typed = staging.replace(/-gen(\d+)\.json$/u, '-gne$1.json');
+  // Before the read runs, the guard hands the returned path back instead of a failed read.
+  const before = await mutationToolGuard({ ...hook, toolName: 'view', toolArgs: { path: typed } });
+  assert.equal(before.permissionDecision, 'deny');
+  assert.deepEqual(before.pathCorrections, [{ attemptedPath: typed, issuedPath: staging, operation: 'read' }]);
+  assert.match(before.permissionDecisionReason, /^CLI_ISSUED_PATH_MISMATCH: .* is not a path SFlow returned: it is a copy slip of /u);
+  assert.deepEqual(await mutationToolGuard({ ...hook, toolName: 'view', toolArgs: { path: staging } }), {}, 'the returned path reads as before');
   const answer = await repositoryToolFailure({ ...hook, toolName: 'view', toolArgs: { path: typed }, error: `ENOENT: no such file or directory, open '${typed}'` });
   assert.match(answer.additionalContext ?? JSON.stringify(answer), new RegExp(`it is a copy slip of ${staging.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`, 'u'));
   assert.doesNotMatch(answer.additionalContext, /explicit blocker/u);

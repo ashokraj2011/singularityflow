@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { COMMAND_PRESENTATION_CONTRACT, decideCardStep, formatCommandRouteLines } from './model-free-commands.mjs';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { changeRequestApplies, deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationToolProtocol, mutationTurnMode } from './phase-mutation-contract.mjs';
@@ -2492,6 +2492,19 @@ async function mutationToolDecision(payload, record) {
       const correction = await outputPathMismatch(payload, record, call);
       if (correction) return correction;
     }
+  }
+  // A read of a path that is not there and is one copy slip off a path SFlow returned gets that path now, before the
+  // read fails (path-slip.mjs) [owner, 2026-11-20]. Only a missing target costs more than a stat.
+  const missingReads = toolCalls.filter(call => FILE_READS.has(call.name) && targets(call.args).some(target => {
+    const absolute = editTarget(target, call.args.cwd ?? payload.cwd ?? process.cwd());
+    return absolute && !existsSync(absolute);
+  }));
+  if (missingReads.length) {
+    const returned = await turnReturnedPaths(payload).catch(() => null);
+    const slip = returned?.length ? (await import('./path-slip.mjs')).pathSlipAnswer(missingReads.map(call => ({ paths: targets(call.args),
+      cwd: typeof call.args.cwd === 'string' ? call.args.cwd : null })), returned, { cwd: payload.cwd }) : null;
+    if (slip) return { permissionDecision: 'deny', next: [], recoverable: true, pathCorrections: slip.pathCorrections,
+      permissionDecisionReason: `CLI_ISSUED_PATH_MISMATCH: ${slip.additionalContext.replace(/^SFlow: /u, '')} Nothing was read.` };
   }
   const tooLong = await longFileRead(toolCalls, payload.cwd);
   if (tooLong) return tooLong;

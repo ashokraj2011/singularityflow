@@ -426,6 +426,14 @@ export function agentAct(result) {
     // Stage writes the draft and refuses only its retention, so the repair is made in that file, not a missing file (anu-bin, 2026-11-11);
     // never inline JSON again, whose shell quoting broke the report (2026-11-13).
     said: 'Staged, not retained yet. Apply each returned repair exactly (proposedEdit values as given) in the staged file with your file-edit tool, then run stagingProtocol.check within the two-repair budget. Never type the JSON into a shell argument. Do not restart the phase, run generic diagnostics, or invent coverage.' };
+  // No installed Node can run the tests: the person installs one in their own terminal, then the same check runs again
+  // (refusal-remediation.mjs) [owner, 2026-11-20]. No repair, other Node or base run in this turn: each fails the same way.
+  const install = result.error?.details?.nodeInstall;
+  if (install?.version && result.remediationPlan) return {
+    state: 'await-human', do: install.command ? { shell: install.command, copilot: null, reason: `Install Node ${install.version} with ${install.manager}` } : null,
+    read: ['remediationPlan.steps'],
+    said: oneLine(`No Node installed here can run these tests. ${install.command ? 'Show the person do.shell for their own terminal, exactly as given; never run it here.'
+      : `Ask the person to install Node ${install.version} from https://nodejs.org.`} Once they say it is installed, run the run-tests-again step of remediationPlan once; until then change nothing and run nothing else.`) };
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
     if (!plan.escalation && plan.repairContinuation?.kind === 'test-command-definition'

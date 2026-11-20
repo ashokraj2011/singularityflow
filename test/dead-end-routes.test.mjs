@@ -305,6 +305,39 @@ test('every known refusal builds a recovery plan whose every command is one the 
   assert.ok(marked.steps.every((entry) => !entry.command || !entry.command.includes('<ID,...>')), 'an unsafe command is never shown');
 });
 
+// No Node installed here can run the tests (landing-6, 2026-11-20): the failed run's plan leads with the person's install,
+// filled for the version manager found, then the same check once it is installed (`changes`). Never a repair, another
+// Node's probe or a base run, which looped on an unchanged machine. test/no-dead-end.test.mjs walks it (no-installed-node).
+test('a failed run no installed Node can run leads with the filled install command, then the same check once it is installed', async () => {
+  const { agentAct } = await import('../src/agent-output.mjs');
+  const { refusalDetails } = await import('../src/refusal-remediation.mjs');
+  const { nearestAcceptedMajor } = await import('../src/test-plan.mjs');
+  assert.deepEqual([nearestAcceptedMajor('>=126', '22.11.0'), nearestAcceptedMajor('>=20 <25', '26.1.0'), nearestAcceptedMajor('^18', '22.1.0')], [126, 24, 18]);
+  const argv = ['phase', 'prepublish', 'build', '--work-id', 'W-1'];
+  const refused = (nodeInstall) => {
+    const details = { workId: 'W-1', phase: 'build', phaseId: 'build', nodeInstall, otherNode: { version: '26', node: '26.1.0' },
+      requiredTestExecution: { commandId: 'unit', failure: { kind: 'test-failure' } } };
+    const plan = refusalRemediationPlan(Object.assign(new Error('Required test command failed.'), { code: 'CODE_TEST_FAILED', details }), argv);
+    return { plan, act: agentAct({ error: { code: 'CODE_TEST_FAILED', message: 'Required test command failed.', details: refusalDetails(details) }, remediationPlan: plan }) };
+  };
+  const { plan, act } = refused({ version: '18', manager: 'nvm', command: 'nvm install 18', words: '.nvmrc asks for Node 18, and no installed Node matches.' });
+  assert.deepEqual(plan.steps.slice(0, 2).map((entry) => [entry.id, entry.command, entry.changes ?? null]), [
+    ['install-node', null, null],
+    ['run-tests-again', 'singularity-flow phase prepublish build --for-agent --json --publish-if-ready', 'Node 18 is installed']]);
+  assert.match(plan.steps[0].label, /^\.nvmrc asks for Node 18, and no installed Node matches\. No Node installed here can run these tests: a person installs one in their own terminal\. Install it with nvm: nvm install 18$/u);
+  assert.equal(plan.steps[0].personCommand, 'nvm install 18');
+  for (const id of ['repair-required-test', 'try-node-version', 'compare-with-base']) assert.ok(!plan.steps.some((entry) => entry.id === id), id);
+  assert.ok(!plan.steps.some((entry) => /^singularity-flow tests (?:node|base)\b/u.test(entry.command ?? '')), 'never another Node\'s probe or a base run');
+  assert.equal(plan.repairContinuation, undefined, 'no repair continues in this turn');
+  assert.match(plan.retry.label, /only once Node 18 is installed/u);
+  assert.deepEqual([act.state, act.do?.shell, act.do?.copilot], ['await-human', 'nvm install 18', null]);
+  // No version manager found: its download page, and still nothing that loops.
+  const plain = refused({ version: '24', manager: null, command: null, words: 'package.json asks for Node >=20 <25, and no installed Node matches.' });
+  assert.match(plain.plan.steps[0].label, /Install Node 24 from https:\/\/nodejs\.org\.$/u);
+  assert.equal(plain.plan.steps[1].changes, 'Node 24 is installed');
+  assert.deepEqual([plain.act.state, plain.act.do], ['await-human', null]);
+});
+
 // No loops [owner, 2026-11-19, ceremony review]: a refusal never routes back to the same command or its skill without a
 // change. Inside /sf-decide a refused decision's first step was /sf-decide again, and a held test run's first step was the
 // same check, which ran into the same hold (loops 1, 12 and 13). A step that runs the refused command again names its

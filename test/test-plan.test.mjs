@@ -181,7 +181,11 @@ test('a Node version: what engines asks for and what the machine would run are c
   const [check] = await earlyTestChecks(root, await nodeCommands(root), { environment });
   assert.equal(check.id, 'node-version');
   assert.match(check.words, new RegExp(`asks for Node <4, and tests here would run on Node ${running.replaceAll('.', '\\.')}`, 'u'));
-  assert.match(check.action, /^Install a Node that package\.json accepts \(<4\); SFlow then pins it in \.nvmrc for the tests\.$/u);
+  // No installed Node meets the range: the install of the major it accepts nearest the one here, filled in for the version
+  // manager found (Homebrew on some machines), else the range in words [owner, 2026-11-20, no loops].
+  assert.equal(check.install?.version, '3');
+  assert.equal(check.action, check.install.command ? `Install it with ${check.install.manager}: ${check.install.command}. SFlow then pins it in .nvmrc for the tests.`
+    : 'Install a Node that package.json accepts (<4); SFlow then pins it in .nvmrc for the tests.');
   const fine = await repository(t, { 'package.json': manifest({ engines: { node: `>=${running.split('.')[0]}` }, scripts: { test: 'node --test' } }) });
   assert.deepEqual(await earlyTestChecks(fine, await nodeCommands(fine), { environment }), []);
   const asks = await repository(t, { 'package.json': manifest({ scripts: { test: 'node --test' } }), '.nvmrc': '4.0.0\n' });
@@ -192,6 +196,11 @@ test('a Node version: what engines asks for and what the machine would run are c
   await mkdir(path.join(environment.HOME, '.nvm'), { recursive: true });
   const [withNvm] = await earlyTestChecks(asks, await nodeCommands(asks), { environment });
   assert.equal(withNvm.command, 'nvm install 4.0.0');
+  // What a person installs when no installed Node can run the tests instead (an installed one SFlow settles otherwise).
+  assert.deepEqual(withNvm.install, withNvm.pin ? undefined
+    : { version: '4.0.0', manager: 'nvm', command: 'nvm install 4.0.0', words: '.nvmrc asks for Node 4.0.0, and no installed Node matches.' });
+  const [rangeWithNvm] = await earlyTestChecks(root, await nodeCommands(root), { environment });
+  assert.equal(rangeWithNvm.action, 'Install it with nvm: nvm install 3. SFlow then pins it in .nvmrc for the tests.');
   assert.match(withNvm.words, /Install it with nvm: nvm install 4\.0\.0$/u);
   // A Node installed here (this machine's Homebrew ones count) runs this Story's tests instead; else the install is the action.
   assert.match(withNvm.action, withNvm.pin ? /^Nothing to do: SFlow runs this Story's tests on Node .* \.nvmrc stays as it is\. .*nvm install 4\.0\.0/u

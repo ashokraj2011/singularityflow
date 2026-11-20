@@ -474,6 +474,15 @@ async function walkRoutes(story, scenario, { maxSteps = 24 } = {}, reads = []) {
         if (route.source === 'start' || route.source === 'retry') startRefusedAt = before;
         await writeFor(lastCode);
         onRefusal(lastCode, String(parsed?.error?.message ?? output.stderr), routes, parsed, before);
+        // The person's own step outside SFlow, first and filled in (installing a Node): the walk has reached that person.
+        // What follows it in the plan runs only once they made the change (`changes`), so running it now would only meet
+        // the same refusal again [owner, 2026-11-20].
+        const own = parsed?.remediationPlan?.steps?.[0];
+        if (parsed?.act?.state === 'await-human' && own?.personCommand && parsed.act.do?.shell === own.personCommand
+            && parsed.remediationPlan.steps.slice(1).every((entry) => !entry.command || entry.changes || routeEffect(entry, isRead) === 'read-only')) {
+          trail.push({ person: own.personCommand, step: own.id });
+          return { outcome: 'person-decision', by: own.id, findings, trail };
+        }
       }
       pushRoutes(routes);
     }

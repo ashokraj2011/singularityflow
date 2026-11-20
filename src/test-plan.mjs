@@ -294,6 +294,19 @@ export function nodeRangeAccepts(range, version) {
   return understood ? alternatives.some(Boolean) : undefined;
 }
 
+/**
+ * The Node major to install for an engines `range` this machine's Nodes do not meet: the lowest it accepts at or above the
+ * one here (`version`), else the highest below it; null when the range accepts none it can read.
+ */
+export function nearestAcceptedMajor(range, version) {
+  const here = major(version) ?? 0;
+  const accepted = [];
+  for (let candidate = 1; candidate < 200; candidate += 1) {
+    if (nodeRangeAccepts(range, `${candidate}.999.999`) === true || nodeRangeAccepts(range, `${candidate}.0.0`) === true) accepted.push(candidate);
+  }
+  return accepted.find((candidate) => candidate >= here) ?? accepted.at(-1) ?? null;
+}
+
 /** A bounded walk of a folder's files, skipping what no test lives in. */
 async function repositoryFiles(root, directory, { accept, limit = MAX_SHOWN_PATHS } = {}) {
   const found = [];
@@ -457,8 +470,12 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
           : requested.status === 'not-installed' ? `Install Node ${requested.wanted} (https://nodejs.org), or change ${requested.file} to a Node installed here.`
             : `Change ${requested.file} to a Node version, such as 22.`;
       // `cause`: the same fact in a line a person reads on the decisions card [owner, 2026-11-16].
+      // No installed Node can run them: what the person installs, filled for the version manager here (none found: its
+      // download page) [owner, 2026-11-20].
+      const installs = !newest && requested.status === 'not-installed' ? { install: { version: requested.wanted, manager: install?.manager ?? null,
+        command: install?.command ?? null, words: `${requested.file} asks for Node ${requested.wanted}, and no installed Node matches.` } } : {};
       found.push(check('node-version', nodeVersionNote(requested, { install }), action,
-        { file: requested.file, ...(install?.command ? { command: install.command } : {}), ...(newest ? { pin: { file: '.nvmrc', version: String(major(newest)), node: newest, replaces: requested.wanted,
+        { file: requested.file, ...(install?.command ? { command: install.command } : {}), ...installs, ...(newest ? { pin: { file: '.nvmrc', version: String(major(newest)), node: newest, replaces: requested.wanted,
           candidates, ...(typeof asks === 'string' ? { range: { file: joined(directory, 'package.json'), range: asks } } : {}),
           cause: `${requested.file} asks for Node ${requested.wanted}, which is not installed here; Node ${newest} is` } } : {}) }));
       continue;
@@ -481,10 +498,17 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
       // Several: SFlow runs the tests once on each, newest first, and the first they pass on is the answer (node-version-settle.mjs) [owner, 2026-11-19].
       const candidates = accepted.filter((other, index) => accepted.findIndex((entry) => major(entry) === major(other)) === index);
       const offered = pin(accepted[0]);
+      // None installed is accepted: no Node here can run the tests, so a person installs one the range accepts, nearest the
+      // one here, with the command for the version manager found [owner, 2026-11-20].
+      const wanted = accepted.length ? null : nearestAcceptedMajor(range, version);
+      const command = wanted ? await nodeInstallCommand(String(wanted), environment).catch(() => null) : null;
+      const installs = wanted ? { install: { version: String(wanted), manager: command?.manager ?? null, command: command?.command ?? null,
+        words: `${joined(directory, 'package.json')} asks for Node ${range}, and no installed Node matches.` } } : {};
       found.push(check('node-version', `${joined(directory, 'package.json')} asks for Node ${range}, and tests here would run on Node ${version}.${offer}`,
         accepted.length ? 'Nothing to do: before the tests run, SFlow pins an installed Node the range accepts in .nvmrc (a repository change it adds to the plan), settled with an undo on the decisions card.'
-          : `Install a Node that ${joined(directory, 'package.json')} accepts (${range}); SFlow then pins it in .nvmrc for the tests.`,
-        { node: version, installed, ...(offered.pin ? { pin: { ...offered.pin, ...named, ...(candidates.length > 1 ? { candidates } : {}),
+          : installs.install?.command ? `Install it with ${installs.install.manager}: ${installs.install.command}. SFlow then pins it in .nvmrc for the tests.`
+            : `Install a Node that ${joined(directory, 'package.json')} accepts (${range}); SFlow then pins it in .nvmrc for the tests.`,
+        { node: version, installed, ...installs, ...(offered.pin ? { pin: { ...offered.pin, ...named, ...(candidates.length > 1 ? { candidates } : {}),
           cause: `${joined(directory, 'package.json')} asks for Node ${range}, but this machine runs Node ${version}; Node ${offered.pin.node} is installed` } } : {}) }));
       continue;
     }

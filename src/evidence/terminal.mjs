@@ -129,12 +129,15 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
  * is open from here, such as on a closed Story. `openStory` judges the Story as it stands when the ending is read as if
  * closed: its final step and that step's real status.
  */
+/** The current step returned to `to`: one spelling for both returns below. */
+const returnLine = (step, workId, to, reason) => `singularity-flow reject ${step} --work-id ${workId} --to ${to} --reason ${reason}`;
+
 function staleEvidenceReturn(workflow, owner, about, problem = `"Its evidence predates the scope revision; run ${owner} again"`, openStory = null) {
   const workId = workflow.workItem.id;
   const current = workflow.phases?.[openStory ? openStory.phase : workflow.currentPhase];
   const open = openStory ? { ...workflow, status: 'in_progress' } : workflow;
   if (open.status === 'in_progress' && (openStory?.status ?? current?.status) === 'awaiting_approval' && (current.approvalPolicy?.rejectTo ?? []).includes(owner)) {
-    return `singularity-flow reject ${current.id} --work-id ${workId} --to ${owner} --reason <REASON>`;
+    return returnLine(current.id, workId, owner, '<REASON>');
   }
   const step = decidableUpstreamStep(workflow, owner);
   const route = step ? raiseUpstreamIssueRoute(open, step, current?.id) : null;
@@ -152,7 +155,7 @@ const gapWords = (owner, clauseId, status) => status === 'partial' ? `${owner} d
 function codeStepReturn(workflow, owner, clauseId, status) {
   const current = workflow.phases?.[workflow.currentPhase];
   if (workflow.status !== 'in_progress' || current?.status !== 'awaiting_approval' || !(current.approvalPolicy?.rejectTo ?? []).includes(owner)) return null;
-  return `singularity-flow reject ${workflow.currentPhase} --work-id ${workflow.workItem.id} --to ${owner} --reason "${gapWords(owner, clauseId, status)}"`;
+  return returnLine(workflow.currentPhase, workflow.workItem.id, owner, `"${gapWords(owner, clauseId, status)}"`);
 }
 
 async function askedForRecords() {

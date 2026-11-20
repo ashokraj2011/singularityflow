@@ -99,7 +99,7 @@ import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments, revalidateCommand } from './forward-amendments.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
-import { stepChatCommand } from './step-decision.mjs';
+import { stepChatCommand, stepDecisionOf } from './step-decision.mjs';
 import {
   approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
   eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority,
@@ -2052,7 +2052,8 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
     const corrections = waiting.details.upstreamDecision?.complete ? { text: '', routes: [] }
       : coverageRoutes.planCorrectionRoutes(workflow, planOwner, phase.id, open, planned);
     const ownVersion = submitting && !waiting.details.nextAction
-      ? coverageRoutes.nextVersionForGaps(phase, versionQuestionRoute(workflow, phase), open, records, planned, workflow) : null;
+      ? coverageRoutes.nextVersionForGaps(phase, versionQuestionRoute(workflow, phase), open, records, planned, workflow,
+        (({ version } = {}) => version?.proposedNext ?? version?.writing ?? null)(stepDecisionOf(workflow, phase) ?? {})) : null;
     return { text: `${waiting.text}${ownVersion ? ` Deliver ${open.length === 1 ? 'it' : 'them'} in ${phase.id}'s next version: ${ownVersion.command}.` : ''}${corrections.text}`,
       details: { ...waiting.details, ...(planOwner ? { planningOwner: planOwner } : {}),
         ...(ownVersion ? { nextAction: { command: ownVersion.command, skill: ownVersion.skill, label: ownVersion.label } } : {}),

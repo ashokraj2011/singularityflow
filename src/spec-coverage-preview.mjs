@@ -114,14 +114,13 @@ export function clauseGapWords(open, planned = {}, observed = {}) {
  * its work command previews and the person confirms (owner, 2026-11-20). Never an issue against an earlier step: the
  * plan is not what is wrong. `route` is the step's version question (action-command-map.mjs versionQuestionRoute).
  */
-export function nextVersionForGaps(phase, route, open, records, planned, workflow = null) {
+export function nextVersionForGaps(phase, route, open, records, planned, workflow = null, next = null) {
   if (!route?.command || !open.length) return null;
   const observed = mergeObservedClaimRecords(records?.observed ?? [], planned, { workflow });
   const words = clauseGapWords(open, planned, observed);
-  const next = Math.max(Number(phase.generation ?? 0), Number(phase.generationHighWatermark ?? 0)) + 1;
   const what = `${listed(open.slice(0, 3))}${open.length > 3 ? ` and ${open.length - 3} more` : ''}`;
   return { command: route.command.replace('"<what to change>"', `"${words}"`), skill: route.skill ?? null, words,
-    label: `Start version ${next} of ${phase.label ?? phase.id} for ${what}` };
+    label: `Start ${next ? `version ${next}` : 'the next version'} of ${phase.label ?? phase.id} for ${what}` };
 }
 
 /** A coverage result without the clauses a decided upstream issue settles, which no longer count against it. */

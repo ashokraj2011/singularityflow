@@ -894,7 +894,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // when configuration loads (config.mjs), with the ten intents and the settings a reason may name (phase-roles.mjs).
     // The profiles, inference and kind-of-software report load only in workflow check (step-intents.mjs, software-kinds.mjs).
     // No new eager file.
-    assert.ok(closure.bytes <= 9_811_199, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,821,058 (measured for submit.mjs, the largest, on landing-12, 2026-11-21): step intents stages 0-1 and the coverage fix together.
+    // A changed planned file counts for its row (specifications.mjs, spec-coverage-preview.mjs); the review brake is a
+    // workflow setting (source-review-policy.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_821_058, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1387,7 +1390,8 @@ test('the common session projection does not import attach, state stores or publ
   // (filled values and path-slip corrections, coded limits, VS Code chat routes, optional rows). No new eager file.
   // 4,316,692 (measured, +5,716, 2026-11-20, intents-stage01): configuration's check of a newer SFlow's workflow.yml and of
   // `intent:` and `because:` on steps (config.mjs), with the intent and reason lists (phase-roles.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_316_692, `session current loads ${current.bytes} source bytes`);
+  // 4,322,851 (measured on landing-12, 2026-11-21): step intents stages 0-1 and the coverage fix together. No new eager file.
+  assert.ok(current.bytes <= 4_322_851, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

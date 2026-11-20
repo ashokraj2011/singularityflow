@@ -138,6 +138,26 @@ test('a fresh configuration explains every workflow and has nothing to fix', asy
     assert.ok(browser.detail.includes(`singularity-flow ${command}`), command);
   }
   assert.equal(feature.findings.some((entry) => entry.code === 'CHECK_BROWSER_TARGET_REQUIRED'), false);
+  // How many versions SFlow starts on its own for a review's findings: 2 unless the workflow says (owner, 2026-11-20).
+  assert.equal(feature.explanation.reviewFixes, 'When a review asks for changes, SFlow starts up to 2 versions in a row on its own to fix them, then asks you (sourceReview.autoFixVersions).');
+  assert.equal(implementation.reviewFixes.versions, 2);
+});
+
+test('the review-fix number is a workflow setting a Studio change set writes, and workflow check shows it', async () => {
+  const root = await repository();
+  const preview = json(root, ['workflow', 'check', 'repo-feature', '--change-set', '-'],
+    { input: changeSet([{ op: 'workflow.update', id: 'repo-feature', sourceReview: { autoFixVersions: 3, autoFixVersionsByStep: { implementation: 0 } } }]) });
+  assert.equal(preview.changeSet.valid, true, JSON.stringify(preview.changeSet));
+  const feature = preview.workflows.find((entry) => entry.id === 'repo-feature');
+  const steps = Object.fromEntries(feature.explanation.steps.filter((step) => step.reviewFixes).map((step) => [step.id, step.reviewFixes.versions]));
+  assert.equal(steps.implementation, 0);
+  assert.equal(steps.requirements, 3);
+  assert.match(feature.explanation.reviewFixes, /^When a review asks for changes, SFlow starts versions on its own to fix them: .*Implementation up to 0.*; then it asks you \(sourceReview\.autoFixVersionsByStep\)\.$/u);
+  // Out of range is refused with the engine's own words, before anything is written.
+  const refused = json(root, ['workflow', 'check', 'repo-feature', '--change-set', '-'],
+    { input: changeSet([{ op: 'workflow.update', id: 'repo-feature', sourceReview: { autoFixVersions: 11 } }]) });
+  assert.equal(refused.changeSet.valid, false);
+  assert.match(JSON.stringify(refused.repository.findings), /autoFixVersions must be a whole number from 0 to 10/u);
 });
 
 test('a workflow with real problems: located findings in plain words, and an explanation that uses the description', async () => {

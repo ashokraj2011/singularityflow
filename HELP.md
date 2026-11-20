@@ -2011,6 +2011,31 @@ diagnostic/configuration work.
 Use `/sf-next` when you want the first valid action executed. Its terminal
 equivalent is `sflow-next`, which delegates to `singularity-flow next`.
 
+### Review of each step
+
+Every step a Story authors is reviewed by an independent read-only reviewer before it is submitted, code steps included.
+A work type sets that review under `sourceReview`:
+
+```yaml
+workTypes:
+  quick-fix:
+    sourceReview:
+      skip: [verify]            # steps left unreviewed
+      reviewerAgent: sflow-source-reviewer
+      autoFixVersions: 2        # 0 to 10; 2 when unset
+      autoFixVersionsByStep:
+        implement: 3            # this step's own number
+```
+
+- `mode: off` reviews no step; `skip` leaves single steps out.
+- `autoFixVersions` is how many versions in a row SFlow starts on its own to fix a review's findings, when only the
+  reviewer has seen the version it reviewed. After that many, it asks you before the next one. `0` asks you every time.
+  `autoFixVersionsByStep` sets the number for single steps; the work type's number covers the rest.
+- A person's yes on a version starts the count again. A finding that comes back after SFlow's fix always asks you,
+  whatever the number.
+- `singularity-flow workflow check` shows the number for each workflow; `workflow check <WORKFLOW>` shows it per step.
+  A Story keeps the number it started with.
+
 ## Approved phase inputs
 
 Phase inputs make approved upstream artifacts explicit prompt dependencies. The top-level mode is pinned when the work item starts:

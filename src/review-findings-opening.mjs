@@ -10,8 +10,9 @@
  * author fixes the findings in the same turn. An undo never withdraws the version it opened (no route withdraws an open
  * version); it only makes every later start of that step for a review's findings the person's question again. A person who
  * disagrees with a finding disputes it (review-finding-dispute.mjs): the author is then told not to make that fix.
- * Anything a person touched keeps the question theirs: the refusal names the preview that asks it. So do 2 starts in a row
- * already, and a finding back after SFlow's fix (source-review-continuation.mjs reviewFindingsHold).
+ * Anything a person touched keeps the question theirs: the refusal names the preview that asks it. So do as many starts in
+ * a row as the workflow allows (sourceReview.autoFixVersions, 2 unless set), and a finding back after SFlow's fix
+ * (source-review-continuation.mjs reviewFindingsHold).
  */
 import { SingularityFlowError } from './util.mjs';
 
@@ -51,7 +52,7 @@ export async function reviewFindingsRollover(root, config, workflow, phase, opti
     throw new SingularityFlowError(`${phase.label ?? phase.id} has no published version waiting to be corrected for its review; nothing was opened.`, {
       code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: { phase: phase.id, nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route } });
   }
-  // Two starts in a row, or a finding back after a fix: the person decides (owner, 2026-11-19).
+  // The workflow's number of starts in a row (2 unless set), or a finding back after a fix: the person decides (owner, 2026-11-19).
   const held = reviewFindingsHold(workflow, phase, review);
   if (held) ask(held.words);
   if (!reviewerAloneSaw(workflow, phase, review)) ask(`Someone besides the reviewer has seen version ${from} of ${phase.label ?? phase.id}, or its review asks for no corrections.`);

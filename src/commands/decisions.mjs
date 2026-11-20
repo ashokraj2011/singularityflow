@@ -1,4 +1,4 @@
-import { formatCommandRouteLines, modelFreeCommandForCommand, VSCODE_DECIDE_CARD } from '../model-free-commands.mjs';
+import { formatCommandRouteLines, modelFreeCommandForCommand, VSCODE_DECIDE_CARD, vscodeDecideCardChat } from '../model-free-commands.mjs';
 /**
  * `decisions [WORK-ID]` and `decisions record [WORK-ID]`: everything people must decide before a
  * step can move, in plain words, as choices, recorded with one confirmation. [decision list]
@@ -141,11 +141,11 @@ export async function storyNextFrom(now, workflow = null) {
  * The Decide card as the list's next step [owner, 2026-11-18, office laptop: inside /sf-decide the reply ended
  * "Next — Resolve the remaining decisions: /sf-decide <WORK-ID>"]. Never the command the person is already in: what
  * is left is answered on the card, named as such, by each host's way to it: Copilot CLI's /decide, VS Code's Command
- * Palette entry, and the terminal's own walkthrough.
+ * Palette entry and its chat's #sflowDecide (VS Code's chat has no /decide), and the terminal's own walkthrough.
  */
 export function decideCardNext(workId, item = null) {
   return { kind: 'decide-card', ...(item ? { item } : {}), title: 'Open the Decide card', command: `singularity-flow decisions record ${workId}`,
-    copilotCommand: `/decide ${workId}`, modelFreeCommand: VSCODE_DECIDE_CARD };
+    copilotCommand: `/decide ${workId}`, modelFreeCommand: VSCODE_DECIDE_CARD, vscodeChat: vscodeDecideCardChat(workId) };
 }
 
 /** Whether a route is the list itself for this Story: /sf-decide, or `decisions` with nothing more to do. */

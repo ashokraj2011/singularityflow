@@ -15,7 +15,7 @@ import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { WRITING_ALIASES } from './writing-aliases.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
-import { formatCommandRouteLines, VSCODE_DECIDE_CARD } from './model-free-commands.mjs';
+import { formatCommandRouteLines, VSCODE_DECIDE_CARD, vscodeDecideCardChat } from './model-free-commands.mjs';
 import { WORK_COMMANDS } from './command-skills.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
 
@@ -348,7 +348,7 @@ export function decideCardInThisChat(route, workId) {
   const read = !Array.isArray(guidance.argv) || (guidance.argv[0] === 'decision' && guidance.argv[1] === 'show')
     || (guidance.argv[0] === 'decisions' && !['record', 'undo'].includes(guidance.argv[1]));
   const base = read ? { ...(safeCommandGuidance({ argv: ['decisions', 'record', workId] }) ?? guidance) } : guidance;
-  const card = { ...base, skill: null, copilotCommand: `/decide ${workId}`, modelFreeCommand: base.modelFreeCommand ?? VSCODE_DECIDE_CARD };
+  const card = { ...base, skill: null, copilotCommand: `/decide ${workId}`, modelFreeCommand: base.modelFreeCommand ?? VSCODE_DECIDE_CARD, vscodeChat: vscodeDecideCardChat(workId) };
   return { detail: `Open the Decide card in this chat: call #sflowDecide (VS Code) or sflow_decide (Copilot CLI) with workId ${workId} only; `
     + 'the person answers there, or runs the Shell line in their own terminal.', ...card,
   ...(commandGuidance ? { commandGuidance: card } : {}), modelFreeStatus: 'available', decideCard: { vscode: '#sflowDecide', copilotCli: 'sflow_decide', workId } };

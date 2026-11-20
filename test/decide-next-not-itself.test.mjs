@@ -55,8 +55,8 @@ test('a /sf-decide result never names /sf-decide for the same Story as its next 
   // Under SF Guard only the card (or the person's terminal) records it, as in the incident.
   const shown = withStoryNext(list({ signed: true }), null);
   assert.deepEqual(shown.next, decideCardNext(W, shown.next.item));
-  assert.deepEqual({ title: shown.next.title, copilot: shown.next.copilotCommand, shell: shown.next.command, vscode: shown.next.modelFreeCommand },
-    { title: 'Open the Decide card', copilot: `/decide ${W}`, shell: `singularity-flow decisions record ${W}`, vscode: VSCODE_DECIDE_CARD });
+  assert.deepEqual({ title: shown.next.title, copilot: shown.next.copilotCommand, shell: shown.next.command, vscode: shown.next.modelFreeCommand, vscodeChat: shown.next.vscodeChat },
+    { title: 'Open the Decide card', copilot: `/decide ${W}`, shell: `singularity-flow decisions record ${W}`, vscode: VSCODE_DECIDE_CARD, vscodeChat: `#sflowDecide ${W}` });
   assert.equal(routesToList(shown.next, W), false);
 
   // The terminal's list ends on it.
@@ -68,8 +68,11 @@ test('a /sf-decide result never names /sf-decide for the same Story as its next 
   // And an agent's turn: the card, shown to the person, never /sf-decide again and never run.
   const act = agentAct(shown);
   assert.equal(act.state, 'confirm-in-terminal');
-  assert.deepEqual(act.do, { reason: 'Open the Decide card', copilot: `/decide ${W}`, shell: `singularity-flow decisions record ${W}`, vscode: VSCODE_DECIDE_CARD });
+  assert.deepEqual(act.do, { reason: 'Open the Decide card', copilot: `/decide ${W}`, shell: `singularity-flow decisions record ${W}`, vscode: VSCODE_DECIDE_CARD,
+    vscodeChat: `#sflowDecide ${W}` });
   assert.match(act.said, /Never give \/sf-decide again/u);
+  // VS Code's chat has no /decide: its way to the card is #sflowDecide, called once, never again after it answered [hardening C, F3].
+  assert.match(act.said, /In VS Code's own chat, which has no \/decide, the card is do\.vscodeChat: call that tool once with workId only, unless it already answered in this turn/u);
   assert.match(nextOf(act, shown).actNext, /^confirm-in-terminal: show the person \/decide HELLO-1; never run it$/u);
 });
 

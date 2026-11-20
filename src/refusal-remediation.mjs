@@ -20,7 +20,7 @@ import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 import { nearestNames, parseArgs } from './util.mjs';
 import { actionCommandLine, authorCommand, returnRoute, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { WORK_COMMANDS } from './command-skills.mjs';
-import { modelFreeCommandForArgv } from './model-free-commands.mjs';
+import { modelFreeCommandForArgv, vscodeDecideCardChat } from './model-free-commands.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -108,7 +108,9 @@ const afterChange = (entry, changes) => (entry ? Object.freeze({ ...entry, chang
  */
 function decideCardPlanStep(id, label, workId) {
   const opened = step(id, label, `singularity-flow decisions${workId ? ` ${workId}` : ''}`, 'remediation');
-  return opened.command ? Object.freeze({ ...opened, skill: null, copilotCommand: workId ? `/decide ${workId}` : null }) : opened;
+  // VS Code's chat has no /decide: its way to the card is #sflowDecide with the Story ID [hardening C, F3].
+  return opened.command ? Object.freeze({ ...opened, skill: null, copilotCommand: workId ? `/decide ${workId}` : null,
+    ...(workId ? { vscodeChat: vscodeDecideCardChat(workId) } : {}) }) : opened;
 }
 const DECISION_LIST_READ = /^singularity-flow decisions ([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?: --phase [A-Za-z0-9][A-Za-z0-9._-]*)?$/u;
 

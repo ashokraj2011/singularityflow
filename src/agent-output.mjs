@@ -212,8 +212,15 @@ function routes(action) {
   if (!shell && !copilot) return null;
   // A route that needs a new turn says so; dropped here, an approval turn was sent to run recover itself.
   return { reason: oneLine(action.reason ?? action.detail ?? action.label ?? ''), copilot, shell, vscode,
+    ...(typeof action.vscodeChat === 'string' ? { vscodeChat: action.vscodeChat } : {}),
     ...(action.turn === 'new-turn' ? { turn: 'new-turn' } : {}) };
 }
+
+/**
+ * The Decide card in VS Code's own chat, which has no /decide: do.vscodeChat's tool, called once, or given to the person
+ * once it has answered in this turn (calling it again reopened the card they had just closed) [hardening C, F3].
+ */
+const VSCODE_CARD_WORDS = 'In VS Code\'s own chat, which has no /decide, the card is do.vscodeChat: call that tool once with workId only, unless it already answered in this turn; then give do.vscodeChat and do.vscode.';
 
 /** A returned action that carries a value a person must confirm (a digest or plan hash). */
 function confirmation(route) {
@@ -281,7 +288,7 @@ function withRoute(act, action) {
   if (route.shell && !route.copilot && !/^\s*(?:singularity-flow|sflow)\s/u.test(route.shell)) return { ...act, state: 'ask-person', do: route,
     said: oneLine(`${act.said ? `${act.said} ` : ''}Show the person do.shell; it is theirs to run, not this turn's.`) };
   const ask = confirmation(route);
-  return { ...act, ...(ask ? { state: 'confirm', ask } : {}), do: route };
+  return { ...act, ...(ask ? { state: 'confirm', ask } : {}), do: route, ...(route.vscodeChat ? { said: oneLine(`${act.said ? `${act.said} ` : ''}${VSCODE_CARD_WORDS}`) } : {}) };
 }
 
 /**
@@ -698,8 +705,9 @@ export function agentAct(result) {
     const chatAsks = (item) => item.chatYesNo === true || (item.kind === 'approval' && item.decidedBy?.allowed && item.details?.ready !== false)
       || item.options?.some((entry) => entry.action?.humanReview);
     if (list.items?.length && list.next?.kind === 'decide-card' && ![...list.items, ...(list.offered ?? [])].some(chatAsks)) return { state: 'confirm-in-terminal',
-      do: { reason: list.next.title, copilot: list.next.copilotCommand, shell: list.next.command, vscode: list.next.modelFreeCommand }, read: [`${at}items`],
-      said: oneLine(`${list.plain?.headline ?? list.headline} What is left is answered on the Decide card, not in this chat: show each item's plain words, then end with "Next: ${list.next.title}" and do's routes. Never give /sf-decide again, and never run do.shell.`) };
+      do: { reason: list.next.title, copilot: list.next.copilotCommand, shell: list.next.command, vscode: list.next.modelFreeCommand,
+        ...(list.next.vscodeChat ? { vscodeChat: list.next.vscodeChat } : {}) }, read: [`${at}items`],
+      said: oneLine(`${list.plain?.headline ?? list.headline} What is left is answered on the Decide card, not in this chat: show each item's plain words, then end with "Next: ${list.next.title}" and do's routes. ${list.next.vscodeChat ? `${VSCODE_CARD_WORDS} ` : ''}Never give /sf-decide again, and never run do.shell.`) };
     // Nothing left to decide, or nothing here waits on this person: the Story's next step, never an ending with nothing
     // to do (owner, 2026-11-10 and 2026-11-18). `decisions` names it only when nothing on the list is theirs now.
     if (list.next?.kind === 'story-next' && list.next.command) return withRoute({ state: 'next', do: null,

@@ -1,6 +1,9 @@
 export function parseModelFreeTarget(text?: string): { phase: string | null; workId: string | null };
 export function modelFreeCommandForArgv(argv: unknown): string | null;
 export function modelFreeCommandForCommand(command: unknown): string | null;
+export const VSCODE_DECIDE_CARD: string;
+export const VSCODE_SELECT_STORY: string;
+export function vscodeDecideCardChat(workId: string): string;
 export interface PresentedCommandRoutes {
   copilotCommand?: string | null;
   command?: string | null;

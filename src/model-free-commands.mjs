@@ -18,6 +18,13 @@ export function parseModelFreeTarget(text = '') {
 
 /** A decision's VS Code route is the Decide card, never "not available" [owner, 2026-11-13]. */
 export const VSCODE_DECIDE_CARD = 'Command Palette: Singularity Flow: Decide Everything This Step Waits On';
+/**
+ * The Decide card in VS Code's own chat, which has no /decide (Copilot CLI's): its tool, given the Story ID. A person types
+ * it as a chat message; an agent calls the tool with workId only [hardening C, F3].
+ */
+export const vscodeDecideCardChat = (workId) => `#sflowDecide ${workId}`;
+/** Where a person selects a Story in this VS Code window: the Stories page, whose Attach shows it here [hardening C, F4]. */
+export const VSCODE_SELECT_STORY = 'Command Palette: Singularity Flow: Stories';
 const decideCard = (t) => t[0] === 'decisions' && /^(?: --work-id)? [A-Za-z0-9][\w.-]*$|^$/u.test(t.slice(t[1] === 'record' ? 2 : 1)
   .filter((v) => !['--fetch', '--for-agent'].includes(v)).map((v) => ` ${v}`).join(''));
 

@@ -122,14 +122,13 @@ test('the settlement is a kind of its own, said plainly, and its undo says it is
   const entry = { id: 'STL-001', kind: 'review-corrections', phase: 'implement', effect: { generation: 1, toGeneration: 2 } };
   const route = reraisedRoute(story(), entry);
   assert.match(route.words, /^From now on SFlow asks you before it starts another version of implement for a review's findings\. An undo does not withdraw the version it started: that stays open/u);
-  // The person's real say on the findings: their words to the author, or a return at approval. No route withdraws an open version.
-  assert.match(route.words, /tell the author while it writes that version, or return the step when you approve it\.$/u);
+  // The person's real say on a finding: its dispute (owner, 2026-11-20), or a return at approval. No route withdraws an open version.
+  assert.match(route.words, /To disagree with a finding, dispute it on the decisions card or in \/sf-decide, with your reason; or return the step when you approve it\.$/u);
   assert.equal(route.copilotCommand, '/sf-phase-documents implement');
-  assert.equal(plainSettled(story(), entry), 'SFlow started version 2 of Implement to fix the review\'s findings because only the reviewer had seen version 1. Undo only makes SFlow ask you first next time; version 2 stays open.');
+  assert.equal(plainSettled(story(), entry), 'SFlow started version 2 of Implement to fix the review\'s findings because only the reviewer had seen version 1. Undo only makes SFlow ask you first next time; version 2 stays open. To disagree with a finding, dispute it.');
   assert.doesNotMatch(plainSettled(story(), entry), /Undo if wrong/u);
-  // Why the undo names no dispute: a reviewer's blocking finding has none, before a start or after it. A person decides only a
-  // review's pending dispositions (an exclusion, a not-applicable test); an approver who still disagrees returns the step.
-  // Owner item (2026-11-19): whether a person may dispute a reviewer's blocking finding at all.
+  // A reviewer's blocking finding is disputed with its own command (`review-source dispute`, owner 2026-11-20), never as a
+  // review's pending disposition (an exclusion, a not-applicable test): `decide` still refuses it (review-finding-dispute.test.mjs).
   const status = { status: 'correction-required', generation: 1, reportSha256: 'b'.repeat(64), pendingDispositions: [],
     findings: [{ code: 'reviewer-blocker', reviewFindingId: 'explain-the-value', message: 'Say why the value is 2.' }] };
   assert.throws(() => sourceReviewDecisionPacket({ workflow: story(), phaseId: 'implement', status, findingId: 'explain-the-value', reason: 'The comment is enough.',

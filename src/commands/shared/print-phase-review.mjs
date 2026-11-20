@@ -53,6 +53,11 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log('Your approval also covers these steps, which SFlow approved when they were ready:');
     for (const step of review.approvalCovers) console.log(`  ${step.label} v${step.generation} (${step.words}): ${step.documents.join(', ') || 'no documents'}`);
   }
+  // A finding of its review a person disputed, with their reason: decided with it in view; returning the step stays the approver's.
+  if (review.reviewDisputes?.length) {
+    console.log('Disputed review findings (return the step if you agree with the reviewer):');
+    for (const entry of review.reviewDisputes) console.log(`  ${entry.words}`);
+  }
   // What the scanners recorded and the required checks' results: evidence for the reviewer [CQF:REQ-055].
   if (review.qualityFindings?.words) console.log(`Findings: ${review.qualityFindings.words}`);
   if (review.requiredChecks?.words) console.log(review.requiredChecks.words);

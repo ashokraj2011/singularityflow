@@ -374,6 +374,8 @@ Usage:
       inspect the exact human disposition packet and its confirmation hash; no state change
   singularity-flow review-source decide <phase> --work-id WORK-ID --finding ID --reason TEXT --confirm SHA256 [--json]
       record an authorized human decision on an exclusion or not-applicable test exception
+  singularity-flow review-source dispute <phase> --work-id WORK-ID --finding ID --reason TEXT [--json]
+      dispute the reviewer's blocking finding, in your own words; the step's approvers see it and may still return the step
   singularity-flow review-source status <specification|planning> [--json]
       re-evaluate the latest report, source hashes, artifact hashes, and human decisions
   singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative

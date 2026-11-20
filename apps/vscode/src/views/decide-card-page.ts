@@ -196,6 +196,9 @@ export function evidencePaths(packet: DecisionPacket): string[] {
 type ApprovalCover = { label?: unknown; generation?: unknown; documents?: unknown; words?: unknown };
 const stringsOf = (value: unknown): string[] => (Array.isArray(value) ? value : []).filter((file): file is string => typeof file === 'string' && file.length > 0);
 const coversOf = (item: DecisionItemPacket): ApprovalCover[] => (Array.isArray(item.details?.covers) ? item.details.covers as ApprovalCover[] : []);
+/** Each finding of the step's review a person disputed, in its words, beside its approval [owner, 2026-11-20]. */
+const disputesOf = (item: DecisionItemPacket): string[] => (Array.isArray(item.details?.disputes)
+  ? (item.details.disputes as Array<{ words?: unknown }>).map((entry) => entry?.words).filter((words): words is string => typeof words === 'string') : []);
 
 /** The documents the approval row asks about: its step's, and those of the steps SFlow approved since (approve twice). */
 export function approvalDocuments(packet: DecisionPacket): string[] {
@@ -281,6 +284,7 @@ function approvalHtml(packet: DecisionPacket): string {
     ${plain.why ? `<p class="muted dc-why">${escape(plain.why)}</p>` : ''}${plain.recommended ? `<p class="dc-rec">${escape(plain.recommended)}</p>` : ''}
     ${stringsOf(item.details?.documents).length ? `<p class="dc-docs">Documents: ${stringsOf(item.details?.documents).map(fileLink).join(' ')}</p>` : ''}
     ${coversOf(item).map((cover) => `<p class="dc-docs">Also covered: ${escape(String(cover.label ?? ''))} v${Number(cover.generation) || 0} (${escape(String(cover.words ?? 'approved automatically'))}) ${stringsOf(cover.documents).map(fileLink).join(' ')}</p>`).join('')}
+    ${disputesOf(item).map((entry) => `<p class="dc-docs">Disputed: ${escape(entry)}</p>`).join('')}
     ${item.decidedBy?.allowed ? `<div class="dc-own"><button type="button" data-approval="${escape(item.id)}">Review and approve</button>
       <span class="muted">Opens the approval page: these documents, the same question, and its one choice. Nothing is approved until you choose it there.</span></div>`
     : `<p class="muted">${escape(item.decidedBy?.words ?? '')}${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</p>`}</section>`).join('');

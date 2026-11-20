@@ -115,6 +115,11 @@ export interface ApprovalReviewRequest {
    * also covers (the decision list's approval item `details.covers`): each version, its documents and what was checked.
    */
   covers?: Array<{ label: string; generation: number; documents: string[]; words: string }> | null;
+  /**
+   * Each finding of this step's review a person disputed, with who and why (the decision list's approval item
+   * `details.disputes`): the approver decides with it in view, and may still send the step back [owner, 2026-11-20].
+   */
+  disputes?: Array<{ finding: string; words: string }> | null;
 }
 
 /** "Approve Requirements v1", the one choice that approves; the question is the same words with a question mark. */
@@ -130,6 +135,25 @@ export function coversOf(listed: unknown): ApprovalReviewRequest['covers'] {
   return covers.filter((entry) => entry && typeof entry.label === 'string').map((entry) => ({ label: entry.label, generation: Number(entry.generation) || 0,
     documents: Array.isArray(entry.documents) ? entry.documents.filter((file: unknown): file is string => typeof file === 'string') : [],
     words: typeof entry.words === 'string' ? entry.words : 'approved automatically' }));
+}
+
+/** The disputed findings the decision list's approval item names (`details.disputes`), or null when there are none. */
+export function disputesOf(listed: unknown): ApprovalReviewRequest['disputes'] {
+  const items = (listed as { items?: Array<{ kind?: string; details?: { disputes?: unknown } }> } | null)?.items;
+  const disputes = Array.isArray(items) ? items.find((item) => item?.kind === 'approval')?.details?.disputes : null;
+  if (!Array.isArray(disputes) || !disputes.length) return null;
+  return disputes.filter((entry) => entry && typeof entry.finding === 'string' && typeof entry.words === 'string')
+    .map((entry) => ({ finding: entry.finding as string, words: entry.words as string }));
+}
+
+/** The reviewer's findings a person disputed, each with who and why, before the person approves. */
+export function approvalDisputesHtml(disputes: ApprovalReviewRequest['disputes']): string {
+  if (!disputes?.length) return '';
+  return `<section class="approval-disputes" aria-label="Disputed review findings">
+    <h2>Disputed review findings</h2>
+    <p class="muted">The reviewer asked for these to be fixed, and a person disputed them. Send the step back if you agree with the reviewer.</p>
+    <ul>${disputes.map((entry) => `<li>${escape(entry.words)}</li>`).join('')}</ul>
+  </section>`;
 }
 
 /** What this approval also covers: the steps SFlow approved since the last person approval, by version and documents. */
@@ -507,7 +531,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
       <p class="meta">${escape(request.title)}. Review this version and answer any decision below, then choose ${escape(approvalChoice(request))}. Nothing is approved until you do.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${approvalCoversHtml(request.covers)}
+    ${approvalCoversHtml(request.covers)}${approvalDisputesHtml(request.disputes)}
     ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${carried}${tests}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">

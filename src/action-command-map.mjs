@@ -49,7 +49,9 @@ export const ACTION_COMMANDS = Object.freeze({
   // A task's wait for its environment names the environment's own fix (`<input>`: its name); a spent repair, the appeal.
   decide: entry(ACTION_SKILLS.decide, { story: 'decision show <W>', card: 'decisions <W>', 'env-files': 'env files <input>', 'env-list': 'env files',
     'env-bind': 'env bind <input> --stdin', capability: 'capability show --json', 'test-command': 'story test-policy amend --reason <why>',
-    appeal: 'appeal preflight --phase <step> --work-id <W> --json' }),
+    appeal: 'appeal preflight --phase <step> --work-id <W> --json',
+    // A reviewer's blocking finding a person disputes (`<input>`: the finding's ID), with their own reason [owner, 2026-11-20].
+    dispute: 'review-source dispute <step> --work-id <W> --finding <input> --reason "<REASON>"' }),
   'recover-operation': entry('work', { reconcile: 'phase opening <step> --reconcile --json', recover: 'recover <W> --phase <step> --json' }),
   'takeover-writer': entry(ACTION_SKILLS.takeover, { takeover: 'session takeover <W> --json' }),
   'refresh-authority': entry('by-command', { branch: 'refresh-branch', session: 'session current --for-agent --json' }),
@@ -113,6 +115,8 @@ const fixed = (skill, operation, form, workflow, phase, to) => ({ skill, command
 export const approveRoute = (workflow, phase) => fixed(ACTION_SKILLS.approve, 'approve-step', 'approve', workflow, phase);
 export const returnRoute = (workflow, phase, to = phase.id) => fixed(ACTION_SKILLS.reject, 'approve-step', 'reject', workflow, phase, to);
 export const inTurnSubmitCommand = (workId) => actionCommandLine('submit-version', 'in-turn', { workId });
+/** "Dispute this finding": the person's own reason goes where `<REASON>` stands (review-finding-dispute.mjs). */
+export const reviewDisputeCommand = (workId, step, finding) => actionCommandLine('decide', 'dispute', { step, workId, input: finding });
 export const handoffSubmitRoute = (workflow, phase) => {
   const route = fixed(ACTION_SKILLS.readiness, 'submit-version', 'step', workflow, phase);
   return { ...route, command: route.command + decisionSubmitArguments(workflow, phase.id) };

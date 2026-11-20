@@ -8,7 +8,8 @@
  * agree with a reviewer they had not read. SFlow starts version N itself, through the one opening operation, records it as
  * settled for the person with its evidence, in the opening's own commit, and the decisions card lists it with an undo. The
  * author fixes the findings in the same turn. An undo never withdraws the version it opened (no route withdraws an open
- * version); it only makes every later start of that step for a review's findings the person's question again.
+ * version); it only makes every later start of that step for a review's findings the person's question again. A person who
+ * disagrees with a finding disputes it (review-finding-dispute.mjs): the author is then told not to make that fix.
  * Anything a person touched keeps the question theirs: the refusal names the preview that asks it. So do 2 starts in a row
  * already, and a finding back after SFlow's fix (source-review-continuation.mjs reviewFindingsHold).
  */
@@ -83,7 +84,7 @@ export async function reviewFindingsRollover(root, config, workflow, phase, opti
   const result = { schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'review-corrections', workId, phase: phase.id,
     fromGeneration: from, toGeneration: next, mutates: true, requestedChange: { requests: [request] }, line,
     settled: settled ? { id: settled.id, kind: settled.kind, answer: settled.answer, evidence: settled.evidence,
-      undo: { copilotCommand: `/sf-decide ${workId}`, words: `An undo does not withdraw version ${next}: it stays open. It makes SFlow ask you before it starts another version of this step for a review's findings.` } } : null,
+      undo: { copilotCommand: `/sf-decide ${workId}`, words: `An undo does not withdraw version ${next}: it stays open. It makes SFlow ask you before it starts another version of this step for a review's findings. To disagree with a finding, dispute it on the decisions card: its author is then told not to make that fix.` } } : null,
     preserved: code ? `Version ${from}, its evidence and its test results stay as published.` : `Version ${from} and its review stay as published.`,
     opened: { generation: next, status: 'open' }, opening: opened.outcome, replayed: opened.replayed,
     // What follows is the kernel's next for the open version: writing it, in this same turn.

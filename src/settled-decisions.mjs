@@ -127,11 +127,11 @@ export function reraisedRoute(workflow, entry) {
   if (entry.kind === 'story-selection') return { words: 'The next /sf-session in this checkout lists the Stories and asks which one to open.',
     command: 'singularity-flow session open', copilotCommand: '/sf-session' };
   // The review's findings on a version only its reviewer had seen (review-findings-opening.mjs): an undo is forward only, since
-  // no route withdraws an open version; the person's say on the findings is their words to the author, or a return at approval.
+  // no route withdraws an open version; the person's say on a finding is their dispute of it, or a return at approval [2026-11-20].
   if (['own-correction', 'review-corrections'].includes(entry.kind)) return { words: entry.kind === 'own-correction'
     ? `The author asks you before it corrects ${step} again. The generation it opened stays open, and the one before it stays as published.`
     : `From now on SFlow asks you before it starts another version of ${step} for a review's findings. An undo does not withdraw the version it started: that stays open, and the one before it stays as published. `
-      + 'To disagree with a finding, tell the author while it writes that version, or return the step when you approve it.',
+      + 'To disagree with a finding, dispute it on the decisions card or in /sf-decide, with your reason; or return the step when you approve it.',
   command: `singularity-flow phase show ${step} --work-id ${workId}`, copilotCommand: `/sf-phase-documents ${step}` };
   if (entry.kind === 'node-version') return { words: `Which Node ${step}'s tests run on is on the decision list again.`, ...list };
   if (entry.kind === 'test-command') return { words: `${entry.effect?.request ?? 'The requested test command'} waits for a person who approves ${step} on the decision list again.`, ...list };

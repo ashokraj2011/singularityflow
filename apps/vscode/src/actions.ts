@@ -451,6 +451,7 @@ export async function approveWithReceipt(
   let testRun: { label: string; totals: string } | null = null;
   let sfGuard: import('./views/approval-review.ts').ApprovalReviewRequest['sfGuard'] = null;
   let covers: import('./views/approval-review.ts').ApprovalReviewRequest['covers'] = null;
+  let disputes: import('./views/approval-review.ts').ApprovalReviewRequest['disputes'] = null;
   if (request.kind === 'story') {
     try {
       // Begin may fetch. Read the exact checklist and bytes only after that refresh; the receipt
@@ -484,6 +485,8 @@ export async function approveWithReceipt(
       inApproval = inApprovalOf(listed);
       // Approve twice: the steps SFlow approved since the last person approval, which this approval also covers.
       covers = (await import('./views/approval-review.ts')).coversOf(listed);
+      // Each finding of its review a person disputed, and why: decided with it in view [owner, 2026-11-20].
+      disputes = (await import('./views/approval-review.ts')).disputesOf(listed);
       // Evidence counted on a "still holds" across an amendment's wording, named before approving [SCS:REQ-022].
       carried = listed?.approvalEvidence?.carried && Array.isArray(listed.approvalEvidence.carried.entries) ? listed.approvalEvidence.carried : null;
       const read = await readiness;
@@ -545,6 +548,7 @@ export async function approveWithReceipt(
       testRun,
       sfGuard,
       covers,
+      disputes,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,

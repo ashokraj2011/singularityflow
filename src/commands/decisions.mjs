@@ -655,6 +655,12 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     const { acknowledgement } = await acknowledgeApprovedIntentAmendment(root, config, workflow, effect.amendment, { channel });
     return { id: acknowledgement.id, acknowledged: true, words: `${acknowledgement.id} is acknowledged; the steps it reopened can be submitted again` };
   }
+  if (effect.kind === 'review-dispute') {
+    // Dispute this finding: the same function as `review-source dispute`, for the exact review the list showed [owner, 2026-11-20].
+    const { commitReviewDispute } = await import('../review-finding-dispute.mjs');
+    return commitReviewDispute(root, config, workflow, { phaseId: effect.phase, findingId: effect.finding, reason: step.values.reason,
+      reportSha256: effect.reportSha256 ?? null }, { actor });
+  }
   if (effect.kind === 'asked-for-note') {
     // "That was not a request": the person's words kept as a note, so nothing waits for them [owner, 2026-11-18].
     const { accountAsNote } = await import('../asked-for-records.mjs');
@@ -748,6 +754,7 @@ function recordId(kind, record) {
   if (kind === 'intent-amendment-refresh') return `${record?.id} refreshed as ${record?.refreshedAs}`;
   if (kind === 'intent-amendment-acknowledge') return `${record?.id} acknowledged`;
   if (kind === 'asked-for-note') return `${record?.id}: instruction ${record?.instruction} kept as a note`;
+  if (kind === 'review-dispute') return `the reviewer's finding ${record?.finding} disputed`;
   if (kind === 'amendment-revalidation') return `${record?.phase} ${record?.outcome} after ${record?.amendment}${record?.link ? ` (${record.link})` : ''}`;
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
   if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;
@@ -1040,7 +1047,7 @@ async function record(root, options, workId, io) {
     // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
     const draftedItems = new Set([...drafted, ...unchanged].map((entry) => entry.item));
     // What an intent amendment's decision did, beside what was chosen: a partial approval waits for the rest.
-    const said = new Map(outcome.recorded.filter((entry) => /^(?:intent-amendment-(?:decision|refresh|acknowledge)|settled-undo)$/u.test(entry.kind) && entry.record?.words)
+    const said = new Map(outcome.recorded.filter((entry) => /^(?:intent-amendment-(?:decision|refresh|acknowledge)|settled-undo|review-dispute)$/u.test(entry.kind) && entry.record?.words)
       .map((entry) => [entry.item, entry.record.words]));
     const decided = plan.steps.filter((step) => !draftedItems.has(step.item))
       .map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}${said.has(step.item) ? `. ${said.get(step.item)}` : ''}` }));

@@ -276,12 +276,19 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   const askedFor = base.generatesCode ? await (await askedForRecords()).askedForSummary(root, workflow, phase)
     : isConformancePhase(phase) && workflow.askedFor?.length ? (await askedForRecords()).askedForConformanceInput(workflow, phase) : null;
   // The next generation of a code step a review asked to correct is authored with that review's findings [owner, 2026-11-16],
-  // read from the retained record itself, so a status the open generation cannot read yet does not hide them.
-  const reviewCorrection = base.generatesCode && phase.status === 'in_progress' && phase.generationIntent?.status === 'open'
-    && Number(phase.generation) > 0 && Number(phase.generationIntent.generation) === Number(phase.generation) + 1
-    && (await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id)
+  // read from the retained record itself, so a status the open generation cannot read yet does not hide them. A finding a
+  // person disputed is not to fix, and says so, on any step's version opened for its review (owner, 2026-11-20).
+  const reviewed = phase.status === 'in_progress' && Number(phase.generation) > 0
+    && (await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id);
+  const correcting = reviewed && base.generatesCode && phase.generationIntent?.status === 'open'
+    && Number(phase.generationIntent.generation) === Number(phase.generation) + 1;
+  // Opened for that review's findings and not yet published: a document's version too, before its draft is prepared.
+  const disputedFindings = reviewed && phase.versionOpening?.reason === 'review-corrections' && Number(phase.versionOpening.version) > Number(phase.generation)
+    ? ((await (await import('./source-review-lifecycle.mjs')).reviewFindingDisputes(root, definition, workflow, phase.id).catch(() => null))?.findings ?? [])
+      .filter((entry) => entry.disputed).map((entry) => ({ id: entry.id, ...entry.disputed })) : [];
+  const reviewCorrection = correcting || disputedFindings.length
     ? (await import('./source-review-continuation.mjs')).reviewCorrection({ report: await (await import('./source-review-lifecycle.mjs'))
-      .retainedReviewReport(root, definition, workflow, phase.id) }, phase.generation) : null;
+      .retainedReviewReport(root, definition, workflow, phase.id) }, phase.generation, disputedFindings) : null;
   return { ...base, ...(reviewCorrection ? { reviewCorrection } : {}), ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}), ...(fixOnTheWay ? { fixOnTheWay } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),

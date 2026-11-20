@@ -870,7 +870,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // one assumptions question (clarifications.mjs) and the kept chat's next step named, never run (approval-agent-result.mjs).
     // The settled opening and its records stay lazy (review-findings-opening.mjs, story-version-opening.mjs). No new eager file.
     // 9,792,077 (measured for submit.mjs on landing-6, 2026-11-20): code-env and the four ceremony branches above together.
-    assert.ok(closure.bytes <= 9_792_077, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,796,161 (measured for submit.mjs, +4,084, 2026-11-20, finding-dispute): "Dispute this finding" [owner, 2026-11-20]: the
+    // decision list's finding rows and the dispute beside the undo of a start SFlow made (decision-list.mjs), a disputed finding
+    // kept beside the blocking ones (source-grounded-review.mjs), the author told not to make that fix (source-review-continuation.mjs),
+    // the approval's disputes in plain words, the command's route form (action-command-map.mjs) and its words, one new 971-byte
+    // leaf (review-dispute-words.mjs). The dispute's reader and writer load only when used (review-finding-dispute.mjs).
+    assert.ok(closure.bytes <= 9_796_161, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1011,7 +1016,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 873,320 (measured 873,314, +25): `guard card` (a read: SF Guard's card for the Decide card and approval page) and
   // `guard setup` (the person's own step) registered (command-registry.mjs) [owner, 2026-11-19]. No new eager file.
   // 873,555 (measured on landing-6, 2026-11-20): `decisions learn`, `--recommended`, `--review-findings` and `guard card|setup` together.
-  assert.ok(root.bytes <= 873_555, `root dispatch loads ${root.bytes} source bytes`);
+  // 873,588 (measured 873,588, +33, 2026-11-20, finding-dispute): `review-source dispute` registered as a mutation
+  // (command-registry.mjs) [owner, 2026-11-20]. No new eager file.
+  assert.ok(root.bytes <= 873_588, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1348,7 +1355,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,295,220 (measured 4,295,215, +25): `guard card` and `guard setup` registered (command-registry.mjs) [owner, 2026-11-19].
   // No new eager file.
   // 4,305,601 (measured on landing-6, 2026-11-20): code-env and the four ceremony branches above together.
-  assert.ok(current.bytes <= 4_305_601, `session current loads ${current.bytes} source bytes`);
+  // 4,306,039 (measured 4,306,039, +438, 2026-11-20, finding-dispute): `review-source dispute`, a /sf-decide turn's bound yes:
+  // its catalog row (person-step-catalog.mjs), its skill route (command-skills.mjs) and its route form (action-command-map.mjs)
+  // [owner, 2026-11-20]. No new eager file.
+  assert.ok(current.bytes <= 4_306_039, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

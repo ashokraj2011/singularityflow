@@ -41,6 +41,29 @@ async function withIncompleteReview(status, stagingPath) {
       actions: (status.continuation.actions ?? []).map((entry, index) => (index ? entry : { ...entry, reason: finish })) } } : {}) };
 }
 
+/**
+ * `review-source dispute <step> --work-id W --finding F-2 --reason TEXT`: the person's dispute of the reviewer's blocking
+ * finding, recorded as the review's own decision under the step's approval rules (review-finding-dispute.mjs). The read-only
+ * reviewer never disputes its own review.
+ */
+async function disputeFinding(root, config, workflow, phase, options) {
+  const session = await loadSession(root, { required: false });
+  if (session?.agent && session.agent === workflow.resolution?.sourceReview?.reviewerAgent) {
+    throw new SingularityFlowError(`The read-only source reviewer '${session.agent}' cannot dispute its own review. A person who may decide for ${phase.label ?? phase.id} disputes it, on the decision list or in their own terminal.`,
+      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_DECIDE', details: { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'Dispute it on the decision list' } } });
+  }
+  const findingId = optionString(options, 'finding');
+  if (!findingId) throw new SingularityFlowError('Name the reviewer\'s finding to dispute with --finding (its ID, such as F-2), and say why with --reason.',
+    { code: 'REVIEW_DISPUTE_FINDING_UNKNOWN', details: { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, label: 'Dispute it on the decision list' } } });
+  const { commitReviewDispute } = await import('../review-finding-dispute.mjs');
+  const result = await commitReviewDispute(root, config, workflow, { phaseId: phase.id, findingId, reason: optionString(options, 'reason') }, { actor: identity(root) });
+  if (optionBoolean(options, 'json')) return void console.log(JSON.stringify(result, null, 2));
+  console.log(result.words);
+  console.log(`Committed${result.pushed ? ' and pushed' : ' locally'}.`);
+  if (result.continuation?.presentation) console.log(`\n${result.continuation.presentation.replaceAll('`', '')}`);
+  return result;
+}
+
 /** The folder a report is kept in: its file name is its digest, which a person never reads. */
 const reportFolder = (relative) => String(relative ?? '').replace(/[^/\\]*$/u, '') || 'the Story';
 
@@ -58,8 +81,8 @@ export async function reviewSourceCommand(positionals, options) {
     return console.log(JSON.stringify(await sourceReviewAgentContext({ phaseId: positionals[2] ?? null }), null, 2));
   }
   const action = requirePositional(positionals, 1, 'source review action');
-  if (!['context', 'decision-context', 'stage', 'check', 'submit', 'decide', 'status'].includes(action)) {
-    throw new SingularityFlowError("Source review action must be context, decision-context, stage, check, submit, decide, or status.");
+  if (!['context', 'decision-context', 'stage', 'check', 'submit', 'decide', 'dispute', 'status'].includes(action)) {
+    throw new SingularityFlowError("Source review action must be context, decision-context, stage, check, submit, decide, dispute, or status.");
   }
   const phaseId = requirePositional(positionals, 2, 'step to review');
   const root = repoRoot();
@@ -121,6 +144,13 @@ export async function reviewSourceCommand(positionals, options) {
     return emitReview('status', noop('source-review.status-reported', {
       workId: workflow.workItem.id, phase: phaseId, status: status.status
     }), false, status);
+  }
+  // Dispute this finding: a person who may decide for the step, with their own reason, never the reviewer (owner, 2026-11-20).
+  if (action === 'dispute') {
+    const disputed = await disputeFinding(root, config, workflow, phase, options);
+    return disputed ? emitReview('dispute', succeeded('source-review.disputed', {
+      workId: workflow.workItem.id, phase: phaseId, findingId: disputed.finding
+    }), true, disputed) : undefined;
   }
   if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') throw sourceReviewStepNotCurrent(workflow, phase, action);
   if (action !== 'check' && action !== 'decision-context') {

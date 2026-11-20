@@ -133,6 +133,8 @@ function question(workflow, item) {
       return `${title}?`;
     case 'generation-rollover':
       return `${title}?`;
+    case 'review-finding':
+      return `Dispute the reviewer's finding ${details.finding} on ${step} version ${details.generation}?`;
     // One approval question everywhere, by step and version (owner, 2026-11-19): "Approve Requirements v1?".
     case 'approval':
       return `Approve ${step}${Number.isSafeInteger(details.generation) && details.generation > 0 ? ` v${details.generation}` : ''}?`;
@@ -165,8 +167,13 @@ function why(workflow, item) {
       return `Its latest run stopped on what looks like this machine, not the change${waits ? `; ${waits}` : ''}.`;
     case 'scope-completeness':
       return 'Nothing waits on it; it records that you looked for what is missing or unclear.';
-    case 'approval':
-      return details.ready ? `Nothing on this list holds it; its documents are ready to review${details.covers?.length ? `, with ${details.covers.map((entry) => `${entry.label} v${entry.generation}`).join(', ')}, which SFlow approved when ready` : ''}.` : 'It waits for the questions above.';
+    case 'review-finding':
+      return `The reviewer found: ${clip(bare(details.message ?? ''), 160)}. Its author fixes it unless you dispute it.`;
+    case 'approval': {
+      // Each disputed finding of its review, with who disputed it and why, beside the approval [owner, 2026-11-20].
+      const disputed = details.disputes?.length ? ` ${details.disputes.map((entry) => entry.words).join(' ')} Return the step if you agree with the reviewer.` : '';
+      return details.ready ? `Nothing on this list holds it; its documents are ready to review${details.covers?.length ? `, with ${details.covers.map((entry) => `${entry.label} v${entry.generation}`).join(', ')}, which SFlow approved when ready` : ''}.${disputed}` : `It waits for the questions above.${disputed}`;
+    }
     default:
       return plainSentence(item.why);
   }
@@ -278,8 +285,10 @@ export function plainSettled(workflow, entry) {
       }
     }
   })();
-  // Its undo is forward only: the version it started stays open (owner, 2026-11-19).
-  return entry.kind === 'review-corrections' ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open.`
+  // Its undo is forward only: the version it started stays open (owner, 2026-11-19). A finding it was started for may be
+  // disputed; once every one is, its author is told not to make those fixes, and the version still stays open (2026-11-20).
+  const disputed = entry.disputed?.length ? ` ${entry.disputed.join(' ')}${entry.allDisputed ? ` Its author is told not to make ${entry.disputed.length === 1 ? 'that fix' : 'those fixes'}; version ${effect.toGeneration ?? 'N'} stays open, as an open version can't be withdrawn.` : ''}` : '';
+  return entry.kind === 'review-corrections' ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open. To disagree with a finding, dispute it.${disputed}`
     : `${capital(said)}. Undo if wrong.`;
 }
 
@@ -332,7 +341,8 @@ export function plainPacket(items, workflow = null) {
 
 /** A settled item's record, as plainSettled reads it, from what the list carries of it. */
 const settlementOf = (item) => ({ kind: item.details?.settledKind, by: item.by, subject: item.subject, answer: item.answerWords ?? item.title,
-  evidence: item.details?.evidence ?? [], effect: item.details?.effect ?? {}, phase: item.details?.phase ?? null });
+  evidence: item.details?.evidence ?? [], effect: item.details?.effect ?? {}, phase: item.details?.phase ?? null,
+  ...(item.details?.disputed ? { disputed: item.details.disputed, allDisputed: item.details.allDisputed === true } : {}) });
 
 /**
  * The list with every item's plain words and its own (`plain`), as `decisions` reads it for every host. Applied where

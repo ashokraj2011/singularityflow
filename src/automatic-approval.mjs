@@ -3,7 +3,7 @@
  *
  * People approve the plan and the delivered code. A step whose workflow says `approval: { automatic: when-ready }` is
  * approved by SFlow right after it is submitted, in its own commit, when:
- * - its independent reviewer said ready for this version;
+ * - its independent reviewer said ready for this version, with no finding a person disputed (owner, 2026-11-20);
  * - every check it ran passed;
  * - nothing is open for it on the decision list (a risk, a change outside the plan, an issue, a decision, a finding,
  *   a held test run), and the approval check a person's approval runs finds nothing either;
@@ -73,6 +73,8 @@ export async function automaticApprovalCheck(root, config, workflow, phaseId) {
   else {
     review = await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phaseId).catch(() => null);
     if (review?.status !== 'ready') open.push(`its review is ${String(review?.status ?? 'unreadable').replaceAll('-', ' ')}`);
+    // The reviewer did not say ready on its own: a person disputed its finding, so a person approves with the dispute in view.
+    else if (review.disputedFindings?.length) open.push(`a person disputed the reviewer's finding ${review.disputedFindings.map((entry) => entry.id).join(', ')}`);
   }
   const reviewReady = review?.status === 'ready';
   // Nothing open: the one list of decisions, read offline. The approval check itself runs once, when it is recorded.

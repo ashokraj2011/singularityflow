@@ -128,6 +128,8 @@ export function optionDoes(workflow, item, entry) {
       return 'Rejects this proposal and proposes the same change again against the step as it is now; the scope\'s approvers decide that one.';
     case 'intent-amendment-acknowledge':
       return 'Records that you read it; the steps it reopened can then be submitted again.';
+    case 'review-dispute':
+      return `Records your dispute of ${effect.finding} with your reason: it no longer blocks ${stepName(workflow, effect.phase)}, its author is told not to make that fix, and its approvers see why.`;
     case 'amendment-revalidation':
       return effect.outcome === 'unchanged' ? `${stepName(workflow, effect.phase)}'s approval stands, bound to the amended document; nothing runs again.`
         : `Returns the Story to ${stepName(workflow, effect.phase)}: ${reopenWords(workflow, effect.phase)}.`;
@@ -337,6 +339,9 @@ export function itemRecommendation(workflow, item) {
       return lean(`say ${stepName(workflow, details.phase)} still holds if what it was built and checked against reads the same under the amended document.`);
     case 'appeal':
       return only ? rec(item, only.id, 'An approver of the plan reviews the exact diff; nothing else accounts for the scope.') : lean('review the exact diff; account for it only if the changes belong in scope.');
+    // A dispute goes against the reviewer, so it is never recommended [owner, 2026-11-20].
+    case 'review-finding':
+      return lean('dispute it only if the reviewer is wrong; otherwise its author fixes it, and nothing needs your answer.');
     case 'generation-rollover':
       // Starting the version is asked on its own (its preview's question): this row only leaves the change out.
       if (details.asked) return lean(`answer the question about version ${details.next} first; leave the change out only if it does not belong in this step.`);
@@ -445,7 +450,7 @@ export function advisedItem(workflow, item) {
  * as it is. Recommended or not, the person says why in their own words, on every surface. Reusing a recorded run on
  * unchanged code is no exception (owner 2026-11-06), unless it also accepts a risk.
  */
-const EXCEPTION_EFFECTS = new Set(['obligation-risk', 'test-run-risk', 'test-narrowing', 'finding-risk', 'visual-profile', 'applicability']);
+const EXCEPTION_EFFECTS = new Set(['obligation-risk', 'test-run-risk', 'test-narrowing', 'finding-risk', 'visual-profile', 'applicability', 'review-dispute']);
 export function exceptionOption(entry) {
   if (entry?.needs?.expires) return true;
   return (entry?.effects ?? []).some((effect) => EXCEPTION_EFFECTS.has(effect.kind) || effect.outcome === 'accept-risk'

@@ -868,6 +868,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded human source review decision ${slot(s.findingId)} for ${slot(s.workId)} / ${slot(s.phase)}.`,
     preserves: false
   },
+  'source-review.disputed': {
+    headline: (s) => `Recorded your dispute of the reviewer's finding ${slot(s.findingId)} for ${slot(s.workId)} / ${slot(s.phase)}.`,
+    preserves: false
+  },
   'context.reported': {
     headline: (s) => `Context X-Ray for ${slot(s.workId)} covers ${slot(s.phase)}.`,
     preserves: true

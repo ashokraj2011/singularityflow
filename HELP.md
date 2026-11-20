@@ -4168,6 +4168,8 @@ singularity-flow review-source context|status <specification|planning> [--json]
 singularity-flow review-source check <phase> --report-file GIT-PRIVATE-FILE --for-agent --json
 singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
 singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
+# Dispute this finding: a person who may decide for the step says why the reviewer is wrong; the finding no longer blocks.
+singularity-flow review-source dispute <phase> --work-id WORK-ID --finding ID --reason TEXT [--json]
 singularity-flow decisions [WORK-ID] [--phase PHASE] [--probe|--no-probe] [--probe-wait SECONDS] [--json]
 singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] --confirm sha256:DIGEST
 # Everything people must decide before the step can move, in plain words with choices; recorded with one confirmation.

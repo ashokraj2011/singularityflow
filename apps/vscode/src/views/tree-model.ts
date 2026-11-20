@@ -260,6 +260,8 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
 
   const workflowVersionUnsupported = /workflow\.yml version must be 2|Version 1 is not supported/i
     .test(error.message);
+  // A workflow.yml a newer SFlow wrote (WORKFLOW_VERSION_NEWER): updating SFlow is the way on, never a reset.
+  const workflowFromNewerSflow = /workflows need a newer SFlow/i.test(error.message);
 
   return [{
     kind: 'message',
@@ -277,6 +279,14 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
     icon: 'go-to-file',
     path: `singularity/${named}.yml`,
     contextValue: 'sflow.config'
+  }] : []), ...(workflowFromNewerSflow ? [{
+    kind: 'action' as const,
+    id: `${view}:error:update`,
+    label: 'Update SFlow…',
+    description: 'a newer SFlow wrote this workflow',
+    tooltip: 'Install the SFlow build this repository\'s workflows need, then reload. Nothing in the repository changes.',
+    icon: 'cloud-download',
+    runCommand: 'singularityFlow.updateSflow'
   }] : []), ...(workflowVersionUnsupported ? [{
     kind: 'action' as const,
     id: `${view}:error:reinitialize`,

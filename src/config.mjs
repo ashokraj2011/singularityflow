@@ -938,8 +938,30 @@ export function normalizeModelProviders(value = {}) {
   return { defaultProvider, providers: normalized };
 }
 
+/** The workflow.yml versions this build reads; a higher one was written by a newer SFlow (step intents spec §7.7, D4). */
+export const WORKFLOW_FILE_VERSIONS = Object.freeze([2, 3]);
+
+/**
+ * A workflow.yml from a newer SFlow is refused with the update, never with a factory reset: resetting would throw
+ * away a repository's newer configuration to fit this older build (step intents spec §7.7, Stage 0).
+ */
+function assertWorkflowFileVersionReadable(version) {
+  if (!Number.isSafeInteger(version) || version <= Math.max(...WORKFLOW_FILE_VERSIONS)) return;
+  throw new SingularityFlowError(
+    `This repository's workflows need a newer SFlow: workflow.yml is version ${version}, and this SFlow reads `
+      + `${WORKFLOW_FILE_VERSIONS.join(' and ')}. Update SFlow, then run the command again. Nothing was changed.`, {
+      code: 'WORKFLOW_VERSION_NEWER',
+      details: {
+        version, readable: [...WORKFLOW_FILE_VERSIONS], running: VERSION,
+        nextAction: { executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow, then run the command again.' }
+      }
+    }
+  );
+}
+
 export function validateDefinition(definition, { storyBootstrap = false } = {}) {
-  if (![2, 3].includes(definition?.version)) throw new SingularityFlowError('workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.', { details: { nextAction: { executable: 'singularity-flow', argv: ['factory-reset', '--dry-run'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
+  assertWorkflowFileVersionReadable(definition?.version);
+  if (!WORKFLOW_FILE_VERSIONS.includes(definition?.version)) throw new SingularityFlowError('workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.', { details: { nextAction: { executable: 'singularity-flow', argv: ['factory-reset', '--dry-run'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError(`Legacy role-prompt configuration is no longer supported. Define Agent Markdown under ${AGENTS_HOME}.`);
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');

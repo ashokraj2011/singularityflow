@@ -581,6 +581,12 @@ const UPGRADE_KNOWN = Object.freeze({
       'When every surface already runs the installed build, a newer release wrote this record: install that release with its own install wrapper. A repository whose approved singularity/product.yml requires it installs it automatically.',
       null, 'remediation')
   ],
+  // A workflow.yml a newer SFlow wrote (step intents spec §7.7): updating this laptop's SFlow is the way on.
+  WORKFLOW_VERSION_NEWER: () => [
+    step('update-sflow',
+      'A newer SFlow wrote this repository\'s workflow.yml. Update SFlow (in VS Code: Singularity Flow: Update SFlow…), then run the same command again.',
+      'singularity-flow update', 'remediation')
+  ],
   DOCS_MANIFEST_MISMATCH: () => productAlignmentSteps(
     'The installed help catalog does not match its package. Check which build each surface runs.'),
   SCHEMA_VERSION_ARCHIVED: () => [

@@ -11,12 +11,12 @@ import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import {
-  codeCoverageEnforcement, deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords,
-  normalizeSpecPolicy, plannedSupportingFiles, plannedProductSourcePaths
+  codeCoverageEnforcement, deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergeObservedClaimRecords, mergePlannedClaimRecords,
+  normalizeSpecPolicy, plannedImplementationPaths, plannedSupportingFiles, plannedProductSourcePaths
 } from './specifications.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { workDir } from './story-paths.mjs';
-import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, raiseUpstreamIssueRoute, settledUpstreamClauses, upstreamIssueStates } from './upstream-routes.mjs';
+import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, settledUpstreamClauses, upstreamIssueStates } from './upstream-routes.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
 /**
@@ -53,10 +53,11 @@ export function upstreamWaiting(workflow, upstreamDecision) {
 }
 
 /**
- * The plan's own corrections for clauses the code step did not deliver where the plan put them, and
- * the upstream issue to the plan's approvers [PHR:REQ-003]. A coder cannot move a planned location;
- * an approver of the plan records `decision plan --replace-location / --remove-location /
- * --replace-test` in their own terminal, or decides the issue. None of these is the coder's to take.
+ * The plan's own corrections for clauses the code step did not deliver where the plan put them [PHR:REQ-003]. A coder
+ * cannot move a planned location; an approver of the plan records `decision plan --replace-location / --remove-location /
+ * --replace-test` in their own terminal. None of these is the coder's to take. No issue is raised against the plan for
+ * it: an undelivered clause is the code step's to deliver in its next version, and a plan that is wrong is corrected by
+ * its approvers here, or a file placed on the Decide card (owner, 2026-11-20: the raise blamed intake in fix-issues).
  */
 export function planCorrectionRoutes(workflow, ownerId, currentPhaseId, clauseIds, planned = {}) {
   const [clause] = clauseIds ?? [];
@@ -66,7 +67,6 @@ export function planCorrectionRoutes(workflow, ownerId, currentPhaseId, clauseId
   const location = row.expectedPaths?.[0] ?? '<PATH>';
   const test = row.tests?.[0] ?? '<TEST>';
   const owner = ownerId ?? 'the plan';
-  const raised = ownerId ? raiseUpstreamIssueRoute(workflow, ownerId, currentPhaseId) : null;
   const decide = `an approver of ${owner} corrects the row in their own terminal`;
   const routes = [
     { command: `singularity-flow decision plan ${workId} --replace-location ${clause}=${location}:<NEW-PATH> --reason <why>`,
@@ -74,13 +74,54 @@ export function planCorrectionRoutes(workflow, ownerId, currentPhaseId, clauseId
     { command: `singularity-flow decision plan ${workId} --remove-location ${clause}=${location} --reason <why>`,
       label: `If ${clause} needs no change at ${location}, ${decide}.` },
     { command: `singularity-flow decision plan ${workId} --replace-test ${clause}=${test}:<NEW-TEST> --reason <why>`,
-      label: `If ${clause}'s planned test is the wrong file, ${decide}.` },
-    ...(raised ? [{ command: raised.command.replace('<clause-or-section>', clauseIds.join(',')), skill: '/sf-decide',
-      label: `Or record it for ${owner}'s approvers and keep working: they decide a plan correction, a return, an accepted risk or a dismissal.` }] : [])
+      label: `If ${clause}'s planned test is the wrong file, ${decide}.` }
   ];
-  const text = ` If ${owner}'s plan is what is wrong, ${decide} (singularity-flow decision plan ${workId} --replace-location, --remove-location or --replace-test)`
-    + `${raised ? `, or ${raised.command.replace('<clause-or-section>', clauseIds.join(','))} records it for them` : ''}.`;
+  const text = ` If ${owner}'s plan is what is wrong, ${decide} (singularity-flow decision plan ${workId} --replace-location, --remove-location or --replace-test).`;
   return { text, routes };
+}
+
+const MAX_GAP_WORDS = 600;
+const listed = (items) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
+
+/**
+ * What the code step still owes for each open clause, in words SFlow fills from the plan and what the version delivered:
+ * the planned files that did not change and the planned tests the version does not carry (owner, 2026-11-20). Never a
+ * placeholder; at most a few hundred characters, safe inside double quotes.
+ */
+export function clauseGapWords(open, planned = {}, observed = {}) {
+  const parts = open.map((clauseId) => {
+    const plan = planned[clauseId] ?? {};
+    const claim = observed[clauseId] ?? {};
+    const paths = (plan.fulfillment === 'test-only' ? [] : plan.fulfillment && !['new', 'modified'].includes(plan.fulfillment)
+      ? plan.expectedPaths ?? [] : plannedImplementationPaths(plan)).filter((candidate) => !(claim.observedPaths ?? []).includes(candidate));
+    const tests = (plan.tests ?? []).filter((candidate) => !(claim.testResults ?? []).includes(candidate));
+    // What each kind of row is missing: a change, a file that should already be there, or one that should be gone.
+    const one = paths.length === 1;
+    const missing = ['existing', 'evidence'].includes(plan.fulfillment) ? `${one ? 'is' : 'are'} not there`
+      : plan.fulfillment === 'removed' ? `${one ? 'is' : 'are'} still there` : `${one ? 'does' : 'do'} not change`;
+    const said = [
+      ...(paths.length ? [`${listed(paths)} ${missing}`] : []),
+      ...(tests.length ? [`planned test${tests.length === 1 ? '' : 's'} ${listed(tests)} ${tests.length === 1 ? 'is' : 'are'} not in the version`] : [])
+    ];
+    return `${clauseId}${said.length ? ` (${said.join('; ')})` : ''}`;
+  });
+  const text = `Deliver ${parts.join('; ')} where the plan puts ${open.length === 1 ? 'it' : 'them'}.`.replace(/["`$\\]/gu, '');
+  return text.length > MAX_GAP_WORDS ? `${text.slice(0, MAX_GAP_WORDS - 1)}…` : text;
+}
+
+/**
+ * The route for clauses the code step did not deliver: that step's own next version, filled with what is missing, which
+ * its work command previews and the person confirms (owner, 2026-11-20). Never an issue against an earlier step: the
+ * plan is not what is wrong. `route` is the step's version question (action-command-map.mjs versionQuestionRoute).
+ */
+export function nextVersionForGaps(phase, route, open, records, planned, workflow = null) {
+  if (!route?.command || !open.length) return null;
+  const observed = mergeObservedClaimRecords(records?.observed ?? [], planned, { workflow });
+  const words = clauseGapWords(open, planned, observed);
+  const next = Math.max(Number(phase.generation ?? 0), Number(phase.generationHighWatermark ?? 0)) + 1;
+  const what = `${listed(open.slice(0, 3))}${open.length > 3 ? ` and ${open.length - 3} more` : ''}`;
+  return { command: route.command.replace('"<what to change>"', `"${words}"`), skill: route.skill ?? null, words,
+    label: `Start version ${next} of ${phase.label ?? phase.id} for ${what}` };
 }
 
 /** A coverage result without the clauses a decided upstream issue settles, which no longer count against it. */
@@ -160,8 +201,8 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
   const waiting = upstreamWaiting(workflow, upstreamDecisionFor(workflow, open));
   const corrections = waiting.details.upstreamDecision?.complete ? { text: '', routes: [] } : planCorrectionRoutes(workflow, owner, phase.id, open, allocated);
   if (open.length || (final && coverage.invalidEvidence.length)) throw new SingularityFlowError(
-    `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}.${waiting.text} `
-    + `Inspect these exact source/test obligations while this generation is editable. Add a binding only where the approved behavior is actually implemented; an incorrect location needs a reviewed plan correction.${corrections.text} Preserve application code and approved maps. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.`,
+    `Phase '${phase.id}' has incomplete planned delivery: ${gapText || coverage.invalidEvidence.join('; ')}.${waiting.text} `
+    + `A planned file counts once it changes, a criterion's test once it carries its @ac tag; a wrong location needs a plan correction.${corrections.text}`,
     { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id,
       // The author's own recheck lists every obligation still open; no recovery read of healthy work [D4, OSA:REQ-011].
       coverage, claimGaps, planningOwner: owner,

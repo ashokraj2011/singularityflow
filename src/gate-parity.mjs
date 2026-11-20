@@ -41,7 +41,7 @@ const ENDING_UPSTREAM = [check('evidence/terminal.mjs', 'terminalRecoveryActions
 const ACCEPTANCE_CHECK = [check('acceptance-owner-check.mjs', 'acceptanceOwnerRefusal', 'the last code step\'s submission (pinned Stories under an enforced specification with acceptance on)')];
 const CODE_COVERAGE = [
   check('spec-coverage-preview.mjs', 'assertStrictCandidateSpecificationCoverage', 'code publication (refuses when enforced, returns a warning when recorded)'),
-  check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (refuses when enforced, and at the last code step\'s approval when recorded on a Story that pinned the owner-step checks; warns otherwise)')
+  check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (refuses when enforced, and at the last code step\'s approval, and from owner-step checks level 3 its submission, when recorded on a Story that pinned the owner-step checks; warns otherwise)')
 ];
 
 export const GATE_PARITY = Object.freeze({

@@ -32,6 +32,7 @@ function printSteps(explanation) {
     if (step.reads.length) console.log(`     Reads ${step.reads.map((input) => `${input.label}${input.optional ? ' (if there)' : ''}`).join(', ')}.`);
     if (step.checksText) console.log(`     ${step.checksText}`);
     console.log(`     ${step.signOff}`);
+    if (step.reviewFixes) console.log(`     ${step.reviewFixes.text}`);
     for (const line of step.then) console.log(`     ${line}`);
     // Who does what, where (src/workflow-step-people.mjs): one line per item.
     if (step.people) {
@@ -55,6 +56,7 @@ export function printWorkflowCheck(result, { steps = false } = {}) {
     console.log(`${workflow.label} (${workflow.id}): ${workflow.explanation.summary}`);
     if (workflow.explanation.description) console.log(`  ${workflow.explanation.description}`);
     if (workflow.changeImpact) console.log(`  ${workflow.changeImpact.text}.`);
+    if (workflow.explanation.reviewFixes) console.log(`  ${workflow.explanation.reviewFixes}`);
     if (steps) printSteps(workflow.explanation);
     if (workflow.findings.length) printFindings(workflow.findings, '  ');
     else console.log('  Nothing to fix.');

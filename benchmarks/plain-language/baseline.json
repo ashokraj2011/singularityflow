@@ -14,8 +14,8 @@
   "count-without-name": 27,
   "draft-for-version": 6,
   "generic-route": 6204,
-  "jargon": 1350,
-  "length": 649
+  "jargon": 1348,
+  "length": 648
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -4184,7 +4184,6 @@
    "fbc26a5499af": "jargon:retained jargon:staging"
   },
   "src/spec-coverage-preview.mjs": {
-   "1bb5293b8a06": "jargon:binding jargon:generation length",
    "9e728c90f8df": "length"
   },
   "src/spec-library/library.mjs": {

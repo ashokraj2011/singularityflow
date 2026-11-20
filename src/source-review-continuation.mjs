@@ -6,7 +6,7 @@ import { copilotAction } from './copilot-guidance.mjs';
 import { formatCommandRouteLines, modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
-import { sourceReviewRequired } from './source-review-policy.mjs';
+import { autoFixVersionsOf, sourceReviewRequired } from './source-review-policy.mjs';
 import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
 import { inTurnSubmitCommand, reviewFindingsOpenCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
@@ -29,19 +29,22 @@ export const reviewFindingKeys = (review) => [...new Set((review?.findings ?? []
 
 /**
  * Why a review's next version is the person's question although only the reviewer saw this one (owner, 2026-11-19): SFlow
- * started 2 in a row already (a person's yes breaks the run), or a finding came back after SFlow's fix. Null: neither.
+ * started as many in a row as the workflow lets it already (`sourceReview.autoFixVersions`, 2 unless set; a person's yes
+ * breaks the run; 0 asks every time), or a finding came back after SFlow's fix. Null: neither.
  */
 export function reviewFindingsHold(workflow, phase, review) {
+  const limit = autoFixVersionsOf(workflow, phase?.id);
+  if (limit === 0) return { reason: 'setting', words: 'This workflow asks you before every version that fixes a review\'s findings.' };
   const starts = (workflow?.settledDecisions ?? []).filter((entry) => entry?.kind === 'review-corrections' && entry.phase === phase?.id);
   const run = [];
-  for (let version = Number(phase?.generation ?? 0); version > 1 && run.length < 9;) {
+  for (let version = Number(phase?.generation ?? 0); version > 1 && run.length < limit;) {
     const start = starts.findLast((entry) => Number(entry.effect?.toGeneration) === version);
     const opening = phase.versionOpening;
     if (!start || !(Number(start.effect.generation) < version) || (Number(opening?.version) === version && opening.consent?.surface !== 'settled')) break;
     run.push(start);
     version = Number(start.effect.generation);
   }
-  if (run.length >= 2) return { reason: 'rounds', words: `The reviewer has asked for corrections ${run.length + 1} times in a row.` };
+  if (run.length >= limit) return { reason: 'rounds', words: `The reviewer has asked for corrections ${run.length + 1} times in a row.` };
   const before = new Set(run[0]?.effect?.findings ?? []);
   const back = reviewFindingKeys(review).filter((key) => before.has(key));
   return back.length ? { reason: 'repeated', findings: back, words: `The reviewer's finding ${back[0]} came back after SFlow's fix.` } : null;

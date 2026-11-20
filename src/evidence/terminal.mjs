@@ -76,9 +76,18 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
       const owner = (obligation.correctionSteps ?? obligation.owningSteps)?.at(-1);
       if (obligation.correctionSteps && owner) add(decisions, testOnlyCorrection(workId, owner, row.id, row.plan, obligation.deliveredTests ?? []));
       const step = owner ? decidableUpstreamStep(workflow, owner) : null;
+      // A clause its code step did not deliver is that step's to deliver in a next version, never a defect of an earlier
+      // step's output: a code step nobody approves (quick-fix implement) left only intake's approvers to raise it with, and
+      // the route blamed the requirements (fix-issues, owner 2026-11-20). Its return, filled, where the current step's
+      // approver can give it; the issue only against the code step itself, said in SFlow's words.
+      const ownGap = obligation.responsibility === 'implement' && !obligation.correctionSteps;
+      if (ownGap && step !== owner) {
+        add(upstream, codeStepReturn(workflow, owner, row.id, obligation.status));
+        continue;
+      }
       const route = step ? raiseUpstreamIssueRoute(workflow, step, workflow.currentPhase) : null;
       if (route) add(upstream, route.command.replace('<clause-or-section>', row.id).replace('<what-is-wrong>', obligation.correctionSteps
-        ? `"Tests are the whole delivery: plan ${row.id} as test-only"` : '<what-is-wrong>'));
+        ? `"Tests are the whole delivery: plan ${row.id} as test-only"` : ownGap ? `"${gapWords(owner, row.id, obligation.status)}"` : '<what-is-wrong>'));
     }
     // Evidence a scope revision made stale is its own step's to bring current: that step's approvers
     // say it still holds where the amendment owes them that, or it returns there [PHR:REQ-003]. It
@@ -130,6 +139,20 @@ function staleEvidenceReturn(workflow, owner, about, problem = `"Its evidence pr
   const step = decidableUpstreamStep(workflow, owner);
   const route = step ? raiseUpstreamIssueRoute(open, step, current?.id) : null;
   return route ? route.command.replace('<clause-or-section>', about).replace('<what-is-wrong>', problem) : null;
+}
+
+/** What a code step left undone of a clause, in SFlow's own words. */
+const gapWords = (owner, clauseId, status) => status === 'partial' ? `${owner} delivered ${clauseId} only in part: some of its planned files or tests are not in the version`
+  : `No delivered change of ${owner} implements ${clauseId}`;
+
+/**
+ * The current step returned to the code step that owes `clauseId`, with SFlow's words as the reason: open only while
+ * the current step awaits approval and may send work there. Null otherwise; the clause's dated risk stays open.
+ */
+function codeStepReturn(workflow, owner, clauseId, status) {
+  const current = workflow.phases?.[workflow.currentPhase];
+  if (workflow.status !== 'in_progress' || current?.status !== 'awaiting_approval' || !(current.approvalPolicy?.rejectTo ?? []).includes(owner)) return null;
+  return `singularity-flow reject ${workflow.currentPhase} --work-id ${workflow.workItem.id} --to ${owner} --reason "${gapWords(owner, clauseId, status)}"`;
 }
 
 async function askedForRecords() {

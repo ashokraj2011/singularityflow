@@ -10,11 +10,11 @@ related:
   - waivers
   - escalation
   - work-intervals
-version: 8
+version: 10
 ---
 `sflow start FIX-88 --work-type quick-fix` runs a three-step rail (scope and plan · implement · verify) with no generated design requirement and waiver eligibility below a deterministic risk threshold. Even a short fix states what it must do and where it lands before code changes: its intake lists the acceptance criteria and the planned paths and tests, and one engineer signs that scope and plan off. Implement must then meet exactly those claims. Ceremony still scales with stakes: a typo fix meets one short sign-off; the same quick fix touching a protected path loses its verify waiver and meets a human — and work that outgrows the rail escalates with everything preserved.
 
-In **Implement**, `/sf-code` (or you) writes the planned code and tests in an open generation; rerunning `sflow prepare` for Implement then builds its implementation summary from what changed. The summary is never edited by hand, and publication runs the configured tests.
+In **Implement**, `/sf-code` (or you) writes the planned code and tests in an open generation; rerunning `sflow prepare` for Implement then builds its implementation summary from what changed. The summary is never edited by hand, and publication runs the configured tests. Every file the plan lists for a criterion counts once it changes; one `@clause` comment per criterion explains the change. Implement completes at its submission, so its submission refuses a planned file that did not change or a planned test that is missing, and names Implement's next version, filled in, as the way on: the gap is fixed in Implement, never found first by Verify.
 
 ## A reviewer in every step
 
@@ -24,7 +24,7 @@ Every step of a new quick fix is reviewed before it is submitted, by an independ
 - **Implement** gets a code review with four checks, each finding cited at file:line: (a) the code matches the approved plan: every changed path is in a plan row or reviewed as supporting, and each clause is implemented where its row says; (b) each clause has its own planned test that ran, passed and checks the behaviour; (c) every quality, security and secret-scan result is reviewed; (d) readability and design are advice, and block only for a named maintainability defect.
 - When the code review asks for corrections, its next step is `/sf-code implement` (Shell: `singularity-flow phase rollover implement`, which asks you in your own terminal). It shows you the findings and asks "Start version 2 to fix the review's findings? Version 1 and its tests stay."; on your yes it opens version 2 with the review as the reason and fixes the findings in the same turn. Only your own yes starts it: an agent cannot answer it for you. Then it publishes, the review runs again, and you submit. A review you start yourself with `/sf-review-source` ends with this next step, ready to run.
 
-Stories started before reviews covered every step keep the review they started with. A workflow can leave reviews out with `sourceReview: { mode: off }`, or skip a step with `sourceReview.skip`.
+Stories started before reviews covered every step keep the review they started with. A workflow can leave reviews out with `sourceReview: { mode: off }`, or skip a step with `sourceReview.skip`. When only the reviewer has seen a version, SFlow starts the next version for its findings on its own, up to `sourceReview.autoFixVersions` in a row (0 to 10, 2 when unset; `autoFixVersionsByStep` sets one step's number); after that, or when a finding comes back after SFlow's fix, it asks you. A setting of 0 asks you every time.
 
 ## Purpose and prerequisites
 

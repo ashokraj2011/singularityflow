@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "0e521748018cf7fe84b87157f7820017e1174b1a",
+  "sourceCommit": "1257c348316118c4359e39f51d3c8eaef5c4af8d",
   "topicCount": 94,
-  "contentSha256": "abf30675651d1d788368098ff6ded44ccd355bdad41cd1fdd42bf4361fdd801a",
+  "contentSha256": "1c1a566e2883f585118482547949390e6232c0c1284374ae809573307b512f0c",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -240,8 +240,8 @@
     {
       "id": "evidence-matrix",
       "title": "Evidence matrix for requirements and acceptance criteria",
-      "version": 38,
-      "sha256": "fc7a7ccc7ef89c294b40dcc98b6bc38249a663ea102e13be2ba12c0d504d8a70",
+      "version": 39,
+      "sha256": "1868a1db1582dab61c2cba303361e42eb7aaef5a6c78976155675ecfe8351b80",
       "routingSha256": "761b11f1f6d8631724a9bde3bd6e402e7d9841bd2a9a456c226a69984f1c1f6d",
       "file": "evidence-matrix.md"
     },
@@ -472,8 +472,8 @@
     {
       "id": "quick-fix",
       "title": "The quick-fix rail",
-      "version": 8,
-      "sha256": "b7ca9e00b984a379a9d60d59a86d6e25c319b52459eb4a69a763e5765a0bdda0",
+      "version": 10,
+      "sha256": "9a94f084d9c2f0761a4e1e6c0db476de4e8e6da15a246385f3a7172602baa930",
       "routingSha256": "e48bee95d4e2dc5f4001a723006a2735a28b5216de204e3ae8aafaf6b91d1c12",
       "file": "quick-fix.md"
     },

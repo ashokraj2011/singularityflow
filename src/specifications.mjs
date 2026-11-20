@@ -1160,18 +1160,6 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
     ids.add(id);
     bindings.set(testSource, ids);
   }
-  const sourceBindings = new Map();
-  if (requireSourceBindings) {
-    for (const binding of delivery?.traceability?.sourceBindings ?? []) {
-      const id = String(binding?.clauseId ?? '').toUpperCase();
-      if (!knownIds.includes(id) || typeof binding?.sourcePath !== 'string') continue;
-      const sourcePath = exactStructuredPath(binding.sourcePath, `${id}.traceability.sourcePath`);
-      if (!changedPaths.has(sourcePath)) continue;
-      const ids = sourceBindings.get(sourcePath) ?? new Set();
-      ids.add(id);
-      sourceBindings.set(sourcePath, ids);
-    }
-  }
   const commits = generationCommit == null ? [] : [generationCommit];
   // What the delivery recorded for obligations that are not new or modified source [E2G-010].
   const fulfilled = new Map((delivery?.fulfillment?.obligations ?? [])
@@ -1206,15 +1194,15 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
     // Source-only clauses must still observe their planned changed paths and remain incomplete
     // when those paths are absent.
     if (!plan) continue;
-    // A not-applicable row is exempt from clause-comment bindings (`plannedSourceClauseBindings`
-    // never requires one: it is the reviewed route for files that cannot carry a comment), so it is
-    // observed by its exact planned path changing. Requiring a binding here as well left such a row
-    // unobservable, so its clause could never be implemented.
-    const bindingRequired = requireSourceBindings && plan.testDisposition !== 'not-applicable';
+    // A file the plan lists for the row and the delivery changed delivers that row: the plan is the
+    // association, and SFlow knows the file changed (owner, 2026-11-20). Its `@clause` comment is
+    // optional per file: it locates and explains the change (implementation-bindings.mjs), and the
+    // delivery still carries one for each row it changes in source. Counting only tagged files left
+    // App.jsx and index.css undelivered for a row whose comment sat in its third planned file
+    // (fix-issues). An unplanned changed file still needs a place: no row claims it here.
     const expectedPaths = plannedImplementationPaths(plan);
     const observedPaths = expectedPaths.filter((candidate) => isConfigurationPath(candidate)
-      ? configurationPaths.has(candidate)
-      : changedPaths.has(candidate) && (!bindingRequired || sourceBindings.get(candidate)?.has(id)));
+      ? configurationPaths.has(candidate) : changedPaths.has(candidate));
     const testResults = plan.tests.filter((candidate) => {
       if (!testPaths.has(candidate)) return false;
       const boundIds = bindings.get(candidate);
@@ -1444,7 +1432,60 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
     return corrected;
   }
   normalizeClaimMap(record, { kind, clauseIds, policy, plannedClaims });
-  return record;
+  return observationAgainstPlan(root, workflow, phase, record, { clauseIds, policy, plannedClaims });
+}
+
+const VERDICT_RANK = Object.freeze({ missing: 0, partial: 1, matched: 2 });
+
+/**
+ * A sealed observation, judged against the plan as it stands now: SFlow fills what it knows (owner, 2026-11-20).
+ * The observation was derived from its delivery receipt and the plan of that moment, so a person's later plan
+ * correction (a test added to a row, a location replaced) left the delivered file uncounted until a new version
+ * was published (arshy, PRC-001). The same exact receipt, bound by the digest the sealed record names, is projected
+ * onto the current plan and added to what the record observed: a planned file the version delivered counts for its
+ * row, and an acceptance criterion's test still counts only through its own `@ac` binding. Nothing is rewritten,
+ * and an unreadable or changed receipt leaves the record exactly as sealed.
+ */
+async function observationAgainstPlan(root, workflow, phase, record, { clauseIds, policy, plannedClaims }) {
+  const source = record?.source;
+  if (!Object.keys(plannedClaims ?? {}).length || typeof source?.path !== 'string' || !/^[a-f0-9]{64}$/u.test(String(source.sha256 ?? ''))) return record;
+  let receipt;
+  try {
+    const boundary = await secureRepositoryPath(root, source.path, { label: `Phase '${phase.id}' code-delivery receipt`, mustExist: true, type: 'file' });
+    const text = await readFile(boundary.absolute, 'utf8');
+    receipt = JSON.parse(text);
+    if (sha256(canonicalJson(receipt)) !== source.sha256) return record;
+  } catch { return record; }
+  if (receipt?.kind !== 'code-delivery' || receipt.workId !== record.workId || receipt.phase !== record.phase
+      || Number(receipt.generation) !== Number(record.generation)) return record;
+  let derived;
+  try {
+    derived = deriveObservedClaimMap({ claims: plannedClaims }, receipt, {
+      clauseIds, policy, generationCommit: typeof receipt.tree?.generationCommit === 'string' ? receipt.tree.generationCommit : null,
+      requireSourceBindings: phase.sourceBoundary !== 'test-automation' && workflow?.resolution?.plannedClaims?.mode === 'required'
+        && workflow?.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce'
+    });
+  } catch { return record; }
+  const union = (left = [], right = []) => sortedUnique([...left, ...right]);
+  const claims = { ...(record.claims ?? {}) };
+  let filled = false;
+  for (const [id, claim] of Object.entries(derived.claims ?? {})) {
+    const sealed = claims[id];
+    if (!sealed) {
+      claims[id] = claim;
+      filled = true;
+      continue;
+    }
+    const verdict = ['deviated', 'unplanned'].includes(sealed.verdict) || (VERDICT_RANK[sealed.verdict] ?? 0) >= (VERDICT_RANK[claim.verdict] ?? 0)
+      ? sealed.verdict : claim.verdict;
+    const next = { ...sealed, observedPaths: union(sealed.observedPaths, claim.observedPaths), testResults: union(sealed.testResults, claim.testResults),
+      commits: union(sealed.commits, claim.commits), verdict };
+    if (canonicalJson(next) !== canonicalJson(sealed)) {
+      claims[id] = next;
+      filled = true;
+    }
+  }
+  return filled ? { ...record, claims } : record;
 }
 
 function recordOrder(left, right) {

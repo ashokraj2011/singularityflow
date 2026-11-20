@@ -18,6 +18,7 @@ import { currentSchemaVersion, readRecord } from '../src/schema-migrations.mjs';
 import { acceptQualityRisk, coverageRiskEligibility, inspectPhaseQualityGate, normalizeQualityGateMode,
   prepareQualityRisk, qualityRiskBinding, qualityRiskStatus, validateQualityRiskPacket } from '../src/phase-quality-risk.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { recordPlanRowCorrection } from '../src/plan-row-corrections.mjs';
 
 const ID = 'COVER-1';
 const ITEM = `singularity/work-items/${ID}`;
@@ -337,14 +338,15 @@ test('[PHR:REQ-003] code approval applies the publication check\'s upstream rout
   const { root, config, workflow } = await fixture();
   const phase = workflow.phases.implementation;
   const revision = git(root, 'rev-parse', 'HEAD');
-  // REQ-002 is not delivered. No issue: the refusal names the plan's corrections and the upstream issue too.
+  // REQ-002 is not delivered. No issue: the refusal names the plan's corrections, never an issue raised against the plan
+  // for code this step did not deliver (owner, 2026-11-20).
   const plain = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision).catch((error) => error);
   assert.equal(plain.code, 'SPEC_COVERAGE_INCOMPLETE');
   assert.equal(plain.details.upstreamDecision, undefined);
   assert.deepEqual(plain.details.planCorrections.map((entry) => entry.command.split(' ').slice(0, 5).join(' ')), [
     'singularity-flow decision plan COVER-1 --replace-location', 'singularity-flow decision plan COVER-1 --remove-location',
-    'singularity-flow decision plan COVER-1 --replace-test', 'singularity-flow upstream-issue raise --work-id COVER-1']);
-  assert.match(plain.details.planCorrections[3].command, / --phase planning --about COVER-1:REQ-002 /u);
+    'singularity-flow decision plan COVER-1 --replace-test']);
+  assert.doesNotMatch(plain.message, /upstream-issue raise/u);
   assert.match(plain.message, /If planning's plan is what is wrong, an approver of planning corrects the row in their own terminal/u);
   // An open issue names it: the same waiting words and decision list as publication, never more code.
   workflow.upstreamIssues = [{ id: 'UPI-001', phase: 'planning', about: 'COVER-1:REQ-002', problem: 'The plan places REQ-002 in a module this change cannot reach.' }];
@@ -561,12 +563,13 @@ test('[PHR:REQ-002] finding 13: under recorded coverage the last code step\'s ap
   const { root, config, workflow } = await fixture();
   workflow.resolution.spec = { mode: 'record', coverage: 'record', conformanceRows: 'qualified' };
   workflow.resolution.codeDelivery = { traceability: { sourceBindings: 'enforce' } };
-  workflow.resolution.phaseResponsibility = phaseResponsibilityPin();
+  workflow.resolution.phaseResponsibility = { ownerStepChecks: 2 };
   const phase = workflow.phases.implementation;
   const revision = git(root, 'rev-parse', 'HEAD');
-  // Submission is told that approval refuses it; the generation still goes to its approvers.
+  // Pinned at level 2, submission is told that approval refuses it; the generation still goes to its approvers.
   const submitted = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision, { boundary: 'submitted' });
   assert.deepEqual(submitted.advisory, ['clause COVER-1:REQ-002 is not fully implemented; approving implementation refuses it until it is delivered or its risk is accepted']);
+  workflow.resolution.phaseResponsibility = phaseResponsibilityPin();
   // Approval refuses it, with the author's return and a person's dated risk as structured routes.
   const refused = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision).catch((error) => error);
   assert.equal(refused.code, 'SPEC_COVERAGE_INCOMPLETE');
@@ -591,4 +594,84 @@ test('[PHR:REQ-002] finding 13: under recorded coverage the last code step\'s ap
   delete workflow.resolution.phaseResponsibility;
   assert.deepEqual((await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision)).advisory,
     ["clause COVER-1:REQ-002 is not fully implemented; this Story's ending refuses it unless a later step corrects it"]);
+});
+
+test('[owner 2026-11-20] the last code step\'s own submission refuses what it did not deliver, with its next version filled in', async () => {
+  const { root, config, workflow } = await fixture();
+  workflow.resolution.spec = { mode: 'record', coverage: 'record', conformanceRows: 'qualified' };
+  workflow.resolution.codeDelivery = { traceability: { sourceBindings: 'enforce' } };
+  workflow.resolution.phaseResponsibility = phaseResponsibilityPin();
+  Object.assign(workflow, { status: 'in_progress', currentPhase: 'implementation' });
+  // A code step nobody approves (quick-fix implement): its submission completes it, so the gap is refused there, in the step.
+  const phase = Object.assign(workflow.phases.implementation, { label: 'Implementation', status: 'in_progress', approvalPolicy: { mode: 'none' },
+    generationPolicy: { requirement: 'required', defaultProducer: 'governed-agent', task: 'code' }, generationIntent: { status: 'consumed', generation: 1 } });
+  const revision = git(root, 'rev-parse', 'HEAD');
+  const refused = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision, { boundary: 'submitted' }).catch((error) => error);
+  assert.equal(refused.code, 'SPEC_COVERAGE_INCOMPLETE');
+  assert.match(refused.message, /^Phase 'implementation' cannot be submitted: it completes here, and the Story's ending would refuse it\.\n- clause COVER-1:REQ-002 is not fully implemented\n/u);
+  // Its own next version, filled with what SFlow knows is missing; never an issue against the plan, never a placeholder.
+  assert.equal(refused.details.nextAction.command,
+    'singularity-flow phase rollover implementation --reason "Deliver COVER-1:REQ-002 (src/second.mjs does not change) where the plan puts it." --json');
+  assert.equal(refused.details.nextAction.skill, '/sf-code');
+  assert.equal(refused.details.nextAction.label, 'Start version 2 of Implementation for COVER-1:REQ-002');
+  assert.doesNotMatch(JSON.stringify({ message: refused.message, details: refused.details }), /upstream-issue raise|<what-is-wrong>|<what to change>/u);
+  assert.equal(refused.details.recoveryCommands[0].command, 'singularity-flow decisions COVER-1', 'or a person accepts the risk on the Decide card');
+  // A step with approvers is refused at its own submission too, since its approval would refuse it.
+  phase.approvalPolicy = { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1 };
+  assert.match((await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision, { boundary: 'submitted' }).catch((error) => error)).message,
+    /^Phase 'implementation' cannot be submitted: its approval would refuse it, as the Story's ending would\./u);
+});
+
+test('fix-issues and arshy: a planned file the version changed and a test a person\'s plan correction added count without a new version', async () => {
+  const f = await fixture();
+  const { root, config, workflow } = f;
+  const ids = ['COVER-1:REQ-001', 'COVER-1:REQ-002'];
+  workflow.resolution.codeDelivery = { traceability: { sourceBindings: 'enforce' } };
+  workflow.phases.planning.approvalPolicy = { authorities: ['engineering-reviewers'] };
+  const phase = workflow.phases.implementation;
+  // The version changed both planned files (src/second.mjs with no clause comment of its own) and a test no row lists yet.
+  await write(root, 'src/second.mjs', 'export const second = true;\n');
+  await write(root, 'test/first.test.mjs', "import test from 'node:test'; test('first', () => {});\n");
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'version 1');
+  const receiptPath = `${ITEM}/context/code-delivery/implementation-gen1.json`;
+  const receipt = { kind: 'code-delivery', workId: ID, phase: 'implementation', generation: 1, status: 'ready',
+    changeSet: { sourcePaths: ['src/first.mjs', 'src/second.mjs'], deletedSourcePaths: [], configurationPaths: [],
+      executableTestPaths: ['test/first.test.mjs'], supportingTestPaths: [] },
+    traceability: { bindings: [], sourceBindings: [{ clauseId: ids[0], sourcePath: 'src/first.mjs', line: 1, tag: 'clause' }] },
+    tree: { generationCommit: git(root, 'rev-parse', 'HEAD') } };
+  await write(root, receiptPath, canonicalJson(receipt));
+  // Sealed when only a tagged file counted: REQ-001 alone, as the record of an in-flight Story still says.
+  const sealed = { ...f.observedRecord(['src/first.mjs']), source: { path: receiptPath, sha256: digest(receipt) } };
+  await write(root, f.observedPath, canonicalJson(sealed));
+  phase.claimMaps.observed.sha256 = digest(sealed);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'sealed observation');
+  const revision = git(root, 'rev-parse', 'HEAD');
+  // The same receipt, judged against the plan as it stands: src/second.mjs delivers REQ-002. The test no row lists still needs a place.
+  const held = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision).catch((error) => error);
+  assert.equal(held.code, 'SPEC_COVERAGE_INCOMPLETE');
+  assert.deepEqual([held.details.coverage.unimplemented, held.details.coverage.unclaimedChangedPaths], [[], ['test/first.test.mjs']]);
+  // A person's plan correction adds the test to REQ-001's row: it counts from the delivered version, with no new version.
+  const planned = JSON.parse(await readFile(path.join(root, `${ITEM}/context/claims/planning-gen1-planned.json`), 'utf8'));
+  const normalizeRow = (clauseId, raw) => normalizeClaimMap({ claims: { [clauseId]: raw } }, { kind: 'planned', clauseIds: ids }).claims[clauseId];
+  const correct = (target, test) => recordPlanRowCorrection(target, { ownerRecord: planned, ownerMapSha256: target.phases.planning.claimMaps.planned.sha256,
+    operations: [{ op: 'add-test', clauseId: test.clauseId, test: test.path }], activeClauseIds: ids, normalizeRow,
+    reason: 'The delivered test checks this requirement, so the plan lists it.', actor: 'lead@example.test', authorityGroup: 'engineering-reviewers',
+    authorizationId: '7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33', at: '2026-11-20T17:46:00.000Z' });
+  // A planned test the version does not carry is still missing: test evidence is not weakened.
+  const missing = structuredClone(workflow);
+  correct(missing, { clauseId: ids[1], path: 'test/second.test.mjs' });
+  const stillOwed = await assertFinalCodeSpecificationCoverage(root, config, missing, missing.phases.implementation, revision).catch((error) => error);
+  assert.deepEqual(stillOwed.details.coverage.unimplemented, [ids[1]]);
+  correct(workflow, { clauseId: ids[0], path: 'test/first.test.mjs' });
+  const coverage = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision);
+  assert.equal(coverage.complete, true);
+  assert.equal(await readFile(path.join(root, f.observedPath), 'utf8'), canonicalJson(sealed), 'the sealed record is never rewritten');
+  // A receipt that no longer matches the digest the record names fills nothing: the record stands as sealed.
+  await write(root, receiptPath, canonicalJson({ ...receipt, changeSet: { ...receipt.changeSet, sourcePaths: ['src/first.mjs'] } }));
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'tampered receipt');
+  const tampered = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')).catch((error) => error);
+  assert.deepEqual(tampered.details.coverage.unimplemented, ids);
 });

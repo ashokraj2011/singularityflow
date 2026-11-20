@@ -1997,8 +1997,8 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
  * Use only this Story's pinned, committed specification/plan/observation bindings and the exact
  * submitted code revision. Earlier code phases may accumulate evidence and are not final gates.
  */
-export async function assertFinalCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary = 'approved' } = {}) {
-  try { return await assertStrictCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary }); }
+export async function assertFinalCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary = 'approved', requireCommitted = true } = {}) {
+  try { return await assertStrictCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary, requireCommitted }); }
   catch (error) {
     if (error.code !== 'SPEC_COVERAGE_INCOMPLETE') throw error;
     const risk = await qualityRiskStatus(root, config, workflow, phase, error,
@@ -2010,7 +2010,7 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
   }
 }
 
-export async function assertStrictCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary = 'approved' } = {}) {
+export async function assertStrictCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary = 'approved', requireCommitted = true } = {}) {
   const policy = specificationPolicy(config, workflow);
   const enforcement = codeCoverageEnforcement(policy);
   if (!enforcement
@@ -2019,9 +2019,10 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
   const codePhases = (workflow.phaseOrder ?? []).filter((id) =>
     phaseRequiresCodeDelivery(workflow.phases?.[id]));
   const finalStep = codePhases.at(-1) === phase.id;
+  // Uncommitted only inside the submission that just observed this version (its records commit with it).
   const records = await loadBoundActiveSpecRecords(
     root, workDir(root, config, workflow.workItem.id), workflow, policy,
-    { requireCommitted: true, throughPhase: finalStep ? null : phase.id }
+    { requireCommitted: requireCommitted || !['submitted', 'submit'].includes(boundary), throughPhase: finalStep ? null : phase.id }
   );
   // An earlier code step answers for the rows the plan allocates to it by name [E2G-009]; the last
   // one answers for everything.
@@ -2043,12 +2044,19 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
   // may have put in the wrong place names the plan's own corrections.
   const coverageRoutes = await import('./spec-coverage-preview.mjs');
   const planOwner = planningOwnerForCode(workflow, phase)?.id ?? null;
+  // What this step did not deliver is delivered in its own next version, filled with what is missing; the plan's own
+  // corrections stay beside it for its approvers, never an issue raised against the plan (owner, 2026-11-20).
+  const submitting = ['submitted', 'submit'].includes(boundary);
   const upstreamRoutes = (open) => {
     const waiting = coverageRoutes.upstreamWaiting(workflow, coverageRoutes.upstreamDecisionFor(workflow, open));
     const corrections = waiting.details.upstreamDecision?.complete ? { text: '', routes: [] }
       : coverageRoutes.planCorrectionRoutes(workflow, planOwner, phase.id, open, planned);
-    return { text: `${waiting.text}${corrections.text}`, details: { ...waiting.details, ...(planOwner ? { planningOwner: planOwner } : {}),
-      ...(corrections.routes.length ? { planCorrections: corrections.routes } : {}) } };
+    const ownVersion = submitting && !waiting.details.nextAction
+      ? coverageRoutes.nextVersionForGaps(phase, versionQuestionRoute(workflow, phase), open, records, planned, workflow) : null;
+    return { text: `${waiting.text}${ownVersion ? ` Deliver ${open.length === 1 ? 'it' : 'them'} in ${phase.id}'s next version: ${ownVersion.command}.` : ''}${corrections.text}`,
+      details: { ...waiting.details, ...(planOwner ? { planningOwner: planOwner } : {}),
+        ...(ownVersion ? { nextAction: { command: ownVersion.command, skill: ownVersion.skill, label: ownVersion.label } } : {}),
+        ...(corrections.routes.length ? { planCorrections: corrections.routes } : {}) } };
   };
   // Observations accumulate across code phases, but a later phase can restore a previously
   // changed file to its pre-Story bytes. A still-existing file is not proof that its observed
@@ -2095,6 +2103,9 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
   const convergesLater = (workflow.phaseOrder ?? []).slice((workflow.phaseOrder ?? []).indexOf(phase.id) + 1)
     .some((id) => isConvergencePhase(workflow.phases?.[id]) && workflow.phases[id].status !== 'skipped');
   const ownerCheck = enforcement === 'qualified-ending' && ownerStepChecks(workflow) && !convergesLater;
+  // Level 3 (owner, 2026-11-20): the step's own submission refuses what its approval would, and a step with no approval
+  // completes at submission, so its gap is delivered in the step and never first found by a later one.
+  const ownSubmission = ownerCheck && submitting && ownerStepChecks(workflow, 3);
   if (enforcement !== 'enforce') {
     // A person's accepted implementation risk carries its clause, as the ending reads it.
     const accepted = ownerCheck ? (await import('./evidence/risk-decisions.mjs')).acceptedImplementationClauses(workflow) : new Set();
@@ -2104,6 +2115,17 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
       ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
       ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
     ];
+    if (ownSubmission && lines.length) {
+      const routes = owed.unimplemented.length ? upstreamRoutes(owed.unimplemented) : { text: '', details: {} };
+      const why = phase.approvalPolicy?.mode === 'none' ? 'it completes here, and the Story\'s ending would refuse it' : 'its approval would refuse it, as the Story\'s ending would';
+      const how = `${routes.text.trim() || `Deliver it in ${phase.id}'s next version.`} Or a person accepts the risk on the Decide card (singularity-flow decisions ${workflow.workItem.id}).`;
+      throw new SingularityFlowError(`Phase '${phase.id}' cannot be submitted: ${why}.\n- ${lines.join('\n- ')}\n${how}`,
+        { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, ownerPhase: phase.id,
+          evidenceCommit, coverage: owed, ...routes.details,
+          recoveryCommands: [{ label: 'Or accept the risk on the Decide card, with its category and a date.',
+            command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' }] } }
+      );
+    }
     // The approval itself and the quality gate's view of it ('approve'), so a pilot risk can be prepared for what it refuses.
     if (ownerCheck && ['approved', 'approve'].includes(boundary) && lines.length) {
       const routes = owed.unimplemented.length ? upstreamRoutes(owed.unimplemented) : { text: '', details: {} };
@@ -6365,6 +6387,15 @@ async function submitPhaseTransition(root, config, workflow, {
     phase.deliveryEvidence.receiptSha256 = createHash('sha256').update(canonicalJson(readyReceipt)).digest('hex');
     await recordTestCommandEpochValidation(root, config, workflow, phase, testCommandEpochRun);
     await refreshObservedSpecificationClaims(root, config, workflow, phase, readyReceipt);
+    // The version's tests ran in this submission, so its coverage was not judged above: judge it now, from the observation
+    // just recorded, so a step that completes here (no approval) never hands an undelivered clause to a later step
+    // (owner, 2026-11-20; fix-issues).
+    // Recorded coverage on a Story pinned at owner-step checks level 3 only: enforced coverage keeps its approval's refusal.
+    if (pendingSubmissionEvidence && phase.generationCommit && ownerStepChecks(workflow, 3)
+        && codeCoverageEnforcement(specificationPolicy(config, workflow)) === 'qualified-ending') {
+      const coverage = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, phase.generationCommit, { boundary: 'submitted', requireCommitted: false });
+      for (const line of coverage?.advisory ?? []) console.warn(`Warning: ${line}`);
+    }
   }
   if (phaseUsesWorkInterval(phase)) {
     const itemDirectory = workDir(root, config, workflow.workItem.id);

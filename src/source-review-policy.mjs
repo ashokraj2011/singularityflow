@@ -12,26 +12,77 @@ import { sourceReviewKind } from './phase-roles.mjs';
  * claims: those keep their own review kinds when a legacy `phases` list names them, read from the step's
  * structure, never its name [E2G-001]. A legacy `phases` list no longer limits the review: it is kept as
  * `supersededPhases` and reported, never silently ignored.
+ *
+ * `autoFixVersions` (0 to 10, 2 when unset) is how many versions in a row SFlow starts on its own to fix a review's
+ * findings before it asks the person; 0 asks every time. `autoFixVersionsByStep` sets it for single steps. Either alone
+ * keeps the packaged reviewer as the default (owner, 2026-11-20).
  */
 export const SOURCE_REVIEW_LEVEL = 2;
 export const DEFAULT_SOURCE_REVIEWER = 'sflow-source-reviewer';
+export const DEFAULT_AUTO_FIX_VERSIONS = 2;
+export const MAX_AUTO_FIX_VERSIONS = 10;
+const AUTO_FIX_FIELDS = Object.freeze(['autoFixVersions', 'autoFixVersionsByStep']);
+
+/** The automatic-fix settings as configured, validated; only the ones set, so a pin without them is unchanged. */
+function autoFixSettings(value, workTypeId, phases) {
+  // Corrected in the workflow itself; Workflow Studio writes the setting (owner, 2026-11-20).
+  const refused = (message) => new SingularityFlowError(message, { code: 'SOURCE_REVIEW_AUTO_FIX_INVALID',
+    details: { nextAction: { command: 'singularity-flow workflow studio', label: 'Set the number of review fixes in Workflow Studio.' } } });
+  const count = (entry, label) => {
+    if (!Number.isSafeInteger(entry) || entry < 0 || entry > MAX_AUTO_FIX_VERSIONS) {
+      throw refused(`Work type '${workTypeId}' ${label} must be a whole number from 0 to ${MAX_AUTO_FIX_VERSIONS}: the versions SFlow starts on its own for a review's findings (0 always asks).`);
+    }
+    return entry;
+  };
+  const settings = {};
+  if (value?.autoFixVersions != null) settings.autoFixVersions = count(value.autoFixVersions, 'sourceReview.autoFixVersions');
+  const byStep = value?.autoFixVersionsByStep;
+  if (byStep != null) {
+    if (!byStep || typeof byStep !== 'object' || Array.isArray(byStep)) {
+      throw refused(`Work type '${workTypeId}' sourceReview.autoFixVersionsByStep must map a step to a number.`);
+    }
+    const entries = Object.entries(byStep).map(([step, entry]) => {
+      if (!phases.includes(step)) {
+        throw refused(`Work type '${workTypeId}' sourceReview.autoFixVersionsByStep names '${step}', which is not one of its steps (${phases.join(', ')}).`);
+      }
+      return [step, count(entry, `sourceReview.autoFixVersionsByStep.${step}`)];
+    }).sort(([left], [right]) => left.localeCompare(right));
+    if (entries.length) settings.autoFixVersionsByStep = Object.fromEntries(entries);
+  }
+  return settings;
+}
+
+/**
+ * How many versions in a row SFlow starts on its own for a review's findings on this step before it asks the person:
+ * the step's own setting, else the work type's, else 2. A Story pinned before the setting existed reads 2.
+ */
+export function autoFixVersionsOf(workflow, phaseId) {
+  const policy = workflow?.resolution?.sourceReview ?? {};
+  const own = policy.autoFixVersionsByStep?.[phaseId];
+  const value = Number.isSafeInteger(own) ? own : policy.autoFixVersions;
+  return Number.isSafeInteger(value) && value >= 0 && value <= MAX_AUTO_FIX_VERSIONS ? value : DEFAULT_AUTO_FIX_VERSIONS;
+}
 
 export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workflow', phases = [], reviewable = null, authored = null } = {}) {
   // A policy normalized once (the definition's) normalizes again from what was configured, never its derived fields.
   if (value?.level === SOURCE_REVIEW_LEVEL || value?.defaulted === true) {
     if (value.mode === 'off') return value.defaulted ? { ...value } : { mode: 'off', phases: [], reviewerAgent: null };
     value = { ...(value.defaulted ? {} : { reviewerAgent: value.reviewerAgent }), ...(value.skip ? { skip: value.skip } : {}),
-      ...(value.supersededPhases ? { phases: value.supersededPhases } : {}) };
+      ...(value.supersededPhases ? { phases: value.supersededPhases } : {}),
+      ...Object.fromEntries(AUTO_FIX_FIELDS.filter((field) => value[field] != null).map((field) => [field, value[field]])) };
     if (!Object.keys(value).length) value = null;
   }
   if (value != null && (!value || typeof value !== 'object' || Array.isArray(value))) {
     throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview must be an object.`);
   }
   for (const key of Object.keys(value ?? {})) {
-    if (!['mode', 'phases', 'reviewerAgent', 'skip'].includes(key)) {
+    if (!['mode', 'phases', 'reviewerAgent', 'skip', ...AUTO_FIX_FIELDS].includes(key)) {
       throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview has unknown field '${key}'.`);
     }
   }
+  const autoFix = autoFixSettings(value, workTypeId, phases);
+  // Only the automatic-fix settings: the review itself is still the default one.
+  const defaulted = value == null || Object.keys(value).every((key) => AUTO_FIX_FIELDS.includes(key));
   const mode = value?.mode ?? 'enforce';
   if (!['off', 'enforce'].includes(mode)) {
     throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.mode must be off or enforce.`);
@@ -61,8 +112,8 @@ export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workfl
       : legacy?.includes(phase) && reviewable ? reviewable(phase) ?? 'document' : 'document';
   }
   return { mode: 'enforce', level: SOURCE_REVIEW_LEVEL, phases: Object.keys(kinds), kinds, reviewerAgent,
-    ...(value == null ? { defaulted: true } : {}),
-    ...(skip.length ? { skip: [...skip] } : {}), ...(legacy ? { supersededPhases: [...legacy] } : {}) };
+    ...(defaulted ? { defaulted: true } : {}),
+    ...(skip.length ? { skip: [...skip] } : {}), ...(legacy ? { supersededPhases: [...legacy] } : {}), ...autoFix };
 }
 
 /**

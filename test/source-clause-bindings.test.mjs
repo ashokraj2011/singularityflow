@@ -326,7 +326,7 @@ test('first-generation coverage inspection loads the plan only and keeps source/
   assert.deepEqual(delivery.testPaths, ['tests/payment.test.js']);
 });
 
-test('coverage refusal identifies the missing product binding and does not hide an inferred test runner', async (t) => {
+test('coverage refusal names the planned file that did not change and does not hide an inferred test runner', async (t) => {
   const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js', 'src/other.js', 'tests/payment.test.js']) });
   t.after(() => rm(item.root, { recursive: true, force: true }));
   await bindApprovedIndex(item);
@@ -334,13 +334,12 @@ test('coverage refusal identifies the missing product binding and does not hide 
   await readyForDraftCheck(item);
   await writeFile(path.join(item.root, 'src/payment.js'),
     '// @clause:BIND-1:REQ-001 marks an accepted payment as paid\nexport const payment = true;\n');
-  await writeFile(path.join(item.root, 'src/other.js'), 'export const other = true;\n');
   await writeFile(path.join(item.root, 'tests/payment.test.js'), 'import test from "node:test"; test("pays", () => {});\n');
   await assert.rejects(evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase), error => {
     assert.equal(error.code, 'SPEC_COVERAGE_INCOMPLETE');
     assert.deepEqual(error.details.claimGaps, [{ clauseId: 'BIND-1:REQ-001', verdict: 'partial',
-      missingSourcePaths: [], missingSourceBindings: ['src/other.js'], missingTestPaths: [], missingConfigurationPaths: [] }]);
-    assert.match(error.message, /source bindings: src\/other.js/);
+      missingSourcePaths: ['src/other.js'], missingSourceBindings: [], missingTestPaths: [], missingConfigurationPaths: [] }]);
+    assert.match(error.message, /source paths: src\/other.js/);
     return true;
   });
   const result = await inspectPhaseRecovery(item.root, item.config, item.workflow, item.phase, {
@@ -354,8 +353,8 @@ test('coverage refusal identifies the missing product binding and does not hide 
   assert.ok(result.actions.some(action => action.authoringSkill === '/sf-code'));
   const report = path.join(item.root, '.sflow/results/node-tests.tap');
   await assert.rejects(readFile(report), { code: 'ENOENT' }, 'recovery does not run tests or create reports');
-  await writeFile(path.join(item.root, 'src/other.js'),
-    '// @clause:BIND-1:REQ-001 records the same approved payment result\nexport const other = true;\n');
+  // The planned file changes, without a comment of its own: it counts for the row (owner, 2026-11-20; fix-issues).
+  await writeFile(path.join(item.root, 'src/other.js'), 'export const other = true;\n');
   const repaired = await evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase);
   assert.equal((await assertStrictCandidateSpecificationCoverage(item.root, item.config, item.workflow, item.phase, repaired)).complete, true);
 });
@@ -434,7 +433,7 @@ test('custom code-phase runner preview survives unfinished prose and coverage wi
   await readyForDraftCheck(item);
   await writeFile(path.join(item.root, 'src/payment.js'),
     '// @clause:BIND-1:REQ-001 implements the approved payment rule\nexport const payment = true;\n');
-  await writeFile(path.join(item.root, 'src/other.js'), 'export const other = true;\n');
+  // src/other.js, also planned for the row, does not change: coverage is still incomplete.
   await writeFile(path.join(item.root, 'tests/payment.test.js'), 'import test from "node:test"; test("pays", () => {});\n');
   await writeFile(path.join(item.root, 'singularity/work-items/BIND-1', item.phase.requiredArtifact.path), '# Draft\n');
   const result = await inspectPhaseRecovery(item.root, item.config, item.workflow, item.phase, {

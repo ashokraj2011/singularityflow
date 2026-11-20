@@ -16,6 +16,8 @@ import test from 'node:test';
 import { agentAct } from '../src/agent-output.mjs';
 import { inTurnSubmitCommand, reviewFindingsOpenCommand } from '../src/action-command-map.mjs';
 import { reviewerAloneSaw, reviewFindingsHold, sourceReviewContinuation } from '../src/source-review-continuation.mjs';
+import { autoFixVersionsOf, normalizeSourceReviewPolicy } from '../src/source-review-policy.mjs';
+import { reviewFixWords } from '../src/workflow-explanation.mjs';
 import { phaseAuthoringEntry } from '../src/phase-authoring-entry.mjs';
 import { reraisedRoute, SETTLED_KINDS } from '../src/settled-decisions.mjs';
 import { plainSettled } from '../src/decision-plain.mjs';
@@ -115,6 +117,61 @@ test('a finding that comes back after SFlow\'s fix asks the person at once', () 
   const entry = phaseAuthoringEntry(workflow, phase, { review: back });
   assert.equal(entry.status, 'successor-confirmation-required');
   assert.equal(entry.successor.because, 'The reviewer\'s finding F-2 came back after SFlow\'s fix.');
+});
+
+// The workflow's own number of starts in a row (owner, 2026-11-20): sourceReview.autoFixVersions, a step's own in
+// autoFixVersionsByStep; 2 when unset, 0 asks every time.
+const withAutoFix = (workflow, settings) => ({ ...workflow, resolution: { ...workflow.resolution, sourceReview: { ...workflow.resolution.sourceReview, ...settings } } });
+
+test('a workflow set to 3 starts a third version on its own; the fourth asks the person', () => {
+  const third = withAutoFix(codeStory({ generation: 3, settled: [startOf(1, 1, 2), startOf(2, 2, 3)], opening: settledOpening(3) }), { autoFixVersions: 3 });
+  const phase = third.phases.implementation;
+  assert.equal(reviewFindingsHold(third, phase, reviewOf(3)), null);
+  assert.equal(reviewerAloneSaw(third, phase, reviewOf(3)), true);
+  assert.equal(sourceReviewContinuation(third, phase, reviewOf(3)).nextCommand, reviewFindingsOpenCommand('implementation'));
+  const fourth = withAutoFix(codeStory({ generation: 4, settled: [startOf(1, 1, 2), startOf(2, 2, 3), startOf(3, 3, 4)], opening: settledOpening(4) }), { autoFixVersions: 3 });
+  assert.deepEqual(reviewFindingsHold(fourth, fourth.phases.implementation, reviewOf(4)), { reason: 'rounds', words: 'The reviewer has asked for corrections 4 times in a row.' });
+  // A step's own number wins over the work type's.
+  const own = withAutoFix(codeStory({ generation: 3, settled: [startOf(1, 1, 2), startOf(2, 2, 3)], opening: settledOpening(3) }), { autoFixVersions: 1, autoFixVersionsByStep: { implementation: 3 } });
+  assert.equal(reviewFindingsHold(own, own.phases.implementation, reviewOf(3)), null);
+  const one = withAutoFix(codeStory({ generation: 2, settled: [startOf(1, 1, 2)], opening: settledOpening(2) }), { autoFixVersions: 1 });
+  assert.equal(reviewFindingsHold(one, one.phases.implementation, reviewOf(2))?.reason, 'rounds');
+  // A finding back after the fix still asks at once, whatever the number.
+  const back = withAutoFix(codeStory({ generation: 2, settled: [startOf(1, 1, 2, ['F-1'])], opening: settledOpening(2) }), { autoFixVersions: 10 });
+  assert.equal(reviewFindingsHold(back, back.phases.implementation, reviewOf(2, ['F-1']))?.reason, 'repeated');
+});
+
+test('a workflow set to 0 asks the person before the very first version for a review\'s findings', () => {
+  const workflow = withAutoFix(codeStory(), { autoFixVersions: 0 });
+  const phase = workflow.phases.implementation;
+  const hold = reviewFindingsHold(workflow, phase, reviewOf(1));
+  assert.deepEqual(hold, { reason: 'setting', words: 'This workflow asks you before every version that fixes a review\'s findings.' });
+  assert.equal(reviewerAloneSaw(workflow, phase, reviewOf(1)), false);
+  const next = sourceReviewContinuation(workflow, phase, reviewOf(1));
+  assert.equal(next.nextCommand, 'singularity-flow phase rollover implementation --json', 'the preview that asks');
+  assert.match(next.actions[0].reason, /^This workflow asks you before every version that fixes a review's findings\. \/sf-code asks the person "Start version 2 of Implementation/u);
+  const entry = phaseAuthoringEntry(workflow, phase, { review: reviewOf(1) });
+  assert.equal(entry.status, 'successor-confirmation-required');
+  assert.equal(entry.successor.because, hold.words);
+});
+
+test('the setting is checked when the workflow is read: 0 to 10, active steps only, and alone it keeps the default reviewer', () => {
+  const phases = ['intake', 'implement', 'verify'];
+  const read = (value) => normalizeSourceReviewPolicy(value, { workTypeId: 'quick-fix', phases, authored: () => 'document' });
+  assert.equal(read(null).autoFixVersions, undefined, 'unset: nothing pinned, 2 applies');
+  const set = read({ autoFixVersions: 3, autoFixVersionsByStep: { implement: 0 } });
+  assert.equal(set.defaulted, true, 'only the number: the packaged reviewer stays the default');
+  assert.deepEqual([set.autoFixVersions, set.autoFixVersionsByStep], [3, { implement: 0 }]);
+  // Normalized again (the Story's resolution), it keeps what was configured.
+  assert.deepEqual(normalizeSourceReviewPolicy(set, { workTypeId: 'quick-fix', phases, authored: () => 'document' }), set);
+  for (const bad of [{ autoFixVersions: 11 }, { autoFixVersions: -1 }, { autoFixVersions: 1.5 }, { autoFixVersions: '2' }, { autoFixVersionsByStep: { release: 1 } }, { autoFixVersionsByStep: [1] }]) {
+    assert.throws(() => read(bad), { code: 'SOURCE_REVIEW_AUTO_FIX_INVALID' }, JSON.stringify(bad));
+  }
+  const story = { resolution: { sourceReview: set } };
+  assert.deepEqual([autoFixVersionsOf(story, 'implement'), autoFixVersionsOf(story, 'verify'), autoFixVersionsOf({}, 'verify')], [0, 3, 2]);
+  // What `workflow check` says, per step and for the workflow.
+  assert.equal(reviewFixWords(0), 'If its review asks for changes: SFlow asks you before each new version.');
+  assert.equal(reviewFixWords(3), 'If its review asks for changes: SFlow starts up to 3 versions in a row on its own to fix them, then asks you.');
 });
 
 test('the settlement is a kind of its own, said plainly, and its undo says it is forward only', () => {

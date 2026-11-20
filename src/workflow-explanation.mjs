@@ -16,6 +16,22 @@ const REPOSITORY_TESTS_WORDS = "the repository's tests";
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
+/**
+ * What SFlow does on its own when a reviewed step's review asks for changes nobody else has seen (sourceReview.autoFixVersions,
+ * 2 unless set; source-review-continuation.mjs reviewFindingsHold), in one sentence. Mirrors source-review-policy.mjs
+ * autoFixVersionsOf without loading it.
+ */
+export function reviewFixWords(count) {
+  return count === 0 ? 'If its review asks for changes: SFlow asks you before each new version.'
+    : `If its review asks for changes: SFlow starts up to ${plural(count, 'version')} in a row on its own to fix them, then asks you.`;
+}
+
+function reviewFixesOf(sourceReview, stepId) {
+  if (sourceReview?.mode !== 'enforce' || !(sourceReview.phases ?? []).includes(stepId)) return null;
+  const own = sourceReview.autoFixVersionsByStep?.[stepId];
+  return Number.isSafeInteger(own) ? own : Number.isSafeInteger(sourceReview.autoFixVersions) ? sourceReview.autoFixVersions : 2;
+}
+
 /** The checks a step runs when it is submitted, as one sentence; empty when it runs none. */
 function checksWords(checks = []) {
   if (!checks.length) return '';
@@ -129,6 +145,7 @@ export function explainWorkflow(model, workflowId, { resolved = null, guidance =
       : { id: entry.id ?? null, command: entry.command ?? (entry.argv ?? []).join(' '), kind: entry.kind ?? null, requirement: entry.requirement ?? 'required',
         ...(entry.workingDirectory ? { directory: entry.workingDirectory } : {}) })),
     ...(step.runsRepositoryTests ? [{ id: 'repository-tests', command: REPOSITORY_TESTS_WORDS, kind: 'test', requirement: 'review' }] : [])];
+    const reviewFixes = reviewFixesOf(resolved?.sourceReview, step.id);
     return {
       id: step.id,
       number: index + 1,
@@ -143,6 +160,7 @@ export function explainWorkflow(model, workflowId, { resolved = null, guidance =
       ...(checks.length ? { checksText: checksWords(checks) } : {}),
       signOff: signOffWords(step.approval, groupLabel),
       then: thenWords(step, workflow, { stepLabel, groupLabel, rejectTo: resolvedPhases.get(step.id)?.approval?.rejectTo ?? [] }),
+      ...(reviewFixes === null ? {} : { reviewFixes: { versions: reviewFixes, text: reviewFixWords(reviewFixes) } }),
       links: found.links,
       apiCalls: found.apiCalls,
       ...(people.has(step.id) ? { people: people.get(step.id) } : {})
@@ -157,11 +175,18 @@ export function explainWorkflow(model, workflowId, { resolved = null, guidance =
     (workflow.reworkLoops ?? []).length ? plural(workflow.reworkLoops.length, 'send-back rule') : null,
     code.length ? `changes code in ${listWords(code)}` : 'changes no code'
   ].filter(Boolean).join('; ');
+  // The work type's own number, said once for the whole workflow: `workflow check` prints it without --steps.
+  const reviewed = explained.filter((step) => step.reviewFixes);
+  const counts = [...new Set(reviewed.map((step) => step.reviewFixes.versions))];
+  const reviewFixes = !reviewed.length ? null : counts.length === 1
+    ? `${reviewFixWords(counts[0]).replace(/^If its review asks for changes: /u, 'When a review asks for changes, ').replace(/\.$/u, '')} (sourceReview.autoFixVersions).`
+    : `When a review asks for changes, SFlow starts versions on its own to fix them: ${reviewed.map((step) => `${step.label} up to ${step.reviewFixes.versions}`).join(', ')}; then it asks you (sourceReview.autoFixVersionsByStep).`;
   return {
     id: workflow.id,
     label: workflow.label,
     description: workflow.description || null,
     summary: `${summary}.`,
+    ...(reviewFixes ? { reviewFixes } : {}),
     readOnly: Boolean(workflow.readOnly),
     steps: explained
   };

@@ -75,6 +75,13 @@ export function storyBaseCommit(workflow, phase) {
 const cachePath = (root, key) => path.join(gitCommonDir(root), 'singularity-flow', 'test-base-runs', `${key}.json`);
 const cutPath = (root, key) => path.join(gitCommonDir(root), 'singularity-flow', 'test-base-runs', `${key}.cut.json`);
 const readJson = (file) => readFile(file, 'utf8').then(JSON.parse, () => null);
+/**
+ * How long a kept base run answers "does it fail without this change?". The key holds the base commit, the command and the
+ * Node; the machine's dependencies and services are not in it, so a run that failed on an environment fixed since kept
+ * recommending "fails without this change too" [limit audit, item 9]. Older, it is run again (`tests base --refresh` now).
+ */
+export const BASE_RUN_FRESH_MS = 24 * 60 * 60 * 1000;
+const freshBaseRun = (kept, now = Date.now()) => Boolean(kept) && Number.isFinite(Date.parse(kept.at ?? '')) && now - Date.parse(kept.at) < BASE_RUN_FRESH_MS;
 
 /** What a base run is kept by: the base commit, the command as it runs and the Node it runs on. */
 export function baseRunKey(baseCommit, command, nodeVersion = null) {
@@ -85,10 +92,10 @@ export function baseRunKey(baseCommit, command, nodeVersion = null) {
  * One run of `command` on the base commit, or the one already kept. `gateRun` is how a gate runs it, and is the caller's;
  * it answers `{ cutShort: true, why }` for a run its time ran out on, which is noted and never kept as an answer.
  */
-export async function runOnBase(root, command, { baseCommit, nodeVersion = null, gateRun, within = null, versionFile = null }) {
+export async function runOnBase(root, command, { baseCommit, nodeVersion = null, gateRun, within = null, versionFile = null, refresh = false }) {
   const key = baseRunKey(baseCommit, command, nodeVersion);
-  const kept = await readJson(cachePath(root, key));
-  if (kept) return { ...kept, reused: true };
+  const kept = refresh ? null : await readJson(cachePath(root, key));
+  if (freshBaseRun(kept)) return { ...kept, reused: true };
   const holder = await mkdtemp(path.join(os.tmpdir(), 'sflow-base-run-'));
   const target = path.join(holder, 'base');
   let outcome;
@@ -176,7 +183,7 @@ export async function baseCheckFacts(root, config, workflow, phase, commandIds) 
     const { version } = await storyTestNode(root, path.join(root, command.workingDirectory ?? '.'));
     const key = baseRunKey(baseCommit, command, version);
     const kept = await readJson(cachePath(root, key));
-    if (kept) {
+    if (freshBaseRun(kept)) {
       const attempt = attempts.filter((entry) => entry.commandId === id).at(-1);
       const here = attempt && attempt.status !== 'passed' ? failedNames(attempt.occurrences) : [];
       // The verdict alone: its words name the base commit, which a person never reads.
@@ -185,7 +192,8 @@ export async function baseCheckFacts(root, config, workflow, phase, commandIds) 
       found.set(id, { status: 'checked', verdict });
     } else {
       const cut = await readJson(cutPath(root, key));
-      found.set(id, { status: 'unknown', ...(cut ? { cutShort: true, seconds: cut.within ?? null } : {}) });
+      // A kept run older than its day is asked again, never recommended from [limit audit, item 9].
+      found.set(id, { status: 'unknown', ...(kept ? { stale: true } : {}), ...(cut ? { cutShort: true, seconds: cut.within ?? null } : {}) });
     }
   }
   return found;

@@ -1257,7 +1257,8 @@ const PAGES = Object.freeze({
     ],
     options: [
       ['--reason TEXT', 'Why the change is needed. Required.'],
-      ['--to PHASE', 'Which phase to return to. Defaults to the phase under review.']
+      ['--to PHASE', 'Which phase to return to. Defaults to the phase under review.'],
+      ['--beyond-budget', 'One more rework round past a spent repair budget, granted by the person deciding the step and recorded as beyond it.']
     ],
     examples: [
       ['singularity-flow reject --reason "Acceptance criteria are ambiguous" --to requirements',
@@ -1358,7 +1359,7 @@ const PAGES = Object.freeze({
       ['singularity-flow tests run', 'Runs this capability\'s tests as a local preview and prints totals.'],
       ['singularity-flow tests run --command integration-tests --environment qa', 'Runs one command against qa.'],
       ['singularity-flow tests summary --json', 'Every test case of the latest run, with its requirement tags.'],
-      ['singularity-flow tests base --work-id ID', 'Runs each command once on the Story\'s base commit and says which failures here also fail without the change. Never evidence; kept per base commit, command and Node. The decision list runs it itself for a test-run risk before it recommends (--within SECONDS bounds it).'],
+      ['singularity-flow tests base --work-id ID', 'Runs each command once on the Story\'s base commit and says which failures here also fail without the change. Never evidence; kept per base commit, command and Node for a day (--refresh runs it again now). The decision list runs it itself for a test-run risk before it recommends (--within SECONDS bounds it).'],
       ['singularity-flow tests held --work-id ID', 'Lists the step\'s test runs held back because their last run may still be going, each with the process that holds it. A person who checked that process is not the run sets it aside in their own terminal with --command, --set-aside and the --confirm it prints. Nothing is ended.'],
       ['singularity-flow tests node --work-id ID --node 22', 'Runs each command once on another installed Node, on a throwaway copy of this checkout, and says whether it passes. Never evidence. A person pins it on the decision list, whose card runs this check itself before it asks (--within SECONDS bounds it).'],
       ['singularity-flow tests run --work-id PAY-12', 'Stages a local run of the current code step\'s tests.']

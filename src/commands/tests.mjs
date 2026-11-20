@@ -18,7 +18,7 @@ const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node', 'he
 const OPTIONS = Object.freeze({
   held: ['work-id', 'phase', 'command', 'set-aside', 'confirm', 'json'],
   plan: ['capability', 'work-id', 'phase', 'command', 'json'],
-  base: ['work-id', 'phase', 'command', 'within', 'json'],
+  base: ['work-id', 'phase', 'command', 'within', 'refresh', 'json'],
   node: ['work-id', 'phase', 'command', 'node', 'within', 'json'],
   run: ['capability', 'work-id', 'phase', 'command', 'environment', 'expect-command', 'json'],
   summary: ['capability', 'work-id', 'phase', 'run', 'latest', 'json']
@@ -682,7 +682,7 @@ export async function tryStoryBase(root, options) {
     const { version, versionFile } = await storyTestNode(root, cwd);
     const hereMessages = here.length ? await attemptFailureMessages(root, context.workflow.workItem.id, latest).catch(() => null) : null;
     const hereNode = latest?.environment?.toolchain?.node ?? latest?.environment?.nodeVersion?.node ?? null;
-    const result = await runOnBase(root, command, { baseCommit, nodeVersion: version, versionFile, within: seconds, gateRun: async (workspace) => {
+    const result = await runOnBase(root, command, { baseCommit, nodeVersion: version, versionFile, within: seconds, refresh: optionBoolean(options, 'refresh'), gateRun: async (workspace) => {
       if (deadline !== null && deadline - Date.now() < 1000) return { cutShort: true, why: `it did not start within ${seconds} seconds` };
       const bounded = boundedCommand(command, deadline);
       const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [bounded], { candidateRoot: await realpath(workspace), candidateIsOtherCode: true });

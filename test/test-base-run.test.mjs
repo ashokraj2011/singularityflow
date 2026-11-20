@@ -69,6 +69,15 @@ test('a base run its time cut short is noted, never kept as an answer, and the n
   assert.equal(full.status, 'failed');
   assert.ok((await readdir(kept)).includes(`${key}.json`), 'the full run is the answer kept');
   assert.equal((await runOnBase(root, command, { baseCommit, nodeVersion: '22.14.0', gateRun: async () => assert.fail('it ran twice') })).reused, true);
+  // A kept answer is good for a day: the machine's dependencies are not in its key, so an older one, or --refresh, runs
+  // again, never recommending from an environment fixed since [limit audit, item 9].
+  let ran = 0;
+  const again = async () => { ran += 1; return { check: { status: 'passed', exitCode: 0 }, parsed: null, reportError: null }; };
+  assert.equal((await runOnBase(root, command, { baseCommit, nodeVersion: '22.14.0', refresh: true, gateRun: again })).status, 'passed');
+  const file = path.join(kept, `${key}.json`);
+  await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, 'utf8')), at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() }));
+  assert.equal((await runOnBase(root, command, { baseCommit, nodeVersion: '22.14.0', gateRun: again })).reused, undefined, 'a day-old answer runs again');
+  assert.equal(ran, 2);
   assert.equal(spawnSync('git', ['worktree', 'list', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.match(/^worktree /gmu).length, 1, 'every throwaway worktree is removed');
 });
 

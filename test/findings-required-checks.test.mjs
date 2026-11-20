@@ -64,10 +64,19 @@ test("each required check's result on the submitted commit is read through gh, a
   const settled = story(['CodeQL', 'SonarCloud Code Analysis']);
   await requiredCheckEvidence(root, {}, settled, { commit: COMMIT, runCommand: gh.runCommand });
   const asked = gh.calls.length;
+  await requiredCheckEvidence(root, {}, settled, { commit: COMMIT, runCommand: gh.runCommand, at: new Date(Date.now() + 5 * 60_000).toISOString() });
+  assert.equal(gh.calls.length, asked, 'a completed read is kept for a while');
+  // A failed check can be re-run on the same commit: after ten minutes it is read again, never shown as failed for good
+  // [limit audit, item 9]. Checks that all passed stay kept.
   await requiredCheckEvidence(root, {}, settled, { commit: COMMIT, runCommand: gh.runCommand, at: new Date(Date.now() + 3_600_000).toISOString() });
-  assert.equal(gh.calls.length, asked, 'completed runs do not change');
-  await requiredCheckEvidence(root, {}, settled, { commit: COMMIT, runCommand: gh.runCommand, refresh: true });
-  assert.ok(gh.calls.length > asked, 'refresh asks anyway');
+  assert.ok(gh.calls.length > asked, 'a failed check is asked again');
+  const passed = story(['CodeQL']);
+  await requiredCheckEvidence(root, {}, passed, { commit: COMMIT, runCommand: gh.runCommand });
+  const passedAsked = gh.calls.length;
+  await requiredCheckEvidence(root, {}, passed, { commit: COMMIT, runCommand: gh.runCommand, at: new Date(Date.now() + 3_600_000).toISOString() });
+  assert.equal(gh.calls.length, passedAsked, 'passed runs are kept');
+  await requiredCheckEvidence(root, {}, passed, { commit: COMMIT, runCommand: gh.runCommand, refresh: true });
+  assert.ok(gh.calls.length > passedAsked, 'refresh asks anyway');
 });
 
 test('a required check that cannot be read is said, and blocks nothing; no required checks, nothing to say', async (t) => {

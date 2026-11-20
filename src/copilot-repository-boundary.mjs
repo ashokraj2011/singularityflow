@@ -1,7 +1,8 @@
 /** Explicit-turn discovery and mutation interception; not a filesystem sandbox. */
 import { createHash, randomUUID } from 'node:crypto';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { lstat, mkdir, readFile, rename, rm, stat as fileStat, unlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
 import { copilotModeFile, copilotTurnDirectory, hookCliLine, mentionsHookCli, readCopilotMode, TURN_WINDOW_MS, turnWindowStart, withTurnRenewal } from './copilot-mode.mjs';
@@ -9,6 +10,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { nearestNames, platformPathWithin, sentenceList } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { copilotHome } from './copilot-home.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { confirmCodesIn, resolveConfirmCode } from './confirm-code.mjs';
 import { noteActivity } from './machine-activity.mjs';
@@ -50,21 +52,98 @@ export function explicitSflowSkill(prompt) {
 }
 
 /**
- * A typed `/sf-<word>` no SFlow skill has: never a turn under the typo's name, which started a read turn for /sf-mext and
- * sent the model to the gateway [owner, 2026-11-20, hardening C]. Says so, with the nearest skill names to type again.
- * Null for a known skill, a host-expanded one (the host found it), or when the installed skills cannot be listed.
+ * A typed `/sf-<word>` no skill has: never a turn under the typo's name, which started a read turn for /sf-mext and sent
+ * the model to the gateway [owner, 2026-11-20, hardening C]. Says so, with the nearest SFlow skill names to type again.
+ *
+ * Held only when the name is in none of the places Copilot loads a skill, prompt or agent from for this repository and
+ * person (skillSources): SFlow's own skills, the repository's (.github/skills, .github/prompts, .github/agents,
+ * singularity/agents, skills/ and every `.<tool>/skills`), the person's (Copilot's skills folder with SFlow's direct
+ * aliases, ~/.claude/skills) and every installed plugin's. A team's own `/sf-team-thing` is a turn as before. Any place
+ * that exists but cannot be read fails open: nothing is held. A host-expanded skill (the host found it) is never held.
  */
-export function unknownSkillReason(prompt, skill, { skillsRoot = path.join(PACKAGE_ROOT, 'plugin', 'skills') } = {}) {
+export function unknownSkillReason(prompt, skill, { skillsRoot = path.join(PACKAGE_ROOT, 'plugin', 'skills'), cwd = process.cwd(), env = process.env,
+  homeDirectory = os.homedir() } = {}) {
   if (!skill || /<skill-context\s/u.test(String(prompt ?? ''))) return null;
-  let known;
-  try {
-    known = readdirSync(skillsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name.startsWith('sflow-'))
-      .map((entry) => entry.name.slice('sflow-'.length));
-  } catch { return null; }
   const word = skill.replace(/^(?:sf|sflow)-/u, '');
-  if (!known.length || known.includes(word)) return null;
-  const near = nearestNames(word, known).map((name) => `/sf-${name}`);
+  const own = namesIn(skillsRoot, { folders: true });
+  if (!own || !own.length) return null;
+  const sflow = own.filter((name) => name.startsWith('sflow-')).map((name) => name.slice('sflow-'.length));
+  if (sflow.includes(word)) return null;
+  // The rare case only: an SFlow skill's name was not typed, so every other place is read before anything is held.
+  const wanted = new Set([skill, `sf-${word}`, `sflow-${word}`]);
+  const sources = skillSources({ cwd, env, homeDirectory });
+  if (!sources) return null;
+  for (const directory of sources) {
+    const names = namesIn(directory, { folders: true, files: true });
+    if (names === null || names.some((name) => wanted.has(name))) return null;
+  }
+  const near = nearestNames(word, sflow).map((name) => `/sf-${name}`);
   return `No SFlow command /${skill}.${near.length ? ` Did you mean ${sentenceList(near)}?` : ' /sf-help lists them.'} Type it again with the right name; nothing was run.`;
+}
+
+/** The repository the prompt came from: the nearest folder above `cwd` with a `.git`, else `cwd` itself. */
+function repositoryFolder(cwd) {
+  for (let folder = path.resolve(cwd); ; folder = path.dirname(folder)) {
+    if (existsSync(path.join(folder, '.git'))) return folder;
+    if (path.dirname(folder) === folder) return path.resolve(cwd);
+  }
+}
+
+/** A folder's entries; [] when it is not there; null when it is there but cannot be read (the caller fails open). */
+function entriesOf(directory) {
+  try { return readdirSync(directory, { withFileTypes: true }); }
+  catch (error) { return ['ENOENT', 'ENOTDIR'].includes(error?.code) ? [] : null; }
+}
+
+/**
+ * Every folder Copilot loads a skill, prompt or agent from, besides SFlow's own: the repository's, the person's and plugins'.
+ * Null when one that holds them cannot be listed.
+ */
+export function skillSources({ cwd = process.cwd(), env = process.env, homeDirectory = os.homedir() } = {}) {
+  const repository = repositoryFolder(cwd);
+  const top = entriesOf(repository);
+  if (!top) return null;
+  const tools = top.filter((entry) => entry.isDirectory() && entry.name.startsWith('.') && !['.git', '.sflow'].includes(entry.name))
+    .flatMap((entry) => ['skills', 'prompts', 'agents'].map((kind) => path.join(repository, entry.name, kind)));
+  const copilot = copilotHome({ env, homeDirectory });
+  // Copilot's personal skills, where `plugin install` writes SFlow's /sf- aliases too (direct-skills.mjs copilotSkillsDirectory).
+  const personal = String(env.SINGULARITY_FLOW_COPILOT_SKILLS_DIR ?? '').trim() ? path.resolve(env.SINGULARITY_FLOW_COPILOT_SKILLS_DIR) : path.join(copilot, 'skills');
+  // Every installed plugin's skills: Copilot's installed-plugins/<source>/<plugin>/skills.
+  const plugins = [];
+  const installed = path.join(copilot, 'installed-plugins');
+  const sourcesOf = entriesOf(installed);
+  if (!sourcesOf) return null;
+  for (const source of sourcesOf.filter((entry) => entry.isDirectory())) {
+    const each = entriesOf(path.join(installed, source.name));
+    if (!each) return null;
+    for (const plugin of each.filter((entry) => entry.isDirectory())) plugins.push(path.join(installed, source.name, plugin.name, 'skills'));
+  }
+  return [...new Set([path.join(repository, 'skills'), path.join(repository, 'singularity', 'agents'), ...tools,
+    personal, path.join(copilot, 'prompts'), path.join(copilot, 'agents'), path.join(homeDirectory, '.claude', 'skills'), ...plugins])];
+}
+
+/**
+ * The names one folder offers: each folder's name and its SKILL.md `name:`, each file's name without `.prompt.md`,
+ * `.agent.md`, `.chatmode.md` or `.md`. An empty list when the folder is not there; null when it is there but cannot be read.
+ */
+function namesIn(directory, { folders = false, files = false } = {}) {
+  const entries = entriesOf(directory);
+  if (!entries) return null;
+  const names = [];
+  for (const entry of entries) {
+    if (entry.isDirectory() && folders) {
+      names.push(entry.name);
+      if (!files) continue;
+      let text = null;
+      try { text = readFileSync(path.join(directory, entry.name, 'SKILL.md'), 'utf8'); }
+      catch (error) { if (!['ENOENT', 'ENOTDIR'].includes(error?.code)) return null; }
+      const declared = text?.match(/^name:\s*["']?([^"'\r\n]+?)["']?\s*$/mu)?.[1];
+      if (declared) names.push(declared.trim());
+    } else if ((entry.isFile() || entry.isSymbolicLink()) && files && /\.md$/u.test(entry.name)) {
+      names.push(entry.name.replace(/(?:\.(?:prompt|agent|chatmode))?\.md$/u, ''));
+    }
+  }
+  return names;
 }
 
 /** Only the complete review invocation opts into completion; explicit stage/check/status are single steps. */
@@ -249,7 +328,7 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
       && [payload.parentAgentId, payload.parent_agent_id, sessionId(payload)].filter(Boolean)[0] === sessionId(payload)) return {};
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
   // A typo of a skill's name is said back to the person, never run as a turn of its own.
-  const unknown = reviewerSubagent ? null : unknownSkillReason(payload.prompt, skill);
+  const unknown = reviewerSubagent ? null : unknownSkillReason(payload.prompt, skill, { cwd: typeof payload.cwd === 'string' && payload.cwd ? payload.cwd : process.cwd() });
   if (unknown) {
     await removeRecord(file);
     await removeMutationRecord(file);

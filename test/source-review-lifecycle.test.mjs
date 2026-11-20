@@ -270,8 +270,15 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
   const stale = structuredClone(report); stale.binding.generation = 9;
   await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(stale)), { code: 'SOURCE_REVIEW_REPORT_INVALID' });
   assert.deepEqual(JSON.parse(await readFile(staged.stagingPath, 'utf8')), stale);
+  // A wrong line under an unchanged quote on one line: SFlow sets it before staging, as the check does (owner, 2026-11-20).
+  const wrongLine = structuredClone(report);
+  wrongLine.rows[0].line = 999;
+  const moved = await stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(wrongLine));
+  assert.equal(moved.retentionReady, true);
+  assert.deepEqual(moved.corrected, [{ field: 'rows[0].line', from: 999, to: report.rows[0].line }]);
+  assert.deepEqual(await readFile(staged.stagingPath), bytes, 'the staged draft is the review with its line set');
   const badCitation = structuredClone(report);
-  badCitation.rows[0].line = 999;
+  badCitation.rows[0].quote = `${report.rows[0].quote} (paraphrased)`;
   await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(badCitation)), error => {
     assert.equal(error.code, 'SOURCE_REVIEW_REPORT_INVALID');
     assert.match(error.message, /The review draft is staged at .*, but it cannot be retained yet: repair the listed fields in that file with your file-edit tool, then run singularity-flow review-source check specification --report-file /u);
@@ -279,7 +286,8 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
     assert.equal(error.details.stagingPath, staged.stagingPath);
     assert.equal(error.details.repair.status, 'repair-packet');
     assert.equal(error.details.repair.citations[0].field, 'rows[0]');
-    assert.equal(error.details.repair.citations[0].proposedEdit.value, report.rows[0].line);
+    assert.equal(error.details.repair.citations[0].matchCount, 0, 'a quote the reviewer changed is the reviewer\'s to repair');
+    assert.equal(error.details.corrected, undefined);
     return true;
   });
   assert.deepEqual(JSON.parse(await readFile(staged.stagingPath, 'utf8')), badCitation, 'the draft is staged for check and repair');

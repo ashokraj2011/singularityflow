@@ -18,10 +18,11 @@ const ANSWER_STATES = Object.freeze(['record-answers', 'refresh-entry']);
 async function reserveTaskContinuation(value, operation) {
   if (!operation.operationId) return true; // Compatibility with older issued prompts.
   const { reserveWorkflowTaskContinuation } = await import('./workflow-task-store.mjs');
+  // Per request: the turn this stop ends has its own budget; a new request starts fresh [owner, 2026-11-20].
   const reserved = await reserveWorkflowTaskContinuation(value.contract.repositoryRoot, operation.operationId, {
     workId: operation.workId, phaseId: operation.phaseId, generation: operation.generation,
     role: operation.kind === 'phase-authoring' ? 'author' : 'source-reviewer'
-  });
+  }, { request: typeof value.turnId === 'string' && value.turnId ? `${value.sessionId ?? ''}:${value.turnId}` : null });
   return reserved.allowed;
 }
 

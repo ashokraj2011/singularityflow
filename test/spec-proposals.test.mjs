@@ -225,6 +225,31 @@ test('a cited fact is verified when staged and again when accepted; an uncited o
   assert.equal(refused(root, ['spec', 'author', 'accept', SPEC, 'P-004']).code, 'SPEC_PROPOSAL_STALE', 'a span that changed since it was proposed is not accepted');
 });
 
+test('a one-line research citation whose quote is on exactly one other line is cited there by SFlow, with a note; two lines or a wider span stay the proposer\'s (owner, 2026-11-20)', async (t) => {
+  const { root, directory } = await repository(t);
+  await readySpec(root, directory);
+  const lines = PRICING.split('\n');
+  const rule = lines.findIndex((line) => line.includes('total >= DISCOUNT_THRESHOLD')) + 1;
+  const repeated = lines.map((line, index) => (line.includes('const total = subtotal(cart.lines);') ? index + 1 : 0)).filter(Boolean);
+  assert.equal(repeated.length, 2);
+  const twice = await propose(root, directory, { proposals: [{ kind: 'research', summary: 'The total is the subtotal.',
+    citation: { path: 'src/pricing.mjs', lines: [1, 1], quote: 'const total = subtotal(cart.lines);' } }] }, 'twice.json', { fail: true });
+  assert.match(twice.details.findings[0].message, new RegExp(`it is on lines ${repeated.join(', ')}: cite the one you mean`, 'u'));
+  const wide = await propose(root, directory, { proposals: [{ kind: 'research', summary: 'The discount starts at the threshold.',
+    citation: { path: 'src/pricing.mjs', lines: [1, 2], quote: 'total >= DISCOUNT_THRESHOLD' } }] }, 'wide.json', { fail: true });
+  assert.match(wide.details.findings[0].message, new RegExp(`it is on line ${rule}: cite lines \\[${rule}, ${rule}\\]`, 'u'), 'a span is the proposer\'s to narrow');
+  assert.deepEqual(status(root).proposals, []);
+
+  const staged = await propose(root, directory, { proposals: [{ kind: 'research', summary: 'The discount starts at the threshold.',
+    citation: { path: 'src/pricing.mjs', lines: [rule - 1, rule - 1], quote: 'total >= DISCOUNT_THRESHOLD' } }] });
+  assert.deepEqual(staged.staged, ['P-001']);
+  assert.deepEqual(staged.notes, [`SFlow cited line ${rule}, the one line its quote is on, not line ${rule - 1}`]);
+  const [proposal] = status(root).proposals;
+  assert.deepEqual([proposal.citation.lines, proposal.verified, proposal.notes], [[rule, rule], true, staged.notes]);
+  const { results } = json(root, ['spec', 'author', 'accept', SPEC, 'P-001']);
+  assert.equal(status(root).researchItems.find((item) => item.id === results['P-001']).standing, 'current');
+});
+
 test('assisted findings are pending as soon as Copilot stages them, block a reviewed publication, and are settled only by the person (SPA:AC-024, AC-006)', async (t) => {
   const { root, directory } = await repository(t);
   await readySpec(root, directory);

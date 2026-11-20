@@ -319,7 +319,20 @@ export async function repositoryToolGuard(payload = {}) {
     await (await import('./review-subagent.mjs')).noteReviewerLaunch(payload, path.join(path.dirname(copilotModeFile()), 'copilot-boundaries')).catch(() => {});
   }
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolCall(payload, decision, { directory, explicitTurn }));
+  if (decision.permissionDecision !== 'deny') await noteAgentCalls(payload);
   return decision;
+}
+
+/**
+ * Each SFlow `--for-agent` command an allowed call is about to run, noted, so its post-tool hook never takes a result
+ * kept before it for this call's (unread-result.mjs) [owner, 2026-11-20]. A failure here never changes the answer.
+ */
+async function noteAgentCalls(payload) {
+  try {
+    const text = JSON.stringify(payload.toolCalls ?? payload.toolArgs ?? payload.tool_input ?? '');
+    if (!/(?:singularity-flow|sflow)\b/u.test(text) || !text.includes('--for-agent') || readCopilotMode().paused) return;
+    (await import('./unread-result.mjs')).noteAgentCalls(payload);
+  } catch { /* Best effort. */ }
 }
 
 async function turnToolGuard(payload) {

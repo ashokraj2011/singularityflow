@@ -259,7 +259,9 @@ export function workflowTaskResume(workflow, phase, { role = 'author', generatio
       : state === 'inspect-interrupted-operation' ? ['inspect-outcome'] : state === 'validate-draft' ? ['validate', 'repair-if-needed', 'publish']
       : state === 'repair-draft' ? ['repair', 'validate', 'publish'] : state === 'repair-report' ? ['repair', 'check', 'retain']
         : role === 'author' ? ['author', 'validate', 'repair-if-needed', 'publish'] : ['author-report', 'check', 'repair-if-needed', 'retain'],
-    continuationBudget: { consumed: record?.continuations ?? 0, maximum: record?.maximumContinuations ?? 3 },
+    // Per request [owner, 2026-11-20]: what this request may still spend, never an earlier chat's claims (task-wide
+    // continuations stay in the record). A new chat read 2/2 here as "the repair limit is exhausted" and ran no check.
+    continuationBudget: { consumed: 0, maximum: record?.maximumContinuations ?? 3 },
     repairConsumed: record?.repairConsumed ?? 0,
     repairConditions: { observed: record?.conditions.length ?? 0, resetOnNewChat: false },
     instruction: 'Resume from fresh kernel facts and exact newly issued local paths. Read the instructions this chat needs; a previous chat reading them is not current context. Progress never grants evidence, consent or authority. Observe an interrupted operation before any replay. Local drafts and attachments require explicit handoff or re-upload.' };

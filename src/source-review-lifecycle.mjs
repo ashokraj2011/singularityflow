@@ -24,7 +24,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { documentMimeType, effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding, sourceReviewScenarioIds } from './source-grounded-review.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
-import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide } from './source-review-contract.mjs';
+import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide, sourceReviewCitationCorrections, sourceReviewCorrectionWords } from './source-review-contract.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
 import { committedSourceReviewFile, prefetchSourceReviewFiles, sharedSourceReviewInput,
   sharedSourceReviewProvenance, sourceReviewProvenanceObjects, withSourceReviewSnapshot } from './source-review-snapshot.mjs';
@@ -1192,6 +1192,35 @@ export function checkSourceReviewReport(report, input) {
     findings: [...format.findings, ...bindingAndCitationFindings],
     disclaimer: 'This read-only check grants no reviewer provenance, human disposition, phase submission or approval.' };
   return { ...checked, repair: sourceReviewRepairGuide(report, input, checked) };
+}
+
+/**
+ * The check after SFlow sets what the packet's own quotes fix exactly (sourceReviewCitationCorrections): `{ report,
+ * checked, corrected, correctedWords }`, the report a copy with those values, `corrected` its `[{ field, from, to }]`
+ * and `correctedWords` that in the person's words. Nothing else in the packet changes; with nothing to correct, the
+ * report and check are returned as they are.
+ */
+export function correctSourceReviewReport(report, input) {
+  const checked = checkSourceReviewReport(report, input);
+  const corrected = sourceReviewCitationCorrections(report, input, checked);
+  if (!corrected.length) return { report, checked, corrected, correctedWords: null };
+  const next = withFieldValues(report, corrected);
+  return { report: next, checked: checkSourceReviewReport(next, input), corrected, correctedWords: sourceReviewCorrectionWords(corrected) };
+}
+
+/** A field selector's keys and indexes: `rows[2].tests[0].line` is ['rows', 2, 'tests', 0, 'line']. */
+export const fieldTrail = (field) => String(field).split(/\.|(?=\[)/u).filter(Boolean)
+  .map((part) => (/^\[\d+\]$/u.test(part) ? Number(part.slice(1, -1)) : part));
+
+/** A copy of `value` with each `{ field, to }` set. */
+export function withFieldValues(value, edits) {
+  const copy = structuredClone(value);
+  for (const { field, to } of edits) {
+    const trail = fieldTrail(field);
+    const parent = trail.slice(0, -1).reduce((node, key) => node?.[key], copy);
+    if (parent && typeof parent === 'object') parent[trail.at(-1)] = to;
+  }
+  return copy;
 }
 
 /** Validate reviewer session provenance before an immutable sidecar is written. */

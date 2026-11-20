@@ -290,6 +290,7 @@ export async function verifyCopilotFindings(root, { workflow: workflowId, input 
   const { moveForEdit } = await import('./checks.mjs');
   const accepted = [];
   const refused = [];
+  const corrected = [];
   list.forEach((entry, index) => {
     const refuse = (reason, repair) => refused.push({ index, step: entry?.step ?? null, file: entry?.file ?? null, line: entry?.line ?? null, reason, repair });
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return refuse('A finding is an object.', 'Write { step, file, line, quote, kind, why }.');
@@ -312,15 +313,22 @@ export async function verifyCopilotFindings(root, { workflow: workflowId, input 
       const match = pattern.exec(layer.source.text.slice(offset));
       return match && !layer.source.text.slice(offset, offset + match.index).includes('\n') ? { start: offset + match.index, end: offset + match.index + match[0].length } : null;
     };
-    const span = startsOn(entry.line);
+    let line = entry.line;
+    let moved = null;
+    let span = startsOn(line);
     if (!span) {
-      const actual = lines.findIndex((_, at) => startsOn(at + 1)) + 1;
-      if (actual) return refuse(`The quote is not at ${entry.file} line ${entry.line}; it starts on line ${actual}.`, `Set line to ${actual}.`);
-      return refuse(`The quote is not in ${entry.file}.`, 'Copy the text exactly as --read shows it, without its line numbers, and the line it starts on.');
+      // The one line the quote starts on is SFlow's to set; on several, the finding names which (owner, 2026-11-20).
+      const starts = [];
+      for (let at = 1; at <= lines.length && starts.length < 10; at++) if (startsOn(at)) starts.push(at);
+      if (starts.length > 1) return refuse(`The quote is not at ${entry.file} line ${entry.line}; it starts on lines ${starts.join(', ')}.`, 'Set line to the one you mean, or quote more of the text so it occurs once.');
+      if (!starts.length) return refuse(`The quote is not in ${entry.file}.`, 'Copy the text exactly as --read shows it, without its line numbers, and the line it starts on.');
+      moved = { field: `findings[${index}].line`, from: entry.line ?? null, to: starts[0] };
+      line = starts[0];
+      span = startsOn(line);
     }
     const sentences = layer.source.sentences.filter((sentence) => sentence.end > span.start && sentence.start < span.end);
     if (sentences.length && sentences.every((sentence) => sentence.owner === 'sflow')) return refuse('That text is SFlow\'s own (it ships with SFlow); it changes with SFlow, not here.', 'Judge only your team\'s text.');
-    const same = found.find((finding) => finding.location?.file === entry.file && finding.location?.line === entry.line && finding.steps.includes(step.id));
+    const same = found.find((finding) => finding.location?.file === entry.file && finding.location?.line === line && finding.steps.includes(step.id));
     if (same && same.kind === entry.kind) return refuse(`SFlow already found this: ${same.id} (${same.title}).`, 'Leave it out; it is in the assessment already.');
     let moves = [];
     if (entry.rewrite != null) {
@@ -329,14 +337,16 @@ export async function verifyCopilotFindings(root, { workflow: workflowId, input 
       if (!result.move) return refuse(result.blocked ?? 'The quote cannot be changed by a move.', result.repair ?? 'Quote more of the text around it, so it occurs once.');
       moves = [result.move];
     }
-    const id = `cf-${createHash('sha256').update(JSON.stringify([workflowId, step.id, entry.file, entry.line, quote, entry.kind])).digest('hex').slice(0, 12)}`;
+    if (moved) corrected.push(moved);
+    const id = `cf-${createHash('sha256').update(JSON.stringify([workflowId, step.id, entry.file, line, quote, entry.kind])).digest('hex').slice(0, 12)}`;
     accepted.push({ id, by: 'copilot', label: 'Copilot\'s finding', authority: 'suggestion', kind: entry.kind, severity: entry.severity ?? 'note', steps: [step.id],
-      title: normalized(entry.why).split(/(?<=[.!?])\s+/u)[0].slice(0, 160), detail: normalized(entry.why), location: { file: entry.file, line: entry.line }, quote,
+      title: normalized(entry.why).split(/(?<=[.!?])\s+/u)[0].slice(0, 160), detail: normalized(entry.why), location: { file: entry.file, line }, quote,
       suggestion: { text: moves.length ? (entry.rewrite ? `Replace it with: "${normalized(entry.rewrite).slice(0, 200)}"` : 'Take it out.') : 'A person decides what to change.', decidedBy: 'person', moves,
         ...(moves.length ? { saving: { bytes: (bytesOf(moves[0].old ?? moves[0].edit?.old) - bytesOf(moves[0].new ?? moves[0].edit?.new ?? '')), tokens: Math.round((bytesOf(moves[0].old ?? moves[0].edit?.old) - bytesOf(moves[0].new ?? moves[0].edit?.new ?? '')) / 4) } } : {}) } });
   });
   return { schemaVersion: 1, resultType: 'workflow-assessment-verify', workflow: workflowId, accepted, refused,
     counts: { accepted: accepted.length, refused: refused.length },
+    ...(corrected.length ? { corrected, correctedWords: `SFlow moved ${corrected.length === 1 ? 'a finding\'s line number to the line its quote starts' : `${corrected.length} findings' line numbers to the lines their quotes start`} on.` } : {}),
     said: refused.length ? 'Repair each refused finding as its repair says, and verify again in this turn; then show the person the accepted ones, labelled as Copilot\'s.'
       : 'Every finding is checked. Show them to the person as Copilot\'s suggestions; a person accepts or declines each.' };
 }

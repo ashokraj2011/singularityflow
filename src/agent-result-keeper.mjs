@@ -111,6 +111,37 @@ export function keepAgentResult(run, text, { now = Date.now(), view = null } = {
   } catch { /* Best effort: the command's own output is unchanged. */ }
 }
 
+const CALL_SCHEMA = 'sflow-agent-call@1';
+const CALLS_KEPT = 20;
+// A call noted longer ago than this says nothing about the results there are now.
+const CALL_STALE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Note that an agent's tool call is about to run `command` from `cwd` (the pre-tool hook, unread-result.mjs), so a
+ * result kept before it is never taken for this call's [owner, 2026-11-20]. A new chat's `review-source check` of a
+ * corrected packet was answered with the earlier check of the uncorrected one, byte for byte, as "SFlow kept it ...
+ * never run the command again": the host showed no output, and the newest kept result of the same command words was
+ * an earlier run's. Best effort, like keeping: it never fails or slows the call.
+ */
+export function noteAgentCall(command, { cwd = process.cwd(), env = process.env, now = Date.now() } = {}) {
+  try {
+    const directory = path.join(agentResultsDirectory(cwd, env), 'calls');
+    const text = agentCommandText(String(command).trim().replace(/^(?:singularity-flow|sflow)(?:\s+|$)/u, '').split(/\s+/u).filter(Boolean));
+    writePrivate(path.join(directory, `${String(now).padStart(15, '0')}-${createHash('sha256').update(text).digest('hex').slice(0, 16)}.json`),
+      `${JSON.stringify({ schema: CALL_SCHEMA, command: text, at: new Date(now).toISOString() })}\n`);
+    const names = readdirSync(directory).filter((name) => name.endsWith('.json')).sort();
+    for (const name of names.slice(0, Math.max(0, names.length - CALLS_KEPT))) rmSync(path.join(directory, name), { force: true });
+  } catch { /* Best effort. */ }
+}
+
+/** When the newest noted call of a command matching `wanted` started, as epoch ms, or null. */
+function noteOfCall(directory, wanted, now) {
+  const notes = entries(path.join(directory, 'calls'), CALL_SCHEMA).map(({ value }) => value)
+    .filter((value) => wanted(value) && now - Date.parse(value.at) < CALL_STALE_MS);
+  const newest = Math.max(...notes.map((value) => Date.parse(value.at)).filter(Number.isFinite));
+  return Number.isFinite(newest) ? newest : null;
+}
+
 function alive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); return true; } catch (error) { return error?.code === 'EPERM'; }
@@ -124,32 +155,43 @@ const brief = ({ command, startedAt, finishedAt }) => ({ command, startedAt, ...
  * waiting up to `wait` seconds for every command of the checkout still running.
  * `{ status: 'kept', kept, others }` · `{ status: 'running', running }` (still running when the wait
  * ended) · `{ status: 'interrupted', interrupted }` (a newer command ended without keeping a result)
- * · `{ status: 'none' }`.
+ * · `{ status: 'none', since? }`. With `command`, a result kept before that command's newest noted call
+ * (noteAgentCall) is an earlier run's, never that call's: only one started since then is returned, and
+ * `since` says from when; `arrival` seconds are waited at most for that call's run to start [owner, 2026-11-20].
  */
-export async function lastAgentResult({ cwd = process.cwd(), env = process.env, wait = 0, command = null,
+export async function lastAgentResult({ cwd = process.cwd(), env = process.env, wait = 0, arrival = 0, command = null,
   clock = () => Date.now(), sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   const directory = agentResultsDirectory(cwd, env);
   const deadline = clock() + Math.max(0, wait) * 1000;
-  const markers = () => entries(path.join(directory, 'running'), RUNNING_SCHEMA);
+  const arrived = clock() + Math.max(0, wait, arrival) * 1000;
   // The words as an agent copies them, executable and option values included, name the same command: "<its words>"
   // with `singularity-flow` before them, or a --work-id value, matched nothing and lost a kept result (2026-11-11).
   const asked = command ? agentCommandText(String(command).trim().replace(/^(?:singularity-flow|sflow)(?:\s+|$)/u, '').split(/\s+/u).filter(Boolean)) : null;
   const wanted = (entry) => !asked || entry.command === asked || entry.command.startsWith(`${asked} `);
+  // A second of slack: the call is noted just before the command starts, on the same machine.
+  const noted = asked ? noteOfCall(directory, wanted, clock()) : null;
+  const since = noted === null ? null : noted - 1000;
+  const current = (value) => since === null || Date.parse(value.startedAt) >= since;
+  const markers = () => entries(path.join(directory, 'running'), RUNNING_SCHEMA);
+  const keptNow = () => entries(path.join(directory, 'kept'), KEPT_RESULT_SCHEMA).sort((a, b) => (a.file < b.file ? 1 : -1)).map(({ value }) => value);
+  // The noted call's own run may not have started yet: wait (within `wait`, or `arrival`) for it to start or keep a result.
+  while (since !== null && clock() < arrived && !markers().some(({ value }) => wanted(value) && current(value))
+    && !keptNow().some((value) => wanted(value) && current(value))) await sleep(Math.min(250, Math.max(1, deadline - clock())));
   let active = markers().filter(({ value }) => runningNow(value, clock()));
   while (active.length && clock() < deadline) {
     await sleep(Math.min(500, Math.max(1, deadline - clock())));
     active = markers().filter(({ value }) => runningNow(value, clock()));
   }
   if (active.length) return { status: 'running', running: active.map(({ value }) => brief(value)) };
-  const kept = entries(path.join(directory, 'kept'), KEPT_RESULT_SCHEMA).sort((a, b) => (a.file < b.file ? 1 : -1)).map(({ value }) => value);
+  const kept = keptNow().filter(current);
   // Every marker left now is a command that ended; one without a kept result was interrupted or killed.
   const ended = markers().filter(({ value }) => !runningNow(value, clock()));
   for (const { file } of ended) rmSync(file, { force: true });
   const newest = kept.find(wanted) ?? null;
-  const interrupted = ended.map(({ value }) => value).filter((value) => !kept.some((entry) => entry.id === value.id)).filter(wanted)
+  const interrupted = ended.map(({ value }) => value).filter((value) => !kept.some((entry) => entry.id === value.id)).filter(wanted).filter(current)
     .filter((value) => !newest || Date.parse(value.startedAt) > Date.parse(newest.finishedAt))
     .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
   if (interrupted) return { status: 'interrupted', interrupted: brief(interrupted) };
-  if (!newest) return { status: 'none' };
+  if (!newest) return { status: 'none', ...(since !== null ? { since: new Date(noted).toISOString() } : {}) };
   return { status: 'kept', kept: newest, others: kept.filter((entry) => entry !== newest).map(brief) };
 }

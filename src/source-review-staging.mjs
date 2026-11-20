@@ -79,18 +79,23 @@ export async function readSourceReviewIncomplete(stagingPath) {
 }
 
 /**
- * Note a checked packet: `checked` is the check's result, `reportSha256` the packet's digest. A packet that can be
- * retained clears the record; one that cannot is kept with its reason. Returns the record, or null once cleared.
+ * Note a checked packet: `checked` is the check's result, `reportSha256` the digest of the packet as the reviewer left
+ * it, `writtenSha256` that of the packet SFlow wrote in its place when it set citation lines itself. A packet that can
+ * be retained clears the record; one that cannot is kept with its reason. Returns the record, or null once cleared.
+ * SFlow's own write is never a repair attempt [owner, 2026-11-20]: a packet it wrote, checked again unchanged, counts
+ * nothing, so a spent budget never stops SFlow correcting and retaining what it can.
  */
-export async function noteSourceReviewAttempt(root, stagingPath, { phaseId, generation, checked, reportSha256 }) {
+export async function noteSourceReviewAttempt(root, stagingPath, { phaseId, generation, checked, reportSha256, writtenSha256 = null }) {
   const target = sourceReviewIncompletePath(stagingPath);
   if (checked.retentionReady) { await rm(target, { force: true }).catch(() => {}); return null; }
   const previous = await readSourceReviewIncomplete(stagingPath);
-  const attempts = [...new Set([...(previous?.attempts ?? []), reportSha256].filter(Boolean))].slice(-16);
+  const written = [...new Set([...(previous?.sflowWritten ?? []), writtenSha256].filter(Boolean))].slice(-16);
+  const counted = previous?.sflowWritten?.includes(reportSha256) ? null : reportSha256;
+  const attempts = [...new Set([...(previous?.attempts ?? []), counted].filter(Boolean))].slice(-16);
   const findings = (checked.findings ?? []).slice(0, 8).map((entry) => ({ code: entry.code ?? null, field: entry.field ?? null,
     message: String(entry.message ?? '').slice(0, 300) }));
   const record = { phase: phaseId, generation: Number(generation), at: new Date().toISOString(), attempts,
-    budgetSpent: attempts.length > SOURCE_REVIEW_REPAIRS,
+    ...(written.length ? { sflowWritten: written } : {}), budgetSpent: attempts.length > SOURCE_REVIEW_REPAIRS,
     reason: `${checked.findings?.length ?? 0} field${checked.findings?.length === 1 ? '' : 's'} still to repair: ${findings.slice(0, 3).map((entry) => `${entry.field ?? entry.code}: ${entry.message}`).join('; ')}`.slice(0, 900),
     findings };
   await writeStagingFile(root, target, `${JSON.stringify(record, null, 2)}\n`);
@@ -104,11 +109,106 @@ export async function startSourceReviewTurn(root, stagingPath) {
   await writeStagingFile(root, sourceReviewIncompletePath(stagingPath), `${JSON.stringify({ ...previous, attempts: [], budgetSpent: false }, null, 2)}\n`);
 }
 
-/** What a check result says when this review turn's repairs are spent: the record, the draft kept, the way on. */
+/**
+ * What a check result says when this review turn's repairs are spent: the record, the draft kept, and the way on,
+ * which is a fresh review turn (its context starts a new repair budget), never the same check of unchanged bytes
+ * again: a new chat offered only that check, which failed the same way [owner, 2026-11-20].
+ */
 export function sourceReviewBudgetSpent(phaseId, stagingPath, record) {
   if (!record?.budgetSpent) return null;
   return { recorded: true, stagingPath, reason: record.reason,
-    instruction: `This review turn's ${SOURCE_REVIEW_REPAIRS} repairs are spent and the report still cannot be retained (${record.reason}). The draft stays staged at ${stagingPath} and review-source status records the review as incomplete. End this review turn with that status and the remaining fields; a fresh review turn (/sf-review-source ${phaseId}, or the reviewer started again) resumes the draft with a new repair budget. Never retry an unchanged packet.` };
+    nextAction: safeCommandGuidance({ argv: ['review-source', 'context', phaseId, '--for-agent', '--json'] }),
+    instruction: `This review turn's ${SOURCE_REVIEW_REPAIRS} repairs are spent and the report still cannot be retained (${record.reason}). The draft stays staged at ${stagingPath} and review-source status records the review as incomplete. End this review turn with that status and the remaining fields; a fresh review turn (/sf-review-source ${phaseId}, or the reviewer started again) resumes the draft with a new repair budget. Running the check is always allowed: it corrects what SFlow can and says what is left.` };
+}
+
+/**
+ * SFlow sets what the staged packet's own quotes fix exactly, in the file itself, and checks it again [owner,
+ * 2026-11-20]: a citation line whose unchanged quote is on exactly one line, or quote marks a shell ate on the way in
+ * (correctSourceReviewReport). `text` is the file as read, `report` the packet as checked (its binding filled from
+ * context); the file keeps its own layout and binding, with only those values replaced. Returns `{ report, checked,
+ * corrected, correctedWords, text }`, `text` the file's bytes as they now are; with nothing to correct it is untouched.
+ */
+export async function correctStagedSourceReview(root, stagingPath, { text, report, input }) {
+  const { correctSourceReviewReport, fieldTrail, withFieldValues } = await import('./source-review-lifecycle.mjs');
+  const result = correctSourceReviewReport(report, input);
+  if (!result.corrected.length) return { ...result, text };
+  const edits = result.corrected.map((edit) => ({ ...edit, trail: fieldTrail(edit.field) }));
+  const written = editedJsonText(text, withFieldValues(JSON.parse(text), result.corrected), edits);
+  await writeStagingFile(root, stagingPath, written);
+  return { ...result, text: written };
+}
+
+/**
+ * JSON `text` with each edit's value (`{ trail, to }`) replaced where it stands, so the reviewer's file keeps its
+ * layout; the whole file written again only when that would not read back as `expected` (a duplicate key, a field
+ * not written yet).
+ */
+function editedJsonText(text, expected, edits) {
+  const spans = edits.map((edit) => ({ span: jsonValueSpan(text, edit.trail), value: JSON.stringify(edit.to) }));
+  const whole = `${JSON.stringify(expected, null, 2)}\n`;
+  if (spans.some((entry) => !entry.span || entry.value === undefined)) return whole;
+  let edited = text;
+  for (const { span: [start, end], value } of spans.sort((left, right) => right.span[0] - left.span[0])) edited = `${edited.slice(0, start)}${value}${edited.slice(end)}`;
+  try { return JSON.stringify(JSON.parse(edited)) === JSON.stringify(expected) ? edited : whole; } catch { return whole; }
+}
+
+/** Where the value at `trail` (keys and indexes) is in JSON `text`, as [start, end), or null. */
+function jsonValueSpan(text, trail) {
+  let at = 0;
+  const space = () => { while (at < text.length && ' \t\r\n'.includes(text[at])) at++; };
+  const string = () => {
+    if (text[at] !== '"') return false;
+    for (at++; at < text.length; at++) {
+      if (text[at] === '\\') at++;
+      else if (text[at] === '"') { at++; return true; }
+    }
+    return false;
+  };
+  const value = () => {
+    space();
+    const open = text[at];
+    if (open === '"') return string();
+    if (open !== '{' && open !== '[') {
+      const token = /^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/u.exec(text.slice(at, at + 64));
+      at += token?.[0].length ?? 0;
+      return Boolean(token);
+    }
+    const close = open === '{' ? '}' : ']';
+    at++; space();
+    if (text[at] === close) { at++; return true; }
+    for (;;) {
+      if (open === '{') { space(); if (!string()) return false; space(); if (text[at++] !== ':') return false; }
+      if (!value()) return false;
+      space();
+      if (text[at] === close) { at++; return true; }
+      if (text[at++] !== ',') return false;
+    }
+  };
+  for (const step of trail) {
+    space();
+    if (typeof step === 'number') {
+      if (text[at++] !== '[') return null;
+      for (let index = 0; index < step; index++) { if (!value()) return null; space(); if (text[at++] !== ',') return null; }
+      continue;
+    }
+    if (text[at++] !== '{') return null;
+    for (;;) {
+      space();
+      const start = at;
+      if (!string()) return null;
+      let key;
+      try { key = JSON.parse(text.slice(start, at)); } catch { return null; }
+      space();
+      if (text[at++] !== ':') return null;
+      if (key === step) break;
+      if (!value()) return null;
+      space();
+      if (text[at++] !== ',') return null;
+    }
+  }
+  space();
+  const start = at;
+  return value() ? [start, at] : null;
 }
 
 async function writeStagingFile(root, target, bytes) {
@@ -154,7 +254,7 @@ async function stageReport(root, config, workflow, phaseId, reportJson) {
   let report;
   // The reviewer's own JSON: name where it breaks, and the route that cannot break that way.
   try { report = JSON.parse(reportJson); } catch (error) { throw inlineReportRefusal(`The review JSON is invalid (${error.message})`, phaseId, issuedPath); }
-  const { sourceReviewContext, sourceReviewInput, checkSourceReviewReport } = await import('./source-review-lifecycle.mjs');
+  const { sourceReviewContext, sourceReviewInput, correctSourceReviewReport } = await import('./source-review-lifecycle.mjs');
   if (workflow.currentPhase !== phaseId || phase?.status !== 'in_progress') throw new SingularityFlowError(
     'Review staging requires the exact current in-progress phase.', { code: 'SOURCE_REVIEW_STAGING_NOT_ACTIVE',
       details: (await import('./sequence.mjs')).storyNextDetails(workflow) });
@@ -164,25 +264,31 @@ async function stageReport(root, config, workflow, phaseId, reportJson) {
   if (!context.canReview) throw new SingularityFlowError('This generation is not reviewable; nothing was staged. Preserve drafts and follow the returned author/reviewer route.', {
     code: 'SOURCE_REVIEW_STAGING_NOT_REVIEWABLE', details: { continuation: context.continuation, recovery: context.recovery ?? null }
   });
+  // What the packet's own quotes fix exactly is set before it is staged, as the check sets it [owner, 2026-11-20].
+  const { recordSha256 } = await import('./records.mjs');
   report = await withSourceReviewContextBinding(root, stagingPath, report);
-  const checked = checkSourceReviewReport(report, await sourceReviewInput(root, config, workflow, phaseId));
+  const given = recordSha256(report);
+  const fixed = correctSourceReviewReport(report, await sourceReviewInput(root, config, workflow, phaseId));
+  const { checked, corrected, correctedWords } = fixed;
+  report = fixed.report;
+  const correction = corrected.length ? { corrected, correctedWords } : {};
   // Staging is not retention: a draft that cannot be retained yet is staged too, so it is repaired in place at
   // stagingPath and checked. Refusing to write it left review-source check with no file to read (2026-11-11).
   await writeStagingFile(root, stagingPath, `${JSON.stringify(report, null, 2)}\n`);
   const noted = await noteSourceReviewAttempt(root, stagingPath, { phaseId, generation: phase.generation, checked,
-    reportSha256: (await import('./records.mjs')).recordSha256(report) }).catch(() => null);
+    reportSha256: given, writtenSha256: corrected.length ? recordSha256(report) : null }).catch(() => null);
   const spent = sourceReviewBudgetSpent(phaseId, stagingPath, noted);
   const progress = (await import('./source-review-progress.mjs')).sourceReviewCheckProgress({ binding: context.binding }, stagingPath, checked,
     sourceReviewStagingProtocol(phaseId, stagingPath));
   await (await import('./copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
     { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });
   if (!checked.retentionReady) throw new SingularityFlowError(spent ? spent.instruction : `The review draft is staged at ${stagingPath}, but it cannot be retained yet: repair the listed fields in that file with your file-edit tool, then run ${sourceReviewStagingProtocol(phaseId, stagingPath).check.command}. Nothing was retained.`, {
-    code: 'SOURCE_REVIEW_REPORT_INVALID', details: { ...checked, stagingPath, nextAction: sourceReviewStagingProtocol(phaseId, stagingPath).check, ...(spent ? { incomplete: spent } : {}) }
+    code: 'SOURCE_REVIEW_REPORT_INVALID', details: { ...checked, ...correction, stagingPath, nextAction: spent?.nextAction ?? sourceReviewStagingProtocol(phaseId, stagingPath).check, ...(spent ? { incomplete: spent } : {}) }
   });
   return { schemaVersion: 1, resultType: 'source-review-stage', workId: workflow.workItem.id,
     phase: phaseId, generation: phase.generation, stagingPath, status: 'staged',
     effects: { privateStagingChanged: true, filesChanged: true, stateChanged: false, storyAdvanced: false,
       reviewRetained: false, submitted: false, approved: false, committed: false, pushed: false },
-    retentionReady: true, evaluationStatus: checked.evaluation.status,
+    retentionReady: true, evaluationStatus: checked.evaluation.status, ...correction,
     commandGuidance: sourceReviewStagingProtocol(phaseId, stagingPath).check };
 }

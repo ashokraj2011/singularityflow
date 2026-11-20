@@ -109,8 +109,10 @@ tools, not shell parsers. No shell writers, mkdir, pipes or chains. A tool-form 
 lifecycle blocker: correct the tool form without repeating settled clarification or editing artifacts.
 Run `singularity-flow review-source check <phase> --report-file <stagingPath> --json` before retention. Apply
 `repair` hints to format/citations and independently correct missing mappings now, at most twice with
-changed packets. Never retry unchanged packets or erase real gaps. A unique exact-quote line hint is
-not a coverage judgment; ambiguous or absent matches require reading the source, never fuzzy repair.
+changed packets; they count your edits, never the check, which is always allowed.
+Never erase real gaps. The check itself moves a citation to
+the one line its exact quote is on (`sflowCorrects`): never edit those, or change a quote to fit a line;
+ambiguous or absent matches require reading the source, never fuzzy repair.
 When `retentionReady`, retain even honest correction-required findings; an unsupported scenario needs
 a blocking finding, not a fabricated covered row. Packet retention is not phase approval.
 Keep `findings` as `[]` only after checking for gaps; the validator checks citations and structural

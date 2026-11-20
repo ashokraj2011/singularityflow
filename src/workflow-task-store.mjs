@@ -1,6 +1,7 @@
 /** Local atomic progress; portable records are batched into the existing Story publication. */
 import path from 'node:path';
-import { lstat, open } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { lstat, open, readdir, rm } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { repositoryGitDirectory } from './git-directory.mjs';
@@ -22,6 +23,10 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 const directory = root => path.join(gitCommonDir(root), 'singularity-flow', 'workflow-tasks');
 const fileFor = (root, id, base = directory(root)) => path.join(base, `${id}.json`);
 const claimFor = (root, id, attempt, base = directory(root)) => path.join(base, `${id}.continuation-${attempt}`);
+// A request's own claims [owner, 2026-11-20]: never folded into the record's continuations, so a new request starts fresh.
+const requestClaimFor = (id, request, attempt, base) => path.join(base,
+  `${id}.request-${createHash('sha256').update(String(request)).digest('hex').slice(0, 16)}.continuation-${attempt}`);
+const REQUEST_CLAIMS_KEPT = 32;
 
 async function spendAllTaskClaims(root, id) {
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -312,7 +317,7 @@ export async function readWorkflowTaskResume(root, workflow, phase, options = {}
   return workflowTaskResume(workflow, phase, { ...options, record });
 }
 
-/** Entry refreshes the available facts, never the operation's consumed budget. */
+/** Entry refreshes the available facts, never the operation's repair budget; continuations are the request's own. */
 export async function resumeWorkflowTask(root, workflow, phase, options = {}) {
   if (!workflowTaskApplies(phase, options.role)) return null;
   if (options.published === true && phase.generation > 0 && options.generation == null) options = { ...options, generation: phase.generation };
@@ -328,11 +333,19 @@ export async function resumeWorkflowTask(root, workflow, phase, options = {}) {
     state: resume.state === 'inspect-interrupted-operation' ? previous.state : resume.state,
     blockedCode: fresh && (!kept || fresh.startsWith('waiting-input:')) ? fresh : kept
   }, options);
-  return { ...resume, continuationBudget: { consumed: record.continuations, maximum: record.maximumContinuations } };
+  // The budget a request starts with (reserveWorkflowTaskContinuation): never an earlier request's claims.
+  return { ...resume, continuationBudget: { consumed: 0, maximum: record.maximumContinuations } };
 }
 
-/** The stop hook spends a task-scoped budget once; a new chat does not replenish it. */
-export async function reserveWorkflowTaskContinuation(root, id, expected) {
+/**
+ * The stop hook spends a continuation budget. With `request` (the host turn the stop ends), the budget is that
+ * request's own: Copilot's retry and continuation limits count per request, so a new request starts with all of
+ * `maximumContinuations` again [owner, 2026-11-20]. A new chat was left with none after an earlier one spent them, and
+ * its review could neither repair nor retain. Without one (older callers) the budget is the task's, as before. Neither
+ * changes the record's continuations or maximumContinuations, which the kernel's repair budget reads
+ * (workflow-task-outcome.mjs); a quarantined task (maximum 0) gets none in any request.
+ */
+export async function reserveWorkflowTaskContinuation(root, id, expected, { request = null } = {}) {
   if (!/^WT-[a-f0-9]{64}$/u.test(id ?? '')) throw new Error('Invalid workflow task ID.');
   // Stop hooks use filesystem observations only. Exclusive claims survive crashes and overlap;
   // the next CLI checkpoint folds them into the portable record under its ordinary short lock.
@@ -357,15 +370,29 @@ export async function reserveWorkflowTaskContinuation(root, id, expected) {
     if (opened.ino !== entry.ino || opened.dev !== entry.dev || opened.size > 65536) throw new Error('Task record changed during observation.');
     record = validateWorkflowTask(readRecord('workflow-task-record', await handle.readFile()).record, { id, ...expected });
   } finally { await handle.close(); }
-  for (let attempt = record.continuations + 1; attempt <= record.maximumContinuations; attempt++) {
+  const perRequest = typeof request === 'string' && request.length > 0;
+  if (perRequest) await pruneRequestClaims(base, id);
+  for (let attempt = perRequest ? 1 : record.continuations + 1; attempt <= record.maximumContinuations; attempt++) {
     let claim;
-    try { claim = await open(claimFor(root, id, attempt, base), 'wx', 0o600); }
+    try { claim = await open(perRequest ? requestClaimFor(id, request, attempt, base) : claimFor(root, id, attempt, base), 'wx', 0o600); }
     catch (error) { if (error.code === 'EEXIST') continue; throw error; }
     try { await claim.writeFile(record.recordSha256); await claim.sync(); }
     finally { await claim.close(); }
     return { allowed: true, consumed: attempt, maximum: record.maximumContinuations };
   }
   return { allowed: false };
+}
+
+/** Keep the newest request claims of a task only; an old request's claims bound nothing any more. Best effort. */
+async function pruneRequestClaims(base, id) {
+  try {
+    const names = (await readdir(base)).filter((name) => name.startsWith(`${id}.request-`));
+    if (names.length <= REQUEST_CLAIMS_KEPT) return;
+    const dated = await Promise.all(names.map(async (name) => ({ name, at: (await lstat(path.join(base, name))).mtimeMs })));
+    for (const { name } of dated.sort((left, right) => left.at - right.at).slice(0, names.length - REQUEST_CLAIMS_KEPT)) {
+      await rm(path.join(base, name), { force: true });
+    }
+  } catch { /* Best effort. */ }
 }
 
 /** Called only by an existing kernel write. Nothing pushes, commits, reads history or edits source. */

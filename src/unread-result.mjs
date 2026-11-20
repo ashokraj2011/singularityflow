@@ -13,7 +13,9 @@
  * out of the VS Code bundles). Still running, it names the read that waits; interrupted, the read that says where
  * it left things. Every skill and a plain chat get it, on both hosts, with no skill text. It runs no command.
  */
-import { lastAgentResult } from './agent-result-keeper.mjs';
+import { statSync } from 'node:fs';
+import path from 'node:path';
+import { lastAgentResult, noteAgentCall } from './agent-result-keeper.mjs';
 
 const SHELL_TOOLS = new Set(['bash', 'powershell', 'shell', 'run_in_terminal', 'execute', 'exec_command']);
 // An SFlow result the host did show: its agent view, a refusal, or a kept result read again.
@@ -47,17 +49,55 @@ function responseText(payload) {
   try { return typeof response === 'string' ? response : JSON.stringify(response); } catch { return ''; }
 }
 
-const words = (command) => command.replace(/^(?:singularity-flow|sflow)\s+/u, '').split(/\s+/u).filter((word) => word && !word.startsWith('-')).join(' ');
+// Its words without options or their values: a value (a --report-file path) matched no kept command (2026-11-20).
+const words = (command) => {
+  const kept = [];
+  let value = false;
+  for (const word of command.replace(/^(?:singularity-flow|sflow)\s+/u, '').split(/\s+/u).filter(Boolean)) {
+    if (word.startsWith('-')) { value = !word.includes('='); continue; }
+    if (value) { value = false; continue; }
+    kept.push(word);
+  }
+  return kept.join(' ');
+};
+
+/**
+ * Before the tool call runs (the pre-tool hook): note each SFlow `--for-agent` command it is about to run, so the
+ * post-tool hook never hands over a result kept before this call as this call's (agent-result-keeper.mjs).
+ */
+export function noteAgentCalls(payload = {}, { env = process.env, now = Date.now() } = {}) {
+  for (const { command, cwd } of sflowShellCalls(payload)) noteAgentCall(command, { cwd: cwd ?? process.cwd(), env, now });
+}
+
+/** The file a command reads by `--report-file` when it changed after `since` (epoch ms): `{ file, at }`, else null. */
+function inputChangedAfter(command, cwd, since) {
+  const file = command.match(/(?:^|\s)--report-file(?:=|\s+)("[^"]+"|'[^']+'|\S+)/u)?.[1]?.replace(/^["']|["']$/gu, '');
+  if (!file || !Number.isFinite(since)) return null;
+  try {
+    const modified = statSync(path.resolve(cwd, file)).mtimeMs;
+    return modified > since ? { file, at: new Date(modified).toISOString() } : null;
+  } catch { return null; }
+}
+
+// How long the post-tool hook waits, at most, for a noted call's own run to start (its hook has ten seconds).
+const ARRIVAL_SECONDS = 3;
 
 /**
  * The context to add after `payload`'s tool call, or null: when it ran an SFlow `--for-agent` command and its
  * response carries no SFlow result, that command's kept result (or how to read it when it is still running).
+ * A result kept before this call is an earlier run's, never handed over as this call's [owner, 2026-11-20].
  */
-export async function unreadResultContext(payload = {}, { env = process.env, now = Date.now() } = {}) {
+export async function unreadResultContext(payload = {}, { env = process.env, now = Date.now(), arrival = ARRIVAL_SECONDS } = {}) {
   if (SHOWN.test(responseText(payload))) return null;
   for (const { command, cwd } of sflowShellCalls(payload)) {
-    const found = await lastAgentResult({ cwd: cwd ?? process.cwd(), env, command, wait: 0 }).catch(() => null);
+    const found = await lastAgentResult({ cwd: cwd ?? process.cwd(), env, command, wait: 0, arrival }).catch(() => null);
     const asked = words(command);
+    if (found?.status === 'none' && found.since) {
+      return `SFlow: your terminal did not show the result of \`${command}\`, and SFlow kept no result of this call (started ${found.since}); `
+        + 'a result kept before it is an earlier run\'s, never this one\'s. In the terminal that ran it, read '
+        + `\`singularity-flow result last --wait --command "${asked}" --for-agent --json\`: act on it only if its keptResult.startedAt is ${found.since} or later; `
+        + 'otherwise the command did not run here, so run it once more. Never ask the person for its output.';
+    }
     if (found?.status === 'running') {
       return `SFlow: your terminal did not show the result of \`${command}\`; it is still running. Read its result with `
         + `\`singularity-flow result last --wait --command "${asked}" --for-agent --json\`. Never run it again, and never ask the person for its output.`;
@@ -68,6 +108,15 @@ export async function unreadResultContext(payload = {}, { env = process.env, now
         + 'before running it once more; never ask the person for its output.';
     }
     if (found?.status !== 'kept' || now - Date.parse(found.kept.finishedAt) > RECENT_MS) continue;
+    // A file the command reads (--report-file) changed after that run started: the kept result is about other bytes,
+    // never this call's (the owner's corrected review packet, 2026-11-20).
+    const changed = inputChangedAfter(command, cwd ?? process.cwd(), Date.parse(found.kept.startedAt));
+    if (changed) {
+      return `SFlow: your terminal did not show the result of \`${command}\`, and the result SFlow kept for it is an earlier run's: `
+        + `${changed.file} changed at ${changed.at}, after that run started. In the terminal that ran it, read `
+        + `\`singularity-flow result last --wait --command "${asked}" --for-agent --json\`: act on it only if its keptResult.startedAt is ${changed.at} or later; `
+        + 'otherwise run the command once more. Never ask the person for its output.';
+    }
     // The view the agent was shown when the command printed it; an older kept result has only its whole output.
     const whole = String(found.kept.output ?? '');
     const view = typeof found.kept.view === 'string' ? found.kept.view

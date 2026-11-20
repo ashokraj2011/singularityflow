@@ -216,12 +216,16 @@ test('Copilot reads each step in parts that fit an agent view, and a finding who
   await writeFile(input, JSON.stringify({ findings }));
   const verified = h.json(root, ['workflow', 'assess', FAMILY_QA, '--verify', input]);
   assert.equal(verified.resultType, 'workflow-assessment-verify');
-  assert.deepEqual(verified.counts, { accepted: 1, refused: 5 });
-  const [accepted] = verified.accepted;
+  assert.deepEqual(verified.counts, { accepted: 2, refused: 4 });
+  const [accepted, moved] = verified.accepted;
   assert.deepEqual([accepted.by, accepted.label, accepted.authority, accepted.location, accepted.suggestion.decidedBy], ['copilot', 'Copilot\'s finding', 'suggestion', { file, line: checkLine }, 'person']);
   assert.deepEqual(accepted.suggestion.moves, [{ move: 'agent.edit', agent: 'fmly-tester', old: findings[0].quote, new: findings[0].rewrite }]);
+  // A quote that starts on exactly one line: SFlow sets that line itself, never a refusal for Copilot to copy it (owner, 2026-11-20).
+  assert.deepEqual(moved.location, { file, line: checkLine });
+  assert.deepEqual(verified.corrected, [{ field: 'findings[1].line', from: checkLine - 2, to: checkLine }]);
+  assert.equal(verified.correctedWords, 'SFlow moved a finding\'s line number to the line its quote starts on.');
   const refusal = (index) => verified.refused.find((entry) => entry.index === index);
-  assert.deepEqual([refusal(1).reason, refusal(1).repair], [`The quote is not at ${file} line ${checkLine - 2}; it starts on line ${checkLine}.`, `Set line to ${checkLine}.`]);
+  assert.equal(refusal(1), undefined);
   assert.equal(refusal(2).reason, `The quote is not in ${file}.`);
   assert.match(refusal(3).reason, /^Family testing's agent does not read singularity\/templates\/common\/verification\.md\.$|SFlow's own text/u);
   assert.match(refusal(4).reason, /^SFlow already found this: af-[a-f0-9]{12} \(Family testing is told to ask a person, but it asks nothing\)\.$/u);

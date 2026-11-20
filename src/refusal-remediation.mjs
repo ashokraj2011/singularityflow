@@ -2788,6 +2788,10 @@ export function refusalDetails(details) {
   // A review turn's repairs spent: the draft kept, the review recorded incomplete and the way to finish it [owner, 2026-11-13].
   if (details.incomplete && typeof details.incomplete === 'object') projected.incomplete = compact({ recorded: details.incomplete.recorded === true ? true : null,
     stagingPath: text(details.incomplete.stagingPath), reason: text(details.incomplete.reason), instruction: text(details.incomplete.instruction) });
+  // The citation fields SFlow set itself before refusing the rest [owner, 2026-11-20]: a line number, or a quote's lost marks.
+  const corrected = list(details.corrected, (entry) => (entry && typeof entry === 'object' && field(entry.field) ? compact({ field: field(entry.field),
+    from: position(entry.from) ?? text(entry.from), to: position(entry.to) ?? text(entry.to) }) : null));
+  if (corrected.length) Object.assign(projected, { corrected, correctedWords: text(details.correctedWords) });
   const repair = details.repair;
   if (repair && ['repair-packet', 'reload-context'].includes(repair.status)) projected.repair = compact({
     status: repair.status, instruction: text(repair.instruction), reportSha256: text(repair.reportSha256),
@@ -2800,7 +2804,7 @@ export function refusalDetails(details) {
       // The cited line as it reads, and a quote whose quote marks a shell argument ate: dropped here, the reviewer saw
       // only "no exact match" four times and cited the same text again [owner, 2026-11-13].
       suppliedLineText: text(entry.suppliedLineText), lineText: text(entry.lineText), recoveredQuote: text(entry.recoveredQuote),
-      quoteMarksLost: entry.quoteMarksLost === true ? true : null
+      quoteMarksLost: entry.quoteMarksLost === true ? true : null, sflowCorrects: entry.sflowCorrects === true ? true : null
     }) : null).slice(0, 25),
     // A source written as its path: the exact source ID to copy [Story anu-bin, 2026-11-11].
     sourceIds: ((edits) => (edits.length ? edits : null))(list(repair.sourceIds, entry => entry && typeof entry === 'object' && field(entry.proposedEdit?.field)

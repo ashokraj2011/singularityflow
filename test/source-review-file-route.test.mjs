@@ -92,40 +92,29 @@ test('the report goes to its staging file: the protocol offers no inline JSON, a
   assert.ok(retained.reportSha256);
 });
 
-test('a quote whose quote marks a shell ate gets its line back, and the repaired file is retained within the budget', async (t) => {
+test('a quote whose quote marks a shell ate gets them back from the check itself, and the file is retained (owner, 2026-11-20)', async (t) => {
   const { root, phaseId, packet, check, write } = await reviewStory(t, { notes: NOTES });
   const story = packet.sources.find((entry) => entry.id === 'story');
   const line = story.text.split(/\r?\n/u).findIndex((entry) => entry === QUOTED) + 1;
   assert.ok(line > 0, story.text);
   const report = reviewReport(packet);
-  // What `--report-json '…'` delivers of 'Save': Save.
+  // What `--report-json '…'` delivers of 'Save': Save. Only one line reads that way, so the text it stands for is exact.
   report.rows.push({ id: 'save-label', sourceId: 'story', line, quote: QUOTED.replaceAll('\'', ''), outcome: 'question', question: 'Is the label part of the scope?' });
   await write(report);
-  const refused = check();
-  assert.equal(refused.retentionReady, false);
-  const citation = refused.repair.citations.find((entry) => entry.field === 'rows[3]');
-  assert.equal(citation.quoteMarksLost, true);
-  assert.equal(citation.recoveredQuote, QUOTED);
-  assert.equal(citation.lineText, QUOTED);
-  assert.equal(citation.suppliedLineText, QUOTED, 'the cited line as it reads');
-  assert.deepEqual(citation.matchingLines, [line]);
-  assert.match(citation.instruction, /arrived without the quote marks its line holds \('\): a shell argument removes them\. Copy recoveredQuote/u);
-  assert.equal(agentAct(refused).state, 'correct');
+  const checked = check();
+  assert.equal(checked.retentionReady, true, JSON.stringify(checked.findings));
+  assert.deepEqual(checked.corrected, [{ field: 'rows[3].quote', from: QUOTED.replaceAll('\'', ''), to: QUOTED }], 'its line was right: only the quote changes');
+  assert.equal(checked.correctedWords, 'SFlow put back the quote marks a shell removed from a quote.');
+  const act = agentAct(checked);
+  assert.equal(act.state, 'retain');
+  assert.ok(act.said.startsWith(checked.correctedWords), act.said);
+  assert.equal(JSON.parse(await readFile(packet.stagingPath, 'utf8')).rows[3].quote, QUOTED, 'the staged file holds the line\'s own text');
 
-  // The older inline route's refusal carries the same line text through its projection.
-  const inline = run(root, ['review-source', 'stage', phaseId, '--report-json', JSON.stringify(report), '--json']);
-  assert.notEqual(inline.status, 0);
-  const projected = inline.value.error.details.repair.citations.find((entry) => entry.field === 'rows[3]');
-  assert.equal(projected.recoveredQuote, QUOTED);
-  assert.equal(projected.suppliedLineText, QUOTED);
-  assert.equal(projected.quoteMarksLost, true);
-  assert.match(inline.value.error.message, /repair the listed fields in that file with your file-edit tool, then run singularity-flow review-source check /u);
-
-  // One repair in the file, with the issued text: retained.
-  report.rows[3].quote = citation.recoveredQuote;
-  await write(report);
-  const repaired = check();
-  assert.equal(repaired.retentionReady, true, JSON.stringify(repaired.findings));
+  // The older inline route sets it the same way before it stages the draft.
+  const inline = ok(root, ['review-source', 'stage', phaseId, '--report-json', JSON.stringify(report), '--json']);
+  assert.equal(inline.status, 'staged');
+  assert.deepEqual(inline.corrected, checked.corrected);
+  assert.equal(JSON.parse(await readFile(packet.stagingPath, 'utf8')).rows[3].quote, QUOTED);
   const retained = ok(root, ['review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--for-agent', '--json']);
   assert.ok(retained.reportSha256);
 });
@@ -133,7 +122,8 @@ test('a quote whose quote marks a shell ate gets its line back, and the repaired
 test('spent repairs leave the draft staged and the review recorded as incomplete with its route; a fresh review turn gets a new budget', async (t) => {
   const { root, phaseId, packet, check, write } = await reviewStory(t);
   const report = reviewReport(packet);
-  const wrong = (line) => write({ ...report, rows: report.rows.map((row, index) => (index ? row : { ...row, line })) });
+  // A quote no line holds: the reviewer's to repair (a wrong line under an unchanged quote, the check sets itself).
+  const wrong = (line) => write({ ...report, rows: report.rows.map((row, index) => (index ? row : { ...row, quote: `Save a draft, attempt ${line}.` })) });
   for (const line of [900, 901]) {
     await wrong(line);
     const result = check();
@@ -207,7 +197,14 @@ test('the repair packet recovers the line a shell-quoted quote came from, on the
   assert.equal(citation.recoveredQuote, 'expect(getResultText(container)).toBe(\'10\');');
   assert.equal(citation.lineText, lines[1]);
   assert.deepEqual(citation.matchingLines, [2]);
-  assert.match(citation.instruction, /and set its line to 2/u);
+  assert.equal(citation.sflowCorrects, true, 'one line reads that way: the check puts it back itself');
+  assert.match(citation.instruction, /stagingProtocol\.check puts recoveredQuote, the exact text of line 2, back into this quote and sets its line to 2 itself\. Leave this citation as it is\./u);
+  // Two lines that read that way are the reviewer's choice, never the first.
+  const twice = { sources: [{ id: 'code:src:App.test.jsx', text: [...lines, lines[1]].join('\n') }] };
+  const [choice] = sourceReviewRepairGuide(report, twice, checked).citations;
+  assert.deepEqual(choice.matchingLines, [2, 4]);
+  assert.equal(choice.sflowCorrects, undefined);
+  assert.match(choice.instruction, /It reads that way on lines 2, 4: independently select the supporting line/u);
   // A quote that matches no line even with quote marks taken out is not guessed at.
   report.rows[0].tests[0].quote = 'expect(getResultText(container)).toBe(11);';
   const [none] = sourceReviewRepairGuide(report, input, checked).citations;

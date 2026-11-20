@@ -48,6 +48,7 @@ export async function run(argv, { positionals, options }) {
     if (json) return console.log(JSON.stringify(result, null, 2));
     for (const finding of result.accepted) console.log(`accepted ${finding.id} (Copilot's): ${finding.title}  ${finding.location.file}:${finding.location.line}`);
     for (const entry of result.refused) console.log(`refused  #${entry.index}: ${entry.reason} ${entry.repair}`);
+    if (result.correctedWords) console.log(result.correctedWords);
     return console.log(result.said);
   }
   const result = await read(() => api.assessWorkflows(root, { workflows: workflow ? [workflow] : null }));

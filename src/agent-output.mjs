@@ -424,8 +424,8 @@ export function agentAct(result) {
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.repair?.status === 'repair-packet') return {
     state: 'correct', do: null, read: ['error.details.repair', 'error.details.findings'],
     // Stage writes the draft and refuses only its retention, so the repair is made in that file, not a missing file (anu-bin, 2026-11-11);
-    // never inline JSON again, whose shell quoting broke the report (2026-11-13).
-    said: 'Staged, not retained yet. Apply each returned repair exactly (proposedEdit values as given) in the staged file with your file-edit tool, then run stagingProtocol.check within the two-repair budget. Never type the JSON into a shell argument. Do not restart the phase, run generic diagnostics, or invent coverage.' };
+    // never inline JSON again, whose shell quoting broke the report (2026-11-13). What SFlow set itself is left as it is (2026-11-20).
+    said: `${result.error.details.correctedWords ? `${result.error.details.correctedWords} Leave those as they are now. ` : ''}Staged, not retained yet. Apply each returned repair exactly (proposedEdit values as given) in the staged file with your file-edit tool, then run stagingProtocol.check within the two-repair budget. Never type the JSON into a shell argument. Do not restart the phase, run generic diagnostics, or invent coverage.` };
   // No installed Node can run the tests: the person installs one in their own terminal, then the same check runs again
   // (refusal-remediation.mjs) [owner, 2026-11-20]. No repair, other Node or base run in this turn: each fails the same way.
   const install = result.error?.details?.nodeInstall;
@@ -662,17 +662,20 @@ export function agentAct(result) {
         ? ' A review turn ends its reply with act.show exactly as given, after the findings; only a reviewer SFlow started as the author\'s sub-agent (reviewDispatch: author-turn) ends on the status and findings.' : ''}`, 700) }, next);
   }
   if (result.resultType === 'source-review-check') {
+    // Citation lines (or lost quote marks) the packet's own quotes fixed exactly: SFlow set them in the file, so the
+    // reviewer never edits them again; on a real Story it flipped a line and its quote back and forth (owner, 2026-11-20).
+    const corrected = result.correctedWords ? `${result.correctedWords} ` : '';
     if (!result.retentionReady && result.incomplete?.instruction) return { state: 'blocked', do: null, read: ['incomplete', 'findings'],
-      said: oneLine(result.incomplete.instruction), ...correctionList(result.findings) };
+      said: oneLine(`${corrected}${result.incomplete.instruction}`), ...correctionList(result.findings) };
     if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,
       read: ['repair'], said: result.repair.instruction }, result.continuation?.nextAction);
     if (result.retentionReady && result.repair?.mappingTasks?.length) return {
       state: 'review', do: null, read: ['repair', 'evaluation'],
-      said: 'Review missing scenario/clause mappings now. Add only genuinely supported rows and recheck within the repair budget; otherwise retain reviewed genuine gaps using stagingProtocol.retain. Do not invent coverage or require a new author generation for a reviewer omission.' };
+      said: `${corrected}Review missing scenario/clause mappings now. Add only genuinely supported rows and recheck within the repair budget; otherwise retain reviewed genuine gaps using stagingProtocol.retain. Do not invent coverage or require a new author generation for a reviewer omission.` };
     if (result.retentionReady) return withRoute({ state: 'retain', do: null,
-      read: ['repair', 'evaluation'], said: 'Packet valid: retain it now, including honest correction-required findings. Retention is not approval.' }, result.continuation?.nextAction);
+      read: ['repair', 'evaluation'], said: `${corrected}Packet valid: retain it now, including honest correction-required findings. Retention is not approval.` }, result.continuation?.nextAction);
     return { state: 'correct', do: null, read: ['repair', 'findings'],
-      said: 'Repair this staged packet now using exact citation fields and pinned text, then check the changed packet. At most two changed-packet repair attempts; never retry unchanged bytes or invent coverage.',
+      said: `${corrected ? `${corrected}Leave those lines and quotes as they are now. ` : ''}Repair only the fields still listed in this staged packet, using the exact values returned and the pinned text, then check the changed packet. At most two changed-packet repair attempts, counting your edits only (running the check is always allowed); never invent coverage.`,
       ...correctionList(result.findings) };
   }
   // The decision list: the person chooses; recording a reused run or a test-run risk is their own

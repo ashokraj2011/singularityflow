@@ -48,8 +48,12 @@ const clauseList = (value) => (Array.isArray(value) ? [...new Set(value.map(text
 export const draftProposals = (draft) => draft.proposals ?? [];
 export const draftAssisted = (draft) => ({ runs: draft.assisted?.runs ?? [], findings: draft.assisted?.findings ?? [] });
 
-/** Read one cited span at `ref`, or the reason it cannot be cited. */
-function citedSpan(root, ref, citation) {
+/**
+ * Read one cited span at `ref`, or the reason it cannot be cited. With `relocate`, a one-line citation whose quote is
+ * not on its line but on exactly one other, with no span hash given, cites that line instead and says so in `moved`:
+ * SFlow sets the line it already knows rather than refuse the file for it to be copied (owner, 2026-11-20).
+ */
+function citedSpan(root, ref, citation, { relocate = false } = {}) {
   if (!plain(citation)) return { reason: 'citation must be { path, lines: [first, last], quote }' };
   let file;
   try { file = normalizeArea(citation.path); } catch { return { reason: `${citation.path} is not a path inside the repository` }; }
@@ -66,6 +70,9 @@ function citedSpan(root, ref, citation) {
   if (citation.quote !== undefined && !words(all.slice(lines[0] - 1, lines[1]).join('\n')).includes(words(citation.quote))) {
     // Where the quote is, when it is on one line of the file: the span to cite instead.
     const found = all.map((line, index) => (words(line).includes(words(citation.quote)) ? index + 1 : 0)).filter(Boolean);
+    if (relocate && found.length === 1 && lines[0] === lines[1] && citation.spanSha256 === undefined) {
+      return { citation: { path: file, lines: [found[0], found[0]], spanSha256: spanSha256(all, found[0], found[0]) }, moved: { from: lines[0], to: found[0] } };
+    }
     return { reason: `${file}:${lines[0]}-${lines[1]} does not contain the quoted text${found.length === 1 ? `; it is on line ${found[0]}: cite lines [${found[0]}, ${found[0]}]`
       : found.length > 1 ? `; it is on lines ${found.slice(0, 10).join(', ')}: cite the one you mean` : ''}` };
   }
@@ -117,9 +124,10 @@ const KINDS = Object.freeze({
   research(entry, at, { root, ref, commit }) {
     if (!text(entry.summary)) return { findings: [{ field: `${at}.summary`, code: 'SPEC_PROPOSAL_RESEARCH_EMPTY', message: 'a research proposal states its fact as summary' }] };
     if (entry.citation === undefined || entry.citation === null) return { body: { summary: text(entry.summary), citation: null }, notes: ['unverified: it cites nothing, so it can support no gap'] };
-    const span = citedSpan(root, ref, entry.citation);
+    const span = citedSpan(root, ref, entry.citation, { relocate: true });
     if (span.reason) return { findings: [{ field: `${at}.citation`, code: 'SPEC_PROPOSAL_SPAN_INVALID', message: span.reason }] };
-    return { body: { summary: text(entry.summary), citation: { ...span.citation, commit } } };
+    return { body: { summary: text(entry.summary), citation: { ...span.citation, commit } },
+      ...(span.moved ? { notes: [`SFlow cited line ${span.moved.to}, the one line its quote is on, not line ${span.moved.from}`] } : {}) };
   },
   gap(entry, at, { draft }) {
     const findings = [];

@@ -9,7 +9,8 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, effects, noEffects, action as narrationAction, noop, succeeded } from '../narration/command-result.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import path from 'node:path';
-import { sourceReviewContext, sourceReviewStepNotCurrent, sourceReviewStepRefusal, readSourceReviewStatus, sourceReviewInput, checkSourceReviewReport, scopedSourceReviewerSession, evaluateSubmittedSourceReview, retainSourceReview, retainSourceReviewDecision } from '../source-review-lifecycle.mjs';
+import { createHash } from 'node:crypto';
+import { sourceReviewContext, sourceReviewStepNotCurrent, sourceReviewStepRefusal, readSourceReviewStatus, sourceReviewInput, scopedSourceReviewerSession, evaluateSubmittedSourceReview, retainSourceReview, retainSourceReviewDecision } from '../source-review-lifecycle.mjs';
 import { sourceReviewContextText } from '../source-review-context-display.mjs';
 import { sourceReviewStagingProtocol } from '../source-review-staging.mjs';
 import { commandRouteLines, safeCommandGuidance } from '../safe-command-guidance.mjs';
@@ -162,6 +163,7 @@ export async function reviewSourceCommand(positionals, options) {
     const result = await stageSourceReviewReport(root, config, workflow, phaseId, optionString(options, 'report-json'));
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Review draft staged: ${result.stagingPath}; no review, submission or approval retained.`);
+    if (result.correctedWords) console.log(result.correctedWords);
     console.log(commandRouteLines(result.commandGuidance).join('\n'));
     return;
   }
@@ -184,40 +186,57 @@ export async function reviewSourceCommand(positionals, options) {
       });
     }
     let report;
-    try { report = JSON.parse(await readFile(stagingPath, 'utf8')); }
+    let text;
+    try { text = await readFile(stagingPath, 'utf8'); report = JSON.parse(text); }
     catch (error) { throw new SingularityFlowError(`Staged source review is not valid JSON (${error.message}). Repair the staging file; no review was retained.`, {
       code: 'SOURCE_REVIEW_REPORT_INVALID'
     }); }
-    report = await (await import('../source-review-staging.mjs')).withSourceReviewContextBinding(root, stagingPath, report);
+    const staging = await import('../source-review-staging.mjs');
+    const { recordSha256 } = await import('../records.mjs');
+    report = await staging.withSourceReviewContextBinding(root, stagingPath, report);
+    const given = recordSha256(report);
+    // Retained only through the reviewer's own scoped session: refused before anything is corrected.
+    const session = action === 'submit' ? scopedSourceReviewerSession(input, await loadSession(root)) : null;
+    // What the packet's own quotes fix exactly, SFlow sets in the file and checks again, here and before retention
+    // alike, whatever repair budget is left: it is SFlow's write, never a repair attempt [owner, 2026-11-20].
+    const fixed = await staging.correctStagedSourceReview(root, stagingPath, { text, report, input });
+    report = fixed.report;
+    const correction = fixed.corrected.length ? { corrected: fixed.corrected, correctedWords: fixed.correctedWords } : {};
     if (action === 'check') {
-      const checked = checkSourceReviewReport(report, input);
+      const { checked } = fixed;
+      // The bytes this check read at stagingPath (as SFlow left them), in its progress: a result is about the file as
+      // it is now, and says so, so a result of an earlier packet is never taken for it [owner, 2026-11-20].
+      const stagedSha256 = createHash('sha256').update(fixed.text).digest('hex');
       const protocol = sourceReviewStagingProtocol(phaseId, stagingPath);
       // Each packet that cannot be retained is noted beside the draft, so the review is never silently dropped [owner, 2026-11-13].
-      const staging = await import('../source-review-staging.mjs');
       const noted = checked.evaluation?.status === 'stale' ? null : await staging.noteSourceReviewAttempt(root, stagingPath, { phaseId, generation: phase.generation,
-        checked, reportSha256: (await import('../records.mjs')).recordSha256(report) }).catch(() => null);
+        checked, reportSha256: given, writtenSha256: fixed.corrected.length ? recordSha256(report) : null }).catch(() => null);
       const incomplete = staging.sourceReviewBudgetSpent(phaseId, stagingPath, noted);
-      const progress = sourceReviewCheckProgress(input, stagingPath, checked, protocol);
+      // Spent repairs: the way on is a fresh review turn, never this check of the same bytes again.
+      const progress = { ...sourceReviewCheckProgress(input, stagingPath, checked, protocol), stagedSha256,
+        ...(incomplete ? { state: 'repairs-spent', nextAction: incomplete.nextAction, instruction: incomplete.instruction } : {}) };
       const { observeWorkflowTaskCheck } = await import('../workflow-task-store.mjs');
       await observeWorkflowTaskCheck(root, workflow, phase, { ...checked, generation: phase.generation,
-        reportSha256: (await import('../records.mjs')).recordSha256(report) }, { role: 'source-reviewer', inputSha256: (await import('../records.mjs')).recordSha256(input.binding) });
+        reportSha256: recordSha256(report) }, { role: 'source-reviewer', inputSha256: recordSha256(input.binding) });
       progress.operationId = (await import('../workflow-task.mjs')).workflowTaskIdentity(workflow, phase, 'source-reviewer').id;
       await (await import('../copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
         { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });
       const commandGuidance = checked.evaluation?.status === 'stale'
         ? safeCommandGuidance({ argv: ['review-source', 'context', phaseId, '--json'] })
-        : checked.retentionReady ? protocol.retain : protocol.check;
+        : checked.retentionReady ? protocol.retain : incomplete?.nextAction ?? protocol.check;
       const guidance = { commandGuidance, command: commandGuidance.command, skill: commandGuidance.skill };
+      const reason = incomplete?.instruction ?? checked.repair.instruction;
       const result = { schemaVersion: 1, resultType: 'source-review-check', // schema-transient
         workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
         status: checked.format.status !== 'ready' ? checked.format.status : checked.evaluation.status,
-        ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])],
+        ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])], ...correction,
         stagingPath, stagingProtocol: protocol, progress, ...(incomplete ? { incomplete } : {}),
         continuation: { automaticAdvance: false,
-          nextAction: { ...guidance, reason: checked.repair.instruction },
-          actions: [{ ...guidance, reason: checked.repair.instruction }] } };
+          nextAction: { ...guidance, reason },
+          actions: [{ ...guidance, reason }] } };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Source review check: ${result.status}; format ${result.format.status}; retention ${result.retentionReady ? 'ready' : 'blocked'} (no changes).`);
+      console.log(`Source review check: ${result.status}; format ${result.format.status}; retention ${result.retentionReady ? 'ready' : 'blocked'}${result.correctedWords ? '' : ' (no changes)'}.`);
+      if (result.correctedWords) console.log(result.correctedWords);
       for (const finding of result.findings) console.log(`- ${finding.field ?? finding.code}: ${finding.message}`);
       console.log(incomplete?.instruction ?? result.repair.instruction);
       for (const citation of result.repair.citations) console.log(`- ${citation.field}: ${citation.instruction}${citation.proposedEdit ? ` ${citation.proposedEdit.field} = ${citation.proposedEdit.value}` : ''}`);
@@ -226,8 +245,13 @@ export async function reviewSourceCommand(positionals, options) {
         workId: workflow.workItem.id, phase: phaseId, retentionReady: result.retentionReady
       }), false, result);
     }
-    const session = scopedSourceReviewerSession(input, await loadSession(root));
-    const evaluation = evaluateSubmittedSourceReview(report, input, session);
+    let evaluation;
+    try { evaluation = evaluateSubmittedSourceReview(report, input, session); }
+    catch (error) {
+      // What SFlow already set stays named beside what is left to repair.
+      if (fixed.corrected.length && error instanceof SingularityFlowError && error.details && typeof error.details === 'object') error.details = { ...error.details, ...correction };
+      throw error;
+    }
     await (await import('../workflow-task-store.mjs')).observeWorkflowTask(root, workflow, phase, {
       state: 'retention-requested', checkpoint: 'retention-requested',
       inputSha256: (await import('../records.mjs')).recordSha256(input.binding)
@@ -256,8 +280,9 @@ export async function reviewSourceCommand(positionals, options) {
     const progress = await sourceReviewProgress({ input, retained: status, stagingPath });
     await (await import('../copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
       { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });
-    const result = { ...status, commit: publication.sha, pushed: publication.pushed };
+    const result = { ...status, commit: publication.sha, pushed: publication.pushed, ...correction };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (result.correctedWords) console.log(result.correctedWords);
     console.log(`Source review retained for ${workflow.workItem.id} ${phaseId} generation ${phase.generation}, in ${reportFolder(retained.path)}`);
     console.log(`Committed${publication.pushed ? ' and pushed' : ' locally'}.`);
     console.log(`Status: ${status.status}; ${status.findings.length} finding(s), ${status.pendingDispositions.length} human decision(s) pending.`);

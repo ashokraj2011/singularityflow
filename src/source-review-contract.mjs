@@ -214,9 +214,79 @@ function quoteMarksLost(quote, lines) {
     const recovered = text.slice(kept[start], kept[start + quote.length - 1] + 1);
     if (recovered === quote) continue;
     found.push(index + 1);
-    first ??= { text, quote: recovered, marks: marks.filter((mark) => recovered.includes(mark)) };
+    // single: the quote stands for one place on its line, so the text it recovers is not a choice.
+    first ??= { text, quote: recovered, marks: marks.filter((mark) => recovered.includes(mark)), single: stripped.indexOf(quote, start + 1) < 0 };
   }
   return first && first.marks.length ? { ...first, lines: found } : null;
+}
+
+const CITATION_CODES = Object.freeze(['citation-line-invalid', 'citation-quote-invalid']);
+
+/** A citation finding's cited entry, its source's lines, and the lines its quote is on. */
+function citationFacts(report, entry, sources) {
+  // Any cited entry: a row, a finding, or a code row's implementation or test citation (rows[0].tests[1]).
+  const cited = /^(?:rows|findings)\[\d+\](?:\.(?:implementation|tests)\[\d+\])?$/u.test(entry.field ?? '') ? valueAtField(report, entry.field) : null;
+  const row = cited && typeof cited === 'object' && !Array.isArray(cited) ? cited : null;
+  const source = sources.get(entry.sourceId);
+  const lines = source.text.split(/\r?\n/u);
+  const quote = row?.quote;
+  const validQuote = typeof quote === 'string' && Boolean(quote.trim()) && quote.length <= 1024;
+  const matches = [];
+  let matchCount = 0;
+  if (validQuote) for (let index = 0; index < lines.length; index++) {
+    if (lines[index].includes(quote)) {
+      matchCount++;
+      if (matches.length < 10) matches.push(index + 1);
+    }
+  }
+  const lost = validQuote && matchCount === 0 ? quoteMarksLost(quote, lines) : null;
+  return { row, source, lines, quote, matches, matchCount, lost };
+}
+
+/**
+ * The one place a citation's own quote puts it, or null: the line its unchanged quote is on when exactly one line
+ * holds it, or, for a quote whose quote marks a shell ate, that one line's own text and number. Never a choice among
+ * lines, a near match, or other words.
+ */
+function exactCitation({ row, matches, matchCount, lost }) {
+  if (!row) return null;
+  if (matchCount === 1) return row.line === matches[0] ? null : { line: matches[0] };
+  return lost?.single && lost.lines.length === 1 && lost.quote.length <= 1024 ? { line: lost.lines[0], quote: lost.quote } : null;
+}
+
+/**
+ * What SFlow sets itself in a checked packet [owner, 2026-11-20]: `[{ field, from, to }]`. On a real Story every
+ * failing citation's quote was on exactly one line, and SFlow said which; the reviewer changed the line and copied
+ * that line's text into the quote too, so the next check named the other line, and it flipped back and forth until
+ * its repairs ran out. A line number (or quote marks lost on the way in) that the citation's own quote fixes exactly
+ * is SFlow's to write. No judgment, finding, status or other words change; a stale or malformed packet gets nothing.
+ */
+export function sourceReviewCitationCorrections(report, input, checked) {
+  if (!checked?.evaluation || checked.evaluation.status === 'stale') return [];
+  const sources = new Map((input.sources ?? []).map((source) => [source.id, source]));
+  const seen = new Set();
+  const corrections = [];
+  for (const entry of checked.findings ?? []) {
+    if (!CITATION_CODES.includes(entry.code) || seen.has(entry.field) || !sources.has(entry.sourceId)) continue;
+    seen.add(entry.field);
+    const facts = citationFacts(report, entry, sources);
+    const fix = exactCitation(facts);
+    if (!fix) continue;
+    if (fix.quote !== undefined && fix.quote !== facts.quote) corrections.push({ field: `${entry.field}.quote`, from: facts.quote, to: fix.quote });
+    if (fix.line !== facts.row.line) corrections.push({ field: `${entry.field}.line`, from: facts.row.line ?? null, to: fix.line });
+  }
+  return corrections;
+}
+
+/** The corrections, in the person's words: "SFlow moved 4 citation line numbers to the lines their quotes are on." */
+export function sourceReviewCorrectionWords(corrected) {
+  const lines = (corrected ?? []).filter((entry) => entry.field.endsWith('.line')).length;
+  const quotes = (corrected ?? []).filter((entry) => entry.field.endsWith('.quote')).length;
+  const parts = [
+    ...(lines ? [`moved ${lines === 1 ? 'a citation line number to the line its quote is' : `${lines} citation line numbers to the lines their quotes are`} on`] : []),
+    ...(quotes ? [`put back the quote marks a shell removed from ${quotes === 1 ? 'a quote' : `${quotes} quotes`}`] : [])
+  ];
+  return parts.length ? `SFlow ${parts.join(' and ')}.` : null;
 }
 
 /** Bounded proposals bound to the already checked input/report; no bytes or assessments change. */
@@ -226,36 +296,29 @@ export function sourceReviewRepairGuide(report, input, checked) {
     citations: [], mappingTasks: []
   };
   const sources = new Map(input.sources.map(source => [source.id, source]));
-  const candidates = (checked.findings ?? []).filter(entry => ['citation-line-invalid', 'citation-quote-invalid'].includes(entry.code));
+  const candidates = (checked.findings ?? []).filter(entry => CITATION_CODES.includes(entry.code));
   const citations = candidates.slice(0, 25).map(entry => {
-    // Any cited entry: a row, a finding, or a code row's implementation or test citation (rows[0].tests[1]).
-    const cited = /^(?:rows|findings)\[\d+\](?:\.(?:implementation|tests)\[\d+\])?$/u.test(entry.field ?? '') ? valueAtField(report, entry.field) : null;
-    const row = cited && typeof cited === 'object' && !Array.isArray(cited) ? cited : null;
-    const source = sources.get(entry.sourceId);
-    const lines = source.text.split(/\r?\n/u);
-    const quote = row?.quote;
-    const validQuote = typeof quote === 'string' && Boolean(quote.trim()) && quote.length <= 1024;
-    const matches = [];
-    let matchCount = 0;
-    if (validQuote) for (let index = 0; index < lines.length; index++) {
-      if (lines[index].includes(quote)) {
-        matchCount++;
-        if (matches.length < 10) matches.push(index + 1);
-      }
-    }
+    const facts = citationFacts(report, entry, sources);
+    const { row, source, lines, matches, matchCount, lost } = facts;
     const current = Number.isSafeInteger(row?.line) ? lines[row.line - 1] : undefined;
-    const lost = validQuote && matchCount === 0 ? quoteMarksLost(quote, lines) : null;
+    // What the check sets itself (sourceReviewCitationCorrections): never the reviewer's edit, so never flipped back.
+    const exact = exactCitation(facts);
     return { field: entry.field, sourceId: source.id, textSha256: checked.evaluation.binding.sources.find(bound => bound.id === source.id).textSha256,
       matchCount, matchingLines: lost ? lost.lines : matches,
-      ...(matchCount === 1 ? { proposedEdit: { field: `${entry.field}.line`, value: matches[0] },
-        instruction: 'The unchanged quote occurs on one exact pinned source line. Verify it, change only this line field, then check the changed packet.' }
+      ...(matchCount === 1 ? { proposedEdit: { field: `${entry.field}.line`, value: matches[0] }, ...(exact ? { sflowCorrects: true } : {}),
+        instruction: 'The unchanged quote occurs on exactly one pinned source line: stagingProtocol.check moves this line field there itself. Leave this citation, its line and its quote, as they are.' }
         : lost ? { quoteMarksLost: true, lineText: lost.text.slice(0, 1024), recoveredQuote: lost.quote.slice(0, 1024),
-          instruction: `The quote arrived without the quote marks its line holds (${lost.marks.join(' ')}): a shell argument removes them. Copy recoveredQuote, the exact text of line ${lost.lines[0]}, into this quote${lost.lines[0] === row?.line ? '' : ` and set its line to ${lost.lines[0]}`}, writing the file at stagingPath with your file-edit tool, never inline JSON.` }
+          ...(exact ? { sflowCorrects: true, instruction: `The quote arrived without the quote marks its line holds (${lost.marks.join(' ')}): a shell argument removes them. stagingProtocol.check puts recoveredQuote, the exact text of line ${lost.lines[0]}, back into this quote${lost.lines[0] === row?.line ? '' : ` and sets its line to ${lost.lines[0]}`} itself. Leave this citation as it is.` }
+            : { instruction: `The quote arrived without the quote marks its line holds (${lost.marks.join(' ')}): a shell argument removes them. It reads that way on lines ${lost.lines.join(', ')}: independently select the supporting line and copy its exact text into this quote and its number into line, writing the file at stagingPath with your file-edit tool, never inline JSON.` }) }
         : { instruction: matchCount > 1
           ? 'The quote occurs on multiple lines. Independently select the supporting line; no automatic choice is safe.'
           : `No exact single-line match. Read the pinned source and independently recite it${current !== undefined ? '; suppliedLineText is the cited line as it reads' : ''}; no paraphrase or fuzzy replacement is allowed.` }),
       ...(current !== undefined ? { suppliedLineText: current.slice(0, 1024), suppliedLineTruncated: current.length > 1024 } : {}) };
   });
+  // Every blocking problem is one the check corrects itself: run it, change nothing.
+  const corrects = new Set(citations.filter((entry) => entry.sflowCorrects).map((entry) => entry.field));
+  const onlyCorrections = corrects.size > 0 && candidates.length === citations.length
+    && (checked.findings ?? []).every((entry) => CITATION_CODES.includes(entry.code) && corrects.has(entry.field));
   // A source written as its path: the exact ID (Story anu-bin, 2026-11-11).
   const sourceIds = (checked.findings ?? []).filter(entry => ['review-format-invalid', 'source-unknown'].includes(entry.code) && entry.proposedEdit
     && /(?:^sourcesReviewed\[\d+\]|\.sourceId)$/u.test(entry.field ?? '')).slice(0, 25).map(entry => ({ field: entry.field, proposedEdit: entry.proposedEdit }));
@@ -275,7 +338,8 @@ export function sourceReviewRepairGuide(report, input, checked) {
       ? mappingTasks.length
         ? 'Independently resolve the listed missing mappings now: add genuinely supported rows and recheck changed bytes within the repair budget, or retain already-reviewed genuine gaps with blocking findings. Never invent coverage or require an author successor for a reviewer mapping omission. Retention is not approval.'
         : 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
-      : `${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment (or write "binding": "from-context" and SFlow fills it from your context). ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}${repairs.length ? 'Set each repairs field to its proposedEdit value, or to one of its allowed values. ' : ''}Repair this private packet in the same review turn: edit the file at stagingPath with your file-edit tool, then run stagingProtocol.check. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
+      : onlyCorrections ? 'Run stagingProtocol.check now and change nothing in the file: it moves each citation marked sflowCorrects to the one line its own quote is on, then the packet can be retained.'
+      : `${corrects.size ? 'Leave each citation marked sflowCorrects as it is: stagingProtocol.check corrects it. ' : ''}${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment (or write "binding": "from-context" and SFlow fills it from your context). ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}${repairs.length ? 'Set each repairs field to its proposedEdit value, or to one of its allowed values. ' : ''}Repair this private packet in the same review turn: edit the file at stagingPath with your file-edit tool, then run stagingProtocol.check. At most two changed-packet repair attempts, counting your edits only: running the check is always allowed. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
     ...(binding.length ? { binding } : {}), ...(sourceIds.length ? { sourceIds } : {}), ...(repairs.length ? { repairs } : {}), citations, omittedCitations: Math.max(0, candidates.length - citations.length),
     mappingTasks: mappingTasks.slice(0, 25), omittedMappingTasks: Math.max(0, mappingTasks.length - 25),
     mappingRule: 'Add a covered row only when the pinned source genuinely supports the scenario/clause, reconciling pinned answers. Otherwise retain a blocking finding; an unmapped scenario alone does not prevent retention. Never mark a gap supported to pass.' };

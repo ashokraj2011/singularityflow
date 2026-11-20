@@ -127,7 +127,7 @@ test('interrupted tasks across phase names preserve pending publications and rea
       inputSha256: workflowTaskInputSha256(workflow, phase), state: 'publication-requested', continuations: 2, repairConsumed: 1 });
     const inspection = workflowTaskResume(workflow, phase, { record });
     assert.deepEqual(inspection.nextAction.argv, ['phase', 'draft-check', phaseId, '--work-id', workflow.workItem.id, '--for-agent', '--json']);
-    assert.equal(inspection.continuationBudget.consumed, 2);
+    assert.equal(inspection.continuationBudget.consumed, 0, 'a request starts with its whole continuation budget');
     assert.equal(inspection.repairConsumed, 1);
     // A commit retained here is the task's `publication-pending` stage: sync sends that exact commit, never a recovery
     // (Stage 3 completion) [OSA:REQ-012, D4].
@@ -220,11 +220,38 @@ test('new processes resume a task without replenishing its continuation budget o
   const resumed = JSON.parse(result.stdout);
   assert.equal(resumed.operationId, first.operationId);
   assert.equal(resumed.resumed, true);
-  assert.equal(resumed.continuationBudget.consumed, 1);
+  assert.equal(resumed.continuationBudget.consumed, 0, 'a new request shows a fresh budget');
+  assert.equal((await readWorkflowTask(f.root, f.workflow, f.phase)).continuations, 1, 'the task-wide claim stays recorded');
   for (let n = 0; n < 2; n++) assert.equal((await reserveWorkflowTaskContinuation(f.root, first.operationId, expected)).allowed, true);
   assert.equal((await reserveWorkflowTaskContinuation(f.root, first.operationId, expected)).allowed, false);
   assert.equal(f.git('rev-parse', 'HEAD'), before);
   assert.equal(f.git('status', '--porcelain'), '');
+});
+
+test('a request\'s continuations are its own: a new request starts with the whole budget, and the repair budget is unchanged (owner, 2026-11-20)', async t => {
+  const f = await fixture(t);
+  const value = await observeWorkflowTask(f.root, f.workflow, f.phase, { state: 'repair-draft', repairConsumed: 2, checkpoint: 'validation' });
+  const expected = workflowTaskIdentity(f.workflow, f.phase);
+  const reserve = (request) => reserveWorkflowTaskContinuation(f.root, value.id, expected, { request });
+  // One request spends its budget...
+  for (let n = 1; n <= value.maximumContinuations; n++) assert.deepEqual(await reserve('chat-1:turn-1'), { allowed: true, consumed: n, maximum: value.maximumContinuations });
+  assert.deepEqual(await reserve('chat-1:turn-1'), { allowed: false });
+  // ...and the next request, in this chat or a new one, starts with all of it again.
+  assert.equal((await reserve('chat-1:turn-2')).allowed, true);
+  assert.equal((await reserve('chat-2:turn-1')).consumed, 1);
+  // The task's own record is unchanged: its continuations, and the repair budget the kernel reads from it.
+  const record = await readWorkflowTask(f.root, f.workflow, f.phase);
+  assert.equal(record.continuations, 0);
+  assert.equal(record.maximumContinuations, value.maximumContinuations);
+  assert.equal(record.repairConsumed, 2);
+  // A caller that names no request keeps the task-wide budget, as before.
+  for (let n = 0; n < value.maximumContinuations; n++) assert.equal((await reserveWorkflowTaskContinuation(f.root, value.id, expected)).allowed, true);
+  assert.equal((await reserveWorkflowTaskContinuation(f.root, value.id, expected)).allowed, false);
+  assert.equal((await reserve('chat-3:turn-1')).allowed, true, 'a new request is not spent by the task-wide claims');
+  // What the next request is shown: a fresh budget, never the task-wide claims an earlier chat spent.
+  const resumed = await readWorkflowTaskResume(f.root, f.workflow, f.phase);
+  assert.deepEqual(resumed.continuationBudget, { consumed: 0, maximum: value.maximumContinuations });
+  assert.equal(resumed.repairConsumed, 2, 'the repair budget is unchanged');
 });
 
 test('takeover imports only portable progress and requires fresh local context and terminal evidence', async t => {
@@ -237,7 +264,7 @@ test('takeover imports only portable progress and requires fresh local context a
   other.workflow = structuredClone(f.workflow);
   const resumed = await resumeWorkflowTask(other.root, other.workflow, other.phase);
   assert.equal(resumed.operationId, value.id);
-  assert.equal(resumed.continuationBudget.consumed, 1);
+  assert.equal(resumed.continuationBudget.consumed, 0);
   assert.equal(resumed.repairConsumed, 2);
   assert.equal(resumed.complete, false);
   assert.match(resumed.instruction, /Local drafts and attachments require explicit handoff or re-upload/);
@@ -338,7 +365,7 @@ test('stop-time reservation uses no Git process and overlapping callbacks cannot
       workflowTaskIdentity(f.workflow, f.phase))));
   } finally { process.env.PATH = previous; }
   assert.equal(results.filter(value => value.allowed).length, 3);
-  assert.equal((await readWorkflowTaskResume(f.root, f.workflow, f.phase)).continuationBudget.consumed, 3);
+  assert.equal((await readWorkflowTask(f.root, f.workflow, f.phase)).continuations, 3);
 });
 
 test('current gate facts drive remaining work and checkpoint publication batches with the existing event', async t => {
@@ -464,7 +491,7 @@ test('an unfinished task checkpoint shares metadata on state, preserving dirty s
   assert.equal(attached.taskProgressImport.status, 'imported', JSON.stringify(attached));
   assert.equal(attached.taskProgressImport.imported, 1);
   assert.equal(attached.taskResume.operationId, entry.taskResume.operationId);
-  assert.equal(attached.taskResume.continuationBudget.consumed, 1);
+  assert.equal(attached.taskResume.continuationBudget.consumed, 0);
   assert.equal(attached.taskResume.repairConsumed, 2);
   assert.equal(attached.taskResume.complete, false);
   const otherArtifact = path.join(attached.repositoryPath, 'singularity/work-items', id, 'artifacts/specification/spec.md');

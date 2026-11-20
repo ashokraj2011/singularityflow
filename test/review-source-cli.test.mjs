@@ -151,7 +151,9 @@ test('kernel review staging preserves published bytes and proceeds through check
     assert.deepEqual(await readFile(stateFile), stateBefore);
     assert.deepEqual(await readFile(path.join(root, packet.artifact.path)), artifactBefore);
     const badCitation = structuredClone(report);
-    badCitation.rows[0].line = 999;
+    // A quote the reviewer changed matches no line, so it is the reviewer's to repair (a wrong line under an unchanged
+    // quote, SFlow sets itself: source-review-citation-autofix.test.mjs).
+    badCitation.rows[0].quote = 'Save a draft and keep its saved status.';
     // Simulate a native file-edit staging error, then repair without restarting the review skill.
     await writeFile(staged.stagingPath, JSON.stringify(badCitation));
     const repairArgs = ['review-source', 'check', phaseId, '--report-file', staged.stagingPath, '--for-agent', '--json'];
@@ -162,13 +164,15 @@ test('kernel review staging preserves published bytes and proceeds through check
     const needsRepair = await guarded(repairArgs);
     assert.equal(needsRepair.retentionReady, false);
     assert.equal(needsRepair.repair.status, 'repair-packet');
-    assert.deepEqual(needsRepair.repair.citations[0].proposedEdit, { field: 'rows[0].line', value: report.rows[0].line });
+    assert.equal(needsRepair.repair.citations[0].matchCount, 0);
+    assert.equal(needsRepair.repair.citations[0].proposedEdit, undefined);
+    assert.equal(needsRepair.corrected, undefined, 'a quote the reviewer changed is never rewritten');
     assert.equal(needsRepair.continuation.nextAction.command, packet.stagingProtocol.check.command);
     assert.equal(needsRepair.stagingProtocol.retain.copilotCommand.startsWith(`/sf-review-source submit ${phaseId} `), true);
     assert.deepEqual(await readFile(stateFile), stateBefore);
     assert.deepEqual(await readFile(path.join(root, packet.artifact.path)), artifactBefore);
     assert.equal(git(root, 'rev-parse', 'HEAD'), headBefore, 'citation check is not a lifecycle write');
-    badCitation.rows[0].line = needsRepair.repair.citations[0].proposedEdit.value;
+    badCitation.rows[0].quote = report.rows[0].quote;
     await guarded(['review-source', 'stage', phaseId, '--report-json', JSON.stringify(badCitation), '--json']);
     const checked = await guarded(['review-source', 'check', phaseId, '--report-file', staged.stagingPath, '--for-agent', '--json'], 'powershell');
     assert.equal(checked.retentionReady, true);

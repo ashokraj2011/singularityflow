@@ -5,15 +5,15 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { beginAgentResult, keepAgentResult } from '../src/agent-result-keeper.mjs';
-import { unreadResultContext, withUnreadResult } from '../src/unread-result.mjs';
-import { repositoryPostToolGuard, repositoryToolFailure } from '../src/copilot-repository-boundary.mjs';
+import { beginAgentResult, keepAgentResult, lastAgentResult } from '../src/agent-result-keeper.mjs';
+import { noteAgentCalls, unreadResultContext, withUnreadResult } from '../src/unread-result.mjs';
+import { repositoryPostToolGuard, repositoryToolFailure, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const REFUSAL = JSON.stringify({ schemaVersion: 1, resultType: 'sflow-refusal-plan', status: 'failed',
@@ -111,4 +111,58 @@ test('the office case: session open refuses, the host shows nothing, and the age
   const context = await unreadResultContext(vscode(folder, 'singularity-flow session open --for-agent --json', { exitCode: ran.status }), { env });
   assert.match(context, /SFlow kept it/u);
   assert.ok(context.endsWith(shown), 'exactly the view the command printed');
+});
+
+// The owner's new chat (2026-11-20): a corrected review packet was checked, the host showed nothing, and the hook
+// handed over the earlier check of the uncorrected packet, byte for byte, as this call's result ("never run it again").
+test('a result kept before this call is never handed over, or read back, as this call\'s result (owner, 2026-11-20)', async (t) => {
+  const { root, env, keep } = await fixture(t);
+  const argv = ['review-source', 'check', 'implementation', '--report-file', '/r/review.json', '--for-agent', '--json'];
+  const command = 'singularity-flow review-source check implementation --report-file /r/review.json --for-agent --json';
+  const earlier = JSON.stringify({ resultType: 'source-review-check', act: { state: 'blocked' }, evaluation: { reportSha256: 'earlier-packet' } });
+  keep(argv, earlier, Date.now() - 60_000);
+  // Without a noted call (an older hook), the newest kept result answers, as before.
+  assert.match(await unreadResultContext(vscode(root, command), { env, arrival: 0 }), /earlier-packet/u);
+
+  noteAgentCalls(vscode(root, command), { env });
+  const context = await unreadResultContext(vscode(root, command), { env, arrival: 0 });
+  assert.match(context, /^SFlow: your terminal did not show the result of `singularity-flow review-source check implementation --report-file \/r\/review\.json --for-agent --json`, and SFlow kept no result of this call \(started /u);
+  assert.match(context, /a result kept before it is an earlier run's, never this one's\..*result last --wait --command "review-source check implementation" --for-agent --json`: act on it only if its keptResult\.startedAt is .* or later; otherwise the command did not run here, so run it once more/u);
+  assert.doesNotMatch(context, /earlier-packet/u);
+  const read = await lastAgentResult({ cwd: root, env, command: 'review-source check implementation' });
+  assert.equal(read.status, 'none', 'result last never returns the earlier run for this call either');
+  assert.ok(Date.parse(read.since) > Date.now() - 60_000);
+
+  // This call's own run keeps its result: that one is handed over.
+  keep(argv, JSON.stringify({ resultType: 'source-review-check', act: { state: 'retain' }, evaluation: { reportSha256: 'current-packet' } }));
+  assert.match(await unreadResultContext(vscode(root, command), { env, arrival: 0 }), /current-packet/u);
+  assert.equal((await lastAgentResult({ cwd: root, env, command: 'review-source check implementation' })).kept.output.includes('current-packet'), true);
+});
+
+test('the pre-tool hook notes an allowed SFlow agent call, so the post-tool hook knows which results are its own', async (t) => {
+  const { root, env, keep } = await fixture(t);
+  const command = 'singularity-flow nextsteps --for-agent --json';
+  keep(['nextsteps', '--for-agent', '--json'], JSON.stringify({ resultType: 'nextsteps', marker: 'earlier-run' }), Date.now() - 30_000);
+  const decision = await repositoryToolGuard(vscode(root, command));
+  assert.notEqual(decision.permissionDecision, 'deny', JSON.stringify(decision));
+  const after = await repositoryPostToolGuard(vscode(root, command));
+  assert.doesNotMatch(after.additionalContext ?? '', /earlier-run/u, JSON.stringify(after));
+  assert.match(after.additionalContext ?? '', /SFlow kept no result of this call/u);
+  assert.equal((await lastAgentResult({ cwd: root, env, command: 'nextsteps' })).status, 'none');
+});
+
+test('a kept result older than the file its command reads is an earlier run\'s, even with no noted call', async (t) => {
+  const { root, env, keep } = await fixture(t);
+  const staged = path.join(root, 'review.json');
+  const command = `singularity-flow review-source check implementation --report-file ${staged} --for-agent --json`;
+  const argv = ['review-source', 'check', 'implementation', '--report-file', staged, '--for-agent', '--json'];
+  keep(argv, JSON.stringify({ resultType: 'source-review-check', evaluation: { reportSha256: 'uncorrected-packet' } }), Date.now() - 60_000);
+  await writeFile(staged, '{"rows":[]}\n');
+  const context = await unreadResultContext(vscode(root, command), { env, arrival: 0 });
+  assert.ok(context.includes(`the result SFlow kept for it is an earlier run's: ${staged} changed at `), context);
+  assert.match(context, /, after that run started\. In the terminal that ran it, read `singularity-flow result last --wait --command "review-source check implementation" --for-agent --json`/u);
+  assert.doesNotMatch(context, /uncorrected-packet/u);
+  // A result kept after the file last changed is handed over as before.
+  keep(argv, JSON.stringify({ resultType: 'source-review-check', evaluation: { reportSha256: 'corrected-packet' } }), Date.now() + 1000);
+  assert.match(await unreadResultContext(vscode(root, command), { env, arrival: 0 }), /corrected-packet/u);
 });

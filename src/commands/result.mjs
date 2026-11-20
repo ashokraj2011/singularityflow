@@ -37,6 +37,8 @@ export function keptResultView(found, { command = null } = {}) {
     ...(found.status === 'running' ? { retry: retryFor(command) } : {}),
     // Interrupted is where a host's timeout leaves a long publication: read where it left things before any rerun.
     ...(found.status === 'interrupted' && safeReadFor(found.interrupted?.command) ? { safeRead: safeReadFor(found.interrupted.command) } : {}),
+    // None since this command's newest call: a result kept before that call is an earlier run's, never returned for it.
+    ...(found.since ? { since: found.since } : {}),
     ...(found.status === 'none' && command ? { command, ...(safeReadFor(command) ? { safeRead: safeReadFor(command) } : {}) } : {}) };
 }
 
@@ -74,5 +76,6 @@ export async function run(_argv, { positionals, options = {} }) {
   }
   console.log(found.status === 'running' ? `Still running: ${found.running.map((entry) => entry.command).join('; ')}. Run this read again; never run the command again.`
     : found.status === 'interrupted' ? `${found.interrupted.command} ended without a result (interrupted or killed). Read where it left things first (${safeReadFor(found.interrupted.command)}); run it again once only if that shows it took no effect.`
-      : 'No result is kept for this checkout.');
+      : found.since ? `No result of ${optionString(options, 'command', null)} is kept since its last call (${found.since}); an earlier run's result is not that call's.`
+        : 'No result is kept for this checkout.');
 }

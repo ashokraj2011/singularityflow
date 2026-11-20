@@ -820,6 +820,10 @@ export function argvAllowed(argv, mode, value) {
     && (decisionListChatRecord(positionals, options, value.contract.workId)
       // An undo of what was settled, on the person's own yes to its question [owner, 2026-11-19].
       || (positionals[1] === 'undo' && positionals[2] === value.contract.workId && positionals.length === 3 && /^STL-\d{3,}$/u.test(options.settled ?? '')));
+  // Disputing the reviewer's finding, on the person's own yes to its question and in their own words [owner, 2026-11-20].
+  if (mode === 'decision-only' && positionals[0] === 'review-source') return !value.decisionEnded && positionals[1] === 'dispute'
+    && positionals.length === 3 && options['work-id'] === value.contract.workId && typeof options.finding === 'string' && typeof options.reason === 'string'
+    && Object.keys(options).every((key) => ['work-id', 'finding', 'reason', 'json'].includes(key));
   // Acknowledging an approved intent amendment, on the person's own yes to its question [owner, 2026-11-19].
   if (mode === 'decision-only' && positionals[0] === 'story') return !value.decisionEnded && positionals[1] === 'intent-amendment'
     && positionals[2] === 'acknowledge' && /^AMD-\d{3,}$/u.test(positionals[3] ?? '') && positionals.length === 4 && options['work-id'] === value.contract.workId;
@@ -1477,7 +1481,8 @@ function personStepRefusal({ id, argv, owners }, turn = null) {
   // equivalent" under it sent a person to a terminal for what /sf-decide records in chat (2026-11-06).
   const witness = id === 'witness' ? witnessPageRoute(argv) : null;
   // An intent amendment's decision or acknowledgement: the decisions card [owner, 2026-11-13].
-  const card = id.startsWith('intent-amendment-') ? decisionsCardRoute(argv)
+  // A dispute of a reviewer's finding too: on the card, or a /sf-decide turn's bound yes [owner, 2026-11-20].
+  const card = id.startsWith('intent-amendment-') || id === 'review-dispute' ? decisionsCardRoute(argv)
     : id === 'settled-undo' ? decisionsCardRoute(argv, parseCli(argv).positionals[2] ?? null) : null;
   const routes = witness ? [witness] : card ? [card] : guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
   // An undo or an acknowledgement a /sf-decide turn takes on the person's yes keeps its own words elsewhere [owner, 2026-11-19].

@@ -53,6 +53,8 @@ const COMMANDS = Object.freeze({
   'story-reopen': ['singularity-flow reopen PMC-1 --to custom-step --reason "Found a defect."'],
   'convergence-adjudication': ['singularity-flow story adjudicate PMC-1 --finding F-1 --as dismissed --reason "Not a defect."'],
   'source-review-decision': ['singularity-flow review-source decide custom-step --finding F-1 --reason "Accepted."'],
+  // Dispute this finding: a /sf-decide turn's bound yes, in the person's own words [owner, 2026-11-20].
+  'review-dispute': ['singularity-flow review-source dispute custom-step --work-id PMC-1 --finding F-1 --reason "The clause asks for a count, not a list."'],
   'constitution-exception': ['singularity-flow constitution except ART-1 --work-id PMC-1 --reason "Waived for the spike."'],
   'repair-authorization': [`singularity-flow repair authorize RPR-001 --confirm ${digest} --open --json`],
   'telemetry-consent': ['singularity-flow telemetry enable --confirm "ENABLE LOCAL USAGE" --json'],

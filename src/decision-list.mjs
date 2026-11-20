@@ -36,7 +36,8 @@ import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePha
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
-import { returnRoute } from './action-command-map.mjs';
+import { returnRoute, reviewDisputeCommand } from './action-command-map.mjs';
+import { disputedFindingWords } from './review-dispute-words.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
 export const DECISION_LIST_REVISION = 'decision-list-v1';
@@ -46,7 +47,7 @@ const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
 // A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
-export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
+export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'review-dispute', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure', 'intent-amendment-decision', 'intent-amendment-refresh']);
 /**
@@ -105,6 +106,8 @@ function issueGroups(workflow, phaseId) {
 function effectGroups(workflow, effect) {
   // A revalidation is the revalidated step's own approvers' [UIF-M3].
   if (effect.kind === 'amendment-revalidation') return issueGroups(workflow, effect.phase);
+  // A dispute of its reviewer's finding is for whoever the step's approval rules name (`review-source dispute`).
+  if (effect.kind === 'review-dispute') return issueGroups(workflow, effect.phase);
   // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
   // Anyone working on the Story acknowledges an approved one [owner, 2026-11-13, D2].
   // So does undoing what was settled for a person: it only hands the question back [owner, 2026-11-13].
@@ -1737,17 +1740,67 @@ function settledItems(workflow, context) {
     const by = settledByWords(entry);
     const evidence = evidenceWords(entry);
     const undo = `singularity-flow decisions undo ${workId} --settled ${entry.id}`;
+    // The version SFlow started for a review's findings, being written now: each finding it was started for may be disputed here
+    // too, and one already disputed is said, with that its author is told not to make that fix [owner, 2026-11-20].
+    const findings = startedFindings(context.facts?.reviewDisputes, entry);
+    const disputes = findings.filter((finding) => !finding.disputed).slice(0, 5).map((finding) => disputeOption(workflow, context, context.facts.reviewDisputes, finding, `dispute-${finding.id}`));
+    const disputed = findings.filter((finding) => finding.disputed).map((finding) => disputedFindingWords(finding.id, finding.disputed));
     return {
       kind: 'settled', settled: true, title: String(entry.answer).slice(0, 200), subject: entry.subject,
       answerWords: entry.answer, evidenceWords: evidence, evidence: (entry.evidence ?? []).map((fact) => `${fact.what} (${fact.where})`), by: entry.by, at: entry.at,
-      why: `${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. Undo it only if it is wrong.`,
+      why: [`${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. Undo it only if it is wrong.`,
+        findings.length ? 'Dispute a finding it was started for if the reviewer is wrong.' : ''].filter(Boolean).join(' '),
       // Also a bound yes in /sf-decide, "Undo: ask me instead?", unless SF Guard signs it [owner, 2026-11-19].
       options: [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
         effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo,
-      ...(presenceRequires(workflow) ? {} : { chat: { command: undo } }) }],
+      ...(presenceRequires(workflow) ? {} : { chat: { command: undo } }) }, ...disputes],
       // What it changed, for its one line on every host (decision-plain.mjs) [owner, 2026-11-16].
       details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence, ...(entry.effect ? { effect: entry.effect } : {}),
-        reraised: route, commands: [undo] }
+        reraised: route, ...(disputed.length ? { disputed, allDisputed: findings.every((finding) => finding.disputed) } : {}),
+        commands: [undo, ...disputes.map((entry) => entry.terminal)] }
+    };
+  });
+}
+
+/**
+ * Dispute this finding (owner, 2026-11-20): the reviewer's blocking finding, disputed with the person's own reason, under
+ * the step's approval rules (review-finding-dispute.mjs). A choice against the reviewer: it always takes a reason, and no
+ * surface recommends it (decision-advice.mjs). A bound yes in /sf-decide too, unless SF Guard signs it.
+ */
+function disputeOption(workflow, context, facts, finding, id = 'dispute') {
+  const name = stepName(workflow, facts.phase);
+  const command = reviewDisputeCommand(workflow.workItem.id, facts.phase, finding.id);
+  return { ...option(workflow, context, { id, label: id === 'dispute' ? 'Dispute this finding' : `Dispute the reviewer's finding ${finding.id}`,
+    words: `Say why the reviewer is wrong, in your own words. ${finding.id} then blocks neither ${name}'s next version nor its submission, and ${name}'s approvers see your reason when they approve it; they may still return the step.`,
+    effects: [{ kind: 'review-dispute', phase: facts.phase, finding: finding.id, generation: facts.generation, reportSha256: facts.reportSha256 }],
+    needs: { reason: textNeed('', REASON) } }), oneByOne: true, terminal: command, ...(presenceRequires(workflow) ? {} : { chat: { command } }) };
+}
+
+/** The findings of the review a settled start of a version was for, while that version is being written; none otherwise. */
+function startedFindings(facts, entry) {
+  if (!facts?.open || entry.kind !== 'review-corrections' || entry.phase !== facts.phase || Number(entry.effect?.toGeneration) !== Number(facts.open.version)) return [];
+  const named = new Set(entry.effect?.findings ?? []);
+  const listed = facts.findings.filter((finding) => named.has(finding.id));
+  return listed.length ? listed : facts.findings;
+}
+
+/**
+ * Each blocking finding the reviewer raised on the step's published version, while its author is to fix it (offered: nothing
+ * waits on a dispute; by default the author fixes it) [owner, 2026-11-20]. One already disputed is no row: it blocks nothing.
+ */
+function reviewFindingItems(workflow, context, facts) {
+  if (!facts || facts.status !== 'in_progress') return [];
+  const name = stepName(workflow, facts.phase);
+  return facts.findings.filter((finding) => !finding.disputed).map((finding) => {
+    const dispute = disputeOption(workflow, context, facts, finding);
+    const where = finding.path ? ` (${finding.path}${finding.line ? `:${finding.line}` : ''})` : '';
+    return {
+      kind: 'review-finding', title: `The reviewer's finding ${finding.id} on ${name} version ${facts.generation}`,
+      why: `The reviewer found: ${String(finding.message).replace(/\s+/gu, ' ').slice(0, 400)}${where}. ${facts.open ? `Version ${facts.open.version} is being written to fix it.` : 'Its author fixes it in the next version.'} Dispute it only if the reviewer is wrong.`,
+      options: [dispute],
+      details: { phase: facts.phase, generation: facts.generation, finding: finding.id, message: finding.message, ...(finding.check ? { check: finding.check } : {}),
+        ...(finding.clauseId ? { clauseId: finding.clauseId } : {}), ...(finding.path ? { path: finding.path } : {}), ...(facts.open ? { writing: facts.open.version } : {}),
+        commands: [dispute.terminal] }
     };
   });
 }
@@ -1797,7 +1850,12 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
   // [owner, 2026-11-19, C3, Q12]: the approval is where a settlement is last undone, by returning the step.
   const ledger = settledLedger(workflow, phase.id);
   const raised = (workflow.upstreamIssues ?? []).filter((issue) => issue.raisedIn?.phase === phase.id).map((issue) => issue.id);
-  const reviewed = [...ledger.map((group) => `Settled for you: ${group.words}.`), ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : [])];
+  // Each finding of its review a person disputed, with their reason: the approver decides with it in view [owner, 2026-11-20].
+  const disputes = (context.facts?.reviewDisputes?.status === 'awaiting_approval' && context.facts.reviewDisputes.phase === phase.id ? context.facts.reviewDisputes.findings : [])
+    .filter((finding) => finding.disputed).map((finding) => ({ finding: finding.id, message: finding.message, by: finding.disputed.by, reason: finding.disputed.reason,
+      ...(finding.disputed.carriedFrom ? { carriedFrom: finding.disputed.carriedFrom } : {}), words: disputedFindingWords(finding.id, finding.disputed) }));
+  const reviewed = [...ledger.map((group) => `Settled for you: ${group.words}.`), ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
+    ...disputes.map((entry) => entry.words)];
   return {
     kind: 'approval', title: `Approve ${name}`,
     why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`,
@@ -1807,6 +1865,7 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You read its documents and say Yes once.') }],
     details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
       ...(reviewed.length ? { ledger: { settled: ledger, issues: raised }, lines: reviewed } : {}),
+      ...(disputes.length ? { disputes } : {}),
       // The one approval screen opens its documents, and those of the steps SFlow approved since the last approval (approve twice).
       documents: [...new Set((phase.artifacts ?? []).map((artifact) => artifact?.path).filter((file) => typeof file === 'string' && file))],
       ...(() => { const covers = automaticApprovalsBefore(workflow, phase.id).map(coveredStep); return covers.length ? { covers } : {}; })(),
@@ -1943,12 +2002,13 @@ const HOLDS_WORDS = Object.freeze({
 export const DECISION_OUTCOMES = Object.freeze({
   accept: 'Accept', 'accept-risk': 'Accept as a risk until a date', return: 'Return to a step', 'change-spec': 'Change the spec',
   'not-applicable': 'Not applicable', defer: 'Decide later', dismiss: 'Dismiss: not real', route: 'Choose the route', 'own-step': 'Your own step',
-  undo: 'Undo: ask me instead'
+  undo: 'Undo: ask me instead', dispute: 'Dispute: the reviewer is wrong'
 });
 
 /** The outcome an option is, from its kind and ID; anything not named below accepts what the item asks about. */
 export function optionOutcome(item, entry) {
   const id = String(entry.id ?? '');
+  if (id === 'dispute' || id.startsWith('dispute-')) return 'dispute';
   if (item.kind === 'settled') return 'undo';
   if (item.kind === 'routing-decision' || /^(?:choose|to)-/u.test(id) || id === 'route') return 'route';
   // Approving an intent amendment changes the approved clauses.
@@ -2167,7 +2227,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));
   // Nothing waits on these: a review of the scope, and each convergence answer its approvers may change [SCS:REQ-034].
   const offered = [...(facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : []),
-    ...(facts.convergence ? convergenceAnswerItems(workflow, context, facts.convergence) : [])].map((item) => underGuard(workflow, item)).map((item, index) => advisedItem(workflow, { id: `d${items.length + index + 1}`, ...item,
+    ...(facts.convergence ? convergenceAnswerItems(workflow, context, facts.convergence) : []),
+    ...reviewFindingItems(workflow, context, facts.reviewDisputes)].map((item) => underGuard(workflow, item)).map((item, index) => advisedItem(workflow, { id: `d${items.length + index + 1}`, ...item,
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
     decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
     .map((item) => ({ ...item, answer: itemAnswer(item, workflow.workItem.id) }));
@@ -2472,6 +2533,7 @@ export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'intent-amendment-acknowledge') return `acknowledge ${effect.amendment} (intent amendment acknowledgement)`;
   if (effect.kind === 'asked-for-note') return `keep instruction ${effect.instruction} of ${stepName(workflow, effect.phase)} as a note, not a request (instruction account)`;
   if (effect.kind === 'settled-undo') return `undo ${effect.settled}, so it is a question for a person again (undo of a settled decision)`;
+  if (effect.kind === 'review-dispute') return `dispute the reviewer's finding ${effect.finding} on ${stepName(workflow, effect.phase)} version ${effect.generation} with your reason; it no longer blocks the step (review dispute)`;
   if (effect.kind === 'intent-amendment-draft') {
     return `draft ${stepName(workflow, effect.phase)}'s scope with a slot for ${listWords((effect.clauses ?? []).map((clause) => clauseName(workflow, clause)))}`
       + `${effect.path ? ` at ${effect.path}` : ''}; nothing is recorded or decided (intent-amendment draft)`;

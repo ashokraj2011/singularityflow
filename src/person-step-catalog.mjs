@@ -152,7 +152,7 @@ export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge', 'reject',
 // Change impact on: a chat proposal waits for the person's yes, the one step held there [CIC:REQ-015].
 export const PROPOSAL_BOUND_TURNS = Object.freeze(['reject', 'amend']);
 export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record', 'intent-amendment-proposal',
-  'settled-undo', 'intent-amendment-acknowledgement']);
+  'settled-undo', 'intent-amendment-acknowledgement', 'review-dispute']);
 
 const EPIC_COMMANDS = new Set(['initiative', 'epic']);
 const HOST_POLICY_ASSERTIONS = ['confirm-protected', 'confirm-push-policy', 'confirm-pin-retention'];
@@ -171,6 +171,8 @@ export const PERSON_DECISIONS = Object.freeze([
   ['story-reopen', ([command]) => command === 'reopen', ['reject']],
   ['convergence-adjudication', ([command, sub]) => command === 'story' && sub === 'adjudicate', ['converge']],
   ['source-review-decision', ([command, sub]) => command === 'review-source' && sub === 'decide', ['review-decide']],
+  // Dispute this finding: a bound yes in /sf-decide, with the person's own reason, never under SF Guard [owner, 2026-11-20].
+  ['review-dispute', ([command, sub]) => command === 'review-source' && sub === 'dispute', ['decide']],
   ['constitution-exception', ([command, sub]) => command === 'constitution' && sub === 'except', ['constitution']],
   ['repair-authorization', ([command, sub]) => command === 'repair' && sub === 'authorize', ['fix']],
   ['telemetry-consent', ([command, sub]) => command === 'telemetry' && sub === 'enable', ['telemetry']],

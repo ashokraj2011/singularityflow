@@ -161,7 +161,7 @@ export const REASON_RULES = Object.freeze({
   'upstream-issue revalidate': { reason: [20, 1000] }, 'upstream-issue decide': { reason: [20, 1000] },
   'decision applicability': { reason: [20, 1000] }, 'decision departure': { reason: [20, 1000] },
   'decision plan': { reason: [20, 1000], 'supporting-reason': [10, 500] }, 'decision scope': { reason: [20, 1000] },
-  'decision completeness': { reason: [20, 1000] }
+  'decision completeness': { reason: [20, 1000] }, 'review-source dispute': { reason: [20, 1000] }
 });
 
 function reasonLengthProblem(positionals, options) {
@@ -199,6 +199,10 @@ function yesNoCommand([command, sub, third, fourth], options, version = null) {
   if (command === 'decision' && sub === 'applicability') return { records: 'yes', only: true, row: `applicability ${text('responsibility')[0]}`, names: text('responsibility'), yes: [], no: [] };
   // An undo of what was settled, and an intent amendment's acknowledgement: each only on a Yes to the question naming it [owner, 2026-11-19].
   if (command === 'decisions' && sub === 'undo') return { records: 'yes', only: true, asked: true, row: `undo ${text('settled')[0]}`, names: text('settled'), yes: ['undo', 'undo it'], no: [] };
+  // Disputing the reviewer's finding: only on a Yes to the question naming it, with the person's own reason [owner, 2026-11-20].
+  if (command === 'review-source' && sub === 'dispute') {
+    return { records: 'yes', only: true, asked: true, row: `dispute ${text('finding')[0]}`, names: text('finding'), yes: ['dispute', 'dispute it', 'dispute this finding'], no: [] };
+  }
   if (command === 'story' && sub === 'intent-amendment' && third === 'acknowledge') {
     return { records: 'yes', only: true, asked: true, row: `acknowledge ${fourth}`, names: [fourth].filter(Boolean), yes: ['acknowledge', 'acknowledge it'], no: [] };
   }

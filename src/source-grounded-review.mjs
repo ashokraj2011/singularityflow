@@ -16,6 +16,7 @@ import { nonTestVerification } from './verification/intent.mjs';
 import { extractNormativeStatements, normalizeStatement } from './scope/extract.mjs';
 import { issueNamesClause } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { DISPUTE_PREFIX } from './review-dispute-words.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 const MAX_SOURCES = 100;
@@ -702,6 +703,14 @@ export function evaluateSourceGroundedReview(report, context) {
   } catch (error) {
     findings.push(finding('review-structure-invalid', error.message));
   }
+  // A reviewer's blocking finding a person disputed: a human disposition `dispute:<finding ID>` on this report, carried
+  // from an earlier version's when the reviewer raised the same finding again (source-review-lifecycle.mjs).
+  const disputes = new Map((Array.isArray(context.humanDispositions) ? context.humanDispositions : [])
+    .filter((entry) => typeof entry?.id === 'string' && entry.id.startsWith(DISPUTE_PREFIX) && entry.reportSha256 === reportSha256
+      && entry.decision === 'accepted' && typeof entry.reason === 'string' && entry.reason.trim() && typeof entry.actor === 'string' && entry.actor.trim())
+    .map((entry) => [entry.id.slice(DISPUTE_PREFIX.length), { reason: entry.reason.trim(), by: String(entry.by ?? '').trim() || entry.actor.trim(), at: entry.decidedAt ?? null,
+      ...(entry.carriedFrom ? { carriedFrom: entry.carriedFrom } : {}) }]));
+  const disputedFindings = [];
   if (!Array.isArray(report.findings) || report.findings.length > MAX_FINDINGS) {
     findings.push(finding('review-findings-invalid', `Reviewer findings must be an array of at most ${MAX_FINDINGS} entries.`));
   } else {
@@ -743,6 +752,9 @@ export function evaluateSourceGroundedReview(report, context) {
       else if (owner) findings.push(finding('reviewer-blocker',
         `Reviewer finding '${entry.id}' is about ${owner}'s approved output: ${entry.message} Raise it to ${owner}'s approvers as an upstream issue; then it holds only the Story's ending, not ${context.phase}.`,
         { reviewFindingId: entry.id, ownerPhase: owner, upstreamPhase: owner, about: entry.clauseId ?? entry.id }));
+      // A person who may decide for the step disputed it, here or on an earlier version (owner, 2026-11-20): it stays in
+      // the review, shown with their reason, and blocks neither the next version nor the submission.
+      else if (entry.severity === 'blocking' && disputes.has(entry.id)) disputedFindings.push({ id: entry.id, message: entry.message, ...disputes.get(entry.id) });
       else if (entry.severity === 'blocking') findings.push(finding('reviewer-blocker',
         `Reviewer finding '${entry.id}': ${entry.message}`, { reviewFindingId: entry.id }));
     }
@@ -762,6 +774,7 @@ export function evaluateSourceGroundedReview(report, context) {
     status: findings.length ? 'correction-required' : 'ready',
     binding, reportSha256, findings, pendingDispositions: unresolved,
     ...(upstreamFindings.length ? { upstreamFindings } : {}),
+    ...(disputedFindings.length ? { disputedFindings } : {}),
     disclaimer: 'A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment.'
   };
 }

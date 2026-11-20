@@ -9,6 +9,7 @@ import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
 import { inTurnSubmitCommand, reviewFindingsOpenCommand } from './action-command-map.mjs';
+import { disputedFindingWords } from './review-dispute-words.mjs';
 
 /** Only the reviewer has seen the version its retained review asks to correct (owner, 2026-11-19): review-findings-opening.mjs. */
 export function reviewerAloneSaw(workflow, phase, review) {
@@ -68,16 +69,21 @@ export function reviewAsksForCorrection(review) {
 /**
  * A review's blocking findings as the author of the step's next generation reads them: what each says, its check and
  * where it points, from the retained report (`review.report`), else the status's own reviewer findings. Null when none.
+ * `disputed`: the findings a person disputed (review-finding-dispute.mjs), each `{ id, by, reason }`: never among those to
+ * fix, and named in `disputed`, so the author is told not to make that fix (owner, 2026-11-20).
  */
-export function reviewCorrection(review, generation) {
+export function reviewCorrection(review, generation, disputed = []) {
   const report = review?.report ?? null;
   const sources = new Map((report?.binding?.sources ?? []).map((source) => [source?.id, source?.path]));
   const reported = (Array.isArray(report?.findings) ? report.findings : []).filter((entry) => entry?.severity === 'blocking')
     .map((entry) => ({ id: entry.id, ...(entry.check ? { check: entry.check } : {}), message: String(entry.message ?? '').slice(0, 600),
       ...(sources.get(entry.sourceId) && Number.isSafeInteger(entry.line) ? { at: `${sources.get(entry.sourceId)}:${entry.line}` } : {}) }));
-  const findings = (reported.length ? reported : (review?.findings ?? []).filter((entry) => entry?.code === 'reviewer-blocker')
+  const all = (reported.length ? reported : (review?.findings ?? []).filter((entry) => entry?.code === 'reviewer-blocker')
     .map((entry) => ({ id: entry.reviewFindingId ?? null, message: String(entry.message ?? '').slice(0, 600) }))).slice(0, 20);
-  return findings.length ? { generation: Number(generation), findings } : null;
+  const disputes = new Map((disputed ?? []).filter((entry) => entry?.id).map((entry) => [String(entry.id), entry]));
+  const findings = all.filter((entry) => !disputes.has(String(entry.id)));
+  const named = all.filter((entry) => disputes.has(String(entry.id))).map((entry) => ({ id: entry.id, words: `${disputedFindingWords(entry.id, disputes.get(String(entry.id)))} Do not make that fix.` }));
+  return findings.length || named.length ? { generation: Number(generation), findings, ...(named.length ? { disputed: named } : {}) } : null;
 }
 
 /**

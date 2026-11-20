@@ -29,6 +29,7 @@ import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepo
 import { committedSourceReviewFile, prefetchSourceReviewFiles, sharedSourceReviewInput,
   sharedSourceReviewProvenance, sourceReviewProvenanceObjects, withSourceReviewSnapshot } from './source-review-snapshot.mjs';
 import { authorCommand } from './action-command-map.mjs';
+import { DISPUTE_PREFIX } from './review-dispute-words.mjs';
 
 const REVIEW_AGENT = 'sflow-source-reviewer';
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
@@ -712,7 +713,7 @@ async function readPriorGenerationRecord(root, config, workflow, phaseId) {
   return null;
 }
 
-async function readDecisions(root, config, workflow, phaseId, reportSha256) {
+async function readDecisions(root, config, workflow, phaseId, reportSha256, { only = null } = {}) {
   const directory = path.join(sourceReviewDirectory(root, config, workflow, phaseId), 'decisions', reportSha256);
   if (!(await exists(directory))) return [];
   const names = (await readdir(directory)).filter((name) => /^[a-f0-9]{64}\.json$/u.test(name)).sort();
@@ -720,6 +721,8 @@ async function readDecisions(root, config, workflow, phaseId, reportSha256) {
   for (const name of names) {
     const record = checkedRecord(await readCommittedJson(root, path.join(directory, name), 'Source review human decision'),
       'Source review human decision', 'source-review-decision');
+    // A reader of one kind (a dispute) verifies only the records of that kind.
+    if (only && !only(record)) continue;
     if (record.recordSha256 !== name.slice(0, -5) || record.reportSha256 !== reportSha256) {
       throw new SingularityFlowError('Source review human decision path or report binding is invalid.', {
         code: 'SOURCE_REVIEW_RECORD_INVALID'
@@ -805,6 +808,100 @@ async function carriedUnreadableDecisions(root, config, workflow, phaseId, input
   return carried;
 }
 
+/** The reviewer's blocking findings a person may dispute: what the step's own author would correct, never one about an earlier step's output. */
+export function disputableReviewFindings(report, phaseId) {
+  return (Array.isArray(report?.findings) ? report.findings : []).filter((entry) => entry?.severity === 'blocking'
+    && typeof entry.id === 'string' && String(entry.message ?? '').trim() && (!entry.ownerPhase || entry.ownerPhase === phaseId));
+}
+
+/** The finding a dispute keeps beside the person's reason: the reviewer's own words and where it points. */
+function disputedFindingRecord(report, entry) {
+  const file = (report?.binding?.sources ?? []).find((source) => source?.id === entry.sourceId)?.path ?? null;
+  return { id: String(entry.id), message: String(entry.message).trim().slice(0, 2000),
+    ...(entry.check ? { check: entry.check } : {}), ...(entry.clauseId ? { clauseId: entry.clauseId } : {}),
+    ...(entry.sourceId ? { sourceId: entry.sourceId, ...(file ? { path: file } : {}) } : {}), ...(Number.isSafeInteger(entry.line) ? { line: entry.line } : {}) };
+}
+
+/**
+ * What makes a finding on a later version "the same finding" a person disputed: the reviewer's ID, its check, its clause and
+ * the file it cites, never its words (the reviewer words each review afresh). Anything else is a new finding, which blocks.
+ */
+const disputeIdentity = (finding) => canonicalJson({ id: String(finding?.id ?? ''), check: finding?.check ?? null,
+  clauseId: finding?.clauseId ?? null, source: finding?.path ?? finding?.sourceId ?? null });
+
+const isDispute = (record) => String(record?.id ?? '').startsWith(DISPUTE_PREFIX) && Boolean(record?.finding);
+const actorName = (actor) => actor?.name ?? actor?.login ?? actor?.email ?? null;
+
+/**
+ * Every dispute recorded on this step's earlier reviews (each version's, and an earlier review of this version), newest first,
+ * each verified as the review's own decisions are: committed with its event and authorized by the step's approval rules. One
+ * that no longer verifies is left out, so the finding blocks again.
+ */
+async function earlierDisputes(root, config, workflow, phaseId, exceptReportSha256 = null) {
+  const phaseDirectory = path.dirname(sourceReviewDirectory(root, config, workflow, phaseId));
+  const secured = await secureRepositoryPath(root, phaseDirectory, { label: 'Source review phase directory', type: 'directory' });
+  if (!secured.exists) return [];
+  const generations = (await readdir(secured.absolute, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && /^gen-[1-9][0-9]*$/u.test(entry.name)).map((entry) => Number(entry.name.slice(4)))
+    .filter((generation) => Number.isSafeInteger(generation) && generation <= workflow.phases[phaseId].generation).sort((left, right) => right - left);
+  const found = [];
+  for (const generation of generations) {
+    const prior = { ...workflow, phases: { ...workflow.phases, [phaseId]: { ...workflow.phases[phaseId], generation } } };
+    const decisionsRoot = path.join(sourceReviewDirectory(root, config, prior, phaseId), 'decisions');
+    if (!(await exists(decisionsRoot))) continue;
+    for (const reportSha256 of (await readdir(decisionsRoot)).filter((name) => SHA256.test(name) && name !== exceptReportSha256).sort()) {
+      try { found.push(...await readDecisions(root, config, prior, phaseId, reportSha256, { only: isDispute })); } catch { /* It no longer verifies: not carried. */ }
+    }
+  }
+  return found.sort((left, right) => Number(right.generation) - Number(left.generation) || String(right.decidedAt).localeCompare(String(left.decidedAt)));
+}
+
+/**
+ * A dispute carried to this review: the reviewer raised a finding a person disputed on an earlier review again (the same
+ * finding, disputeIdentity), so it shows as already disputed, with that person's reason, rather than blocking again.
+ */
+async function carriedDisputes(root, config, workflow, phaseId, current, currentDecisions) {
+  const report = current.record.report;
+  const disputed = new Set(currentDecisions.filter(isDispute).map((record) => record.id.slice(DISPUTE_PREFIX.length)));
+  const wanted = new Map(disputableReviewFindings(report, phaseId).filter((entry) => !disputed.has(entry.id))
+    .map((entry) => [disputeIdentity(disputedFindingRecord(report, entry)), entry]));
+  if (!wanted.size) return [];
+  const carried = [];
+  for (const record of await earlierDisputes(root, config, workflow, phaseId, current.record.reportSha256)) {
+    const entry = wanted.get(disputeIdentity(record.finding));
+    if (!entry) continue;
+    carried.push({ ...record, id: `${DISPUTE_PREFIX}${entry.id}`, reportSha256: current.record.reportSha256,
+      carriedFrom: { generation: record.generation, reportSha256: record.reportSha256, recordSha256: record.recordSha256 } });
+    wanted.delete(disputeIdentity(record.finding));
+  }
+  return carried;
+}
+
+/**
+ * The reviewer's blocking findings on the step's published version, each with its dispute when a person disputed it (on this
+ * review, or the same finding on an earlier one), for whoever may dispute one, the step's approvers and the author of its next
+ * version. Read from the committed review record and verified as the status verifies it, so it reads the same while the next
+ * version is being written. Null when the published version has no retained review.
+ */
+export async function reviewFindingDisputes(root, config, workflow, phaseId) {
+  const step = workflow.phases?.[phaseId];
+  if (!step || !(Number(step.generation) >= 1) || !sourceReviewKind(workflow, phaseId)) return null;
+  return withSourceReviewSnapshot(root, async () => {
+    const current = await readCurrentRecord(root, config, workflow, phaseId);
+    if (!current) return null;
+    const decisions = await readDecisions(root, config, workflow, phaseId, current.record.reportSha256);
+    const disputes = new Map([...decisions.filter(isDispute), ...await carriedDisputes(root, config, workflow, phaseId, current, decisions)]
+      .map((record) => [record.id.slice(DISPUTE_PREFIX.length), record]));
+    const report = current.record.report;
+    return { phase: phaseId, generation: current.record.generation, reportSha256: current.record.reportSha256,
+      findings: disputableReviewFindings(report, phaseId).map((entry) => {
+        const record = disputes.get(entry.id);
+        return { ...disputedFindingRecord(report, entry), disputed: record ? { by: actorName(record.actor), reason: record.reason, at: record.decidedAt ?? null,
+          ...(record.carriedFrom ? { carriedFrom: { generation: record.carriedFrom.generation } } : {}) } : null };
+      }) };
+  });
+}
+
 /**
  * The retained review of the step's published generation, as the author of its next one reads it: its report, or null.
  * Once the next generation is open the status no longer carries it (a successor is reviewed after its publication), and
@@ -884,13 +981,16 @@ async function evaluateRetainedSourceReview(root, config, workflow, phaseId, inp
   const carried = current
     ? await carriedUnreadableDecisions(root, config, workflow, phaseId, input, current.record.reportSha256, decisions)
     : [];
+  // A finding a person disputed on an earlier review, raised again: already disputed, never blocking again (owner, 2026-11-20).
+  const disputes = current ? await carriedDisputes(root, config, workflow, phaseId, current, decisions) : [];
   const review = evaluateSourceGroundedReview(retained?.record.report ?? null, {
     ...input,
     reviewerAgentId: retained?.record.provenance?.reviewerAgentId ?? null,
     reviewerReadOnly: retained?.record.provenance?.readOnly === true
       && retained.record.provenance.reviewerAgentSha256 === input.reviewerAgentSha256,
-    humanDispositions: [...decisions, ...carried].map(({ id, reportSha256, decision, reason, actor }) => ({
-      id, reportSha256, decision, reason, actor: actor.login ?? actor.email
+    humanDispositions: [...decisions, ...carried, ...disputes].map(({ id, reportSha256, decision, reason, actor, decidedAt, carriedFrom }) => ({
+      id, reportSha256, decision, reason, actor: actor.login ?? actor.email,
+      ...(String(id).startsWith(DISPUTE_PREFIX) ? { by: actorName(actor), decidedAt: decidedAt ?? null, ...(carriedFrom ? { carriedFrom: { generation: carriedFrom.generation } } : {}) } : {})
     }))
   });
   const conflict = sourceReviewAuthorConflict(workflow, workflow.phases[phaseId]);
@@ -970,6 +1070,11 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     .issueMutationReadPaths(root, [progress.previousDraftPath]);
   if (progress && globalThis.__SFLOW_EXTENSION_HOST__ !== true) await (await import('./copilot-mutation-guard.mjs'))
     .recordSourceReviewProgress(root, { workId: input.workId, phaseId, generation: input.generation, ...progress });
+  // What a person disputed on this step's reviews so far: the same finding raised again keeps its id (owner, 2026-11-20).
+  const disputedEarlier = [...new Map((await earlierDisputes(root, config, workflow, phaseId).catch(() => [])).reverse()
+    .map((record) => [record.finding.id, { id: record.finding.id, version: Number(record.generation), message: record.finding.message.slice(0, 600),
+      ...(record.finding.check ? { check: record.finding.check } : {}), ...(record.finding.clauseId ? { clauseId: record.finding.clauseId } : {}),
+      ...(record.finding.sourceId ? { sourceId: record.finding.sourceId } : {}), reason: String(record.reason).slice(0, 600) }])).values()];
   return {
     schemaVersion: 1, resultType: 'source-review-context', workId: input.workId, // schema-transient
     phase: phaseId, kind: input.kind, generation: input.generation, binding: input.binding,
@@ -998,6 +1103,7 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     ...(input.testRuns?.length ? { testRuns: input.testRuns } : {}),
     // A finding about that specification names this step as its ownerPhase [PHR:REQ-003].
     ...(input.upstreamSpecPhase ? { upstreamSpecPhase: input.upstreamSpecPhase } : {}),
+    ...(disputedEarlier.length ? { disputedEarlier, disputedGuidance: 'A person who may decide for this step disputed each finding in disputedEarlier, with their reason. If you raise the same finding again, keep its id, check, clause and cited source: it then shows as already disputed instead of blocking. Any other problem is a new finding with its own new id.' } : {}),
     citationGuide: sourceReviewCitationGuide(input),
     reportSchema: sourceReviewReportSchema(input.kind), reportTemplate, stagingPath,
     stagingProtocol
@@ -1168,6 +1274,26 @@ export async function retainSourceReviewDecision(root, config, workflow, phaseId
   if (!pending) throw new SingularityFlowError(`No pending source review disposition '${id}' exists.`, {
     code: 'SOURCE_REVIEW_DISPOSITION_NOT_PENDING', details: storyNextDetails(workflow)
   });
+  return writeHumanDecision(root, config, workflow, phaseId, { reportSha256: status.reportSha256, id, reason, actor, authority, publicationEvent });
+}
+
+/**
+ * A person's dispute of the reviewer's blocking finding (owner, 2026-11-20): the review's own human decision, `dispute:<ID>`,
+ * beside the review of the published version it answers, with the finding it disputes, under the same authority, event and
+ * SF Guard signature as every decision on that review. `disputed` is reviewFindingDisputes' read, made in this transaction.
+ * Call inside a Story publication transaction with an already-authorized human Git actor.
+ */
+export async function retainSourceReviewDispute(root, config, workflow, phaseId, disputed, findingId, reason, actor, authority, publicationEvent) {
+  const finding = disputed?.findings?.find((entry) => entry.id === findingId);
+  if (!finding || finding.disputed) throw new SingularityFlowError(`The review of version ${disputed?.generation ?? workflow.phases[phaseId]?.generation} has no blocking finding ${findingId} left to dispute.`, {
+    code: 'SOURCE_REVIEW_DISPUTE_NOT_OPEN', details: storyNextDetails(workflow)
+  });
+  const { disputed: _none, ...kept } = finding;
+  return writeHumanDecision(root, config, workflow, phaseId, { reportSha256: disputed.reportSha256, id: `${DISPUTE_PREFIX}${findingId}`,
+    reason, actor, authority, publicationEvent, finding: kept });
+}
+
+async function writeHumanDecision(root, config, workflow, phaseId, { reportSha256, id, reason, actor, authority, publicationEvent, finding = null }) {
   if (typeof reason !== 'string' || !reason.trim()) throw new SingularityFlowError(
     'A human-authored reason is required for a source review disposition.',
     { code: 'SOURCE_REVIEW_DISPOSITION_REASON_REQUIRED' }
@@ -1181,13 +1307,15 @@ export async function retainSourceReviewDecision(root, config, workflow, phaseId
     { code: 'SOURCE_REVIEW_EVENT_REQUIRED' }
   );
   const directory = path.join(sourceReviewDirectory(root, config, workflow, phaseId),
-    'decisions', status.reportSha256);
+    'decisions', reportSha256);
   const body = {
     // An SF Guard pin writes v2, which can keep the approver's signature; anywhere else stays v1.
     schemaVersion: workflow.resolution?.presence ? currentSchemaVersion('source-review-decision') : 1, phase: phaseId,
     generation: workflow.phases[phaseId].generation,
-    reportSha256: status.reportSha256, lifecycleEventId: publicationEvent.eventId,
+    reportSha256, lifecycleEventId: publicationEvent.eventId,
     id, decision: 'accepted', reason: reason.trim(),
+    // A dispute keeps the exact finding it disputes, so the same finding on a later version is known for it.
+    ...(finding ? { finding } : {}),
     actor: actorIdentity(actor),
     authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance ?? null, decidedAt: nowIso()
@@ -1204,6 +1332,6 @@ export async function retainSourceReviewDecision(root, config, workflow, phaseId
   await writeJson(file, record);
   workflow.history.push({ at: body.decidedAt,
     actor: body.actor.login ?? body.actor.email ?? body.actor.name, agent: null,
-    event: 'source_review_disposition', phase: phaseId, detail: `${id} ${status.reportSha256}` });
+    event: 'source_review_disposition', phase: phaseId, detail: `${id} ${reportSha256}` });
   return { path: file, recordSha256: record.recordSha256 };
 }

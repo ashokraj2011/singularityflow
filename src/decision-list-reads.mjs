@@ -572,6 +572,11 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     departures: workflow.status === 'in_progress' ? await departureFacts(root, config, workflow, phase) : null,
     convergence,
     askedFor: workflow.status === 'in_progress' ? await askedForFacts(root, workflow, phase) : null,
+    // The review's blocking findings a person may dispute, and while the step awaits approval what was disputed [owner, 2026-11-20].
+    // A count skips them: they change no count. From the CLI source, out of the VS Code bundles that read this list.
+    reviewDisputes: offerReuse && workflow.status === 'in_progress' && ['in_progress', 'awaiting_approval'].includes(phase?.status)
+      ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'review-finding-dispute.mjs')).href)
+        .then((module) => module.reviewDisputeFacts(root, config, workflow, phase)).catch(() => null) : null,
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,

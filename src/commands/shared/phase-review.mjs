@@ -91,6 +91,19 @@ async function reviewAdvisories(root, config, workflow, phase, includeSheet) {
   return { ...advisories, ...(sheet ? { sheet } : {}) };
 }
 
+/** The review's findings a person disputed, each in the words every surface shows; none when its review is not read here. */
+async function reviewDisputesOf(root, config, workflow, phase) {
+  try {
+    if (!(await import('../../source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id)) return {};
+    const read = await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'source-review-lifecycle.mjs')).href)).reviewFindingDisputes(root, config, workflow, phase.id);
+    const { disputedFindingWords } = await import('../../review-dispute-words.mjs');
+    const disputes = (read?.findings ?? []).filter((entry) => entry.disputed).map((entry) => ({ finding: entry.id, message: entry.message,
+      by: entry.disputed.by, reason: entry.disputed.reason, ...(entry.disputed.carriedFrom ? { carriedFrom: entry.disputed.carriedFrom } : {}),
+      words: disputedFindingWords(entry.id, entry.disputed) }));
+    return disputes.length ? { reviewDisputes: disputes } : {};
+  } catch { return {}; }
+}
+
 export async function phaseReview(root, config, workflow, phase, { includeContinuation = false, includeApprovalCheck = true, includeSheet = false } = {}) {
   const documentRead = await measureCommandSpan('phase.document-catalog', () => createDocumentReadSession(root, config, workflow));
   const records = documentRead.records
@@ -251,6 +264,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).
     ...(attribution ? { attribution, attributionLabels: (await import('../../presence/attribution.mjs')).attributionLabels(attribution) } : {}),
     owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
+    // Each finding of its review a person disputed, with their reason: the approver decides with it in view [owner, 2026-11-20].
+    ...(phase.status === 'awaiting_approval' ? await reviewDisputesOf(root, config, workflow, phase) : {}),
     // Approve twice: the steps SFlow approved since the last person approval, which this approval covers and shows.
     ...(phase.status === 'awaiting_approval' ? await import('../../phase-roles.mjs').then(({ automaticApprovalsBefore, coveredStep }) => {
       const covered = automaticApprovalsBefore(workflow, phase.id).map(coveredStep);

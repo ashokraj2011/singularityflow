@@ -131,7 +131,7 @@ const entries = {
   doctor: ['sf-doctor'],
   check: ['sf-check'],
   review: ['sf-review'],
-  'review-source': ['sf-review-source', 'sf-review-decide'],
+  'review-source': ['sf-review-source', 'sf-review-decide', 'sf-decide'],
   workflow: ['sf-workflows', 'sf-import-team', 'sf-build-workflow', 'sf-fix-workflow'],
   app: ['sf-run-app'],
   tests: ['sf-test'],
@@ -254,7 +254,9 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   // The code step records a departure; reading one, and deciding it on the list, is /sf-decide's [CQF:REQ-021].
   departure: route('sf-code', { list: 'sf-decide', show: 'sf-decide' }),
   'review-source': route('sf-review-source', {
-    'decision-context': 'sf-review-decide', decide: 'sf-review-decide'
+    'decision-context': 'sf-review-decide', decide: 'sf-review-decide',
+    // A person's dispute of the reviewer's finding is a bound yes in /sf-decide, as on its card [owner, 2026-11-20].
+    dispute: 'sf-decide'
   }),
   session: route('sf-session', {
     candidates: 'sf-stories'

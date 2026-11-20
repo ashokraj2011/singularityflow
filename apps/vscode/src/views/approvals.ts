@@ -52,10 +52,26 @@ function signaturesHtml(approval: PendingApproval, standing: StoryStanding | nul
   return `<p class="muted">Signed by ${signed.join(', ')}</p>`;
 }
 
-function cardHtml(approval: PendingApproval, standing: StoryStanding | null = null): string {
+/**
+ * The Story and step a caller opened this page for: the Decide card's approval row, or a chat that asked while only the
+ * approval was left [owner's Story, 2026-11-20]. Its card is marked and brought into view.
+ */
+export interface ApprovalFocus { workId: string; phase: string }
+
+const FOCUS_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+/** A focus from a command's argument, or null: anything else a caller passes (a tree item, a link) opens the page as before. */
+export function approvalFocusOf(value: unknown): ApprovalFocus | null {
+  const target = value !== null && typeof value === 'object' ? value as { workId?: unknown; phase?: unknown } : null;
+  return target && typeof target.workId === 'string' && FOCUS_NAME.test(target.workId) && typeof target.phase === 'string' && FOCUS_NAME.test(target.phase)
+    ? { workId: target.workId, phase: target.phase } : null;
+}
+
+const FOCUS_STYLE = '.card.focus { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }';
+
+function cardHtml(approval: PendingApproval, standing: StoryStanding | null = null, focused = false): string {
   const pill = STANDING_PILL[approval.standing] ?? STANDING_PILL['blocked'];
   return `
-  <article class="card ${escape(approval.standing)}">
+  <article class="card ${escape(approval.standing)}${focused ? ' focus' : ''}"${focused ? ' data-focus aria-current="true"' : ''}>
     <div class="card-head">
       <h3>${escape(approval.label)}</h3>
       <span class="pill ${pill?.className ?? ''}">${escape(pill?.label ?? '')}</span>
@@ -85,15 +101,19 @@ function cardHtml(approval: PendingApproval, standing: StoryStanding | null = nu
   </article>`;
 }
 
-function groupHtml(title: string, approvals: PendingApproval[], standing: StoryStanding | null = null): string {
+function groupHtml(title: string, approvals: PendingApproval[], standing: StoryStanding | null = null, focused: string | null = null): string {
   if (!approvals.length) return '';
-  return `<section><h2>${icon('approval')}${escape(title)}</h2>${approvals.map((approval) => cardHtml(approval, standing)).join('')}</section>`;
+  return `<section><h2>${icon('approval')}${escape(title)}</h2>${approvals.map((approval) => cardHtml(approval, standing, approval.id === focused)).join('')}</section>`;
 }
 
-export function approvalsBodyHtml(approvals: Approvals, sfGuard: StoryRead | null = null): string {
+export function approvalsBodyHtml(approvals: Approvals, sfGuard: StoryRead | null = null, focus: ApprovalFocus | null = null): string {
   const standing = sfGuard && sfGuard !== 'loading' && !('error' in sfGuard) ? sfGuard : null;
+  // This page shows the Story checked out in this window: one asked for elsewhere is said, never shown as this one.
+  const elsewhere = focus && approvals.initiativeId && approvals.initiativeId !== focus.workId
+    ? `<p class="callout" role="status">${escape(focus.workId)} is not the Story checked out in this window (${escape(approvals.initiativeId)} is): open its checkout to approve it there.</p>` : '';
+  const focused = focus && approvals.initiativeId === focus.workId ? `story-phase:${focus.phase}` : null;
   if (approvals.empty) {
-    return `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
+    return `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>${elsewhere}
       <div class="empty"><p>${escape(approvals.empty)}</p></div>`;
   }
 
@@ -110,10 +130,10 @@ export function approvalsBodyHtml(approvals: Approvals, sfGuard: StoryRead | nul
       ${approvals.actor ? ` · signing as ${escape(approvals.actor)}` : ' · no Git identity configured'}
     </p>
   </header>
-
-  ${yours.length ? groupHtml('Waiting for you', yours, standing) : ''}
-  ${groupHtml('With someone else', others, standing)}
-  ${groupHtml('Cannot proceed', blocked, standing)}
+  ${elsewhere}
+  ${yours.length ? groupHtml('Waiting for you', yours, standing, focused) : ''}
+  ${groupHtml('With someone else', others, standing, focused)}
+  ${groupHtml('Cannot proceed', blocked, standing, focused)}
 
   ${approvals.obstacles.length ? `
   <section>
@@ -124,6 +144,7 @@ export function approvalsBodyHtml(approvals: Approvals, sfGuard: StoryRead | nul
 
 const SCRIPT = `
   const vscode = window.__sfVscode;
+  document.querySelector('[data-focus]')?.scrollIntoView({ block: 'center' });
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-approve],[data-reject],[data-open],[data-decide-list]');
     if (!target) return;
@@ -155,7 +176,8 @@ export class ApprovalsPanel {
     store: WorkspaceStore,
     onMessage: (message: ApprovalsMessage) => void,
     private readonly lease: { dispose(): void },
-    private readonly sfGuard: JourneySfGuard | null = null
+    private readonly sfGuard: JourneySfGuard | null = null,
+    private focus: ApprovalFocus | null = null
   ) {
     this.panel = panel;
     this.store = store;
@@ -210,22 +232,29 @@ export class ApprovalsPanel {
     this.render();
   }
 
+  /**
+   * `target` may name the Story and step the page is opened for ({ workId, phase }): that card is marked and brought into
+   * view, and a Story this window does not hold is said so. Anything else opens the page as it is.
+   */
   static async show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
     onMessage: (message: ApprovalsMessage) => void,
-    sfGuard: JourneySfGuard | null = null
+    sfGuard: JourneySfGuard | null = null,
+    target: unknown = null
   ): Promise<ApprovalsPanel> {
-    if (ApprovalsPanel.current) {
-      ApprovalsPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      return ApprovalsPanel.current;
-    }
+    const focus = approvalFocusOf(target);
+    const reuse = (existing: ApprovalsPanel) => {
+      if (focus) { existing.focus = focus; existing.render(); }
+      existing.panel.reveal(vscode.ViewColumn.Active);
+      return existing;
+    };
+    if (ApprovalsPanel.current) return reuse(ApprovalsPanel.current);
     const lease = await store.acquireSlices(['configuration']);
     const raced = ApprovalsPanel.current as ApprovalsPanel | null;
     if (raced) {
       lease.dispose();
-      raced.panel.reveal(vscode.ViewColumn.Active);
-      return raced;
+      return reuse(raced);
     }
     let panel: vscode.WebviewPanel;
     try {
@@ -235,7 +264,7 @@ export class ApprovalsPanel {
           retainContextWhenHidden: true,
           localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
         });
-      ApprovalsPanel.current = new ApprovalsPanel(panel, store, onMessage, lease, sfGuard);
+      ApprovalsPanel.current = new ApprovalsPanel(panel, store, onMessage, lease, sfGuard, focus);
     } catch (error) {
       lease.dispose();
       throw error;
@@ -254,14 +283,14 @@ export class ApprovalsPanel {
       : state.stale
         ? `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
           <p>Confirming the current repository before showing approval actions…</p>`
-        : approvalsBodyHtml(buildApprovals(state.snapshot), this.sfGuard?.standing(state.snapshot?.workflow) ?? null);
+        : approvalsBodyHtml(buildApprovals(state.snapshot), this.sfGuard?.standing(state.snapshot?.workflow) ?? null, this.focus);
     this.panel.webview.html = page(
       'Approvals',
       body,
       contentSecurityPolicy(this.panel.webview, token),
       token,
       SCRIPT,
-      { nav: 'approvals', styles: SF_GUARD_STYLE }
+      { nav: 'approvals', styles: `${SF_GUARD_STYLE}${FOCUS_STYLE}` }
     );
   }
 

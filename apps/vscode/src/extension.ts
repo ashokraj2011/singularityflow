@@ -8934,10 +8934,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const { StoriesPanel } = lazyPanels();
         return StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); });
       },
+    // `{ workId, phase }` from the Decide card or a chat it opened for brings that Story's step into view.
     'singularityFlow.openApprovals':
-      async () => {
+      async (target?: unknown) => {
         const { ApprovalsPanel } = lazyPanels();
-        return ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }, sfGuardStandings());
+        return ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }, sfGuardStandings(), target);
       },
     'singularityFlow.openInbox':
       async () => {

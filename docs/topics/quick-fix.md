@@ -10,11 +10,11 @@ related:
   - waivers
   - escalation
   - work-intervals
-version: 9
+version: 10
 ---
 `sflow start FIX-88 --work-type quick-fix` runs a three-step rail (scope and plan · implement · verify) with no generated design requirement and waiver eligibility below a deterministic risk threshold. Even a short fix states what it must do and where it lands before code changes: its intake lists the acceptance criteria and the planned paths and tests, and one engineer signs that scope and plan off. Implement must then meet exactly those claims. Ceremony still scales with stakes: a typo fix meets one short sign-off; the same quick fix touching a protected path loses its verify waiver and meets a human — and work that outgrows the rail escalates with everything preserved.
 
-In **Implement**, `/sf-code` (or you) writes the planned code and tests in an open generation; rerunning `sflow prepare` for Implement then builds its implementation summary from what changed. The summary is never edited by hand, and publication runs the configured tests.
+In **Implement**, `/sf-code` (or you) writes the planned code and tests in an open generation; rerunning `sflow prepare` for Implement then builds its implementation summary from what changed. The summary is never edited by hand, and publication runs the configured tests. Every file the plan lists for a criterion counts once it changes; one `@clause` comment per criterion explains the change. Implement completes at its submission, so its submission refuses a planned file that did not change or a planned test that is missing, and names Implement's next version, filled in, as the way on: the gap is fixed in Implement, never found first by Verify.
 
 ## A reviewer in every step
 

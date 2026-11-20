@@ -5,6 +5,11 @@
  * The card runs here against a `vscode` stub, as in vscode-sf-guard.test.mjs, with a client that answers the list and
  * the record the way `decisions record --json` does. The note's words come from the engine's own
  * summaryUpdateAfterDecision on a checkout whose summary predates the pin, so the card and the CLI cannot drift apart.
+ *
+ * And how a card a chat opened ends when only the step's approval is left [owner's Story, 2026-11-20]: VS Code's
+ * /sf-approve sent its chat to this card, the card answered "nothing to decide" with /sf-approve as next, and the chat
+ * asked for the approval again. Now the approval page opens on that Story and step, and the chat is handed no approve
+ * route: the ratchet below fails on any /sf-approve, `approve` or @sflow /approve in what the chat gets back.
  */
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
@@ -17,13 +22,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
 import { summaryUpdateAfterDecision } from '../src/summary-step-changes.mjs';
+import { decisionPacket } from '../src/decision-list.mjs';
+import { withPlainWords } from '../src/decision-plain.mjs';
+import { withStoryNext } from '../src/commands/decisions.mjs';
 
 const panels = [];
 const shown = [];
+const executed = [];
 globalThis.__decideSummaryNoteVscode = {
   ViewColumn: { Active: 1, Beside: 2 },
   Uri: { file: (fsPath) => ({ fsPath }), joinPath: () => ({}) },
-  commands: { executeCommand: async () => undefined, getCommands: async () => [] },
+  commands: { executeCommand: async (id, ...args) => { executed.push([id, ...args]); }, getCommands: async () => [] },
   env: { clipboard: { writeText: async () => undefined } },
   workspace: { workspaceFolders: [{ uri: { fsPath: os.tmpdir() } }], getConfiguration: () => ({ get: (_key, fallback) => fallback }) },
   window: {
@@ -58,10 +67,12 @@ register('data:text/javascript,' + encodeURIComponent(`
 // The card's module graph holds a class Node's type stripping cannot load, so it is bundled first, `vscode` left to the stub.
 const bundled = await mkdtemp(path.join(os.tmpdir(), 'sflow-decide-card-bundle-'));
 test.after(() => rm(bundled, { recursive: true, force: true }));
-await build({ entryPoints: [fileURLToPath(new URL('../apps/vscode/src/views/decide-card.ts', import.meta.url))], bundle: true, platform: 'node',
-  format: 'esm', external: ['vscode'], outfile: path.join(bundled, 'decide-card.mjs'), logLevel: 'silent' });
+await build({ entryPoints: ['decide-card', 'approvals'].map((name) => fileURLToPath(new URL(`../apps/vscode/src/views/${name}.ts`, import.meta.url))), bundle: true, platform: 'node',
+  format: 'esm', external: ['vscode'], outdir: bundled, outExtension: { '.js': '.mjs' }, logLevel: 'silent' });
 const { reviewDecisions } = await import(pathToFileURL(path.join(bundled, 'decide-card.mjs')).href);
+const approvalsPage = await import(pathToFileURL(path.join(bundled, 'approvals.mjs')).href);
 const model = await import('../apps/vscode/src/views/decision-list-model.ts');
+const cardPage = await import('../apps/vscode/src/views/decide-card-page.ts');
 
 const W = 'W-1';
 const DIGEST = `sha256:${'7'.repeat(64)}`;
@@ -161,4 +172,155 @@ test('the Decide card returns the summary note to the chat after recording a pin
   assert.equal(answer.summaryUpdate, update.words, 'the chat\'s agent is told to update the summary');
   assert.match(answer.message, /^1 decision recorded\. Pin Node 22\. All decided\. This changed implementation after its summary was written \(PAM-001: \.nvmrc\)\./u);
   assert.equal(answer.message.split(update.words).length, 2, 'said once');
+});
+
+// ---- A chat-opened card with only the approval left [owner's Story, 2026-11-20] ----
+
+const P = 'PLAN-1';
+const AUTHORITIES = { planners: { label: 'Planners', allowAnyGitIdentity: true, members: [] } };
+const ME = { name: 'Person', email: 'person@example.invalid' };
+// Any route that approves, in what a chat gets back: Copilot's, VS Code's chat participant's and the terminal's.
+const APPROVE_ROUTE = /\/sf-approve|@sflow \/approve|\b(?:singularity-flow|sflow) approve\b/u;
+const PAGE_WORDS = 'The approval page is open for Planning v1 with its documents. The person reads them and chooses Approve there; this chat records nothing.';
+
+/** The engine's own list for a Planning step awaiting approval with nothing else open: only the approval row. */
+function approvalOnly({ storyNext = null } = {}) {
+  const workflow = { workItem: { id: P, workType: 'custom' }, status: 'in_progress', currentPhase: 'planning', phaseOrder: ['planning', 'implementation'], history: [],
+    phases: { planning: { id: 'planning', label: 'Planning', status: 'awaiting_approval', generation: 1, approvals: [], approvalPolicy: { authorities: ['planners'], minimum: 1 },
+      artifacts: [{ path: `singularity/work-items/${P}/artifacts/planning/plan.md` }] },
+    implementation: { id: 'implementation', label: 'Implementation', status: 'pending', generation: 0 } },
+    resolution: { approvalAuthorities: AUTHORITIES } };
+  const list = { ...withPlainWords(workflow, decisionPacket(workflow, { phaseId: 'planning' }, { authorities: AUTHORITIES, actor: ME, at: '2026-11-20T09:00:00.000Z' })), repositoryPath: '/repo' };
+  return withStoryNext(list, storyNext);
+}
+// The planner's "now" for a step awaiting approval, when one is read beside the list: an approve route too.
+const PLANNER_APPROVE = { kind: 'story-next', title: 'Review and approve Planning', command: `singularity-flow approve planning --work-id ${P} --fetch`,
+  copilotCommand: `/sf-approve planning --work-id ${P}`, modelFreeCommand: `@sflow /approve planning --work-id ${P}` };
+
+function listClient(lists, recorded = null) {
+  const runs = [];
+  let read = 0;
+  return {
+    runs, repository: os.tmpdir(), invalidateReads() {},
+    run: async (argv) => {
+      runs.push(argv);
+      if (argv.includes('record')) return recorded;
+      // SF Guard's card: none from this engine, so the confirmation is today's.
+      if (argv[0] !== 'decisions') throw new Error('not here');
+      return { resultType: 'command-result', data: lists[Math.min(read++, lists.length - 1)] };
+    }
+  };
+}
+const approvalsOpened = () => executed.filter(([id]) => id === 'singularityFlow.openApprovals');
+
+test('the incident\'s list: only the approval waits, and its own next step is /sf-approve', () => {
+  const list = approvalOnly();
+  assert.deepEqual(list.items.map((item) => item.kind), ['approval']);
+  assert.equal(list.items[0].details.ready, true);
+  assert.equal(list.items[0].decidedBy.allowed, true);
+  assert.equal(cardPage.readyApproval(list), list.items[0]);
+  // What the chat was handed back before: the route that sent it to this card.
+  assert.match(JSON.stringify(list.next), APPROVE_ROUTE);
+  assert.equal(cardPage.approvesRoute(list.next), true);
+  assert.equal(cardPage.chatNext(list.next), null);
+  assert.equal(cardPage.approvesRoute(PLANNER_APPROVE), true);
+  // The card itself is never a chat's next step either; another step is kept as it is.
+  assert.equal(cardPage.chatNext({ kind: 'decide-card', title: 'Open the Decide card', command: `singularity-flow decisions record ${P}`, copilotCommand: `/decide ${P}` }), null);
+  const code = { kind: 'story-next', title: 'Write the code', command: 'singularity-flow phase work implementation', copilotCommand: '/sf-code implementation' };
+  assert.equal(cardPage.chatNext(code), code);
+});
+
+test('ratchet: a chat-opened card with only a ready approval opens the approval page and hands back no approve route', async () => {
+  for (const storyNext of [null, PLANNER_APPROVE]) {
+    const list = approvalOnly({ storyNext });
+    panels.length = 0; executed.length = 0;
+    const result = await reviewDecisions(listClient([list]), { workId: P }, async () => undefined, { askedInChat: true });
+    assert.deepEqual(result, { status: 'approval-open', message: PAGE_WORDS, next: null });
+    assert.doesNotMatch(JSON.stringify(result), APPROVE_ROUTE, 'the chat was sent back to an approve route');
+    assert.deepEqual(approvalsOpened(), [['singularityFlow.openApprovals', { workId: P, phase: 'planning' }]], 'the approval page opens on this Story and step');
+    assert.equal(panels.some((panel) => panel.viewType === 'singularityFlow.decide'), false, 'no Decide card with nothing on it');
+  }
+});
+
+test('a held approval, or one that is someone else\'s, says why and hands a chat no approve route; nothing opens', async () => {
+  const base = approvalOnly();
+  const approval = base.items[0];
+  const held = { ...base, items: [{ ...approval, why: '0 of 1 approvals recorded. It waits for the review of the plan first.', details: { ...approval.details, ready: false } }] };
+  const theirs = { ...base, items: [{ ...approval, decidedBy: { allowed: false, words: 'The Product approvers approve this; ask them.', share: `/sf-decide ${P}` } }] };
+  for (const [list, words] of [[held, /It waits for the review of the plan first\./u], [theirs, /The Product approvers approve this; ask them\./u]]) {
+    panels.length = 0; executed.length = 0;
+    const result = await reviewDecisions(listClient([list]), { workId: P }, async () => undefined, { askedInChat: true });
+    assert.equal(result.status, 'nothing-to-decide');
+    assert.match(result.message, words);
+    assert.equal(result.next, null);
+    assert.doesNotMatch(JSON.stringify(result), APPROVE_ROUTE);
+    assert.deepEqual(approvalsOpened(), []);
+  }
+});
+
+test('a person who opened the card sees the approval row, and its button opens the approval page on this Story and step', async () => {
+  panels.length = 0; executed.length = 0;
+  const result = reviewDecisions(listClient([approvalOnly()]), { workId: P }, async () => undefined);
+  await settle();
+  const card = panels.find((panel) => panel.viewType === 'singularityFlow.decide');
+  assert.ok(card, 'the card opened with its approval row');
+  assert.match(card.webview.html, /data-approval="d1">Review and approve<\/button>/u);
+  assert.deepEqual(approvalsOpened(), [], 'nothing opens before the person clicks');
+  card.post({ type: 'decide.approval' });
+  await settle();
+  assert.deepEqual(approvalsOpened(), [['singularityFlow.openApprovals', { workId: P, phase: 'planning' }]]);
+  card.post({ type: 'decide.cancel' });
+  assert.equal((await result).status, 'cancelled');
+});
+
+test('ratchet: once a chat-opened card records the last decision, the approval page opens and the chat gets no approve route', async () => {
+  const after = approvalOnly();
+  const approval = after.items[0];
+  const row = packet().items[0];
+  const before = { ...after, items: [{ ...row, id: 'd1' }, { ...approval, id: 'd2', why: '0 of 1 approvals recorded. It waits for d1 first.', details: { ...approval.details, heldBy: ['d1'], ready: false } }],
+    packetSha256: DIGEST };
+  const recorded = { resultType: 'command-result', data: { recorded: [{ item: 'd1', kind: 'node-pin', record: 'PAM-001' }], decided: [{ item: 'd1', words: 'Pin Node 22' }],
+    refused: [], remaining: [], packetSha256: null } };
+  const cli = listClient([before, after], recorded);
+  panels.length = 0; executed.length = 0;
+  const result = reviewDecisions(cli, { workId: P }, async () => undefined, { askedInChat: true });
+  await settle();
+  const card = panels.find((panel) => panel.viewType === 'singularityFlow.decide');
+  assert.ok(card, 'the card opened for the decision before the approval');
+  card.post({ type: 'decide.review', rows: [{ item: 'd1', option: 'pin-node', reason: REASON, title: row.title }] });
+  for (const started = Date.now(); Date.now() - started < 5_000 && !panels.some((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const confirmation = panels.find((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');
+  assert.ok(confirmation, 'the person confirms what is recorded');
+  confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  const answer = await result;
+  assert.ok(cli.runs.some((argv) => argv.includes('record')), 'recorded through the CLI');
+  assert.equal(answer.status, 'recorded');
+  assert.equal(answer.next, null);
+  assert.ok(answer.message.endsWith(` All decided. ${PAGE_WORDS}`), answer.message);
+  assert.doesNotMatch(JSON.stringify(answer), APPROVE_ROUTE, 'the chat was sent back to an approve route');
+  assert.deepEqual(approvalsOpened(), [['singularityFlow.openApprovals', { workId: P, phase: 'planning' }]]);
+});
+
+test('the approval page marks the Story and step it was opened for, and says so when this window holds another Story', async () => {
+  const card = { id: 'story-phase:planning', kind: 'phase', phase: 'planning', subject: 'phase', label: 'Planning — Story phase', detail: `Version 1 of ${P}`, standing: 'yours',
+    chain: [], authorities: ['Planners'], signatures: [], selfApproval: false, reason: null, heldBy: null, approvalHolds: [], afterApproval: null };
+  const approvals = { initiativeId: P, actor: ME.email, pending: [card], obstacles: [], empty: null };
+  assert.deepEqual(approvalsPage.approvalFocusOf({ workId: P, phase: 'planning' }), { workId: P, phase: 'planning' });
+  for (const junk of [undefined, null, 'planning', { workId: P }, { workId: '../x', phase: 'planning' }, { workId: P, phase: 'a b' }]) assert.equal(approvalsPage.approvalFocusOf(junk), null);
+  const focused = approvalsPage.approvalsBodyHtml(approvals, null, { workId: P, phase: 'planning' });
+  assert.match(focused, /<article class="card yours focus" data-focus aria-current="true">/u);
+  assert.doesNotMatch(approvalsPage.approvalsBodyHtml(approvals), /data-focus|class="callout" role="status"/u, 'opened plainly, the page is as before');
+  const other = approvalsPage.approvalsBodyHtml(approvals, null, { workId: 'OTHER-2', phase: 'planning' });
+  assert.match(other, /OTHER-2 is not the Story checked out in this window \(PLAN-1 is\): open its checkout to approve it there\./u);
+  assert.doesNotMatch(other, /data-focus/u);
+  // An open page is brought to the step it is asked for, not opened twice.
+  const store = { current: { snapshot: null, error: null, stale: false }, acquireSlices: async () => ({ dispose() {} }), onDidChange: () => ({ dispose() {} }) };
+  panels.length = 0;
+  const shownPanel = await approvalsPage.ApprovalsPanel.show({ extensionUri: {} }, store, () => {});
+  const again = await approvalsPage.ApprovalsPanel.show({ extensionUri: {} }, store, () => {}, null, { workId: 'OTHER-2', phase: 'planning' });
+  assert.equal(again, shownPanel);
+  assert.equal(panels.filter((panel) => panel.viewType === 'singularityFlow.approvals').length, 1);
+  shownPanel.dispose();
 });

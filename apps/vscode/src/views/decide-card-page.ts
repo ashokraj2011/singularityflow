@@ -77,6 +77,45 @@ export const settledRows = (packet: DecisionPacket): DecisionItemPacket[] => dec
 export const approvalRows = (packet: DecisionPacket): DecisionItemPacket[] => packet.items.filter((item) => item.kind === 'approval');
 
 /**
+ * The step's approval when it is the only thing left and the person may give it now: theirs, and nothing above holds it.
+ * A chat that opened this card then gets the approval page, never an approve route back [owner's Story, 2026-11-20].
+ */
+export const readyApproval = (packet: DecisionPacket): DecisionItemPacket | null => (openRows(packet).length ? null
+  : approvalRows(packet).find((item) => item.decidedBy?.allowed === true && item.details?.ready !== false) ?? null);
+
+/** The Story and step the approval page opens on: the approval row's own step. */
+export function approvalFocus(packet: DecisionPacket, item?: DecisionItemPacket | null): { workId: string; phase: string } {
+  const phase = item?.details?.phase;
+  return { workId: packet.workId, phase: typeof phase === 'string' && phase ? phase : packet.phase };
+}
+
+/** What a chat that opened this card is told once the approval page is open: nothing to relay, nothing it records. */
+export function approvalPageWords(packet: DecisionPacket, item: DecisionItemPacket, opened = true): string {
+  const version = Number(item.details?.generation);
+  const step = `${packet.phaseLabel}${Number.isSafeInteger(version) && version > 0 ? ` v${version}` : ''}`;
+  return opened ? `The approval page is open for ${step} with its documents. The person reads them and chooses Approve there; this chat records nothing.`
+    : `The approval page for ${step} could not open here. The person opens Singularity Flow: Approvals and approves there; this chat records nothing.`;
+}
+
+// Routes that approve: Copilot's /sf-approve, VS Code's @sflow /approve and the terminal's `approve`.
+const APPROVE_ROUTE = /^(?:\/sf-approve|@sflow\s+\/approve|(?:singularity-flow|sflow)\s+approve)(?:\s|$)/u;
+const CARD_ROUTE = /^\/(?:sf-)?decide(?:\s+[A-Za-z0-9._-]+)?\s*$/u;
+const routeFields = (route: unknown) => (route && typeof route === 'object'
+  ? ['copilotCommand', 'command', 'modelFreeCommand', 'skill'].map((key) => (route as Record<string, unknown>)[key]).filter((value): value is string => typeof value === 'string')
+  : []);
+/** Whether a next step approves: in VS Code the approval page does that, which this card opens [owner, 2026-11-19]. */
+export const approvesRoute = (route: unknown): boolean => routeFields(route).some((value) => APPROVE_ROUTE.test(value.trim()));
+/**
+ * The next step a chat that opened this card is handed: never an approve route, which sent /sf-approve back here, and
+ * never this card itself, which opens it again with nothing new (owner's Story, 2026-11-20: "why is it again asking for approval").
+ */
+export function chatNext<T>(route: T | null | undefined): T | null {
+  if (!route) return null;
+  const card = (route as { kind?: unknown }).kind === 'decide-card' || routeFields(route).some((value) => CARD_ROUTE.test(value.trim()));
+  return approvesRoute(route) || card ? null : route;
+}
+
+/**
  * The recommendation, then the options with what each does, recommended first, the check first of all [owner, 2026-11-16]:
  * under the question and why, on every row, whether the person decides it or not. Shown, never preselected. What was
  * settled shows its one line, and its evidence behind a detail.

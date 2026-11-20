@@ -55,6 +55,9 @@ async function unchangedRenewal(payload, record) {
   } catch { return record; }
 }
 
+/** The read an expired turn's agent runs to renew it, once, with nothing changed: any SFlow read does; this one always exists. */
+const RENEWING_READ = 'singularity-flow session current --for-agent --json';
+
 /**
  * An expired turn says so, with the one thing that renews it: invoking its skill again. Shell commands
  * never renew a Copilot turn, and the issuers skip expired turns, so routing to one would loop.
@@ -71,7 +74,9 @@ function turnExpiredDenial(record, { renewalTried = false } = {}) {
     `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from ${from} and have ended; nothing was written. `
     + (spent ? `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. ${Number.isFinite(record?.unchangedAt)
       ? 'It was renewed once already with nothing changed, so its entry read renews it no more. ' : 'This call did not renew it, and no further read will. '}`
-      : `Invoke ${skill} again to continue only if its entry read does not: first run ${skill}'s own first command once more in this same chat; when nothing changed since, that read continues this turn here, once, with everything already written, and you go on without asking the person. `)
+      // A read by name: the skill's own first command composes its context (`phase enter --compose`), which an expired turn
+      // refuses, so "run it once more" was refused the same way [limit audit, item 3].
+      : `Invoke ${skill} again to continue only if this read does not: first run ${RENEWING_READ} once in this same chat; when nothing changed since, that read continues this turn here, once, with everything already written, and you go on without asking the person. `)
     + `No other Shell command renews a Copilot turn.\n\n${formatCommandRouteLines({ copilotCommand: skill }).join('\n')}` };
 }
 

@@ -118,8 +118,11 @@ test('past its 30 minutes, a turn whose Story did not change goes on in the same
   const author = await f.enter('/sf-code', 'unchanged', 31 * MINUTE);
   const refused = await mutationToolGuard(author);
   assert.match(refused.permissionDecisionReason, EXPIRED);
-  // The refusal says how it goes on without the person typing anything: the skill's own first command again, here.
-  assert.match(refused.permissionDecisionReason, /first run \/sf-code's own first command once more in this same chat; when nothing changed since, that read continues this turn here/u);
+  // The refusal says how it goes on without the person typing anything: a read it names, here. Not the skill's own first
+  // command: that composes context (`phase enter --compose`), which an expired turn refuses the same way [limit audit, item 3].
+  assert.match(refused.permissionDecisionReason, /first run singularity-flow session current --for-agent --json once in this same chat; when nothing changed since, that read continues this turn here/u);
+  assert.equal((await mutationToolGuard({ ...author, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --compose --for-agent --json', cwd: f.root } })).permissionDecision, 'deny');
+  assert.deepEqual(await mutationToolGuard({ ...author, toolName: 'bash', toolArgs: { command: 'singularity-flow session current --for-agent --json', cwd: f.root } }), {}, 'the named read runs');
   // An edit renews nothing; the entry read does, with nothing changed since the turn bound its Story (owner, 2026-11-19).
   await repositoryPostToolGuard({ ...author, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } });
   assert.match((await mutationToolGuard(author)).permissionDecisionReason, EXPIRED);
@@ -145,12 +148,12 @@ test('the unchanged renewal is once per prompt: past its second window only the 
   const expired = await mutationToolGuard(author);
   assert.match(expired.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last 30 minutes from its renewal and have ended; nothing was written\. Invoke \/sf-code again to continue: the new turn enters again/u);
   assert.match(expired.permissionDecisionReason, /renewed once already with nothing changed, so its entry read renews it no more/u);
-  assert.doesNotMatch(expired.permissionDecisionReason, /own first command once more/u);
+  assert.doesNotMatch(expired.permissionDecisionReason, /first run singularity-flow session current/u);
   // After the call, a read that renewed nothing is told to invoke the skill again, never to run another read: `session
   // current` there passed the pre-tool check and came back to this same stop [limit audit, item 3].
   const after = await read();
   assert.match(after.additionalContext ?? '', /PHASE_MUTATION_TURN_EXPIRED: [^\n]*Invoke \/sf-code again to continue/u, JSON.stringify(after));
-  assert.doesNotMatch(JSON.stringify(after), /PHASE_MUTATION_CONTRACT_STALE|session current/u);
+  assert.doesNotMatch(after.additionalContext ?? '', /PHASE_MUTATION_CONTRACT_STALE|first run singularity-flow session current/u);
   assert.match((await mutationToolGuard(author)).permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: /u, 'a second unchanged read renews nothing');
   // The person's own answer still renews it, as always.
   await answered(author, 'keep going');

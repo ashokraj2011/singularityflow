@@ -34,7 +34,8 @@ declare module '*/gateway/host.mjs' {
   /** A model's tool call while SFlow guidance is paused: the refusal, or null when not paused. */
   export function pausedToolAnswer(tool: string): SflowResult | null;
   /** What a model reads from one tool call: the answer, its tool view, or a too-long refusal. */
-  export function boundedToolAnswer(tool: string, answer: SflowResult): SflowResult;
+  export function boundedToolAnswer(tool: string, answer: SflowResult, options?: { whole?: unknown }): SflowResult;
+  export function keptToolAnswer(tool: string, answer: SflowResult, options?: { root?: string | null }): Promise<SflowResult>;
   /** `resolveModelMode`'s answer: whether a model may run, and what decided it. */
   type ModelMode = { readonly enabled: boolean; readonly source: string };
 }

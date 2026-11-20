@@ -24,7 +24,7 @@ import { visibleSubjects } from '../../../src/gateway/conversation.mjs';
 import {
   guideSessionScope, readGuideSession, rememberGuideSession, resetGuideSession
 } from '../../../src/gateway/local-store.mjs';
-import { bindingActorId, boundedToolAnswer, createHostGateway, pausedToolAnswer } from '../../../src/gateway/host.mjs';
+import { bindingActorId, boundedToolAnswer, createHostGateway, keptToolAnswer, pausedToolAnswer } from '../../../src/gateway/host.mjs';
 import {
   astContextPlanner, astQueryPlanner, astStatusPlanner
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
@@ -182,6 +182,8 @@ export type GatewaySession = {
    * `gateway serve` asks it; the editor's own screens read the kernel's answer whole.
    */
   readonly boundedToolAnswer: (tool: string, answer: any) => any;
+  /** boundedToolAnswer, with a shortened answer's whole kept in this checkout's .sflow/out for the agent to read. */
+  readonly keptToolAnswer: (tool: string, answer: any) => Promise<any>;
   /**
    * Investigation reports this session's kernel produced, by `data.investigationId`. `[INT:IFC-061]`
    *
@@ -452,6 +454,7 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
     },
     pausedToolAnswer: (tool) => pausedToolAnswer(tool),
     boundedToolAnswer: (tool, answer) => boundedToolAnswer(tool, answer),
+    keptToolAnswer: (tool, answer) => keptToolAnswer(tool, answer, { root }),
     investigations: {
       get: (investigationId) => investigations.get(investigationId) ?? null,
       list: () => Object.freeze([...investigations.values()].reverse())

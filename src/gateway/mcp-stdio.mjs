@@ -12,7 +12,7 @@
  * `[INT:CON-133]` `[INT:REQ-130]`. The adapter contains no lifecycle logic `[INT:CON-033]`: every
  * answer is the kernel's, serialized; MCP configuration carries no credentials `[INT:CON-132]`.
  */
-import { boundedToolAnswer, pausedToolAnswer } from './host.mjs';
+import { keptToolAnswer, pausedToolAnswer } from './host.mjs';
 import { noEffects, preservedAll, sflowResult } from './result.mjs';
 import { SFLOW_TOOL_NAMES, SFLOW_TOOLS } from './tools.mjs';
 
@@ -92,9 +92,9 @@ export function serveMcp({ input, output, createKernel, serverInfo, log = () => 
       const paused = pausedToolAnswer(name);
       if (paused) return paused;
     }
-    // Last, what fits one tool answer (host.mjs).
+    // Last, what fits one tool answer, the whole one kept in the checkout's .sflow/out when it does not (host.mjs).
     const answer = await dispatch(name, args);
-    return answer && boundedToolAnswer(name, answer);
+    return answer && keptToolAnswer(name, answer, { root: kernel?.root ?? null });
   }
 
   async function dispatch(name, args) {

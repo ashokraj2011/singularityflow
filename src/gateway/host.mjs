@@ -254,33 +254,67 @@ const TOOL_VIEWS = Object.freeze({
 });
 
 /**
- * What a model reads from one tool call: the kernel's answer whole when it fits one tool result,
- * else its tool view, else a refusal. Both Copilot hosts move a longer result out of the
- * conversation (`TOOL_ANSWER_MAX_BYTES`), where a skill turn cannot read it, so a refused answer
- * sends the skill to its CLI command instead. Both hosts ask this last (`gateway serve` and VS
- * Code's language-model tools); their own screens read the kernel's answer whole.
+ * What a model reads from one tool call: the kernel's answer whole when it fits one tool result, else its tool view, else
+ * the answer shortened: its kind and rest state, its headline (outcome and first reasons), and as many next actions, with
+ * their routes, as fit. A read never refuses for its own size: "the kernel's answer exceeded its 7,500-byte limit" ended
+ * VS Code's chat with nothing to do on a finished Story's next steps [owner, 2026-11-20, hardening C]. What was left out
+ * is named in `data.toolView`, and keptToolAnswer writes the whole answer where the agent reads it (`.sflow/out`).
+ * Both hosts ask this last (`gateway serve` and VS Code's language-model tools); their own screens read it whole.
  *
- * A run's answer, and any answer that records an effect, is sent whole: a refusal would read as
- * nothing having happened.
+ * A run's answer, and any answer that records an effect, is sent whole: cut, it would read as nothing having happened.
  */
-export function boundedToolAnswer(tool, answer) {
+export function boundedToolAnswer(tool, answer, { whole = null } = {}) {
   if (tool === 'sflow_run' || !answer || typeof answer !== 'object' || answerBytes(answer) <= TOOL_ANSWER_MAX_BYTES) return answer;
   if (Object.values(answer.effects ?? {}).some(Boolean)) return answer;
   const compact = Array.isArray(answer.next) ? { ...answer, next: answer.next.map(toolNextAction) } : answer;
   const view = TOOL_VIEWS[answer.operation?.id]?.(compact) ?? compact;
-  const bytes = answerBytes(view);
-  if (bytes <= TOOL_ANSWER_MAX_BYTES) return view;
-  return sflowResult({
-    kind: 'refusal',
-    operation: { id: answer.operation?.id ?? TOOL_OPERATIONS[tool] ?? 'gateway.resolve', classification: 'read' },
-    subject: answer.subject ?? null,
-    outcome: { status: 'refused', messageId: 'gateway.refused', slots: {} },
-    effects: noEffects(),
-    why: [{ code: 'gateway.tool-answer-too-long', source: 'deterministic', reference: answer.subject?.id ?? null,
-      slots: { bytes: String(bytes), limit: String(TOOL_ANSWER_MAX_BYTES) } }],
-    preserved: preservedAll('gateway.nothing-was-carried-out'),
-    restState: 'blocked'
+  if (answerBytes(view) <= TOOL_ANSWER_MAX_BYTES) return view;
+  return shortenedToolAnswer(tool, answer, view, whole);
+}
+
+/** The answer cut to what one tool result holds, never a refusal: the headline and the next actions first. */
+function shortenedToolAnswer(tool, answer, view, whole) {
+  const next = Array.isArray(view.next) ? view.next : [];
+  const leftOut = Object.keys(answer.data ?? {}).map((key) => `data.${key}`);
+  const shortened = (actions, reasons) => sflowResult({
+    kind: answer.kind, operation: answer.operation ?? { id: TOOL_OPERATIONS[tool] ?? 'gateway.resolve', classification: 'read' },
+    subject: answer.subject ?? null, outcome: answer.outcome, effects: answer.effects ?? noEffects(),
+    why: (answer.why ?? []).slice(0, reasons), warnings: (answer.warnings ?? []).slice(0, reasons), preserved: answer.preserved ?? [],
+    next: actions, restState: answer.restState ?? (actions.length ? null : 'informational'),
+    data: { toolView: { shortened: true, bytes: answerBytes(answer), limit: TOOL_ANSWER_MAX_BYTES,
+      leftOut: [...leftOut, ...(actions.length < next.length ? [`next[${actions.length}..${next.length - 1}]`] : [])],
+      whole: whole ?? `The whole answer is the CLI's: run this step's read command with --for-agent --json.` } }
   });
+  for (const reasons of [3, 1, 0]) {
+    for (let count = next.length; count >= 0; count -= 1) {
+      let candidate;
+      try { candidate = shortened(next.slice(0, count), reasons); } catch { continue; }
+      if (answerBytes(candidate) <= TOOL_ANSWER_MAX_BYTES) return candidate;
+    }
+  }
+  return shortened([], 0);
+}
+
+/**
+ * boundedToolAnswer, with the whole answer kept where the agent reads it when it had to be shortened: the checkout's
+ * `.sflow/out/`, as a bounded CLI result is kept (agent-output-folder.mjs), with the line ranges to read it in. A write
+ * that fails leaves the shortened answer naming the CLI read instead; a read never fails for it.
+ */
+export async function keptToolAnswer(tool, answer, { root = null } = {}) {
+  const bounded = boundedToolAnswer(tool, answer);
+  if (!bounded?.data?.toolView?.shortened) return bounded;
+  try {
+    const [{ AGENT_OUTPUT_FOLDER, agentOutputDirectory, excludeAgentOutput, lineRanges }, { gitCommonDir, repoRoot }, { writeFile }, path] = await Promise.all([
+      import('../agent-output-folder.mjs'), import('../git-execution.mjs'), import('node:fs/promises'), import('node:path')]);
+    const checkout = repoRoot(root ?? process.cwd());
+    await excludeAgentOutput(gitCommonDir(checkout));
+    const directory = await agentOutputDirectory(checkout);
+    const text = `${JSON.stringify(answer, null, 2)}\n`;
+    const name = `tool-${String(answer.operation?.id ?? tool).replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48)}-${createHash('sha256').update(text).digest('hex').slice(0, 8)}.json`;
+    await writeFile(path.join(directory, name), text, { mode: 0o600 });
+    const file = path.join(checkout, ...AGENT_OUTPUT_FOLDER.split('/'), name);
+    return boundedToolAnswer(tool, answer, { whole: { path: file, readRanges: lineRanges(text) } });
+  } catch { return bounded; }
 }
 
 /**

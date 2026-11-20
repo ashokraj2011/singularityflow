@@ -820,9 +820,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Paused SFlow guidance answers before the kernel, a binding or Git, as `gateway serve` does.
       const paused = session.pausedToolAnswer(name);
       if (paused) return paused;
-      // Last, what fits one tool answer, as `gateway serve` asks too.
+      // Last, what fits one tool answer, as `gateway serve` asks too: never a refusal for its size, the whole kept in .sflow/out.
       const answered = await kernelAnswer(route, session, name, input);
-      return answered && session.boundedToolAnswer(name, answered);
+      return answered && session.keptToolAnswer(name, answered);
     };
     for (const name of ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_run', 'sflow_explain']) {
       context.subscriptions.push(lm.registerTool(name, {

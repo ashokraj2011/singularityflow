@@ -51,16 +51,51 @@ test('an answer that fits is the kernel\'s as it is; a run, and an answer that r
   assert.equal(boundedToolAnswer('sflow_read', changed), changed);
 });
 
-test('too long even as its view, an answer is refused with its size, and the refusal fits', () => {
-  const large = answer({ data: { text: 'x'.repeat(TOOL_ANSWER_MAX_BYTES) } });
-  const refused = validateSflowResult(boundedToolAnswer('sflow_read', large));
-  assert.deepEqual([refused.kind, refused.operation.id, refused.restState], ['refusal', 'work.list', 'blocked']);
-  assert.equal(refused.why[0].code, 'gateway.tool-answer-too-long');
-  assert.equal(refused.why[0].slots.limit, String(TOOL_ANSWER_MAX_BYTES));
-  assert.ok(Number(refused.why[0].slots.bytes) > TOOL_ANSWER_MAX_BYTES);
-  assert.deepEqual(refused.effects, noEffects());
-  assert.ok(bytes(refused) <= TOOL_ANSWER_MAX_BYTES);
-  assert.match(message('gateway.tool-answer-too-long', refused.why[0].slots).detail, /^It is \d+ bytes and a tool answer holds 7500; run this step's CLI command/u);
+test('too long even as its view, an answer is shortened, never refused: its headline and next actions, and what it left out', () => {
+  // [owner, 2026-11-20, hardening C] A read tool refused for its own size ("the kernel's answer exceeded its 7,500-byte limit")
+  // ended VS Code's chat with nothing to do: a limit with no exit.
+  const large = answer({ next: [action(1)], data: { text: 'x'.repeat(TOOL_ANSWER_MAX_BYTES) } });
+  const shortened = validateSflowResult(boundedToolAnswer('sflow_read', large));
+  assert.deepEqual([shortened.kind, shortened.operation.id, shortened.outcome.status], ['read', 'work.list', 'succeeded']);
+  assert.notEqual(shortened.why[0]?.code, 'gateway.tool-answer-too-long');
+  assert.deepEqual(shortened.why, large.why, 'the headline stays');
+  assert.deepEqual(shortened.next.map((entry) => entry.handle), [action(1).handle], 'its next action, with its route');
+  assert.equal(shortened.next[0].fallback.command, 'singularity-flow status');
+  assert.deepEqual(shortened.data.toolView.leftOut, ['data.text']);
+  assert.equal(shortened.data.toolView.shortened, true);
+  assert.match(String(shortened.data.toolView.whole), /run this step's read command with --for-agent --json/u);
+  assert.deepEqual(shortened.effects, noEffects());
+  assert.ok(bytes(shortened) <= TOOL_ANSWER_MAX_BYTES);
+  assert.match(message('gateway.tool-answer-too-long', { bytes: '1', limit: '2' }).detail, /^It is 1 bytes/u, 'the catalog keeps its words for older answers');
+});
+
+test('an oversized next answer keeps as many next actions as fit, and its whole is kept in the checkout\'s .sflow/out to read', async (t) => {
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
+  const { spawnSync } = await import('node:child_process');
+  const os = (await import('node:os')).default;
+  const path = (await import('node:path')).default;
+  const { keptToolAnswer } = await import('../src/gateway/host.mjs');
+  const next = Array.from({ length: 60 }, (_, index) => action(index, { slots: { work: 'HEX-1', note: 'y'.repeat(400) } }));
+  const whole = answer({ operationId: 'developer.next', next, data: { finished: 'z'.repeat(20_000) } });
+  assert.ok(bytes(whole) > 3 * TOOL_ANSWER_MAX_BYTES);
+  const view = validateSflowResult(boundedToolAnswer('sflow_next', whole));
+  assert.ok(bytes(view) <= TOOL_ANSWER_MAX_BYTES);
+  assert.ok(view.next.length >= 1 && view.next.length < next.length, `${view.next.length} of ${next.length}`);
+  assert.deepEqual(view.next.map((entry) => entry.handle), next.slice(0, view.next.length).map((entry) => entry.handle), 'the first ones, in order');
+  assert.ok(view.data.toolView.leftOut.includes(`next[${view.next.length}..${next.length - 1}]`), JSON.stringify(view.data.toolView.leftOut));
+  // Kept: the whole answer, in the checkout's Git-excluded .sflow/out, with the ranges a file tool reads it in.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-tool-answer-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', '-b', 'main', root]).status, 0);
+  const kept = validateSflowResult(await keptToolAnswer('sflow_next', whole, { root }));
+  assert.ok(bytes(kept) <= TOOL_ANSWER_MAX_BYTES);
+  const { path: file, readRanges } = kept.data.toolView.whole;
+  assert.ok(file.startsWith(path.join(await (await import('node:fs/promises')).realpath(root), '.sflow', 'out', 'tool-developer-next-')), file);
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), whole);
+  assert.ok(readRanges.length >= 1 && readRanges[0][0] === 1);
+  assert.match(await readFile(path.join(root, '.git', 'info', 'exclude'), 'utf8'), /^\/\.sflow\/out\/$/mu, 'never shown in git status');
+  // A run's answer, or one that changed anything, is still never cut.
+  assert.equal(await keptToolAnswer('sflow_run', whole, { root }), whole);
 });
 
 test('a next action keeps what a model follows and stays a valid one; what only a card draws is left out', () => {

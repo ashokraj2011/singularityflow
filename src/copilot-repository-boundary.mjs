@@ -1,12 +1,14 @@
 /** Explicit-turn discovery and mutation interception; not a filesystem sandbox. */
 import { createHash, randomUUID } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import { lstat, mkdir, readFile, rename, rm, stat as fileStat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
 import { copilotModeFile, copilotTurnDirectory, hookCliLine, mentionsHookCli, readCopilotMode, TURN_WINDOW_MS, turnWindowStart, withTurnRenewal } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
-import { platformPathWithin } from './util.mjs';
+import { nearestNames, platformPathWithin, sentenceList } from './util.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { confirmCodesIn, resolveConfirmCode } from './confirm-code.mjs';
 import { noteActivity } from './machine-activity.mjs';
@@ -45,6 +47,24 @@ export function explicitSflowSkill(prompt) {
   // Host-expanded skill context is authoritative for invocation, not a substring in ordinary prose.
   return prompt.match(/<skill-context\s+name=["']((?:sf|sflow)-[a-z0-9-]+)["']/u)?.[1]
     ?? prompt.trim().match(/^\/((?:sf|sflow)-[a-z0-9-]+)(?=\s|$)/u)?.[1] ?? null;
+}
+
+/**
+ * A typed `/sf-<word>` no SFlow skill has: never a turn under the typo's name, which started a read turn for /sf-mext and
+ * sent the model to the gateway [owner, 2026-11-20, hardening C]. Says so, with the nearest skill names to type again.
+ * Null for a known skill, a host-expanded one (the host found it), or when the installed skills cannot be listed.
+ */
+export function unknownSkillReason(prompt, skill, { skillsRoot = path.join(PACKAGE_ROOT, 'plugin', 'skills') } = {}) {
+  if (!skill || /<skill-context\s/u.test(String(prompt ?? ''))) return null;
+  let known;
+  try {
+    known = readdirSync(skillsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name.startsWith('sflow-'))
+      .map((entry) => entry.name.slice('sflow-'.length));
+  } catch { return null; }
+  const word = skill.replace(/^(?:sf|sflow)-/u, '');
+  if (!known.length || known.includes(word)) return null;
+  const near = nearestNames(word, known).map((name) => `/sf-${name}`);
+  return `No SFlow command /${skill}.${near.length ? ` Did you mean ${sentenceList(near)}?` : ' /sf-help lists them.'} Type it again with the right name; nothing was run.`;
 }
 
 /** Only the complete review invocation opts into completion; explicit stage/check/status are single steps. */
@@ -228,6 +248,13 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
   if ([payload.agentId, payload.agent_id].some((value) => value != null && value !== '')
       && [payload.parentAgentId, payload.parent_agent_id, sessionId(payload)].filter(Boolean)[0] === sessionId(payload)) return {};
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
+  // A typo of a skill's name is said back to the person, never run as a turn of its own.
+  const unknown = reviewerSubagent ? null : unknownSkillReason(payload.prompt, skill);
+  if (unknown) {
+    await removeRecord(file);
+    await removeMutationRecord(file);
+    return { decision: 'block', reason: unknown };
+  }
   const noted = reviewerSubagent ? null : await notePlainChatPrompt(payload, { skill, paused: mode.paused, now });
   if (noted?.decision === 'block') {
     // The prompt never reaches the model (Copilot CLI and VS Code): no turn of it, and none left from before.

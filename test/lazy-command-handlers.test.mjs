@@ -880,7 +880,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // kept beside the blocking ones (source-grounded-review.mjs), the author told not to make that fix (source-review-continuation.mjs),
     // the approval's disputes in plain words, the command's route form (action-command-map.mjs) and its words, one new 971-byte
     // leaf (review-dispute-words.mjs). The dispute's reader and writer load only when used (review-finding-dispute.mjs).
-    assert.ok(closure.bytes <= 9_796_161, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,797,600 (measured 9,797,597 on landing-7, 2026-11-20): the finding dispute and the Node install route together.
+    assert.ok(closure.bytes <= 9_797_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1364,7 +1365,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,306,039 (measured 4,306,039, +438, 2026-11-20, finding-dispute): `review-source dispute`, a /sf-decide turn's bound yes:
   // its catalog row (person-step-catalog.mjs), its skill route (command-skills.mjs) and its route form (action-command-map.mjs)
   // [owner, 2026-11-20]. No new eager file.
-  assert.ok(current.bytes <= 4_306_039, `session current loads ${current.bytes} source bytes`);
+  // 4,306,250 (measured 4,306,212 on landing-7, 2026-11-20): the finding dispute and the Node install route together.
+  assert.ok(current.bytes <= 4_306_250, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

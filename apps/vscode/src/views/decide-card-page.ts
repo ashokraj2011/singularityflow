@@ -9,6 +9,7 @@
  * a detail.
  */
 import { escape } from './webview.ts';
+import { VSCODE_SELECT_STORY } from '../../../../src/model-free-commands.mjs';
 import type { InboundMessage } from './messages.ts';
 import { checkOf, laterOf, nextWords, optionRow, plainWords, versionOpeningOf, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
 
@@ -96,6 +97,26 @@ export function approvalPageWords(packet: DecisionPacket, item: DecisionItemPack
   return opened ? `The approval page is open for ${step} with its documents. The person reads them and chooses Approve there; this chat records nothing.`
     : `The approval page for ${step} could not open here. The person opens Singularity Flow: Approvals and approves there; this chat records nothing.`;
 }
+
+/**
+ * The approval page opened on a window that shows another Story, or none: the approval is not on it, so the chat is never told
+ * "the approval page is open" [hardening C, F4]. What the person does: select this Story here, then approve on the page.
+ */
+export function approvalElsewhereWords(packet: DecisionPacket, item: DecisionItemPacket, shown: string | null): string {
+  const version = Number(item.details?.generation);
+  const step = `${packet.phaseLabel}${Number.isSafeInteger(version) && version > 0 ? ` v${version}` : ''}`;
+  return [`${packet.workId}'s approval of ${step} is not on the approval page: this VS Code window shows ${shown ?? 'no Story'}.`,
+    `The person selects ${packet.workId} here with the page's "Open Stories" button, or ${VSCODE_SELECT_STORY}, then Attach.`,
+    'Then they approve it on the approval page; this chat records nothing.'].join(' ');
+}
+/** The route a chat relays for it: the Stories page, no Copilot or terminal form. */
+export const selectStoryNext = (workId: string) => ({ kind: 'select-story', title: `Show ${workId} in this VS Code window`, command: null, copilotCommand: null, modelFreeCommand: VSCODE_SELECT_STORY });
+
+/**
+ * A second ask while a card is open (an earlier turn's, or one opened from the Command Palette) waits for that card and gets its
+ * answer: never a "busy" with nothing to follow, and never this chat asking its rows beside the open page [hardening C, F5].
+ */
+export const joinedWords = (workId: string) => `The Decide card for ${workId} was already open; this is what the person did there.`;
 
 // Routes that approve: Copilot's /sf-approve, VS Code's @sflow /approve and the terminal's `approve`.
 const APPROVE_ROUTE = /^(?:\/sf-approve|@sflow\s+\/approve|(?:singularity-flow|sflow)\s+approve)(?:\s|$)/u;

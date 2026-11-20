@@ -104,7 +104,7 @@
         "toolReferenceName": "sflowDeliveryValidation",
         "canBeReferencedInPrompt": true,
         "userDescription": "Choose whether to run Story tests, configure or start its application, inspect evidence, request repair or continue.",
-        "modelDescription": "After reading SFlow outcome, ask the person what to validate next using this native choice. Pass the exact workId and application.capability when returned. Accepts only these IDs; never an action or answer. VS Code displays the engine's current choices and opens only the action the person selects, bound to this checkout and generation. Cancelling records nothing. Selecting an action establishes no test success, evidence acceptance, witness, submission or approval. Never call repeatedly after cancellation or an unchanged refusal. For human sign-off use sflowWitnessReview with the exact owed criterion and slot.",
+        "modelDescription": "After reading SFlow outcome, ask the person what to validate next using this native choice. Pass the exact workId and application.capability when returned. Accepts only these IDs; never an action or answer. VS Code displays the engine's current choices and opens only the action the person selects, bound to this checkout and generation. Cancelling records nothing. Selecting an action establishes no test success, evidence acceptance, witness, submission or approval. A selected action already ran in VS Code: never run it again in a terminal. Never call repeatedly after cancellation or an unchanged refusal; one naming another Story returns its next, which selects it here. For human sign-off use sflowWitnessReview with the exact owed criterion and slot.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -142,7 +142,7 @@
         "toolReferenceName": "sflowDecide",
         "canBeReferencedInPrompt": true,
         "userDescription": "Open everything a Story's step waits on as one table: answer all with one reason, or each with its own.",
-        "modelDescription": "Open the native page where the person decides everything a Story's step waits on. Pass only the exact workId. The person answers and confirms on the page, and the extension records it; no answer, reason or selection comes from you. It returns what was recorded and what remains. When only the step's approval is left, it opens the approval page instead, where the person approves (status approval-open, next null): end the turn there and relay no approve route, neither /sf-approve nor approve. Otherwise, when it returns, carry on with what remains.",
+        "modelDescription": "Open the native page where the person decides everything a Story's step waits on. Pass only the exact workId. The person answers and confirms on the page, and the extension records it; no answer, reason or selection comes from you. It returns what was recorded and what remains. When only the step's approval is left, it opens the approval page instead, where the person approves (status approval-open, next null): end the turn there and relay no approve route, neither /sf-approve nor approve. When this VS Code window shows another Story (status approval-elsewhere), relay its next, which selects that Story there, and end the turn the same way. A card already open is waited for, and its answer comes back here. Otherwise, when it returns, carry on with what remains.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -163,7 +163,7 @@
         "toolReferenceName": "sflowWitnessReview",
         "canBeReferencedInPrompt": true,
         "userDescription": "Open a human visual or inspection sign-off for a Story, including a sign-off owed by an earlier phase.",
-        "modelDescription": "Open native human evidence review. Select only the exact workId, criterion and slot returned by SFlow decisions. The person inspects the local evidence, answers each checklist question, writes a reason and confirms in VS Code. The tool accepts no evidence path, answers, reason, confirmation or shell command from the model. Cancelling records nothing. It never approves a phase. Report only the returned recorded ID and remaining decisions.",
+        "modelDescription": "Open native human evidence review. Select only the exact workId, criterion and slot returned by SFlow decisions. The person inspects the local evidence, answers each checklist question, writes a reason and confirms in VS Code. The tool accepts no evidence path, answers, reason, confirmation or shell command from the model. Cancelling records nothing; not sure (status unsure) records nothing and leaves the sign-off open, so never open it again in this turn. It never approves a phase. Report only the returned recorded ID and its remaining decisions.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,

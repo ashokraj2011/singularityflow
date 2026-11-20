@@ -254,6 +254,7 @@ declare module '*/gateway/conversation.mjs' {
 
 declare module '*/model-free-commands.mjs' {
   export function parseModelFreeTarget(text?: string): { phase: string | null; workId: string | null };
+  export const VSCODE_SELECT_STORY: string;
 }
 
 declare module '*/copilot-guidance.mjs' {

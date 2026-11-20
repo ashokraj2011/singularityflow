@@ -23,20 +23,21 @@ import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, 
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
 import { guardCardDecisionsArgv, guardCardFrom, guardCardText, presenceCardArgs, type GuardCardRead } from './sf-guard-model.ts';
-import { approvalFocus, approvalPageWords, approvalRows, chatNext, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows,
-  decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, openRows, readyApproval, type DecideDraft } from './decide-card-page.ts';
+import { approvalElsewhereWords, approvalFocus, approvalPageWords, approvalRows, chatNext, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows,
+  decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, joinedWords, openRows, readyApproval, selectStoryNext, type DecideDraft } from './decide-card-page.ts';
 
 // How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
 const CHECK_SECONDS = 60;
 const CHECK_FIRST_SECONDS = 900;
 
-export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; summaryUpdate?: string; next?: unknown }
+export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; summaryUpdate?: string; next?: unknown; declined?: string }
 
 /** An absolute file the engine named, opened beside the page for the person to write in. */
 const openBeside = (file: string) => vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file), { viewColumn: vscode.ViewColumn.Beside, preview: false })
   .then(undefined, () => vscode.window.showInformationMessage(`${file} could not be opened; it may have been moved.`));
 
-let open: vscode.WebviewPanel | null = null;
+/** The card open in this window, for which Story, and what it will answer. */
+let open: { panel: vscode.WebviewPanel; workId: string; answer: Promise<DecideResult> } | null = null;
 
 async function readList(client: SingularityFlowClient, workId: string, { probe = null as number | null } = {}): Promise<DecisionPacket> {
   client.invalidateReads();
@@ -66,7 +67,19 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     throw new Error('This page takes only a Story ID. Answers and reasons come from the person on the page.');
   }
   const workId = target.workId;
-  if (open) { open.reveal(); return { status: 'busy', message: 'The decisions page is already open. Finish it there.' }; }
+  // A card already open (an earlier turn's, or the Command Palette's): this ask waits for it, never a "busy" with nothing to
+  // follow, nor a chat asking its rows beside it. This Story's gets that card's answer, as a chat is handed one; another
+  // Story's is finished or closed first, then this one opens [hardening C, F5].
+  while (open) {
+    const earlier = open;
+    earlier.panel.reveal();
+    if (earlier.workId !== workId) void vscode.window.showInformationMessage(`Finish or close the Decide card for ${earlier.workId}; the one for ${workId} opens next.`);
+    const answer = await earlier.answer;
+    if (earlier.workId === workId) {
+      const next = askedInChat ? chatNext(answer.next) : answer.next ?? null;
+      return { ...answer, message: `${joinedWords(workId)} ${answer.message}`, ...(next ? { next } : askedInChat && 'next' in answer ? { next: null } : {}) };
+    }
+  }
   let packet = await readList(client, workId);
   // A step's next version waiting for the person's yes is asked on this card, and what they answered here.
   let declined: VersionOpeningPacket | null = null;
@@ -85,18 +98,26 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
    * with no next step: the approve route it was handed back sent it round again [owner's Story, 2026-11-20]. Null when the
    * chat did not ask, something else is still open, or the approval is not theirs to give now.
    */
-  const approvalPage = async (): Promise<string | null> => {
+  const approvalPage = async (): Promise<{ words: string; elsewhere: boolean } | null> => {
     const approval = askedInChat ? readyApproval(packet) : null;
     if (!approval) return null;
-    const opened = await Promise.resolve(vscode.commands.executeCommand('singularityFlow.openApprovals', approvalFocus(packet, approval))).then(() => true, () => false);
-    return approvalPageWords(packet, approval, opened);
+    const page = await Promise.resolve(vscode.commands.executeCommand('singularityFlow.openApprovals', approvalFocus(packet, approval)))
+      .then((panel) => ({ opened: true, panel }), () => ({ opened: false, panel: null }));
+    // The page shows this window's Story: one that shows another, or none, does not have this approval on it, and the chat
+    // is never told it does [hardening C, F4]. A page that cannot tell yet (still reading) is taken at its word.
+    const shown = (page.panel as { focusShown?: () => { status: string; story: string | null } } | null)?.focusShown?.();
+    return shown?.status === 'elsewhere' ? { words: approvalElsewhereWords(packet, approval, shown.story), elsewhere: true }
+      : { words: approvalPageWords(packet, approval, page.opened), elsewhere: false };
   };
+  // A chat's answer once the approval page opened: nothing more to do in the chat, or the Story to select first.
+  const approvalAnswer = (page: { words: string; elsewhere: boolean }) => (page.elsewhere
+    ? { status: 'approval-elsewhere', next: selectStoryNext(workId) } : { status: 'approval-open', next: null });
   // What a chat is handed next: never an approve route or this card again (chatNext). A person who opened it keeps the Story's.
   const nextFor = <T>(route: T | null | undefined): T | null => (askedInChat ? chatNext(route) : route ?? null);
   // Nothing waits on this person: the Story's own next step ends it [owner, 2026-11-18].
   if (!waiting().length && !versionOpeningOf(packet)) {
     const page = await approvalPage();
-    if (page) return { status: 'approval-open', message: page, next: null };
+    if (page) return { ...approvalAnswer(page), message: page.words };
     // An approval left that is not theirs to give now says why, in the list's words: what holds it, or who approves it.
     const approval = askedInChat ? approvalRows(packet)[0] : undefined;
     const why = approval ? (approval.decidedBy?.allowed ? approval.why : approval.decidedBy?.words) : null;
@@ -105,8 +126,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
   }
   const panel = vscode.window.createWebviewPanel('singularityFlow.decide', `Decide · ${workId}`, vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
-  open = panel;
-  return new Promise<DecideResult>((resolve) => {
+  const answer = new Promise<DecideResult>((resolve) => {
     let busy = false;
     let settled = false;
     let draft: DecideDraft | undefined;
@@ -237,7 +257,9 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         const version = `Version ${asked.version} of ${asked.phase}`;
         if (answer === 'no') {
           declined = asked;
-          if (!waiting().length) { const result = notNow(); return finish({ ...result, message: `${version} was not started. ${result.message}` }); }
+          // The person's "Not now" ends it for this chat too: the list read after the card still shows the proposal waiting,
+          // and a chat that asked it again asked twice in one turn [hardening C, F8].
+          if (!waiting().length) { const result = notNow(); return finish({ ...result, declined: 'version-opening', message: `${version} was not started. ${result.message} The person chose Not now: do not ask it again in this chat.` }); }
           return render(null, `${version} was not started; nothing was recorded for it.`);
         }
         busy = true; render();
@@ -303,8 +325,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           if (!openRows(packet).length) {
             // The approval is all that is left: a chat that asked gets its page, as when it opened this card [owner's Story, 2026-11-20].
             const page = settled ? null : await approvalPage();
-            return finish({ status: page ? 'approval-open' : 'recorded', recorded, remaining: [], message: [`${recorded.length} recorded. All decided.`, page ?? nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' '),
-              next: page ? null : nextFor(packet.storyNext ?? packet.next) });
+            return finish({ ...(page ? approvalAnswer(page) : { status: 'recorded', next: nextFor(packet.storyNext ?? packet.next) }), recorded, remaining: [],
+              message: [`${recorded.length} recorded. All decided.`, page?.words ?? nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' ') });
           }
           render(null, result.message ?? null);
         } catch (error) { busy = false; panel.reveal(); render((error as Error).message); }
@@ -366,9 +388,9 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           const approvalLeft = outcome.approvalLeft ?? [];
           const remaining = askedInChat && (page || outcome.remaining.every((entry) => approvalLeft.includes(entry)))
             ? outcome.remaining.filter((entry) => !approvalLeft.includes(entry)) : outcome.remaining;
-          finish({ status: page ? 'approval-open' : 'recorded', recorded: all, decided, remaining, ...(page ? { next: null } : next ? { next } : {}),
+          finish({ ...(page ? approvalAnswer(page) : { status: 'recorded', ...(next ? { next } : {}) }), recorded: all, decided, remaining,
             message: [`${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : all.length ? `${all.length} recorded.` : outcome.message}${remaining.length ? ` Still open: ${remaining.join('; ')}.` : ' All decided.'}`,
-              page ?? nextWords(next)].filter(Boolean).join(' ') });
+              page?.words ?? nextWords(next)].filter(Boolean).join(' ') });
         } catch (error) {
           const failure = error as Error & { result?: unknown };
           const { outcome, packet: fresh } = decisionRecordOutcome(null, { message: failure.message, result: failure.result });
@@ -385,8 +407,10 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       const target = navigationTarget(raw);
       return target ? navigateTo(target) : router.route(raw);
     });
-    panel.onDidDispose(() => { open = null; finish(notNow()); });
+    panel.onDidDispose(() => { if (open?.panel === panel) open = null; finish(notNow()); });
     render();
     void check(CHECK_SECONDS);
   });
+  open = { panel, workId, answer };
+  return answer;
 }

@@ -106,11 +106,23 @@ function groupHtml(title: string, approvals: PendingApproval[], standing: StoryS
   return `<section><h2>${icon('approval')}${escape(title)}</h2>${approvals.map((approval) => cardHtml(approval, standing, approval.id === focused)).join('')}</section>`;
 }
 
-export function approvalsBodyHtml(approvals: Approvals, sfGuard: StoryRead | null = null, focus: ApprovalFocus | null = null): string {
+/**
+ * Whether the page shows the Story it was opened for: `here`, `elsewhere` (this window shows another Story, or none, so its
+ * approval is not on the page), or `unknown` while the window's Story is still being read [hardening C, F4].
+ */
+export function approvalFocusShown(approvals: Approvals | null, focus: ApprovalFocus | null): { status: 'here' | 'elsewhere' | 'unknown'; story: string | null } {
+  if (!focus || !approvals) return { status: 'unknown', story: null };
+  if (approvals.initiativeId === focus.workId) return { status: 'here', story: focus.workId };
+  return { status: 'elsewhere', story: approvals.initiativeId || null };
+}
+
+export function approvalsBodyHtml(approvals: Approvals, sfGuard: StoryRead | null = null, focus: ApprovalFocus | null = null, { reading = false } = {}): string {
   const standing = sfGuard && sfGuard !== 'loading' && !('error' in sfGuard) ? sfGuard : null;
-  // This page shows the Story checked out in this window: one asked for elsewhere is said, never shown as this one.
-  const elsewhere = focus && approvals.initiativeId && approvals.initiativeId !== focus.workId
-    ? `<p class="callout" role="status">${escape(focus.workId)} is not the Story checked out in this window (${escape(approvals.initiativeId)} is): open its checkout to approve it there.</p>` : '';
+  // This page shows the Story checked out in this window: one asked for elsewhere is said, never shown as this one, with the
+  // way to show it here: the Stories page, whose Attach selects it in this window [hardening C, F4].
+  const shown = reading ? null : approvalFocusShown(approvals, focus);
+  const elsewhere = focus && shown?.status === 'elsewhere'
+    ? `<p class="callout" role="status">${escape(focus.workId)} is not the Story checked out in this window (${shown.story ? `${escape(shown.story)} is` : 'none is'}): select it here to approve it. <button class="secondary" data-show-story>Open Stories</button></p>` : '';
   const focused = focus && approvals.initiativeId === focus.workId ? `story-phase:${focus.phase}` : null;
   if (approvals.empty) {
     return `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>${elsewhere}
@@ -146,9 +158,10 @@ const SCRIPT = `
   const vscode = window.__sfVscode;
   document.querySelector('[data-focus]')?.scrollIntoView({ block: 'center' });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-approve],[data-reject],[data-open],[data-decide-list]');
+    const target = event.target.closest('[data-approve],[data-reject],[data-open],[data-decide-list],[data-show-story]');
     if (!target) return;
-    if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
+    if (target.hasAttribute('data-show-story')) vscode.postMessage({ type: 'show-story' });
+    else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.decideList) vscode.postMessage({ type: 'decide-list', id: target.dataset.decideList });
     else if (target.dataset.reject) vscode.postMessage({ type: 'reject', id: target.dataset.reject });
     else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
@@ -215,7 +228,9 @@ export class ApprovalsPanel {
       approve: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'approve', approval }); },
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
       open: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open', approval }); },
-      'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy || approval?.decideNext) onMessage({ type: 'decide-list', approval }); }
+      'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy || approval?.decideNext) onMessage({ type: 'decide-list', approval }); },
+      // The Story this page was opened for is not this window's: the Stories page selects it here (its Attach).
+      'show-story': () => { if (this.focusShown().status === 'elsewhere') void vscode.commands.executeCommand('singularityFlow.openWorkspaceStories'); }
     });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
@@ -272,6 +287,12 @@ export class ApprovalsPanel {
     return ApprovalsPanel.current;
   }
 
+  /** Whether this page shows the Story it was last opened for (approvalFocusShown); `unknown` while it is read. */
+  focusShown(): { status: 'here' | 'elsewhere' | 'unknown'; story: string | null } {
+    const state = this.store.current;
+    return state.error || state.stale || !state.snapshot ? { status: 'unknown', story: null } : approvalFocusShown(buildApprovals(state.snapshot), this.focus);
+  }
+
   private render(): void {
     this.snapshotRenders.rendered();
     const token = nonce();
@@ -283,7 +304,7 @@ export class ApprovalsPanel {
       : state.stale
         ? `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
           <p>Confirming the current repository before showing approval actions…</p>`
-        : approvalsBodyHtml(buildApprovals(state.snapshot), this.sfGuard?.standing(state.snapshot?.workflow) ?? null, this.focus);
+        : approvalsBodyHtml(buildApprovals(state.snapshot), this.sfGuard?.standing(state.snapshot?.workflow) ?? null, this.focus, { reading: !state.snapshot });
     this.panel.webview.html = page(
       'Approvals',
       body,

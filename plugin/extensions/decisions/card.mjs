@@ -435,7 +435,7 @@ export function signOffQuestion(review, file = review?.files?.[0] ?? null) {
   const subject = review?.method === 'visual' || IMAGE_FILE.test(String(file ?? '')) ? 'this screenshot' : file;
   return `Does ${subject} show what ${shortName(review?.clauseId)} asks for?`;
 }
-export const unsureWords = (workId) => `Nothing was recorded. Ask someone who knows that screen, or take the screenshot again; it stays on the Decide card (/sf-decide ${workId}).`;
+export const unsureWords = (workId) => `Nothing was recorded for ${workId}. Ask someone who knows that screen, or take the screenshot again; the sign-off stays open on the Decide card.`;
 export function signOffAnswers(answer, note = '') {
   const text = String(note ?? '').trim();
   if (answer === 'unsure') return { unsure: true };

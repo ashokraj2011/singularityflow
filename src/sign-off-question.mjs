@@ -26,7 +26,9 @@ export function signOffQuestion(review, file = review?.files?.[0] ?? null) {
 }
 
 /** What not being sure records (nothing) and what to do instead. */
-export const unsureWords = (workId) => `Nothing was recorded. Ask someone who knows that screen, or take the screenshot again; it stays on the Decide card (/sf-decide ${workId}).`;
+// Never a route back to /sf-decide: a chat's /sf-decide calls this review, and the card that asked it is still open
+// [hardening C, F6]. The sign-off stays open on the Decide card until someone answers it.
+export const unsureWords = (workId) => `Nothing was recorded for ${workId}. Ask someone who knows that screen, or take the screenshot again; the sign-off stays open on the Decide card.`;
 
 /**
  * The witness command's answers for one answer (`yes`, `no` or `unsure`) and the person's note: `{ unsure: true }`,

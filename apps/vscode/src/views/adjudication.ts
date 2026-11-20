@@ -20,7 +20,8 @@ import {
 
 export interface AdjudicationResult { status: string; message: string; recorded?: string[]; decided?: string[]; unchanged?: string[]; remaining?: string[]; next?: string }
 
-let open: vscode.WebviewPanel | null = null;
+/** The page open in this window, for which Story, and what it will answer. */
+let open: { panel: vscode.WebviewPanel; workId: string; answer: Promise<AdjudicationResult> } | null = null;
 
 async function readList(client: SingularityFlowClient, workId: string): Promise<AdjudicationList> {
   client.invalidateReads();
@@ -51,15 +52,22 @@ export async function reviewAdjudications(client: SingularityFlowClient, target:
     throw new Error('This page takes only a Story ID. Answers and reasons come from the person on the page.');
   }
   const workId = target.workId;
-  if (open) { open.reveal(); return { status: 'busy', message: 'The decisions page is already open. Finish it there.' }; }
+  // A page already open: this ask waits for it and gets its answer (this Story's), or opens once another Story's is closed;
+  // never a "busy" with nothing to follow while a chat asks the same items beside the page [hardening C, F5].
+  while (open) {
+    const earlier = open;
+    earlier.panel.reveal();
+    if (earlier.workId !== workId) void vscode.window.showInformationMessage(`Finish or close the convergence decisions for ${earlier.workId}; the ones for ${workId} open next.`);
+    const answer = await earlier.answer;
+    if (earlier.workId === workId) return { ...answer, message: `The convergence decisions for ${workId} were already open; this is what the person did there. ${answer.message}` };
+  }
   let list = await readList(client, workId);
   if (list.status !== 'open') return { status: list.status, message: list.message ?? 'There is nothing to decide here.' };
   // A chat that asked with nothing open carries on: a page with no question must not stop its turn.
   if (askedInChat && !list.open) return nothingOpen(list);
   const panel = vscode.window.createWebviewPanel('singularityFlow.adjudicate', `Decide · ${workId}`, vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
-  open = panel;
-  return new Promise<AdjudicationResult>((resolve) => {
+  const answer = new Promise<AdjudicationResult>((resolve) => {
     let busy = false;
     let settled = false;
     let draft: AdjudicationDraft | undefined;
@@ -105,7 +113,9 @@ export async function reviewAdjudications(client: SingularityFlowClient, target:
       const target = navigationTarget(raw);
       return target ? navigateTo(target) : router.route(raw);
     });
-    panel.onDidDispose(() => { open = null; finish({ status: 'cancelled', message: 'No decision was recorded.' }); });
+    panel.onDidDispose(() => { if (open?.panel === panel) open = null; finish({ status: 'cancelled', message: 'No decision was recorded.' }); });
     render();
   });
+  open = { panel, workId, answer };
+  return answer;
 }

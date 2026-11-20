@@ -29,10 +29,12 @@ import { withStoryNext } from '../src/commands/decisions.mjs';
 const panels = [];
 const shown = [];
 const executed = [];
+// What a command answers, by its ID: the approval page's panel, for the Story it shows [hardening C, F4].
+const answers = {};
 globalThis.__decideSummaryNoteVscode = {
   ViewColumn: { Active: 1, Beside: 2 },
   Uri: { file: (fsPath) => ({ fsPath }), joinPath: () => ({}) },
-  commands: { executeCommand: async (id, ...args) => { executed.push([id, ...args]); }, getCommands: async () => [] },
+  commands: { executeCommand: async (id, ...args) => { executed.push([id, ...args]); return answers[id]?.(...args); }, getCommands: async () => [] },
   env: { clipboard: { writeText: async () => undefined } },
   workspace: { workspaceFolders: [{ uri: { fsPath: os.tmpdir() } }], getConfiguration: () => ({ get: (_key, fallback) => fallback }) },
   window: {
@@ -320,7 +322,11 @@ test('the approval page marks the Story and step it was opened for, and says so 
   assert.match(focused, /<article class="card yours focus" data-focus aria-current="true">/u);
   assert.doesNotMatch(approvalsPage.approvalsBodyHtml(approvals), /data-focus|class="callout" role="status"/u, 'opened plainly, the page is as before');
   const other = approvalsPage.approvalsBodyHtml(approvals, null, { workId: 'OTHER-2', phase: 'planning' });
-  assert.match(other, /OTHER-2 is not the Story checked out in this window \(PLAN-1 is\): open its checkout to approve it there\./u);
+  assert.match(other, /OTHER-2 is not the Story checked out in this window \(PLAN-1 is\): select it here to approve it\. <button class="secondary" data-show-story>Open Stories<\/button>/u);
+  assert.deepEqual(approvalsPage.approvalFocusShown(approvals, { workId: 'OTHER-2', phase: 'planning' }), { status: 'elsewhere', story: P });
+  assert.deepEqual(approvalsPage.approvalFocusShown(approvals, { workId: P, phase: 'planning' }), { status: 'here', story: P });
+  // Still reading the window's Story: nothing is said about another one.
+  assert.doesNotMatch(approvalsPage.approvalsBodyHtml(approvals, null, { workId: 'OTHER-2', phase: 'planning' }, { reading: true }), /not the Story checked out/u);
   assert.doesNotMatch(other, /data-focus/u);
   // An open page is brought to the step it is asked for, not opened twice.
   const store = { current: { snapshot: null, error: null, stale: false }, acquireSlices: async () => ({ dispose() {} }), onDidChange: () => ({ dispose() {} }) };
@@ -330,4 +336,39 @@ test('the approval page marks the Story and step it was opened for, and says so 
   assert.equal(again, shownPanel);
   assert.equal(panels.filter((panel) => panel.viewType === 'singularityFlow.approvals').length, 1);
   shownPanel.dispose();
+});
+
+test('ratchet: the approval page on a window that shows another Story is never "open" to the chat: approval-elsewhere, with the Stories route', async () => {
+  // [hardening C, F4] ApprovalsPanel.show answered, and the card said "The approval page is open for Planning v1", while the
+  // page itself said this window holds another Story: a dead end that said the opposite of what the page showed.
+  const shows = (story) => (target) => ({ focusShown: () => approvalsPage.approvalFocusShown({ initiativeId: story, actor: null, pending: [], obstacles: [], empty: null },
+    approvalsPage.approvalFocusOf(target)) });
+  try {
+    answers['singularityFlow.openApprovals'] = shows('OTHER-2');
+    panels.length = 0; executed.length = 0;
+    const result = await reviewDecisions(listClient([approvalOnly()]), { workId: P }, async () => undefined, { askedInChat: true });
+    assert.equal(result.status, 'approval-elsewhere');
+    assert.doesNotMatch(result.message, /The approval page is open/u);
+    assert.equal(result.message, 'PLAN-1\'s approval of Planning v1 is not on the approval page: this VS Code window shows OTHER-2. The person selects PLAN-1 here with the page\'s "Open Stories" button, or Command Palette: Singularity Flow: Stories, then Attach. Then they approve it on the approval page; this chat records nothing.');
+    assert.deepEqual(result.next, { kind: 'select-story', title: 'Show PLAN-1 in this VS Code window', command: null, copilotCommand: null, modelFreeCommand: 'Command Palette: Singularity Flow: Stories' });
+    assert.doesNotMatch(JSON.stringify(result), APPROVE_ROUTE);
+    // The same window showing this Story: open, as before.
+    answers['singularityFlow.openApprovals'] = shows(P);
+    assert.deepEqual(await reviewDecisions(listClient([approvalOnly()]), { workId: P }, async () => undefined, { askedInChat: true }), { status: 'approval-open', message: PAGE_WORDS, next: null });
+  } finally { delete answers['singularityFlow.openApprovals']; }
+});
+
+test('a chat that asks while the card is open waits for it and gets the person\'s answer there, never "busy"', async () => {
+  // [hardening C, F5] A card left open (the Command Palette's, or an earlier turn's) made every chat call answer busy with
+  // nothing to follow, and the skill went on to ask the same items beside the open page.
+  panels.length = 0; executed.length = 0;
+  const update = { words: 'unused' };
+  const palette = reviewDecisions(client(update), { workId: W }, async () => undefined);
+  await settle();
+  const chat = reviewDecisions(client(update), { workId: W }, async () => undefined, { askedInChat: true });
+  await settle();
+  assert.equal(panels.filter((panel) => panel.viewType === 'singularityFlow.decide').length, 1, 'no second card');
+  panels.find((panel) => panel.viewType === 'singularityFlow.decide').post({ type: 'decide.cancel' });
+  assert.deepEqual(await palette, { status: 'cancelled', message: 'No decision was recorded.' });
+  assert.deepEqual(await chat, { status: 'cancelled', message: 'The Decide card for W-1 was already open; this is what the person did there. No decision was recorded.' });
 });

@@ -199,7 +199,8 @@ test('"Not now" records nothing: the version is not started, and the next card a
   card.post({ type: 'decide.version', answer: 'no', digest });
   const answer = await result;
   assert.equal(answer.status, 'cancelled');
-  assert.equal(answer.message, 'Version 2 of intake was not started. No decision was recorded.');
+  assert.equal(answer.message, 'Version 2 of intake was not started. No decision was recorded. The person chose Not now: do not ask it again in this chat.');
+  assert.equal(answer.declined, 'version-opening', 'the chat is told the person declined it, so it is not asked twice [hardening C, F8]');
   assert.deepEqual(consentRuns(client), []);
   assert.equal(existsSync(grantFile(story, digest)), false);
   assert.equal(json(story.raw(['decisions', W, '--json'])).data.versionOpening.digest, digest, 'still waiting for the person');

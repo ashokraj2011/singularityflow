@@ -273,7 +273,8 @@ export class DecisionListPanel implements vscode.Disposable {
   }
 }
 
-let reviewing = false;
+/** The sign-off being asked now, by its Story, criterion and slot, and what it will answer. */
+let reviewing: { key: string; answer: Promise<WitnessResult> } | null = null;
 
 async function reviewedPath(repository: string, file: string): Promise<string> {
   const root = await realpath(repository);
@@ -285,48 +286,66 @@ async function reviewedPath(repository: string, file: string): Promise<string> {
   return absolute;
 }
 
-export async function reviewWitness(client: SingularityFlowClient, target: WitnessReviewTarget, refresh?: () => Promise<unknown>) {
-  if (reviewing) return { status: 'busy', message: 'Finish or cancel the open witness review first.' };
+export async function reviewWitness(client: SingularityFlowClient, target: WitnessReviewTarget, refresh?: () => Promise<unknown>): Promise<WitnessResult> {
   if (!target || Object.keys(target).some(key => !['workId', 'criterion', 'slot'].includes(key))) {
     throw new Error('A witness review accepts only a Story ID, criterion and slot. Checklist answers, reasons and commands come from the person in the native review.');
   }
-  reviewing = true;
-  try {
-    const result = await runWitnessReview(target, {
-      read: async () => {
-        client.invalidateReads();
-        const packet = decisionPacketFrom(await client.run(['decisions', target.workId, '--json'], undefined, { priority: 'interactive' }));
-        if (!packet) throw new Error('The current witness decisions could not be read.');
-        return packet;
-      },
-      choose: async choices => (await vscode.window.showQuickPick(choices.map(choice => ({ label: `${choice.clauseId} · ${choice.slot}`, choice })),
-        { title: 'Choose a human evidence review', ignoreFocusOut: true }))?.choice,
-      file: async (repository, files) => {
-        if (files.length === 1) return files[0];
-        const selected = await vscode.window.showOpenDialog({ defaultUri: vscode.Uri.file(repository), canSelectFiles: true,
-          canSelectFolders: false, canSelectMany: false, openLabel: 'Inspect this evidence file' });
-        if (!selected?.[0]) return undefined;
-        const file = path.relative(repository, await reviewedPath(repository, selected[0].fsPath)).split(path.sep).join('/');
-        if (files.length && !files.includes(file)) throw new Error('Select one of the evidence files named by this witness slot.');
-        return file;
-      },
-      digest: async (repository, file) => `sha256:${createHash('sha256').update(await readFile(await reviewedPath(repository, file))).digest('hex')}`,
-      inspect: async (repository, file) => { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(await reviewedPath(repository, file))); },
-      // The one question, then the note: required for No, optional for Yes [owner, 2026-11-18].
-      answer: async (question, answers) => (await vscode.window.showQuickPick([{ label: answers.yes, answer: 'yes' as const }, { label: answers.no, answer: 'no' as const },
-        { label: answers.unsure, answer: 'unsure' as const }], { title: question, placeHolder: question, ignoreFocusOut: true }))?.answer,
-      note: async (required) => vscode.window.showInputBox({ title: required ? 'What is wrong with it?' : 'A note, if you want one', ignoreFocusOut: true,
-        prompt: required ? 'Say what is wrong, in your own words.' : 'Optional: leave it empty to record your yes.',
-        validateInput: value => (!value.trim() && !required) || (value.trim().length >= 10 && value.trim().length <= 1000) ? null : 'Enter 10 to 1000 characters.' }),
-      record: (repository, argv) => client.forkForRepository(repository).run(argv)
-    });
-    if (result.status !== 'recorded') return result;
-    let refreshWarning: string | undefined;
-    try { await refresh?.(); } catch (error) { refreshWarning = (error as Error).message; }
-    const data = (result.result as { data?: { record?: { id?: string; outcome?: string; clauseId?: string }; commit?: string } })?.data;
-    if (!data?.record?.id) throw new Error('The witness command returned no verifiable record ID. Refresh Decisions before retrying.');
-    return { status: 'recorded', ...(refreshWarning ? { refreshWarning } : {}), record: data?.record?.id, outcome: data?.record?.outcome,
-      criterion: data?.record?.clauseId, commit: data?.commit,
-      message: data?.record?.outcome === 'met' ? 'Signed off. The list below shows what remains.' : 'Recorded as not showing it, with what is wrong. The list below shows what remains.' };
-  } finally { reviewing = false; }
+  // A review already asking: this one waits for it, and the same sign-off gets its answer; never a "busy" with nothing to
+  // follow [hardening C, F5]. Another opens once that one is answered or closed.
+  const key = JSON.stringify([target.workId, target.criterion ?? null, target.slot ?? null]);
+  while (reviewing) {
+    const earlier = reviewing;
+    const answer = await earlier.answer.catch((error: Error) => ({ status: 'cancelled', message: error.message }) as WitnessResult);
+    if (earlier.key === key) return answer;
+  }
+  const answer = witnessReview(client, target, refresh);
+  const current = { key, answer };
+  reviewing = current;
+  try { return await answer; } finally { if (reviewing === current) reviewing = null; }
+}
+
+type WitnessResult = { status: string; message?: string; record?: string; outcome?: string; criterion?: string; commit?: string; refreshWarning?: string; remaining?: string[]; recorded?: unknown };
+
+async function witnessReview(client: SingularityFlowClient, target: WitnessReviewTarget, refresh?: () => Promise<unknown>): Promise<WitnessResult> {
+  const result = await runWitnessReview(target, {
+    read: async () => {
+      client.invalidateReads();
+      const packet = decisionPacketFrom(await client.run(['decisions', target.workId, '--json'], undefined, { priority: 'interactive' }));
+      if (!packet) throw new Error('The current witness decisions could not be read.');
+      return packet;
+    },
+    choose: async choices => (await vscode.window.showQuickPick(choices.map(choice => ({ label: `${choice.clauseId} · ${choice.slot}`, choice })),
+      { title: 'Choose a human evidence review', ignoreFocusOut: true }))?.choice,
+    file: async (repository, files) => {
+      if (files.length === 1) return files[0];
+      const selected = await vscode.window.showOpenDialog({ defaultUri: vscode.Uri.file(repository), canSelectFiles: true,
+        canSelectFolders: false, canSelectMany: false, openLabel: 'Inspect this evidence file' });
+      if (!selected?.[0]) return undefined;
+      const file = path.relative(repository, await reviewedPath(repository, selected[0].fsPath)).split(path.sep).join('/');
+      if (files.length && !files.includes(file)) throw new Error('Select one of the evidence files named by this witness slot.');
+      return file;
+    },
+    digest: async (repository, file) => `sha256:${createHash('sha256').update(await readFile(await reviewedPath(repository, file))).digest('hex')}`,
+    inspect: async (repository, file) => { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(await reviewedPath(repository, file))); },
+    // The one question, then the note: required for No, optional for Yes [owner, 2026-11-18].
+    answer: async (question, answers) => (await vscode.window.showQuickPick([{ label: answers.yes, answer: 'yes' as const }, { label: answers.no, answer: 'no' as const },
+      { label: answers.unsure, answer: 'unsure' as const }], { title: question, placeHolder: question, ignoreFocusOut: true }))?.answer,
+    note: async (required) => vscode.window.showInputBox({ title: required ? 'What is wrong with it?' : 'A note, if you want one', ignoreFocusOut: true,
+      prompt: required ? 'Say what is wrong, in your own words.' : 'Optional: leave it empty to record your yes.',
+      validateInput: value => (!value.trim() && !required) || (value.trim().length >= 10 && value.trim().length <= 1000) ? null : 'Enter 10 to 1000 characters.' }),
+    record: (repository, argv) => client.forkForRepository(repository).run(argv)
+  });
+  if (result.status !== 'recorded') return result;
+  let refreshWarning: string | undefined;
+  try { await refresh?.(); } catch (error) { refreshWarning = (error as Error).message; }
+  const data = (result.result as { data?: { record?: { id?: string; outcome?: string; clauseId?: string }; commit?: string } })?.data;
+  if (!data?.record?.id) throw new Error('The witness command returned no verifiable record ID. Refresh Decisions before retrying.');
+  // What is left after it, from the list as it is now: a chat has no "list below" [hardening C, F6].
+  const after = await (async () => { client.invalidateReads(); return decisionPacketFrom(await client.run(['decisions', target.workId, '--json'], undefined, { priority: 'interactive' })); })().catch(() => null);
+  // The step's approval is on its own page, never a decision still open.
+  const remaining = after ? after.items.filter((item) => item.kind !== 'approval').map((item) => `${item.id}: ${item.title}`) : undefined;
+  const left = remaining === undefined ? '' : remaining.length ? ` Still open: ${remaining.join('; ')}.` : ' Nothing else is open.';
+  return { status: 'recorded', ...(refreshWarning ? { refreshWarning } : {}), record: data?.record?.id, outcome: data?.record?.outcome,
+    criterion: data?.record?.clauseId, commit: data?.commit, ...(remaining ? { remaining } : {}),
+    message: `${data?.record?.outcome === 'met' ? 'Signed off.' : 'Recorded as not showing it, with what is wrong.'}${left}` };
 }

@@ -8,7 +8,7 @@ import type { DecisionInputSpec, SubmissionReadiness } from './cli/snapshot.ts';
 import { decisionInputPrompt } from './decisions.ts';
 import { unsavedRepositoryPaths } from './generation-guards.ts';
 import { showCompactWarningMessage } from './compact-message.ts';
-import { parseModelFreeTarget } from '../../../src/model-free-commands.mjs';
+import { parseModelFreeTarget, VSCODE_SELECT_STORY } from '../../../src/model-free-commands.mjs';
 
 export type LifecycleChatCommand = 'submit' | 'publish' | 'approve' | 'continue';
 export interface LifecycleChatSession {
@@ -111,7 +111,8 @@ export async function runLifecycleChat(
   const target = parseModelFreeTarget(prompt);
   const active = await getSession(signal);
   if ((target.phase && target.phase !== active.phaseId) || (target.workId && target.workId !== active.workId)) {
-    throw new Error('The requested phase or Story is not the verified active session. Select it first; nothing was executed.');
+    // The way to select it here, never a refusal with nothing to follow [hardening C, F4].
+    throw new Error(`The requested phase or Story is not the verified active session. Select it in this window first (${VSCODE_SELECT_STORY}, then Attach), then ask again; nothing was executed.`);
   }
   const stillCurrent = async () => {
     if (cancellation.isCancellationRequested || signal.aborted || isPaused()) return false;

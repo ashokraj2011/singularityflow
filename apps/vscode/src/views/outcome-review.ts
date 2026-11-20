@@ -18,6 +18,7 @@ import { integerField, registerMessageRouter, stringField } from './messages.ts'
 import { documentReference, outcomeView, sameOutcomeTarget, signOffArgs, signOffQuestions, type OutcomeCheck, type OutcomeTarget, type OutcomeView } from './outcome-review-model.ts';
 import { OUTCOME_REVIEW_SCRIPT, OUTCOME_REVIEW_STYLE, outcomeReviewHtml } from './outcome-review-page.ts';
 import { loopbackUrl } from './run-and-test-model.ts';
+import { VSCODE_SELECT_STORY } from '../../../../src/model-free-commands.mjs';
 
 export class OutcomeReviewPanel {
   private static current: OutcomeReviewPanel | null = null;
@@ -30,7 +31,8 @@ export class OutcomeReviewPanel {
   private expected: OutcomeTarget | null = null;
   private capability: string | null = null;
   private loading: Promise<void> = Promise.resolve();
-  private choosing = false;
+  /** The validation choice asking now, for which Story, and what it will answer. */
+  private choosing: { workId: string; answer: Promise<unknown> } | null = null;
   private readonly disposables: vscode.Disposable[] = [];
 
   static show(_context: vscode.ExtensionContext, store: WorkspaceStore, client: SingularityFlowClient, expected: OutcomeTarget | null = null, capability: string | null = null): OutcomeReviewPanel {
@@ -126,33 +128,50 @@ export class OutcomeReviewPanel {
     await this.act('app-review', null, null, null);
   }
 
-  /** A native question, not a model-supplied action or answer. One choice per invocation. */
+  /**
+   * A native question, not a model-supplied action or answer. One choice per invocation. A second ask while the choice is open
+   * waits for it: the same Story gets that answer, never an "already open" with nothing to follow [hardening C, F5].
+   */
   async guideDelivery(workId: string): Promise<unknown> {
-    if (this.choosing) return { status: 'already-open', workId, recorded: null, message: 'Finish the open validation choice first.' };
-    this.choosing = true;
-    try {
-      await this.loading;
-      if (this.store.current.stale || this.store.current.error) await this.act('refresh', null, null, null);
-      const view = this.view;
-      if (view?.workId !== workId || !this.currentDelivery()) {
-        return { status: 'blocked', workId, recorded: null, message: this.error ?? 'Select this Story in VS Code before opening its delivery validation.' };
-      }
-      if (!view.validation) {
-        return { status: 'blocked', workId, recorded: null,
-          message: 'This CLI did not return a delivery validation guide. Update the CLI and VS Code integration together, then reopen Check the Outcome. The existing review remains readable.' };
-      }
-      const binding = view.target;
-      const choice = await vscode.window.showQuickPick(view.validation.choices.map((item, index) => ({
-        label: item.label, detail: item.description, index
-      })), { title: `Validate ${workId}`, placeHolder: view.validation.question, ignoreFocusOut: true });
-      if (!choice) return { status: 'cancelled', workId, recorded: null };
-      if (this.disposed || this.view !== view || !this.currentDelivery(binding)) return { status: 'blocked', workId, recorded: null,
-        message: this.error ?? 'The outcome changed while the choice was open. Refresh before choosing again.' };
-      await this.chooseValidation(choice.index);
-      return { status: 'selected', workId, binding, capability: view.application.capability ?? null,
-        choice: view.validation.choices[choice.index]?.id, recorded: null,
-        message: 'Opened the selected validation action. Inspect its result; selection alone establishes no test success, acceptance, submission or approval.' };
-    } finally { this.choosing = false; }
+    while (this.choosing) {
+      const earlier = this.choosing;
+      const answer = await earlier.answer.catch(() => null);
+      if (earlier.workId === workId && answer) return answer;
+    }
+    const answer = this.chooseDelivery(workId);
+    const current = { workId, answer };
+    this.choosing = current;
+    try { return await answer; } finally { if (this.choosing === current) this.choosing = null; }
+  }
+
+  private async chooseDelivery(workId: string): Promise<unknown> {
+    await this.loading;
+    if (this.store.current.stale || this.store.current.error) await this.act('refresh', null, null, null);
+    const view = this.view;
+    if (view?.workId !== workId || !this.currentDelivery()) {
+      // Another Story in this window, or none: the way to select it here, never a refusal with nothing to follow [hardening C, F4].
+      return this.error ? { status: 'blocked', workId, recorded: null, message: this.error }
+        : { status: 'blocked', workId, recorded: null, next: { kind: 'select-story', title: `Show ${workId} in this VS Code window`, command: null, copilotCommand: null, modelFreeCommand: VSCODE_SELECT_STORY },
+          message: [`${workId} is not the Story this VS Code window shows${view?.workId ? ` (${view.workId} is)` : ''}.`,
+            `The person selects it here (${VSCODE_SELECT_STORY}, then Attach), then asks again. Nothing was run.`].join(' ') };
+    }
+    if (!view.validation) {
+      return { status: 'blocked', workId, recorded: null,
+        message: 'This CLI did not return a delivery validation guide. Update the CLI and VS Code integration together, then reopen Check the Outcome. The existing review remains readable.' };
+    }
+    const binding = view.target;
+    const choice = await vscode.window.showQuickPick(view.validation.choices.map((item, index) => ({
+      label: item.label, detail: item.description, index
+    })), { title: `Validate ${workId}`, placeHolder: view.validation.question, ignoreFocusOut: true });
+    if (!choice) return { status: 'cancelled', workId, recorded: null };
+    if (this.disposed || this.view !== view || !this.currentDelivery(binding)) return { status: 'blocked', workId, recorded: null,
+      message: this.error ?? 'The outcome changed while the choice was open. Refresh before choosing again.' };
+    await this.chooseValidation(choice.index);
+    // VS Code already ran or opened it: the chat that asked never runs the same tests or start again [hardening C, F7].
+    return { status: 'selected', workId, binding, capability: view.application.capability ?? null,
+      choice: view.validation.choices[choice.index]?.id, recorded: null, ranHere: true,
+      message: ['VS Code already ran or opened the selected validation action: do not run it again in a terminal.',
+        'Inspect its result; selection alone establishes no test success, acceptance, submission or approval.'].join(' ') };
   }
 
   private async chooseValidation(index: number): Promise<void> {

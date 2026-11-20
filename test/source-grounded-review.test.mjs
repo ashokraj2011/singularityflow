@@ -188,7 +188,7 @@ test('a case-variant clause ID is answered with the exact ID, and a clarified sc
   const hinted = evaluateSourceGroundedReview(copied, ctx);
   const caseFinding = hinted.findings.find((entry) => entry.code === 'clause-unknown');
   assert.equal(caseFinding.canonical, 'EXAMPLE:REQ-002');
-  assert.match(caseFinding.message, /names clause 'example:req-002'; write it exactly as 'EXAMPLE:REQ-002'/u);
+  assert.match(caseFinding.message, /names clause 'example:req-002', which is 'EXAMPLE:REQ-002'/u);
 
   const unmapped = report(ctx);
   const missing = evaluateSourceGroundedReview(unmapped, ctx).findings.find((entry) => entry.code === 'scenario-unmapped');

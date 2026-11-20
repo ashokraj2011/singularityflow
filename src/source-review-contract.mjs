@@ -1,7 +1,8 @@
 /** One authoring contract for the context packet and the pre-retention format check. */
 import { z } from 'zod';
 
-import { agentInputIssues, valueAtField } from './text-lines.mjs';
+import { agentInputIssues, copySlip, valueAtField } from './text-lines.mjs';
+import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses, FULFILLMENT_TYPES } from './specifications.mjs';
 import { sourceReviewScenarioIds } from './source-grounded-review.mjs';
@@ -23,8 +24,8 @@ const specificationRow = z.discriminatedUnion('outcome', [
 const planningRow = z.strictObject({
   id: id.optional(),
   clauseId: id.describe('One exact approved clause ID; singular clauseId, not clauseIds.'),
-  expectedPaths: paths.describe('Copy from reportTemplate; empty is valid for a pinned test-only claim.'),
-  plannedTests: paths.describe('Copy from reportTemplate; the review field is plannedTests, not tests.'),
+  expectedPaths: paths.describe('Pinned from the plan: review-source check sets it by clauseId; empty is valid for a pinned test-only claim.'),
+  plannedTests: paths.describe('Pinned from the plan: review-source check sets it by clauseId; the review field is plannedTests, not tests.'),
   testDisposition: z.enum(['applicable', 'unspecified', 'not-applicable', 'non-test']),
   verificationCriterion: id.optional(),
   testReason: text().nullable().optional(),
@@ -39,15 +40,16 @@ const documentRow = z.strictObject({
   outcome: z.enum(['consistent', 'inconsistent', 'question']).describe('Consistent: the document agrees with this source line. Inconsistent or question holds the step until its author corrects it.'),
   note: text().optional().describe('For inconsistent or question: what differs or what is unclear.')
 });
-// The ID is not derivable from the path (other characters become ':' too, and a long path becomes a hash).
-const fileCitation = z.strictObject({ sourceId: id.describe('A changed file\'s sources[].id, copied exactly; it is not derivable from the path.'), line: citation.line, quote: citation.quote });
+// The ID is not derivable from the path (other characters become ':' too, and a long path becomes a hash), so the
+// check writes a changed file's ID where its exact path was written.
+const fileCitation = z.strictObject({ sourceId: id.describe('A changed file\'s sources[].id; its exact path is accepted too, and review-source check writes the ID in its place.'), line: citation.line, quote: citation.quote });
 // A code step's row: one clause it delivers, where it is implemented and which test proves it [review level 2].
 const codeRow = z.strictObject({
   id: id.optional(),
   clauseId: id.describe('One clause this step delivers, exactly as reportTemplate names it.'),
   implementation: z.array(fileCitation).max(50).describe('(a) Where the clause is implemented: file:line in a planned path.'),
   tests: z.array(fileCitation).max(50).describe('(b) The clause\'s own test: file:line of the planned test that ran and passed.'),
-  evidence: z.array(z.strictObject({ sourceId: id.describe('An image or PDF from visualSources[].id, copied exactly.'),
+  evidence: z.array(z.strictObject({ sourceId: id.describe('An image or PDF from visualSources[].id (or its exact path).'),
     attestation: text(1024).describe('The part of the file you inspected and what it shows.') })).max(50).optional()
     .describe('(a) For a clause the plan proves with an evidence file (an image or PDF): that file, inspected, and what it shows.'),
   assessment: z.enum(['implemented', 'not-implemented']).describe('An independent judgment, never a default.'),
@@ -79,10 +81,10 @@ function schema(kind) {
     sourcesReviewed: z.array(id).max(100),
     visualSourcesReviewed: z.array(z.strictObject({ sourceId: id,
       method: z.enum(['image-tool', 'pdf-tool']), locator: text(1024), observations: text() })).max(100).optional(),
-    clarificationsReviewed: z.array(id).max(2).optional().describe('Read and acknowledge every record in context.clarifications. Omit only when none is pinned.'),
+    clarificationsReviewed: z.array(id).max(2).optional().describe('SFlow lists every record in context.clarifications here; read each one.'),
     rows,
     ...(kind === 'code' ? { unplannedPaths: z.array(unplannedPath).max(2000).describe('(a) Each changed path no plan row names: supporting, or out-of-scope.'),
-      qualityReviewed: z.array(id).max(500).describe('(c) The ID of every quality, security and secret-scan result in context.code.quality.') } : {}),
+      qualityReviewed: z.array(id).max(500).describe('(c) SFlow lists every quality, security and secret-scan result in context.code.quality here; raise a finding for one that must be fixed.') } : {}),
     findings: z.array(reviewerFinding).max(500)
   });
 }
@@ -105,23 +107,33 @@ export function validateSourceReviewReport(report, kind, { known = null } = {}) 
   return { status: findings.length ? 'correction-required' : 'ready', findings };
 }
 
-/** Copy objective plan metadata only. The independent reviewer must supply every assessment. */
+/** A planning row's pinned plan metadata for one clause: what the plan says, never a judgment. */
+function plannedRowMetadata(clauseId, claim) {
+  return { clauseId, expectedPaths: claim?.expectedPaths ?? [], plannedTests: claim?.tests ?? [],
+    testDisposition: claim?.testDisposition ?? 'unspecified', testReason: claim?.testReason ?? null,
+    ...(claim?.verificationCriterion ? { verificationCriterion: claim.verificationCriterion } : {}),
+    ...(claim?.fulfillment ? { fulfillment: claim.fulfillment } : {}),
+    ...(claim?.steps ? { steps: claim.steps } : {}),
+    ...(claim?.observableResult ? { observableResult: claim.observableResult } : {}) };
+}
+
+/** The approved clauses a planning review covers and the plan's structured claim for each. */
+function plannedClaims(input) {
+  const clauses = extractClauses(input.upstreamSpec.text, { sourcePath: input.upstreamSpec.path });
+  const clauseIds = clauses.map(clause => clause.id);
+  return { clauseIds, claims: derivePlannedClaimMap(input.artifact.text, { clauseIds, clauses }).claimMap.claims };
+}
+
+/**
+ * Copy objective plan metadata only. The independent reviewer must supply every assessment. SFlow ticks the
+ * acknowledgement lists (clarificationsReviewed, qualityReviewed) itself [owner, 2026-11-20]: the reviewer's act is a
+ * finding about one, never retyping its ID.
+ */
 export function sourceReviewReportTemplate(input) {
   let rows = [];
   if (input.kind === 'planning') {
-    const clauses = extractClauses(input.upstreamSpec.text, { sourcePath: input.upstreamSpec.path });
-    const clauseIds = clauses.map(clause => clause.id);
-    const planned = derivePlannedClaimMap(input.artifact.text, { clauseIds, clauses }).claimMap.claims;
-    rows = clauseIds.map((clauseId) => {
-      const claim = planned[clauseId];
-      return { clauseId, expectedPaths: claim?.expectedPaths ?? [], plannedTests: claim?.tests ?? [],
-        testDisposition: claim?.testDisposition ?? 'unspecified', testReason: claim?.testReason ?? null,
-        ...(claim?.verificationCriterion ? { verificationCriterion: claim.verificationCriterion } : {}),
-        ...(claim?.fulfillment ? { fulfillment: claim.fulfillment } : {}),
-        ...(claim?.steps ? { steps: claim.steps } : {}),
-        ...(claim?.observableResult ? { observableResult: claim.observableResult } : {}),
-        assessment: 'unreviewed' };
-    });
+    const { clauseIds, claims } = plannedClaims(input);
+    rows = clauseIds.map((clauseId) => ({ ...plannedRowMetadata(clauseId, claims[clauseId]), assessment: 'unreviewed' }));
   }
   if (input.kind === 'code') {
     const planned = input.code?.planned ?? {};
@@ -136,11 +148,196 @@ export function sourceReviewReportTemplate(input) {
     binding: input.binding, reviewer: { agentId: input.reviewerAgentId, readOnly: true },
     sourcesReviewed: [...input.sources, ...(input.visualSources ?? [])].map((source) => source.id),
     ...(input.visualSources?.length ? { visualSourcesReviewed: [] } : {}),
-    ...(input.clarifications?.length ? { clarificationsReviewed: [] } : {}), rows,
+    ...(input.clarifications?.length ? { clarificationsReviewed: input.clarifications.map((entry) => entry.id) } : {}), rows,
     ...(input.kind === 'code' ? { unplannedPaths: input.code?.planned ? input.sources.filter((source) => (input.code.changedPaths ?? []).includes(source.path) && !plannedPaths.has(source.path))
-      .map((source) => ({ sourceId: source.id, assessment: 'unreviewed', note: '' })) : [], qualityReviewed: [] } : {}),
+      .map((source) => ({ sourceId: source.id, assessment: 'unreviewed', note: '' })) : [], qualityReviewed: (input.code?.quality ?? []).map((item) => item.id) } : {}),
     findings: []
   };
+}
+
+/** The clause IDs a review covers: the reviewed specification's, the approved one a plan covers, or a code step's delivered clauses. */
+export function sourceReviewClauseIds(input) {
+  try {
+    if (input.kind === 'code') return input.code?.deliveredClauses ?? [];
+    const document = input.kind === 'planning' ? input.upstreamSpec : input.kind === 'specification' ? input.artifact : null;
+    return document ? extractClauses(document.text, { sourcePath: document.path }).map((clause) => clause.id) : [];
+  } catch { return []; }
+}
+
+const sameSet = (left, right) => Array.isArray(left) && left.length === right.length && new Set(left).size === left.length
+  && right.every((entry) => left.includes(entry));
+const sameSorted = (left, right) => Array.isArray(left) && Array.isArray(right) && canonicalJson([...left].sort()) === canonicalJson([...right].sort());
+const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * What a review report copies from its context, set by SFlow before the check [owner, 2026-11-20: SFlow fills what it
+ * knows]. Each value here is one SFlow already holds exactly, and any other value was refused as a copying slip that
+ * spent one of the reviewer's two repairs: a planning row's pinned plan fields (by its clause), a source written as its
+ * path, a clause ID in another case, the literals and the reviewer's own ID, a key under a known other name (when the
+ * right key is not there), the source inventory and the acknowledgement lists, a visual source's inspection method, and
+ * a re-raised disputed finding's ID copied with a slip. Never a judgment (assessment, testAssessment, outcome,
+ * severity, a finding's words), a near-match guess or a choice among several values: those stay the reviewer's.
+ * Returns `{ report, normalized }`, `report` a copy when anything changed and `normalized` its `[{ field, from, to,
+ * why }]` (`removed: true` for a key taken out, `renamedFrom` for a key written under another name).
+ */
+export function normalizeSourceReviewReport(report, input) {
+  if (!isObject(report) || !input?.kind) return { report, normalized: [] };
+  const next = structuredClone(report);
+  const normalized = [];
+  const set = (holder, key, field, to, why) => {
+    if (canonicalJson(holder[key] ?? null) === canonicalJson(to ?? null) && Object.hasOwn(holder, key)) return;
+    normalized.push({ field, from: holder[key] ?? null, to, why });
+    holder[key] = to;
+  };
+  const remove = (holder, key, field, why) => {
+    if (!Object.hasOwn(holder, key)) return;
+    normalized.push({ field, from: holder[key], to: null, removed: true, why });
+    delete holder[key];
+  };
+  // A known other name for a key, only when the right key is absent: the value moves as written.
+  const rename = (holder, alias, key, at, transform = (value) => value) => {
+    if (!isObject(holder) || !Object.hasOwn(holder, alias) || Object.hasOwn(holder, key)) return;
+    const value = transform(holder[alias]);
+    if (value === undefined) return;
+    normalized.push({ field: `${at}.${key}`, from: null, to: value, renamedFrom: `${at}.${alias}`, why: 'renamed' });
+    delete holder[alias];
+    holder[key] = value;
+  };
+  const one = (value) => (Array.isArray(value) && value.length === 1 && typeof value[0] === 'string' ? value[0] : typeof value === 'string' ? value : undefined);
+  const rows = Array.isArray(next.rows) ? next.rows : [];
+  const findings = Array.isArray(next.findings) ? next.findings : [];
+
+  // The literals, and this review's reviewer (never the author's ID: that is an independence problem, not a slip).
+  set(next, 'schemaVersion', 'schemaVersion', currentSchemaVersion('source-grounded-review'), 'literal');
+  set(next, 'resultType', 'resultType', 'source-grounded-review', 'literal');
+  set(next, 'kind', 'kind', input.kind, 'literal');
+  if (input.reviewerAgentId && (!isObject(next.reviewer) || next.reviewer.agentId !== input.authorAgentId)) {
+    if (!isObject(next.reviewer)) set(next, 'reviewer', 'reviewer', { agentId: input.reviewerAgentId, readOnly: true }, 'literal');
+    else {
+      set(next.reviewer, 'agentId', 'reviewer.agentId', input.reviewerAgentId, 'literal');
+      set(next.reviewer, 'readOnly', 'reviewer.readOnly', true, 'literal');
+    }
+  }
+
+  // Keys under a known other name.
+  findings.forEach((entry, index) => {
+    rename(entry, 'explanation', 'message', `findings[${index}]`);
+    rename(entry, 'description', 'message', `findings[${index}]`);
+  });
+  rows.forEach((row, index) => {
+    if (['planning', 'code'].includes(input.kind)) rename(row, 'clauseIds', 'clauseId', `rows[${index}]`, one);
+    if (input.kind === 'planning') rename(row, 'tests', 'plannedTests', `rows[${index}]`);
+    if (input.kind === 'document') { rename(row, 'comment', 'note', `rows[${index}]`); rename(row, 'notes', 'note', `rows[${index}]`); }
+  });
+  (Array.isArray(next.unplannedPaths) ? next.unplannedPaths : []).forEach((entry, index) => {
+    rename(entry, 'comment', 'note', `unplannedPaths[${index}]`); rename(entry, 'notes', 'note', `unplannedPaths[${index}]`);
+  });
+
+  // A clause ID written in another case: the one clause it names.
+  const clauseIds = sourceReviewClauseIds(input);
+  const canonicalClause = (value) => {
+    if (typeof value !== 'string' || clauseIds.includes(value)) return null;
+    const matches = clauseIds.filter((id) => id.toUpperCase() === value.toUpperCase());
+    return matches.length === 1 ? matches[0] : null;
+  };
+  rows.forEach((row, index) => {
+    if (!isObject(row)) return;
+    const clause = canonicalClause(row.clauseId);
+    if (clause) set(row, 'clauseId', `rows[${index}].clauseId`, clause, 'clause-id');
+    if (Array.isArray(row.clauseIds)) row.clauseIds.forEach((id, at) => {
+      const fixed = canonicalClause(id);
+      if (fixed) set(row.clauseIds, at, `rows[${index}].clauseIds[${at}]`, fixed, 'clause-id');
+    });
+  });
+  findings.forEach((entry, index) => {
+    const clause = isObject(entry) ? canonicalClause(entry.clauseId) : null;
+    if (clause) set(entry, 'clauseId', `findings[${index}].clauseId`, clause, 'clause-id');
+  });
+
+  // A source written as its path ("src/App.jsx", "./src/App.jsx", "code:src/App.jsx") or under `path`: its one ID.
+  const sources = [...(input.sources ?? []), ...(input.visualSources ?? [])].filter((source) => typeof source?.id === 'string');
+  const known = new Set(sources.map((source) => source.id));
+  const byPath = new Map();
+  for (const source of sources) byPath.set(source.path, byPath.has(source.path) ? null : source.id);
+  const sourceIdOf = (value) => {
+    if (typeof value !== 'string' || known.has(value)) return null;
+    const bare = value.startsWith('code:') && !byPath.has(value) ? value.slice(5) : value;
+    return byPath.get(bare) ?? byPath.get(bare.replace(/^\.\//u, '')) ?? null;
+  };
+  const cited = (entry, at) => {
+    if (!isObject(entry)) return;
+    rename(entry, 'path', 'sourceId', at, (value) => sourceIdOf(value) ?? undefined);
+    const id = sourceIdOf(entry.sourceId);
+    if (id) set(entry, 'sourceId', `${at}.sourceId`, id, 'source-id');
+  };
+  rows.forEach((row, index) => {
+    if (!isObject(row)) return;
+    if (['specification', 'document'].includes(input.kind)) cited(row, `rows[${index}]`);
+    for (const key of ['implementation', 'tests', 'evidence']) {
+      if (input.kind === 'code' && Array.isArray(row[key])) row[key].forEach((entry, at) => cited(entry, `rows[${index}].${key}[${at}]`));
+    }
+  });
+  findings.forEach((entry, index) => cited(entry, `findings[${index}]`));
+  (Array.isArray(next.unplannedPaths) ? next.unplannedPaths : []).forEach((entry, index) => cited(entry, `unplannedPaths[${index}]`));
+  (Array.isArray(next.visualSourcesReviewed) ? next.visualSourcesReviewed : []).forEach((entry, index) => {
+    cited(entry, `visualSourcesReviewed[${index}]`);
+    // The inspection method follows from the file's own type.
+    const source = (input.visualSources ?? []).find((visual) => visual.id === entry?.sourceId);
+    if (source) set(entry, 'method', `visualSourcesReviewed[${index}].method`, source.mimeType === 'application/pdf' ? 'pdf-tool' : 'image-tool', 'literal');
+  });
+
+  // The inventory and the acknowledgement lists are SFlow's: every pinned source, clarification and quality result.
+  const inventory = sources.map((source) => source.id);
+  if (inventory.length) {
+    if (!sameSet(next.sourcesReviewed, inventory)) set(next, 'sourcesReviewed', 'sourcesReviewed', inventory, 'acknowledged');
+  }
+  const clarifications = (input.clarifications ?? []).map((entry) => entry.id);
+  if (clarifications.length && !sameSet(next.clarificationsReviewed, clarifications)) set(next, 'clarificationsReviewed', 'clarificationsReviewed', clarifications, 'acknowledged');
+  else if (!clarifications.length && Array.isArray(next.clarificationsReviewed) && next.clarificationsReviewed.length) remove(next, 'clarificationsReviewed', 'clarificationsReviewed', 'acknowledged');
+  if (input.kind === 'code') {
+    const quality = (input.code?.quality ?? []).map((item) => item.id);
+    if (!sameSet(next.qualityReviewed, quality)) set(next, 'qualityReviewed', 'qualityReviewed', quality, 'acknowledged');
+  }
+
+  // A planning row's plan fields, by its clause: pinned metadata the reviewer cannot change, so never a judgment.
+  if (input.kind === 'planning' && input.upstreamSpec && input.artifact) {
+    let claims = null;
+    try { claims = plannedClaims(input).claims; } catch { claims = null; }
+    rows.forEach((row, index) => {
+      const claim = isObject(row) ? claims?.[row.clauseId] : null;
+      if (!claim) return;
+      const pinned = plannedRowMetadata(row.clauseId, claim);
+      const at = (key) => `rows[${index}].${key}`;
+      for (const key of ['expectedPaths', 'plannedTests']) if (!sameSorted(row[key], pinned[key])) set(row, key, at(key), pinned[key], 'plan');
+      if (row.testDisposition !== pinned.testDisposition) set(row, 'testDisposition', at('testDisposition'), pinned.testDisposition, 'plan');
+      if ((row.testReason ?? null) !== pinned.testReason) set(row, 'testReason', at('testReason'), pinned.testReason, 'plan');
+      // Optional fields: as the plan has them; one the plan lacks is taken out (the check compares those it is given).
+      for (const key of ['verificationCriterion', 'fulfillment', 'observableResult', 'steps']) {
+        const wanted = pinned[key];
+        const optional = ['fulfillment', 'observableResult', 'steps'].includes(key);
+        if (!Object.hasOwn(row, key) && (optional || wanted === undefined)) continue;
+        if (wanted === undefined) remove(row, key, at(key), 'plan');
+        else if (key === 'steps' ? !sameSorted(row.steps, wanted) : row[key] !== wanted) set(row, key, at(key), wanted, 'plan');
+      }
+    });
+  }
+
+  // A re-raised disputed finding whose ID was copied with a slip (same check, clause and cited file): the disputed ID.
+  const disputed = Array.isArray(input.disputedEarlier) ? input.disputedEarlier : [];
+  if (disputed.length) {
+    const pathOf = (entry) => (input.sources ?? []).find((source) => source.id === entry?.sourceId)?.path ?? entry?.sourceId ?? null;
+    const used = new Set(findings.map((entry) => entry?.id));
+    findings.forEach((entry, index) => {
+      if (!isObject(entry) || typeof entry.id !== 'string' || disputed.some((earlier) => earlier.id === entry.id)) return;
+      const same = disputed.filter((earlier) => (earlier.check ?? null) === (entry.check ?? null) && (earlier.clauseId ?? null) === (entry.clauseId ?? null)
+        && (earlier.path ?? earlier.sourceId ?? null) === pathOf(entry) && !used.has(earlier.id)
+        && (earlier.id.toUpperCase() === entry.id.toUpperCase() || copySlip(entry.id, earlier.id) === 'slip'));
+      if (same.length !== 1) return;
+      used.add(same[0].id);
+      set(entry, 'id', `findings[${index}].id`, same[0].id, 'disputed');
+    });
+  }
+  return normalized.length ? { report: next, normalized } : { report, normalized };
 }
 
 /** In a code review, each offered image or PDF and the delivered clause whose plan row names it. */
@@ -170,10 +367,10 @@ export function sourceReviewCitationGuide(input) {
       checks: [
         '(a) Plan: each delivered clause is implemented where its plan row says (cite file:line in implementation); review every changed path no plan row names as supporting or out-of-scope.',
         '(b) Tests: each delivered clause has its own planned test that ran and passed (context.code.passedTests); cite its file:line and say whether it proves the behaviour. SFlow\'s own runs of this version, with the Node each ran on, are context.testRuns: they stand over any test result the summary states, which it may have written before them.',
-        '(c) Quality and security: acknowledge every context.code.quality result ID in qualityReviewed; raise a blocking quality finding for one that must be fixed.',
+        '(c) Quality and security: read every context.code.quality result (SFlow lists them in qualityReviewed); raise a blocking quality finding for one that must be fixed.',
         '(d) Readability and design: your judgement, proportionate. Advisory by default; blocking only for a real maintainability defect, named in defect.'
       ],
-      findingRule: 'Every finding names its check and cites a changed file: sourceId (its sources[].id, copied exactly; it is not derivable from the path), line and an exact quote; name the clauseId for plan and tests findings.',
+      findingRule: 'Every finding names its check and cites a changed file: sourceId (its sources[].id, or its exact path, which the check turns into the ID), line and an exact quote; name the clauseId for plan and tests findings.',
       ...(evidenceFiles.length ? { evidenceFiles,
         evidenceRule: 'Some clauses are proved by a file the plan keeps as evidence, such as a screenshot, not by code. Open each file in evidenceFiles with your image or PDF tool and list it in visualSourcesReviewed with what you looked at and what you saw. Then, in that clause\'s row, add it to evidence: { "sourceId": "<its id>", "attestation": "<the part you looked at and what it shows>" }. Cite the clause\'s test in tests as usual; implementation may stay empty. If the file does not show what the clause asks, set assessment to not-implemented and add a blocking plan finding with that sourceId and attestation (no line or quote).' } : {})
     } : {}),
@@ -183,7 +380,7 @@ export function sourceReviewCitationGuide(input) {
     ...(input.kind === 'specification' ? {
       scenarioIds: [...sourceReviewScenarioIds(input.artifact.text)],
       ...clauses,
-      mappingRule: 'Independently map every scenario and clause, including scenarios refined by pinned answers. Reuse a source line only when it genuinely supports that scenario. Acknowledge the clarification ID separately. If unsupported, retain a blocking finding instead of inventing coverage.'
+      mappingRule: 'Independently map every scenario and clause, including scenarios refined by pinned answers. Reuse a source line only when it genuinely supports that scenario. If unsupported, retain a blocking finding instead of inventing coverage.'
     } : {})
   };
 }
@@ -278,13 +475,25 @@ export function sourceReviewCitationCorrections(report, input, checked) {
   return corrections;
 }
 
-/** The corrections, in the person's words: "SFlow moved 4 citation line numbers to the lines their quotes are on." */
+const FILLED_WORDS = Object.freeze({ plan: 'plan fields', 'source-id': 'source IDs written as paths', binding: 'the binding',
+  literal: 'fixed values', 'clause-id': 'clause IDs in another case', renamed: 'field names', acknowledged: 'the reviewed lists',
+  disputed: 'disputed finding IDs' });
+
+/**
+ * The corrections, in the person's words: "SFlow moved 4 citation line numbers to the lines their quotes are on." A
+ * value normalizeSourceReviewReport set (it carries `why`) is counted by kind: "… and set 6 values the report copies
+ * from its context (plan fields, source IDs written as paths)."
+ */
 export function sourceReviewCorrectionWords(corrected) {
-  const lines = (corrected ?? []).filter((entry) => entry.field.endsWith('.line')).length;
-  const quotes = (corrected ?? []).filter((entry) => entry.field.endsWith('.quote')).length;
+  const cited = (corrected ?? []).filter((entry) => !entry.why);
+  const lines = cited.filter((entry) => entry.field.endsWith('.line')).length;
+  const quotes = cited.filter((entry) => entry.field.endsWith('.quote')).length;
+  const filled = (corrected ?? []).filter((entry) => entry.why);
+  const kinds = [...new Set(filled.map((entry) => FILLED_WORDS[entry.why] ?? entry.why))];
   const parts = [
     ...(lines ? [`moved ${lines === 1 ? 'a citation line number to the line its quote is' : `${lines} citation line numbers to the lines their quotes are`} on`] : []),
-    ...(quotes ? [`put back the quote marks a shell removed from ${quotes === 1 ? 'a quote' : `${quotes} quotes`}`] : [])
+    ...(quotes ? [`put back the quote marks a shell removed from ${quotes === 1 ? 'a quote' : `${quotes} quotes`}`] : []),
+    ...(filled.length ? [`set ${filled.length === 1 ? 'a value' : `${filled.length} values`} the report copies from its context (${kinds.join(', ')})`] : [])
   ];
   return parts.length ? `SFlow ${parts.join(' and ')}.` : null;
 }
@@ -326,9 +535,9 @@ export function sourceReviewRepairGuide(report, input, checked) {
   const repairs = (checked.findings ?? []).filter(entry => entry.field && (entry.proposedEdit || entry.allowed?.length)
     && !['citation-line-invalid', 'citation-quote-invalid', 'review-binding-mistyped'].includes(entry.code)).slice(0, 25)
     .map(entry => ({ field: entry.field, message: entry.message, ...(entry.proposedEdit ? { proposedEdit: entry.proposedEdit } : { allowed: entry.allowed.slice(0, 12) }) }));
-  // A slip in copying the binding: the exact values, never a reload (the inputs did not change).
+  // A slip in copying the binding: the check writes "binding": "from-context" itself (the inputs did not change).
   const binding = (checked.evaluation?.findings ?? []).filter(entry => entry.code === 'review-binding-mistyped')
-    .flatMap(entry => entry.slips ?? []).slice(0, 25).map(slip => ({ field: slip.field, proposedEdit: { field: slip.field, value: slip.value } }));
+    .flatMap(entry => entry.slips ?? []).slice(0, 25).map(slip => ({ field: slip.field, sflowCorrects: true }));
   const mappingTasks = (checked.evaluation?.findings ?? []).filter(entry => [
     'scenario-unmapped', 'clause-unmapped', 'source-unmapped', 'source-statement-unmapped', 'source-statements-unmapped', 'clause-unreviewed'
   ].includes(entry.code));
@@ -339,7 +548,7 @@ export function sourceReviewRepairGuide(report, input, checked) {
         ? 'Independently resolve the listed missing mappings now: add genuinely supported rows and recheck changed bytes within the repair budget, or retain already-reviewed genuine gaps with blocking findings. Never invent coverage or require an author successor for a reviewer mapping omission. Retention is not approval.'
         : 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
       : onlyCorrections ? 'Run stagingProtocol.check now and change nothing in the file: it moves each citation marked sflowCorrects to the one line its own quote is on, then the packet can be retained.'
-      : `${corrects.size ? 'Leave each citation marked sflowCorrects as it is: stagingProtocol.check corrects it. ' : ''}${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment (or write "binding": "from-context" and SFlow fills it from your context). ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}${repairs.length ? 'Set each repairs field to its proposedEdit value, or to one of its allowed values. ' : ''}Repair this private packet in the same review turn: edit the file at stagingPath with your file-edit tool, then run stagingProtocol.check. At most two changed-packet repair attempts, counting your edits only: running the check is always allowed. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
+      : `${corrects.size ? 'Leave each citation marked sflowCorrects as it is: stagingProtocol.check corrects it. ' : ''}${binding.length ? 'The binding was mistyped and the inputs did not change: stagingProtocol.check writes "binding": "from-context" in its place itself, so keep every judgment. ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}${repairs.length ? 'Set each repairs field to its proposedEdit value, or to one of its allowed values. ' : ''}Repair this private packet in the same review turn: edit the file at stagingPath with your file-edit tool, then run stagingProtocol.check. At most two changed-packet repair attempts, counting your edits only: running the check is always allowed. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
     ...(binding.length ? { binding } : {}), ...(sourceIds.length ? { sourceIds } : {}), ...(repairs.length ? { repairs } : {}), citations, omittedCitations: Math.max(0, candidates.length - citations.length),
     mappingTasks: mappingTasks.slice(0, 25), omittedMappingTasks: Math.max(0, mappingTasks.length - 25),
     mappingRule: 'Add a covered row only when the pinned source genuinely supports the scenario/clause, reconciling pinned answers. Otherwise retain a blocking finding; an unmapped scenario alone does not prevent retention. Never mark a gap supported to pass.' };

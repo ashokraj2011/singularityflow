@@ -320,7 +320,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /file-edit tool/,
       // The file is the one write route; JSON in a shell argument broke a real review [owner, 2026-11-13].
       /never JSON in a shell argument/,
-      /review-source check <phase> --report-file/,
+      // The check reads the issued file itself: no path to type [owner, 2026-11-20].
+      /Run `stagingProtocol\.check` standalone/,
       /at most two changed-packet repair attempts/,
       /Never mark a real gap supported merely to pass validation/,
       /`retentionReady` is false.*stop without commit\/push/s,

@@ -24,7 +24,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { documentMimeType, effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding, sourceReviewScenarioIds } from './source-grounded-review.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
-import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide, sourceReviewCitationCorrections, sourceReviewCorrectionWords } from './source-review-contract.mjs';
+import { normalizeSourceReviewReport, sourceReviewClauseIds, sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide, sourceReviewCitationCorrections, sourceReviewCorrectionWords } from './source-review-contract.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
 import { committedSourceReviewFile, prefetchSourceReviewFiles, sharedSourceReviewInput,
   sharedSourceReviewProvenance, sourceReviewProvenanceObjects, withSourceReviewSnapshot } from './source-review-snapshot.mjs';
@@ -808,6 +808,19 @@ async function carriedUnreadableDecisions(root, config, workflow, phaseId, input
   return carried;
 }
 
+/**
+ * What a person disputed on this step's reviews so far, one per finding ID, newest kept: the same finding raised again
+ * keeps its id (owner, 2026-11-20). The review context shows it, and the check sets a re-raised one's ID copied with a
+ * slip (normalizeSourceReviewReport reads it as input.disputedEarlier).
+ */
+export async function sourceReviewDisputedEarlier(root, config, workflow, phaseId) {
+  return [...new Map((await earlierDisputes(root, config, workflow, phaseId).catch(() => [])).reverse()
+    .map((record) => [record.finding.id, { id: record.finding.id, version: Number(record.generation), message: record.finding.message.slice(0, 600),
+      ...(record.finding.check ? { check: record.finding.check } : {}), ...(record.finding.clauseId ? { clauseId: record.finding.clauseId } : {}),
+      ...(record.finding.sourceId ? { sourceId: record.finding.sourceId } : {}), ...(record.finding.path ? { path: record.finding.path } : {}),
+      reason: String(record.reason).slice(0, 600) }])).values()];
+}
+
 /** The reviewer's blocking findings a person may dispute: what the step's own author would correct, never one about an earlier step's output. */
 export function disputableReviewFindings(report, phaseId) {
   return (Array.isArray(report?.findings) ? report.findings : []).filter((entry) => entry?.severity === 'blocking'
@@ -1048,6 +1061,8 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     await staging.writeSourceReviewContextBinding(root, stagingPath, input.binding).catch(() => {});
     // A fresh review turn: a draft left incomplete keeps its reason and gets a new repair budget [owner, 2026-11-13].
     await staging.startSourceReviewTurn(root, stagingPath).catch(() => {});
+    // The report skeleton is the file the reviewer edits, when nothing is staged yet [owner, 2026-11-20].
+    await staging.writeSourceReviewTemplate(root, stagingPath, reportTemplate).catch(() => {});
   }
   const hashView = (artifact, binding) => ({ path: artifact.path, sha256: binding.sha256,
     sha256Domain: 'authored-content', authoredContentSha256: binding.sha256,
@@ -1059,7 +1074,8 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     ? (await import('./source-review-staging.mjs')).sourceReviewStagingProtocol(phaseId, stagingPath) : null;
   const { sourceReviewProgress, sourceReviewProgressContinuation } = await import('./source-review-progress.mjs');
   const progress = stagingProtocol ? await sourceReviewProgress({ input, retained: status, stagingPath,
-    gitDirectory: (await import('./git-execution.mjs')).gitDir(root), protocol: stagingProtocol, check: checkSourceReviewReport }) : null;
+    gitDirectory: (await import('./git-execution.mjs')).gitDir(root), protocol: stagingProtocol, check: checkSourceReviewReport,
+    templateText: (await import('./source-review-staging.mjs')).sourceReviewTemplateText(reportTemplate) }) : null;
   const taskResume = await (await import('./workflow-task-store.mjs')).resumeWorkflowTask(root, workflow, phase, {
     role: 'source-reviewer', generation: input.generation, inputSha256: recordSha256(input.binding), review: progress,
     blocked: conflict || progress?.state === 'read-error' ? { code: conflict ? 'SOURCE_REVIEW_AUTHOR_CONFLICT' : progress.error.code,
@@ -1071,10 +1087,7 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
   if (progress && globalThis.__SFLOW_EXTENSION_HOST__ !== true) await (await import('./copilot-mutation-guard.mjs'))
     .recordSourceReviewProgress(root, { workId: input.workId, phaseId, generation: input.generation, ...progress });
   // What a person disputed on this step's reviews so far: the same finding raised again keeps its id (owner, 2026-11-20).
-  const disputedEarlier = [...new Map((await earlierDisputes(root, config, workflow, phaseId).catch(() => [])).reverse()
-    .map((record) => [record.finding.id, { id: record.finding.id, version: Number(record.generation), message: record.finding.message.slice(0, 600),
-      ...(record.finding.check ? { check: record.finding.check } : {}), ...(record.finding.clauseId ? { clauseId: record.finding.clauseId } : {}),
-      ...(record.finding.sourceId ? { sourceId: record.finding.sourceId } : {}), reason: String(record.reason).slice(0, 600) }])).values()];
+  const disputedEarlier = await sourceReviewDisputedEarlier(root, config, workflow, phaseId);
   return {
     schemaVersion: 1, resultType: 'source-review-context', workId: input.workId, // schema-transient
     phase: phaseId, kind: input.kind, generation: input.generation, binding: input.binding,
@@ -1151,14 +1164,7 @@ function namedSourceIds(report, input, findings) {
  * covers, or the clauses a code step delivers.
  */
 function reviewKnownIds(input) {
-  const clauses = () => {
-    try {
-      if (input.kind === 'code') return input.code?.deliveredClauses ?? [];
-      const document = input.kind === 'planning' ? input.upstreamSpec : input.kind === 'specification' ? input.artifact : null;
-      return document ? extractClauses(document.text, { sourcePath: document.path }).map((clause) => clause.id) : [];
-    } catch { return []; }
-  };
-  const clauseIds = clauses();
+  const clauseIds = sourceReviewClauseIds(input);
   return [
     { field: /(?:^rows\[\d+\]\.clauseId|^rows\[\d+\]\.clauseIds\[\d+\]|^findings\[\d+\]\.clauseId)$/u, values: clauseIds, what: 'a clause ID this review covers' },
     { field: /^qualityReviewed\[\d+\]$/u, values: (input.code?.quality ?? []).map((item) => item.id), what: 'a result ID from context.code.quality' },
@@ -1195,16 +1201,27 @@ export function checkSourceReviewReport(report, input) {
 }
 
 /**
- * The check after SFlow sets what the packet's own quotes fix exactly (sourceReviewCitationCorrections): `{ report,
- * checked, corrected, correctedWords }`, the report a copy with those values, `corrected` its `[{ field, from, to }]`
- * and `correctedWords` that in the person's words. Nothing else in the packet changes; with nothing to correct, the
- * report and check are returned as they are.
+ * The check after SFlow sets what it knows exactly [owner, 2026-11-20]: first what the report copies from its context
+ * (normalizeSourceReviewReport: plan fields, source IDs for paths, literals, clause case, renamed keys, the reviewed
+ * lists), then, in the same check, a binding whose every difference is a copying slip ("binding": "from-context") and
+ * what the packet's own quotes fix exactly (sourceReviewCitationCorrections). Returns `{ report, checked, corrected,
+ * correctedWords }`, the report a copy with those values, `corrected` its `[{ field, from, to }]` (a context value also
+ * carries `why`) and `correctedWords` that in the person's words. Judgments, findings' words and anything SFlow would
+ * have to choose never change; a packet whose inputs changed (stale) is returned as it is, to be reviewed again.
  */
 export function correctSourceReviewReport(report, input) {
-  const checked = checkSourceReviewReport(report, input);
-  const corrected = sourceReviewCitationCorrections(report, input, checked);
+  const { report: normalized, normalized: filled } = normalizeSourceReviewReport(report, input);
+  const checked = checkSourceReviewReport(normalized, input);
+  if (checked.evaluation?.status === 'stale') return { report, checked: filled.length ? checkSourceReviewReport(report, input) : checked, corrected: [], correctedWords: null };
+  const slips = (checked.evaluation?.findings ?? []).find((entry) => entry.code === 'review-binding-mistyped')?.slips ?? [];
+  const binding = slips.length ? [{ field: 'binding', from: `${slips.length} mistyped value${slips.length === 1 ? '' : 's'}`, to: 'from-context', why: 'binding' }] : [];
+  const cited = sourceReviewCitationCorrections(normalized, input, checked);
+  const corrected = [...filled, ...binding, ...cited];
   if (!corrected.length) return { report, checked, corrected, correctedWords: null };
-  const next = withFieldValues(report, corrected);
+  if (!binding.length && !cited.length) return { report: normalized, checked, corrected, correctedWords: sourceReviewCorrectionWords(corrected) };
+  const next = withFieldValues(normalized, [...binding, ...cited]);
+  // The file says "from-context"; the packet checked carries the binding that stands for.
+  if (binding.length) next.binding = structuredClone(checked.evaluation.binding);
   return { report: next, checked: checkSourceReviewReport(next, input), corrected, correctedWords: sourceReviewCorrectionWords(corrected) };
 }
 
@@ -1212,13 +1229,20 @@ export function correctSourceReviewReport(report, input) {
 export const fieldTrail = (field) => String(field).split(/\.|(?=\[)/u).filter(Boolean)
   .map((part) => (/^\[\d+\]$/u.test(part) ? Number(part.slice(1, -1)) : part));
 
-/** A copy of `value` with each `{ field, to }` set. */
+/** A copy of `value` with each `{ field, to }` set (`removed: true` takes the key out; `renamedFrom` takes the old key out first). */
 export function withFieldValues(value, edits) {
   const copy = structuredClone(value);
-  for (const { field, to } of edits) {
+  const parentOf = (trail) => trail.slice(0, -1).reduce((node, key) => node?.[key], copy);
+  for (const { field, to, removed, renamedFrom } of edits) {
+    if (renamedFrom) {
+      const old = fieldTrail(renamedFrom);
+      const holder = parentOf(old);
+      if (holder && typeof holder === 'object' && !Array.isArray(holder)) delete holder[old.at(-1)];
+    }
     const trail = fieldTrail(field);
-    const parent = trail.slice(0, -1).reduce((node, key) => node?.[key], copy);
-    if (parent && typeof parent === 'object') parent[trail.at(-1)] = to;
+    const parent = parentOf(trail);
+    if (!parent || typeof parent !== 'object') continue;
+    if (removed) { if (!Array.isArray(parent)) delete parent[trail.at(-1)]; } else parent[trail.at(-1)] = to;
   }
   return copy;
 }

@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { sourceReviewBinding } from '../src/source-grounded-review.mjs';
 import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport } from '../src/source-review-contract.mjs';
-import { checkSourceReviewReport, evaluateSubmittedSourceReview } from '../src/source-review-lifecycle.mjs';
+import { checkSourceReviewReport, correctSourceReviewReport, evaluateSubmittedSourceReview } from '../src/source-review-lifecycle.mjs';
 import { compactSourceReviewContext } from '../src/source-review-agent-context.mjs';
 
 function input() {
@@ -151,11 +151,16 @@ test('human answers are bound and explicitly reviewed without waiving genuine ga
     responses: [{ id: 'Q-005', answer: 'One positive-value test.' }] }];
   ctx.binding = sourceReviewBinding(ctx);
   const packet = reviewed(ctx);
-  assert.deepEqual(packet.clarificationsReviewed, []);
-  assert.equal(checkSourceReviewReport(packet, ctx).retentionReady, false);
-  for (const acknowledgements of [['unknown'], ['clarification:approved-scope', 'clarification:approved-scope']]) {
+  // SFlow ticks the pinned answers itself [owner decision 1, 2026-11-20]: the template lists them, and the check
+  // sets the list when the reviewer left it out or slipped; the pure check still refuses a list that is wrong.
+  assert.deepEqual(packet.clarificationsReviewed, ['clarification:approved-scope']);
+  assert.equal(checkSourceReviewReport(packet, ctx).retentionReady, true);
+  for (const acknowledgements of [[], ['unknown'], ['clarification:approved-scope', 'clarification:approved-scope']]) {
     packet.clarificationsReviewed = acknowledgements;
     assert.equal(checkSourceReviewReport(packet, ctx).retentionReady, false);
+    const set = correctSourceReviewReport(packet, ctx);
+    assert.equal(set.checked.retentionReady, true);
+    assert.deepEqual(set.report.clarificationsReviewed, ['clarification:approved-scope']);
   }
   packet.clarificationsReviewed = ['clarification:approved-scope'];
   assert.equal(checkSourceReviewReport(packet, ctx).retentionReady, true);

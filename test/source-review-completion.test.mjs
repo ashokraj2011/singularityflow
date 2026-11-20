@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -162,6 +162,8 @@ test('interrupted malformed/citation drafts resume at repair while honest retain
 test('unsafe staging is reported without replacing the file or requesting a continuation', async t => {
   const item = await fixture(t);
   const packet = await item.context();
+  // Context wrote the report's skeleton there [owner, 2026-11-20]; a folder takes its place.
+  await rm(packet.stagingPath, { force: true });
   await mkdir(packet.stagingPath);
   const resumed = await item.context();
   assert.equal(resumed.progress.state, 'read-error');

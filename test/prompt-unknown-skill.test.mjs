@@ -40,7 +40,7 @@ test('when the installed skills cannot be listed, nothing is refused', async (t)
 test('a skill that exists anywhere Copilot loads one from is never held: the repository\'s, the person\'s, a plugin\'s', async (t) => {
   // [coordinator, 2026-11-20] The hold must never block a skill that exists.
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-skill-places-'));
-  t.after(async () => { await chmod(path.join(base, 'repository', '.claude', 'skills'), 0o700).catch(() => {}); await rm(base, { recursive: true, force: true }); });
+  t.after(async () => { await chmod(path.join(base, 'repository', '.othertool', 'skills'), 0o700).catch(() => {}); await rm(base, { recursive: true, force: true }); });
   const repository = path.join(base, 'repository');
   const home = path.join(base, 'home');
   await mkdir(path.join(repository, '.git'), { recursive: true });
@@ -61,8 +61,8 @@ test('a skill that exists anywhere Copilot loads one from is never held: the rep
   // The person's own skills (Copilot's skills folder, where SFlow's /sf- aliases are written), and a plugin's.
   await skillAt(path.join(home, '.copilot', 'skills'), 'sf-personal-thing');
   await skillAt(path.join(home, '.copilot', 'installed-plugins', 'market', 'team-plugin', 'skills'), 'sflow-plugin-thing');
-  await skillAt(path.join(home, '.claude', 'skills'), 'sf-claude-thing');
-  for (const name of ['sf-personal-thing', 'sf-plugin-thing', 'sf-claude-thing']) assert.equal(reason(`/${name}`, at), null, name);
+  await skillAt(path.join(home, '.othertool', 'skills'), 'sf-other-tool-thing');
+  for (const name of ['sf-personal-thing', 'sf-plugin-thing', 'sf-other-tool-thing']) assert.equal(reason(`/${name}`, at), null, name);
   const moved = path.join(base, 'copilot-home');
   await skillAt(path.join(moved, 'skills'), 'sf-moved-thing');
   assert.equal(reason('/sf-moved-thing', { ...at, env: { COPILOT_HOME: moved } }), null, 'COPILOT_HOME moves the person\'s skills');
@@ -70,8 +70,8 @@ test('a skill that exists anywhere Copilot loads one from is never held: the rep
   assert.equal(reason('/sf-mext', at), 'No SFlow command /sf-mext. Did you mean /sf-next? Type it again with the right name; nothing was run.');
   // A place that is there but cannot be read: nothing is held.
   if (process.platform !== 'win32' && process.getuid?.() !== 0) {
-    await mkdir(path.join(repository, '.claude', 'skills'), { recursive: true });
-    await chmod(path.join(repository, '.claude', 'skills'), 0o000);
+    await mkdir(path.join(repository, '.othertool', 'skills'), { recursive: true });
+    await chmod(path.join(repository, '.othertool', 'skills'), 0o000);
     assert.equal(reason('/sf-mext', at), null, 'fails open');
   }
 });

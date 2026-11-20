@@ -58,7 +58,7 @@ export function explicitSflowSkill(prompt) {
  * Held only when the name is in none of the places Copilot loads a skill, prompt or agent from for this repository and
  * person (skillSources): SFlow's own skills, the repository's (.github/skills, .github/prompts, .github/agents,
  * singularity/agents, skills/ and every `.<tool>/skills`), the person's (Copilot's skills folder with SFlow's direct
- * aliases, ~/.claude/skills) and every installed plugin's. A team's own `/sf-team-thing` is a turn as before. Any place
+ * aliases, and every `~/.<tool>/skills`) and every installed plugin's. A team's own `/sf-team-thing` is a turn as before. Any place
  * that exists but cannot be read fails open: nothing is held. A host-expanded skill (the host found it) is never held.
  */
 export function unknownSkillReason(prompt, skill, { skillsRoot = path.join(PACKAGE_ROOT, 'plugin', 'skills'), cwd = process.cwd(), env = process.env,
@@ -118,8 +118,12 @@ export function skillSources({ cwd = process.cwd(), env = process.env, homeDirec
     if (!each) return null;
     for (const plugin of each.filter((entry) => entry.isDirectory())) plugins.push(path.join(installed, source.name, plugin.name, 'skills'));
   }
+  // Every coding tool's own skills in the person's home (`~/.<tool>/skills`), as in the repository.
+  const homeEntries = entriesOf(homeDirectory);
+  if (!homeEntries) return null;
+  const homeTools = homeEntries.filter((entry) => entry.isDirectory() && entry.name.startsWith('.')).map((entry) => path.join(homeDirectory, entry.name, 'skills'));
   return [...new Set([path.join(repository, 'skills'), path.join(repository, 'singularity', 'agents'), ...tools,
-    personal, path.join(copilot, 'prompts'), path.join(copilot, 'agents'), path.join(homeDirectory, '.claude', 'skills'), ...plugins])];
+    personal, path.join(copilot, 'prompts'), path.join(copilot, 'agents'), ...homeTools, ...plugins])];
 }
 
 /**

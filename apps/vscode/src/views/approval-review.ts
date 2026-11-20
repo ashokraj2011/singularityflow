@@ -302,9 +302,11 @@ export function validateApprovalReviewSubmission(
     seenMappings.add(mappingSha256);
     // A person reads a witness by its criterion and test file, never its mapping digest (owner, 2026-11-11).
     const named = `${mapping.clauseId} → ${mapping.sourcePath}`;
-    if (mapping.clauseStatus !== 'current' || !mapping.clauseText
-        || !mapping.clauseFields?.behavior || !mapping.clauseFields?.observable) {
-      errors.push(`The witness ${named} no longer has its exact reviewed criterion text.`);
+    // Only a criterion whose words changed since the step was submitted (or that is gone) stops it, as `approve` refuses it
+    // (WEL_WITNESS_MAPPING_STALE). A criterion written as prose, with no Behavior or Observable fields, is decided from its
+    // text: requiring both refused every test of a spec-driven Story [owner's Story arshy, 2026-11-20].
+    if (mapping.clauseStatus !== 'current') {
+      errors.push(witnessChangedWords(request, mapping));
       continue;
     }
     if (!(APPROVAL_DECISIONS as readonly string[]).includes(decision)) {
@@ -432,14 +434,27 @@ function articleHtml(article: ApprovalReviewRequest['articles'][number]): string
   </fieldset>`;
 }
 
+/**
+ * What the page says of a test whose criterion is no longer the one it was submitted against, and the way on: the step goes
+ * back to its author, who submits it again against the criterion as it is now (Request changes, below).
+ */
+export function witnessChangedWords(request: Pick<ApprovalReviewRequest, 'phaseLabel' | 'generation'>, mapping: Pick<WitnessMappingReview, 'clauseId' | 'sourcePath' | 'clauseStatus'>): string {
+  const step = `${request.phaseLabel} v${request.generation}`;
+  return [mapping.clauseStatus === 'missing'
+    ? `The criterion ${mapping.clauseId} is no longer in the Story's specification, so its test ${mapping.sourcePath} cannot be approved for it.`
+    : `The criterion ${mapping.clauseId} changed after ${step} was submitted, so its test ${mapping.sourcePath} was checked against other words.`,
+  `Choose Request changes: ${step} goes back to its author, who submits it again against the criterion as it is now.`].join(' ');
+}
+
 function witnessMappingHtml(mapping: WitnessMappingReview): string {
+  // The criterion's own words always; Behavior and Observable only when the criterion states them.
+  const fields = mapping.clauseFields?.behavior && mapping.clauseFields?.observable
+    ? `<p><strong>Behavior:</strong> ${escape(mapping.clauseFields.behavior)}</p>
+    <p><strong>Observable:</strong> ${escape(mapping.clauseFields.observable)}</p>` : '';
   return `<fieldset class="witness-mapping" data-mapping="${escape(mapping.mappingSha256)}">
     <legend>${escape(mapping.clauseId)} → ${escape(mapping.sourcePath)}</legend>
-    <p><strong>Behavior:</strong> ${escape(mapping.clauseFields?.behavior ?? 'unavailable')}</p>
-    <p><strong>Observable:</strong> ${escape(mapping.clauseFields?.observable ?? 'unavailable')}</p>
-    <details><summary>Exact clause</summary>
-      <p>${escape(mapping.clauseText ?? 'Exact clause bytes are stale or unavailable.')}</p>
-    </details>
+    ${fields}<p class="witness-criterion">${escape(mapping.clauseStatus === 'current' ? mapping.clauseText ?? 'The criterion is current; its words are not stored in this review.'
+      : mapping.clauseStatus === 'missing' ? 'This criterion is no longer in the Story\'s specification.' : 'This criterion changed after the step was submitted.')}</p>
     <label>Decision
       <select data-decision required aria-label="${escape(mapping.clauseId)} witness decision">
         ${DECISION_OPTIONS.map(([value, label]) =>

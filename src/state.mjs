@@ -205,7 +205,7 @@ import { planRowsOf } from './plan-amendments.mjs';
 import {
   buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes,
   evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
-  codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
+  activeWitnessClauses, codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy, witnessClauseStatus,
   readBoundSpecificationClaimMap,
   predecessorSpecClauses, plannedClaimsForObservedPhase
 } from './specifications.mjs';
@@ -7438,20 +7438,9 @@ export async function evaluateApproval(root, config, workflow, {
     await stage('witness-stale', async () => {
       submittedWitnessMappings = submittedReview.witnessReview?.clauseMappings ?? [];
       if (submittedWitnessMappings.length) {
-        const active = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
-        const currentClauses = new Map();
-        for (const clause of (active.indexes ?? []).flatMap((index) => index.clauses ?? [])) {
-          const digest = `sha256:${String(clause.bodySha256 ?? '').replace(/^sha256:/, '')}`;
-          if (currentClauses.has(clause.id) && currentClauses.get(clause.id) !== digest) {
-            throw new SingularityFlowError(
-              `Witness clause '${clause.id}' is ambiguous across active specification records.`,
-              { code: 'WEL_WITNESS_MAPPING_STALE' }
-            );
-          }
-          currentClauses.set(clause.id, digest);
-        }
-        const stale = submittedWitnessMappings.find((mapping) =>
-          currentClauses.get(mapping.clauseId) !== mapping.clauseBodySha256);
+        // The same read the approval review shows each test's criterion from [owner's Story arshy, 2026-11-20].
+        const currentClauses = await activeWitnessClauses(workDir(root, config, workflow.workItem.id), workflow);
+        const stale = submittedWitnessMappings.find((mapping) => witnessClauseStatus(mapping, currentClauses) !== 'current');
         if (stale) {
           throw new SingularityFlowError(
             `Witness ${namedWitnessText(stale.mappingSha256, submittedWitnessMappings)} no longer matches the active bytes for clause '${stale.clauseId}'. Re-submit the phase after reconciling the specification evidence.`,

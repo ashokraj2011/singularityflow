@@ -334,10 +334,10 @@ function witnessMappingSection(bundle) {
   for (const mapping of review.mappings) {
     lines.push(`### \`${names.get(mapping.mappingSha256) ?? mapping.clauseId}\` → ${mapping.test ?? `\`${mapping.sourcePath}\``}`, '',
       `- Test: \`${mapping.sourcePath}\`${mapping.slot ? ` (slot ${mapping.slot})` : ''}`,
-      `- Clause bytes: **${mapping.clauseStatus}**`,
-      `- Behavior: ${mapping.clauseFields?.behavior ?? '_unavailable_'}`,
-      `- Observable: ${mapping.clauseFields?.observable ?? '_unavailable_'}`,
-      '', mapping.clauseText ?? '_Exact clause text is stale or unavailable._', '');
+      `- Criterion: **${mapping.clauseStatus === 'current' ? 'as submitted' : mapping.clauseStatus === 'missing' ? 'no longer in the specification' : 'changed since submission'}**`,
+      // Behavior and Observable only when the criterion states them; prose criteria are read from their text.
+      ...(mapping.clauseFields?.behavior && mapping.clauseFields?.observable ? [`- Behavior: ${mapping.clauseFields.behavior}`, `- Observable: ${mapping.clauseFields.observable}`] : []),
+      '', mapping.clauseText ?? '_The criterion changed since the step was submitted, or is no longer in the specification._', '');
   }
   return lines;
 }

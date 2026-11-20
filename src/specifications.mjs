@@ -1636,6 +1636,35 @@ export async function loadActiveSpecRecords(itemDirectory, workflow) {
   return withAmendmentRecord(selectActiveSpecRecords(await loadSpecRecords(itemDirectory), workflow), workflow);
 }
 
+/**
+ * The criteria a step's tests were submitted against, as the Story's active specification holds them now: one read for the
+ * approval gate (`approve`, WEL_WITNESS_MAPPING_STALE) and the approval review that shows each test's criterion, so the page
+ * and the terminal never disagree. Every active index counts, whatever its artifact record's kind: a spec-driven Story's
+ * specification is a `document` record whose step holds scope by its responsibilities, and reading only `requirements` and
+ * `implementation-spec` records found no criterion, so the approval page refused every test as "no longer has its exact
+ * reviewed criterion text" while `approve` accepted them [owner's Story arshy, 2026-11-20]. Two active records giving one
+ * ID different bytes is refused.
+ */
+export async function activeWitnessClauses(itemDirectory, workflow) {
+  const active = await loadActiveSpecRecords(itemDirectory, workflow);
+  const clauses = new Map();
+  for (const clause of (active.indexes ?? []).flatMap((index) => index.clauses ?? [])) {
+    const digest = `sha256:${String(clause.bodySha256 ?? '').replace(/^sha256:/u, '')}`;
+    if (clauses.has(clause.id) && clauses.get(clause.id).digest !== digest) {
+      throw new SingularityFlowError(`Witness clause '${clause.id}' is ambiguous across active specification records.`, { code: 'WEL_WITNESS_MAPPING_STALE' });
+    }
+    clauses.set(clause.id, { digest, body: typeof clause.body === 'string' ? clause.body : null });
+  }
+  return clauses;
+}
+
+/** A submitted test's criterion now: `current` (the bytes it was submitted against), `changed` since, or `missing`. */
+export function witnessClauseStatus(mapping, clauses) {
+  const clause = clauses.get(mapping?.clauseId);
+  if (!clause) return 'missing';
+  return clause.digest === mapping.clauseBodySha256 ? 'current' : 'changed';
+}
+
 /** The Story's plan amendments, merged as one more planned record [E2G-012]. */
 function withAmendmentRecord(records, workflow, { evidenceApplied = false } = {}) {
   if (!evidenceApplied) records = { ...records, planned: (records.planned ?? []).map(record => applyPlanCorrections(record, workflow)) };

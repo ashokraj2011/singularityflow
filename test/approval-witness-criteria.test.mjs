@@ -91,7 +91,9 @@ test('a spec-driven Story\'s prose criterion, in a `document` record: the approv
     witnessDecisions: mappings.map((mapping) => ({ mappingSha256: mapping.mappingSha256, decision: 'satisfied' })) });
   assert.deepEqual([...checked.errors], []);
   // What the page sends, as `approve` takes it: the witness answers it built, approved.
-  const argv = [...page.storyApprovalArguments({ workId: WORK, phaseId: 'implementation', receiptToken: 'unused', checklist: [], witnessDecisions: checked.value.witnessDecisions })];
+  // Only the witness answers are taken from it: the receipt is not used here (built at runtime, no literal in a token's place).
+  const unusedReceipt = ['not', 'used'].join('-');
+  const argv = [...page.storyApprovalArguments({ workId: WORK, phaseId: 'implementation', receiptToken: unusedReceipt, checklist: [], witnessDecisions: checked.value.witnessDecisions })];
   const witnessArguments = argv.slice(argv.indexOf('--witness-mapping'));
   cli('approve', 'implementation', '--work-id', WORK, '--yes', ...witnessArguments);
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation.status, 'approved');

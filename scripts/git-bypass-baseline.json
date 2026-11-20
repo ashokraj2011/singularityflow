@@ -154,12 +154,6 @@
       },
       "digest": "e3af8c90677918eb3cb9baa5f31077a99faa555d69816f6f0828982f6f3f3152"
     },
-    "src/witness-review-read.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "07b2c14c0c206d26ce8242777dfb67fe9d380d9038307e06a75bcddd7506cb98"
-    },
     "src/story-path-history.mjs": {
       "counts": {
         "command-runCommand": 1

@@ -5594,17 +5594,6 @@
       ]
     },
     {
-      "module": "witness-review-read.mjs",
-      "class": "artifact",
-      "git": {
-        "read": 1
-      },
-      "localReads": 1,
-      "writes": 0,
-      "yamlReads": 0,
-      "lifetimes": []
-    },
-    {
       "module": "work-intervals.mjs",
       "class": "local-operational",
       "git": {

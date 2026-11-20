@@ -145,6 +145,7 @@ test('an exhausted budget names the reset return only from a submitted step', ()
   };
   const inProgress = refusal('in_progress');
   assert.equal(inProgress.details.resetCommand, null);
-  assert.match(inProgress.message, /Once 'testing' is submitted, its approvers may return it to 'intake'/u);
+  assert.match(inProgress.message, /Once 'testing' is submitted, a return to 'intake' starts the count again/u);
+  assert.equal(inProgress.details.oneMoreRound, null, 'one more round is granted only once it is submitted');
   assert.match(refusal('awaiting_approval').details.resetCommand, /^singularity-flow reject testing --work-id BUDGET-1 --to intake/u);
 });

@@ -49,7 +49,7 @@ export async function assertNoPendingPublication(root, config, workflow, action 
     // takes it over by age, so "wait" became a loop (D3/E3).
     const { heldLeaseDetails, reviewedReleaseGuidance } = await import('./subject-lock.mjs');
     const subject = { kind: 'story', id: workflow.workItem.id };
-    const details = { pid: busy.owner?.pid ?? null, ...heldLeaseDetails(subject, busy.directory, busy.owner, busy.liveness) };
+    const details = { subject, pid: busy.owner?.pid ?? null, ...heldLeaseDetails(subject, busy.directory, busy.owner, busy.liveness) };
     const again = action === 'continue' ? 'retry' : `${action} again`;
     throw new SingularityFlowError(details.releaseCommand
       ? `Story '${workflow.workItem.id}' is held by another command that is publishing it (PID ${busy.owner?.pid ?? 'unknown'}`

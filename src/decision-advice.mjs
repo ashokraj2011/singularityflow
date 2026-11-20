@@ -322,6 +322,12 @@ export function itemRecommendation(workflow, item) {
       return only ? rec(item, only.id, `What you typed is handled before the step's ${workflow?.phases?.[details.phase]?.approvalPolicy?.mode === 'none' ? 'submission, which completes it' : 'approval'}; only the agent writing it can say how.`) : lean('the agent writing the step handles it.');
     case 'routing-decision': {
       const routes = options.filter((entry) => /^choose-/u.test(entry.id));
+      // A decision that enforces its recorded conditions offers only the route they choose, and the earlier steps it may reopen:
+      // its advice names those, never "move on as it is", which is not offered there [limit audit, item 12].
+      if (details.reason === 'limit' && routes.length === 1) {
+        const reopen = options.filter((entry) => /^to-/u.test(entry.id));
+        return lean(`all its rounds are used, and it offers only "${routes[0].label}"${reopen.length ? `; or reopen ${listWords(reopen.map((entry) => `"${entry.label}"`))}` : ''}.`);
+      }
       if (details.reason === 'limit') return lean('move on as it is unless another round would clearly help: all its rounds are used.');
       if (routes.length === 1) return rec(item, routes[0].id, 'It is the route the recorded values choose.');
       return lean(`choose the route the Story's state fits: ${listWords(routes.map((entry) => `"${entry.label}"`))}.`);

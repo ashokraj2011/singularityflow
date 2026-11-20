@@ -85,14 +85,19 @@ export function validateCandidate(text, { session, answers = session.answers ?? 
     for (const field of allowed) if (!optional.includes(field) && !Object.hasOwn(value, field)) add(`${at}.${field}`, 'TEAM_IMPORT_CANDIDATE_FIELD_MISSING', `${at} needs '${field}'.`);
     return true;
   };
+  // A source team over an import limit (steps, agents, skills, an agent's text) is the person's to split, trim or drop: the
+  // model cannot shrink a team it was asked to import, and its repairs ran out with nothing asked [limit audit, item 13].
+  const sized = new Set(Object.values(LIMITS));
   const list = (value, at, limit = 500) => {
     if (!Array.isArray(value)) { add(at, 'TEAM_IMPORT_CANDIDATE_SHAPE', `${at} must be a list.`); return []; }
-    if (value.length > limit) add(at, 'TEAM_IMPORT_CANDIDATE_LIMIT', `${at} has ${value.length} entries; the limit is ${limit}.`);
+    if (value.length > limit) add(at, 'TEAM_IMPORT_CANDIDATE_LIMIT', `${at} has ${value.length} entries; the limit is ${limit}.`
+      + (sized.has(limit) ? ' The team is larger than one import takes: split it into two teams, or drop the entries it does not need.' : ''), sized.has(limit) ? 'person' : 'model');
     return value.slice(0, limit);
   };
   const text1 = (value, at, max = 400) => {
     if (typeof value !== 'string' || !value.trim()) add(at, 'TEAM_IMPORT_CANDIDATE_SHAPE', `${at} must be non-empty text.`);
-    else if (value.length > max) add(at, 'TEAM_IMPORT_CANDIDATE_LIMIT', `${at} is longer than ${max} characters.`);
+    else if (value.length > max) add(at, 'TEAM_IMPORT_CANDIDATE_LIMIT', `${at} is longer than ${max} characters.`
+      + (max === LIMITS.body ? ' Trim that text in the source team, or drop or split the agent or skill it belongs to.' : ''), max === LIMITS.body ? 'person' : 'model');
   };
   if (!closed(candidate, 'candidate', '$')) return { findings, candidate: null };
   if (candidate.kind !== CANDIDATE_KIND) add('$.kind', 'TEAM_IMPORT_CANDIDATE_SHAPE', `kind must be '${CANDIDATE_KIND}'.`);

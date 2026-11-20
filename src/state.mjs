@@ -4037,12 +4037,17 @@ export async function publishGeneration(root, config, workflow, {
     ? (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, nextPhaseGeneration(phase)))
     : [];
   const capabilityBudget = workflow.resolution?.capability?.policy?.tokenBudget;
-  if (capabilityBudget) {
+  const adding = normalizedUsage.reduce((total, record) => total + (record.totalTokens ?? 0), 0);
+  // Only a publication that adds model tokens is held to the budget: one written by hand adds none, so the Story goes on that
+  // way once the budget is spent. Before, every later publication was refused for good, by hand too [limit audit].
+  if (capabilityBudget && adding > 0) {
     const used = Object.values(workflow.phases).flatMap((entry) => entry.usage ?? [])
-      .reduce((total, record) => total + (record.totalTokens ?? 0), 0)
-      + normalizedUsage.reduce((total, record) => total + (record.totalTokens ?? 0), 0);
+      .reduce((total, record) => total + (record.totalTokens ?? 0), 0) + adding;
     if (used > capabilityBudget) {
-      throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' token budget exceeded: ${used}/${capabilityBudget}.`);
+      throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' token budget exceeded: ${used}/${capabilityBudget}. `
+        + 'Go on with this step by hand, without a model: a publication that adds no model tokens is not held to the budget.', {
+        code: 'CAPABILITY_TOKEN_BUDGET_EXCEEDED', details: { capabilityId: workflow.resolution.capability.id, used, budget: capabilityBudget,
+          workId: workflow.workItem?.id ?? null } });
     }
   }
   const targetGeneration = nextPhaseGeneration(phase);
@@ -6377,7 +6382,10 @@ async function submitPhaseTransition(root, config, workflow, {
         `Phase ${phase.id} exceeds its work interval:\n- ${reconciliation.decision.reasons.join('\n- ')}\n`
         + (target
           ? `Review the non-destructive escalation plan with singularity-flow story interval escalate --to ${target}.`
-          : 'Use a stronger configured workflow before submitting.')
+          : 'Use a stronger configured workflow before submitting.'),
+        // Coded, so its plan names the escalation [limit audit, codeless limit errors].
+        { code: 'WORK_INTERVAL_EXCEEDED', details: { phase: phase.id, workId: workflow.workItem.id, escalationTarget: target ?? null,
+          ...(target ? { nextAction: `singularity-flow story interval escalate --to ${target}` } : {}) } }
       );
     }
     const final = await recordFinalReconciliation(root, workflow, reconciliation, { itemRelative });
@@ -8388,7 +8396,7 @@ function currentTestingRepairPlan(root, workflow, plan, { phaseId, target, confi
 export async function rejectPhase(root, config, workflow, {
   phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null,
   testingRepairConfirm = null, testingRepairPlan = null, channel = 'terminal', actionContext = null,
-  actor = null, agent = undefined, upstreamIssue = null, presence = null
+  actor = null, agent = undefined, upstreamIssue = null, presence = null, beyondBudget = false
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await assertNoPendingPublication(root, config, workflow, 'reject');
@@ -8564,7 +8572,9 @@ export async function rejectPhase(root, config, workflow, {
     sourcePhase: phase,
     actor: structuredClone(session.actor),
     at: timestamp,
-    changeRequestId: changeRequest.id
+    changeRequestId: changeRequest.id,
+    // A person's one more round past a spent budget [owner, 2026-11-20, decision 3]; only reject's own --beyond-budget sets it.
+    beyondBudget: beyondBudget === true
   }) : null;
   // Exhaustion is a read-only refusal. A forward checkpoint may create a retained Git ref, so
   // validate a separate in-memory budget preview first; commit it only after the checkpoint works.

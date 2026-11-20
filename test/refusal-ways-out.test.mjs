@@ -38,7 +38,9 @@ test('refusals that had only help, doctor and nextsteps name their own way out',
   assert.equal(first('APR_PUBLICATION_PENDING', ['story', 'approvers', 'refresh', 'W-1']).command, 'singularity-flow sync W-1');
   assert.match(first('APR_NOTHING_TO_ADD', ['story', 'approvers', 'refresh', 'W-1']).command, /configuration add-current-identity --target story:<GROUP>/u);
   assert.match(first('REWORK_ROLL_FORWARD_SUPERSEDED', ['story', 'rework', 'roll-forward', '--work-id', 'W-1']).command, /^singularity-flow nextsteps W-1/u);
-  assert.match(first('STORY_PUBLICATION_IN_PROGRESS', ['submit']).command, /result last --wait/u);
+  // A publication in progress waits on the Story's lease, never on `result last` of its own words, which returned this same
+  // refusal again [limit audit, item 1].
+  assert.equal(first('STORY_PUBLICATION_IN_PROGRESS', ['submit'], { subject: { kind: 'story', id: 'W-1' } }).command, 'singularity-flow lock show story W-1');
   assert.match(first('PUBLICATION_SET_ASIDE_REFUSED', ['sync', 'W-1', '--set-aside'], { reason: 'commits-after-it', commit: 'a'.repeat(40) }).label, /git reset --keep a{40}/u);
   // Reopened at its named final step [audit 2026-11-19, entry 28]; with none named, no command to fill in.
   assert.equal(first('WITNESS_EXCEPTION_STORY_CLOSED', ['decision', 'witness-exception', 'W-1'], { finalStep: 'release' }).command,
@@ -170,8 +172,9 @@ test('a lock only a person can end: its reviewed release is the person\'s first 
     assert.ok(text.includes(release) && text.includes(show), code);
   }
   // A live owner here that still renews its lock carries no release: waiting is still right.
-  const live = refusalRemediationPlan(refusal('STORY_PUBLICATION_IN_PROGRESS', 'Publishing now.', { pid: 7 }), ['submit']);
-  assert.match(live.steps[0].command, /result last --wait/u);
+  const live = refusalRemediationPlan(refusal('STORY_PUBLICATION_IN_PROGRESS', 'Publishing now.', { pid: 7, subject: { kind: 'story', id: 'PMC-1' } }), ['submit']);
+  assert.deepEqual(live.steps.slice(0, 2).map((entry) => [entry.command, entry.wait ?? false, entry.changes ?? null]), [
+    ['singularity-flow lock show story PMC-1', true, null], ['singularity-flow submit', false, 'the publishing command has finished and released the Story']]);
   // A release that is not a lock release, or a forged skill route, never becomes the person's step.
   for (const releaseCommand of ['singularity-flow sync PMC-1', 'singularity-flow lock show story PMC-1', 'rm -rf .git/singularity-flow/locks']) {
     const plan = refusalRemediationPlan(refusal('SUBJECT_LOCK_BUSY', 'Held.', { releaseCommand }), ['sync']);

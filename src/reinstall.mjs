@@ -177,9 +177,14 @@ export async function reinstallSourceDigest(checkout) {
 function executeOrThrow(execute, command, args, options = {}) {
   const result = execute(command, args, { ...options, allowFailure: true });
   if (result.status !== 0) {
-    throw new SingularityFlowError(
-      `${command} ${args.join(' ')} failed: ${String(result.stderr || result.stdout || `exit ${result.status}`).trim()}`
-    );
+    // A step that ran out of time says which setting gives it more [limit audit, codeless limit errors]; any other failure
+    // keeps its own output, under a code a plan can route.
+    const timedOut = Boolean(result.timedOut) || result.error?.code === 'ETIMEDOUT';
+    const setting = Number(options.timeoutMs) > PRODUCT_READ_TIMEOUT_MS ? 'SINGULARITY_FLOW_PRODUCT_MUTATION_TIMEOUT_MS' : 'SINGULARITY_FLOW_PRODUCT_READ_TIMEOUT_MS';
+    throw new SingularityFlowError(timedOut
+      ? `${command} ${args.join(' ')} did not finish within ${Math.round(Number(options.timeoutMs) / 1000) || 'its'} seconds. Run it again once the machine is less busy, or give it more time with ${setting} (milliseconds).`
+      : `${command} ${args.join(' ')} failed: ${String(result.stderr || result.stdout || `exit ${result.status}`).trim()}`,
+    { code: timedOut ? 'PRODUCT_COMMAND_TIMEOUT' : 'PRODUCT_COMMAND_FAILED', details: { command, ...(timedOut ? { timeoutMs: Number(options.timeoutMs) || null, setting } : { exitStatus: result.status ?? null }) } });
   }
   return result;
 }

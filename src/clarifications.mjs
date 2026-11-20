@@ -259,7 +259,11 @@ export async function recordClarificationResponses(root, definition, workflow, p
   }
   const combined = mergeResponses(replace ? [] : previous?.responses, responses);
   if (combined.length > policy.maxQuestions) {
-    throw new SingularityFlowError(`Phase '${phase.id}' permits no more than ${policy.maxQuestions} clarification questions.`);
+    // Coded, so its plan names the ways on: fewer questions in this record (--replace keeps only the new ones), the rest
+    // left open for a person to decide, or a policy amendment raising the limit [limit audit].
+    throw new SingularityFlowError(`Phase '${phase.id}' permits no more than ${policy.maxQuestions} clarification questions; this record would hold ${combined.length}.`, {
+      code: 'CLARIFICATION_QUESTION_LIMIT', details: { phase: phase.id, workId: workflow.workItem?.id ?? null,
+        maxQuestions: policy.maxQuestions, given: combined.length, replace: Boolean(replace) } });
   }
   const ids = new Set();
   for (const response of combined) {

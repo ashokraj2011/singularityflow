@@ -104,9 +104,12 @@ export async function readDecisionPacket(root, config, workflow, { phaseId = nul
   return (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId, at, card });
 }
 
-/** Whether anything on the list waits on this person now: a question they answer, or the approval they may give. */
+/**
+ * Whether anything on the list waits on this person now: a question they answer, or the approval they may give. What is
+ * offered beside the list (`optional`) never does [owner, 2026-11-20].
+ */
 export function waitsOnPerson(packet) {
-  return [...(packet.items ?? []), ...(packet.offered ?? [])].some((item) => !item.settled && item.decidedBy?.allowed && item.plain?.question
+  return [...(packet.items ?? []), ...(packet.offered ?? [])].some((item) => !item.settled && !item.optional && item.decidedBy?.allowed && item.plain?.question
     && (item.kind !== 'approval' || item.details?.ready !== false));
 }
 
@@ -290,6 +293,9 @@ export const checkOf = (item) => (item.check && item.check.status !== 'checked' 
 /** An item nobody can answer yet: one "Later:" line, never a question [owner, 2026-11-16]. */
 export const laterOf = (item) => plainWords(item).later ?? null;
 
+/** The line above what is offered beside the list: nothing waits on it, so it is never one of the questions [owner, 2026-11-20]. */
+const OPTIONAL_LINE = 'Optional; nothing waits on these. Answer one only if you disagree:';
+
 function itemLines(item, index, { numbered = false } = {}) {
   const plain = plainWords(item);
   // An intent amendment shows what it changes and reaches, so a person decides it from the same words on every host [owner, 2026-11-13].
@@ -348,11 +354,16 @@ export function packetText(packet) {
   if (!packet.items.length && !packet.offered?.length && !packet.settled?.length) return `${[...lines, ...(packet.storyNext ? ['', ...storyNextLines(packet.storyNext)] : [])].join('\n')}\n`;
   lines.push('');
   const settled = settledItems(packet);
+  const undoable = settled.filter((item) => item.details?.commands?.length);
   const later = [];
+  let optional = false;
   for (const [index, item] of [...packet.items, ...(packet.offered ?? [])].entries()) {
     if (settled.includes(item)) continue;
-    if (laterOf(item)) later.push(laterOf(item));
-    else lines.push(...itemLines(item, index), '');
+    if (laterOf(item)) { later.push(laterOf(item)); continue; }
+    // Offered beside the list, under a line of its own: nothing waits on these [owner, 2026-11-20].
+    if (item.optional && !optional) lines.push(OPTIONAL_LINE, '');
+    optional ||= Boolean(item.optional);
+    lines.push(...itemLines(item, index), '');
   }
   // What nobody can answer yet, one line each, never a question of its own.
   // What waits on someone or something else, one line each [owner, 2026-11-18].
@@ -376,12 +387,12 @@ export function packetText(packet) {
   // The next step's own model-free route when it has one (@sflow /approve for the approval), never "not available" beside it.
   } else if (['story-next', 'decide-card'].includes(packet.next?.kind)) lines.push(...storyNextLines(packet.next));
   else if (packet.next) lines.push('Next:', ...formatCommandRouteLines({ ...packet.next, modelFreeCommand: packet.next.modelFreeCommand ?? modelFreeCommandForCommand(packet.next.command) }));
-  // Only what was settled for the person: its Undo is on the Decide card, never "not available" [owner, 2026-11-13].
-  else if (settled.length) {
+  // Only what was settled for the person: its Undo is on the Decide card, never "not available" [owner, 2026-11-13]. History has none.
+  else if (undoable.length) {
     // One filled undo per settled decision, each under its own row above; never one with the ID left blank [owner, 2026-11-19].
     lines.push('Undo one on the Decide card:', ...formatCommandRouteLines({ copilotCommand: packet.record.share, modelFreeCommand: VSCODE_DECISIONS_CARD,
-      command: settled.length === 1 ? settled[0].details?.commands?.[0] ?? null : null }));
-    if (settled.length > 1) lines.push('Or in your own terminal:', ...settled.flatMap((item) => (item.details?.commands?.[0] ? [`- ${item.details.commands[0]}`] : [])));
+      command: undoable.length === 1 ? undoable[0].details?.commands?.[0] ?? null : null }));
+    if (undoable.length > 1) lines.push('Or in your own terminal:', ...undoable.flatMap((item) => (item.details?.commands?.[0] ? [`- ${item.details.commands[0]}`] : [])));
   } else lines.push(...formatCommandRouteLines({ copilotCommand: packet.record.share }));
   return `${lines.join('\n')}\n`;
 }
@@ -468,10 +479,14 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
         }
       }
     }
+    let optional = false;
     for (const [index, item] of [...packet.items, ...(packet.offered ?? [])].entries()) {
       if (together.has(item.id)) continue;
       // Nobody can answer it yet: one line at the end, never a question.
       if (laterOf(item)) { later.push(laterOf(item)); continue; }
+      // Offered beside the list: said so once, and Enter leaves each as it is [owner, 2026-11-20].
+      if (item.optional && !optional) say(`\n${OPTIONAL_LINE}`);
+      optional ||= Boolean(item.optional);
       say('');
       for (const line of itemLines(item, index, { numbered: true })) say(line);
       if (!item.decidedBy.allowed) continue;
@@ -498,8 +513,10 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       // The check SFlow runs itself comes first [owner, 2026-11-16]: chosen, it runs and the list is asked again.
       const check = checkOf(item) ? 1 : 0;
       const skip = item.options.length + check + 1;
-      say(`   ${skip}) Not now`);
-      const preferred = check && item.recommended?.check ? 1 : (item.options.findIndex((entry) => entry.recommended && entry.decidedBy.allowed) + 1 + check) || skip;
+      // An offered item's skip names its default ("Don't dispute (the author fixes it)"), never a wait that is not there.
+      say(`   ${skip}) ${item.optional ? plainWords(item).skip ?? 'Not now' : 'Not now'}`);
+      // Enter leaves an offered item as it is: nothing waits on it, so nothing is chosen for the person.
+      const preferred = item.optional ? skip : check && item.recommended?.check ? 1 : (item.options.findIndex((entry) => entry.recommended && entry.decidedBy.allowed) + 1 + check) || skip;
       let chosen = null;
       while (chosen === null) {
         const pick = await ask(`   Choose 1-${skip} [${preferred > item.options.length + check ? skip : preferred}]: `);
@@ -1123,7 +1140,7 @@ async function show(root, options, workId) {
   const opening = await versionOpeningOf(root, workflow).catch(() => null);
   // The version question is asked here too, so the headline counts it: never "Nothing waits on you now." above it.
   const plain = opening && packet.plain ? { ...packet.plain, headline: (await import('../decision-plain.mjs')).plainHeadline(
-    [...packet.items, ...(packet.offered ?? [])].filter((item) => !item.settled && item.plain?.question).length + 1) } : packet.plain;
+    [...packet.items, ...(packet.offered ?? [])].filter((item) => !item.settled && !item.optional && item.plain?.question).length + 1) } : packet.plain;
   const listed = { ...packet, ...(plain ? { plain } : {}), ...(route ? { inApproval: route } : {}), ...(evidence ? { approvalEvidence: evidence } : {}),
     ...(opening ? { versionOpening: opening } : {}) };
   // Nothing here waits on this person: the list ends with the Story's own next step [owner, 2026-11-18].

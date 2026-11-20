@@ -243,7 +243,28 @@ function waitingLine(workflow, item) {
 /** The check SFlow offers before an item whose answer depends on one, as its first option; null when there is none. */
 const checkOf = (item) => (item.check && item.check.status !== 'checked' ? item.check : null);
 
-/** An open item's plain words: `{ question, why, recommended }`, or `{ later }` when nobody can answer it yet. */
+/**
+ * What leaving an offered item as it is does, as the choice that skips it [owner, 2026-11-20: "what does Leave undecided even
+ * mean?"]: its default, never "undecided", since nothing waits on it. Every host's form names its skip with it.
+ */
+function skipWords(item) {
+  switch (item.kind) {
+    case 'review-finding': return 'Don\'t dispute (the author fixes it)';
+    case 'convergence-answer': return 'Keep this answer';
+    case 'convergence-settled': return 'Keep what the plan says';
+    default: return 'Not now (nothing waits on it)';
+  }
+}
+
+/** What an offered item lets the person do, as the one line a chat may say of it; never asked as a question. */
+const OFFER_WORDS = Object.freeze({ 'review-finding': 'dispute a reviewer\'s finding you disagree with',
+  'scope-completeness': 'record that you reviewed the scope for completeness',
+  'convergence-answer': 'change an answer already given', 'convergence-settled': 'overrule what the plan settled' });
+
+/**
+ * An open item's plain words: `{ question, why, recommended }`, or `{ later }` when nobody can answer it yet. An offered one
+ * (`optional`) carries `skip` too: what leaving it does, its default.
+ */
 export function plainItem(workflow, item) {
   const waiting = later(workflow, item);
   if (waiting) return { later: waiting };
@@ -251,7 +272,7 @@ export function plainItem(workflow, item) {
   if (item.kind !== 'approval' && item.decidedBy && item.decidedBy.allowed === false) return { later: waitingLine(workflow, item) };
   const check = checkOf(item);
   return { question: question(workflow, item), why: why(workflow, item), recommended: recommended(item),
-    ...(check ? { check: check.label } : {}) };
+    ...(check ? { check: check.label } : {}), ...(item.optional ? { skip: skipWords(item) } : {}) };
 }
 
 /**
@@ -273,8 +294,13 @@ export function plainSettled(workflow, entry) {
         return `${who} pinned Node ${effect.version ?? ''} for ${step}'s tests because ${first ?? 'the repository asks for it'}`.replace('Node  ', 'Node ');
       case 'test-command':
         return `${who} chose ${effect.commandId ?? 'the declared test command'} as ${step}'s tests because it is the only one the repository declares`;
-      case 'plan-accounting':
-        return `${who} added ${effect.path ?? 'the file'} to ${clauseName(workflow, effect.clauseId)}'s row of the plan because ${first ?? 'that row names the file beside it'} beside it`;
+      case 'plan-accounting': {
+        // The file and the requirement whose row took it; with either unknown, the plan itself [owner, 2026-11-20].
+        const file = effect.path ?? effect.file ?? (/^file:/u.test(String(entry.subject ?? '')) ? String(entry.subject).slice(5) : null);
+        const clause = effect.clauseId ? clauseName(workflow, effect.clauseId) : null;
+        return file && clause ? `${who} added ${file} to ${clause}'s row of the plan because ${first ? `${first} beside it` : 'that row names a file beside it'}`
+          : `${who} added ${file ?? 'a file'} to the plan${first ? ` because ${first}` : ''}`;
+      }
       case 'own-correction':
         return `${who} opened a new version of ${step} to correct its own work because nobody had reviewed it yet`;
       case 'review-corrections':
@@ -288,6 +314,8 @@ export function plainSettled(workflow, entry) {
   // Its undo is forward only: the version it started stays open (owner, 2026-11-19). A finding it was started for may be
   // disputed; once every one is, its author is told not to make those fixes, and the version still stays open (2026-11-20).
   const disputed = entry.disputed?.length ? ` ${entry.disputed.join(' ')}${entry.allDisputed ? ` Its author is told not to make ${entry.disputed.length === 1 ? 'that fix' : 'those fixes'}; version ${effect.toGeneration ?? 'N'} stays open, as an open version can't be withdrawn.` : ''}` : '';
+  // History: its step has moved on, so it is said, with nothing to undo [owner, 2026-11-20].
+  if (entry.history) return `${capital(said)}.`;
   return entry.kind === 'review-corrections' ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open. To disagree with a finding, dispute it.${disputed}`
     : `${capital(said)}. Undo if wrong.`;
 }
@@ -323,25 +351,56 @@ export function nothingToRecord(workflow, items) {
 
 /**
  * The list's own plain words: its headline from what is asked now, and every later line in one place. An item asked
- * now is one with a question; what was settled is never a question.
+ * now is one with a question; what was settled is never a question, nor is what is offered beside the list (`optional`):
+ * nothing waits on it [owner, 2026-11-20]. `optional` is the one line a chat may say of those: "Optional on the Decide
+ * card: dispute a reviewer's finding you disagree with."
  */
 export function plainPacket(items, workflow = null) {
   const open = items.filter((item) => !item.settled);
-  const asked = open.filter((item) => item.plain?.question).length;
+  const waits = open.filter((item) => !item.optional);
+  const asked = waits.filter((item) => item.plain?.question).length;
   const nothing = workflow ? nothingToRecord(workflow, items) : null;
   // What happens once the person answers, as the list's last line [owner, 2026-11-18: always end with "Next:"].
   const approval = items.find((item) => item.kind === 'approval');
-  const questions = open.filter((item) => item.plain?.question && item.kind !== 'approval').length;
+  const questions = waits.filter((item) => item.plain?.question && item.kind !== 'approval').length;
+  const offers = [...new Set(open.filter((item) => item.optional && item.plain?.question).map((item) => OFFER_WORDS[item.kind]).filter(Boolean))];
   const step = workflow ? stepName(workflow, approval?.details?.phase ?? workflow.currentPhase) : null;
   const afterAnswer = !workflow || !asked ? null : !questions ? 'Once it is approved, the Story moves on to its next step.'
     : `After you answer, ${approval ? `${step}'s approval is next` : `${step} goes on`}.`;
   return { headline: plainHeadline(asked), later: open.map((item) => item.plain?.later).filter(Boolean), ...(nothing ? { nothingToRecord: nothing } : {}),
-    ...(afterAnswer ? { afterAnswer } : {}) };
+    ...(afterAnswer ? { afterAnswer } : {}), ...(offers.length ? { optional: `Optional on the Decide card: ${offers.join(', or ')}.` } : {}) };
+}
+
+/** What was settled, named in a few words: "Node 22 for Implementation's tests", "starting version 3 of Implementation". */
+function settledName(workflow, item) {
+  const effect = item.details?.effect ?? {};
+  const step = stepName(workflow, item.details?.phase ?? workflow?.currentPhase);
+  switch (item.details?.settledKind) {
+    case 'node-version': return `Node ${effect.version ?? ''} for ${step}'s tests`.replace('Node  ', 'Node ');
+    case 'test-command': return `${effect.commandId ?? 'the test command'} as ${step}'s tests`;
+    case 'plan-accounting': return `${effect.path ?? effect.file ?? String(item.subject ?? '').replace(/^file:/u, '')} in the plan`;
+    case 'review-corrections': case 'own-correction': return `starting version ${effect.toGeneration ?? 'N'} of ${step}`;
+    case 'story-selection': return `opening ${String(item.subject ?? '').split(' on ')[0] || workflow?.workItem?.id}`;
+    default: return bare(item.subject ?? item.title);
+  }
+}
+
+/**
+ * The one line a chat or a card's first words may say of what was settled [owner, 2026-11-20]: only what can still matter
+ * (no history), named, at most three, then "and N more on the Decide page"; never a question. Null when there is none.
+ */
+export function settledLine(workflow, settled) {
+  const names = settled.filter((item) => item.settled && !item.details?.history).map((item) => settledName(workflow, item));
+  if (!names.length) return null;
+  const shown = names.slice(0, 3);
+  const more = names.length - shown.length;
+  return more ? `Settled for you: ${shown.join(', ')} and ${more} more on the Decide page. Undo any there.`
+    : `Settled for you: ${listWords(shown)}. Undo any on the Decide page.`;
 }
 
 /** A settled item's record, as plainSettled reads it, from what the list carries of it. */
 const settlementOf = (item) => ({ kind: item.details?.settledKind, by: item.by, subject: item.subject, answer: item.answerWords ?? item.title,
-  evidence: item.details?.evidence ?? [], effect: item.details?.effect ?? {}, phase: item.details?.phase ?? null,
+  evidence: item.details?.evidence ?? [], effect: item.details?.effect ?? {}, phase: item.details?.phase ?? null, history: item.details?.history === true,
   ...(item.details?.disputed ? { disputed: item.details.disputed, allDisputed: item.details.allDisputed === true } : {}) });
 
 /**
@@ -354,5 +413,7 @@ export function withPlainWords(workflow, packet) {
   const items = (packet.items ?? []).map(word);
   const offered = packet.offered ? packet.offered.map(word) : null;
   const settled = packet.settled ? packet.settled.map(word) : null;
-  return { ...packet, plain: plainPacket([...items, ...(offered ?? [])], workflow), items, ...(offered ? { offered } : {}), ...(settled ? { settled } : {}) };
+  const line = settledLine(workflow, settled ?? []);
+  return { ...packet, plain: { ...plainPacket([...items, ...(offered ?? [])], workflow), ...(line ? { settledLine: line } : {}) }, items, ...(offered ? { offered } : {}),
+    ...(settled ? { settled } : {}) };
 }

@@ -26,7 +26,7 @@ import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } fr
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { recordSha256 } from './records.mjs';
-import { evidenceWords, reraisedRoute, settledByWords, settledDecisions } from './settled-decisions.mjs';
+import { evidenceWords, reraisedRoute, settledByWords, settledDecisions, settlementMatters } from './settled-decisions.mjs';
 import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';
 import { testSetupFiles } from './test-support-files.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
@@ -1756,28 +1756,30 @@ export function settledLedger(workflow, phaseId = null) {
 function settledItems(workflow, context) {
   const workId = workflow.workItem.id;
   return settledDecisions(workflow).filter((entry) => !entry.undone).reverse().slice(0, SETTLED_SHOWN).map((entry) => {
+    // History (a step already approved, a version since superseded): on the full list with its evidence,
+    // never offered to undo here, never in a headline or a chat [owner, 2026-11-20].
+    const history = !settlementMatters(workflow, entry);
     const route = reraisedRoute(workflow, entry);
     const by = settledByWords(entry);
     const evidence = evidenceWords(entry);
     const undo = `singularity-flow decisions undo ${workId} --settled ${entry.id}`;
     // The version SFlow started for a review's findings, being written now: each finding it was started for may be disputed here
     // too, and one already disputed is said, with that its author is told not to make that fix [owner, 2026-11-20].
-    const findings = startedFindings(context.facts?.reviewDisputes, entry);
+    const findings = history ? [] : startedFindings(context.facts?.reviewDisputes, entry);
     const disputes = findings.filter((finding) => !finding.disputed).slice(0, 5).map((finding) => disputeOption(workflow, context, context.facts.reviewDisputes, finding, `dispute-${finding.id}`));
     const disputed = findings.filter((finding) => finding.disputed).map((finding) => disputedFindingWords(finding.id, finding.disputed));
     return {
       kind: 'settled', settled: true, title: String(entry.answer).slice(0, 200), subject: entry.subject,
       answerWords: entry.answer, evidenceWords: evidence, evidence: (entry.evidence ?? []).map((fact) => `${fact.what} (${fact.where})`), by: entry.by, at: entry.at,
-      why: [`${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. Undo it only if it is wrong.`,
+      why: [`${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. ${history ? 'Its step has moved on, so there is nothing to undo here.' : 'Undo it only if it is wrong.'}`,
         findings.length ? 'Dispute a finding it was started for if the reviewer is wrong.' : ''].filter(Boolean).join(' '),
-      // Also a bound yes in /sf-decide, "Undo: ask me instead?", unless SF Guard signs it [owner, 2026-11-19].
-      options: [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
-        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo,
-      ...(presenceRequires(workflow) ? {} : { chat: { command: undo } }) }, ...disputes],
+      // Undone on the Decide card or in the person's own terminal, never asked in chat: nothing waits on it [owner, 2026-11-20].
+      options: history ? [] : [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
+        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo }, ...disputes],
       // What it changed, for its one line on every host (decision-plain.mjs) [owner, 2026-11-16].
       details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence, ...(entry.effect ? { effect: entry.effect } : {}),
-        reraised: route, ...(disputed.length ? { disputed, allDisputed: findings.every((finding) => finding.disputed) } : {}),
-        commands: [undo, ...disputes.map((entry) => entry.terminal)] }
+        reraised: route, ...(disputed.length ? { disputed, allDisputed: findings.every((finding) => finding.disputed) } : {}), ...(history ? { history: true } : {}),
+        commands: history ? [] : [undo, ...disputes.map((entry) => entry.terminal)] }
     };
   });
 }
@@ -1807,6 +1809,9 @@ function startedFindings(facts, entry) {
 /**
  * Each blocking finding the reviewer raised on the step's published version, while its author is to fix it (offered: nothing
  * waits on a dispute; by default the author fixes it) [owner, 2026-11-20]. One already disputed is no row: it blocks nothing.
+ * Never asked in chat: a row on the card for a person who disagrees. Once the version that fixes it is published, the review
+ * read is that version's own (review-finding-dispute.mjs reads the published generation), and once the step is submitted
+ * there is no row at all: the author is done, and the new version's review judges it.
  */
 function reviewFindingItems(workflow, context, facts) {
   if (!facts || facts.status !== 'in_progress') return [];
@@ -2137,6 +2142,8 @@ function itemAnswer(item, workId) {
     const also = `SF Guard signs it, so it is recorded in your own terminal (singularity-flow decisions record ${workId}), never in chat.`;
     return { where: 'terminal', words: `${card}. ${also}`, also };
   }
+  // Nothing waits on it: never a question in chat, and the card holds it only for a person who disagrees [owner, 2026-11-20].
+  if (item.optional) return { where: 'card', words: `Nothing waits on it. Answer it on the Decide card (/sf-decide ${workId} opens it) only if you disagree; a chat never asks it.` };
   const yesNo = item.yesNo ? `, or answer yes or no in chat (${item.yesNo.route})` : '';
   const also = item.yesNo ? { also: `Or answer yes or no in chat (${item.yesNo.route}).` } : {};
   if (live.some((entry) => DECISION_LIST_CHAT_OPTIONS.includes(entry.id) || entry.chat)) return { where: 'chat', words: `${card}${yesNo}.`, ...also };
@@ -2245,10 +2252,13 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     items.push({ ...advised, answer: { where: 'card', words: `Open it from the Decide card (/sf-decide ${workflow.workItem.id}), which opens its documents to review and approve; or /sf-approve ${phase.id}.` } });
   }
   const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));
-  // Nothing waits on these: a review of the scope, and each convergence answer its approvers may change [SCS:REQ-034].
+  // Nothing waits on these: a review of the scope, each convergence answer its approvers may change [SCS:REQ-034], and each
+  // reviewer's finding its author fixes unless someone disputes it. Each is `optional` [owner, 2026-11-20: ask a person only
+  // what waits on them]: a row on the card and the list, never a question a chat asks, never counted as one.
   const offered = [...(facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : []),
     ...(facts.convergence ? convergenceAnswerItems(workflow, context, facts.convergence) : []),
     ...reviewFindingItems(workflow, context, facts.reviewDisputes)].map((item) => underGuard(workflow, item)).map((item, index) => advisedItem(workflow, { id: `d${items.length + index + 1}`, ...item,
+    optional: true,
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
     decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
     .map((item) => ({ ...item, answer: itemAnswer(item, workflow.workItem.id) }));
@@ -2256,9 +2266,11 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // recommendation: each says to undo it only if it is wrong, and its Undo says what undoing does (decision-advice.mjs).
   const settled = settledItems(workflow, context).map((item, index) => advisedItem(workflow, { id: `d${items.length + offered.length + index + 1}`, ...item,
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
-    decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
-    .map((item) => ({ ...item, answer: item.chatYesNo ? { where: 'chat', words: `Nothing to answer. Undo it only if it is wrong: on the Decide card, or say yes to its question in /sf-decide ${workflow.workItem.id}.` }
-      : { where: 'card', words: `Nothing to answer. Undo it on the Decide card (/sf-decide ${workflow.workItem.id} opens it) only if it is wrong; a chat turn cannot undo it.` } }));
+    // History has nothing to decide: nobody undoes it here, and every host says why in these words.
+    decidedBy: item.options.length ? itemDecidedBy(workflow, item.options) : { groups: [], labels: [], allowed: false, words: 'Nothing to undo here: its step has moved on.' },
+    holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
+    .map((item) => ({ ...item, answer: item.details?.history ? { where: 'later', words: 'Nothing to answer, and nothing to undo here: its step has moved on.' }
+      : { where: 'card', words: `Nothing to answer. Undo it on the Decide card (/sf-decide ${workflow.workItem.id} opens it) only if it is wrong; a chat never asks it.` } }));
   if (door) {
     const advised = advisedItem(workflow, { id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true, holds: 'approval', holdsWords: HOLDS_WORDS.approval });
     items.unshift({ ...advised, answer: itemAnswer(advised, workflow.workItem.id) });

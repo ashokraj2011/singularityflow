@@ -128,8 +128,9 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     }
     const why = approval ? (approval.decidedBy?.allowed ? approval.why : approval.decidedBy?.words) : null;
     // A held approval: the Story's next step, else the person's own @sflow /approve, which says what holds it and approves it
-    // once cleared. An approve turn never ends with no route [owner's Story arshy, 2026-11-20].
-    return { status: 'nothing-to-decide', message: [packet.headline, why, nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' '),
+    // once cleared. An approve turn never ends with no route [owner's Story arshy, 2026-11-20]. What was settled is one line
+    // at most, never asked [owner, 2026-11-20].
+    return { status: 'nothing-to-decide', message: [packet.headline, why, packet.plain?.settledLine, nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' '),
       next: nextFor(packet.storyNext ?? packet.next) ?? (approval ? approveInChat(packet, approval) : null) };
   }
   const panel = vscode.window.createWebviewPanel('singularityFlow.decide', `Decide · ${workId}`, vscode.ViewColumn.Active,

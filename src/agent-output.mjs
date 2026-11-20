@@ -711,20 +711,24 @@ export function agentAct(result) {
     if (list.next?.notYet) return withRoute({ state: 'next', do: null, said: oneLine(`${list.next.title}: ${list.next.notYet} Nothing here can be recorded yet.`) }, { command: list.next.command, copilotCommand: list.next.copilotCommand });
     // Nothing left here a chat can ask (a yes or no, a sign-off's own review, an approval): the Decide card is next, named
     // as such, never /sf-decide from inside it (owner, 2026-11-18: "Next — Resolve the remaining decisions: /sf-decide").
-    const chatAsks = (item) => item.chatYesNo === true || (item.kind === 'approval' && item.decidedBy?.allowed && item.details?.ready !== false)
-      || item.options?.some((entry) => entry.action?.humanReview);
-    if (list.items?.length && list.next?.kind === 'decide-card' && ![...list.items, ...(list.offered ?? [])].some(chatAsks)) return { state: 'confirm-in-terminal',
+    // What is offered beside the list (`optional`) or was settled is never asked here: nothing waits on it [owner, 2026-11-20].
+    const chatAsks = (item) => !item.optional && !item.settled && (item.chatYesNo === true || (item.kind === 'approval' && item.decidedBy?.allowed && item.details?.ready !== false)
+      || item.options?.some((entry) => entry.action?.humanReview));
+    // At most one line of each, as given, never a question.
+    const lines = ['optional', 'settledLine'].filter((key) => list.plain?.[key]).map((key) => `${at}plain.${key}`);
+    const optional = lines.length ? ` Say ${lines.join(' and ')} once, as given; never ask ${lines.length === 1 ? 'it' : 'them'}.` : '';
+    if (list.items?.length && list.next?.kind === 'decide-card' && !list.items.some(chatAsks)) return { state: 'confirm-in-terminal',
       do: { reason: list.next.title, copilot: list.next.copilotCommand, shell: list.next.command, vscode: list.next.modelFreeCommand,
         ...(list.next.vscodeChat ? { vscodeChat: list.next.vscodeChat } : {}) }, read: [`${at}items`],
-      said: oneLine(`${list.plain?.headline ?? list.headline} What is left is answered on the Decide card, not in this chat: show each item's plain words, then end with "Next: ${list.next.title}" and do's routes. ${list.next.vscodeChat ? `${VSCODE_CARD_WORDS} ` : ''}Never give /sf-decide again, and never run do.shell.`) };
+      said: oneLine(`${list.plain?.headline ?? list.headline} What is left is answered on the Decide card, not in this chat: show each item's plain words, then end with "Next: ${list.next.title}" and do's routes. ${list.next.vscodeChat ? `${VSCODE_CARD_WORDS} ` : ''}Never give /sf-decide again, and never run do.shell.${optional}`, 700) };
     // Nothing left to decide, or nothing here waits on this person: the Story's next step, never an ending with nothing
     // to do (owner, 2026-11-10 and 2026-11-18). `decisions` names it only when nothing on the list is theirs now.
     if (list.next?.kind === 'story-next' && list.next.command) return withRoute({ state: 'next', do: null,
-      said: oneLine(`${list.plain?.headline ?? list.headline} ${list.items?.length ? 'Nothing here waits on the person now: show each Waiting line, then' : 'Nothing is left to decide here;'} the Story goes on with its next step.`) },
+      said: oneLine(`${list.plain?.headline ?? list.headline} ${list.items?.length ? 'Nothing here waits on the person now: show each Waiting line, then' : 'Nothing is left to decide here;'} the Story goes on with its next step.${optional}`) },
     { command: list.next.command, copilotCommand: list.next.copilotCommand, reason: list.next.title });
     if (list.items?.length) return { state: 'ask-person', do: null, read: [`${at}items`, `${at}record`],
-      said: 'Show each item\'s title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them. action.humanReview opens native #sflowWitnessReview with workId, criterion and slot only; the person supplies its checklist and reason there. If that tool is unavailable, give the exact human Shell command; do not send a witness back to /sf-decide. Recorded plan accounting is separate from pending visual sign-off.' };
-    return { state: 'read', do: null, said: oneLine(list.headline) };
+      said: `Show each item's title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them. action.humanReview opens native #sflowWitnessReview with workId, criterion and slot only; the person supplies its checklist and reason there. If that tool is unavailable, give the exact human Shell command; do not send a witness back to /sf-decide. Recorded plan accounting is separate from pending visual sign-off.${optional}` };
+    return { state: 'read', do: null, said: oneLine(`${list.headline}${optional}`, 500) };
   }
   // The next version for a review's findings, started by SFlow, said in one line with its undo (owner, 2026-11-19).
   if (result.resultType === 'sflow-generation-rollover' && result.kind === 'review-corrections' && result.mutates === true && result.line) {

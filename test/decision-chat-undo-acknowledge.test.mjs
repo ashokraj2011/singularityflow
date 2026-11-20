@@ -2,7 +2,8 @@
  * Two terminal-only steps become a bound yes in /sf-decide [owner, 2026-11-19, terminal-to-card]: undoing what was settled
  * ("Undo: ask me instead?") and acknowledging an approved intent amendment ("I read AMD-001"). Each runs only on the
  * person's own Yes to a question that names it, and never on a Story SF Guard signs, where the card or their own terminal
- * records it as before.
+ * records it as before. Since 2026-11-20 what was settled is never asked in chat (owner: nothing waits on it); its undo stays
+ * bound to the person's own Yes for a chat that is asked to run it, and is offered on the Decide card.
  */
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -39,13 +40,13 @@ const packetOf = (workflow) => decisionPacket(workflow, { phaseId: 'implementati
   unavailable: [], state: {}, pending: { intentAmendments: [{ id: 'AMD-001', status: 'approved', changedClauses: [`${WORK}:REQ-001`], affectedPhases: ['implementation'] }] } },
 { authorities: workflow.resolution.approvalAuthorities, actor, at: AT });
 
-test('a settled file\'s Undo and an approved amendment\'s acknowledgement are each a yes in chat, never under SF Guard', () => {
+test('an approved amendment\'s acknowledgement is a yes in chat, never under SF Guard; a settled file\'s Undo is on the Decide card, never asked in chat', () => {
   const packet = packetOf(story());
   const [settled] = packet.settled;
-  assert.equal(settled.chatYesNo, true);
-  assert.equal(settled.yesNo.question, 'Listed README.md in the plan as a supporting change (documentation). Undo: ask me instead (STL-001)?');
-  assert.equal(settled.options[0].chat.command, `singularity-flow decisions undo ${WORK} --settled STL-001`);
-  assert.equal(settled.answer.where, 'chat');
+  // Nothing waits on what was settled: never a chat question, its undo on the Decide card or in the person's terminal
+  // [owner, 2026-11-20: a chat asked "Undo: ask me instead for all 6" with no way to keep them].
+  assert.deepEqual([settled.chatYesNo, settled.yesNo, settled.options[0].chat, settled.answer.where], [false, undefined, undefined, 'card']);
+  assert.equal(settled.options[0].terminal, `singularity-flow decisions undo ${WORK} --settled STL-001`);
   const amendment = packet.items.find((item) => item.kind === 'intent-amendment');
   assert.equal(amendment.chatYesNo, true);
   assert.match(amendment.yesNo.question, /AMD-001.*I read AMD-001: acknowledge it\? Recommended: yes\./u);

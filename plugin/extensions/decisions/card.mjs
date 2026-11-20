@@ -7,9 +7,16 @@
  */
 import { askUntilRight, DATE_PATTERN, refusedWords, textField } from './form-rounds.mjs';
 
-export const LEAVE = 'Leave undecided';
+// Skipping a row that waits on the person says what skipping does [owner, 2026-11-20: "what does Leave undecided even mean?"];
+// a row offered beside the list skips with its own default instead (decision-plain.mjs `plain.skip`), never "undecided".
+export const LEAVE = 'Not now (stays open)';
+// A row offered beside the list whose list gives no words for its default (an engine before them).
+export const LEAVE_AS_IS = 'Leave it as it is';
 export const EACH = 'Decide each one';
 export const NOT_NOW = 'Not now';
+// A form that offers to undo or change what was settled or answered keeps everything first, never an undo [owner, 2026-11-20:
+// "How do you want to decide?" offered only "Undo … for all 6" and "Undo what was settled for you (6)", the first preselected].
+export const KEEP_ALL = 'Not now (keep all)';
 // Answers already given and what the plan settled: asked only once the person chooses to, as /adjudicate does [SCS:REQ-034, REQ-035].
 export const CHANGE = 'Change an answer or overrule the plan';
 // What SFlow settled for the person waits the same way: undone only if they say it is wrong [owner, 2026-11-13].
@@ -17,6 +24,9 @@ export const UNDO_SETTLED = 'Undo what was settled for you';
 // Beside one question asked directly, each settled line is kept unless the person undoes it.
 export const KEEP_SETTLED = 'Keep it';
 export const CHANGEABLE_KINDS = Object.freeze(['convergence-answer', 'convergence-settled', 'settled']);
+// A reviewer's finding nothing waits on, and any other row offered beside the list: asked only once the person chooses to.
+export const DISPUTE = 'Dispute a reviewer\'s finding';
+export const OPTIONAL = 'Answer an optional row';
 export const RECORD = 'Record these decisions';
 export const SIGN = 'Record this review';
 export const FORM_SIZE = 5;
@@ -76,6 +86,27 @@ export const approvalRows = (packet) => packet.items.filter((item) => item.kind 
 // A row is asked when it has a choice to record, or a check SFlow runs when asked: a sign-off's screenshot is taken first.
 const decidable = (packet) => cardRows(packet).filter((item) => item.decidedBy?.allowed && (item.options.some(choosable) || Boolean(checkOf(item))));
 const changeable = (item) => CHANGEABLE_KINDS.includes(item.kind);
+/**
+ * Offered beside the list, nothing waits on it (`optional`) [owner, 2026-11-20: ask a person only what waits on them]: never one
+ * of the questions, never shared, and on a form only once the person chooses to, never a required field.
+ */
+const optional = (item) => item?.optional === true && !item.settled;
+/** Everything beside what waits: answers given, what the plan or SFlow settled, and what is offered. */
+const besides = (item) => changeable(item) || optional(item);
+/** The choice that skips a row, saying what skipping does: what was settled is kept, an offered row keeps its default. */
+export const skipWord = (item) => (item.settled ? KEEP_SETTLED : plainWords(item).skip ?? (optional(item) ? LEAVE_AS_IS : LEAVE));
+/** What is offered beside the list and is no answer given or settlement: a reviewer's finding, a completeness review. */
+const offeredOnly = (item) => optional(item) && !changeable(item);
+/** The first form's choice for those, by what they are: "Dispute a reviewer's finding (4)". */
+const offerWord = (rows) => (rows.every((item) => item.kind === 'review-finding') ? DISPUTE : OPTIONAL);
+const listWords = (values) => (values.length < 2 ? values.join('') : `${values.slice(0, -1).join(', ')} and ${values.at(-1)}`);
+/** What is offered beside the list, named, never counted: the reviewer's findings by their IDs, then anything else. */
+function optionalWords(rows) {
+  const findings = rows.filter((item) => item.kind === 'review-finding').map((item) => item.details?.finding ?? bare(item.title));
+  const others = rows.filter((item) => item.kind !== 'review-finding').map((item) => bare(item.title));
+  return [findings.length ? `the reviewer's ${findings.length === 1 ? 'finding' : 'findings'} ${listWords(findings)}, which you may dispute if the reviewer is wrong; left alone, the author fixes ${findings.length === 1 ? 'it' : 'them'}` : null,
+    others.length ? `${listWords(others)}, which you may answer if you disagree` : null].filter(Boolean).join('; and ');
+}
 /** The items the card asks now, as questions: open, offered and the approval, never what waits for later or was settled. */
 const askedRows = (packet) => [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)].filter((item) => !laterOf(item));
 
@@ -166,6 +197,14 @@ function changeableLines(packet) {
     ...rows.map((item) => `- ${line(itemName(item))}: ${bare(plainWords(item).why ?? item.why)}.`)] : [];
 }
 
+/** What is offered beside the list, one line each, under a line saying nothing waits on it [owner, 2026-11-20]. */
+function optionalLines(packet) {
+  const rows = cardRows(packet).filter((item) => offeredOnly(item) && !laterOf(item));
+  if (!rows.length) return [];
+  return ['', `**Optional; nothing waits on these.** Answer one only if you disagree: choose "${offerWord(rows)}" on the first form.`,
+    ...rows.map((item) => `- ${bare(item.title)}: ${bare(plainWords(item).why ?? item.why)}.`)];
+}
+
 /**
  * The Story's own next step when nothing here waits on this person, from the planner (`decisions` adds `storyNext`):
  * every screen ends with a next action [owner, 2026-11-18]. '' when the list carries none.
@@ -179,12 +218,12 @@ const withNext = (message, packet) => [message, nextWords(packet)].filter(Boolea
 
 /** The card: every open item in plain words, then what waits for later, what was settled, and the approval's evidence. */
 export function decisionsTable(packet) {
-  const asked = askedRows(packet).filter((item) => !changeable(item));
+  const asked = askedRows(packet).filter((item) => !besides(item));
   const later = [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)].map(laterOf).filter(Boolean);
   const headline = packet.plain?.headline ?? packet.headline;
   return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${line(headline)} Nothing is recorded until you confirm.`,
     ...asked.flatMap((item, index) => itemBlock(item, packet, asked.length > 1 ? index + 1 : null)),
-    ...changeableLines(packet),
+    ...changeableLines(packet), ...optionalLines(packet),
     ...(later.length ? ['', ...later.map((entry) => `Waiting: ${line(entry)}`)] : []),
     ...settledLines(packet), ...evidenceLines(packet),
     // Always the last line: the Story's next step, or what happens once the person answers [owner, 2026-11-18].
@@ -199,7 +238,8 @@ export function decisionsTable(packet) {
  */
 export function sharedAnswers(packet) {
   const seen = new Map();
-  for (const item of decidable(packet)) {
+  // An offered row is never answered for all, nor is an undo of what was settled: each is the person's own, only if they disagree.
+  for (const item of decidable(packet).filter((row) => !optional(row) && !row.settled)) {
     for (const option of item.options.filter(choosable)) {
       if (option.oneByOne || option.needs?.cause || option.needs?.expires || option.needs?.clause || option.needs?.article) continue;
       const known = seen.get(option.id);
@@ -218,8 +258,8 @@ const othersWords = ({ word, others = [] }) => (others.length
 
 /** The one open item the card asks directly, or null: exactly one waits, with no answer for all and nothing to change. */
 export function directItem(packet) {
-  const open = decidable(packet).filter((item) => !changeable(item));
-  const offered = decidable(packet).filter((item) => changeable(item) && !item.settled);
+  const open = decidable(packet).filter((item) => !besides(item));
+  const offered = decidable(packet).filter((item) => besides(item) && !item.settled);
   return open.length === 1 && !sharedAnswers(packet).length && !offered.length ? open[0] : null;
 }
 
@@ -235,7 +275,7 @@ export function directForm(packet, item = directItem(packet)) {
   return { item, settled, form: { message: [...words, ...settled.map((row) => `Settled for you: ${line(plainWords(row).settled)}`)].join('\n'),
     requestedSchema: { type: 'object', required: ['decision0'], properties: {
       decision0: { type: 'string', title: clipSentences(line(plain.question)),
-        enum: [...(checkOf(item) ? [checkWord(item)] : []), ...recommendedFirst(item, item.options.filter(choosable)).map((option) => choiceWord(item, option)), LEAVE] },
+        enum: [...(checkOf(item) ? [checkWord(item)] : []), ...recommendedFirst(item, item.options.filter(choosable)).map((option) => choiceWord(item, option)), skipWord(item)] },
       ...Object.fromEntries(settled.map((row, index) => [`settled${index}`, { type: 'string', title: clipSentences(line(plainWords(row).settled)),
         enum: [KEEP_SETTLED, ...row.options.filter(choosable).map((option) => option.label)] }])) } } } };
 }
@@ -263,19 +303,27 @@ export function directChoices(item, settled, content) {
  */
 export function firstForm(packet) {
   const shared = sharedAnswers(packet).map((entry) => ({ ...entry, word: `${entry.label} for all ${entry.items.length}, with one reason` }));
-  const open = decidable(packet).filter((item) => !changeable(item));
+  const open = decidable(packet).filter((item) => !besides(item));
   const later = decidable(packet).filter(changeable).length;
   const settled = decidable(packet).filter((item) => item.settled === true);
   const change = later ? `${settled.length === later ? UNDO_SETTLED : CHANGE} (${later})` : null;
+  // What is offered beside the list waits behind a choice of its own: never one of the questions [owner, 2026-11-20].
+  const offeredRows = decidable(packet).filter(offeredOnly);
+  const offer = offeredRows.length ? `${offerWord(offeredRows)} (${offeredRows.length})` : null;
   // Named, never counted: "1. Run Implementation's tests on Node 22? 2. …" [owner, 2026-11-16].
   const asked = (item) => line(plainWords(item).question).replace(/([^.!?])$/u, '$1.');
   const named = open.length ? `${open.length === 1 ? 'One question for you' : `${open.length} questions for you`}: ${open.map((item, index) => `${index + 1}. ${asked(item)}`).join(' ')}`
     : 'Nothing waits on you now.';
-  const offered = settled.length === later ? `Settled for you: ${settled.map((item) => line(plainWords(item).settled)).join(' ')}`
+  // At most three settled lines, then how many more the Decide page lists [owner, 2026-11-20].
+  const shownSettled = `${settled.slice(0, 3).map((item) => line(plainWords(item).settled)).join(' ')}${settled.length > 3 ? ` And ${settled.length - 3} more on the Decide page.` : ''}`;
+  const offered = settled.length === later ? `Settled for you: ${shownSettled}`
     : `${later === 1 ? '1 is' : `${later} are`} offered beside the list: an answer already given${settled.length ? ', a file the plan settled, or what SFlow settled for you' : ', or a file the plan settled'}, which you may change if you disagree.`;
-  return { shared, change, form: { message: `${named}${later ? ` ${offered}` : ''}${shared.map(othersWords).join('')}`,
+  const optionalLine = offeredRows.length ? ` Optional, nothing waits on ${offeredRows.length === 1 ? 'it' : 'them'}: ${optionalWords(offeredRows)}.` : '';
+  return { shared, change, offer, form: { message: `${named}${later ? ` ${offered}` : ''}${optionalLine}${shared.map(othersWords).join('')}`,
     requestedSchema: { type: 'object', required: ['choice'], properties: {
-      choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), ...(open.length ? [EACH] : []), ...(change ? [change] : []), NOT_NOW] } } } } };
+      // Keeping everything comes first wherever an undo or a change is offered, so nothing is undone by default.
+      choice: { type: 'string', title: 'How do you want to decide?', enum: [...(change ? [KEEP_ALL] : []), ...shared.map((entry) => entry.word), ...(open.length ? [EACH] : []),
+        ...(change ? [change] : []), ...(offer ? [offer] : []), ...(change ? [] : [NOT_NOW])] } } } } };
 }
 
 /** The one reason an answer for all needs, under the tightest rule of the rows it covers. */
@@ -294,11 +342,14 @@ export function rowForms(items) {
   for (let at = 0; at < items.length; at += FORM_SIZE) pages.push(items.slice(at, at + FORM_SIZE));
   return pages.map((page, index) => ({ items: page, form: {
     message: `Decide each one (${index + 1} of ${pages.length}). What a choice needs is asked next.`,
-    requestedSchema: { type: 'object', required: page.map((_, row) => `decision${row}`), properties: Object.fromEntries(page.map((item, row) =>
+    // Only what waits is required: a row offered beside the list is the person's to leave as it is [owner, 2026-11-20].
+    requestedSchema: { type: 'object', required: page.flatMap((item, row) => (optional(item) ? [] : [`decision${row}`])), properties: Object.fromEntries(page.map((item, row) =>
       // The recommended choice says so in the list itself, first; the card above has why and what each choice does.
-      // An answer given or what the plan settled is named by its file, with what it says now.
+      // An answer given or what the plan settled is named by its file, with what it says now. Its skip says what skipping does.
+      // A row beside the list keeps what it is first (its default, or what was settled), so a form never undoes by default.
       [`decision${row}`, { type: 'string', title: clipSentences(changeable(item) ? `${itemName(item)}: ${line(plainWords(item).why ?? item.why)}` : line(plainWords(item).question)),
-        enum: [...(checkOf(item) ? [checkWord(item)] : []), ...recommendedFirst(item, item.options.filter(choosable)).map((option) => choiceWord(item, option)), LEAVE] }])) } } }));
+        enum: besides(item) || item.settled ? [skipWord(item), ...recommendedFirst(item, item.options.filter(choosable)).map((option) => choiceWord(item, option))]
+          : [...(checkOf(item) ? [checkWord(item)] : []), ...recommendedFirst(item, item.options.filter(choosable)).map((option) => choiceWord(item, option)), skipWord(item)] }])) } } }));
 }
 
 /** What one choice needs, and only that; empty when it needs nothing. */
@@ -334,7 +385,7 @@ export function choicesFromRows(items, content) {
   let check = null;
   for (const [row, item] of items.entries()) {
     const word = content?.[`decision${row}`];
-    if (!word || word === LEAVE) continue;
+    if (!word || word === LEAVE || word === skipWord(item)) continue;
     if (checkOf(item) && word === checkWord(item)) { check ??= item; continue; }
     const option = item.options.filter(choosable).find((entry) => entry.label === word || choiceWord(item, entry) === word);
     if (!option) return { picks: [], problem: `That is not a decision SFlow knows for ${itemName(item)}.` };
@@ -507,15 +558,17 @@ async function askRows(packet, ask) {
     const answers = [];
     return await detailsOf(ask, chosen.picks, answers) ?? { answers };
   }
-  const { shared, change, form } = firstForm(packet);
+  const { shared, change, offer, form } = firstForm(packet);
   let answers = [];
   let changing = false;
-  if (shared.length || change) {
+  let offering = false;
+  if (shared.length || change || offer) {
     const first = await askUntilRight(ask, form, (content) => (form.requestedSchema.properties.choice.enum.includes(content.choice)
       ? { choice: content.choice } : { problem: 'Choose one of these.' }));
-    if (first.cancelled || first.choice === NOT_NOW) return { cancelled: true };
+    if (first.cancelled || first.choice === NOT_NOW || first.choice === KEEP_ALL) return { cancelled: true };
     if (first.refused) return first;
     changing = first.choice === change;
+    offering = first.choice === offer;
     const entry = shared.find((candidate) => candidate.word === first.choice);
     if (entry) {
       const options = (item) => item.options.find((option) => option.id === entry.id);
@@ -532,7 +585,9 @@ async function askRows(packet, ask) {
   const taken = new Set(answers.map((entry) => entry.item));
   // What waits; answers given and what the plan settled only once the person chose to change them, first, then what waits.
   const rows = decidable(packet).filter((item) => !taken.has(item.id));
-  for (const page of rowForms(changing ? [...rows.filter(changeable), ...rows.filter((item) => !changeable(item))] : rows.filter((item) => !changeable(item)))) {
+  // What is offered, only once the person chose it too, never required (rowForms).
+  const waits = rows.filter((item) => !besides(item));
+  for (const page of rowForms(changing ? [...rows.filter(changeable), ...waits] : offering ? [...rows.filter(offeredOnly), ...waits] : waits)) {
     const chosen = await askUntilRight(ask, page.form, (content) => choicesFromRows(page.items, content));
     if (chosen.cancelled) return answers.length ? { answers } : { cancelled: true };
     if (chosen.refused) return chosen;
@@ -605,7 +660,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
   if (answered && !(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'recorded', recorded: ['version-question'], remaining: [],
     message: answered, ...(opening.next ? { next: opening.next } : {}) };
   // A chat that asked carries on when nothing waits: only a person who typed /decide sees a review nothing waits on.
-  if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: withNext(packet.headline, packet), recorded: [], remaining: [],
+  // What was settled is said in one line at most, never asked [owner, 2026-11-20].
+  if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: withNext([packet.headline, packet.plain?.settledLine].filter(Boolean).join(' '), packet), recorded: [], remaining: [],
     ...(packet.storyNext ? { next: packet.storyNext } : {}) };
   // What an answer depends on, SFlow checks before it asks, read-only and bounded [owner, 2026-11-16].
   if (checkNames(packet).length) {

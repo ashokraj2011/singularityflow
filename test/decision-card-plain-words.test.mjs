@@ -110,8 +110,9 @@ test('every host says the same plain words, and none of the incident\'s', () => 
     }
     assert.ok(packetText(packet).startsWith(`Decide ${W} · Implementation. One question for you.\n`), packetText(packet));
   }
+  // What was settled is one line a chat may say, never a question [owner, 2026-11-20].
   assert.deepEqual(AFTER.plain, { headline: 'One question for you.', later: ['Sign off AC-001 after Implementation publishes its screenshot.'],
-    afterAnswer: 'After you answer, Implementation goes on.' });
+    afterAnswer: 'After you answer, Implementation goes on.', settledLine: `Settled for you: opening ${W}. Undo any on the Decide page.` });
 });
 
 test('one open item is asked directly: its question, its recommended option first, and the settled line kept unless undone', () => {

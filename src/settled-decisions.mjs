@@ -40,6 +40,23 @@ export function settledDecisions(workflow) {
   });
 }
 
+/**
+ * Whether a settlement can still matter here [owner, 2026-11-20: version starts on long-approved steps were offered to undo,
+ * "really confusing"]: it is on the Story's current step while that step is worked on or awaits approval, and a version SFlow
+ * started is still that step's latest; or it is the Story's own (its selection), which no step moves past. Anything else, a
+ * step already approved or a version since superseded, is history: kept in the record and on the full list, never offered
+ * to undo, never in a headline or a chat.
+ */
+export function settlementMatters(workflow, entry) {
+  if (!entry || ['complete', 'completed', 'cancelled'].includes(workflow?.status)) return false;
+  if (!entry.phase) return true;
+  const phase = workflow.phases?.[entry.phase];
+  if (entry.phase !== workflow.currentPhase || ['approved', 'completed', 'skipped'].includes(phase?.status)) return false;
+  if (!['review-corrections', 'own-correction'].includes(entry.kind)) return true;
+  const latest = Math.max(Number(phase?.generation) || 0, Number(phase?.versionOpening?.version) || 0);
+  return Number(entry.effect?.toGeneration) >= latest;
+}
+
 /** The latest settlement of `kind` for `subject`, undone or not; null when there is none. */
 export function settledFor(workflow, kind, subject) {
   return settledDecisions(workflow).filter((entry) => entry.kind === kind && entry.subject === subject).at(-1) ?? null;

@@ -58,11 +58,12 @@ export function explicitSflowSkill(prompt) {
  * Held only when the name is in none of the places Copilot loads a skill, prompt or agent from for this repository and
  * person (skillSources): SFlow's own skills, the repository's (.github/skills, .github/prompts, .github/agents,
  * singularity/agents, skills/ and every `.<tool>/skills`), the person's (Copilot's skills folder with SFlow's direct
- * aliases, and every `~/.<tool>/skills`) and every installed plugin's. A team's own `/sf-team-thing` is a turn as before. Any place
+ * aliases, every `~/.<tool>/skills`, and VS Code's own User prompts with the folders its settings add) and every installed
+ * plugin's. A team's own `/sf-team-thing` is a turn as before. Any place
  * that exists but cannot be read fails open: nothing is held. A host-expanded skill (the host found it) is never held.
  */
 export function unknownSkillReason(prompt, skill, { skillsRoot = path.join(PACKAGE_ROOT, 'plugin', 'skills'), cwd = process.cwd(), env = process.env,
-  homeDirectory = os.homedir() } = {}) {
+  homeDirectory = os.homedir(), platform = process.platform } = {}) {
   if (!skill || /<skill-context\s/u.test(String(prompt ?? ''))) return null;
   const word = skill.replace(/^(?:sf|sflow)-/u, '');
   const own = namesIn(skillsRoot, { folders: true });
@@ -71,7 +72,7 @@ export function unknownSkillReason(prompt, skill, { skillsRoot = path.join(PACKA
   if (sflow.includes(word)) return null;
   // The rare case only: an SFlow skill's name was not typed, so every other place is read before anything is held.
   const wanted = new Set([skill, `sf-${word}`, `sflow-${word}`]);
-  const sources = skillSources({ cwd, env, homeDirectory });
+  const sources = skillSources({ cwd, env, homeDirectory, platform });
   if (!sources) return null;
   for (const directory of sources) {
     const names = namesIn(directory, { folders: true, files: true });
@@ -99,7 +100,7 @@ function entriesOf(directory) {
  * Every folder Copilot loads a skill, prompt or agent from, besides SFlow's own: the repository's, the person's and plugins'.
  * Null when one that holds them cannot be listed.
  */
-export function skillSources({ cwd = process.cwd(), env = process.env, homeDirectory = os.homedir() } = {}) {
+export function skillSources({ cwd = process.cwd(), env = process.env, homeDirectory = os.homedir(), platform = process.platform } = {}) {
   const repository = repositoryFolder(cwd);
   const top = entriesOf(repository);
   if (!top) return null;
@@ -122,8 +123,45 @@ export function skillSources({ cwd = process.cwd(), env = process.env, homeDirec
   const homeEntries = entriesOf(homeDirectory);
   if (!homeEntries) return null;
   const homeTools = homeEntries.filter((entry) => entry.isDirectory() && entry.name.startsWith('.')).map((entry) => path.join(homeDirectory, entry.name, 'skills'));
+  const editor = editorPromptFolders({ env, homeDirectory, platform, repository });
+  if (!editor) return null;
   return [...new Set([path.join(repository, 'skills'), path.join(repository, 'singularity', 'agents'), ...tools,
-    personal, path.join(copilot, 'prompts'), path.join(copilot, 'agents'), ...homeTools, ...plugins])];
+    personal, path.join(copilot, 'prompts'), path.join(copilot, 'agents'), ...homeTools, ...plugins, ...editor])];
+}
+
+// VS Code, its Insiders build and VSCodium: each keeps a person's prompt files in its User folder's `prompts`.
+const EDITOR_PRODUCTS = Object.freeze(['Code', 'Code - Insiders', 'VSCodium']);
+
+/**
+ * The person's own VS Code prompt files: each editor's `User/prompts` (macOS ~/Library/Application Support, Windows
+ * %APPDATA%, Linux $XDG_CONFIG_HOME or ~/.config), and the folders its User settings.json adds in
+ * `chat.promptFilesLocations` (relative ones are the workspace's). Null when a settings file there cannot be read or parsed.
+ */
+function editorPromptFolders({ env, homeDirectory, platform, repository }) {
+  const base = platform === 'darwin' ? path.join(homeDirectory, 'Library', 'Application Support')
+    : platform === 'win32' ? String(env.APPDATA ?? '').trim() || path.join(homeDirectory, 'AppData', 'Roaming')
+      : String(env.XDG_CONFIG_HOME ?? '').trim() || path.join(homeDirectory, '.config');
+  const folders = [];
+  for (const product of EDITOR_PRODUCTS) {
+    const user = path.join(base, product, 'User');
+    folders.push(path.join(user, 'prompts'));
+    let text;
+    try { text = readFileSync(path.join(user, 'settings.json'), 'utf8'); }
+    catch (error) { if (['ENOENT', 'ENOTDIR'].includes(error?.code)) continue; return null; }
+    let settings;
+    // settings.json is JSON with comments and trailing commas: only those are removed; anything else that fails to parse
+    // fails open.
+    try { settings = JSON.parse(text.replace(/"(?:[^"\\]|\\.)*"|\/\/[^\n]*|\/\*[\s\S]*?\*\//gu, (match) => (match.startsWith('"') ? match : ''))
+      .replace(/,(\s*[}\]])/gu, '$1')); } catch { return null; }
+    const locations = settings?.['chat.promptFilesLocations'];
+    const named = Array.isArray(locations) ? locations : locations && typeof locations === 'object'
+      ? Object.entries(locations).filter(([, on]) => on).map(([folder]) => folder) : [];
+    for (const folder of named.filter((value) => typeof value === 'string' && value.trim())) {
+      const value = folder.trim().replace(/^~(?=$|[\\/])/u, homeDirectory);
+      folders.push(path.isAbsolute(value) ? value : path.join(repository, value));
+    }
+  }
+  return folders;
 }
 
 /**

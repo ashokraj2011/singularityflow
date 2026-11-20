@@ -38,6 +38,10 @@
  *   - `ask-person` with a clarification checkpoint: the answers are written in its response format and recorded by its
  *     recordAction; `confirm-review`: do.shell shows the review, and the person's yes runs the returned --confirm;
  *   - a command that answers in text whatever it is asked is read by its first NOW action's route lines.
+ *
+ * In VS Code's own chat (`host: 'vscode'`, with test/helpers/vscode-host.mjs) /sf-approve and /sf-decide are skills, never a
+ * scripted terminal approval: their page tools run the extension's pages on the Story, and the walk fails on the same tool
+ * answer coming back unchanged, or a route VS Code's chat does not have (vscodeTurn, at the end of this file).
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -381,8 +385,12 @@ export function formatTrail(trail) {
  * Returns { reached, findings: [{ kind, detail, step }], trail, steps, views }: `views` lists each hand-off where one of
  * the person's views named another skill than the agent's route (see personViews).
  */
-export async function followRoutes(story, { start, agent = {}, person = null, detour = null, done, maxSteps = 60, label = 'journey' }) {
+export async function followRoutes(story, { start, agent = {}, person = null, detour = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS }) {
   const entries = skillEntries();
+  // VS Code's chat [hardening C]: /sf-approve and /sf-decide are entered as skills there, and their page tools are called on
+  // the host's pages (test/helpers/vscode-host.mjs); every tool answer is kept to find the same one coming back unchanged.
+  // `skillsRoot` reads the tool branches from other skill text, so a journey can show the walk sees a loop that text makes.
+  const chat = host === 'vscode' ? { vscode, branches: skillToolBranches(skillsRoot), seen: new Map(), names: vscodeChatNames() } : null;
   const trail = [];
   const findings = [];
   const seen = new Map();
@@ -401,6 +409,8 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
 
   for (let step = 1; step <= maxSteps; step += 1) {
     const before = storyState(story);
+    // In VS Code the window's Story is part of where things stand: selecting it changes what the approval page shows.
+    if (chat?.vscode) before.key = `${before.key}|window:${chat.vscode.shows}`;
     const key = `${before.key}|${routeKey(route)}`;
     const entry = { step, taking: route.copilot && !route.inTurn ? route.copilot : short(route.shell), state: before.mark };
     trail.push(entry);
@@ -414,7 +424,7 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     const entering = route.copilot && !route.inTurn && !route.reentered && !['refresh entry', 'after answers'].includes(route.source)
       ? route.copilot.split(/\s+/u)[0] : null;
     if (entering) {
-      const circle = `${before.head}|${before.mark}|${entering}`;
+      const circle = `${before.head}|${before.mark}|${entering}${chat?.vscode ? `|${chat.vscode.shows}` : ''}`;
       if (entered.has(circle)) {
         entry.finding = 'circle';
         finding('circle', `${entering} was entered again on the same commit and step state as at step ${entered.get(circle)}, with no progress between`, step);
@@ -422,7 +432,9 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       }
       entered.set(circle, step);
     }
-    const taken = await takeRoute({ story, route, entries, phases: phases(), currentPhase: current(), agent, person, entry, turn, last, before, guard });
+    const taken = chat && route.copilot && !route.inTurn && VSCODE_CARD_SKILLS.has(skillOf(route.copilot))
+      ? await vscodeTurn({ story, route, entries, phases: phases(), currentPhase: current(), person, entry, guard, chat, step })
+      : await takeRoute({ story, route, entries, phases: phases(), currentPhase: current(), agent, person, entry, turn, last, before, guard });
     turn = taken.turn ?? turn;
     last = taken.result ?? last;
     entry.turn = turn;
@@ -467,6 +479,7 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       }
     }
     const after = storyState(story);
+    if (chat?.vscode) after.key = `${after.key}|window:${chat.vscode.shows}`;
     // Progress: the Story changed, or a person is being asked. A pure hand-off joins the next step, two at most.
     if (after.key === before.key && !taken.personPending) {
       idle += 1;
@@ -845,19 +858,26 @@ function nextFrom(result, { turn }) {
  * guard's own tests do with an earlier `now`: the turn's records keep the prompt's time as `recordedAt`, the only clock
  * the guard reads, and a record that carries an integrity digest gets it recomputed, as its writer computes it.
  */
-export function copilotTurn(story, sessionId) {
+export function copilotTurn(story, sessionId, { host = 'copilot-cli' } = {}) {
   const hook = (event, payload) => {
     const ran = story.spawn(process.execPath, [CLI, 'hook', event], { input: JSON.stringify({ cwd: story.root, sessionId, ...payload }) });
     try { return JSON.parse(ran.stdout || '{}'); } catch { return { unparsed: ran.stdout, stderr: ran.stderr }; }
   };
   const boundaries = path.join(path.dirname(story.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), 'copilot-boundaries');
   const prefix = createHash('sha256').update(sessionId).digest('hex');
+  // VS Code's own chat says it as `tool_name`, `tool_input` and `tool_response`, its question tool being vscode_askQuestions
+  // (src/copilot-answer-binding.mjs), never Copilot CLI's toolName, toolArgs and ask_user [hardening C].
+  const vscode = host === 'vscode';
+  const call = (toolName, toolArgs) => (vscode ? { tool_name: toolName, tool_input: toolArgs } : { toolName, toolArgs });
   return {
     prompt: (text) => hook('boundary-turn', { prompt: text }),
-    tool: (toolName, toolArgs = {}) => hook('boundary-guard', { toolName, toolArgs: { cwd: story.root, ...toolArgs } }),
-    after: (toolName, toolArgs, toolResult) => hook('boundary-after', { toolName, toolArgs, toolResult }),
-    /** The person's answer to the turn's question tool (ask_user), as Copilot CLI hands it to the post-tool hook. */
-    answered: (words) => hook('boundary-after', { toolName: 'ask_user', toolArgs: { question: 'Your answer?' }, toolResult: { resultType: 'success', textResultForLlm: `User responded: ${words}` } }),
+    tool: (toolName, toolArgs = {}) => hook('boundary-guard', call(toolName, { cwd: story.root, ...toolArgs })),
+    after: (toolName, toolArgs, toolResult) => hook('boundary-after', { ...call(toolName, toolArgs), ...(vscode ? { tool_response: toolResult } : { toolResult }) }),
+    /** The person's answer to the turn's question tool, as its host hands it to the post-tool hook. */
+    answered: (words) => hook('boundary-after', vscode
+      ? { tool_name: 'vscode_askQuestions', tool_input: { questions: [{ header: 'Answer', question: 'Your answer?' }] },
+        tool_response: JSON.stringify({ answers: { Answer: { selected: [words], freeText: null, skipped: false } } }) }
+      : { toolName: 'ask_user', toolArgs: { question: 'Your answer?' }, toolResult: { resultType: 'success', textResultForLlm: `User responded: ${words}` } }),
     age: (minutes) => {
       const turn = JSON.parse(readFileSync(path.join(boundaries, `${prefix}.json`), 'utf8'));
       const prompted = turn.recordedAt;
@@ -882,4 +902,195 @@ export function copilotTurn(story, sessionId) {
       return aged;
     }
   };
+}
+
+// ------------------------------------------------------------------------------------ VS Code's chat [hardening C]
+
+/** The skills whose VS Code branch goes through a page tool, never a scripted terminal approval: entered as skills there. */
+const VSCODE_CARD_SKILLS = new Set(['/sf-approve', '/sf-decide']);
+const TOOL_SENTENCE = /If `#(sflow\w+)` or `(sflow_\w+)` is available, call it once with `(\w+)`/u;
+const THEN_SENTENCE = /Then(?:, unless it returned `([^`]+)`)?,? run `(singularity-flow [^`]+)`/u;
+
+/**
+ * Each skill's page-tool branches, from its SKILL.md as skillEntries reads it, never a hand list: "If `#sflowX` or `sflow_x`
+ * is available, call it once with `field`", and what the same step runs after it ("Then, unless it returned `<status>`,
+ * run `<command>`"), the instruction a real chat follows once the tool answered.
+ */
+export function skillToolBranches(skillsRoot = SKILLS) {
+  const map = new Map();
+  for (const directory of readdirSync(skillsRoot, { withFileTypes: true })) {
+    if (!directory.isDirectory() || !directory.name.startsWith('sflow-')) continue;
+    let body;
+    try { body = readFileSync(path.join(skillsRoot, directory.name, 'SKILL.md'), 'utf8'); } catch { continue; }
+    const branches = [];
+    for (const line of body.split('\n').filter((text) => /^\d+\. /u.test(text))) {
+      const tool = TOOL_SENTENCE.exec(line);
+      if (!tool) continue;
+      const then = THEN_SENTENCE.exec(line.slice(tool.index));
+      branches.push({ step: Number(/^(\d+)\./u.exec(line)[1]), reference: `#${tool[1]}`, copilotCli: tool[2], inputs: [tool[3]],
+        then: then ? { command: then[2].replace(/\s+/gu, ' ').trim(), unless: then[1] ?? null } : null });
+    }
+    if (branches.length) map.set(`/sf-${directory.name.slice('sflow-'.length)}`, branches);
+  }
+  return map;
+}
+
+/** A status a skill's "unless it returned `x`" names: exactly, or by its `prefix-*`. */
+const statusMatches = (pattern, status) => Boolean(pattern) && (pattern.endsWith('*') ? String(status ?? '').startsWith(pattern.slice(0, -1)) : status === pattern);
+
+/**
+ * What VS Code's chat has: the skills (/sf-*, a plugin/skills folder), @sflow's commands, the page tools by their chat name
+ * (#sflowDecide) and the Command Palette's titles. A route given to that chat outside these does not exist there.
+ */
+export function vscodeChatNames(root = REPOSITORY) {
+  const manifest = JSON.parse(readFileSync(path.join(root, 'apps/vscode/package.json'), 'utf8'));
+  const participant = JSON.parse(readFileSync(path.join(root, 'apps/vscode/src/participant-commands.json'), 'utf8'));
+  const commands = Array.isArray(participant) ? participant : participant.commands ?? [];
+  return {
+    skills: new Set(readdirSync(path.join(root, 'plugin/skills'), { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name.startsWith('sflow-'))
+      .map((entry) => `/sf-${entry.name.slice('sflow-'.length)}`)),
+    participant: new Set(commands.map((command) => `@sflow /${command.name ?? command.id}`)),
+    tools: new Map(manifest.contributes.languageModelTools.map((tool) => [`#${tool.toolReferenceName ?? tool.name}`, tool.name])),
+    palette: new Set(manifest.contributes.commands.map((command) => (command.category ? `${command.category}: ${command.title}` : command.title)))
+  };
+}
+
+/** Whether VS Code's chat has this route: a skill, an @sflow command, a page tool, or a Command Palette title. */
+export function onVscodeChat(names, value) {
+  const text = String(value ?? '').trim();
+  if (!text) return true;
+  const word = text.split(/\s+/u)[0];
+  if (word.startsWith('#')) return names.tools.has(word);
+  if (word === '@sflow') return names.participant.has(text.split(/\s+/u).slice(0, 2).join(' '));
+  if (word.startsWith('/')) return names.skills.has(skillOf(word) ?? word);
+  const palette = /^Command Palette: (.+)$/u.exec(text);
+  return palette ? names.palette.has(palette[1]) : true;
+}
+
+/** A route's VS Code chat form: its #tool when it has one, else its Copilot command. */
+const chatRouteOf = (next) => (next && typeof next === 'object' ? next.vscodeChat ?? next.copilotCommand ?? next.copilot ?? null : null);
+
+/**
+ * One /sf-approve or /sf-decide turn in VS Code's own chat, as its skill text and the results tell the agent: the page tool
+ * is called where the skill names it (/sf-decide step 1) or a result does (an approval's `act.ask.how`, a Decide card's
+ * `do.vscodeChat`), the person acts on the page, and the skill's own next instruction runs after it. The same tool, input,
+ * status and next coming back on the same Story state is a loop (owner, 2026-11-20); each answer is also checked for a route
+ * VS Code's chat does not have, a route back to the skill that called it, an approval page that shows another Story, and the
+ * approval handed back as still open.
+ */
+async function vscodeTurn({ story, route, entries, phases, currentPhase, person, entry, guard, chat, step }) {
+  const { vscode, branches, seen, names } = chat;
+  const skill = skillOf(route.copilot);
+  const workId = story.workId;
+  const callers = new Set([skill]);
+  const answered = [];
+  const did = [];
+  const note = (text) => { did.push(text); entry.did = did.join('; '); };
+  if (guard) {
+    guard.turn = copilotTurn(story, guard.sessionId, { host: 'vscode' });
+    guard.turn.prompt(route.source === 'start' ? route.copilot.trim() : skill);
+    Object.assign(guard, { skill, hosts: {} });
+  }
+  entry.typed = true;
+  const finding = (kind, detail) => ({ finding: { kind, detail }, turn: skill });
+
+  /** The page tool, as VS Code's chat calls it; its answer checked. Returns { answer } or a finding. */
+  const callTool = async (reference, input) => {
+    const name = names.tools.get(reference);
+    if (!name) return finding('not-on-vscode', `${reference} is no tool VS Code's chat has`);
+    const state = storyState(story);
+    const answer = await vscode.callTool(name, input);
+    answered.push({ name, answer });
+    const next = answer?.next && typeof answer.next === 'object' ? answer.next : null;
+    const key = `${state.key}|window:${vscode.shows}|tool:${name}:${JSON.stringify(input)}|${answer?.status}|${chatRouteOf(next) ?? ''}|${next?.command ?? ''}`;
+    note(`[tool ${name} ${JSON.stringify(input)}] → ${answer?.status}`);
+    if (seen.has(key)) return finding('vscode-loop', `${name} answered ${answer?.status} again on the same Story state, as at step ${seen.get(key)}: nothing changed between`);
+    seen.set(key, step);
+    const words = `${answer?.message ?? ''} ${JSON.stringify(next ?? '')}`;
+    const back = [...callers].find((caller) => new RegExp(`${caller}(?![\\w-])`, 'u').test(words));
+    if (back && storyState(story).key === state.key) return finding('returns-to-caller', `${name} answered ${answer?.status} naming ${back}, the skill that called it, with nothing changed: ${String(answer?.message ?? '').slice(0, 300)}`);
+    const chatRoute = chatRouteOf(next);
+    if (chatRoute && !onVscodeChat(names, chatRoute) && !next?.vscodeChat) return finding('not-on-vscode', `${name} handed VS Code's chat ${chatRoute}, which it does not have`);
+    if (next?.modelFreeCommand && !onVscodeChat(names, next.modelFreeCommand)) return finding('not-on-vscode', `${name} named ${next.modelFreeCommand}, which VS Code does not have`);
+    const page = vscode.approvals.at(-1);
+    if (answer?.status === 'approval-open' && page?.shown?.status === 'elsewhere') return finding('claims-elsewhere', `${name} said the approval page is open, but the window shows ${vscode.shows}, not ${workId}`);
+    if (/^approval-/u.test(answer?.status ?? '') && (answer.remaining ?? []).some((line) => /\bApprove\b/u.test(line))) return finding('remaining-handed-off', `${name} opened the approval page and still listed it as open: ${answer.remaining.join('; ')}`);
+    return { answer };
+  };
+
+  /** The approval page: the person selects the Story there when the window shows another, then approves. */
+  const onApprovalPage = async (answer) => {
+    const focus = vscode.approvals.at(-1)?.focus ?? { workId, phase: currentPhase };
+    if (answer.status === 'approval-elsewhere') {
+      const next = answer.next ?? {};
+      if (!next.modelFreeCommand || !onVscodeChat(names, next.modelFreeCommand)) return finding('dead-end', `approval-elsewhere named no way to select ${workId} here`);
+      vscode.windowStory = workId;
+      note(`the person selects ${workId} in this window (${next.modelFreeCommand})`);
+    }
+    const said = person?.({ story, route: { page: 'approvals', focus }, result: answer, act: null, phase: focus.phase }) ?? null;
+    // What the page's Approve ends in (approveWithReceipt), as the person's own command.
+    const command = said?.command ?? `singularity-flow approve ${focus.phase} --work-id ${workId} --yes`;
+    const ran = await runCommand(story, command, { agent: false });
+    note(`the person approves on the approval page: ${short(command)} (exit ${ran.status})`);
+    if (ran.status !== 0) return refusalRoute(ran.result, command, 'person') ?? finding('person-refused', `${short(command)} refused`);
+    return { result: ran.result, next: nextFrom(ran.result, { turn: null }), personPending: true, turn: 'person' };
+  };
+
+  /** What follows a page tool's answer, in this turn: the approval page, or the skill's own next instruction. */
+  const afterTool = async (answer, then) => {
+    // The skill's own next instruction first, as its text gates it: a literal chat runs it whatever the page did (F1).
+    if (then && !statusMatches(then.unless, answer?.status)) return readList(then.command.replace('<WORK-ID>', workId), { toolAnswered: true });
+    if (/^approval-/u.test(answer?.status ?? '')) return onApprovalPage(answer);
+    return { result: answer, next: null, personPending: true, turn: skill };
+  };
+
+  /** The list read in a /sf-decide turn, and what its act sends the agent to next. */
+  const readList = async (command, { toolAnswered }) => {
+    const ran = await runCommand(story, command);
+    note(short(command));
+    if (ran.status !== 0) return refusalRoute(ran.result, command, skill);
+    const act = ran.result?.act ?? null;
+    const list = ran.result?.data?.resultType === 'sflow-decisions' ? ran.result.data : ran.result;
+    if (act?.do?.copilot && /^\/decide\b/u.test(act.do.copilot) && !act.do.vscodeChat) return finding('not-on-vscode', `the list's Decide card route is ${act.do.copilot}, which VS Code's chat does not have, and names no #sflowDecide`);
+    // The Decide card in VS Code's chat: called once, never again after it answered in this turn (act.said, F3).
+    if (act?.state === 'confirm-in-terminal' && act.do?.vscodeChat) {
+      if (!toolAnswered) {
+        callers.add('/sf-decide');
+        const [reference] = act.do.vscodeChat.split(/\s+/u);
+        const called = await callTool(reference, { workId });
+        if (called.finding) return { ...called, result: ran.result };
+        return afterTool(called.answer, null);
+      }
+      return { result: ran.result, next: { person: true, copilot: null, vscodeChat: act.do.vscodeChat, source: 'the card, for the person' }, personPending: true, turn: skill };
+    }
+    // "next `approval` you may approve: do /sf-approve 1-6 now" (sflow-decide step 1).
+    const approval = list?.next?.kind === 'approval' && (list.items ?? []).find((item) => item.kind === 'approval')?.decidedBy?.allowed;
+    if (approval) { callers.add('/sf-approve'); note('do /sf-approve 1-6 now'); return approveSteps(); }
+    return { result: ran.result, next: nextFrom(ran.result, { turn: skill }), turn: skill };
+  };
+
+  /** /sf-approve steps 1-6 in VS Code's chat: its entry, then the page the approval packet's `ask.how` names. */
+  const approveSteps = async () => {
+    const command = entryCommand(entries, route.copilot.startsWith('/sf-approve') ? route.copilot : `/sf-approve ${currentPhase ?? ''}`.trim(), { workId, phases, currentPhase });
+    const ran = await runCommand(story, command);
+    note(short(command));
+    if (ran.status !== 0) return refusalRoute(ran.result, command, skill);
+    const result = ran.result;
+    // `decisions-required`: /sf-decide 11-14 now, without its step 1 (sflow-approve step 1).
+    if (result?.reason === 'decisions-required') { callers.add('/sf-decide'); return readList(`singularity-flow decisions ${workId} --for-agent --json`, { toolAnswered: answered.length > 0 }); }
+    if (result?.begun === false) return { result, next: nextFrom(result, { turn: skill }), turn: skill };
+    const how = result?.act?.ask?.how ?? '';
+    const reference = /#sflow\w+/u.exec(how)?.[0];
+    if (!reference) return finding('no-vscode-route', `the approval asks "${result?.act?.ask?.question ?? ''}" with no route for VS Code's chat, whose question tool cannot record an approval`);
+    const called = await callTool(reference, { workId });
+    if (called.finding) return { ...called, result };
+    return afterTool(called.answer, null);
+  };
+
+  if (skill === '/sf-approve') return approveSteps();
+  const branch = branches.get('/sf-decide')?.[0];
+  if (!branch) return finding('skill-without-entry', '/sf-decide names no page tool for VS Code');
+  const called = await callTool(branch.reference, Object.fromEntries(branch.inputs.map((input) => [input, input === 'workId' ? workId : null])));
+  if (called.finding) return called;
+  return afterTool(called.answer, branch.then);
 }

@@ -10,7 +10,9 @@ export const SLOW_LANE_IMPORT = /from ['"]\.\/helpers\/slow-lane\.mjs['"]/u;
 // change reaches through imports or names, and the journeys reach SFlow only through the CLI and the skill files they
 // follow, so no change would select them; the whole route path breaks unseen that way. Touched-set selectors append
 // this list; the full journeys in it run in the slow lane (SINGULARITY_FLOW_TEST_SLOW=1).
-export const ALWAYS_SELECTED_TESTS = Object.freeze(['test/journey-routes.test.mjs', 'test/journey-stories.test.mjs']);
+// VS Code's chat walks (hardening C) reach it through the skill files and the extension's pages too, and its route checks
+// read the skill files: neither is reached by imports.
+export const ALWAYS_SELECTED_TESTS = Object.freeze(['test/journey-routes.test.mjs', 'test/journey-stories.test.mjs', 'test/journey-vscode.test.mjs', 'test/vscode-chat-routes.test.mjs']);
 
 // These files perform full Story/worktree/remote/model-transport or durable-runtime journeys.
 // Source bytes radically understate that cost. Reviewed scheduling weights keep them out of the

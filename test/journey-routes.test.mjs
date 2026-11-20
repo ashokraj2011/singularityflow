@@ -44,9 +44,11 @@ test('the follower enters each skill by the first command its SKILL.md names, fo
 test('every landing runs the journeys: they are always selected, and the full ones are in the slow lane', async () => {
   const { ALWAYS_SELECTED_TESTS, SLOW_LANE_IMPORT } = await import('../scripts/test-suite-plan.mjs');
   const { readFile } = await import('node:fs/promises');
-  assert.deepEqual([...ALWAYS_SELECTED_TESTS].sort(), ['test/journey-routes.test.mjs', 'test/journey-stories.test.mjs']);
-  const full = await readFile(new URL('./journey-stories.test.mjs', import.meta.url), 'utf8');
-  assert.match(full, SLOW_LANE_IMPORT, 'the full journeys run with npm run test:slow');
+  assert.deepEqual([...ALWAYS_SELECTED_TESTS].sort(), ['test/journey-routes.test.mjs', 'test/journey-stories.test.mjs', 'test/journey-vscode.test.mjs', 'test/vscode-chat-routes.test.mjs']);
+  for (const name of ['journey-stories', 'journey-vscode']) {
+    const full = await readFile(new URL(`./${name}.test.mjs`, import.meta.url), 'utf8');
+    assert.match(full, SLOW_LANE_IMPORT, `the full journeys (${name}) run with npm run test:slow`);
+  }
 });
 
 /** A spec-driven Story with every authored step reviewed, its specification approved and planning not yet written. */

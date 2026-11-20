@@ -2014,7 +2014,7 @@ equivalent is `sflow-next`, which delegates to `singularity-flow next`.
 ### Review of each step
 
 Every step a Story authors is reviewed by an independent read-only reviewer before it is submitted, code steps included.
-A work type sets that review under `sourceReview`:
+A workflow sets that review under `sourceReview`:
 
 ```yaml
 workTypes:
@@ -2030,7 +2030,7 @@ workTypes:
 - `mode: off` reviews no step; `skip` leaves single steps out.
 - `autoFixVersions` is how many versions in a row SFlow starts on its own to fix a review's findings, when only the
   reviewer has seen the version it reviewed. After that many, it asks you before the next one. `0` asks you every time.
-  `autoFixVersionsByStep` sets the number for single steps; the work type's number covers the rest.
+  `autoFixVersionsByStep` sets the number for single steps; the workflow's number covers the rest.
 - A person's yes on a version starts the count again. A finding that comes back after SFlow's fix always asks you,
   whatever the number.
 - `singularity-flow workflow check` shows the number for each workflow; `workflow check <WORKFLOW>` shows it per step.

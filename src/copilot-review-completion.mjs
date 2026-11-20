@@ -26,6 +26,21 @@ async function reserveTaskContinuation(value, operation) {
   return reserved.allowed;
 }
 
+/**
+ * No automatic continuation is left for this request (a request spent its own, or the task's progress record was set aside
+ * and gets none): the turn still ends, but never silently. One last answer tells the agent to say so to the person and how
+ * they go on (the skill again: a new request starts with its own continuations), and to run nothing more; the stop after it
+ * finds this operation continued and ends the turn [limit audit, item 2]. Before, the hook returned nothing and nobody was told.
+ */
+function continuationSpent(value, operation) {
+  const skill = `/sf-${String(value?.skill ?? value?.contract?.turnSkill ?? 'phase').replace(/^\/?(?:sf|sflow)-/u, '')}`;
+  const what = operation.kind === 'phase-authoring' ? 'has no verified completed publication from this task' : 'has no completed retained review from this operation';
+  return { decision: 'block', reason: `SFLOW_TASK_CONTINUATION_SPENT: ${operation.workId} ${operation.phaseId} generation ${operation.generation} ${what}, `
+    + 'and SFlow has no automatic continuation left for this request. Run nothing more. In one short message, tell the person the step is not finished, '
+    + `what is left as far as you know, and that they continue it by invoking ${skill} again: a new request starts with its own continuations, `
+    + 'and everything already written is kept. Never infer success or make a decision for a person.' };
+}
+
 function failureDetails(error, payload = {}) {
   const message = typeof error === 'string' ? error : error?.permissionDecisionReason ?? error?.message ?? '';
   let args = payload.toolArgs ?? payload.tool_input;
@@ -152,8 +167,8 @@ export async function workflowTaskAgentStop(payload = {}) {
     : safeCommandGuidance(operation.recheck);
   if (!next) return {};
   operation.continued = true;
-  if (!await saveReviewCompletionTurn(payload, value, { once: true, ...(answers ? { claim: `task-completion-${operation.state}` } : {}) })
-    || !answers && !await reserveTaskContinuation(value, operation)) return {};
+  if (!await saveReviewCompletionTurn(payload, value, { once: true, ...(answers ? { claim: `task-completion-${operation.state}` } : {}) })) return {};
+  if (!answers && !await reserveTaskContinuation(value, operation)) return continuationSpent(value, operation);
   return { decision: 'block', reason: `SFLOW_WORKFLOW_TASK_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no verified completed publication from this task. `
     + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --command "<the cut command\'s words>" --for-agent --json and follow that result; never replay the command. Otherwise: '
     + (operation.state === 'record-answers' ? `The person has answered and nothing is recorded yet. Stage their answers as ${CLARIFICATION_RESPONSE_FORMAT}, one entry per question, at the --response-file path and run ${next.command} alone, then run singularity-flow phase enter --compose --for-agent --json once and do this step's own work from what it returns. If they declined or left a question open, say which and stop; never answer for them. `
@@ -206,7 +221,8 @@ export async function sourceReviewAgentStop(payload = {}) {
     : draft && !draft.error && operation.state !== 'repair-report' ? `Run ${check.command} now, then follow its repair or retention route.`
     : `${draft ? 'Repair the existing JSON' : 'Author the independent report from the issued template and already read pinned inputs'} at ${operation.stagingPath}. Then run ${check.command} and retain when retentionReady.`;
   operation.continued = true;
-  if (!await saveReviewCompletionTurn(payload, value, { once: true }) || !await reserveTaskContinuation(value, operation)) return {};
+  if (!await saveReviewCompletionTurn(payload, value, { once: true })) return {};
+  if (!await reserveTaskContinuation(value, operation)) return continuationSpent(value, operation);
   return { decision: 'block', reason: `SFLOW_SOURCE_REVIEW_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no completed retained review from this operation. ${next} `
     + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --command "<the cut command\'s words>" --for-agent --json and follow that result; never replay the command. '
     + 'Continue the existing operation in this turn; do not reload context or repeat the input reads. Preserve exact bindings and independent judgments. Honest semantic gaps may be retained as correction-required findings. Never approve, decide for a human, publish an artifact or advance the phase. '

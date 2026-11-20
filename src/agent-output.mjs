@@ -798,7 +798,10 @@ export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
       ? `The same questions have been due ${count} times in a row. Ask them now with your question tool (ask_user; in VS Code, vscode_askQuestions), or print them and stop; do not load the context again.`
     : act.state === 'correct'
       ? `The same findings have come back ${count} times unchanged, so the edits are not fixing them. Read what each finding quotes and the shape it asks for, change exactly that, or tell the person what is blocked and stop.`
-      : `The same result has come back ${count} times in a row; repeating the command cannot change it. Do act.do now, or tell the person exactly what is blocked and stop.`;
+      // act.do is often the very command that keeps returning this: "Do act.do now" sent the loop round again [limit audit, item 8].
+      : `The same result has come back ${count} times in a row; repeating the command that returned it cannot change it. `
+        + 'If act.do is that same command, never run it again: tell the person exactly what is blocked and what would change it, and stop. '
+        + 'Otherwise run act.do once now.';
   return { ...act, said: `Repeated ${count} times: ${act.said ?? ''}`.trim(), loop: { repeated: count, instruction } };
 }
 

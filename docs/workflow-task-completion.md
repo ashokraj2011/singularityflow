@@ -56,8 +56,11 @@ Receiving users must explicitly transfer missing drafts and re-upload required l
 fresh phase entry issues the correct paths and independently checks publication/review bindings.
 
 When a host supports `agentStop`, a premature normal end of a full authoring/review task receives
-one atomic continuation for that turn. Its task-scoped budget survives chat restarts, using exclusive
-bounded claims rather than resetting at each prompt. It reuses the admitted context and already-read inputs.
+one atomic continuation for that turn. Continuations count per request (the host turn the stop ends), using
+exclusive bounded claims: a new request, in the same chat or a new one, starts with the whole budget again, and the
+task record's repair budget, which the kernel reads for TASK_REPAIR_EXHAUSTED, is never spent by them. When a request
+has none left, its last stop says so once and names the person's way on (the step's skill again) instead of ending the
+turn silently. It reuses the admitted context and already-read inputs.
 It cannot reset repair budgets, start another model or phase, or approve, submit, fabricate evidence
 or decide for a person. Genuine blockers, expired or changed bindings, pause, cancellation, an ended
 decision and an already-used continuation end automatic follow-up. The existing draft and the

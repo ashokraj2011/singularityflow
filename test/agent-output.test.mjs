@@ -590,7 +590,8 @@ test('the same actionable result a third time in a row says it is a loop and nam
     classification: 'convergence-advance-required', nextCommand: 'singularity-flow story advance --work-id W', nextSkill: '/sf-submit' };
   const previews = [1, 2, 3].map((minute) => observeAgentLoop(root, preview, agentAct(preview), { now: now - 30 * 60_000 + minute * 60_000 }));
   assert.equal(previews[2].state, 'next');
-  assert.match(previews[2].loop.instruction, /The same result has come back 3 times in a row; repeating the command cannot change it\. Do act\.do now/u);
+  assert.match(previews[2].loop.instruction, /The same result has come back 3 times in a row; repeating the command that returned it cannot change it\. If act\.do is that same command, never run it again: tell the person exactly what is blocked and what would change it, and stop\. Otherwise run act\.do once now\./u);
+  assert.doesNotMatch(previews[2].loop.instruction, /Do act\.do now/u, 'the loop never sends the agent round the same command again [limit audit, item 8]');
   const review = { ...preview, head: 'h1', nextCommand: `singularity-flow story advance --work-id W --confirm ${digest}` };
   const seen = [1, 2, 3].map((minute) => observeAgentLoop(root, review, agentAct(review), { now: now + minute * 60_000 }));
   assert.equal(seen[1].loop, undefined);

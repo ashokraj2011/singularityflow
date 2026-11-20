@@ -146,7 +146,11 @@ test('the unchanged renewal is once per prompt: past its second window only the 
   assert.match(expired.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last 30 minutes from its renewal and have ended; nothing was written\. Invoke \/sf-code again to continue: the new turn enters again/u);
   assert.match(expired.permissionDecisionReason, /renewed once already with nothing changed, so its entry read renews it no more/u);
   assert.doesNotMatch(expired.permissionDecisionReason, /own first command once more/u);
-  await read();
+  // After the call, a read that renewed nothing is told to invoke the skill again, never to run another read: `session
+  // current` there passed the pre-tool check and came back to this same stop [limit audit, item 3].
+  const after = await read();
+  assert.match(after.additionalContext ?? '', /PHASE_MUTATION_TURN_EXPIRED: [^\n]*Invoke \/sf-code again to continue/u, JSON.stringify(after));
+  assert.doesNotMatch(JSON.stringify(after), /PHASE_MUTATION_CONTRACT_STALE|session current/u);
   assert.match((await mutationToolGuard(author)).permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: /u, 'a second unchanged read renews nothing');
   // The person's own answer still renews it, as always.
   await answered(author, 'keep going');

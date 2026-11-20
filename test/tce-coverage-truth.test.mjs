@@ -318,6 +318,10 @@ test('a polyglot Story runs pytest for its requirements-only Python service and 
       if (attempt.status === 'passed') passed.add(`${attempt.commandId} covers ${attempt.affectedRoots.join(', ')}`);
     }
     assert.deepEqual([...passed].sort(), ['.-node-tests covers .', 'services/api-python-tests covers services/api']);
+    // The generator is no longer part of the change, so the plan says so: a planned file that does not change leaves its
+    // criterion partly delivered, and the code step's own submission refuses that [owner, 2026-11-20].
+    story.must(process.execPath, [CLI, '--no-model', 'decision', 'plan', 'TCE-1', '--owner', 'intake', '--remove-location', `${AC}=tools/generate.py`,
+      '--reason', 'The generator is not part of this change.']);
     // Submission binds each criterion's test to the command that ran its module.
     story.must(process.execPath, [CLI, '--no-model', 'submit', 'implementation']);
     const receipt = JSON.parse(await readFile(path.join(story.root, 'singularity/work-items/TCE-1/context/code-delivery/implementation-gen1.json'), 'utf8'));

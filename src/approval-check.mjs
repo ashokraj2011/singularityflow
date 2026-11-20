@@ -673,6 +673,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   // A review, an agent selection and an acknowledgement are steps of their own, so none is answered in
   // the approval: as `you-decide` they said ready, Approve was offered and the gate refused.
   ARA_REVIEW_REQUIRED: 'someone-decides',
+  // The workflow's review-fix number is out of range: whoever edits the workflow sets it in Workflow Studio [owner, 2026-11-20].
+  SOURCE_REVIEW_AUTO_FIX_INVALID: 'someone-decides',
   ARA_EVIDENCE_UNAVAILABLE: 'someone-decides',
   ARA_REVIEW_STALE: 'someone-decides',
   // A report on a published step in a Story that keeps no typed words: the person says the change in the step's preview,

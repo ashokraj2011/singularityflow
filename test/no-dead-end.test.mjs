@@ -28,7 +28,8 @@ const RATCHET = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/known-dea
 // 176 (from 173): SPEC-SCF stage 4's three configuration-ancestry refusals, whose way through is an approver's or the
 // team's preview-then-confirm, or a restore on the Git host [2026-11-17 landing]. 175: WITNESS_EVIDENCE_UNPUBLISHED names
 // the owning step's republication (review finding 6, 2026-11-17).
-const CEILING = Object.freeze({ walks: 0, readOnlyFirstRoutes: 175 });
+// 176: WORKFLOW_VERSION_NEWER (step intents Stage 0) joins the stand-in group: its real refusal leads with `singularity-flow update`.
+const CEILING = Object.freeze({ walks: 0, readOnlyFirstRoutes: 176 });
 
 const MAJOR = process.versions.node.split('.')[0];
 // A Node this machine does not run, as a small script that runs the real one (project-node-version.test.mjs), and a

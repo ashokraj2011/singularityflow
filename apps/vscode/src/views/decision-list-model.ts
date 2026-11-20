@@ -65,9 +65,12 @@ export interface DecisionItemPacket {
   recommended?: { option: string | null; why: string; words: string; check?: boolean };
   /**
    * The item in plain words, the same on every host [owner, 2026-11-16]: its question, why and "Recommended: …"; `later`
-   * for one nobody can answer yet; `settled` for what SFlow settled for the person.
+   * for one nobody can answer yet; `settled` for what SFlow settled for the person; `skip`, for a row offered beside the
+   * list, what leaving it does ("Don't dispute (the author fixes it)") [owner, 2026-11-20].
    */
-  plain?: { question?: string; why?: string; recommended?: string | null; check?: string; later?: string; settled?: string };
+  plain?: { question?: string; why?: string; recommended?: string | null; check?: string; later?: string; settled?: string; skip?: string };
+  /** Offered beside the list: nothing waits on it, so it is never one of the questions [owner, 2026-11-20]. */
+  optional?: boolean;
   /** A read-only check SFlow runs itself before the answer is recommended, offered first until it has a result. */
   check?: { kind: string; status: string; label: string; does: string; command?: string; cutShort?: boolean; seconds?: number;
     /** Run only when the person asks for it (SFlow's screenshot builds the app), never on the page's first read. */
@@ -111,7 +114,7 @@ export interface DecisionPacket {
   status: 'decisions-needed' | 'nothing-to-decide' | string;
   headline: string; rule?: string;
   /** The headline in plain words, and what nobody can answer yet, one line each [owner, 2026-11-16]. */
-  plain?: { headline: string; later: string[]; nothingToRecord?: string; afterAnswer?: string };
+  plain?: { headline: string; later: string[]; nothingToRecord?: string; afterAnswer?: string; optional?: string; settledLine?: string };
   items: DecisionItemPacket[];
   /** Offered beside what waits: on the list's digest and record, in nobody's count. */
   offered?: DecisionItemPacket[];

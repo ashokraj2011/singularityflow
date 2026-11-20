@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { choicesFromRows, detailForm, valuesFromForm, sharedReasonForm, answersOnCurrentList, cardRows, CHANGE, confirmForm, decisionsTable, EACH, firstForm, LEAVE, NOT_NOW, RECORD, rowForms, runCard, sharedAnswers, CONFIRMED_ON_CARD, witnessAnswers, witnessForm } from '../plugin/extensions/decisions/card.mjs';
+import { choicesFromRows, detailForm, valuesFromForm, sharedReasonForm, answersOnCurrentList, cardRows, CHANGE, confirmForm, decisionsTable, EACH, firstForm, KEEP_ALL, LEAVE, NOT_NOW, RECORD, rowForms, runCard, sharedAnswers, CONFIRMED_ON_CARD, witnessAnswers, witnessForm } from '../plugin/extensions/decisions/card.mjs';
 
 const allowed = { allowed: true, words: 'You may decide this.', groups: ['planners'] };
 const choice = (id, label, needs = { reason: { default: '', minimum: 20, maximum: 500 } }) => ({ id, label, recommended: false, effects: [{ kind: 'plan-amendment' }], needs, decidedBy: allowed });
@@ -75,7 +75,7 @@ test('a row with a form still names each step that stays in the terminal, and a 
 test('nothing is preselected: no default on any field, and a person must choose', () => {
   const [{ form, items }] = rowForms(cardRows(packet()).slice(0, 3));
   for (const property of Object.values(form.requestedSchema.properties)) assert.equal(property.default, undefined);
-  // The options in the list's order, recommended first, and Leave undecided last [owner, 2026-11-16].
+  // The options in the list's order, recommended first, and the skip last, saying what it does [owner, 2026-11-16, 2026-11-20].
   assert.deepEqual(form.requestedSchema.properties.decision0.enum, ['Add to REQ-001', 'Add to REQ-002', LEAVE]);
   const risk = items[2].options[0];
   const details = detailForm(items[2], risk).requestedSchema.properties;
@@ -390,7 +390,8 @@ test('answers given and settled files wait behind "Change an answer or overrule 
   const list = converging(settledFiles);
   const { form, change } = firstForm(list);
   assert.equal(change, `${CHANGE} (7)`);
-  assert.deepEqual(form.requestedSchema.properties.choice.enum, [EACH, `${CHANGE} (7)`, NOT_NOW]);
+  // Keeping what was answered comes first wherever a change is offered, so nothing is changed by default [owner, 2026-11-20].
+  assert.deepEqual(form.requestedSchema.properties.choice.enum, [KEEP_ALL, EACH, `${CHANGE} (7)`]);
   // Named, never counted, and in grammar [owner, 2026-11-16].
   assert.match(form.message, /^One question for you: 1\. REQ-002: no recorded trace\. 7 are offered beside the list: an answer already given, or a file the plan settled, which you may change if you disagree\.$/u);
   assert.match(decisionsTable(list), /\*\*Already answered or settled by the plan\.\*\* Keep them, or change one with "Change an answer or overrule the plan" on the first form\.\n- d2\.json: REQ-001: answered Decide later\.\n- d3\.json: config d3: settled by the plan\./u);
@@ -411,11 +412,11 @@ test('answers given and settled files wait behind "Change an answer or overrule 
   assert.deepEqual(changing.seen.recorded[0].document, { choose: { d3: 'rework' }, reason: { d3: '' }, cause: {}, expires: {}, clause: {}, article: {}, confirm: 'sha256:aaa' });
 });
 
-test('with nothing open, the first form offers only the change or Not now, and Not now or Esc keeps what was answered', async () => {
+test('with nothing open, the first form offers keeping all, first, or the change, and keeping all or Esc keeps what was answered', async () => {
   const list = { ...converging(settledFiles), items: [] };
-  assert.deepEqual(firstForm(list).form.requestedSchema.properties.choice.enum, [`${CHANGE} (7)`, NOT_NOW]);
+  assert.deepEqual(firstForm(list).form.requestedSchema.properties.choice.enum, [KEEP_ALL, `${CHANGE} (7)`]);
   assert.match(firstForm(list).form.message, /^Nothing waits on you now\. 7 are offered/u);
-  const notNow = person([accept({ choice: NOT_NOW })], [list]);
+  const notNow = person([accept({ choice: KEEP_ALL })], [list]);
   assert.equal((await runCard(notNow.ui)).status, 'cancelled');
   assert.deepEqual(notNow.seen.recorded, []);
   // Esc on a later form keeps the answers already given, and asks to confirm them.

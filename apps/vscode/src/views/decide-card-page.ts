@@ -144,7 +144,8 @@ function adviceHtml(item: DecisionItemPacket): string {
 export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label: string; rows: number; others: number }> {
   const seen = new Map<string, { id: string; label: string; rows: number; others: number }>();
   for (const item of decideRows(packet)) {
-    if (!item.decidedBy?.allowed) continue;
+    // An undo of what was settled, or a row offered beside the list, is each row's own, never one answer for all [owner, 2026-11-20].
+    if (!item.decidedBy?.allowed || item.settled || item.optional) continue;
     for (const option of item.options.filter(decidable)) {
       const needs = option.needs ?? {};
       if (option.oneByOne || needs.cause || needs.expires || needs.clause || needs.article) continue;
@@ -194,7 +195,9 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   const lines = Array.isArray(item.details?.lines) ? item.details.lines as string[] : [];
   const plain = plainWords(item);
   const heading = item.settled ? `<strong>${escape(plain.settled ?? item.title)}</strong>` : `<strong>${escape(plain.question ?? item.title)}</strong>`;
-  const what = `${heading}${file ? ` <button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>` : ''}
+  // A row offered beside the list says so: nothing waits on it [owner, 2026-11-20].
+  const what = `${heading}${file ? ` <button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>` : ''}${
+    item.optional && !item.settled ? ' <span class="dc-tag">optional</span>' : ''}
     ${plain.why ? `<div class="muted dc-why">${escape(plain.why)}</div>` : ''}${diff ? `<details class="dc-diff"><summary>The change</summary><pre>${escape(diff)}</pre></details>` : ''}${lines.length
       ? `<ul class="dc-ev-list">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}${text('proposedBy')}${text('reach')}${adviceHtml(item)}${
       // Where else its decider may answer it: yes or no in chat, or their own terminal when SF Guard signs it [owner, 2026-11-14].
@@ -206,7 +209,9 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   // SFlow's own check, first and on a button of its own: it runs, then the row recommends from its result [owner, 2026-11-16].
   const check = checkOf(item);
   const checking = check ? `<div class="dc-own"><button type="button"${item.recommended?.check ? '' : ' class="secondary"'} data-check="${escape(item.id)}">${escape(check.label)}</button></div>` : '';
-  const select = choices.length ? `<select data-choice aria-label="Decision for ${escape(plain.question ?? item.title)}"><option value="">Choose…</option>${choices.map((option) => {
+  // Its empty choice says what leaving it does, as the Copilot CLI card's skip does: kept, its default, or open [owner, 2026-11-20].
+  const skip = item.settled ? KEEP_SETTLED : plain.skip ?? (item.optional ? LEAVE_AS_IS : STAYS_OPEN);
+  const select = choices.length ? `<select data-choice aria-label="Decision for ${escape(plain.question ?? item.title)}"><option value="">${escape(skip)}</option>${choices.map((option) => {
     const needs = Object.keys(option.needs ?? {}).join(' ');
     return `<option value="${escape(option.id)}" data-needs="${escape(needs)}"${option.oneByOne ? ' data-one="1"' : ''}${entered?.option === option.id ? ' selected' : ''}>${escape(option.label)}${item.recommended?.option === option.id ? ' (recommended)' : ''}</option>`;
   }).join('')}</select>` : '';
@@ -298,6 +303,10 @@ export function evidenceHtml(packet: DecisionPacket): string {
 /** The two answers to a waiting next version, in the Copilot CLI card's words (plugin/extensions/decisions/card.mjs). */
 export const START_VERSION = 'Yes, start it';
 export const NOT_NOW = 'Not now';
+/** A row's empty choice, in the Copilot CLI card's words (card.mjs LEAVE and KEEP_SETTLED): what leaving it does. */
+export const STAYS_OPEN = 'Not now (stays open)';
+export const KEEP_SETTLED = 'Keep it';
+export const LEAVE_AS_IS = 'Leave it as it is';
 // The third answer to a version proposed for words the person typed (owner, 2026-11-18).
 export const JUST_A_QUESTION = 'No, it was just a question';
 const QUESTION_NOTE = `"${JUST_A_QUESTION}" keeps what you typed as a question and starts nothing.`;

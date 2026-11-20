@@ -100,7 +100,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     // An approval left that is not theirs to give now says why, in the list's words: what holds it, or who approves it.
     const approval = askedInChat ? approvalRows(packet)[0] : undefined;
     const why = approval ? (approval.decidedBy?.allowed ? approval.why : approval.decidedBy?.words) : null;
-    return { status: 'nothing-to-decide', message: [packet.headline, why, nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' '),
+    // What was settled is one line at most, never asked [owner, 2026-11-20].
+    return { status: 'nothing-to-decide', message: [packet.headline, why, packet.plain?.settledLine, nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' '),
       next: nextFor(packet.storyNext ?? packet.next) };
   }
   const panel = vscode.window.createWebviewPanel('singularityFlow.decide', `Decide · ${workId}`, vscode.ViewColumn.Active,

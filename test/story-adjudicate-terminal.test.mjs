@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { adjudicationTableCommand, runAdjudicationTable, terminalForms } from '../src/commands/story-adjudicate-terminal.mjs';
 import { adjudicationTableStep } from '../src/command-skills.mjs';
-import { acceptAllForm, confirmForm, detailForm, firstForm, KEEP, LEAVE, OVERRULE, rowForms, settledRows } from '../plugin/extensions/decisions/decisions.mjs';
+import { acceptAllForm, confirmForm, detailForm, firstForm, KEEP, KEEP_ALL, LEAVE, OVERRULE, rowForms, settledRows } from '../plugin/extensions/decisions/decisions.mjs';
 import { hasRealTerminal, openRealTerminal } from './helpers/real-terminal.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,7 +48,9 @@ test('a form is asked field by field in the cards\' own words, and only what the
 
 test('overruling a settled row is asked the same way, and keeping the plan asks nothing more', async () => {
   const settled = list({ settled: [{ id: 'CF-9', paths: ['package.json'], clauseIds: [], settledBy: { kind: 'supporting', text: 'The test script.' }, decision: null }] });
-  assert.deepEqual((await typing(['3']).ask(firstForm(settled).form)).content, { choice: OVERRULE }, 'no reason is asked of it');
+  // Keeping the plan comes first, never the overrule [owner, 2026-11-20].
+  assert.equal(firstForm(settled).form.requestedSchema.properties.choice.enum[0], KEEP_ALL);
+  assert.deepEqual((await typing(['4']).ask(firstForm(settled).form)).content, { choice: OVERRULE }, 'no reason is asked of it');
   const form = rowForms(settled, settledRows(settled))[0].form;
   assert.deepEqual((await typing(['1']).ask(form)).content, { decision0: KEEP });
   assert.deepEqual((await typing(['3']).ask(form)).content, { decision0: 'Send back to fix' });

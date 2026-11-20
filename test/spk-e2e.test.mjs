@@ -461,13 +461,13 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     // The choices of a form first, then what the chosen one needs, then the next form.
     for (const _ of open.slice(1, 5)) {
       await moved.waitFor(/Choose 1-\d+: $/u);
-      moved.type(moved.number('Leave undecided'));
+      moved.type(moved.number('Not now (stays open)'));
     }
     await moved.waitFor(/Reason for [^\n]*: $/u);
     moved.type('The person at the terminal accepts this one.');
     for (const _ of open.slice(5)) {
       await moved.waitFor(/Choose 1-\d+: $/u);
-      moved.type(moved.number('Leave undecided'));
+      moved.type(moved.number('Not now (stays open)'));
     }
     await moved.waitFor(/Record 1 decision on [\s\S]*Choose 1-2: $/u);
     sflow(root, ['story', 'adjudicate', (open[1] ?? open[0]).id, '--disposition', 'dismissed', '--reason', 'Someone else answered this meanwhile.']);

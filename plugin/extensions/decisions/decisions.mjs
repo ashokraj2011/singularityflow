@@ -5,9 +5,13 @@
  */
 import { askUntilRight, refusedWords, textField } from './form-rounds.mjs';
 
-export const LEAVE = 'Leave undecided';
+// Skipping an open row says what skipping does, as the decisions card says it (card.mjs) [owner, 2026-11-20]; a row the plan
+// settled keeps what the plan says.
+export const LEAVE = 'Not now (stays open)';
 export const KEEP = 'Keep what the plan says';
 export const OVERRULE = 'Overrule a row the plan settled';
+// Where a form offers to overrule what the plan settled, keeping it comes first, as on the decisions card [owner, 2026-11-20].
+export const KEEP_ALL = 'Not now (keep all)';
 export const FORM_SIZE = 5;
 const REASON_LIMIT = 1000;
 
@@ -58,7 +62,9 @@ export const settledRows = (list) => (list.settled ?? []).map((item) => ({ ...it
 export function firstForm(list) {
   const count = acceptable(list).length;
   const yes = `Accept all ${count} changed file${count === 1 ? '' : 's'} with one reason`;
-  const properties = { choice: { type: 'string', title: 'How do you want to decide?', enum: [...(count ? [yes] : []), ...(list.open ? ['Decide each one'] : []), ...(settledRows(list).length ? [OVERRULE] : []), 'Not now'] } };
+  const overrule = settledRows(list).length > 0;
+  const properties = { choice: { type: 'string', title: 'How do you want to decide?', enum: [...(overrule ? [KEEP_ALL] : []), ...(count ? [yes] : []), ...(list.open ? ['Decide each one'] : []),
+    ...(overrule ? [OVERRULE] : ['Not now'])] } };
   return { yes, form: { message: `${list.open} of ${list.items.length} still ${needs(list.open)} a decision.`, requestedSchema: { type: 'object', required: ['choice'], properties } } };
 }
 
@@ -142,7 +148,7 @@ export async function runDecisions({ ask, show, read, record, askedInChat = fals
   let answers = [];
   const { yes, form } = firstForm(list);
   const first = await askUntilRight(ask, form, (content) => (form.requestedSchema.properties.choice.enum.includes(content.choice) ? { choice: content.choice } : { problem: 'Choose one of these.' }));
-  if (first.cancelled || first.choice === 'Not now') return notNow;
+  if (first.cancelled || first.choice === 'Not now' || first.choice === KEEP_ALL) return notNow;
   if (first.refused) return refused(first.refused);
   const overruling = first.choice === OVERRULE ? settledRows(list) : [];
   if (first.choice === yes) {

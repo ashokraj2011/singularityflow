@@ -312,8 +312,9 @@ test('every host shows the recommendation and what each choice does; the approva
       clauses: [`${WORK}:REQ-001`], reason: 'The export needs it.', recordedBy: 'agent' }, status: 'open', groups: ['engineering'], words: 'src/export.js changed', acceptAll: true }] } })
     .items.find((item) => item.kind === 'departure');
   const [{ form }] = rowForms([departure]);
-  // The recommended choice first [owner, 2026-11-16], never preselected: no default, and Leave undecided still offered.
-  assert.deepEqual(form.requestedSchema.properties.decision0.enum, ['Accept (recommended)', 'Reject', 'Leave undecided']);
+  // The recommended choice first [owner, 2026-11-16], never preselected: no default, and the skip still offered, saying what it
+  // does: the row stays open [owner, 2026-11-20].
+  assert.deepEqual(form.requestedSchema.properties.decision0.enum, ['Accept (recommended)', 'Reject', 'Not now (stays open)']);
   assert.equal(form.requestedSchema.properties.decision0.default, undefined);
   assert.equal(choicesFromRows([departure], { decision0: 'Accept (recommended)' }).picks[0].option.id, 'accept');
   // The terminal.

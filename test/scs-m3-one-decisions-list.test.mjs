@@ -222,8 +222,8 @@ test('the VS Code card asks each item its dispositions, the clauses an update-in
 test('the Copilot CLI forms ask the same: each disposition by its words, then what the chosen one needs', () => {
   const packet = packetOf();
   const [page] = rowForms(rows(packet));
-  // Its choices in the list's order, Leave undecided last [owner, 2026-11-16].
-  assert.deepEqual(page.form.requestedSchema.properties.decision0.enum, [...DISPOSITIONS.map((id) => DISPOSITION_WORDS[id]), 'Leave undecided']);
+  // Its choices in the list's order, the skip last, saying what it does [owner, 2026-11-16, 2026-11-20].
+  assert.deepEqual(page.form.requestedSchema.properties.decision0.enum, [...DISPOSITIONS.map((id) => DISPOSITION_WORDS[id]), 'Not now (stays open)']);
   const [clause] = rows(packet);
   const detail = detailForm(clause, clause.options.find((entry) => entry.id === 'update-intent'));
   assert.match(detail.requestedSchema.properties.clause.title, /^The clauses the specification should change, for REQ-002/u);

@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  acceptable, choicesFromRows, confirmForm, decisionRows, decisionsTable, detailForm, firstForm, KEEP, LEAVE, OVERRULE, RECORD, rowForms, runDecisions, settledRows, valuesFromForm
+  acceptable, choicesFromRows, confirmForm, decisionRows, decisionsTable, detailForm, firstForm, KEEP, KEEP_ALL, LEAVE, OVERRULE, RECORD, rowForms, runDecisions, settledRows, valuesFromForm
 } from '../plugin/extensions/decisions/decisions.mjs';
 
 const item = (id, fields = {}) => ({ id, kind: 'unclaimed-changed-path', paths: [`src/${id}.js`], clauseIds: [], detail: null, plan: null, acceptAll: true, decision: null, ...fields });
@@ -165,7 +165,7 @@ test('a row the plan settled can be overruled, with the same answer as any row, 
   const { seen, ui } = person([{ action: 'accept', content: { choice: OVERRULE } },
     { action: 'accept', content: { decision0: 'Accept as is' } }, { action: 'accept', content: { reason: 'This test script should not have changed.' } }, { action: 'accept', content: { confirm: RECORD } }], none);
   const result = await runDecisions(ui);
-  assert.deepEqual(seen.asked[0].requestedSchema.properties.choice.enum, [OVERRULE, 'Not now'], 'nothing open offers nothing to decide');
+  assert.deepEqual(seen.asked[0].requestedSchema.properties.choice.enum, [KEEP_ALL, OVERRULE], 'keeping the plan first, and nothing open offers nothing to decide');
   assert.deepEqual(seen.asked[1].requestedSchema.properties.decision0.enum.slice(0, 2), [KEEP, 'Accept as is'], 'keeping the plan is the first answer, never a chosen one');
   assert.deepEqual(seen.recorded[0].answers, [{ itemId: 'CF-9', disposition: 'accepted-deviation', reason: 'This test script should not have changed.', clauseIds: [] }]);
   assert.match(seen.asked[3].message, /package\.json: Accept as is\. Reason: This test script/u);

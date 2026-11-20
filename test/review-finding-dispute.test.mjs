@@ -1,7 +1,7 @@
 /**
  * Dispute this finding (owner, 2026-11-20: "yes add a dispute this finding choice"). A person who may decide for a step
  * disputes the reviewer's blocking finding with their own reason: on the Decide card and decision list (a finding row, and
- * the row of the version SFlow started for it), as a bound yes in /sf-decide, in their own terminal, and the step's
+ * the row of the version SFlow started for it), never asked in chat since nothing waits on it, in their own terminal, and the step's
  * approvers see each dispute on the approval screen. The dispute is the review's own human decision, `dispute:<ID>`: the
  * finding then blocks neither the next version nor the submission, and the same finding raised again shows as disputed.
  */
@@ -22,9 +22,13 @@ import { withPlainWords } from '../src/decision-plain.mjs';
 import { ANSWER_BOUND_STEPS, OWN_TERMINAL_STEPS, PERSON_DECISIONS } from '../src/person-step-catalog.mjs';
 import { reviewCorrection } from '../src/source-review-continuation.mjs';
 import { reraisedRoute } from '../src/settled-decisions.mjs';
-import { completeAgentResult } from '../src/agent-output.mjs';
+import { agentAct, completeAgentResult } from '../src/agent-output.mjs';
+import { packetText, waitsOnPerson, withStoryNext } from '../src/commands/decisions.mjs';
+import * as card from '../plugin/extensions/decisions/card.mjs';
+import { LEAVE as adjudicateLeave } from '../plugin/extensions/decisions/decisions.mjs';
 import * as messages from '../apps/vscode/src/views/messages.ts';
 import * as webview from '../apps/vscode/src/views/webview.ts';
+import { decideHtml, KEEP_SETTLED as vscodeKeep, LEAVE_AS_IS as vscodeAsIs, STAYS_OPEN as vscodeStaysOpen } from '../apps/vscode/src/views/decide-card-page.ts';
 
 import { publishedSpecificationStory, reviewReport } from './helpers/source-review-fixture.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
@@ -69,11 +73,15 @@ test('each blocking finding is a row a person may dispute with their own reason;
   assert.deepEqual(dispute.effects, [{ kind: 'review-dispute', phase: 'specification', finding: 'F-1', generation: 1, reportSha256: 'a'.repeat(64) }]);
   assert.equal(row.recommended.option, null, 'a dispute goes against the reviewer: never recommended');
   assert.equal(dispute.decidedBy.allowed, true);
-  // A bound yes in /sf-decide: the question names the finding, and the command takes the person's reason.
-  assert.equal(row.chatYesNo, true);
-  assert.equal(row.yesNo.question, 'The reviewer\'s finding F-1 on Specification version 1. Dispute this finding? Say why in at least 20 characters.');
+  // Nothing waits on it, so a chat never asks it [owner, 2026-11-20: "what does this mean .. it is confusing"]: a row on the
+  // card, whose skip names its default. Its command still takes the person's own reason.
+  assert.equal(row.optional, true);
+  assert.equal(row.chatYesNo, false);
+  assert.equal(row.yesNo, undefined);
+  assert.equal(row.plain.skip, 'Don\'t dispute (the author fixes it)');
   assert.equal(dispute.chat.command, `singularity-flow review-source dispute specification --work-id ${WORK} --finding F-1 --reason "<REASON>"`);
-  assert.equal(row.answer.where, 'chat');
+  assert.equal(row.answer.where, 'card');
+  assert.equal(row.answer.words, `Nothing waits on it. Answer it on the Decide card (/sf-decide ${WORK} opens it) only if you disagree; a chat never asks it.`);
   // SF Guard signs it: the card or the person's own terminal, never chat.
   const guarded = packetOf(story({ guard: true }), { findings: [finding('F-1')] }).offered.find((item) => item.kind === 'review-finding');
   assert.equal(guarded.chatYesNo, false);
@@ -92,7 +100,7 @@ test('the version SFlow started for the findings offers each one\'s dispute besi
   const [row] = packetOf(workflow, { ...open, findings: [finding('F-1'), finding('F-2', { by: 'Bo', reason: REASON })] }).settled;
   assert.deepEqual(row.options.map((entry) => [entry.id, entry.outcome]), [['undo', 'undo'], ['dispute-F-1', 'dispute']]);
   assert.equal(row.options[1].label, 'Dispute the reviewer\'s finding F-1');
-  assert.equal(row.chatYesNo, true, 'its undo stays the bound yes');
+  assert.equal(row.chatYesNo, false, 'what was settled is never a chat question: its undo is on the Decide card [owner, 2026-11-20]');
   assert.match(row.plain.settled, /To disagree with a finding, dispute it\. The reviewer's finding F-2 is disputed by Bo: The clause asks for a count of drafts, not a list of them\.$/u);
   const [all] = packetOf(workflow, { ...open, findings: [finding('F-1', { by: 'Bo', reason: REASON }), finding('F-2', { by: 'Bo', reason: REASON })] }).settled;
   assert.deepEqual(all.options.map((entry) => entry.id), ['undo']);
@@ -144,6 +152,120 @@ test('the VS Code approval page lists each disputed finding, with who and why, f
   assert.match(html, /<h2>Disputed review findings<\/h2>/u);
   assert.match(html, /Send the step back if you agree with the reviewer\./u);
   assert.match(html, /The reviewer&#39;s finding F-2 is disputed by Bo: |The reviewer's finding F-2 is disputed by Bo: /u);
+});
+
+// ------------------------------------------------------------- ask a person only what waits on them [owner, 2026-11-20]
+
+/**
+ * The owner's /sf-decide (2026-11-20): four "Dispute the reviewer's finding … on Implementation version 2?" were asked as
+ * required questions beside the one real decision, a test command's re-pin, while version 3 was already written to fix
+ * them: "what does this mean .. it is confusing". The same list, built by the engine: one question waits, and the four
+ * findings are rows on the card whose skip names their default.
+ */
+function ownersList() {
+  const W = 'ARSHY';
+  const ids = ['AC001-browser-test-gap', 'AC002-layout-test-gap', 'REQ001-trace-gap', 'REQ002-save-gap'];
+  const start = { id: 'STL-001', kind: 'review-corrections', by: 'sflow', phase: 'implementation', subject: 'implementation version 2: the review\'s findings',
+    answer: 'Started version 3 of implementation to fix the review\'s findings on version 2',
+    evidence: [{ what: 'the review of version 2 asks for 4 corrections', where: 'implementation review of version 2' }], effect: { generation: 2, toGeneration: 3, findings: ids }, at: AT };
+  const workflow = { workItem: { id: W }, status: 'in_progress', currentPhase: 'implementation', phaseOrder: ['implementation'],
+    phases: { implementation: { id: 'implementation', label: 'Implementation', status: 'in_progress', generation: 2, approvalPolicy: { authorities: ['product'] },
+      versionOpening: { version: 3, reason: 'review-corrections', consent: { settled: 'STL-001', surface: 'settled' } } } },
+    resolution: { approvalAuthorities: { product: { label: 'Product approvers', allowAnyGitIdentity: true, members: [] } } },
+    settledDecisions: [start], upstreamIssues: [], upstreamIssueDecisions: [] };
+  const command = { id: '.-node-tests', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'], result: { adapter: 'vitest-json', path: '.sflow/results/node-tests.json' } };
+  const listed = decisionPacket(workflow, { phaseId: 'implementation', at: AT, gaps: [], issues: [], candidates: [], reuseProblems: [], testRisks: [], unavailable: [], state: {}, pending: {},
+    testCommands: [{ id: 'TCD-001', phase: 'implementation', requestedBy: 'developer', reason: 'Keeps the browser test in its own runner.', command, repin: { changes: ['package.json scripts.test changed'] } }],
+    reviewDisputes: { phase: 'implementation', generation: 2, reportSha256: 'a'.repeat(64), status: 'in_progress', open: { version: 3, startedFor: ids, settled: 'STL-001' },
+      findings: ids.map((id) => ({ id, message: `The reviewer's words for ${id}.`, disputed: null })) } }, { authorities: workflow.resolution.approvalAuthorities, actor, at: AT });
+  // As `decisions` hands it to every host: in plain words, its next step the Decide card.
+  return { W, ids, workflow, packet: { ...withStoryNext(withPlainWords(workflow, listed), null), repositoryPath: '/repo' } };
+}
+
+test('offered findings are never a question: beside one real decision, every chat-facing surface asks exactly one', async () => {
+  const { W, ids, packet } = ownersList();
+  const findings = packet.offered.filter((item) => item.kind === 'review-finding');
+  assert.deepEqual(findings.map((item) => item.details.finding), ids);
+  for (const row of findings) {
+    assert.deepEqual([row.optional, row.chatYesNo, row.yesNo, row.plain.skip, row.answer.where], [true, false, undefined, 'Don\'t dispute (the author fixes it)', 'card'], row.title);
+  }
+  // One question, counted and asked: the re-pin. Nothing on the list is a yes or no a chat asks.
+  const open = [...packet.items, ...packet.offered].filter((item) => !item.settled);
+  assert.deepEqual(open.filter((item) => !item.optional && item.plain?.question).map((item) => item.kind), ['test-command']);
+  assert.equal(open.filter((item) => item.chatYesNo).length, 0);
+  assert.equal(packet.plain.headline, 'One question for you.');
+  assert.equal(packet.plain.optional, 'Optional on the Decide card: dispute a reviewer\'s finding you disagree with.');
+  assert.equal(waitsOnPerson(packet), true);
+  assert.equal(waitsOnPerson({ ...packet, items: [] }), false, 'what is offered never waits on the person');
+  // The /sf-decide turn: the re-pin is answered on the card, and the offered rows are one line it may say, never asked.
+  const act = agentAct(packet);
+  assert.equal(act.state, 'confirm-in-terminal', JSON.stringify(act));
+  assert.match(act.said, /^One question for you\. What is left is answered on the Decide card, not in this chat: .* Say plain\.optional and plain\.settledLine once, as given; never ask them\.$/u);
+  assert.equal(packet.plain.settledLine, 'Settled for you: starting version 3 of Implementation. Undo any on the Decide page.');
+  assert.equal(act.ask, undefined);
+
+  // Copilot CLI's card: one question named, the findings behind a choice of their own, and only the re-pin asked.
+  const { form, offer } = card.firstForm(packet);
+  assert.equal(offer, 'Dispute a reviewer\'s finding (4)');
+  // Keeping everything first, since the form offers an undo; never an undo by default [owner, 2026-11-20].
+  assert.deepEqual(form.requestedSchema.properties.choice.enum, [card.KEEP_ALL, card.EACH, `${card.UNDO_SETTLED} (1)`, offer]);
+  assert.match(form.message, /^One question for you: 1\. Use the changed \.-node-tests command for Implementation\? /u);
+  assert.ok(form.message.includes(` Optional, nothing waits on them: the reviewer's findings ${ids.slice(0, 3).join(', ')} and ${ids[3]}, which you may dispute if the reviewer is wrong; left alone, the author fixes them.`), form.message);
+  const table = card.decisionsTable(packet);
+  assert.match(table, /\*\*Optional; nothing waits on these\.\*\* Answer one only if you disagree: choose "Dispute a reviewer's finding" on the first form\.\n- The reviewer's finding AC001-browser-test-gap on Implementation version 2: The reviewer found: /u);
+  assert.doesNotMatch(table, /\*\*(?:\d+\. )?Dispute the reviewer's finding/u, 'never a question on the card');
+  const run = async (answer) => {
+    const asked = [];
+    const recorded = [];
+    await card.runCard({ read: async () => packet, show: async () => {}, inspect: async () => {}, witness: async () => assert.fail('no sign-off'),
+      record: async (listed, document) => { recorded.push(document); return { recorded: [] }; },
+      ask: async (shown) => { asked.push(shown); return { action: 'accept', content: answer(shown.requestedSchema.properties) }; } });
+    return { asked, recorded, rows: asked.filter((shown) => shown.requestedSchema.properties.decision0) };
+  };
+  const tcd = packet.items.find((item) => item.kind === 'test-command');
+  const each = await run((fields) => (fields.choice ? { choice: card.EACH } : fields.decision0 ? { decision0: fields.decision0.enum[0] } : fields.confirm ? { confirm: card.RECORD } : {}));
+  assert.equal(each.rows.length, 1);
+  assert.deepEqual(Object.keys(each.rows[0].requestedSchema.properties), ['decision0'], 'only the re-pin is asked');
+  assert.deepEqual(each.rows[0].requestedSchema.required, ['decision0']);
+  assert.deepEqual(each.rows[0].requestedSchema.properties.decision0.enum, ['Accept the changed command as its pin', card.LEAVE]);
+  assert.deepEqual(each.recorded.map((document) => document.choose), [{ [tcd.id]: 'accept-test-command' }]);
+  // Choosing to dispute: the findings, none of them required, each skipping to its default; the re-pin still asked.
+  const disputing = await run((fields) => (fields.choice ? { choice: offer } : fields.decision0
+    ? { decision0: 'Dispute this finding', decision1: 'Don\'t dispute (the author fixes it)', decision4: card.LEAVE } : fields.reason ? { reason: REASON } : fields.confirm ? { confirm: card.RECORD } : {}));
+  const [page] = disputing.rows;
+  assert.deepEqual(page.requestedSchema.required, ['decision4'], 'only what waits is required');
+  assert.deepEqual(page.requestedSchema.properties.decision0.enum, ['Don\'t dispute (the author fixes it)', 'Dispute this finding'], 'its default first, never the dispute');
+  assert.deepEqual(disputing.recorded.map((document) => [document.choose, document.reason]), [[{ [findings[0].id]: 'dispute' }, { [findings[0].id]: REASON }]]);
+  // No choice on any form says "undecided": each skip says what skipping does.
+  const choices = [...each.asked, ...disputing.asked].flatMap((shown) => Object.values(shown.requestedSchema.properties).flatMap((field) => field.enum ?? []));
+  assert.ok(choices.includes(card.LEAVE) && choices.includes('Don\'t dispute (the author fixes it)'));
+  assert.doesNotMatch(JSON.stringify(choices), /undecided/iu);
+
+  // The terminal and VS Code's Decide card: the same count, the findings under their own line, each skip in words.
+  const terminal = packetText(packet);
+  assert.match(terminal, new RegExp(`^Decide ${W} · Implementation\\. One question for you\\.\\n`, 'u'));
+  assert.match(terminal, /\nOptional; nothing waits on these\. Answer one only if you disagree:\n\n\S+\. Dispute the reviewer's finding AC001-browser-test-gap on Implementation version 2\?\n/u);
+  const html = decideHtml(packet);
+  assert.match(html, /One question for you\./u);
+  assert.equal(html.match(/<option value="">Don&#39;t dispute \(the author fixes it\)<\/option>|<option value="">Don't dispute \(the author fixes it\)<\/option>/gu)?.length, 4, html);
+  assert.equal(html.match(/<option value="">Not now \(stays open\)<\/option>/gu)?.length, 1);
+  assert.equal(html.match(/<span class="dc-tag">optional<\/span>/gu)?.length, 4);
+  assert.doesNotMatch(html, /Leave undecided|<option value="">Choose…<\/option>/u);
+  // One set of skip words: the Copilot CLI card, its convergence table and VS Code's card.
+  assert.deepEqual([adjudicateLeave, vscodeStaysOpen, vscodeKeep, vscodeAsIs], [card.LEAVE, card.LEAVE, card.KEEP_SETTLED, card.LEAVE_AS_IS]);
+});
+
+test('with only offered rows left, nothing waits: no question is counted, and a chat that opened the card carries on', async () => {
+  const { workflow, packet } = ownersList();
+  const offeredOnly = withPlainWords(workflow, { ...packet, items: [] });
+  assert.equal(offeredOnly.plain.headline, 'Nothing waits on you now.');
+  assert.equal(offeredOnly.plain.afterAnswer, undefined);
+  assert.equal(waitsOnPerson(offeredOnly), false);
+  const asked = [];
+  const result = await card.runCard({ askedInChat: true, read: async () => offeredOnly, show: async () => {}, inspect: async () => {}, witness: async () => assert.fail('nothing'),
+    record: async () => assert.fail('nothing'), ask: async (shown) => { asked.push(shown); return { action: 'cancel' }; } });
+  assert.equal(result.status, 'nothing-to-decide');
+  assert.deepEqual(asked, [], 'a chat that asked is never stopped by what nothing waits on');
 });
 
 test('the author of the version opened for the findings is told not to make a disputed fix', () => {

@@ -578,6 +578,21 @@ for (const [kind, suffix, control, expectedStatus] of [
   });
 }
 
+// A halted flight hands its work back to its Story [owner, 2026-11-20, decision 4]: takeover keeps the worktree, the Story goes
+// on as any other, and the flight never resumes. Before, takeover was refused once halted and every halt asked for a new Plan.
+test('a halted flight is taken over into its Story and never resumes', async (t) => {
+  const { root, flight } = await governedFixture(t, 'HANDBACK');
+  const halted = await haltAutoFlight(root, flight.flightId);
+  assert.equal(halted.status, 'halted');
+  assert.match(halted.nextAction, /auto takeover/u);
+  assert.doesNotMatch(halted.nextAction, /replacement Plan/u);
+  const handed = await takeoverAutoFlight(root, flight.flightId);
+  assert.deepEqual([handed.status, handed.stopReason], ['manual-takeover', 'handed-back-after-halt']);
+  assert.match(handed.nextAction, new RegExp(`singularity-flow nextsteps ${handed.story.workId}`, 'u'));
+  await assert.rejects(() => resumeAutoFlight(root, flight.flightId, handed.checkpointSha256),
+    (error) => error.code === 'AUTO_FLIGHT_HANDED_BACK' && error.details.nextAction === `singularity-flow nextsteps ${handed.story.workId} --json`);
+});
+
 test('a resealed checkpoint cannot fabricate its embedded report projections', async (t) => {
   const { root, flight, story } = await governedFixture(t, 'REPORT-PROJECTION');
   const halted = await haltAutoFlight(root, flight.flightId);

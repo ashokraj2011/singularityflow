@@ -21,6 +21,7 @@ import { nearestNames, parseArgs } from './util.mjs';
 import { actionCommandLine, authorCommand, returnRoute, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { WORK_COMMANDS } from './command-skills.mjs';
 import { modelFreeCommandForArgv, vscodeDecideCardChat } from './model-free-commands.mjs';
+import { LIMIT_RETRY_LABEL, limitRouteSteps } from './limit-remediation.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -124,10 +125,28 @@ function ancestrySteps(error) {
 function explicitInstructions(error) {
   // Some real repairs require ownership/authority review rather than an executable command.
   // Keep those instructions; diagnostics alone must not masquerade as the way out of the block.
-  return (Array.isArray(error?.details?.actions) ? error.details.actions : []).slice(0, 20)
+  const reviewed = (Array.isArray(error?.details?.actions) ? error.details.actions : []).slice(0, 20)
     .filter(entry => entry && !entry.command && typeof (entry.label ?? entry.detail) === 'string')
     .map((entry, index) => step(`producer-review-${index + 1}`,
       redactDiagnosticText(entry.label ?? entry.detail).slice(0, 2000), null, 'remediation'));
+  return [...reviewed, ...proseInstructions(error)];
+}
+
+/**
+ * A refusal's own words for its way on, given as `nextAction` or `remediation` text that is not a command SFlow can route
+ * ("Split the review", "Select a larger profile", "brew install apm"): kept as the person's step, never dropped. The route
+ * filter dropped them, so the plan was help, doctor and next steps only [limit audit, item 4].
+ */
+function proseInstructions(error) {
+  const details = error?.details ?? {};
+  return [['nextAction', details.nextAction], ['remediation', details.remediation]].map(([name, value]) => {
+    const text = typeof value === 'string' ? value
+      : value && typeof value === 'object' && !Array.isArray(value) && typeof (value.label ?? value.instruction) === 'string' && !value.skill ? value.label ?? value.instruction : null;
+    if (!text?.trim()) return null;
+    // A command the route filter accepts is a route already (explicitCommands); only words that are not one are kept here.
+    if (typeof value === 'string' ? safeCommandGuidance({ command: value }) : (value.command || Array.isArray(value.argv)) && safeCommandGuidance(value)) return null;
+    return step(`producer-${name === 'nextAction' ? 'next-action' : 'remediation'}`, redactDiagnosticText(text.trim()).slice(0, 2000), null, 'remediation');
+  }).filter(Boolean);
 }
 
 function optionValue(argv, name) {
@@ -450,6 +469,7 @@ function requiredTestFailureSteps(argv, error) {
     afterChange(step('repair-required-test',
       failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
       prepublishAgain(context?.phaseId), 'remediation', ownRepairSkill), 'the code, once the failing test is repaired'),
+    timeLimitStep(failure, context),
     testRunRiskStep(error),
     ...(!pin && other && context?.workId ? [tryNode(other.version)] : []),
     baseComparisonStep(argv, error, context),
@@ -459,6 +479,19 @@ function requiredTestFailureSteps(argv, error) {
       'singularity-flow logs --level error --tail 20',
       'diagnostic', '/sf-logs')
   ].filter(Boolean);
+}
+
+/**
+ * A run that ran out of time: its limit (`timeoutMs`) was fixed when the Story started, so a healthy but slow suite only met the
+ * same limit again [limit audit, item 7]. The person's way to more time: a configuration approver raises the command's
+ * timeoutMs in the approved configuration, and a person who approves the step adopts it here with their reason.
+ */
+function timeLimitStep(failure, context) {
+  if (failure?.kind !== 'timeout' || !context?.workId || !context.phaseId) return null;
+  return step('raise-test-time-limit',
+    'Healthy but slow tests: their time limit was set when the Story started. Raise timeoutMs in the approved configuration (/sf-test-setup), '
+      + 'then a step approver adopts it here with this preview.',
+    `singularity-flow story test-policy amend --work-id ${context.workId} --phase ${context.phaseId} --reason "<why the tests need more time>"`, 'remediation');
 }
 
 /** A gate run held back while the last run of its command may still be going: its own route, never a repair [review 2026-11-17]. */
@@ -759,15 +792,23 @@ function initiativeDraftSteps(error, label) {
 function repairBudgetSteps(_argv, error) {
   const details = error?.details ?? {};
   const reset = typeof details.resetCommand === 'string' ? details.resetCommand : null;
+  // A person may grant one more round past the budget, as decision rounds allow [owner, 2026-11-20, decision 3].
+  const oneMore = typeof details.oneMoreRound === 'string' ? details.oneMoreRound : null;
   const current = lowerKebab(details.currentPhase);
+  const workId = safeWorkId(details.workId);
   return [
     reset ? step('reset-repair-budget',
       `Return ${current ?? 'the submitted phase'} to ${lowerKebab(details.resetPhase) ?? 'the reset phase'} instead. Its policy resets the ${lowerKebab(details.phase) ?? 'exhausted'} repair budget once an approved new generation of that phase exists.`,
       reset, 'remediation') : null,
+    oneMore ? afterChange(step('grant-one-more-round',
+      `${reset ? 'Or a' : 'A'} person who decides ${current ?? 'this step'} grants one more rework round past the budget, with their reason; it is recorded as a round beyond the budget, and each further round needs its own grant.`,
+      oneMore, 'remediation'), 'a person grants one more round past the budget (--beyond-budget)') : null,
+    // Its approval is bound to what the person reviewed, so its way is the Decide card's approval, never a bare approve.
+    current && workId ? decideCardPlanStep('approve-as-it-stands', `Or a person who decides ${current} approves the submission as it stands, on the Decide card.`, workId) : null,
     step('request-human-direction',
-      reset
-        ? 'Or ask the approvers for direction: further rework of the same phase needs their decision, not another unchanged rejection.'
-        : `No allowed return resets the ${lowerKebab(details.phase) ?? 'exhausted'} repair budget from here. Ask the approvers for direction: approve the submission as it stands, or have a workflow maintainer change the budget for new Stories.`,
+      reset || oneMore
+        ? 'Further rework of the same phase needs a person\'s decision, never another unchanged rejection.'
+        : `No allowed return resets the ${lowerKebab(details.phase) ?? 'exhausted'} repair budget from here. Ask the approvers for direction: approve the submission as it stands, or grant one more round once it is submitted.`,
       null, 'remediation'),
     current ? step('inspect-submitted-phase', `Review the submitted ${current} evidence before deciding.`,
       showCommand(current), 'diagnostic') : null
@@ -1146,11 +1187,17 @@ const KNOWN = Object.freeze({
     return [step('finish-rework-round', 'Finish the rework round from its step: the planner names the next legal action.',
       `singularity-flow nextsteps${workId ? ` ${workId}` : ''} --json`, 'remediation')];
   },
-  // Another live command holds the Story while it publishes: wait for it, never recover.
-  // Its result is read by this command's own words, never another command's [review-submit fix].
-  STORY_PUBLICATION_IN_PROGRESS: (argv) => [step('wait-for-publication',
-    'Another command is publishing this Story right now. Wait for it to finish, then run the same command once more.',
-    `singularity-flow result last --wait${commandWords(argv) ? ` --command "${commandWords(argv)}"` : ''} --for-agent --json`, 'diagnostic')],
+  // Another live command holds the Story while it publishes: wait on the Story's lease, never recover. `result last` of this
+  // command's own words found no other command's marker and returned this same refusal again [limit audit, item 1].
+  STORY_PUBLICATION_IN_PROGRESS: (argv, error) => {
+    const subject = error?.details?.subject;
+    const read = lockReadCommand(error) ?? (safeWorkId(optionValueRaw(argv, 'work-id')) ? `singularity-flow lock show story ${safeWorkId(optionValueRaw(argv, 'work-id'))}` : null);
+    const wait = step('wait-for-publication', `Another command is publishing ${subject?.id ? `Story ${subject.id}` : 'this Story'} right now. Wait: this shows which process holds it (PID, command, last heartbeat); it ends when that command finishes.`,
+      read, 'diagnostic');
+    return [read ? Object.freeze({ ...wait, wait: true }) : wait,
+      afterChange(step('run-again-once-published', 'Once that command has finished, run this command again.', retriedCommand(argv), 'remediation'),
+        'the publishing command has finished and released the Story')];
+  },
   // A waiting commit that cannot be set aside says why, with the person's exact Git step.
   PUBLICATION_SET_ASIDE_REFUSED: (argv, error) => {
     const reason = error?.details?.reason;
@@ -1940,6 +1987,34 @@ const KNOWN = Object.freeze({
 export const KNOWN_REFUSAL_CODES = Object.freeze(Object.keys(KNOWN));
 
 
+/**
+ * A limit's own plan (limit-remediation.mjs): its route, then the refusal's own filled commands. Never the generic reads,
+ * which name no change. A limit code KNOWN routes keeps that route; null when the code has no limit route.
+ */
+function limitPlan(error, argv, code) {
+  if (Object.hasOwn(KNOWN, code)) return null;
+  const entries = limitRouteSteps(code, { argv, error, retried: argv.length ? retriedCommand(argv) : null,
+    decideCard: decideCardPlanStep, authorRoute: (phase) => ({ command: authorCommand(phase) }),
+    autoPlanAgain: (why) => autoPlanAgainSteps(argv, why, autoStoryId(argv, error)) });
+  if (!entries) return null;
+  // A step the plan builder made already (the Decide card, a Plan again) stays as it is; the rest are built and checked here.
+  const own = entries.map((entry) => {
+    if ('execution' in entry) return entry;
+    const built = step(entry.id, entry.label, entry.command ?? null, entry.kind ?? 'remediation', entry.skill ?? null);
+    return entry.changes ? afterChange(built, entry.changes) : built;
+  });
+  const explicit = explicitCommands(error).map((command, index) => step(`producer-${index + 1}`,
+    command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command, 'remediation', command.skill))
+    .filter((entry) => !own.some((known) => known?.command && known.command === entry.command));
+  // A limit met inside a step keeps the step's own next read after a route with commands. A change only the person makes
+  // stays theirs alone: with a read beside it, an agent would take the read and go round the step again.
+  const routed = [...own, ...explicit].some((entry) => entry.command);
+  const steps = deduplicate([...own, ...explicit, ...(routed ? phaseContainmentSteps(phaseRemediationContext(argv, error)) : [])]);
+  if (!steps.length) return null;
+  return Object.freeze({ schemaVersion: 1, status: 'blocked', code, steps: Object.freeze(steps),
+    retry: Object.freeze({ label: LIMIT_RETRY_LABEL, automatic: false }) });
+}
+
 /** Every refusal code with its own registered route (the dead-end audit checks each one). */
 export const REMEDIATION_GUIDED_CODES = Object.freeze(Object.keys(KNOWN));
 
@@ -1973,7 +2048,7 @@ export const PLAN_STEP_LIMIT = 3;
 // A scope approver's decision on an intent amendment in their own terminal stays beside its card route, which the
 // decision-list rule below keeps: SF Guard takes its signature there [owner, 2026-11-13].
 // Each suggested runner's whole request and the recheck after it are kept too [audit 2026-11-19, entry 8].
-export const PLAN_RESERVED_STEP_IDS = Object.freeze(['open-decision-list', 'accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue', 'correct-plan-row',
+export const PLAN_RESERVED_STEP_IDS = Object.freeze(['open-decision-list', 'accept-test-run-risk', 'renew-test-run-risk', 'raise-test-time-limit', 'raise-upstream-issue', 'correct-plan-row',
   'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run', 'decide-intent-amendment',
   'request-story-test-command', 'request-story-test-command-2', 'request-story-test-command-3', 'recheck-structured-test-contract',
   'answer-in-own-clone-2', 'answer-in-own-clone-3', 'import-answers']);
@@ -2304,6 +2379,9 @@ function remediationPlanFor(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const lockRelease = reviewedLockReleasePlan(error, code);
   if (lockRelease) return lockRelease;
+  // A limit names what changes it, never only help, doctor and next steps [limit audit; limit-remediation.mjs].
+  const limit = limitPlan(error, argv, code);
+  if (limit) return limit;
   if (code === 'WORKFLOW_MARKUP_COMPILER_FAILED') return Object.freeze({
     schemaVersion: 1,
     status: 'blocked', code,
@@ -3084,8 +3162,3 @@ function ownerStepRemediationPlan(error, argv, code) {
   });
 }
 
-/** A command's own words, before its first option: what `result last --command` matches. */
-function commandWords(argv = []) {
-  const end = argv.findIndex((value) => String(value).startsWith('-'));
-  return (end < 0 ? argv : argv.slice(0, end)).filter((value) => /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(String(value))).slice(0, 4).join(' ');
-}

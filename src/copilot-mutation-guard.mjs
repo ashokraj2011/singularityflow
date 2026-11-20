@@ -55,18 +55,28 @@ async function unchangedRenewal(payload, record) {
   } catch { return record; }
 }
 
+/** The read an expired turn's agent runs to renew it, once, with nothing changed: any SFlow read does; this one always exists. */
+const RENEWING_READ = 'singularity-flow session current --for-agent --json';
+
 /**
  * An expired turn says so, with the one thing that renews it: invoking its skill again. Shell commands
  * never renew a Copilot turn, and the issuers skip expired turns, so routing to one would loop.
  */
-function turnExpiredDenial(record) {
-  const skill = `/sf-${String(record?.skill ?? 'phase').replace(/^\/?(?:sf|sflow)-/u, '')}`;
-  const spent = Number.isFinite(record?.unchangedAt);
+function turnExpiredDenial(record, { renewalTried = false } = {}) {
+  const name = `/sf-${String(record?.skill ?? 'phase').replace(/^\/?(?:sf|sflow)-/u, '')}`;
+  // /sf-confirm's new turn needs the person's code again: the route carries it, so nobody retypes or loses it.
+  const skill = name === '/sf-confirm' && /^[A-Za-z0-9-]{4,64}$/u.test(String(record?.confirmCode ?? '')) ? `${name} ${record.confirmCode}` : name;
+  // After the call (the post-tool check), an expired turn's read either renewed it or could not: the way on is the skill again,
+  // never another read. `session current` there passed the pre-tool check and hit this same check again [limit audit, item 3].
+  const spent = Number.isFinite(record?.unchangedAt) || renewalTried;
   const from = !Number.isFinite(record?.renewedAt) ? 'its prompt' : record.renewedAt === record.unchangedAt ? 'its renewal' : 'the person\'s last answer in it';
   return { permissionDecision: 'deny', next: [], permissionDecisionReason:
     `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from ${from} and have ended; nothing was written. `
-    + (spent ? `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. It was renewed once already with nothing changed, so its entry read renews it no more. `
-      : `Invoke ${skill} again to continue only if its entry read does not: first run ${skill}'s own first command once more in this same chat; when nothing changed since, that read continues this turn here, once, with everything already written, and you go on without asking the person. `)
+    + (spent ? `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. ${Number.isFinite(record?.unchangedAt)
+      ? 'It was renewed once already with nothing changed, so its entry read renews it no more. ' : 'This call did not renew it, and no further read will. '}`
+      // A read by name: the skill's own first command composes its context (`phase enter --compose`), which an expired turn
+      // refuses, so "run it once more" was refused the same way [limit audit, item 3].
+      : `Invoke ${skill} again to continue only if this read does not: first run ${RENEWING_READ} once in this same chat; when nothing changed since, that read continues this turn here, once, with everything already written, and you go on without asking the person. `)
     + `No other Shell command renews a Copilot turn.\n\n${formatCommandRouteLines({ copilotCommand: skill }).join('\n')}` };
 }
 
@@ -2803,6 +2813,9 @@ export async function mutationPostToolGuard(payload = {}) {
     const cached = await boundedRecord(recordFile(payload)).catch(() => null);
     if (cached && cached.contract === null && !record.corrupt
         && terminals.every(call => bootstrapAllowed(call, { ...record, repositoryRoot: cached.repositoryRoot }))) return {};
+    // An expired turn whose read renewed nothing goes on only by its skill again; a read here would pass the pre-tool
+    // check and come back to this same stop [limit audit, item 3].
+    if (!record.corrupt && turnExpired(record)) return postFinding(turnExpiredDenial(record, { renewalTried: true }));
     return postFinding(mutationDenial(null, 'PHASE_MUTATION_CONTRACT_STALE: preserve changes and refresh the binding'));
   }
   // The call has run: it is no longer this turn's pending one. Written only over the record as read (a CLI refreshing

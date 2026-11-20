@@ -3738,6 +3738,8 @@ async function rejectCommand(positionals, options) {
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
       actionContext: activeActionContext(),
       actor: session.actor, agent: session.agent, presence,
+      // A person's one more rework round past a spent repair budget [owner, 2026-11-20, decision 3].
+      beyondBudget: optionBoolean(options, 'beyond-budget'),
       // The preview above already replayed the Code evidence and waiver; the transition reuses it only while it still binds the same digest, Story, step and HEAD.
       testingRepairConfirm: testingRepairPlan ? optionString(options, 'confirm') : null,
       testingRepairPlan

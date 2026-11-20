@@ -496,6 +496,35 @@ test('pause, cancellation, native prompts, expired or changed bindings and expli
   await endRepositoryBoundaryTurn(f.payload); assert.deepEqual(await f.stop(), {});
 });
 
+test('a request with no automatic continuation left is told so once, with the person\'s way on, never a silent stop [limit audit, item 2]', async t => {
+  const id = 'TASK-SPENT';
+  const f = await startedSpecificationStory(t, id, { configure(configuration) {
+    configuration.phases.specification.clarification = { mode: 'off' };
+  } });
+  const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(f.directory, 'machine', 'mode.json');
+  t.after(() => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous;
+  });
+  const hook = { cwd: f.root, sessionId: 'spent-author-task', prompt: '/sf-phase' };
+  await recordRepositoryBoundaryTurn(hook, { captureMutation: (payload, record) => captureMutationTurn(payload, record, { resolveRoot: async () => f.root }) });
+  await repositoryToolGuard({ ...hook, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --compose --for-agent --json' } });
+  const entry = completeAgentResult(f.cli('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  assert.equal(entry.taskCompletion.state, 'author-draft', JSON.stringify(entry.taskCompletion));
+  const turn = JSON.parse(await readFile(path.join(f.directory, 'machine/copilot-boundaries', `${createHash('sha256').update(hook.sessionId).digest('hex')}.mutation.json`), 'utf8'));
+  const operation = turn.taskOperation;
+  const { reserveWorkflowTaskContinuation } = await import('../src/workflow-task-store.mjs');
+  const expected = { workId: operation.workId, phaseId: operation.phaseId, generation: operation.generation, role: 'author' };
+  // This request spends its own continuations; the stop that ends it has none left.
+  while ((await reserveWorkflowTaskContinuation(f.root, operation.operationId, expected, { request: `${turn.sessionId}:${turn.turnId}` })).allowed) { /* spent */ }
+  const spent = await repositoryAgentStop({ ...hook, stopReason: 'end_turn' });
+  assert.equal(spent.decision, 'block', JSON.stringify(spent));
+  assert.match(spent.reason, new RegExp(`^SFLOW_TASK_CONTINUATION_SPENT: ${id} specification generation 1 `, 'u'));
+  assert.match(spent.reason, /Run nothing more\..*invoking \/sf-phase again: a new request starts with its own continuations/u);
+  assert.deepEqual(await repositoryAgentStop({ ...hook, stopReason: 'end_turn' }), {}, 'the stop after it ends the turn');
+});
+
 test('a real phase-entry command exports the same task checkpoint without running an author or model', async t => {
   const { cli } = await startedSpecificationStory(t, 'TASK-ENTRY');
   const value = completeAgentResult(cli('phase', 'enter', '--for-agent', '--json').stdout);

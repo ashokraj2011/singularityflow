@@ -79,6 +79,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'gateway.tool-answer-too-long': M('That answer is too long for a tool result', 'It is {bytes} bytes and a tool answer holds {limit}; run this step\'s CLI command, which serves it whole.'),
   'gateway.confirmation-channel-unavailable': M('This host cannot ask you to confirm', 'Nothing ran. Use the explicit command in a terminal instead.'),
   'gateway.confirmation-declined': M('Not confirmed', 'Nothing ran.'),
+  'gateway.confirmation-timed-out': M('The confirmation was not answered in time', 'Nothing ran. Ask for it again and the question is shown again.'),
   'gateway.run-in-progress': M('That is already running', 'The first request is still in progress. Nothing was started twice.'),
   'gateway.run-outcome-unknown': M('The earlier run did not report how it ended', 'It is not run again from here. Check the work, then plan again.'),
   'gateway.result-replayed': M('This is the recorded result', 'Nothing ran again; this is what the first run reported.'),

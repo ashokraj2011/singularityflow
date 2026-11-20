@@ -881,7 +881,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the approval's disputes in plain words, the command's route form (action-command-map.mjs) and its words, one new 971-byte
     // leaf (review-dispute-words.mjs). The dispute's reader and writer load only when used (review-finding-dispute.mjs).
     // 9,797,600 (measured 9,797,597 on landing-7, 2026-11-20): the finding dispute and the Node install route together.
-    assert.ok(closure.bytes <= 9_797_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,800,300 (measured 9,800,277 for submit.mjs, +2,677, 2026-11-20, limit audit track B): limits that threw with no code
+    // carry one and their facts (state.mjs token budget and work interval, clarifications.mjs, analysis-limits.mjs), a
+    // person's one more rework round past a spent budget (repair-budget.mjs) and reject's --beyond-budget boolean (util.mjs).
+    // Their routes load only when refused (limit-remediation.mjs, with refusal-remediation.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_800_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1024,7 +1028,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 873,555 (measured on landing-6, 2026-11-20): `decisions learn`, `--recommended`, `--review-findings` and `guard card|setup` together.
   // 873,588 (measured 873,588, +33, 2026-11-20, finding-dispute): `review-source dispute` registered as a mutation
   // (command-registry.mjs) [owner, 2026-11-20]. No new eager file.
-  assert.ok(root.bytes <= 873_588, `root dispatch loads ${root.bytes} source bytes`);
+  // 873,717 (measured 873,717, +129, 2026-11-20, limit audit track B): reject's `--beyond-budget`, a person's one more rework
+  // round, is a boolean option the parser knows (util.mjs). No new eager file.
+  assert.ok(root.bytes <= 873_717, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1366,7 +1372,9 @@ test('the common session projection does not import attach, state stores or publ
   // its catalog row (person-step-catalog.mjs), its skill route (command-skills.mjs) and its route form (action-command-map.mjs)
   // [owner, 2026-11-20]. No new eager file.
   // 4,306,250 (measured 4,306,212 on landing-7, 2026-11-20): the finding dispute and the Node install route together.
-  assert.ok(current.bytes <= 4_306_250, `session current loads ${current.bytes} source bytes`);
+  // 4,307,760 (measured 4,307,760, +1,510, 2026-11-20, limit audit track B): coded limits with their facts (clarifications.mjs,
+  // analysis-limits.mjs), a person's one more rework round (repair-budget.mjs) and `--beyond-budget` (util.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_307_760, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

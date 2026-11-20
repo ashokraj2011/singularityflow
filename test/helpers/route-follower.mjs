@@ -381,11 +381,17 @@ export function formatTrail(trail) {
  * - `person({ story, route, result, act })`: what the person does at a question, confirmation or their own step:
  *   { command } to run as them, { route } to type instead, or null (unanswered; the walk stops there).
  * - `detour({ finding, route, result })`: for a dead end the journey expects, the route the person takes instead.
+ * - `newChat({ step, result, story })`: true to go on in a new chat after this step, as a person who opens one does: a new
+ *   session for the hooks, nothing else reset. A limit's route taken again on the same state there is still a loop
+ *   [limit audit §6, check ii]: a new chat starts the same route only when something changed.
+ *
+ * Every kept result the walk reads (`result last`, the post-tool hook's handover) must have started at or after the walk's
+ * last state change: an older one is an earlier run's, replayed as this one's (`stale-replay`) [limit audit §6, check i].
  *
  * Returns { reached, findings: [{ kind, detail, step }], trail, steps, views }: `views` lists each hand-off where one of
  * the person's views named another skill than the agent's route (see personViews).
  */
-export async function followRoutes(story, { start, agent = {}, person = null, detour = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS }) {
+export async function followRoutes(story, { start, agent = {}, person = null, detour = null, newChat = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS }) {
   const entries = skillEntries();
   // VS Code's chat [hardening C]: /sf-approve and /sf-decide are entered as skills there, and their page tools are called on
   // the host's pages (test/helpers/vscode-host.mjs); every tool answer is kept to find the same one coming back unchanged.
@@ -403,6 +409,9 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
   let idle = 0;
   let last = null;
   const record = storyRecord(story);
+  // When the Story's state last changed, for the kept-result check; and how many chats the walk has opened.
+  let changedAt = Date.now();
+  let chats = 1;
   const phases = () => storyRecord(story)?.phaseOrder ?? record?.phaseOrder ?? [];
   const current = () => storyRecord(story)?.currentPhase ?? null;
   const finding = (kind, detail, step) => { findings.push({ kind, detail, step }); return { kind, detail, step }; };
@@ -438,6 +447,12 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     turn = taken.turn ?? turn;
     last = taken.result ?? last;
     entry.turn = turn;
+    // A kept result older than the walk's last state change is an earlier run's, never this call's: that is the finding,
+    // whatever the replayed result then led to.
+    const kept = taken.result?.keptResult;
+    if (kept && Date.parse(kept.startedAt) < changedAt - 1000) {
+      taken.finding = { kind: 'stale-replay', detail: `a result kept at ${kept.startedAt} was handed over after the Story changed at ${new Date(changedAt).toISOString()}: ${kept.command}` };
+    }
     if (taken.finding) {
       const found = finding(taken.finding.kind, taken.finding.detail, step);
       entry.finding = found.kind;
@@ -480,6 +495,15 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     }
     const after = storyState(story);
     if (chat?.vscode) after.key = `${after.key}|window:${chat.vscode.shows}`;
+    if (after.key !== before.key) changedAt = Date.now();
+    // A new chat, as the person opens one: the hooks see a new session; what the walk has seen stays, so a limit's route
+    // taken again on the same state is still a loop.
+    if (newChat?.({ step, result: taken.result, story })) {
+      chats += 1;
+      Object.assign(guard, { sessionId: `${guard.sessionId.replace(/-chat-\d+$/u, '')}-chat-${chats}`, turn: null, skill: null, contract: null, hosts: {} });
+      entry.did = `${entry.did ? `${entry.did}; ` : ''}new chat ${chats}`;
+      turn = null;
+    }
     // Progress: the Story changed, or a person is being asked. A pure hand-off joins the next step, two at most.
     if (after.key === before.key && !taken.personPending) {
       idle += 1;

@@ -138,8 +138,14 @@ export async function prepareApplicationRepair(root, options) {
     const rootFinding = findingRoot(view.findings, finding.id);
     if (findingRepairAttempts(view, finding.id).length >= findReviewSession(workflow, options.sessionId).policy.repairAttempts
         || (workflow.applicationReviews ?? []).flatMap(item => projectReview(item).repairAttempts).length >= findReviewSession(workflow, options.sessionId).policy.totalRepairAttempts) {
-      araFail('ARA_REPAIR_LIMIT_REACHED', 'The persistent automatic repair budget is exhausted. Preserve the draft and use manual repair or an authorized policy continuation.',
-        { nextAction: { command: `singularity-flow appeal prepare --work-id ${workflow.workItem.id} --phase ${view.subject.phaseId} --json`, label: 'Prepare an owner-reviewed continuation; the automatic counter is preserved.' } });
+      // Its way on is the repair by hand in the step's own work, then the person's recheck or settlement on the review page.
+      // `appeal prepare` (a scope appeal) cannot clear a spent repair budget [limit audit, item 6].
+      const { authorRoute } = await import('./action-command-map.mjs');
+      const author = authorRoute(workflow, workflow.phases[view.subject.phaseId]);
+      araFail('ARA_REPAIR_LIMIT_REACHED', 'The automatic repairs this review allows are used; nothing was discarded. Repair the finding by hand in the step\'s own work, then the person checks it again on the review page, or accepts or defers it there.',
+        { nextAction: { ...author, label: 'Repair the finding by hand in the step\'s own work; the draft and the finding are kept.' },
+          recoveryCommands: [{ command: `singularity-flow app-review inspect ${options.sessionId} --work-id ${workflow.workItem.id}`,
+            label: 'Then the person rechecks the fix on the review page, or settles it.' }] });
     }
     const phase = workflow.phases[view.subject.phaseId];
     if (workflow.currentPhase !== phase.id || !['in_progress', 'awaiting_approval'].includes(phase.status)) {

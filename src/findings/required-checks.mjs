@@ -5,9 +5,10 @@
  * never blocks a gate and never stands for an approval. A check that has not run yet reads as pending
  * or missing; GitHub unreachable, gh signed out or another host reads as unavailable.
  *
- * A read whose checks have all completed is kept in the checkout's private Git storage and read from
- * there again, since a completed run's conclusion does not change; any other is read at most once a
- * minute, so a review shown again and again asks GitHub once.
+ * A read whose checks all passed is kept in the checkout's private Git storage and read from there
+ * again. A failed check is read again after ten minutes: a CI job re-run on the same commit changes its
+ * conclusion, and a kept "failed" was shown to the approver for good [limit audit, item 9]. Any other
+ * read is kept a minute, so a review shown again and again asks GitHub once.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -15,6 +16,8 @@ import path from 'node:path';
 import { gitDir } from '../git.mjs';
 
 const FRESH_MS = 60 * 1000;
+// A failed check can be re-run on the same commit: its kept read is good for this long, then read again.
+const FAILED_FRESH_MS = 10 * 60 * 1000;
 const COMMIT = /^[0-9a-f]{40,64}$/u;
 
 /** The Story's required check names: its source's and its capability's, as the Story pinned them. */
@@ -30,8 +33,11 @@ async function cached(root, commit, names, at) {
   try {
     const kept = JSON.parse(await readFile(cacheFile(root, commit), 'utf8'));
     if (JSON.stringify(kept.names) !== JSON.stringify(names)) return null;
-    const settled = kept.evidence.status === 'read' && kept.evidence.checks.every((check) => ['passed', 'failed'].includes(check.status));
-    return settled || Date.parse(at) - Date.parse(kept.evidence.observedAt) < FRESH_MS ? kept.evidence : null;
+    const read = kept.evidence.status === 'read';
+    const passed = read && kept.evidence.checks.every((check) => check.status === 'passed');
+    const settled = read && kept.evidence.checks.every((check) => ['passed', 'failed'].includes(check.status));
+    const age = Date.parse(at) - Date.parse(kept.evidence.observedAt);
+    return passed || age < (settled ? FAILED_FRESH_MS : FRESH_MS) ? kept.evidence : null;
   } catch { return null; }
 }
 

@@ -45,6 +45,28 @@ test('an exact declared edge charges its target, not an unrelated later budget i
   });
 });
 
+// A person may grant one more rework round past a spent budget, as decision rounds allow [owner, 2026-11-20, decision 3]: the
+// refusal names their return with --beyond-budget, and the round is recorded as beyond the budget.
+test('a person grants one more rework round past a spent budget, recorded as beyond it', async () => {
+  const { refusalRemediationPlan } = await import('../src/refusal-remediation.mjs');
+  const workflow = { workItem: { id: 'W-1' }, phaseOrder: ['impl', 'test'], phases: { impl: { generation: 1 } }, repairBudgets: {} };
+  const phase = { id: 'impl', repairBudget: { maxAttempts: 1, resetOnPhase: null } };
+  const sourcePhase = { id: 'test', status: 'awaiting_approval' };
+  const attempt = (changeRequestId, extra = {}) => consumeRepairAttempt(workflow, phase, { targetPhase: 'impl', actor: {}, at: '2026-11-20T00:00:00.000Z', changeRequestId, sourcePhase, ...extra });
+  attempt('CR-1');
+  let refused;
+  try { attempt('CR-2'); } catch (error) { refused = error; }
+  assert.equal(refused?.code, 'REPAIR_BUDGET_EXHAUSTED');
+  const grant = 'singularity-flow reject test --work-id W-1 --to impl --reason "<why one more round>" --beyond-budget';
+  assert.equal(refused.details.oneMoreRound, grant);
+  const plan = refusalRemediationPlan(refused, ['reject', 'test', '--work-id', 'W-1', '--to', 'impl', '--reason', 'Again.']);
+  assert.deepEqual(plan.steps.slice(0, 2).map((entry) => [entry.id, entry.command, entry.changes ?? null]), [
+    ['grant-one-more-round', grant, 'a person grants one more round past the budget (--beyond-budget)'],
+    ['approve-as-it-stands', 'singularity-flow decisions W-1', null]]);
+  assert.deepEqual(attempt('CR-2', { beyondBudget: true }).attempts.map((entry) => entry.beyondBudget ?? false), [false, true]);
+  assert.throws(() => attempt('CR-3'), (error) => error.code === 'REPAIR_BUDGET_EXHAUSTED', 'each further round needs its own grant');
+});
+
 test('repair budgets stop a third repair and reset only on a new intent generation', () => {
   const workflow = {
     phases: { 'poc-intake': { generation: 1 } },
@@ -123,6 +145,7 @@ test('an exhausted budget names the reset return only from a submitted step', ()
   };
   const inProgress = refusal('in_progress');
   assert.equal(inProgress.details.resetCommand, null);
-  assert.match(inProgress.message, /Once 'testing' is submitted, its approvers may return it to 'intake'/u);
+  assert.match(inProgress.message, /Once 'testing' is submitted, a return to 'intake' starts the count again/u);
+  assert.equal(inProgress.details.oneMoreRound, null, 'one more round is granted only once it is submitted');
   assert.match(refusal('awaiting_approval').details.resetCommand, /^singularity-flow reject testing --work-id BUDGET-1 --to intake/u);
 });

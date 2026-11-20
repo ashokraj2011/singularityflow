@@ -599,6 +599,12 @@ function protectedPathEvaluation(definition, workflow, changeSet) {
 async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime = {}) {
   let activeAccountedAt = Date.now();
   const stopActive = async (status, reason, nextAction, extra = {}) => {
+    // Every halt hands the work back to its Story: the way on is the Story's, never a new Plan [owner, 2026-11-20, decision 4].
+    if (status === 'halted') {
+      const { handBackWords } = await import('./auto-flight-store.mjs');
+      const workId = (await readAutoFlightState(root, flightId).catch(() => null))?.story?.workId ?? 'its Story';
+      nextAction = `${nextAction} ${handBackWords(flightId, workId)}`;
+    }
     const activeSince = activeAccountedAt;
     const now = Date.now();
     const activeMilliseconds = now - activeAccountedAt;
@@ -722,7 +728,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
   try { continuation = await verifyAutoFlightContinuation(root, state); }
   catch (error) {
     return stopActive('halted', 'continuation-binding-mismatch',
-      'Inspect the Story binding and create a continuation or replacement Plan before continuing.', {
+      'The Story binding no longer matches this flight.', {
       lastError: { code: error.code ?? 'AUTO_PLAN_STALE', message: error.message }
     });
   }
@@ -824,20 +830,20 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
   const elapsedMinutes = (Date.now() - Date.parse(state.createdAt)) / 60_000;
   if (elapsedMinutes >= state.execution.ceilings.maximumElapsedMinutes) {
     return stopActive('halted', 'elapsed-time-ceiling',
-      'Create and ratify a replacement Plan; the elapsed authorization window has expired.', {
+      'The elapsed authorization window has expired.', {
         ceiling: { name: 'maximumElapsedMinutes', maximum: state.execution.ceilings.maximumElapsedMinutes, consumed: elapsedMinutes }
       });
   }
   const maximumActiveMs = state.execution.ceilings.maximumActiveMinutes * 60 * 1000;
   if ((state.counters.activeMilliseconds ?? 0) >= maximumActiveMs) {
     return stopActive('halted', 'active-time-ceiling',
-      'Create and ratify a replacement Plan; the cumulative active-time budget is exhausted.', {
+      'The cumulative active-time budget is exhausted.', {
         ceiling: { name: 'maximumActiveMinutes', maximum: maximumActiveMs, consumed: state.counters.activeMilliseconds ?? 0 }
       });
   }
   if (state.counters.phasesCompleted >= state.execution.ceilings.maximumPhases) {
     return stopActive('halted', 'phase-ceiling',
-      'Create and ratify a replacement Plan to authorize another phase.', {
+      'The Plan authorizes no further phase.', {
         ceiling: { name: 'maximumPhases', maximum: state.execution.ceilings.maximumPhases, consumed: state.counters.phasesCompleted }
       });
   }
@@ -858,7 +864,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
     }
   } catch (error) {
     if (error.code === 'AUTO_FLIGHT_STALE') {
-      return stopActive('halted', 'external-state-change', 'Inspect the Story and create a replacement Plan.', {
+      return stopActive('halted', 'external-state-change', 'The Story changed outside this flight.', {
         lastError: { code: error.code, message: error.message }
       });
     }
@@ -1202,7 +1208,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       }
       if (state.execution.ceilings.tokenBudget.assurance === 'exact-required') {
         return stopActive('halted', 'token-assurance-unavailable',
-          'Exact remaining token budget cannot be proven before invocation; finish manually or ratify a best-available Plan.', {
+          'Exact remaining token budget cannot be proven before invocation.', {
             token: { assurance: 'unavailable', totalTokens: null },
             ceiling: state.execution.ceilings.tokenBudget
           });
@@ -1384,7 +1390,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       authoringCheckpoint = state.checkpointSha256;
       if (state.execution.ceilings.tokenBudget.assurance === 'exact-required' && token.assurance !== 'exact') {
         return stopActive('halted', 'token-assurance-unavailable',
-          'Finish manually or ratify a Plan whose token policy permits best-available assurance.', {
+          'The Plan\'s token policy needs an exact remaining budget, which cannot be proven here.', {
             token, lastInvocationId: invocation.invocationId
           });
       }

@@ -70,6 +70,7 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.run-in-progress',
   'gateway.confirmation-channel-unavailable',
   'gateway.confirmation-declined',
+  'gateway.confirmation-timed-out',
   'gateway.run-outcome-unknown',
   'gateway.result-replayed',
   'gateway.executor-unavailable',

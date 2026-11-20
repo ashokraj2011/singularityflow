@@ -146,11 +146,12 @@ test('an exhausted repair budget names a reachable reset from the submitted phas
   assert.equal(error?.code, 'REPAIR_BUDGET_EXHAUSTED');
   assert.equal(error.details.currentPhase, 'testing');
   assert.equal(error.details.resetCommand, 'singularity-flow reject testing --work-id DEAD-1 --to intake --reason <reason>');
-  assert.match(error.message, /Return the submission to 'intake' instead/);
+  assert.match(error.message, /Return it to 'intake' to start the count again/);
   const plan = refusalRemediationPlan(error, ['reject', 'testing', '--to', 'implementation', '--reason', 'again']);
   assert.equal(plan.context.phaseId, 'testing');
   assert.equal(plan.steps[0].command, error.details.resetCommand);
-  assert.match(plan.steps[1].label, /ask the approvers for direction/i);
+  // Or a person grants one more round past the budget [owner, 2026-11-20, decision 3].
+  assert.equal(plan.steps[1].id, 'grant-one-more-round');
   assert.doesNotMatch(JSON.stringify(plan), /--phase implementation/);
 
   workflow.phases.testing.approvalPolicy.rejectTo = ['implementation', 'testing'];
@@ -161,7 +162,7 @@ test('an exhausted repair budget names a reachable reset from the submitted phas
   })();
   assert.equal(noReset.details.resetCommand, null);
   const human = refusalRemediationPlan(noReset, ['reject', 'testing', '--to', 'implementation']);
-  assert.match(human.steps[0].label, /No allowed return resets the implementation repair budget/);
+  assert.deepEqual(human.steps.slice(0, 2).map((entry) => entry.id), ['grant-one-more-round', 'approve-as-it-stands'], 'no return resets it: a person grants a round or approves it as it stands');
 });
 
 test('recover surfaces a remembered refused ending instead of reporting no blockers', async t => {

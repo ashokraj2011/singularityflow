@@ -186,8 +186,15 @@ async function pendingOperations(root) {
   try {
     const { transportIntentsForRepository } = await import('../transport-intents.mjs');
     const intents = await transportIntentsForRepository(root);
-    return { pushes: intents.map((intent) => ({ id: intent.intentId ?? intent.id, status: intent.status,
-      targetRef: intent.targetRef ?? null })), retry: 'singularity-flow sync' };
+    // Each saved push names its own way on: plain `sync` skips a saved push ("Nothing else is waiting"), so it is
+    // `sync <its ID>`, which reads the remote first; one whose branch moved past it is read by its status [limit audit].
+    const RETRYABLE = new Set(['pending', 'pushing', 'outcome-unknown', 'needs-user', 'attempt-budget-exhausted']);
+    const pushes = intents.map((intent) => {
+      const id = intent.intentId ?? intent.id;
+      return { id, status: intent.status, targetRef: intent.targetRef ?? null,
+        retry: RETRYABLE.has(intent.status) ? `singularity-flow sync ${id}` : `singularity-flow push status ${id}` };
+    });
+    return { pushes, retry: pushes.find((push) => push.retry.startsWith('singularity-flow sync '))?.retry ?? null };
   } catch (error) { return { pushes: [], unavailable: String(error?.code ?? error?.message ?? error) }; }
 }
 
@@ -412,7 +419,7 @@ function printResult(result) {
     }
     for (const lease of result.leases ?? []) if (leaseLine(lease)) say(leaseLine(lease));
     const pushes = result.pendingOperations.pushes;
-    say(pushes.length ? `Pending pushes: ${pushes.map((push) => `${push.id} (${push.status})`).join(', ')}. Retry: ${result.pendingOperations.retry}`
+    say(pushes.length ? `Pending pushes: ${pushes.map((push) => `${push.id} (${push.status}): ${push.retry}`).join('; ')}.`
       : 'No pending pushes for this repository.');
   } else if (result.resultType === 'sflow-index-refresh') {
     if (!result.refreshed.length && !result.firstReads.length) say('Nothing to refresh.');

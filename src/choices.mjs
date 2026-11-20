@@ -321,7 +321,9 @@ async function withReceiptMutation(root, token, operation) {
 }
 
 async function assertActive(root, receipt) {
-  if (receipt.binding !== REVIEW_BOUND && Date.parse(receipt.expiresAt) <= Date.now()) throw new SingularityFlowError('The selection receipt expired. Ask the contributor to make the choices again.');
+  if (receipt.binding !== REVIEW_BOUND && Date.parse(receipt.expiresAt) <= Date.now()) throw new SingularityFlowError(
+    `The selection receipt expired (${RECEIPT_TTL_MS / 60000} minutes after the choices were offered). Make the choices again: a fresh receipt starts its own ${RECEIPT_TTL_MS / 60000} minutes.`,
+    { code: 'CHOICE_RECEIPT_EXPIRED', details: { action: receipt.action, workId: receipt.workId, expiredAt: receipt.expiresAt } });
   const copilot = await loadCopilotSession(root);
   if (receipt.copilotSessionId && copilot?.sessionId !== receipt.copilotSessionId) {
     throw new SingularityFlowError('The selection receipt belongs to a different Copilot session.');

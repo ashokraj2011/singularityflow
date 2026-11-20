@@ -183,7 +183,9 @@ export class GitPublicationUnitOfWork {
       const status = await ledgerStatus(root, ledger.config, { offline: true });
       if ((status.outbox ?? 0) > 0 || (status.pending?.length ?? 0) > 0) {
         throw new SingularityFlowError(
-          `The capability ledger has ${status.outbox ?? 0} local outbox record(s) and ${status.pending?.length ?? 0} unpublished intent(s). Reconcile it before mutating ${subject.kind} '${subject.id}'.`
+          `The capability ledger has ${status.outbox ?? 0} local outbox record(s) and ${status.pending?.length ?? 0} unpublished intent(s). Reconcile it before mutating ${subject.kind} '${subject.id}'.`,
+          { code: 'LEDGER_BEHIND_BLOCKED', details: { subject: { kind: subject.kind, id: subject.id }, outbox: status.outbox ?? 0,
+            pending: status.pending?.length ?? 0, nextAction: 'singularity-flow ledger reconcile' } }
         );
       }
     }

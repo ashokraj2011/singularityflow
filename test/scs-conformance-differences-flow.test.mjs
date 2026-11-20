@@ -184,7 +184,7 @@ test('Update the spec drafts the scope\'s amendment in one choice; written, prop
   assert.equal(drafted.drafted.length, 1);
   const draftPath = drafted.drafted[0].path;
   assert.equal(draftPath, path.join(await realpath(root), '.git/singularity-flow/intent-amendment-drafts', `${W}.md`));
-  assert.ok(drafted.drafted[0].next.command.startsWith(`singularity-flow story intent-amendment propose --work-id ${W} --file "${draftPath}"`));
+  assert.ok(drafted.drafted[0].next.command.startsWith(`singularity-flow story intent-amendment propose --work-id ${W} --reason`), 'the draft is the file SFlow issued: no --file to retype');
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout, head, 'nothing was committed');
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, before, 'nothing in the checkout changed');
   const draft = await readFile(draftPath, 'utf8');
@@ -198,7 +198,7 @@ test('Update the spec drafts the scope\'s amendment in one choice; written, prop
   assert.ok(waiting.why.includes(`is at ${draftPath}: write it as the code does it, then propose it.`), waiting.why);
   const next = waiting.options.find((entry) => entry.id === 'update-spec');
   assert.equal(next.recordable, false);
-  assert.ok(next.action.command.startsWith(`singularity-flow story intent-amendment propose --work-id ${W} --file "${draftPath}"`));
+  assert.ok(next.action.command.startsWith(`singularity-flow story intent-amendment propose --work-id ${W} --reason`), 'the draft is the file SFlow issued: no --file to retype');
   const choose = (...why) => json(attempt('decisions', 'record', W, '--choose', `${row.id}=update-spec`, ...why,
     '--confirm', json(cli('decisions', W, '--json')).data.packetSha256, '--json'));
   assert.equal(choose().error?.code, 'DECISIONS_OPTION_NOT_RECORDABLE', 'drafted, it is the person\'s step to write and propose');

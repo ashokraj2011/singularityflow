@@ -224,7 +224,7 @@ test('once drafted, the list says where the draft is and that writing and propos
   assert.deepEqual(item.details.draft, { path: DRAFT, clauses: [`${W}:REQ-003`, `${W}:REQ-004`] });
   const update = item.options.find((entry) => entry.id === 'update-spec');
   assert.equal(update.recordable, false, 'the wording is a person\'s or the Story\'s agent\'s');
-  assert.equal(update.action.command, `singularity-flow story intent-amendment propose --work-id ${W} --file "${DRAFT}" --reason "<why the specification changes>"`);
+  assert.equal(update.action.command, `singularity-flow story intent-amendment propose --work-id ${W} --reason "<why the specification changes>"`);
   assert.equal(update.action.file, DRAFT, 'a host may open the engine\'s own path');
   assert.match(update.words, /\/sf-amend propose/u);
   assert.equal(update.decidedBy.allowed, true);

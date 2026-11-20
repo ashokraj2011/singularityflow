@@ -334,7 +334,8 @@ test('CLI composition supplies exact approved clauses once and retains summary, 
     'the verified source owns the amendment route, not every clarification block');
   assert.match(first, /propose it from this step with `singularity-flow story intent-amendment propose[^\n]*approved scope of `intake`/);
   assert.match(first, /Pause for at least one human response/);
-  assert.match(first, /singularity-flow clarification record design --response-file/);
+  // The answers file is the one SFlow issued: the record command needs no --response-file [owner, 2026-11-20].
+  assert.match(first, /singularity-flow clarification record design\b/);
   assert.match(first, /The pinned clarification mode for `design` is `required`/);
   assert.deepEqual(await readFile(workflowPath), beforeWorkflow);
   assert.deepEqual(await readFile(path.join(fixture.root, briefs[0].renderedPath)), beforeBrief);

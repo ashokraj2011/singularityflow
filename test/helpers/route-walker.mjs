@@ -509,7 +509,13 @@ export async function releaseDraftTemplate(t, { verdict = 'matched' } = {}) {
   const sample = `| \`${WORK}:REQ-001\` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |`;
   await mkdir(path.join(item, 'artifacts/release/verification'), { recursive: true });
   await writeFile(path.join(item, 'artifacts/release/verification/evidence-index.md'), `# Release verification evidence index — ${WORK}\n\nVerification generation 1 is approved, and it reused the run Implementation recorded on this same source tree.\n`);
-  await writeFile(report, (await readFile(report, 'utf8')).replace(sample, story.clauses.map((clause) => `| \`${clause}\` | \`test/value.test.mjs\`, the run reused on this source tree | ${verdict} |`).join('\n'))
+  // `prepare` writes one row per approved clause (owner, 2026-11-20); an older template has the one sample row.
+  const todoRow = (clause) => `| \`${clause}\` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |`;
+  const filled = (clause) => `| \`${clause}\` | \`test/value.test.mjs\`, the run reused on this source tree | ${verdict} |`;
+  let text = await readFile(report, 'utf8');
+  if (story.clauses.every((clause) => text.includes(todoRow(clause)))) for (const clause of story.clauses) text = text.replace(todoRow(clause), filled(clause));
+  else text = text.replace(sample, story.clauses.map(filled).join('\n'));
+  await writeFile(report, text
     .replace(/TODO:[^\n]*/gu, `Compared ${story.clauses.join(' and ')} against the recorded run.`).replace(/\bTODO\b/gu, 'none'));
   cli('artifact', 'scan', '--phase', 'release');
   return { parent: story.directory, root, item: path.relative(root, item), cli };

@@ -147,9 +147,14 @@ test('only one native question can be open at a time, including duplicate tool e
   const first = view.guideDelivery('REFRESH-1');
   await opened;
   assert.equal(OutcomeReviewPanel.show({}, store, client), view);
-  assert.equal((await view.guideDelivery('REFRESH-1')).status, 'already-open');
+  // A second ask waits for the open question and gets the person's answer there, never `already-open` with no next step
+  // [owner's Story arshy, 2026-11-20: every limit has an exit].
+  const second = view.guideDelivery('REFRESH-1');
   assert.equal(reads.length, 1, 'a duplicate invocation must not invalidate the original open question');
-  release(); assert.equal((await first).status, 'cancelled');
+  release();
+  const [answered, waited] = await Promise.all([first, second]);
+  assert.equal(answered.status, 'cancelled');
+  assert.equal(waited.status, answered.status, 'the waiting ask gets the same answer');
   assert.deepEqual(commands, []);
 });
 

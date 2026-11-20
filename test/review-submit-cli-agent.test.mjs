@@ -85,7 +85,8 @@ test('check, submit, status and result last hand the agent what comes after rete
   const checked = JSON.parse(check);
   assert.equal(checked.act.state, 'retain');
   // The retain route returns the agent view: before, it printed the retained review whole, past the host's cut.
-  assert.equal(checked.act.do.shell, `singularity-flow review-source submit ${phaseId} --report-file ${packet.stagingPath} --for-agent --json`);
+  // The staged report is the file SFlow issued: its submit needs no --report-file [owner, 2026-11-20].
+  assert.equal(checked.act.do.shell, `singularity-flow review-source submit ${phaseId} --for-agent --json`);
   assertSurvivesEveryCut(check, 'check');
 
   const submit = cli(...checked.act.do.shell.replace(/^singularity-flow /u, '').split(' '));

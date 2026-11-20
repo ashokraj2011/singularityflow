@@ -159,7 +159,8 @@ export const SDA_NAMES = Object.freeze({
   "'BACKUP_INVALID'": ['src/local-backup.mjs'],
   BACKUP_INTEGRITY_FAILED: ['src/local-backup.mjs', 'src/refusal-remediation.mjs'],
   BACKUP_REPOSITORY_MISMATCH: ['src/local-backup.mjs', 'src/refusal-remediation.mjs'],
-  BACKUP_TOO_LARGE: ['src/local-backup.mjs'],
+  // limit-remediation.mjs routes the code to its own way on (every limit has an exit) [owner, 2026-11-20].
+  BACKUP_TOO_LARGE: ['src/limit-remediation.mjs', 'src/local-backup.mjs'],
   BACKUP_DRAFTS_UNAPPROVED: ['src/local-backup.mjs'],
   "'story-not-here'": ['src/commands/backup.mjs', 'src/local-backup.mjs'],
   // M5: takeover's disclosure, and the drafts a factory reset removes

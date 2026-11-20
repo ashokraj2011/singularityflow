@@ -4,11 +4,9 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "1272d7ee6f0e6ee743ce5fb7b17eb25071690352",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-20-CEREMONY-LANDING.md",
-    "companionIds": [
-      "workflow-configuration"
-    ]
+    "reviewedAtCommit": "0538f8f8edd42dd9d9eadb288e3c855d2b7c83cf",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-20-HARDENING-LANDING.md",
+    "companionIds": ["publication-unit-of-work"]
   },
   "companions": [
     {
@@ -84,7 +82,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:0445a89dbe58833ffc327624e9a0c77e921dae908ad8051fe2638931f3a8c4c5"
+      "sha256": "sha256:071c67a27b7219768c06f27dbf78d92e602b1b448be84d343de14cad348e6129"
     },
     {
       "id": "action-authorization",

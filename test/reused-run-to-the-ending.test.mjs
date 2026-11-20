@@ -68,8 +68,13 @@ test('a reused run carries its attempt, counts and tree from Verification to the
   await mkdir(path.join(item, 'artifacts/release/verification'), { recursive: true });
   await writeFile(path.join(item, 'artifacts/release/verification/evidence-index.md'), [`# Release verification evidence index — ${W}`, '',
     `Verification generation 1 is approved. It reused implementation's run ${attempt} on this same source tree (${packet.sourceTreeSha256}): 1 passed, 0 failed, 0 skipped.`, ''].join('\n'));
-  const sample = `| \`${W}:REQ-001\` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |`;
-  await writeFile(report, (await readFile(report, 'utf8')).replace(sample, story.clauses.map((clause) => `| \`${clause}\` | \`test/value.test.mjs\`, run ${attempt}: 1 of 1 passed on this source tree | matched |`).join('\n'))
+  // `prepare` writes one row per approved clause (owner, 2026-11-20); an older template has the one sample row.
+  const todoRow = (clause) => `| \`${clause}\` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |`;
+  const filled = (clause) => `| \`${clause}\` | \`test/value.test.mjs\`, run ${attempt}: 1 of 1 passed on this source tree | matched |`;
+  let text = await readFile(report, 'utf8');
+  if (story.clauses.every((clause) => text.includes(todoRow(clause)))) for (const clause of story.clauses) text = text.replace(todoRow(clause), filled(clause));
+  else text = text.replace(todoRow(`${W}:REQ-001`), story.clauses.map(filled).join('\n'));
+  await writeFile(report, text
     .replace(/TODO:[^\n]*/gu, `Compared ${story.clauses.join(' and ')} against the recorded run ${attempt}.`).replace(/\bTODO\b/gu, 'none'));
   cli('artifact', 'scan', '--phase', 'release');
   cli('phase', 'publish', 'release', '--authored', 'human', '--channel', 'manual-in-place');

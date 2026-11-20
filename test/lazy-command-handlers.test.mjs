@@ -885,7 +885,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // carry one and their facts (state.mjs token budget and work interval, clarifications.mjs, analysis-limits.mjs), a
     // person's one more rework round past a spent budget (repair-budget.mjs) and reject's --beyond-budget boolean (util.mjs).
     // Their routes load only when refused (limit-remediation.mjs, with refusal-remediation.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_800_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,804,409 (measured on landing-11, 2026-11-20): the three hardening tracks together. SFlow fills the review report's
+    // copied values and the files it issued (track A), coded limits with their routes (track B), and the VS Code chat
+    // routes and approval-page fixes (track C). No new eager file.
+    assert.ok(closure.bytes <= 9_804_409, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1374,7 +1377,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,306,250 (measured 4,306,212 on landing-7, 2026-11-20): the finding dispute and the Node install route together.
   // 4,307,760 (measured 4,307,760, +1,510, 2026-11-20, limit audit track B): coded limits with their facts (clarifications.mjs,
   // analysis-limits.mjs), a person's one more rework round (repair-budget.mjs) and `--beyond-budget` (util.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_307_760, `session current loads ${current.bytes} source bytes`);
+  // 4,310,822 (measured on landing-11, 2026-11-20): the three hardening tracks together (filled values and path-slip
+  // corrections, coded limits, VS Code chat routes). No new eager file.
+  assert.ok(current.bytes <= 4_310_822, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

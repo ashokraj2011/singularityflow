@@ -279,8 +279,13 @@ test('ratchet: once a chat-opened card records the last decision, the approval p
   const row = packet().items[0];
   const before = { ...after, items: [{ ...row, id: 'd1' }, { ...approval, id: 'd2', why: '0 of 1 approvals recorded. It waits for d1 first.', details: { ...approval.details, heldBy: ['d1'], ready: false } }],
     packetSha256: DIGEST };
+  // What `decisions record --json` returns once the pin is recorded: `remaining` is the list read after it, item by item, its
+  // approval row included (src/commands/decisions.mjs: after.items.map(({ id, kind, title }))).
+  const remaining = after.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title }));
+  assert.deepEqual(remaining, [{ id: 'd1', kind: 'approval', title: 'Approve Planning' }]);
   const recorded = { resultType: 'command-result', data: { recorded: [{ item: 'd1', kind: 'node-pin', record: 'PAM-001' }], decided: [{ item: 'd1', words: 'Pin Node 22' }],
-    refused: [], remaining: [], packetSha256: null } };
+    refused: [], remaining, packetSha256: after.packetSha256 } };
+  assert.deepEqual(model.decisionRecordOutcome(recorded).outcome.approvalLeft, ['d1: Approve Planning'], 'the approval is told apart from what is still open');
   const cli = listClient([before, after], recorded);
   panels.length = 0; executed.length = 0;
   const result = reviewDecisions(cli, { workId: P }, async () => undefined, { askedInChat: true });
@@ -296,9 +301,11 @@ test('ratchet: once a chat-opened card records the last decision, the approval p
   confirmation.post({ type: 'confirmation.accept', acknowledged: true });
   const answer = await result;
   assert.ok(cli.runs.some((argv) => argv.includes('record')), 'recorded through the CLI');
-  assert.equal(answer.status, 'recorded');
+  assert.equal(answer.status, 'approval-open');
   assert.equal(answer.next, null);
-  assert.ok(answer.message.endsWith(` All decided. ${PAGE_WORDS}`), answer.message);
+  assert.deepEqual(answer.remaining, [], 'the approval is on its page, not a decision still open');
+  assert.equal(answer.message, `1 decision recorded. Pin Node 22. All decided. ${PAGE_WORDS}`);
+  assert.doesNotMatch(answer.message, /Still open|Approve Planning/u);
   assert.doesNotMatch(JSON.stringify(answer), APPROVE_ROUTE, 'the chat was sent back to an approve route');
   assert.deepEqual(approvalsOpened(), [['singularityFlow.openApprovals', { workId: P, phase: 'planning' }]]);
 });

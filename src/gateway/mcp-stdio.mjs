@@ -78,7 +78,9 @@ export function serveMcp({ input, output, createKernel, serverInfo, log = () => 
       requestedSchema: exact
         ? { type: 'object', properties: { confirm: { type: 'string', title: `Type ${subject} to confirm exactly this record` } }, required: ['confirm'] }
         : { type: 'object', properties: { confirm: { type: 'boolean', title: 'Carry this out' } }, required: ['confirm'] }
-    }).catch(() => null);
+    }).catch((error) => (/timed out/u.test(error?.message ?? '') ? { timedOut: true } : null));
+    // Ten minutes with no answer is not a "no": it says so, and that asking again shows the question again [limit audit, item 6].
+    if (answer?.timedOut) return refusal('gateway.confirmation-timed-out');
     const accepted = answer?.action === 'accept' && (exact ? answer.content?.confirm === subject : answer.content?.confirm === true);
     if (!accepted) return refusal('gateway.confirmation-declined');
     // The receipt exists only inside this call: from confirmPlan straight into run, never serialized.

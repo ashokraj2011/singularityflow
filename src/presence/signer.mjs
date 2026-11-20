@@ -89,7 +89,11 @@ export async function signWithPresence({ statement, keyId, publicKey, card, term
       env: systemToolEnvironment({ SSH_SK_PROVIDER: SK_PROVIDER, SSH_ASKPASS_REQUIRE: 'force', SSH_ASKPASS: '/usr/bin/true' })
     });
     if (result.status !== 0 || !String(result.stdout ?? '').includes('BEGIN SSH SIGNATURE')) {
-      throw new SingularityFlowError('Nothing was signed: the Touch ID prompt was declined or failed. Nothing was written.', { code: 'PSS_PRESENCE_DECLINED' });
+      // Two minutes with no touch is not a decline: it says so, and that the same command asks again [limit audit, item 6].
+      const timedOut = result.error?.code === 'ETIMEDOUT' || (result.status === null && result.signal === 'SIGTERM');
+      throw new SingularityFlowError(timedOut
+        ? 'Nothing was signed: the Touch ID prompt was not answered within two minutes. Run the same command again and touch the sensor when it asks. Nothing was written.'
+        : 'Nothing was signed: the Touch ID prompt was declined or failed. Nothing was written.', { code: 'PSS_PRESENCE_DECLINED', ...(timedOut ? { details: { timedOut: true } } : {}) });
     }
     const verified = verifyPresenceSignature({ message, armored: result.stdout, publicKey });
     if (!verified.valid) throw new SingularityFlowError(`The new signature does not verify (${verified.reason}). Nothing was written.`, { code: 'PSS_SIGNATURE_INVALID' });

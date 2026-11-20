@@ -122,13 +122,11 @@ export function consumeRepairAttempt(workflow, phase, { targetPhase, actor, at, 
     const resetCommand = submitted ? route : null;
     const oneMoreRound = submitted ? oneMoreRoundCommand(workflow, sourcePhase, targetPhase) : null;
     throw new SingularityFlowError(
-      `Phase '${phase.id}' repair budget is exhausted (${state.attempts.length}/${policy.maxAttempts}). `
-      + (resetCommand
-        ? `Return the submission to '${policy.resetOnPhase}' instead, which resets the budget once it has a new approved generation: ${resetCommand}. `
-        : route ? `Once '${sourcePhase.id}' is submitted, its approvers may return it to '${policy.resetOnPhase}', which resets the budget once it has a new approved generation; a return is refused before then. `
-        : 'No allowed return resets it from here. ')
-      + (oneMoreRound ? `A person who decides '${sourcePhase.id}' may grant one more round past the budget, with their reason: ${oneMoreRound}. Or approve the submission as it stands.`
-        : 'Ask the approvers for direction: approve the submission as it stands, or grant one more round once it is submitted.'),
+      `Phase '${phase.id}' used its ${policy.maxAttempts} rework rounds.`
+      + (resetCommand ? ` Return it to '${policy.resetOnPhase}' to start the count again: ${resetCommand}.`
+        : route ? ` Once '${sourcePhase.id}' is submitted, a return to '${policy.resetOnPhase}' starts the count again.` : '')
+      + (oneMoreRound ? ` Or grant one more round: ${oneMoreRound}.`
+        : ' Or its approvers approve it as it stands.'),
       { code: 'REPAIR_BUDGET_EXHAUSTED', details: {
         phase: phase.id, currentPhase: sourcePhase?.id ?? null, upstreamPhase: phase.id === sourcePhase?.id ? null : phase.id,
         maximum: policy.maxAttempts, consumed: state.attempts.length,

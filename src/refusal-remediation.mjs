@@ -487,9 +487,8 @@ function requiredTestFailureSteps(argv, error) {
 function timeLimitStep(failure, context) {
   if (failure?.kind !== 'timeout' || !context?.workId || !context.phaseId) return null;
   return step('raise-test-time-limit',
-    'If the tests are healthy but slow, their time limit (timeoutMs) was fixed when the Story started. A configuration approver raises timeoutMs for this '
-      + 'test command in the approved configuration (/sf-test-setup proposes it); then a person who approves this step adopts it here with this preview and their reason, '
-      + 'and the same check runs with the new limit.',
+    'Healthy but slow tests: their time limit was set when the Story started. Raise timeoutMs in the approved configuration (/sf-test-setup), '
+      + 'then a step approver adopts it here with this preview.',
     `singularity-flow story test-policy amend --work-id ${context.workId} --phase ${context.phaseId} --reason "<why the tests need more time>"`, 'remediation');
 }
 
@@ -2005,7 +2004,10 @@ function limitPlan(error, argv, code) {
   const explicit = explicitCommands(error).map((command, index) => step(`producer-${index + 1}`,
     command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command, 'remediation', command.skill))
     .filter((entry) => !own.some((known) => known?.command && known.command === entry.command));
-  const steps = deduplicate([...own, ...explicit]);
+  // A limit met inside a step keeps the step's own next read after a route with commands. A change only the person makes
+  // stays theirs alone: with a read beside it, an agent would take the read and go round the step again.
+  const routed = [...own, ...explicit].some((entry) => entry.command);
+  const steps = deduplicate([...own, ...explicit, ...(routed ? phaseContainmentSteps(phaseRemediationContext(argv, error)) : [])]);
   if (!steps.length) return null;
   return Object.freeze({ schemaVersion: 1, status: 'blocked', code, steps: Object.freeze(steps),
     retry: Object.freeze({ label: LIMIT_RETRY_LABEL, automatic: false }) });

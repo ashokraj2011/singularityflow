@@ -145,7 +145,7 @@ export async function prepareApplicationRepair(root, options) {
       araFail('ARA_REPAIR_LIMIT_REACHED', 'The automatic repairs this review allows are used; nothing was discarded. Repair the finding by hand in the step\'s own work, then the person checks it again on the review page, or accepts or defers it there.',
         { nextAction: { ...author, label: 'Repair the finding by hand in the step\'s own work; the draft and the finding are kept.' },
           recoveryCommands: [{ command: `singularity-flow app-review inspect ${options.sessionId} --work-id ${workflow.workItem.id}`,
-            label: 'Then the person opens the review page to check the fix again, or to accept or defer the finding.' }] });
+            label: 'Then the person rechecks the fix on the review page, or settles it.' }] });
     }
     const phase = workflow.phases[view.subject.phaseId];
     if (workflow.currentPhase !== phase.id || !['in_progress', 'awaiting_approval'].includes(phase.status)) {

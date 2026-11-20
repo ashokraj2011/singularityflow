@@ -81,7 +81,6 @@ const PERSON_CHANGES = Object.freeze({
   UI_REQUEST_TOO_LARGE: 'Send a smaller change from the page (fewer items at once), then save again.',
   REV_LOOP_LIMIT: 'This revision loop reached its round limit: a person decides the remaining feedback (accept it as it is, or start a new revision), never another round of the same.',
   REV_FEEDBACK_TOO_LARGE: 'Shorten the feedback, or attach the detail as a file, then send it again.',
-  TOOL_ANSWER_MAX_BYTES: 'The answer is over the tool\'s size limit: read the full result with the CLI command the tool names, or ask for a narrower answer.',
   // Time limits a person or the machine changes.
   APP_READY_TIMEOUT: 'The application did not answer before its start-up time limit: check its log (app status), fix what stops it, or raise its ready timeoutMs in the run configuration; then start it again.',
   APP_BEFORE_LAUNCH_TIMEOUT: 'The step before launch did not finish in time: check its output, fix it or raise its timeoutMs in the run configuration, then start the application again.',
@@ -105,9 +104,10 @@ const PERSON_CHANGES = Object.freeze({
   UI_SESSION_EXPIRED: 'The page\'s session expired: open the page again from SFlow.',
   UI_RECEIPT_EXPIRED: 'The page\'s receipt expired: check the previous save on the page, then save again.',
   UI_TICKET_EXPIRED: 'The page\'s ticket expired: open the page again from SFlow.',
-  PSS_KEY_EXPIRED: 'Your SF Guard key expired: rotate it (guard key rotate), or have another approver decide.',
+  PSS_KEY_EXPIRED: 'Your SF Guard key expired: create a new identity and switch to it (guard rotate --key, as the refusal says), or have another approver decide.',
   EVIDENCE_WITNESS_EXCEPTION_EXPIRED: 'The witness exception expired: a person who approves the step renews it on the Decide card, or the witness is recorded.',
   FOS_APPROVAL_EXPIRED: 'The approval expired: the person approves the current version again.',
+  ANALYSIS_LIMIT_EXCEEDED: 'The document is larger than the analysis reads: split it into smaller documents, or, if this is genuinely the size of the work, a configuration approver raises the analysisLimits setting the refusal names; then run the same command again.',
   WORK_INTERVAL_EXCEEDED: 'The step\'s change is larger than its work interval allows: escalate the Story to the larger interval the refusal names (story interval escalate), or make the change smaller, then submit again.'
 });
 
@@ -138,14 +138,14 @@ const ROUTES = Object.freeze({
     const replace = retried && argv[0] === 'clarification' && argv[1] === 'record' && !argv.includes('--replace') ? `${retried} --replace` : null;
     return [
       { id: 'record-fewer-questions', label: words(`This step allows ${details.maxQuestions ?? 'a fixed number of'} clarification questions and this record would hold ${details.given ?? 'more'}. `
-        + 'Keep in the response file only the questions this round needs; --replace records exactly those, dropping the earlier ones.', 2000), kind: 'remediation',
+        + 'Merge related questions, and keep in the response file only the ones this step needs; --replace records exactly those.', 2000), kind: 'remediation',
       ...(replace ? { command: replace, changes: `the response file holds at most ${details.maxQuestions ?? 'the allowed number of'} questions` } : {}) },
-      { id: 'leave-the-rest-open', label: 'Or leave the rest unanswered as open questions in the document: the step\'s approvers decide them when they review it, never the author.', kind: 'remediation' },
+      { id: 'raise-question-limit', label: 'Or, if the step really needs more, a configuration approver raises clarification.maxQuestions in the approved configuration; never answer the rest for the person.', kind: 'remediation' },
       workId ? decideCard('open-decision-list', 'Open decisions on this Story are on the Decide card.', workId) : null];
   },
   LEDGER_BEHIND_BLOCKED: ({ argv, details, retried }) => {
     const workId = workIdOf(argv, details);
-    return [{ id: 'reconcile-ledger', label: 'Publish the ledger records waiting on this machine first.', command: `singularity-flow ledger reconcile${workId ? ` ${workId}` : ''}`, kind: 'remediation' },
+    return [{ id: 'reconcile-ledger', label: 'Publish the records waiting on this machine first.', command: `singularity-flow ledger reconcile${workId ? ` ${workId}` : ''}`, kind: 'remediation' },
       retried && { id: 'run-again-after-reconcile', label: 'Then run the same command again.', command: retried, kind: 'remediation', changes: 'the ledger is reconciled' }];
   },
   // Detection read past its bound: initialize without it, and fill in the commands by hand.
@@ -157,7 +157,7 @@ const ROUTES = Object.freeze({
   PHASE_APPEAL_TOO_LARGE: ({ argv, details }) => {
     const workId = workIdOf(argv, details);
     return [{ id: 'split-appeal', label: 'Split the appeal into smaller ones, each naming fewer files. A single generated or lock file over the limit is never truncated: raise an upstream issue that names it instead.', kind: 'remediation' },
-      workId ? { id: 'raise-upstream-issue', label: 'Raise the issue for the file the appeal cannot carry; its approvers decide it.', command: `singularity-flow upstream-issue raise --work-id ${workId}`, kind: 'remediation' } : null];
+      workId ? { id: 'raise-upstream-issue', label: 'Raise an issue for the file; its approvers decide it.', command: `singularity-flow upstream-issue raise --work-id ${workId}`, kind: 'remediation' } : null];
   },
   // A continuation or a repair that cannot start: the step's own work by hand, or a person's decision on the card.
   PHASE_CONTINUATION_NOT_ADMITTED: (context) => stepWorkOrCard(context, 'No automatic continuation is admitted for this step (its budget is spent, or a person\'s decision is open).'),

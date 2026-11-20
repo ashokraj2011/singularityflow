@@ -58,7 +58,9 @@ export function assertWithinLimit(actual, key, { limits = DEFAULT_ANALYSIS_LIMIT
   if (actual <= limit) return actual;
   throw new SingularityFlowError(
     `${label} is ${actual}${unit} and the configured limit is ${limit}${unit}. `
-    + `Raise analysisLimits.${key} if this is genuinely the size of the work.`
+    + `Raise analysisLimits.${key} if this is genuinely the size of the work.`,
+    // Coded, so its plan names the change: a smaller input, or the limit raised [limit audit, caps fixed at start].
+    { code: 'ANALYSIS_LIMIT_EXCEEDED', details: { key, limit, actual } }
   );
 }
 

@@ -398,3 +398,45 @@ test('no skill routes the person back to itself, unless the sentence names what 
   assert.match(decide, /re-read the list; go on from 11, never `\/sf-next`\./u);
   assert.match(await readFile(new URL('sflow-review-source/SKILL.md', root), 'utf8'), /`status`: read\. Its `\/sf-review-source` route is this chat: review here\./u);
 });
+
+test('no two skills send VS Code\'s chat round between each other: /sf-approve and /sf-decide', async () => {
+  // Owner's Story, 2026-11-20: VS Code's /sf-approve named `/sf-decide` as the approval page's route (steps 3 and 5), and
+  // /sf-decide step 1 opened the card, read the list again and, its next being the approval, did /sf-approve 1-6 now. Nothing
+  // changed between the two, so the chat went round and nothing was approved. A skill's route for VS Code (its own chat, the
+  // approval page, the Decide card's approval row) to another skill that routes back to it is that loop, whatever the words.
+  // A route back that only follows a change (an answer recorded first) may be reviewed here, with what changed.
+  const { readdir, readFile } = await import('node:fs/promises');
+  const REVIEWED = new Set([]);
+  const root = new URL('../plugin/skills/', import.meta.url);
+  const skills = new Map();
+  for (const name of (await readdir(root)).sort()) {
+    try { skills.set(name, await readFile(new URL(`${name}/SKILL.md`, root), 'utf8')); } catch { /* not a skill */ }
+  }
+  const sentences = (text) => text.split(/(?<=[.;!?])\s+|\n/u).map((entry) => entry.trim()).filter(Boolean);
+  // A command named just after never, not or no is a way away from it, not a route to it.
+  const routes = (text, target) => sentences(text).filter((sentence) => [...sentence.matchAll(new RegExp(`/${target.replace(/^sflow-/u, 'sf-')}(?![\\w-])`, 'gu'))]
+    .some((match) => !/\b(?:never|not|no|nor|neither)\b[^.;:]{0,30}$/iu.test(sentence.slice(0, match.index))));
+  const VS_CODE = /VS Code|approval page|approval row/u;
+  const loops = [];
+  for (const [from, text] of skills) {
+    for (const [to, back] of skills) {
+      const there = from === to ? [] : routes(text, to).filter((sentence) => VS_CODE.test(sentence));
+      const returns = there.length ? routes(back, from).filter((sentence) => !REVIEWED.has(`${to}: ${sentence}`)) : [];
+      if (returns.length) loops.push(`${from} -> ${to} (${there[0].slice(0, 120)}), back: ${returns.map((sentence) => sentence.slice(0, 120)).join(' | ')}`);
+    }
+  }
+  assert.deepEqual(loops, []);
+  // The incident's two skills: VS Code reaches the approval page through the card's own tool, never /sf-decide, and /sf-decide
+  // reads its list again, whose approval branch is /sf-approve, only when the card did not open that page.
+  const approve = skills.get('sflow-approve');
+  const decide = skills.get('sflow-decide');
+  assert.match(approve, /In VS Code's own chat never ask: the person approves on the approval page, which `#sflowDecide` with `workId` opens\./u);
+  assert.doesNotMatch(approve, /approval (?:page|row)[^.]*`\/sf-decide/u);
+  const step1 = decide.slice(decide.indexOf('\n1. '), decide.indexOf('\n2. '));
+  const gate = step1.indexOf('Then, unless it returned `approval-open`, run `singularity-flow decisions <WORK-ID> --for-agent --json`');
+  assert.ok(gate > 0 && gate < step1.indexOf('do /sf-approve 1-6 now'), 'the read whose approval branch is /sf-approve runs only when the card did not open the approval page');
+  // The card says `approval-open` when it opened the page, and its tool tells the agent the turn ends there.
+  const tool = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8')).contributes.languageModelTools
+    .find((entry) => entry.name === 'singularityFlow_decide');
+  assert.match(tool.modelDescription, /status approval-open, next null\): end the turn there and relay no approve route/u);
+});

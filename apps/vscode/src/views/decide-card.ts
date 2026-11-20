@@ -303,7 +303,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           if (!openRows(packet).length) {
             // The approval is all that is left: a chat that asked gets its page, as when it opened this card [owner's Story, 2026-11-20].
             const page = settled ? null : await approvalPage();
-            return finish({ status: 'recorded', recorded, remaining: [], message: [`${recorded.length} recorded. All decided.`, page ?? nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' '),
+            return finish({ status: page ? 'approval-open' : 'recorded', recorded, remaining: [], message: [`${recorded.length} recorded. All decided.`, page ?? nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' '),
               next: page ? null : nextFor(packet.storyNext ?? packet.next) });
           }
           render(null, result.message ?? null);
@@ -362,8 +362,12 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           await reread();
           const page = settled ? null : await approvalPage();
           const next = page ? null : nextFor(packet.storyNext);
-          finish({ status: 'recorded', recorded: all, decided, remaining: outcome.remaining, ...(page ? { next: null } : next ? { next } : {}),
-            message: [`${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : all.length ? `${all.length} recorded.` : outcome.message}${outcome.remaining.length ? ` Still open: ${outcome.remaining.join('; ')}.` : ' All decided.'}`,
+          // The approval is no decision still open: with its page open, or nothing else left, a chat is not told it is.
+          const approvalLeft = outcome.approvalLeft ?? [];
+          const remaining = askedInChat && (page || outcome.remaining.every((entry) => approvalLeft.includes(entry)))
+            ? outcome.remaining.filter((entry) => !approvalLeft.includes(entry)) : outcome.remaining;
+          finish({ status: page ? 'approval-open' : 'recorded', recorded: all, decided, remaining, ...(page ? { next: null } : next ? { next } : {}),
+            message: [`${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : all.length ? `${all.length} recorded.` : outcome.message}${remaining.length ? ` Still open: ${remaining.join('; ')}.` : ' All decided.'}`,
               page ?? nextWords(next)].filter(Boolean).join(' ') });
         } catch (error) {
           const failure = error as Error & { result?: unknown };

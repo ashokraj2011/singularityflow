@@ -205,6 +205,8 @@ export interface DecisionListOutcome {
   drafted?: string[];
   /** A recorded pin or plan amendment changed the open code step after its summary was written: what its author does next. */
   summaryUpdate?: string;
+  /** The entries of `remaining` that are the step's approval: a review on its own page, never a decision still open. */
+  approvalLeft?: string[];
 }
 
 export interface StoryNext { kind: string; title: string; command: string | null; copilotCommand: string | null; modelFreeCommand?: string }
@@ -592,8 +594,11 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
     const recorded = recordedWords(data.recorded);
     const refused = (Array.isArray(data.refused) ? data.refused : []).map((value) => object(value)).filter(Boolean)
       .map((entry) => `${entry!.item}: ${entry!.words ?? ''}`.trim());
-    const remaining = (Array.isArray(data.remaining) ? data.remaining : []).map((value) => object(value)).filter(Boolean)
-      .map((entry) => `${entry!.id}: ${entry!.title ?? ''}`.trim());
+    const left = (Array.isArray(data.remaining) ? data.remaining : []).map((value) => object(value)).filter(Boolean);
+    const line = (entry: Record<string, unknown> | null) => `${entry!.id}: ${entry!.title ?? ''}`.trim();
+    const remaining = left.map(line);
+    // The engine lists the step's approval among what remains (decisions record --json): a chat is told it apart.
+    const approvalLeft = left.filter((entry) => entry!.kind === 'approval').map(line);
     // A draft is a file written, not a record: said apart, with where it is and what is next.
     const drafted = (Array.isArray(data.drafted) ? data.drafted : []).map((value) => object(value)).filter(Boolean)
       .map((entry) => `${entry!.item}: drafted at ${String(entry!.path ?? '')}. ${String(object(entry!.next)?.words ?? '')}`.trim());
@@ -609,7 +614,7 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
     return {
       outcome: { kind: 'recorded', message: `${[recordLine, draftLine, sameLine].filter(Boolean).join(' ')}${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}${summaryUpdate ? ` ${summaryUpdate}` : ''}`,
         recorded, remaining, decided: (Array.isArray(data.decided) ? data.decided : []).map((value) => object(value)?.words).filter((words): words is string => typeof words === 'string'),
-        ...(drafted.length ? { drafted } : {}), ...(summaryUpdate ? { summaryUpdate } : {}) },
+        ...(drafted.length ? { drafted } : {}), ...(summaryUpdate ? { summaryUpdate } : {}), ...(approvalLeft.length ? { approvalLeft } : {}) },
       packet: null
     };
   }

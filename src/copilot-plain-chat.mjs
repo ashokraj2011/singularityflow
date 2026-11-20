@@ -279,7 +279,7 @@ function amendmentRefusal(story, relative) {
   return { permissionDecision: 'deny', next: [], permissionDecisionReason: relative === story.scopeArtifact
     ? `PLAIN_CHAT_APPROVED_SCOPE: ${relative} holds ${story.workId}'s approved requirements, which change only through an intent amendment, so this edit did not run. `
       + `Draft one with singularity-flow story intent-amendment draft --work-id ${story.workId} --clause <CLAUSE-ID>, write only the changed clauses in the draft, `
-      + `propose it with singularity-flow story intent-amendment propose --work-id ${story.workId} --file <DRAFT> --reason "<why>" --authored governed-agent --channel copilot-host, `
+      + `propose it with singularity-flow story intent-amendment propose --work-id ${story.workId} --reason "<why>" --authored governed-agent --channel copilot-host, `
       + `then tell the person to decide it on the decisions card: ${card}. ${story.phase} pauses until it is decided. Do not retry the edit`
     : `PLAIN_CHAT_STEP_PAUSED: ${story.paused} waits for the requirements approvers, and ${story.phase} pauses until it is decided, so this edit${relative ? ` to ${relative}` : ''} did not run. `
       + `Tell the person to decide it on the decisions card: ${card} (a stale one is refreshed there). Do not retry it` };

@@ -171,7 +171,7 @@ export async function workflowTaskAgentStop(payload = {}) {
   if (!answers && !await reserveTaskContinuation(value, operation)) return continuationSpent(value, operation);
   return { decision: 'block', reason: `SFLOW_WORKFLOW_TASK_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no verified completed publication from this task. `
     + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --command "<the cut command\'s words>" --for-agent --json and follow that result; never replay the command. Otherwise: '
-    + (operation.state === 'record-answers' ? `The person has answered and nothing is recorded yet. Stage their answers as ${CLARIFICATION_RESPONSE_FORMAT}, one entry per question, at the --response-file path and run ${next.command} alone, then run singularity-flow phase enter --compose --for-agent --json once and do this step's own work from what it returns. If they declined or left a question open, say which and stop; never answer for them. `
+    + (operation.state === 'record-answers' ? `The person has answered and nothing is recorded yet. Stage their answers as ${CLARIFICATION_RESPONSE_FORMAT}, one entry per question, at the step's responseStagingPath and run ${next.command} alone, then run singularity-flow phase enter --compose --for-agent --json once and do this step's own work from what it returns. If they declined or left a question open, say which and stop; never answer for them. `
       : operation.state === 'refresh-entry' ? `The answers are recorded. Run ${next.command} once, then do this step's own work from what it returns. `
       : operation.state === 'load-context' ? `The admitted entry did not compose context. Run ${next.command} once, then use its delivered inputs and complete the current task. `
       : operation.state === 'prepare-successor' ? `Run only the returned successor preparation, ${next.command}; preserve prior publications and private drafts, then refresh phase entry once before authoring. `
@@ -212,14 +212,17 @@ export async function sourceReviewAgentStop(payload = {}) {
   try { draft = await readSourceReviewDraft(operation.stagingPath, value.binding.gitDir); }
   catch { return {}; }
   // An independently changed binding needs a fresh entry, never a transplanted judgment.
-  if (draft?.report?.binding && recordSha256(draft.report.binding) !== operation.bindingSha256
+  // "from-context" is the binding this operation's context showed: never a changed one.
+  if (draft?.report?.binding && draft.report.binding !== 'from-context' && recordSha256(draft.report.binding) !== operation.bindingSha256
       && operation.state !== 'review-changed-inputs') return {};
-  const check = safeCommandGuidance({ argv: ['review-source', 'check', operation.phaseId,
-    '--report-file', operation.stagingPath, '--for-agent', '--json'] });
+  const check = safeCommandGuidance({ argv: ['review-source', 'check', operation.phaseId, '--for-agent', '--json'] });
+  // The skeleton SFlow wrote, still untouched: the judgments are to write, not a check to run [owner, 2026-11-20].
+  const template = Boolean(operation.templateSha256 && draft?.raw
+    && (await import('node:crypto')).createHash('sha256').update(draft.raw).digest('hex') === operation.templateSha256);
   const next = operation.state === 'review-changed-inputs'
     ? `The current context is fresh and the old draft was preserved. Independently review the current pinned inputs and author a replacement from the current reportTemplate at ${operation.stagingPath}; never reuse stale bindings or judgments. Then run ${check.command} and retain when retentionReady.`
-    : draft && !draft.error && operation.state !== 'repair-report' ? `Run ${check.command} now, then follow its repair or retention route.`
-    : `${draft ? 'Repair the existing JSON' : 'Author the independent report from the issued template and already read pinned inputs'} at ${operation.stagingPath}. Then run ${check.command} and retain when retentionReady.`;
+    : draft && !draft.error && operation.state !== 'repair-report' && !template ? `Run ${check.command} now, then follow its repair or retention route.`
+    : `${template ? 'Author the independent report: fill in your judgments in the report SFlow wrote' : draft ? 'Repair the existing JSON' : 'Author the independent report from the issued template and already read pinned inputs'} at ${operation.stagingPath}. Then run ${check.command} and retain when retentionReady.`;
   operation.continued = true;
   if (!await saveReviewCompletionTurn(payload, value, { once: true })) return {};
   if (!await reserveTaskContinuation(value, operation)) return continuationSpent(value, operation);

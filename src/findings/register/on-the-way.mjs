@@ -163,7 +163,8 @@ function row(item, place, decision, { departure = null } = {}) {
     ...(decision.upgrade ? { upgrade: decision.upgrade, from: decision.from ?? null, to: decision.to } : {}),
     ...(departure ? { departure } : {}),
     ...(decision.action === 'fix' && !departure ? {
-      record: `singularity-flow departure record --kind finding --finding ${shellWord(item.id)} ${place.files.map((file) => `--path ${shellWord(file)}`).join(' ')} --reason ${shellWord(`Fixes ${item.id} from the findings register on what this Story touches.`)}`
+      // SFlow fills its files and reason (departure record --on-the-way): nothing long to retype [owner, 2026-11-20].
+      record: `singularity-flow departure record --on-the-way ${shellWord(item.id)}`
     } : {}),
     ...(decision.reason ? { why: decision.reason } : {})
   };

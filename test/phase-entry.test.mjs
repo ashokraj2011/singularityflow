@@ -428,8 +428,10 @@ test('a future user-created workflow composes a question-only checkpoint for its
   const recordAction = entry.clarification.checkpoint.recordAction;
   assert.equal(recordAction.requiresActualHumanReplies, true);
   assert.equal(recordAction.automatic, false);
-  assert.deepEqual(recordAction.commandGuidance.argv, ['clarification', 'record', 'team-discovery',
-    '--response-file', entry.clarification.responseStagingPath, '--for-agent', '--json'], 'the agent records replies through a bounded route');
+  // No --response-file: record reads the file this entry issued, so its long path is never typed [owner, 2026-11-20].
+  assert.deepEqual(recordAction.commandGuidance.argv, ['clarification', 'record', 'team-discovery', '--for-agent', '--json'],
+    'the agent records replies through a bounded route');
+  assert.match(recordAction.detail, /to clarification\.responseStagingPath with a file-edit tool/u);
   assert.equal(recordAction.commandGuidance.copilotCommand, '/sf-phase');
   // The staged file's shape is given, never left to a guess: told only "the issued JSON", an agent
   // asked its questions and stopped (Story anu-bin, 2026-11-11).
@@ -514,7 +516,7 @@ test('a question that arises after the checkpoint joins the same record until th
     assert.equal(checkpoint.remainingQuestions, maxQuestions - recorded);
     assert.equal(checkpoint.newQuestionAction.requiresActualHumanReplies, true);
     assert.deepEqual(checkpoint.newQuestionAction.commandGuidance.argv,
-      ['clarification', 'record', 'specification', '--response-file', staging, '--for-agent', '--json']);
+      ['clarification', 'record', 'specification', '--for-agent', '--json'], 'it reads the issued file: no path to type');
     await stage(`Later question ${recorded}?`);
     const added = invokeJson(...checkpoint.newQuestionAction.commandGuidance.argv.filter(arg => arg !== '--json'));
     assert.equal(added.outcome.slots.responses, recorded + 1, 'earlier answers are kept');

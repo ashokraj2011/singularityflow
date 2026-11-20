@@ -2086,7 +2086,8 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
   // named with --out is the caller's own.
   const statePath = out === defaultOut ? defaultOut.replace(/\.md$/u, '.json') : null;
   const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
-  const proposeCommand = `singularity-flow story intent-amendment propose --work-id ${workId} --file "${out}" --reason "<why the specification changes>"`;
+  // The Story's own draft is what propose reads by default, so its long Git-private path is never typed again [owner, 2026-11-20].
+  const proposeCommand = `singularity-flow story intent-amendment propose --work-id ${workId}${out === defaultOut ? '' : ` --file "${out}"`} --reason "<why the specification changes>"`;
   if (keepEdits) {
     const existing = await readFile(out).catch(() => null);
     const state = existing && statePath ? await readFile(statePath, 'utf8').then(JSON.parse).catch(() => null) : null;
@@ -2125,6 +2126,17 @@ async function classSuggestion(workflow, options, who = null) {
 }
 
 /**
+ * The drafted specification a preview or proposal reads: --file, else the Story's own draft (story intent-amendment
+ * draft) when there is one, so the agent never retypes its Git-private path [owner, 2026-11-20].
+ */
+async function intentAmendmentFile(root, workflow, options) {
+  const named = optionString(options, 'file');
+  if (named) return named;
+  const draft = (await import('../phase-staging-paths.mjs')).intentAmendmentDraftPath(gitDir(root), workflow);
+  return await readFile(draft).then(() => draft, () => null);
+}
+
+/**
  * `given` is a refresh's proposal of a stale one's exact bytes, reason, authorship, proposer and carried
  * rows, bound to the step as it is now [owner, 2026-11-13]; null reads all of them from the command's
  * options. `dryRun` checks everything a proposal checks and writes nothing: a refresh rejects the stale
@@ -2160,10 +2172,10 @@ async function proposeIntentAmendment(root, config, workflow, options, { given =
       code: 'INTENT_AMENDMENT_UNSUPPORTED'
     });
   }
-  const candidate = given ? null : optionString(options, 'file');
+  const candidate = given ? null : await intentAmendmentFile(root, workflow, options);
   if (!candidate && !given) {
     throw new SingularityFlowError(
-      'Provide the proposed specification bytes with --file <MARKDOWN>. The existing specification is not edited until authority approval.',
+      'Draft the changed clauses first (story intent-amendment draft), or name the proposed specification with --file <MARKDOWN>. The existing specification is not edited until authority approval.',
       { code: 'INTENT_AMENDMENT_FILE_REQUIRED' }
     );
   }
@@ -2447,7 +2459,7 @@ export async function previewIntentAmendment(root, config, workflow, proposalId,
   const [{ intentAmendmentEffect, intentAmendmentStaleness }, words] = await Promise.all([import('../state-stores.mjs'), import('../decision-list.mjs')]);
   let proposal;
   let proposedText;
-  const file = proposalId ? null : optionString(options, 'file');
+  const file = proposalId ? null : await intentAmendmentFile(root, workflow, options);
   if (proposalId) {
     const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
     if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`, { code: 'INTENT_AMENDMENT_UNKNOWN' });
@@ -2475,9 +2487,9 @@ export async function previewIntentAmendment(root, config, workflow, proposalId,
     }
   } else {
     if (!file) {
-      throw new SingularityFlowError('Name the drafted specification with --file FILE, or a pending proposal by its ID.', { code: 'INTENT_AMENDMENT_FILE_REQUIRED' });
+      throw new SingularityFlowError('Draft the changed clauses first (story intent-amendment draft), name the drafted specification with --file FILE, or a pending proposal by its ID.', { code: 'INTENT_AMENDMENT_FILE_REQUIRED' });
     }
-    ({ proposal } = await proposeIntentAmendment(root, config, workflow, options, { dryRun: true, preview: true }));
+    ({ proposal } = await proposeIntentAmendment(root, config, workflow, { ...options, file }, { dryRun: true, preview: true }));
     proposedText = await readFile(path.resolve(file), 'utf8');
   }
   const effect = await intentAmendmentEffect(root, config, workflow, proposal, { proposedText });
@@ -2500,7 +2512,7 @@ export async function previewIntentAmendment(root, config, workflow, proposalId,
   ];
   const next = proposalId
     ? { command: `singularity-flow decisions ${workId}`, skill: '/sf-decide', label: `${decidedBy ? `A person in ${words.listWords(decidedBy.groups)}` : 'A scope approver'} decides ${proposalId} on the decisions card` }
-    : { command: `singularity-flow story intent-amendment propose --work-id ${workId} --file "${file}" --reason "<why the specification changes>"`, label: 'Propose it' };
+    : { command: `singularity-flow story intent-amendment propose --work-id ${workId}${optionString(options, 'file') ? ` --file "${file}"` : ''} --reason "<why the specification changes>"`, label: 'Propose it' };
   return { resultType: 'intent-amendment-preview', workId, recorded: false, amendment: proposal.id, source: proposalId ? 'proposal' : 'draft',
     summary: lines, next, effect, radius: proposal.radius?.totals ?? null };
 }

@@ -443,6 +443,23 @@ export async function answerSelectionReceipt(root, token, choiceId, selectedId) 
   });
 }
 
+/**
+ * The filled commands a person's Yes runs on an approval receipt [owner, 2026-11-20: SFlow fills what it knows]: `answer`
+ * records the Yes on the receipt (choices answer … phase-confirmation <STEP>), `approve` then approves with it. The
+ * agent runs them as returned and never assembles the receipt's 36-character token into a command. Null for a receipt
+ * that is not an approval's. The person's Yes stays their ask_user answer; these only carry it.
+ */
+export function approvalReceiptCommands(receipt) {
+  if (receipt?.action !== 'approve' || typeof receipt.token !== 'string') return null;
+  const phase = receipt.answers?.['phase-confirmation']?.id
+    ?? receipt.choiceSets?.find((entry) => entry?.id === 'phase-confirmation')?.options?.[0]?.id;
+  if (typeof phase !== 'string') return null;
+  return {
+    answer: ['choices', 'answer', receipt.token, 'phase-confirmation', phase, '--json'],
+    approve: ['approve', phase, '--work-id', receipt.workId, '--fetch', '--selection-receipt', receipt.token, '--for-agent', '--json']
+  };
+}
+
 export async function selectionReceiptStatus(root, token) {
   const receipt = await readReceipt(root, token);
   await assertActive(root, receipt);

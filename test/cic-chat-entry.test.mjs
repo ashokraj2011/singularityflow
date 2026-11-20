@@ -160,7 +160,7 @@ test('VS Code\'s own chat, whose answers may not reach SFlow, is told to propose
   const local = await repositoryToolGuard({ session_id: payload.sessionId, cwd: payload.cwd, hook_event_name: 'PreToolUse', tool_name: 'run_in_terminal',
     tool_input: { command: PROPOSE, cwd: f.root } });
   assert.equal(local.permissionDecision, 'deny');
-  assert.match(local.permissionDecisionReason, /do not ask again in this chat\. They propose it in their own terminal, with their reason: singularity-flow story intent-amendment propose --work-id CHAT-1 --file "draft\.md" --reason "<why>" --authored human/u);
+  assert.match(local.permissionDecisionReason, /do not ask again in this chat\. They propose it in their own terminal, with their reason: singularity-flow story intent-amendment propose --work-id CHAT-1 --reason "<why>" --authored human/u);
 });
 
 test('deciding and acknowledging stay the person\'s in the chat entry, and without change impact a proposal is as it was [CIC:AC-015, AC-017]', async (t) => {
@@ -218,16 +218,16 @@ test('an /sf-amend turn is told its own route with full commands, /sf-reject kee
     const amend = await f.enter('/sf-amend CHAT-1', `pin-amend-${changeImpact}`);
     const contract = await recorded(f, amend);
     const file = contract.allow.staging[0] ?? null;
-    const at = file ?? '<FILE>';
+    // Preview and propose read the Story's own draft by default: the turn is never told to retype its path [owner, 2026-11-20].
     assert.equal(contract.summary, `Intent amendment only: draft the change ${file ? `only at the issued file ${file}` : 'only in the file `singularity-flow story intent-amendment draft` issues'}, `
-      + `show \`singularity-flow story intent-amendment preview --work-id CHAT-1 --file ${at} --for-agent --json\`, then propose with `
-      + `\`singularity-flow story intent-amendment propose --work-id CHAT-1 --file ${at} --reason "<why>" --authored governed-agent --channel copilot-host --json\``
+      + 'show `singularity-flow story intent-amendment preview --work-id CHAT-1 --for-agent --json`, then propose with '
+      + '`singularity-flow story intent-amendment propose --work-id CHAT-1 --reason "<why>" --authored governed-agent --channel copilot-host --json`'
       + `${changeImpact === 'on' ? ', only after the person\'s own Yes to "Propose it?", with their words as the reason' : ''}. `
       + 'A person decides and acknowledges it on the Decide card (/sf-decide CHAT-1) or in their own terminal, never this turn.');
     const reject = await recorded(f, await f.enter('/sf-reject intent-amendment propose CHAT-1', `pin-reject-${changeImpact}`));
     assert.ok(reject.summary.startsWith('Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'), reject.summary);
     if (reject.allow.staging.length) {
-      assert.ok(reject.summary.endsWith(` Draft an intent amendment only at the issued file ${reject.allow.staging[0]}, for \`singularity-flow story intent-amendment propose --work-id CHAT-1 --file ${reject.allow.staging[0]} --reason "<why>" --authored governed-agent --channel copilot-host --json\`.`), reject.summary);
+      assert.ok(reject.summary.endsWith(` Draft an intent amendment only at the issued file ${reject.allow.staging[0]}, for \`singularity-flow story intent-amendment propose --work-id CHAT-1 --reason "<why>" --authored governed-agent --channel copilot-host --json\`.`), reject.summary);
     }
     const approve = await recorded(f, await f.enter('/sf-approve design', `pin-approve-${changeImpact}`));
     assert.equal(approve.summary, 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.');

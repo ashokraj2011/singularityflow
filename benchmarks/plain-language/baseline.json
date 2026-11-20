@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6205,
-  "jargon": 1351,
-  "length": 651
+  "generic-route": 6204,
+  "jargon": 1350,
+  "length": 649
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -1801,7 +1801,7 @@
   "src/clarification-markers.mjs": 3,
   "src/clarifications.mjs": 16,
   "src/cli-entry.mjs": 1,
-  "src/cli.mjs": 250,
+  "src/cli.mjs": 249,
   "src/clone-strategy.mjs": 8,
   "src/code-delivery-policy.mjs": 7,
   "src/code-delivery-tests.mjs": 1,
@@ -3782,9 +3782,6 @@
    "9e19e4670330": "jargon:generation length",
    "e3396ae086e3": "jargon:generation length"
   },
-  "src/phase-entry-authoring.mjs": {
-   "737e8a9a2301": "length"
-  },
   "src/phase-evidence-amendment.mjs": {
    "b1a0bb577c52": "length"
   },
@@ -4182,7 +4179,6 @@
   },
   "src/source-review-staging.mjs": {
    "0f41e5ebfa83": "jargon:staging",
-   "34a50611c5b1": "jargon:staging length",
    "4bb9640c2030": "jargon:staging",
    "4e935b8550a3": "jargon:generation jargon:staging",
    "fbc26a5499af": "jargon:retained jargon:staging"

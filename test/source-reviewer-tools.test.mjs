@@ -63,17 +63,18 @@ test('every progress instruction names the file-edit route, never JSON in a shel
   const repair = sourceReviewRepairGuide({}, { sources: [] }, { findings: [], evaluation: { status: 'correction-required', findings: [] }, retentionReady: false });
   assert.match(repair.instruction, /edit the file at stagingPath with your file-edit tool, then run stagingProtocol\.check/u);
   const compact = compactSourceReviewContext({ canReview: true, kind: 'code', binding: { workId: 'X' }, reportTemplate: { binding: { workId: 'X' } } }, {});
-  assert.match(compact.reviewGuide.role, /write it with your file-edit tool at stagingProtocol\.path and run stagingProtocol\.check/u);
+  assert.match(compact.reviewGuide.role, /the file at stagingProtocol\.path already holds reportTemplate with the values SFlow knows; fill in your judgments there with your file-edit tool and run stagingProtocol\.check/u);
   assert.equal(compact.reportTemplate.binding, 'from-context');
 });
 
 test('the reviewer agent writes its report with the file-edit tool, never inline, and reports every finding at once', async () => {
   const { text } = await agentTools();
-  assert.match(text, /write the whole report as JSON with your file-edit tool at its exact `path`/u);
+  assert.match(text, /`review-source context` already wrote the report at its `path`/u);
+  assert.match(text, /fill in your judgments there with your\s+file-edit tool/u);
   assert.match(text, /Never type the report into a shell argument/u);
   assert.doesNotMatch(text, /No file-edit tool is needed/u);
   assert.match(text, /"binding": "from-context"/u);
-  assert.match(text, /it is not derivable from the path/u);
+  assert.match(text, /the file's exact path, which the check turns into its ID/u);
   assert.doesNotMatch(text, /with each `\/` as `:`/u, 'no derivation rule: other characters become : too, and a long path a hash');
   // Live: generation 1's review raised one finding and generation 2's another on text already there.
   assert.match(text, /Review the whole artifact every time and report every finding in this one review/u);

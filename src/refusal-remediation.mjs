@@ -2892,8 +2892,10 @@ export function refusalDetails(details) {
       ? { field: field(entry.proposedEdit.field), proposedEdit: { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } } : null).slice(0, 25)),
     // A mistyped binding's exact values: hashes, IDs, paths and numbers (a reordered list is repaired by
     // "binding": "from-context", which the instruction says) [Story anu-bin, 2026-11-11].
-    binding: ((edits) => (edits.length ? edits : null))(list(repair.binding, entry => entry && typeof entry === 'object' && proposedEdit(entry)
-      ? { field: field(entry.proposedEdit.field), proposedEdit: proposedEdit(entry) } : null).slice(0, 25)),
+    // The check now writes "binding": "from-context" itself for a slip: such an entry says so (sflowCorrects) [owner, 2026-11-20].
+    binding: ((edits) => (edits.length ? edits : null))(list(repair.binding, entry => (!entry || typeof entry !== 'object' ? null
+      : entry.sflowCorrects === true && field(entry.field) ? { field: field(entry.field), sflowCorrects: true }
+        : proposedEdit(entry) ? { field: field(entry.proposedEdit.field), proposedEdit: proposedEdit(entry) } : null)).slice(0, 25)),
     // Every other field whose exact value or choices SFlow knows [agent input repairs].
     repairs: ((edits) => (edits.length ? edits : null))(list(repair.repairs, entry => entry && typeof entry === 'object' && field(entry.field)
       && (proposedEdit(entry) || allowedValues(entry)) ? compact({ field: field(entry.field), message: text(entry.message),

@@ -69,18 +69,23 @@ test('the report goes to its staging file: the protocol offers no inline JSON, a
   assert.equal(protocol.kernelStage, undefined, 'no inline route is offered');
   assert.equal(protocol.path, packet.stagingPath);
   assert.match(protocol.write, /with your file-edit tool at exactly stagingPath.*never type the JSON into a shell argument/u);
-  assert.match(packet.reviewGuide.role, /write it with your file-edit tool at stagingProtocol\.path and run stagingProtocol\.check/u);
-  assert.match(packet.progress.instruction, /Write it with your file-edit tool at exactly stagingPath/u);
+  assert.match(packet.reviewGuide.role, /the file at stagingProtocol\.path already holds reportTemplate with the values SFlow knows; fill in your judgments there with your file-edit tool and run stagingProtocol\.check/u);
+  // Context wrote the report's skeleton at stagingPath: the reviewer edits its judgments there [owner, 2026-11-20].
+  assert.equal(packet.progress.state, 'author-report');
+  assert.equal(packet.progress.templateWritten, true);
+  assert.match(packet.progress.instruction, /SFlow already wrote the report at stagingPath.*with your file-edit tool/u);
+  assert.match(packet.progress.instruction, /Never type the JSON into a shell argument/u);
 
   // Shell-quoted JSON cut short by an apostrophe, as on the real Story: refused with the file route, nothing staged.
   const cut = run(root, ['review-source', 'stage', phaseId, '--report-json', '{"schemaVersion":1,"rows":[{"note":"the author', '--json']);
   assert.notEqual(cut.status, 0);
   assert.equal(cut.value.error.code, 'SOURCE_REVIEW_REPORT_INVALID');
-  assert.match(cut.value.error.message, /^The review JSON is invalid \(.+\); nothing was staged\. JSON typed into a shell argument breaks on its quotes: /u);
-  assert.ok(cut.value.error.message.endsWith(`write the whole report with your file-edit tool at ${packet.stagingPath}, then run ${protocol.check.command}.`), cut.value.error.message);
+  assert.match(cut.value.error.message, /^The review JSON is invalid \(.+\); nothing was written\. A shell argument breaks JSON: /u);
+  assert.ok(cut.value.error.message.endsWith(`write the report with your file-edit tool at ${packet.stagingPath}, then run ${protocol.check.command}.`), cut.value.error.message);
   assert.equal(cut.value.error.details.nextAction, protocol.check.command);
   assert.equal(cut.value.error.details.stagingPath, packet.stagingPath);
-  await assert.rejects(lstat(packet.stagingPath), 'nothing was staged');
+  assert.deepEqual(JSON.parse(await readFile(packet.stagingPath, 'utf8')), { ...packet.reportTemplate, binding: 'from-context' },
+    'nothing was staged: the file still holds the skeleton context wrote');
 
   // The reviewer's file-edit tool may write that one file in its review turn, and no other.
   assert.deepEqual(await review.tool('create', { path: packet.stagingPath, file_text: '{}' }), {});
@@ -211,4 +216,27 @@ test('the repair packet recovers the line a shell-quoted quote came from, on the
   assert.equal(none.quoteMarksLost, undefined);
   assert.equal(none.recoveredQuote, undefined);
   assert.match(none.instruction, /^No exact single-line match/u);
+});
+
+test('context writes the report skeleton the reviewer edits: an untouched one asks for judgments only and spends nothing; a draft is never replaced (owner, 2026-11-20)', async (t) => {
+  const { root, phaseId, packet, write } = await reviewStory(t);
+  // The file is there, holding every value SFlow knows, with the binding left to SFlow.
+  const staged = JSON.parse(await readFile(packet.stagingPath, 'utf8'));
+  assert.deepEqual(staged, { ...packet.reportTemplate, binding: 'from-context' });
+  assert.equal(packet.progress.state, 'author-report');
+  // Checked untouched (no --report-file: the check reads the file it issued), only the reviewer's judgments are asked.
+  const untouched = ok(root, ['review-source', 'check', phaseId, '--for-agent', '--json']);
+  assert.equal(untouched.retentionReady, false);
+  assert.equal(untouched.progress.state, 'author-report');
+  assert.match(untouched.continuation.nextAction.reason, /^SFlow already wrote the report at stagingPath/u);
+  const copied = ['sourcesReviewed', 'clarificationsReviewed', 'reviewer', 'binding', 'schemaVersion', 'resultType', 'kind'];
+  assert.ok(untouched.findings.every((entry) => !copied.some((field) => String(entry.field ?? '').startsWith(field))),
+    `no copy finding on SFlow's own skeleton: ${JSON.stringify(untouched.findings.map((entry) => entry.field))}`);
+  assert.equal(untouched.incomplete, undefined, 'SFlow\'s own skeleton is no repair attempt');
+  // A draft the reviewer wrote stays as it is when context is read again.
+  const report = reviewReport(packet);
+  await write(report);
+  const again = ok(root, ['review-source', 'context', phaseId, '--for-agent', '--json']);
+  assert.deepEqual(JSON.parse(await readFile(packet.stagingPath, 'utf8')), report);
+  assert.notEqual(again.progress.state, 'author-report');
 });

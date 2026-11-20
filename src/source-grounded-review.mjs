@@ -252,7 +252,7 @@ function clauseRowFinding(row, label, index, known, seen) {
     return finding('clause-row-invalid', `${label} repeats clause '${row.clauseId}'; give each clause one row.`, { field });
   }
   const canonical = clauseCaseHint(row.clauseId, known);
-  if (canonical) return finding('clause-row-invalid', `${label} names clause '${row.clauseId}'; write it exactly as '${canonical}' (clause IDs are compared in their canonical form).`,
+  if (canonical) return finding('clause-row-invalid', `${label} names clause '${row.clauseId}', which is '${canonical}' (clause IDs are compared in their canonical form; review-source check sets it).`,
     { canonical, field, proposedEdit: { field, value: canonical } });
   const near = nearestKnown(row.clauseId, known);
   return finding('clause-row-invalid', `${label} names clause '${row.clauseId ?? ''}', which this review does not cover; ${knownChoiceWords(near)}.`,
@@ -382,7 +382,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
         const canonical = authoritative.has(id) ? null : clauseCaseHint(id, authoritative);
         const near = canonical || authoritative.has(id) ? null : nearestKnown(id, [...authoritative]);
         const field = `rows[${index}].clauseIds[${at}]`;
-        if (canonical) findings.push(finding('clause-unknown', `${label} names clause '${id}'; write it exactly as '${canonical}' (clause IDs are compared in their canonical form).`, { canonical, field, proposedEdit: { field, value: canonical } }));
+        if (canonical) findings.push(finding('clause-unknown', `${label} names clause '${id}', which is '${canonical}' (clause IDs are compared in their canonical form; review-source check sets it).`, { canonical, field, proposedEdit: { field, value: canonical } }));
         else if (near) findings.push(finding('clause-unknown', `${label} names unknown clause '${id}'; ${knownChoiceWords(near)}.`,
           { field, ...(near.value ? { proposedEdit: { field, value: near.value } } : { allowed: near.allowed }) }));
         else mappedClauses.add(id);
@@ -462,7 +462,7 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
       mismatches.push({ field: 'steps', expected: actual.steps ?? [], received: row.steps });
     }
     for (const mismatch of mismatches) findings.push(finding('plan-row-mismatch',
-      `${label} ${mismatch.field} does not match the structured plan for '${row.clauseId}'. Copy the pinned reportTemplate field.`,
+      `${label} ${mismatch.field} does not match the structured plan for '${row.clauseId}'; review-source check sets it from the plan.`,
       { ...mismatch, field: `rows[${index}].${mismatch.field}`, clauseId: row.clauseId }));
     // Only the authoritatively parsed plan can declare test-only; the reviewer cannot waive paths.
     if (!expectedPaths.length && actual.fulfillment !== 'test-only') findings.push(finding('plan-path-missing', `Clause '${row.clauseId}' has no exact expected source path.`));
@@ -668,7 +668,7 @@ export function evaluateSourceGroundedReview(report, context) {
   }
   const slips = canonicalJson(report.binding) === canonicalJson(binding) ? [] : bindingSlips(report.binding, binding);
   if (slips?.length) findings.push(finding('review-binding-mistyped',
-    `The report's binding has ${slips.length} mistyped value${slips.length === 1 ? '' : 's'}; the pinned inputs did not change. Copy each proposed value exactly.`, { slips }));
+    `The report's binding has ${slips.length} mistyped value${slips.length === 1 ? '' : 's'}; the pinned inputs did not change, and review-source check writes "binding": "from-context" in its place.`, { slips }));
   else if (!slips) {
     return { status: 'stale', binding, reportSha256,
       findings: [finding('review-binding-stale', 'Pinned sources, human clarifications, approved upstream specification, artifact, phase, or generation changed after review.')],
@@ -683,7 +683,7 @@ export function evaluateSourceGroundedReview(report, context) {
       && context.reviewerAgentId !== context.authorAgentId && typeof reviewer?.agentId === 'string' && reviewer.agentId !== context.reviewerAgentId
       && reviewer.agentId !== context.authorAgentId;
     findings.push(finding('reviewer-not-independent', copied
-      ? `reviewer.agentId is '${reviewer.agentId}'; this review's reviewer is '${context.reviewerAgentId}': copy it exactly from reportTemplate.`
+      ? `reviewer.agentId is '${reviewer.agentId}'; this review's reviewer is '${context.reviewerAgentId}', which review-source check sets.`
       : 'A trusted, read-only reviewer distinct from the artifact author is required.',
     copied ? { field: 'reviewer.agentId', proposedEdit: { field: 'reviewer.agentId', value: context.reviewerAgentId } } : {}));
   }

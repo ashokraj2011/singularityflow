@@ -366,9 +366,9 @@ Usage:
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow review-source context <specification|planning> [--json]
       read pinned inputs, canonical reportSchema, and reportTemplate (planning mappings are prefilled, not assessed)
-  singularity-flow review-source check <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
-      read-only format, citation and binding preflight; no commit, push, human decision or approval
-  singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
+  singularity-flow review-source check <specification|planning> [--report-file FILE] [--json]
+      reads the file review-source context issued; sets what SFlow knows in it, then a read-only format, citation and binding preflight
+  singularity-flow review-source submit <specification|planning> [--report-file FILE] [--json]
       reject malformed packets before mutation; retain valid independent review evidence, including real gaps
   singularity-flow review-source decision-context <phase> --work-id WORK-ID --finding ID --reason TEXT [--json]
       inspect the exact human disposition packet and its confirmation hash; no state change
@@ -726,7 +726,7 @@ Usage:
   singularity-flow spec author gaps SPEC-ID [GAP-ID] [--json]
   singularity-flow spec author decide SPEC-ID GAP-ID (--option ON | --choice TEXT | --defer --owner NAME | --reopen)
     --reason TEXT [--json]
-  singularity-flow spec author propose SPEC-ID --file FILE [--json]
+  singularity-flow spec author propose SPEC-ID [--file FILE] [--json]
     stage Copilot's proposals (edit, research, gap) and assisted checklist findings; nothing is in the draft until accepted
   singularity-flow spec author accept SPEC-ID P-NNN... [--edit FILE] [--json] | reject SPEC-ID P-NNN... --reason TEXT [--json]
   singularity-flow spec author settle SPEC-ID ([--article ARTICLE=DECISION]... | --all-articles DECISION | [--finding A-NNN=gap|fixed|dismissed]...)
@@ -1187,11 +1187,12 @@ Usage:
   singularity-flow story adjudications [--work-id ID] [--json]  (what changed, what the plan says, what is decided)
   singularity-flow story intent-amendment status [--work-id ID] [--json]
   singularity-flow story intent-amendment draft [--clause ID]... [--adopt CLAUSE-ID]... [--out FILE] [--work-id ID] [--json]
-  singularity-flow story intent-amendment preview [AMD-ID | --file AMENDED-SPEC.md [--class CLASS]] [--work-id ID] [--json]
+  singularity-flow story intent-amendment preview [AMD-ID | [--file AMENDED-SPEC.md] [--class CLASS]] [--work-id ID] [--json]
     What approving it does, by the computation approval applies: each later step reset, kept (rule E8) or asked
     whether it still holds, and why; the stale clauses and the earlier changes it repeats. Records nothing.
     With spec.changeImpact on, also how big it is (editorial, refinement or material), why, and who decides it.
-  singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]
+  singularity-flow story intent-amendment propose [--file AMENDED-SPEC.md] --reason TEXT [--work-id ID]
+    (without --file: the Story's own draft, as story intent-amendment draft wrote it)
     [--class editorial|refinement|material] (spec.changeImpact on: a suggestion; one below the rules' floor is raised to it)
     [--authored human|governed-agent|external-tool] [--channel CHANNEL]
     [--external-ai none|assisted] [--change-origin ORIGIN...]

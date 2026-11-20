@@ -2625,7 +2625,12 @@ async function clarificationCommand(positionals, options) {
   // An off-mode phase has no human checkpoint to persist. Refuse before reading a response file or
   // requiring record-only flags so stale generic agent guidance always receives the policy recovery.
   assertClarificationRecordingAllowed(config, workflow, phase);
-  const responseFile = optionString(options, 'response-file');
+  // With no --response-file and no inline answer, the replies are the ones staged at the file phase entry issued
+  // for this step (responseStagingPath), so its Git-private path is never typed [owner, 2026-11-20].
+  const inline = ['question', 'marker', 'answer'].some((key) => options[key] !== undefined);
+  const issued = inline || options['response-file'] !== undefined ? null
+    : (await import('./phase-staging-paths.mjs')).clarificationStagingPath((await import('./git.mjs')).gitDir(root), workflow, phase);
+  const responseFile = optionString(options, 'response-file') ?? (issued && await readFile(issued).then(() => true, () => false) ? issued : null);
   let responses;
   if (responseFile) {
     let payload;
@@ -2652,7 +2657,9 @@ async function clarificationCommand(positionals, options) {
     const marker = optionString(options, 'marker');
     const question = optionString(options, 'question') ?? marker;
     const answer = optionString(options, 'answer');
-    if (!question || !answer) throw new SingularityFlowError('clarification record requires --question and --answer (or --marker and --answer), or --response-file JSON.');
+    if (!question || !answer) throw new SingularityFlowError(`No answers to record: write the person's answers in the file phase entry gave for them${issued ? ` (${issued})` : ''}, or give --question and --answer.`,
+      { code: 'CLARIFICATION_RESPONSE_FILE_REQUIRED', details: { ...(issued ? { responseStagingPath: issued } : {}),
+        nextAction: { command: `singularity-flow phase enter ${phase.id} --work-id ${workflow.workItem.id} --compose --for-agent --json`, label: 'Read the step again: it names that file and the answers\' shape.' } } });
     responses = [{
       question,
       ...(marker ? { marker } : {}),

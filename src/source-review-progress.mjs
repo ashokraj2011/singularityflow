@@ -59,6 +59,9 @@ async function preservePreviousDraft(file, gitDirectory, draft) {
  * How a report reaches stagingPath: the file, written with the reviewer's file-edit tool and checked, never JSON in a
  * shell argument, whose quoting broke a real review six times [owner, 2026-11-13].
  */
+/** What an untouched skeleton at stagingPath asks of the reviewer: only its judgments [owner, 2026-11-20]. */
+export const SOURCE_REVIEW_TEMPLATE_INSTRUCTION = 'SFlow already wrote the report at stagingPath with every value it knows (sources, clauses, plan fields, the reviewed lists and "binding": "from-context"). Review the pinned inputs and fill in only your judgments in that file with your file-edit tool: each assessment and testAssessment, your citations and rows, and your findings; leave SFlow\'s values as they are. Then run stagingProtocol.check, repair that file in place if it says so, and retain it with stagingProtocol.retain. An honest correction-required review can be retained. Never type the JSON into a shell argument.';
+
 const STAGE_ROUTE = 'Write it with your file-edit tool at exactly stagingPath (stagingProtocol.path), then run stagingProtocol.check; repair that same file in place and check it again. Never type the JSON into a shell argument: its quotes break it.';
 
 export function sourceReviewCheckProgress(input, stagingPath, checked, protocol) {
@@ -71,7 +74,7 @@ export function sourceReviewCheckProgress(input, stagingPath, checked, protocol)
     findings: checked.findings, repair: checked.repair };
 }
 
-export async function sourceReviewProgress({ input, retained, stagingPath, gitDirectory, protocol, check }) {
+export async function sourceReviewProgress({ input, retained, stagingPath, gitDirectory, protocol, check, templateText = null }) {
   const base = { complete: false, bindingSha256: recordSha256(input.binding), stagingPath };
   const workId = input.workId ?? input.binding?.workId;
   const phaseId = input.phaseId ?? input.phase ?? input.binding?.phaseId ?? input.binding?.phase;
@@ -88,6 +91,9 @@ export async function sourceReviewProgress({ input, retained, stagingPath, gitDi
   // no such tool stopped one (Story anu-bin, 2026-11-11), and the terminal route broke on shell quoting (2026-11-13).
   if (!draft) return { ...base, state: 'author-report',
     instruction: `Author the independent report now from reportTemplate and the pinned inputs, with "binding": "from-context". ${STAGE_ROUTE} Then retain it with stagingProtocol.retain. An honest correction-required review can be retained; an unwritten report cannot. Do not relay the context command as the next step.` };
+  // The skeleton SFlow wrote, untouched: the report is still the reviewer's to write, in that file [owner, 2026-11-20].
+  if (templateText && draft.raw === templateText) return { ...base, state: 'author-report', templateWritten: true,
+    templateSha256: createHash('sha256').update(draft.raw).digest('hex'), instruction: `${SOURCE_REVIEW_TEMPLATE_INSTRUCTION} Do not relay the context command as the next step.` };
   if (draft.error) return { ...base, state: 'repair-report', error: draft.error, nextAction: protocol.check,
     instruction: `The JSON at stagingPath does not read. Repair the report: ${STAGE_ROUTE} Retain it when valid.` };
   // A draft that leaves the binding to SFlow: this read is the reviewer's own context, so its binding is current.

@@ -549,8 +549,21 @@ export async function repositoryToolFailure(payload = {}) {
   const launched = await reviewerLaunchEnded(payload, { failure: true });
   payload = await ownTurnPayload(payload, 'after');
   const unread = await unreadResult(payload);
-  const answer = withReviewerFallback(await (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload), launched);
+  // A file path one copy slip off a path SFlow returned: its correction, never a blocker [owner, 2026-11-20].
+  const slip = await pathSlip(payload);
+  const answer = slip ?? withReviewerFallback(await (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload), launched);
   return unread ? unread.withUnreadResult(answer, unread.context) : answer;
+}
+
+/** The correction for a failed native file call whose path was a copy slip of one SFlow returned (path-slip.mjs), or null. */
+async function pathSlip(payload) {
+  try {
+    const guard = await import('./copilot-mutation-guard.mjs');
+    const calls = guard.nativeFileCalls(payload).filter((call) => call.paths.length);
+    if (!calls.length) return null;
+    const returned = await guard.turnReturnedPaths(payload);
+    return returned?.length ? (await import('./path-slip.mjs')).pathSlipAnswer(calls, returned, { cwd: payload.cwd }) : null;
+  } catch { return null; }
 }
 
 /**

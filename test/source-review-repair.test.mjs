@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { checkSourceReviewReport } from '../src/source-review-lifecycle.mjs';
+import { checkSourceReviewReport, correctSourceReviewReport } from '../src/source-review-lifecycle.mjs';
 import { sourceReviewBinding } from '../src/source-grounded-review.mjs';
 import { sourceReviewCitationGuide } from '../src/source-review-contract.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
@@ -144,8 +144,13 @@ test('a hash mistyped when copying the binding is repaired in the same turn, nev
   assert.equal(slipped.retentionReady, false, 'a mistyped binding is never retained');
   assert.equal(slipped.repair.status, 'repair-packet');
   assert.ok(slipped.findings.some((entry) => entry.code === 'review-binding-mistyped'));
-  assert.deepEqual(slipped.repair.binding, [{ field: 'binding.sources[0].textSha256', proposedEdit: { field: 'binding.sources[0].textSha256', value: real } }]);
-  assert.match(slipped.repair.instruction, /Copy each binding proposedEdit value exactly; the inputs did not change/u);
+  // The check writes "binding": "from-context" in its place itself: nothing to copy [owner, 2026-11-20].
+  assert.deepEqual(slipped.repair.binding, [{ field: 'binding.sources[0].textSha256', sflowCorrects: true }]);
+  assert.match(slipped.repair.instruction, /The binding was mistyped and the inputs did not change: stagingProtocol\.check writes "binding": "from-context" in its place itself/u);
+  const fixed = correctSourceReviewReport(report, input);
+  assert.equal(fixed.checked.retentionReady, true, 'one check repairs it');
+  assert.deepEqual(fixed.corrected, [{ field: 'binding', from: '1 mistyped value', to: 'from-context', why: 'binding' }]);
+  assert.deepEqual(fixed.report.binding, input.binding);
   // The refusal at stage carries the same exact values.
   const refusal = refusalEnvelope(new SingularityFlowError('Repair report format, citations or exact binding; no staging bytes changed.', {
     code: 'SOURCE_REVIEW_REPORT_INVALID', details: { findings: slipped.findings, repair: slipped.repair } }), ['review-source', 'stage', 'specification']);

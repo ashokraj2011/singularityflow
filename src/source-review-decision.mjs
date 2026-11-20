@@ -1,6 +1,7 @@
 /** An exact human disposition packet; preparing it never grants reviewer or lifecycle authority. */
 import { createHash } from 'node:crypto';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { confirmCommandByCode } from './confirm-code.mjs';
 import { storyNextDetails } from './sequence.mjs';
 import { assertConfirmation } from './text-lines.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -32,6 +33,8 @@ export function sourceReviewDecisionPacket({ workflow, phaseId, status, findingI
     binding, packetSha256, reportPath: status.reportPath,
     instruction: 'Confirm this exact finding, report, reason and human authority. This disposition does not accept visual evidence, approve the phase or advance the Story.',
     effects: { stateChanged: false, filesChanged: false, publicationCreated: false },
+    // The same command by its short code: the packet digest and the quoted reason are never retyped [owner, 2026-11-20].
+    ...(() => { const confirm = confirmCommandByCode(commandGuidance.command); return confirm ? { confirmCommand: confirm } : {}; })(),
     commandGuidance };
 }
 

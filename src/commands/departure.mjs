@@ -12,7 +12,7 @@ import { optionBoolean, optionString, optionStrings, SingularityFlowError } from
 
 export const DEPARTURE_ACTIONS = Object.freeze(['record', 'account', 'list', 'show']);
 const ALLOWED = Object.freeze({
-  record: ['kind', 'path', 'clause', 'reason', 'target', 'file', 'row-op', 'fulfillment', 'test', 'from', 'to', 'finding', 'supersedes'],
+  record: ['kind', 'path', 'clause', 'reason', 'target', 'file', 'row-op', 'fulfillment', 'test', 'from', 'to', 'finding', 'supersedes', 'on-the-way'],
   // How the model accounts for an instruction the person typed [SCS:REQ-042]; `as-question`: it was a question, answered,
   // nothing to change (owner, 2026-11-18).
   account: ['instruction', 'clauses', 'departure', 'as-question'],
@@ -32,6 +32,8 @@ const USAGE = [
   '         test: --clause CLAUSE --row-op add-test|replace-test [--test FILE] [--from FILE --to FILE]',
   '         wording, clause: --target EARLIER-STEP --file DRAFT-COPY [--clause CLAUSE]',
   '         finding (a findings register item fixed on the way): --path FILE [--path FILE] --finding ID',
+  '       singularity-flow departure record --on-the-way ID [--work-id WORK-ID] [--json]',
+  '         the same for an item this step\'s entry lists to fix on the way: SFlow fills its files and reason',
   '         [--finding ID] [--supersedes DEP-NNN]',
   '       singularity-flow departure account --instruction N (--clauses ID,... | --departure DEP-NNN | --as-question) [--work-id WORK-ID] [--json]',
   '       singularity-flow departure list [--phase PHASE] [--open] [--json]',
@@ -57,6 +59,25 @@ async function story(options) {
   return { root, config, workflow };
 }
 
+/**
+ * `departure record --on-the-way ID`: the findings register item this step's entry lists to fix on the way, recorded
+ * with the files and reason SFlow already gave for it [owner, 2026-11-20: SFlow fills what it knows]. The claim that it
+ * is fixed is the agent's, by running it; the person still decides the departure. Null without --on-the-way.
+ */
+async function onTheWayRecord(root, config, workflow, options) {
+  const id = optionString(options, 'on-the-way');
+  if (id === undefined || id === null) return null;
+  const others = ['kind', 'path', 'clause', 'reason', 'target', 'file', 'row-op', 'fulfillment', 'test', 'from', 'to', 'finding', 'supersedes'].filter((name) => options[name] !== undefined);
+  if (others.length) refused(`--on-the-way names the item and SFlow fills the rest; leave out --${others.join(', --')}.`);
+  const phase = workflow.phases?.[workflow.currentPhase];
+  const items = phase ? await (await import('../findings/register/on-the-way.mjs')).itemsOnTheWay(root, config, workflow, phase) : null;
+  // An upgrade the agent just made reads as listed ("the manifest already pins …"): it is the same fix, now in place.
+  const item = (items?.fix ?? []).find((entry) => entry.id === id && !entry.departure)
+    ?? (items?.listed ?? []).find((entry) => entry.id === id && !entry.departure && /^the manifest already pins /u.test(entry.why ?? ''));
+  if (!item) refused(`${id} is not an item this step's entry lists to fix on the way${items?.fix?.length ? ` (it lists ${items.fix.map((entry) => entry.id).join(', ')})` : ''}; record a finding with --kind finding --finding ID --path FILE --reason TEXT.`, 'DEPARTURE_ON_THE_WAY_UNKNOWN');
+  return { kind: 'finding', paths: item.files, clauses: [], findings: [id], reason: `Fixes ${id} from the findings register on what this Story touches.` };
+}
+
 async function record(options) {
   const { root, config, workflow } = await story(options);
   if (workflow.status !== 'in_progress') refused(`Story ${workflow.workItem.id} is ${workflow.status}; departures are recorded while it is in progress.`, 'DEPARTURE_LIFECYCLE');
@@ -64,7 +85,8 @@ async function record(options) {
     import('../git.mjs'), import('../session.mjs'), import('../departure-records.mjs'), import('../departures.mjs')]);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  const { departure: recorded, settled } = await recordDepartureOrSettle(root, config, workflow, {
+  const fill = await onTheWayRecord(root, config, workflow, options);
+  const { departure: recorded, settled } = await recordDepartureOrSettle(root, config, workflow, fill ?? {
     kind: optionString(options, 'kind'), paths: optionStrings(options, 'path'), clauses: optionStrings(options, 'clause'), reason: optionString(options, 'reason'),
     target: optionString(options, 'target'), file: optionString(options, 'file'), 'row-op': optionString(options, 'row-op'), fulfillment: optionString(options, 'fulfillment'),
     test: optionString(options, 'test'), from: optionString(options, 'from'), to: optionString(options, 'to'), findings: optionStrings(options, 'finding'),

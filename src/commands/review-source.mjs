@@ -10,7 +10,7 @@ import { commandResult, effects, noEffects, action as narrationAction, noop, suc
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { sourceReviewContext, sourceReviewStepNotCurrent, sourceReviewStepRefusal, readSourceReviewStatus, sourceReviewInput, scopedSourceReviewerSession, evaluateSubmittedSourceReview, retainSourceReview, retainSourceReviewDecision } from '../source-review-lifecycle.mjs';
+import { sourceReviewContext, sourceReviewDisputedEarlier, sourceReviewStepNotCurrent, sourceReviewStepRefusal, readSourceReviewStatus, sourceReviewInput, scopedSourceReviewerSession, evaluateSubmittedSourceReview, retainSourceReview, retainSourceReviewDecision } from '../source-review-lifecycle.mjs';
 import { sourceReviewContextText } from '../source-review-context-display.mjs';
 import { sourceReviewStagingProtocol } from '../source-review-staging.mjs';
 import { commandRouteLines, safeCommandGuidance } from '../safe-command-guidance.mjs';
@@ -22,7 +22,7 @@ import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
-import { sourceReviewCheckProgress, sourceReviewProgress } from '../source-review-progress.mjs';
+import { SOURCE_REVIEW_TEMPLATE_INSTRUCTION, sourceReviewCheckProgress, sourceReviewProgress } from '../source-review-progress.mjs';
 
 /**
  * No retained review, but a draft staged for this generation: the review is incomplete, not missing, with its reason
@@ -168,8 +168,10 @@ export async function reviewSourceCommand(positionals, options) {
     return;
   }
   if (action === 'check' || action === 'submit') {
-    const reportFile = optionString(options, 'report-file');
-    if (!reportFile || path.resolve(reportFile) !== path.resolve(stagingPath)) {
+    // The file is the one SFlow issued for this step and generation, so --report-file may be left out; any other
+    // file is still refused [owner, 2026-11-20: SFlow fills what it knows].
+    const reportFile = optionString(options, 'report-file') ?? stagingPath;
+    if (path.resolve(reportFile) !== path.resolve(stagingPath)) {
       throw new SingularityFlowError(`Source review report must be staged at ${stagingPath}.`, {
         code: 'SOURCE_REVIEW_REPORT_STAGING_REQUIRED'
       });
@@ -193,27 +195,33 @@ export async function reviewSourceCommand(positionals, options) {
     }); }
     const staging = await import('../source-review-staging.mjs');
     const { recordSha256 } = await import('../records.mjs');
+    // A re-raised disputed finding's ID copied with a slip is set by the check too (normalizeSourceReviewReport).
+    const disputedEarlier = await sourceReviewDisputedEarlier(root, config, workflow, phaseId);
     report = await staging.withSourceReviewContextBinding(root, stagingPath, report);
     const given = recordSha256(report);
     // Retained only through the reviewer's own scoped session: refused before anything is corrected.
     const session = action === 'submit' ? scopedSourceReviewerSession(input, await loadSession(root)) : null;
     // What the packet's own quotes fix exactly, SFlow sets in the file and checks again, here and before retention
     // alike, whatever repair budget is left: it is SFlow's write, never a repair attempt [owner, 2026-11-20].
-    const fixed = await staging.correctStagedSourceReview(root, stagingPath, { text, report, input });
+    const fixed = await staging.correctStagedSourceReview(root, stagingPath, { text, report,
+      input: disputedEarlier.length ? { ...input, disputedEarlier } : input });
     report = fixed.report;
     const correction = fixed.corrected.length ? { corrected: fixed.corrected, correctedWords: fixed.correctedWords } : {};
     if (action === 'check') {
       const { checked } = fixed;
+      // The skeleton context wrote, checked untouched: the reviewer's judgments are still to write, and it spends nothing.
+      const untouched = text === staging.sourceReviewTemplateText((await import('../source-review-contract.mjs')).sourceReviewReportTemplate(input));
       // The bytes this check read at stagingPath (as SFlow left them), in its progress: a result is about the file as
       // it is now, and says so, so a result of an earlier packet is never taken for it [owner, 2026-11-20].
       const stagedSha256 = createHash('sha256').update(fixed.text).digest('hex');
       const protocol = sourceReviewStagingProtocol(phaseId, stagingPath);
       // Each packet that cannot be retained is noted beside the draft, so the review is never silently dropped [owner, 2026-11-13].
       const noted = checked.evaluation?.status === 'stale' ? null : await staging.noteSourceReviewAttempt(root, stagingPath, { phaseId, generation: phase.generation,
-        checked, reportSha256: given, writtenSha256: fixed.corrected.length ? recordSha256(report) : null }).catch(() => null);
+        checked, reportSha256: given, writtenSha256: fixed.corrected.length ? recordSha256(report) : null, untouched }).catch(() => null);
       const incomplete = staging.sourceReviewBudgetSpent(phaseId, stagingPath, noted);
       // Spent repairs: the way on is a fresh review turn, never this check of the same bytes again.
       const progress = { ...sourceReviewCheckProgress(input, stagingPath, checked, protocol), stagedSha256,
+        ...(untouched && !checked.retentionReady ? { state: 'author-report', templateWritten: true, templateSha256: stagedSha256, instruction: SOURCE_REVIEW_TEMPLATE_INSTRUCTION } : {}),
         ...(incomplete ? { state: 'repairs-spent', nextAction: incomplete.nextAction, instruction: incomplete.instruction } : {}) };
       const { observeWorkflowTaskCheck } = await import('../workflow-task-store.mjs');
       await observeWorkflowTaskCheck(root, workflow, phase, { ...checked, generation: phase.generation,
@@ -225,7 +233,7 @@ export async function reviewSourceCommand(positionals, options) {
         ? safeCommandGuidance({ argv: ['review-source', 'context', phaseId, '--json'] })
         : checked.retentionReady ? protocol.retain : incomplete?.nextAction ?? protocol.check;
       const guidance = { commandGuidance, command: commandGuidance.command, skill: commandGuidance.skill };
-      const reason = incomplete?.instruction ?? checked.repair.instruction;
+      const reason = incomplete?.instruction ?? (untouched && !checked.retentionReady ? SOURCE_REVIEW_TEMPLATE_INSTRUCTION : checked.repair.instruction);
       const result = { schemaVersion: 1, resultType: 'source-review-check', // schema-transient
         workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
         status: checked.format.status !== 'ready' ? checked.format.status : checked.evaluation.status,

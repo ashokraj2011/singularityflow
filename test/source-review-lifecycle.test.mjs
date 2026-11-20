@@ -281,7 +281,7 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
   badCitation.rows[0].quote = `${report.rows[0].quote} (paraphrased)`;
   await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(badCitation)), error => {
     assert.equal(error.code, 'SOURCE_REVIEW_REPORT_INVALID');
-    assert.match(error.message, /The review draft is staged at .*, but it cannot be retained yet: repair the listed fields in that file with your file-edit tool, then run singularity-flow review-source check specification --report-file /u);
+    assert.match(error.message, /The review draft is staged at .*, but it cannot be retained yet: repair the listed fields in that file with your file-edit tool, then run singularity-flow review-source check specification --for-agent --json\. /u);
     assert.doesNotMatch(error.message, /no staging bytes changed/u);
     assert.equal(error.details.stagingPath, staged.stagingPath);
     assert.equal(error.details.repair.status, 'repair-packet');
@@ -457,7 +457,8 @@ test('the plural-test incident packet includes the exact published human answer,
   assert.deepEqual(packet.binding.clarifications, [{ id: 'clarification:current-phase', phase: 'specification',
     generation: 1, path: pinned.relative, sha256: pinned.reference.sha256 }]);
   assert.match(packet.clarificationGuidance, /correct the review of this generation/);
-  assert.deepEqual(packet.reportTemplate.clarificationsReviewed, [], 'the template must not claim the reviewer read the answers');
+  // SFlow ticks the pinned answers in the template [owner decision 1, 2026-11-20]; the pure check still needs the list.
+  assert.deepEqual(packet.reportTemplate.clarificationsReviewed, ['clarification:current-phase']);
   const report = review(input);
   assert.equal(checkSourceReviewReport(report, input).retentionReady, false, 'an acknowledgement is required');
   report.clarificationsReviewed = ['clarification:current-phase'];

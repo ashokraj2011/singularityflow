@@ -86,7 +86,9 @@ test('the Decide card asks "Approve <Step> v<N>?" and names what the approval al
 test('the person\'s own skill, terminal and approval page ask the same one question; nobody types the step\'s ID', async () => {
   const skill = await readFile(new URL('../plugin/skills/sflow-approve/SKILL.md', import.meta.url), 'utf8');
   assert.doesNotMatch(skill, /TYPED-PHASE|exact phase ID/u);
-  assert.match(skill, /phase-confirmation <PHASE-ID>/u);
+  // The Yes is recorded by the filled command the packet returns: nobody types the step's ID or the receipt [owner, 2026-11-20].
+  assert.match(skill, /After their Yes, run `act\.ask\.onYes` as returned/u);
+  assert.doesNotMatch(skill, /<TOKEN>/u);
   const kernel = await readFile(new URL('../src/commands/kernel.mjs', import.meta.url), 'utf8');
   assert.match(kernel, /Approve \$\{phase\.label \?\? phase\.id\} v\$\{Number\(phase\.generation\) \|\| 0\}\? \[y\/N\]/u);
   const page = await readFile(new URL('../apps/vscode/src/views/approval-review.ts', import.meta.url), 'utf8');

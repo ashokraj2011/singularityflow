@@ -210,7 +210,7 @@ import {
   predecessorSpecClauses, plannedClaimsForObservedPhase
 } from './specifications.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
-import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
+import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldConformanceRows, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
 import { addMissingSections, artifactTokens, requiredArtifactSections } from './artifact-required-sections.mjs';
 import { acceptedClauses, nextScopeRevision, observedDependencies, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { amendmentChurn } from './amendment.mjs';
@@ -2586,6 +2586,11 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     if (!artifactExistedBeforePreparation && phasePlansDelivery(workflow, phase)) {
       const { capsule } = await activeClauseCapsule(itemDirectory, workflow, phase, null, { root });
       text = scaffoldPlanningRows(text, (capsule?.clauses ?? []).map(clause => clause.id));
+    }
+    // A conformance report's clause column, one row per approved clause, as a plan's is [owner, 2026-11-20].
+    if (!artifactExistedBeforePreparation && !binaryArtifact && phase.requiredArtifact?.kind === 'conformance-report') {
+      const { capsule } = await activeClauseCapsule(itemDirectory, workflow, phase, null, { root }).catch(() => ({ capsule: null }));
+      text = scaffoldConformanceRows(text, (capsule?.clauses ?? []).map(clause => clause.id));
     }
     // A repository template can predate (or have edited away) a section this phase is checked for;
     // copy it from the packaged template so the author fills a section instead of inventing one.

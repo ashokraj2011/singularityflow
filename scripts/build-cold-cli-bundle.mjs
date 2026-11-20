@@ -88,7 +88,9 @@ const FAMILIES = Object.freeze([
     // agent-start loaded the compatibility chunk and models (22 files against the hook's 16).
     'review-subagent.mjs',
     // A --for-agent result the host never showed, added by the post-tool hook from what the CLI kept.
-    'unread-result.mjs']],
+    'unread-result.mjs',
+    // A failed file read one copy slip off a path SFlow returned: its correction, from the failure hook.
+    'path-slip.mjs']],
   // The test-module walk's other-ecosystem build files and the node --test fallback's runner check load
   // only where a gate maps a changed path to its command, which already loads every static import of this
   // slot; claimed here they stay outside every ceilinged closure instead of falling into compatibility.

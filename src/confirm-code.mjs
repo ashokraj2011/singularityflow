@@ -87,6 +87,17 @@ export function rememberConfirmCommand(command, { env = process.env, now = Date.
   return code;
 }
 
+/**
+ * `singularity-flow confirm <CODE>` for a confirming command, with the same --for-agent/--json it was given (the code
+ * keeps the rest), so an agent runs the reviewed command by its code and never retypes its digest or quoted words
+ * [owner, 2026-11-20: SFlow fills what it knows]. Null when the command confirms nothing.
+ */
+export function confirmCommandByCode(command, options = {}) {
+  const words = String(command ?? '').trim().split(/\s+/u);
+  const code = /^(?:singularity-flow|sflow)$/u.test(words[0] ?? '') ? rememberConfirmCommand(command, options) : null;
+  return code ? ['singularity-flow', 'confirm', code, ...['--for-agent', '--json'].filter((flag) => words.includes(flag))].join(' ') : null;
+}
+
 /** `{ code, command, value }` for a typed code, or null: not kept here, over a week old, or not derived from what is kept. */
 export function resolveConfirmCode(typed, { env = process.env, now = Date.now() } = {}) {
   const code = normalizeConfirmCode(typed);

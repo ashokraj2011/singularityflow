@@ -519,7 +519,7 @@ test('review reports legacy pending publication without migrating or deleting th
   assert.equal(await readFile(marker, 'utf8'), content, 'review cannot perform a migration');
 });
 
-test('real CLI review requires acknowledgement of the human answers retained by generation publication', async (t) => {
+test('real CLI review acknowledges the human answers retained by generation publication: SFlow ticks them [owner, 2026-11-20]', async (t) => {
   const { root, phaseId } = await publishedSpecificationStory(t, { copied: true, humanAnswers: true });
   const packet = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
   assert.equal(packet.clarifications[0].phase, phaseId);
@@ -527,17 +527,21 @@ test('real CLI review requires acknowledgement of the human answers retained by 
   assert.match(packet.clarifications[0].responses[0].answer, /one automated positive-value test/i);
   assert.equal(packet.binding.clarifications[0].sha256, packet.clarifications[0].sha256);
   const report = reviewReport(packet);
+  assert.deepEqual(packet.reportTemplate.clarificationsReviewed, packet.clarifications.map((entry) => entry.id), 'the template lists them ticked');
+  delete report.clarificationsReviewed;
   await mkdir(path.dirname(packet.stagingPath), { recursive: true });
   await writeFile(packet.stagingPath, JSON.stringify(report));
   const before = git(root, 'rev-parse', 'HEAD');
-  const refused = completeAgentResult(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json'));
-  assert.equal(refused.retentionReady, false);
-  assert.ok(refused.findings.some((entry) => entry.code === 'clarifications-not-all-reviewed'));
-  assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+  // The reviewer left clarificationsReviewed out: SFlow lists every pinned record itself, in the staged file, and no
+  // --report-file is needed (the check reads the file it issued).
+  const filled = completeAgentResult(cli(root, 'review-source', 'check', phaseId, '--json'));
+  assert.equal(filled.retentionReady, true, JSON.stringify(filled.findings));
+  assert.ok(filled.corrected.some((entry) => entry.field === 'clarificationsReviewed' && entry.why === 'acknowledged'));
+  assert.ok(!filled.findings.some((entry) => entry.code === 'clarifications-not-all-reviewed'));
   report.clarificationsReviewed = packet.clarifications.map((entry) => entry.id);
-  await writeFile(packet.stagingPath, JSON.stringify(report));
-  assert.equal(completeAgentResult(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json')).retentionReady, true);
-  cli(root, 'review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--json');
+  assert.deepEqual(JSON.parse(await readFile(packet.stagingPath, 'utf8')).clarificationsReviewed, report.clarificationsReviewed);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+  cli(root, 'review-source', 'submit', phaseId, '--json');
   const retained = completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json'));
   assert.deepEqual(retained.report.clarificationsReviewed, report.clarificationsReviewed);
   assert.deepEqual(retained.binding.clarifications, packet.binding.clarifications);
@@ -599,14 +603,16 @@ test('malformed reviewer packets are diagnosed read-only and cannot be committed
   const tracked = git(root, 'status', '--porcelain');
   const checked = completeAgentResult(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json'));
   assert.equal(checked.retentionReady, false);
-  assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].severity'));
-  assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].message'));
+  assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].severity'), 'a severity is the reviewer\'s judgment');
+  // explanation is message under another name: SFlow moves it (the reviewer's words, unchanged) [owner, 2026-11-20].
+  assert.ok(!checked.findings.some((entry) => entry.field === 'findings[0].message'));
+  assert.ok(checked.corrected.some((entry) => entry.field === 'findings[0].message' && entry.renamedFrom === 'findings[0].explanation'));
   const submit = spawnSync(process.execPath, [executable, 'review-source', 'submit', phaseId,
     '--report-file', packet.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
   assert.notEqual(submit.status, 0);
   const refusal = completeAgentResult(submit.stdout);
   assert.equal(refusal.error.code, 'SOURCE_REVIEW_REPORT_INVALID');
-  assert.match(submit.stdout, /findings\[0\]\.message/u);
+  assert.match(submit.stdout, /findings\[0\]\.severity/u);
   assert.equal(git(root, 'rev-parse', 'HEAD'), head);
   assert.equal(git(root, 'write-tree'), index);
   assert.equal(git(root, 'status', '--porcelain'), tracked);

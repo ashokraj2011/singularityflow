@@ -213,9 +213,11 @@ function yesNoCommand([command, sub, third, fourth], options, version = null) {
   // Proposing an intent amendment from chat, under SPEC-CIC switch 3 [CIC:REQ-015, owner decision 3]: only on the person's own
   // yes to its preview, their latest yes or no in this turn; a no, Not now or no answer proposes nothing. Never typed ahead.
   if (command === 'story' && sub === 'intent-amendment' && third === 'propose') {
-    const file = text('file')[0] ?? '<FILE>';
-    return { records: 'yes', proposal: true, row: `propose ${file}`, names: [], ids: NEVER, yes: ['propose it'], no: ['do not propose', "don't propose"],
-      typed: { yes: NEVER, no: NEVER }, terminal: `singularity-flow story intent-amendment propose --work-id ${text('work-id')[0] ?? '<WORK-ID>'} --file "${file}" --reason "<why>" --authored human` };
+    // Without --file it proposes the Story's own draft (story intent-amendment draft).
+    const file = text('file')[0] ?? null;
+    return { records: 'yes', proposal: true, row: `propose ${file ?? 'the drafted scope'}`, names: [], ids: NEVER, yes: ['propose it'], no: ['do not propose', "don't propose"],
+      // The person's own terminal proposes the Story's own draft, the one file this turn may write: no path to type.
+      typed: { yes: NEVER, no: NEVER }, terminal: `singularity-flow story intent-amendment propose --work-id ${text('work-id')[0] ?? '<WORK-ID>'} --reason "<why>" --authored human` };
   }
   // Starting a step's next version (`phase rollover --confirm`) in an authoring turn: only on the person's own yes to a question
   // that asks to start it, in this turn; a no, Not now, the host's own reply or no answer starts nothing [owner, 2026-11-16].

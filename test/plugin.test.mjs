@@ -1097,11 +1097,11 @@ test('approval skill reuses only an exact complete review and accepts a human ph
   assert.match(content, /argument-hint: "\[PHASE-ID\] \[--work-id WORK-ID\]/);
   assert.match(content, /Positional argument selects \*\*PHASE-ID\*\*, never Work ID/);
   assert.match(content, /choices begin approve <WORK-ID> --fetch --for-agent --json/);
-  // One question with a Yes replaces the typed step ID (owner, 2026-11-19).
-  assert.match(content, /phase-confirmation <PHASE-ID>/);
+  // One question with a Yes replaces the typed step ID (owner, 2026-11-19); its filled commands carry the receipt (2026-11-20).
+  assert.match(content, /After their Yes, run `act\.ask\.onYes` as returned, then the filled `next\.command` its result returns, only when `ready: true`/);
   assert.match(content, /match `approvalPacket\.review`, receipt, `reviewBinding`, artifacts and briefs to `approvalContext`/);
   assert.match(content, /Read once/);
-  assert.match(content, /approve <PHASE-ID> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
+  assert.doesNotMatch(content, /<TOKEN>/, 'the receipt is never typed into a command');
   assert.match(content, /Never add `--yes`/);
   assert.match(content, /receipt is consumed once/i);
   assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('`approvalPacket.review`'));
@@ -1163,9 +1163,10 @@ test('source review follows the returned schema and a bounded read-only format c
   const skill = await readFile(path.join(pluginRoot, 'skills', 'sflow-review-source', 'SKILL.md'), 'utf8');
   const agent = await readFile(path.join(pluginRoot, 'agents', 'sflow-source-reviewer.agent.md'), 'utf8');
   assert.match(skill, /reportTemplate.*reportSchema/);
-  assert.match(skill, /singular `clauseId`.*`plannedTests`/);
-  assert.match(skill, /review-source check <phase> --report-file/);
-  assert.ok(skill.indexOf('review-source check') < skill.indexOf('`stagingProtocol.retain`'));
+  // The check sets the plan fields and reads the issued file itself (owner, 2026-11-20).
+  assert.match(skill, /singular `clauseId`; the check sets plan fields/);
+  assert.match(skill, /Run `stagingProtocol\.check` standalone/);
+  assert.ok(skill.indexOf('stagingProtocol.check') < skill.indexOf('`stagingProtocol.retain`'));
   assert.match(skill, /at most two changed-packet repair attempts/);
   assert.match(skill, /Never mark a real gap supported merely to pass validation/);
   assert.match(skill, /`retentionReady` is false.*stop without commit\/push/s);
@@ -1457,7 +1458,7 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.match(start, /Choose `<BASE>` explicitly/);
   assert.match(start, /Choose `<WORKFLOW>` from exact-base `intake\.storyWorkflows`/);
   assert.match(start, /--from-branch <BASE> --work-type <WORKFLOW>/);
-  assert.match(start, /Start with identical base\/workflow\/baseline\/test\/gate flags/i);
+  assert.match(start, /Start with `preflight\.startCommand` plus the Story's content flags/i);
   assert.doesNotMatch(start, /Choose workflow template/);
   assert.doesNotMatch(start, /write_bash/);
   assert.doesNotMatch(start, /Choose governed agent/);
@@ -1510,7 +1511,7 @@ test('start skill falls back to a one-time receipt when Copilot has no persisten
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-start', 'SKILL.md'), 'utf8');
   assert.match(content, /choices begin start <WORK-ID> --for-agent --json/);
   assert.match(content, /choices answer <TOKEN>/);
-  assert.match(content, /--selection-receipt <TOKEN>/);
+  assert.match(content, /when ready, its `next\.command` plus content flags/);
   assert.match(content, /15-minute, single-use/);
   assert.match(content, /no preselection/);
 });
@@ -1532,7 +1533,7 @@ test('start skill previews and recomputes read-only readiness before Story mutat
   assert.match(content, /Copilot `\/sf-admin`/);
   assert.match(content, /Never upgrade configuration here/);
   assert.match(content, /Missing tests\/setup never block creation or imply a pass/);
-  assert.ok(content.indexOf('--preflight-story') < content.indexOf('Start with identical base/workflow'));
+  assert.ok(content.indexOf('--preflight-story') < content.indexOf('Start with `preflight.startCommand`'));
 });
 
 test('governed-agent skill persists only local prompt context', async () => {

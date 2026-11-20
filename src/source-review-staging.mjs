@@ -22,10 +22,28 @@ export function sourceReviewStagingProtocol(phaseId, stagingPath) {
   return { readTool: 'native-file-read', writeTool: 'file-edit', path: stagingPath, write: SOURCE_REVIEW_WRITE_RULE,
     pathRule: CLI_PATH_CONTRACT,
     terminal: 'standalone-sflow-command', shellWritersAllowed: false, inlineJsonAllowed: false,
-    check: safeCommandGuidance({ argv: ['review-source', 'check', phaseId, '--report-file', stagingPath, '--for-agent', '--json'] }),
+    // No --report-file: the check and submit read this issued file themselves, so its long path is never typed again.
+    check: safeCommandGuidance({ argv: ['review-source', 'check', phaseId, '--for-agent', '--json'] }),
     // --for-agent: a host cut the whole result of a submit without it (2026-11-10).
-    retain: safeCommandGuidance({ argv: ['review-source', 'submit', phaseId, '--report-file', stagingPath, '--for-agent', '--json'] }),
+    retain: safeCommandGuidance({ argv: ['review-source', 'submit', phaseId, '--for-agent', '--json'] }),
     repositoryEditsAllowed: false, stagingIsRetention: false, retentionIsApproval: false };
+}
+
+/** The report skeleton as the staged file holds it: every value SFlow knows, the binding left to SFlow. */
+export function sourceReviewTemplateText(template) {
+  return `${JSON.stringify({ ...template, binding: 'from-context' }, null, 2)}\n`;
+}
+
+/**
+ * Write the report skeleton at stagingPath when nothing is staged there [owner, 2026-11-20: SFlow fills what it
+ * knows]: the reviewer edits its judgments in place instead of rebuilding every source ID, clause, plan field and
+ * reviewed list from a packet hundreds of kilobytes long, where each slip was a blocking finding and a spent repair. A
+ * draft already there is never replaced. Returns whether it wrote the file.
+ */
+export async function writeSourceReviewTemplate(root, stagingPath, template) {
+  if (await lstat(stagingPath).then(() => true, (error) => error.code !== 'ENOENT')) return false;
+  await writeStagingFile(root, stagingPath, sourceReviewTemplateText(template));
+  return true;
 }
 
 /** Where `review-source context` keeps the binding it showed this reviewer, beside the staging file. */
@@ -85,12 +103,13 @@ export async function readSourceReviewIncomplete(stagingPath) {
  * SFlow's own write is never a repair attempt [owner, 2026-11-20]: a packet it wrote, checked again unchanged, counts
  * nothing, so a spent budget never stops SFlow correcting and retaining what it can.
  */
-export async function noteSourceReviewAttempt(root, stagingPath, { phaseId, generation, checked, reportSha256, writtenSha256 = null }) {
+export async function noteSourceReviewAttempt(root, stagingPath, { phaseId, generation, checked, reportSha256, writtenSha256 = null, untouched = false }) {
   const target = sourceReviewIncompletePath(stagingPath);
   if (checked.retentionReady) { await rm(target, { force: true }).catch(() => {}); return null; }
   const previous = await readSourceReviewIncomplete(stagingPath);
   const written = [...new Set([...(previous?.sflowWritten ?? []), writtenSha256].filter(Boolean))].slice(-16);
-  const counted = previous?.sflowWritten?.includes(reportSha256) ? null : reportSha256;
+  // The skeleton SFlow wrote, checked untouched, is SFlow's packet too: never a repair attempt.
+  const counted = untouched || previous?.sflowWritten?.includes(reportSha256) ? null : reportSha256;
   const attempts = [...new Set([...(previous?.attempts ?? []), counted].filter(Boolean))].slice(-16);
   const findings = (checked.findings ?? []).slice(0, 8).map((entry) => ({ code: entry.code ?? null, field: entry.field ?? null,
     message: String(entry.message ?? '').slice(0, 300) }));
@@ -122,11 +141,13 @@ export function sourceReviewBudgetSpent(phaseId, stagingPath, record) {
 }
 
 /**
- * SFlow sets what the staged packet's own quotes fix exactly, in the file itself, and checks it again [owner,
- * 2026-11-20]: a citation line whose unchanged quote is on exactly one line, or quote marks a shell ate on the way in
- * (correctSourceReviewReport). `text` is the file as read, `report` the packet as checked (its binding filled from
- * context); the file keeps its own layout and binding, with only those values replaced. Returns `{ report, checked,
- * corrected, correctedWords, text }`, `text` the file's bytes as they now are; with nothing to correct it is untouched.
+ * SFlow sets what it knows exactly in the staged packet, in the file itself, and checks it again [owner, 2026-11-20]:
+ * what the report copies from its context (plan fields, source IDs for paths, literals, the reviewed lists), a binding
+ * mistyped by hand ("from-context"), a citation line whose unchanged quote is on exactly one line, and quote marks a
+ * shell ate on the way in (correctSourceReviewReport). `text` is the file as read, `report` the packet as checked (its
+ * binding filled from context); the file keeps its own layout and "from-context" binding, with only those values
+ * replaced. Returns `{ report, checked, corrected, correctedWords, text }`, `text` the file's bytes as they now are;
+ * with nothing to correct it is untouched.
  */
 export async function correctStagedSourceReview(root, stagingPath, { text, report, input }) {
   const { correctSourceReviewReport, fieldTrail, withFieldValues } = await import('./source-review-lifecycle.mjs');
@@ -141,10 +162,10 @@ export async function correctStagedSourceReview(root, stagingPath, { text, repor
 /**
  * JSON `text` with each edit's value (`{ trail, to }`) replaced where it stands, so the reviewer's file keeps its
  * layout; the whole file written again only when that would not read back as `expected` (a duplicate key, a field
- * not written yet).
+ * not written yet, a key taken out or renamed).
  */
 function editedJsonText(text, expected, edits) {
-  const spans = edits.map((edit) => ({ span: jsonValueSpan(text, edit.trail), value: JSON.stringify(edit.to) }));
+  const spans = edits.map((edit) => ({ span: edit.removed || edit.renamedFrom ? null : jsonValueSpan(text, edit.trail), value: JSON.stringify(edit.to) }));
   const whole = `${JSON.stringify(expected, null, 2)}\n`;
   if (spans.some((entry) => !entry.span || entry.value === undefined)) return whole;
   let edited = text;
@@ -241,7 +262,7 @@ export async function stageSourceReviewReport(root, config, workflow, phaseId, r
  */
 function inlineReportRefusal(why, phaseId, stagingPath) {
   const check = stagingPath ? sourceReviewStagingProtocol(phaseId, stagingPath).check : null;
-  return new SingularityFlowError(`${why}; nothing was staged. JSON typed into a shell argument breaks on its quotes: write the whole report with your file-edit tool at ${stagingPath ?? 'the stagingPath review-source context returned'}, then run ${check?.command ?? `singularity-flow review-source check ${phaseId} --report-file <stagingPath> --for-agent --json`}.`, {
+  return new SingularityFlowError(`${why}; nothing was written. A shell argument breaks JSON: write the report with your file-edit tool at ${stagingPath ?? 'the file context gave'}, then run ${check?.command ?? 'its check'}.`, {
     code: 'SOURCE_REVIEW_REPORT_INVALID', details: { stagingPath, writeRoute: 'file-edit', ...(check ? { nextAction: check } : {}) } });
 }
 

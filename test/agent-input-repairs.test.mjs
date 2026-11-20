@@ -204,4 +204,12 @@ test('refusals that know the fix say it: steps, clauses, paths, patches and cita
   assert.throws(() => applyFocusedEdits(spec, [{ before: 'The user can save.', after: 'The user can store.' }, { before: 'The user can convert "units".', after: 'x' }]),
     (error) => error.code === 'SPEC_PROPOSAL_STALE' && /Change 2: its before text is not in the draft; draft line 3 nearly matches it \(spacing or quotes differ\)/u.test(error.message));
   assert.throws(() => applyFocusedEdits('same same', [{ before: 'same', after: 'new' }]), /Change 1: its before text occurs 2 times in the draft/u);
+  // The proposal stage sets the draft's own text for a before that differs only in spacing or quote marks, when it is
+  // there once [owner, 2026-11-20]; the edit then applies, and a note says so. Other wording is never guessed.
+  const { recoveredPatches } = await import('../src/spec-library/proposals.mjs');
+  const recovered = recoveredPatches(spec, [{ before: 'The user can save.', after: 'The user can store.' }, { before: 'The user can convert "units".', after: 'x' }]);
+  assert.deepEqual(recovered.patches.map((patch) => patch.before), ['The user can save.', 'The user can   convert “units”.']);
+  assert.equal(recovered.notes.length, 1);
+  assert.equal(applyFocusedEdits(spec, recovered.patches), '# Spec\n\nx\nThe user can store.\n');
+  assert.equal(recoveredPatches(spec, [{ before: 'The user can convert units.', after: 'x' }]).notes.length, 0, 'a different word is not a slip');
 });

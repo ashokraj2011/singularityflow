@@ -143,10 +143,10 @@ const sourceTextRule = files => files.length
 function amendTurnSummary(contract) {
   const workId = contract.workId ?? '<WORK-ID>';
   const file = contract.allow.staging[0] ?? null;
-  const at = file ?? '<FILE>';
+  // Preview and propose read the Story's own draft by default: its path is never typed [owner, 2026-11-20].
   return `Intent amendment only: draft the change ${file ? `only at the issued file ${file}` : 'only in the file `singularity-flow story intent-amendment draft` issues'}, `
-    + `show \`singularity-flow story intent-amendment preview --work-id ${workId} --file ${at} --for-agent --json\`, then propose with `
-    + `\`singularity-flow story intent-amendment propose --work-id ${workId} --file ${at} --reason "<why>" --authored governed-agent --channel copilot-host --json\``
+    + `show \`singularity-flow story intent-amendment preview --work-id ${workId} --for-agent --json\`, then propose with `
+    + `\`singularity-flow story intent-amendment propose --work-id ${workId} --reason "<why>" --authored governed-agent --channel copilot-host --json\``
     + `${contract.policy?.changeImpact ? ', only after the person\'s own Yes to "Propose it?", with their words as the reason' : ''}. `
     + `A person decides and acknowledges it on the Decide card (/sf-decide ${workId}) or in their own terminal, never this turn.`;
 }
@@ -325,7 +325,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   if (mode === 'approval-only' && skillName(record.skill) === 'amend' && !contract.policy?.intentAmendmentPause) {
     contract.summary = amendTurnSummary(contract);
   } else if (mode === 'approval-only' && contract.allow.staging.length) {
-    contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for \`singularity-flow story intent-amendment propose --work-id ${contract.workId} --file ${contract.allow.staging[0]} --reason "<why>" --authored governed-agent --channel copilot-host --json\`.`;
+    contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for \`singularity-flow story intent-amendment propose --work-id ${contract.workId} --reason "<why>" --authored governed-agent --channel copilot-host --json\`.`;
   }
   const sourceText = await derivedDraftStaging(record.skill, gitIdentity.gitDir);
   contract.summary += sourceTextRule(sourceText);
@@ -497,6 +497,26 @@ function calls(payload) {
       return { name, args, toolName };
     });
 }
+/** Native file reads and edits with their paths, cwd and whether they write (path-slip.mjs). */
+export function nativeFileCalls(payload) {
+  return calls(payload).filter(call => FILE_READS.has(call.name) || isEdit(call.name))
+    .map(call => ({ paths: targets(call.args), cwd: typeof call.args.cwd === 'string' ? call.args.cwd : null, write: isEdit(call.name) }));
+}
+
+/**
+ * The paths SFlow returned to this live turn: its checkout and the exact files it issued (staging, issued reads). Null
+ * without a live turn. Files only; no Git and no Story load.
+ */
+export async function turnReturnedPaths(payload) {
+  const record = await turn(payload);
+  if (!record || record.corrupt || turnExpired(record)) return null;
+  const owner = await boundedRecord(recordFile(payload)).catch(() => null);
+  const root = owner?.contract?.repositoryRoot ?? owner?.repositoryRoot;
+  if (!root || owner.turnId !== record.turnId) return null;
+  return [...new Set([...(owner.contract?.allow?.staging ?? []), ...(owner.draftStaging ?? []), ...(owner.specStaging ?? []), root])
+    .filter(entry => typeof entry === 'string' && path.isAbsolute(entry))];
+}
+
 /** One reader classification for permission interception and native failure handling. */
 export function nativeFileReadCalls(payload) {
   return calls(payload).filter(call => FILE_READS.has(call.name)).map(call => ({ ...call, paths: targets(call.args) }));
@@ -703,6 +723,13 @@ function plannedActionArgv(positionals, options, value) {
 }
 
 /** The argv a typed `confirm <CODE>` stands for, as the CLI entry expands it, or null when it names none here. */
+/** An invocation with `confirm <CODE>` read as the command its code stands for; any other as it is. */
+function confirmedInvocation(invocation) {
+  const { positionals, options } = parseCli(invocation.argv);
+  const expanded = positionals[0] === 'confirm' ? confirmCodeArgv(positionals, options) : null;
+  return expanded ? { ...invocation, argv: expanded } : invocation;
+}
+
 function confirmCodeArgv(positionals, options) {
   if (positionals.length !== 2 || Object.keys(options).some(key => !['json', 'for-agent'].includes(key) && !(key === 'model' && options.model === false))) return null;
   const found = resolveConfirmCode(positionals[1]);
@@ -891,7 +918,8 @@ export function argvAllowed(argv, mode, value) {
   if (mode === 'spec-studio') return positionals[0] === 'spec' && positionals[1] === 'author' && positionals.length === 4
     && (positionals[2] === 'research' && Object.keys(options).every(key => ['path', 'symbol', 'refresh', 'json'].includes(key))
       || positionals[2] === 'propose' && Object.keys(options).every(key => ['file', 'json'].includes(key))
-        && typeof options.file === 'string' && path.isAbsolute(options.file) && (value.specStaging ?? []).includes(path.resolve(options.file)));
+        // Without --file it stages the proposal file status issued for that specification, the one this turn may write.
+        && (options.file === undefined && (value.specStaging ?? []).length > 0 || typeof options.file === 'string' && path.isAbsolute(options.file) && (value.specStaging ?? []).includes(path.resolve(options.file))));
   if (mode === 'read') return false;
   // A /sf-confirm of the list's own record command is the person's typed yes: the same upstream-issue
   // options a /sf-decide turn may record, with the digest they confirmed.
@@ -1073,10 +1101,13 @@ function upstreamIssueDecision(call, value) {
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
 }
 
-/** `story intent-amendment propose --file` for the bound Story: the one amendment step a /sf-reject or /sf-amend turn records. */
+/**
+ * `story intent-amendment propose [--file]` for the bound Story: the one amendment step a /sf-reject or /sf-amend turn
+ * records. Without --file it proposes the Story's own draft, the file this turn may write.
+ */
 function intentAmendmentProposal(positionals, options, workId) {
   return positionals[0] === 'story' && positionals[1] === 'intent-amendment' && positionals[2] === 'propose' && positionals.length === 3
-    && options['work-id'] === workId && typeof options.file === 'string';
+    && options['work-id'] === workId && (options.file === undefined || typeof options.file === 'string');
 }
 /** `story intent-amendment decide|acknowledge`: a person's, on the decisions card, never an agent turn's [owner, 2026-11-13]. */
 function intentAmendmentPersonStep(positionals) {
@@ -1507,7 +1538,8 @@ function personStepOfCall(call, cwd) {
   const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars]
     .find(value => typeof value === 'string');
   if (!text || !(/singularity-flow|sflow/iu.test(text) || mentionsHookCli(text))) return null;
-  const invocations = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd);
+  // A short code (`confirm <CODE>`) is the command it was issued for: the person's answer binds it the same way.
+  const invocations = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd).map((invocation) => confirmedInvocation(invocation));
   if (invocations.length && TEST_ENVIRONMENT.test(text)) return { id: 'test-environment', argv: invocations[0].argv };
   const carded = invocations.find((invocation) => ['presence-card', 'card-sha256'].some((name) => parseCli(invocation.argv).options[name] !== undefined));
   if (carded) return { id: 'presence-card', argv: carded.argv.filter((value, index, all) => !/^--(?:presence-card|card-sha256)(?:=|$)/u.test(value) && !/^--(?:presence-card|card-sha256)$/u.test(all[index - 1] ?? '')) };
@@ -1525,7 +1557,7 @@ function proposalStepOfCall(call, cwd) {
   if (!SHELL_INPUT_TOOLS.has(call.name)) return null;
   const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars].find(value => typeof value === 'string');
   if (!text || !/singularity-flow|sflow/iu.test(text)) return null;
-  const argv = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd).map(entry => entry.argv)
+  const argv = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd).map(entry => confirmedInvocation(entry).argv)
     .find(candidate => parseCli(candidate).positionals.slice(0, 3).join(' ') === 'story intent-amendment propose');
   return argv ? { id: 'intent-amendment-proposal', argv } : null;
 }
@@ -2013,7 +2045,7 @@ async function specStudioGuard(payload, record, toolCalls) {
       const draft = unissuedDraftOption(call, scope, 'spec-studio', 'specStaging',
         (positionals, options) => positionals[0] === 'spec' && positionals[2] === 'propose' ? options.file : null);
       if (draft) return deny(`SPEC_STUDIO_PROPOSAL_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow spec author status <SPEC-ID> --json standalone in this turn first: it issues the specification's proposal file as proposalPath. Then run this command again`);
-      return deny('SPEC_STUDIO_OPERATION_NOT_ALLOWED: run one standalone read command, singularity-flow spec author research <SPEC-ID> --path <PATH>, or singularity-flow spec author propose <SPEC-ID> --file <the proposalPath status issued>; accepting, deciding, settling, publishing and discarding are the person\'s own steps');
+      return deny('SPEC_STUDIO_OPERATION_NOT_ALLOWED: run one standalone read command, singularity-flow spec author research <SPEC-ID> --path <PATH>, or singularity-flow spec author propose <SPEC-ID> --json (it reads the proposalPath status issued); accepting, deciding, settling, publishing and discarding are the person\'s own steps');
     }
     if (!isEdit(call.name)) continue;
     const paths = targets(call.args);
@@ -3065,6 +3097,8 @@ export async function recordSourceReviewProgress(root, progress) {
       bindingSha256: progress.bindingSha256, stagingPath: progress.stagingPath, state: progress.state,
       ...(progress.operationId ? { operationId: progress.operationId } : {}),
       ...(progress.continuationBudget ? { continuationBudget: progress.continuationBudget } : {}),
+      // The skeleton review-source context wrote: untouched, the stop hook asks for the judgments, not a check.
+      ...(typeof progress.templateSha256 === 'string' ? { templateSha256: progress.templateSha256 } : {}),
       complete: progress.complete, instruction: progress.instruction,
       continued: value.reviewOperation?.continued === true, blocked: value.reviewOperation?.blocked === true };
     await atomicRecord(file, value);

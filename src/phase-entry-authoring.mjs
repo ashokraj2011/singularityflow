@@ -147,9 +147,9 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   checkpoint.recordAction = checkpoint.questioningAllowed && context ? recoveryActionGuidance({
     id: `record-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'clarification-only', requiresActualHumanReplies: true, responseFormat: CLARIFICATION_RESPONSE_FORMAT,
-    detail: 'After matching actual human replies to answerBinding, write them as responseFormat (one entry per question; a deferral adds "status":"deferred") to the --response-file path with a file-edit tool, then run this command alone. Recording failure does not require repeating the questions.',
-    ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
-      '--response-file', clarification.responseStagingPath, '--json'] })
+    detail: 'After matching actual human replies to answerBinding, write them as responseFormat (one entry per question; a deferral adds "status":"deferred") to clarification.responseStagingPath with a file-edit tool, then run this command alone: it reads that file. Recording failure does not require repeating the questions.',
+    // No --response-file: record reads the issued file itself, so its long path is never typed [owner, 2026-11-20].
+    ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id, '--json'] })
   }) : null;
   // A question can arise after the checkpoint was recorded, while the step is being authored
   // (coding found a case nobody asked about). The record is append-only and keeps every earlier
@@ -159,9 +159,8 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   checkpoint.newQuestionAction = checkpoint.stage === 'complete' && canCompose && checkpoint.remainingQuestions > 0 ? recoveryActionGuidance({
     id: `add-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'clarification-only', requiresActualHumanReplies: true, responseFormat: CLARIFICATION_RESPONSE_FORMAT,
-    detail: 'Only for a new question that arose while authoring and that the person here can answer; never re-ask a recorded one. Stage only the new reply as responseFormat with a file-edit tool and run this command alone.',
-    ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
-      '--response-file', clarification.responseStagingPath, '--json'] })
+    detail: 'Only for a new question that arose while authoring and that the person here can answer; never re-ask a recorded one. Stage only the new reply as responseFormat at clarification.responseStagingPath with a file-edit tool and run this command alone.',
+    ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id, '--json'] })
   }) : null;
   // Answers recorded before this generation's prompt was recomposed (its documents, inputs or change
   // requests changed) are bound to the old prompt. Nothing re-binds them automatically: the person
@@ -171,9 +170,8 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
     ? recoveryActionGuidance(context ? {
       id: `rebind-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
       scope: 'clarification-only', requiresActualHumanReplies: true, skill: authoring.effectiveAuthoringSkill, responseFormat: CLARIFICATION_RESPONSE_FORMAT,
-      detail: 'The prompt was recomposed after these answers were recorded. Show the person each recorded question and answer (clarification.record.responses) against the current context; stage only the answers they confirm or change as responseFormat with a file-edit tool and run this command alone.',
-      ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
-        '--response-file', clarification.responseStagingPath, '--replace', '--json'] })
+      detail: 'The prompt changed since these answers. Show the person each one (clarification.record.responses); write those they confirm or change at clarification.responseStagingPath, then run this alone.',
+      ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id, '--replace', '--json'] })
     } : {
       id: `rebind-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
       scope: 'clarification-only', agentAction: 'load-context', skill: authoring.effectiveAuthoringSkill,

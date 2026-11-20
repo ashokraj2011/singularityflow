@@ -93,7 +93,7 @@ test('every catalogued phase route preserves its clarification policy in prompt 
           assert.match(protocol, /# Human clarification checkpoint/, `${label} omitted its checkpoint`);
           assert.match(protocol, new RegExp('mode `' + contract.clarification.mode + '`'),
             `${label} rendered the wrong checkpoint mode`);
-          assert.match(protocol, new RegExp(`clarification record ${phase.id} --response-file`),
+          assert.match(protocol, new RegExp(`clarification record ${phase.id} --json\` \\(it reads that file\\)`),
             `${label} omitted durable accepted-answer recording`);
         }
       }

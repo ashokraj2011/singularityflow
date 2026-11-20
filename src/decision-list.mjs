@@ -242,7 +242,8 @@ function differenceItem(workflow, context, group) {
   if (update && drafted) {
     // The wording is a person's or the Story's agent's [SCS:REQ-021]: propose refuses while a slot is left.
     const scopeName = stepName(workflow, update.owner);
-    const propose = `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file "${draft.path}" --reason "<why the specification changes>"`;
+    // Propose reads the Story's own draft by default: no Git-private path to type [owner, 2026-11-20].
+    const propose = `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --reason "<why the specification changes>"`;
     const words = `The draft is at ${draft.path}. Write ${clauses.length === 1 ? 'the clause' : 'each clause'} in place of its sflow-draft slot and delete the closing line, `
       + `or ask the Story's agent (/sf-amend propose); then propose it. ${scopeName}'s approvers decide it.`;
     const step = personalStep({ id: 'update-spec', label: 'Update the spec: write the draft and propose it', command: propose, words,

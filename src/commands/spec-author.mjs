@@ -347,7 +347,8 @@ const idList = (values) => values.flatMap((value) => String(value).split(',')).m
 
 async function proposeAction(root, positionals, options) {
   const specId = requireSpecId(specArgument(positionals, 'propose'));
-  const file = optionString(options, 'file');
+  // Without --file, the proposal file status issued (proposalPath): its path is never typed again [owner, 2026-11-20].
+  const file = optionString(options, 'file') ?? await proposalFile(root, specId);
   if (!file) fail(`spec author propose ${specId} needs --file FILE: { "proposals": [ … ] } (singularity-flow help spec).`, 'SPEC_PROPOSAL_INVALID', { specId, nextAction: `singularity-flow spec author status ${specId} --json` });
   // The issued proposal file is used up once staged, so the next turn creates it afresh instead of
   // finding the last turn's proposals still there; a person's own file is left alone.

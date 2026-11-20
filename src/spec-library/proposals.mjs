@@ -83,6 +83,52 @@ function citedSpan(root, ref, citation, { relocate = false } = {}) {
  * The closed operation table: each kind's validation, returning the staged body and its findings
  * (`{ field, code, message }`). A finding refuses the whole proposal file.
  */
+/**
+ * The draft's own text for a before that differs from it only in spacing or curly quote marks, when that text is in the
+ * draft exactly once (at least eight characters); else null. Recovered as the review's lost quote marks are [owner,
+ * 2026-11-20: SFlow fills what it knows]: never a near match in wording.
+ */
+function draftTextFor(spec, before) {
+  const normalized = (value) => {
+    let out = '';
+    const map = [];
+    let space = false;
+    for (let index = 0; index < value.length; index++) {
+      let character = value[index];
+      if (/\s/u.test(character)) { if (space) continue; space = true; character = ' '; } else space = false;
+      out += character.replace(/[\u2018\u2019]/u, "'").replace(/[\u201c\u201d]/u, '"');
+      map.push(index);
+    }
+    return { out, map };
+  };
+  const wanted = normalized(before).out.trim();
+  if (wanted.length < 8) return null;
+  const draft = normalized(spec);
+  const at = draft.out.indexOf(wanted);
+  if (at < 0 || draft.out.indexOf(wanted, at + 1) >= 0) return null;
+  const text = spec.slice(draft.map[at], draft.map[at + wanted.length - 1] + 1);
+  return text !== before && spec.indexOf(text) === spec.lastIndexOf(text) ? text : null;
+}
+
+/** The patches with each before the draft holds only in other spacing or quote marks set to the draft's own text, and notes saying which. */
+export function recoveredPatches(spec, patches) {
+  if (!Array.isArray(patches)) return { patches, notes: [] };
+  const notes = [];
+  let next = spec;
+  const fixed = patches.map((patch, index) => {
+    if (!plain(patch) || typeof patch.before !== 'string' || !patch.before || next.includes(patch.before)) {
+      if (plain(patch) && typeof patch.before === 'string' && typeof patch.after === 'string' && next.indexOf(patch.before) >= 0 && next.indexOf(patch.before) === next.lastIndexOf(patch.before)) next = next.replace(patch.before, () => patch.after);
+      return patch;
+    }
+    const text = draftTextFor(next, patch.before);
+    if (!text) return patch;
+    notes.push(`SFlow used the draft's own text for change ${index + 1}'s before, which differed from it only in spacing or quote marks`);
+    if (typeof patch.after === 'string') next = next.replace(text, () => patch.after);
+    return { ...patch, before: text };
+  });
+  return { patches: fixed, notes };
+}
+
 export function applyFocusedEdits(spec, patches) {
   if (!Array.isArray(patches) || !patches.length || patches.length > 16) fail('Use 1 to 16 exact text changes.', 'SPEC_PROPOSAL_PATCH_INVALID');
   let next = spec;
@@ -113,7 +159,10 @@ const KINDS = Object.freeze({
   edit(entry, at, { draft }) {
     if (entry.patches !== undefined) {
       if (entry.spec !== undefined) return { findings: [{ field: at, code: 'SPEC_PROPOSAL_PATCH_INVALID', message: 'Use patches or a whole specification, not both.' }] };
-      try { return { body: { patches: entry.patches, spec: applyFocusedEdits(draft.spec, entry.patches) } }; }
+      try {
+        const recovered = recoveredPatches(draft.spec, entry.patches);
+        return { body: { patches: recovered.patches, spec: applyFocusedEdits(draft.spec, recovered.patches) }, ...(recovered.notes.length ? { notes: recovered.notes } : {}) };
+      }
       catch (error) { return { findings: [{ field: at + '.patches', code: error.code, message: error.message }] }; }
     }
     if (typeof entry.spec !== 'string' || !entry.spec.trim()) return { findings: [{ field: `${at}.spec`, code: 'SPEC_PROPOSAL_EDIT_EMPTY', message: 'an edit proposal carries the whole prose as spec' }] };

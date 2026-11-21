@@ -581,9 +581,8 @@ workTypes:
       mode: required
       clausePhases: [findings-intake]
       owners: { implementation: remediation-plan }
-    documents: { allowedPhases: [] }
-    because:
-      documents.allowedPhases: Kept as it was before step intents. The findings come from the findings register, and no step takes attached documents.
+    # Its intake and plan take attached documents, as their intents do [owner, 2026-11-20, D2]: an option, never a requirement.
+    documents: { allowedPhases: [findings-intake, remediation-plan] }
     # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
     # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
@@ -1080,9 +1079,8 @@ workTypes:
       mode: required
       clausePhases: [poc-intake]
       owners: { poc-test-generation: poc-ui-exploration }
-    documents: { allowedPhases: [] }
-    because:
-      documents.allowedPhases: Kept as it was before step intents. The POC workflow's steps take no attached documents.
+    # Its intake and its two analysis steps take attached documents, as their intents do [owner, 2026-11-20, D2].
+    documents: { allowedPhases: [poc-intake, poc-impact-analysis, poc-ui-exploration] }
     templateOverrides:
       poc-intake: poc-workflow/intake.md
       poc-impact-analysis: poc-workflow/impact-analysis.md

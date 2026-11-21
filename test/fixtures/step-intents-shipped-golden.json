@@ -42,7 +42,7 @@
     "shapeDigest": "sha256:f0cef6d7371a6511cd3e338580e2eece192626671dfa6fc161fb2bdc50786532"
   },
   "findings-remediation": {
-    "resolutionSha256": "36afbc6602d77bf84fd0a5e99763a682a6ec4878a2f04f02277984563fd2cdb7",
+    "resolutionSha256": "955f0660ac53fd6e1be50ede105f21237a70f482d12ce31119d856fc19614516",
     "people": ["remediation-plan","implementation"],
     "automatic": ["findings-intake","verification","conformance"],
     "other": [],
@@ -52,7 +52,7 @@
     "requirementIds": ["findings-intake"],
     "planOwners": {"implementation":"remediation-plan"},
     "reviewed": ["findings-intake","remediation-plan","implementation","verification","conformance"],
-    "attachedDocuments": [],
+    "attachedDocuments": ["findings-intake","remediation-plan"],
     "shapeDigest": "sha256:6ffdc142c23103f6bbadc862c97564838aa1d2f04232f8895259a8740aceb0d8"
   },
   "figma-mobile": {
@@ -238,7 +238,7 @@
     "shapeDigest": "sha256:6ffdc142c23103f6bbadc862c97564838aa1d2f04232f8895259a8740aceb0d8"
   },
   "poc-workflow": {
-    "resolutionSha256": "ef7830fa8a95e28fde05b6c9aef53b7c16251b6971b87d297a35feb071bf1e67",
+    "resolutionSha256": "397d94ea1e18746506166de4672d4b048abad92d661065ece3c627d2b86a215d",
     "people": ["poc-ui-exploration","poc-test-generation","poc-validation","poc-publication-review"],
     "automatic": ["poc-intake","poc-impact-analysis"],
     "other": [],
@@ -248,7 +248,7 @@
     "requirementIds": ["poc-intake"],
     "planOwners": {"poc-test-generation":"poc-ui-exploration"},
     "reviewed": ["poc-intake","poc-impact-analysis","poc-ui-exploration","poc-test-generation","poc-validation","poc-publication-review"],
-    "attachedDocuments": [],
+    "attachedDocuments": ["poc-intake","poc-impact-analysis","poc-ui-exploration"],
     "shapeDigest": "sha256:e6ffccc6c9dbe22160fc40f452d4a43d904b0ca5a7ca13719fff2f0531b302c2"
   },
   "reference-driven-build": {

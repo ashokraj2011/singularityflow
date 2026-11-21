@@ -115,7 +115,11 @@ test('no shipped setting differs from its intent without a reason, and nothing c
     assert.ok(sources(type, step).repositoryTests.reason?.length >= 20, `G5 kept: ${step} says why`);
   }
   assert.match(deriveWorkTypeSettings(raw, 'feature').workType.sources['plannedClaims.clausePhases'].reason, /its own requirement IDs/u, 'G6');
-  assert.match(deriveWorkTypeSettings(raw, 'poc-workflow').workType.sources['documents.allowedPhases'].reason, /no attached documents/u, 'G7');
+  // G7 adopted (D2): the findings intake and plan, and the POC workflow's intake and analysis steps, take attached documents.
+  for (const [type, steps] of [['findings-remediation', ['findings-intake', 'remediation-plan']], ['poc-workflow', ['poc-intake', 'poc-impact-analysis', 'poc-ui-exploration']]]) {
+    assert.equal(deriveWorkTypeSettings(raw, type).workType.sources['documents.allowedPhases'].reason, undefined, `G7 adopted: ${type}`);
+    assert.deepEqual(resolveWorkType(validateDefinition(structuredClone(raw)), type).documents.allowedPhases, steps, type);
+  }
 });
 
 test('golden: every shipped work type resolves exactly as it did before step intents, apart from its intent pins', async () => {

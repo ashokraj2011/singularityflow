@@ -1770,7 +1770,7 @@ function targetOriginPinCall(call, value) {
 }
 /** A confirmed `capability kind`: recording what kind of software each project is (software-kind-record.mjs). */
 function softwareKindConfirmation(positionals, options) {
-  return positionals[0] === 'capability' && positionals[1] === 'kind' && options.confirm !== undefined;
+  return positionals[0] === 'capability' && positionals[1] === 'kind' && typeof options.confirm !== 'undefined';
 }
 function softwareKindConfirmationCall(call, value) {
   const safe = verifiedShellForm(call, value);

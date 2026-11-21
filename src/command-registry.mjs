@@ -1467,7 +1467,7 @@ function resolveCapabilityOperation(definition, positionals, options) {
   // A test command proposal previews as a read; its confirmed digest proposes the change.
   if (subcommand === 'test-setup' && options.confirm !== undefined) return never('capability.test-setup.propose', definition, 'mutation');
   // The kind of software reads; the person's confirmed digest records it on this clone.
-  if (subcommand === 'kind' && options.confirm !== undefined) return never('capability.kind.confirm', definition, 'mutation');
+  if (subcommand === 'kind' && typeof options.confirm !== 'undefined') return never('capability.kind.confirm', definition, 'mutation');
   if (subcommand === 'onboard') {
     return optionBoolean(options, 'dry-run')
       ? never('capability.onboard.preview', definition, 'read')

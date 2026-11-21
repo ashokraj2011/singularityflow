@@ -32,6 +32,7 @@ export const UPGRADE_CONTRACT = Object.freeze({
   SCHEMA_VERSION_ARCHIVED: guided(),
   // A workflow.yml a newer SFlow wrote: the refusal names the update, never a factory reset (step intents spec §7.7).
   WORKFLOW_VERSION_NEWER: guided(),
+  CHECK_INTENTS_NEED_VERSION: unrelated('workflow check\'s note that a workflow.yml with step intents is below version 4, which workflow fix asks about; no build or schema mismatch.'),
   DOCS_MANIFEST_MISMATCH: guided('product-alignment'),
   // The registered World Model and its commands were removed; the refusal points to the Repository brief.
   WMB_REMOVED: guided(),

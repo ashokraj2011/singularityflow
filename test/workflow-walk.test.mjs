@@ -102,6 +102,16 @@ test('what the stub adds only where the platform needs it: anchors, a planned-cl
   assert.match(change['test/value.test.mjs'], /\/\/ @ac:WALK-1:REQ-001\n\/\/ @ac:WALK-1:AC-001\ntest\(/u);
 });
 
+test("a plan that also writes the requirement IDs gets a planned-claims row for each clause it defines (common/plan.md, one example row)", async () => {
+  const template = (await readFile(path.join(ROOT, 'templates/artifacts/common/plan.md'), 'utf8')).replaceAll('{{work.id}}', 'WALK-1');
+  const filled = fillDocument(template, { clauses: [], defines: true, workId: 'WALK-1' });
+  // The walk adds the clause section a plan without anchors lacks, then fills again (src/workflow-walk/walk.mjs author).
+  const again = fillDocument(`${filled}${clauseSection('WALK-1')}`, { clauses: [], defines: true, workId: 'WALK-1' });
+  assert.match(again, /\| `WALK-1:REQ-001` \| `src\/value\.mjs` \| `test\/value\.test\.mjs` \| modified \|/u);
+  assert.match(again, /\| `WALK-1:AC-001` \| `src\/value\.mjs` \| `test\/value\.test\.mjs` \| modified \|/u);
+  assert.doesNotMatch(again.replace(/<!--[\s\S]*?-->/gu, ''), /TODO/u);
+});
+
 test("a walk's commands run with every machine location, home, Git config and temporary folder inside its own folder", () => {
   const base = path.join(os.tmpdir(), 'sflow-workflow-walk-example');
   const env = walkEnvironment(base, { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: '/elsewhere/active.json', GIT_DIR: '/elsewhere/.git',

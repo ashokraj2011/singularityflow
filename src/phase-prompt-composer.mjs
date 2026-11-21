@@ -555,6 +555,20 @@ async function recordedVisualReviewContext(root, workflow, phase) {
   return projection ? { projection, record: reviews.witnessDecisionCompositionRecord(projection) } : null;
 }
 
+/**
+ * The baseline acceptance criteria of the kinds of software a person confirmed for this repository (step intents §12.2),
+ * for the step that defines the Story's scope only: nothing when no kind is recorded, so other prompts are unchanged.
+ */
+async function baselineCriteriaContext(root, workflow, phase) {
+  if (!workflow || !phase || !phaseOwnsScope(workflow, phase)) return { text: '', record: null };
+  let projects = [];
+  try { projects = (await (await import('./software-kind-record.mjs')).recordedSoftwareKinds(root)).projects; } catch { return { text: '', record: null }; }
+  if (!projects.length) return { text: '', record: null };
+  const { baselineCriteriaFor, baselineCriteriaSection } = await import('./software-kind-baselines.mjs');
+  const kinds = baselineCriteriaFor(projects);
+  return { text: baselineCriteriaSection(projects), record: kinds.length ? { kinds: kinds.map((entry) => entry.kind) } : null };
+}
+
 /** What this checkout observed of the step's open version (story-version-acceptance.mjs), loaded only when it has one. */
 async function observedOpening(root, workflow, phase) {
   return phase?.versionOpening ? (await import('./story-version-acceptance.mjs')).observeOpening(root, workflow, phase) : null;
@@ -1119,6 +1133,8 @@ export async function compose(root, options, {
   const constitution = workflow ? await constitutionPromptContext(root, workflow) : { text: '', record: null };
   // A step an approved amendment reopened sees its earlier draft only as a read-only reference (SPEC-CIC switch 2) [CIC:REQ-008].
   const preAmendmentDraft = workflow && phase?.scopePin ? (await import('./amended-drafts.mjs')).preAmendmentDraftSection(workflow, phase) : '';
+  // What holds for any change to the kind of software a person confirmed, for the scope step to add (step intents §12.2).
+  const baseline = await baselineCriteriaContext(root, workflow, phase);
   const promptCompilation = compilePromptSections([
     { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
     { id: 'approved-phase-inputs', text: inputEvidence, mandatory: true, priority: 0 },
@@ -1132,6 +1148,7 @@ export async function compose(root, options, {
     { id: 'mcp-policy', text: mcpPolicy, mandatory: true, priority: 0 },
     { id: 'pinned-constitution', text: constitution.text, mandatory: true, priority: 0 },
     { id: 'pre-amendment-draft', text: preAmendmentDraft, mandatory: true, priority: 0 },
+    { id: 'baseline-criteria', text: baseline.text, mandatory: true, priority: 5 },
     { id: 'design-sources', text: designSources.markdown, mandatory: true, priority: 5 },
     { id: 'world-model-grounding', text: repositoryBrief.text, mandatory: false, priority: 40 },
     // This is a small deterministic navigation overlay, not a second model build. Keep it mandatory
@@ -1189,6 +1206,7 @@ export async function compose(root, options, {
   promptComposition.inputDigests = inputDigests(governed.inputRecords);
   promptComposition.stakeholderProjection = stakeholderContext.projection;
   if (constitution.record) promptComposition.constitution = constitution.record;
+  if (baseline.record) promptComposition.baselineCriteria = baseline.record;
   if (epicContext) promptComposition.epicContext = epicContext.records;
   if (executionEvidence) promptComposition.executionEvidence = {
     projectionSha256: executionEvidence.projectionSha256, packets: executionEvidence.entries.length,

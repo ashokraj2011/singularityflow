@@ -535,9 +535,11 @@ Usage:
   singularity-flow workflow build export --build ID --out FILE [--json]
   singularity-flow workflow build import --file FILE [--json]
                                                         move a build to another computer: export it here, import it there inside the repository
-  singularity-flow workflow check [WORKFLOW] [--change-set FILE|-] [--json]
+  singularity-flow workflow check [WORKFLOW] [--change-set FILE|-] [--settings] [--json]
                                                         explain each workflow in plain words and list what does not make sense, with where;
-                                                        with WORKFLOW, who drafts, asks, reviews and approves each step, and where
+                                                        with WORKFLOW, who drafts, asks, reviews and approves each step, and where;
+                                                        --settings lists each step's settings and where each came from (its intent, a
+                                                        workflow rule, the step or the workflow itself)
   singularity-flow workflow fix [WORKFLOW] [--answers FILE|-] [--write] [--json]
                                                         every check finding as a drafted Workflow Studio change or a question only a
                                                         person can answer (who is in a group, which route the team wants); drafts only.

@@ -35,6 +35,7 @@ import { explainWorkflow } from './workflow-explanation.mjs';
 import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
 import { mergePhaseOverride } from './phase-overrides.mjs';
 import { inferStepIntents, PACKAGED_STEP_INTENTS } from './step-intents.mjs';
+import { deriveWorkTypeSettings, INTENTS_FILE_VERSION, workTypeDerivesIntents, workTypeIntentSteps } from './step-intent-settings.mjs';
 import { simulateWorkflowRoutes } from './workflow-route-simulation.mjs';
 import { workflowStepPeople } from './workflow-step-people.mjs';
 import { buildStudioModel } from './workflow-studio.mjs';
@@ -415,6 +416,49 @@ async function questionPlacementFindings(workflow, resolved, { people, stepLabel
   return findings;
 }
 
+/**
+ * Step intent findings for one workflow (step intents spec §7.2, §7.5): what its intents' settings warn about when it
+ * derives them, and why it derives none when some or all of its steps say what they are for. A workflow with no
+ * intents gets none: it runs as it always did.
+ */
+function intentFindings(workflow, { definition, resolved, stepLabel }) {
+  const found = [];
+  const steps = workTypeIntentSteps(definition, definition?.workTypes?.[workflow.id]);
+  const declared = steps.filter((step) => step.intent);
+  if (!declared.length) return found;
+  if (workTypeDerivesIntents(definition, definition.workTypes[workflow.id])) {
+    if (!resolved) return found;
+    let derivation = null;
+    try { derivation = deriveWorkTypeSettings(definition, workflow.id, { profile: resolved.phases?.[0]?.intentProfile ?? null }); } catch { derivation = null; }
+    for (const warning of derivation?.warnings ?? []) {
+      found.push({ code: warning.code, area: warning.code === 'CHECK_INTENT_BEFORE_CODE' ? 'flow' : 'clarity', severity: 'warning',
+        title: warning.title, detail: warning.detail, fix: warning.fix,
+        subject: { ...(warning.step ? { step: warning.step } : {}), ...(warning.setting ? { setting: warning.setting } : {}) } });
+    }
+    return found;
+  }
+  const missing = steps.filter((step) => !step.intent);
+  if (missing.length) {
+    const skill = missing.filter((step) => step.skill);
+    found.push({ code: 'CHECK_INTENTS_PARTIAL', area: 'clarity', severity: 'note',
+      title: `Only ${declared.length} of ${steps.length} steps ${declared.length === 1 ? 'has an intent' : 'have an intent'} (what the step is for)`,
+      detail: `SFlow derives a workflow's settings from its steps' intents only when every step has one, so this workflow runs on its own settings. `
+        + `${missing.length === 1 ? 'This step has' : 'These steps have'} none: ${missing.map((step) => stepLabel(step.id)).join(', ')}.`
+        + (skill.length ? ` ${skill.map((step) => stepLabel(step.id)).join(', ')} ${skill.length === 1 ? 'is a compiled skill step, which takes' : 'are compiled skill steps, which take'} no intent.` : ''),
+      fix: skill.length === missing.length ? 'Nothing to fix: a workflow with a compiled skill step keeps its own settings.'
+        : `Give ${missing.filter((step) => !step.skill).map((step) => stepLabel(step.id)).join(', ')} an intent, or remove the intents to keep this workflow as it is.`,
+      subject: { step: missing[0].id } });
+  } else {
+    found.push({ code: 'CHECK_INTENTS_NEED_VERSION', area: 'clarity', severity: 'note',
+      title: `Every step has an intent (what it is for), but workflow.yml is not version ${INTENTS_FILE_VERSION}`,
+      detail: `SFlow derives settings from step intents only in a version ${INTENTS_FILE_VERSION} workflow.yml, so this workflow runs on its own settings. `
+        + 'An SFlow build from before step intents asks to be updated when it reads a version 4 file.',
+      fix: `Set version: ${INTENTS_FILE_VERSION} at the top of workflow.yml to derive this workflow's settings from its intents, or keep it as it is.`,
+      subject: {} });
+  }
+  return found;
+}
+
 /** Check one workflow of the model; returns its findings. */
 async function checkWorkflow(workflow, { definition, raw = {}, model, locate, guidance, groups, templates, sfGuard = 'off', unmapped = new Set() }) {
   const findings = [];
@@ -470,7 +514,18 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
       add({ code: entry.code, area: 'flow', severity: 'problem', title: firstSentence(entry.message), detail: entry.message,
         subject: { step: entry.phaseId }, blocksStart: true });
     }
-    if (['migration-required', 'retired-opt-out'].includes(resolved.plannedClaims?.mode)) {
+    if (resolved.plannedClaims?.unplanned?.length) {
+      // Step intents: nothing before a code step plans it, so the workflow rules give it no plan (spec §5).
+      const names = resolved.plannedClaims.unplanned.map(stepLabel);
+      const unscoped = Boolean(resolved.plannedClaims.unscoped);
+      add({ code: 'CHECK_PLANNED_CLAIMS', area: 'flow', severity: 'problem',
+        title: unscoped ? `No step before ${names[0]} writes the requirements it builds` : `Nothing before ${names.join(' and ')} plans ${names.length === 1 ? 'its' : 'their'} change`,
+        detail: String(resolved.plannedClaims.reason),
+        fix: `${unscoped ? `Add an intake or requirements step before ${names[0]}` : `Add a short plan step (intent plan) just before ${names[0]}`} (recommended). `
+          + `Or, if ${names[0]} ${unscoped ? 'works without requirement IDs' : 'plans its own change'}, declare omits for scope and plan on the workflow, `
+          + 'each with a reason of at least 20 characters and the approval group that decides.',
+        subject: { step: resolved.plannedClaims.unplanned[0] }, blocksStart: true });
+    } else if (['migration-required', 'retired-opt-out'].includes(resolved.plannedClaims?.mode)) {
       add({ code: 'CHECK_PLANNED_CLAIMS', area: 'flow', severity: 'problem',
         title: 'A code step has no requirements step before it',
         detail: String(resolved.plannedClaims.reason ?? 'Story start refuses a code step without an earlier step that defines requirement clauses.'),
@@ -538,6 +593,9 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
     people = workflowStepPeople(model, workflow, resolved, { sfGuard });
     for (const entry of await questionPlacementFindings(workflow, resolved, { people, stepLabel, settingOf, templates })) add(entry);
   }
+
+  // What each step is for: a work type whose steps all say it derives their settings (step intents, Stage 2).
+  for (const entry of intentFindings(workflow, { definition, resolved, stepLabel })) add(entry);
 
   // Who owns each step: an agent to draft it, people to sign it off.
   const signedOff = new Set(workflow.steps.filter((step) => step.approval?.mode !== 'none').map((step) => step.id));
@@ -957,7 +1015,7 @@ function unreadableConfiguration(base, error, text = null) {
  * an agent stops it, the workflows are still read without agents and checked, so the person sees the
  * agent files to fix and everything else at once; `configuration.valid` stays false.
  */
-export async function checkWorkflowConfiguration(root, { workflows: only = null } = {}) {
+export async function checkWorkflowConfiguration(root, { workflows: only = null, settings = false } = {}) {
   const configRoot = configurationReadRoot(root);
   const text = await readFile(path.join(configRoot, WORKFLOW_PATH), 'utf8').catch(() => null);
   const base = { schemaVersion: 1, resultType: 'workflow-check' };
@@ -993,12 +1051,16 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
   for (const workflow of model.workflows) {
     if (only && !only.includes(workflow.id)) continue;
     const { findings, resolved, explanationGuidance, people } = await checkWorkflow(workflow, { definition, raw, model, locate, guidance, groups, templates, sfGuard, unmapped });
+    // What each step is for, declared or inferred, and how sure SFlow is.
+    const intents = await workflowStepIntents(workflow, { raw, resolved, templates });
     results.push({
       id: workflow.id, label: workflow.label, readOnly: Boolean(workflow.readOnly),
       ...(workflow.changeImpact ? { changeImpact: workflow.changeImpact } : {}),
       explanation: explainWorkflow(model, workflow.id, { resolved, guidance: explanationGuidance, people }),
-      // What each step is for, declared or inferred, and how sure SFlow is: read only, nothing derives from it yet.
-      intents: await workflowStepIntents(workflow, { raw, resolved, templates }),
+      intents,
+      // `--settings`: every step's settings and where each came from (step intents spec §7.4).
+      ...(settings ? { settings: (await import('./workflow-step-settings.mjs')).workflowSettingsReport(definition, raw, workflow.id,
+        { resolved, intents, groups: new Map(model.groups.map((group) => [group.id, group.label ?? group.id])) }) } : {}),
       counts: countsOf(findings), findings
     });
   }

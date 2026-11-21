@@ -5,10 +5,12 @@
  * writing anything.
  *
  * It also says what each step is for and how sure SFlow is (step intents), and, without a change set, what kind
- * of software each project in the repository is (src/software-kinds.mjs). Both are reports: nothing uses them yet.
+ * of software each project in the repository is (src/software-kinds.mjs). With --settings it lists every step's
+ * settings and where each came from: its intent, a workflow rule, the step or the workflow itself, or an SFlow rule.
  */
 import { readFile } from 'node:fs/promises';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString } from '../util.mjs';
+import { settingsReportLines } from '../workflow-step-settings.mjs';
 
 const SEVERITY_WORDS = { problem: 'problem', warning: 'warning', note: 'note' };
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -79,7 +81,7 @@ function printSteps(explanation, intents = []) {
   }
 }
 
-export function printWorkflowCheck(result, { steps = false } = {}) {
+export function printWorkflowCheck(result, { steps = false, settings = false } = {}) {
   if (!result.configuration.valid && !result.workflows.length) {
     console.log(result.changeSet ? 'These changes cannot be applied yet, so nothing else was checked:' : 'The workflow configuration cannot be read, so nothing else was checked:');
     printFindings(result.repository.findings, '  ');
@@ -94,7 +96,8 @@ export function printWorkflowCheck(result, { steps = false } = {}) {
     if (workflow.explanation.description) console.log(`  ${workflow.explanation.description}`);
     if (workflow.changeImpact) console.log(`  ${workflow.changeImpact.text}.`);
     if (workflow.explanation.reviewFixes) console.log(`  ${workflow.explanation.reviewFixes}`);
-    if (steps) printSteps(workflow.explanation, workflow.intents);
+    if (settings && workflow.settings) for (const line of settingsReportLines(workflow.settings)) console.log(line);
+    else if (steps) printSteps(workflow.explanation, workflow.intents);
     else if (workflow.intents?.length) console.log(`  What each step is for: ${intentsLine(workflow)}.`);
     if (workflow.findings.length) printFindings(workflow.findings, '  ');
     else console.log('  Nothing to fix.');
@@ -124,7 +127,7 @@ async function softwareReport(root) {
 }
 
 export async function run(argv, { positionals, options }) {
-  const unknown = Object.keys(options).filter((key) => !['change-set', 'json'].includes(key));
+  const unknown = Object.keys(options).filter((key) => !['change-set', 'json', 'settings'].includes(key));
   if (unknown.length) throw new SingularityFlowError(`workflow check does not take --${unknown[0]}.`, { code: 'WORKFLOW_CHECK_USAGE' });
   if (positionals.length > 3) throw new SingularityFlowError('Name at most one workflow: singularity-flow workflow check [WORKFLOW].', { code: 'WORKFLOW_CHECK_USAGE' });
   const { repoRoot } = await import('../git.mjs');
@@ -133,6 +136,8 @@ export async function run(argv, { positionals, options }) {
   const { withApprovedConfigurationRead } = await import('../approved-configuration-reader.mjs');
   const { checkWorkflowConfiguration } = await import('../workflow-check.mjs');
   const source = optionString(options, 'change-set');
+  // Every step's settings and where each came from: its intent, a workflow rule, the step or the workflow (§7.4).
+  const settings = optionBoolean(options, 'settings');
   let result;
   if (source) {
     const { readStdinText } = await import('../read-stdin.mjs');
@@ -142,7 +147,7 @@ export async function run(argv, { positionals, options }) {
     // approved elsewhere or in conflict is left out and named, never a blocker for this batch.
     const [drafts, { approvedConfigurationPlanner }] = await Promise.all([import('../configuration-drafts.mjs'), import('./configuration-drafts.mjs')]);
     const { result: plan, leftOut } = await drafts.runWithDrafts(root, changes, (changeSet) => withApprovedConfigurationRead(root, () => planStudioChangeSet(root, changeSet,
-      { inspect: (candidateRoot) => checkWorkflowConfiguration(candidateRoot, { workflows: only }) }), { preferAuthority: true }),
+      { inspect: (candidateRoot) => checkWorkflowConfiguration(candidateRoot, { workflows: only, settings }) }), { preferAuthority: true }),
     { planner: approvedConfigurationPlanner(root), preview: true });
     if (leftOut.length && !optionBoolean(options, 'json')) for (const entry of leftOut) console.log(drafts.leftOutLine(entry));
     const leftOutDrafts = leftOut.length ? { draftsLeftOut: leftOut.map((entry) => ({ draftId: entry.draftId, number: entry.number,
@@ -160,10 +165,10 @@ export async function run(argv, { positionals, options }) {
         counts, workflows: [], repository: { counts, findings } };
     }
   } else {
-    result = await withApprovedConfigurationRead(root, () => checkWorkflowConfiguration(root, { workflows: only }), { preferAuthority: true });
+    result = await withApprovedConfigurationRead(root, () => checkWorkflowConfiguration(root, { workflows: only, settings }), { preferAuthority: true });
     // The repository's own files, not its configuration: what a change set would leave does not change them.
     result.software = await softwareReport(root);
   }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  printWorkflowCheck(result, { steps: Boolean(only) });
+  printWorkflowCheck(result, { steps: Boolean(only) && !settings, settings });
 }

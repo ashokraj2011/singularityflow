@@ -225,7 +225,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'opt-out', 'optional', 'parallel', 'planned', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'changes', 'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'retention', 'for-person', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'risk-status', 'run',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'set', 'sign', 'solo',
-  'refresh-readiness', 'saved-buffers-confirmed', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'skip-tests', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'terminal', 'timings', 'today', 'update', 'write',
+  'refresh-readiness', 'saved-buffers-confirmed', 'search-known', 'selected-base-only', 'semantic', 'settings', 'shadow', 'skip-checks', 'skip-tests', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'terminal', 'timings', 'today', 'update', 'write',
   'yes',
   // Presentation flags introduced with the narration and output work. They are parsed here before
   // any command reads them, so they must be declared here too.

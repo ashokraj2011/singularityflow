@@ -75,17 +75,21 @@ test('each step\'s intent and how sure SFlow is, and the repository\'s kind of s
   const all = flow(root, ['workflow', 'check']).stdout;
   assert.match(all, /^ {2}What each step is for: Intake: intake, Requirements: requirements, Build the change: code, Validate the payment: test \(likely\)\.$/mu);
 
-  // A declared intent is shown as declared, with what the structure says when that differs; nothing else moves.
+  // A declared intent is shown as declared, with what the structure says when that differs. One step that says what it
+  // is for derives nothing (Stage 2): the only change is the note that says which steps do not.
   await setStep(root, 'pay-check', { intent: 'review', because: { writeScope: 'Reads the delivered code and changes nothing itself.' } });
   const after = json(root, ['workflow', 'check', 'pay']);
   const declared = after.workflows[0].intents[3];
   assert.deepEqual([declared.intent, declared.confidence, declared.source, declared.inferred?.intent], ['review', 'certain', 'declared', 'test']);
   assert.match(flow(root, ['workflow', 'check', 'pay']).stdout, /^ {5}For: review \(workflow\.yml says so; its settings look like test \(/mu);
+  const partial = after.workflows[0].findings.find((entry) => entry.code === 'CHECK_INTENTS_PARTIAL');
+  assert.deepEqual([partial?.severity, partial?.title], ['note', 'Only 1 of 4 steps has an intent (what the step is for)']);
+  assert.match(partial.detail, /These steps have none: Intake, Requirements, Build the change\./u);
   // Lines move when workflow.yml is written again, so findings compare by what they say, not where.
-  const strip = (result) => result.workflows.map((entry) => ({ ...entry, intents: undefined,
-    findings: entry.findings.map(({ code, severity, title, subject }) => ({ code, severity, title, subject })) }));
-  assert.deepEqual(strip(after), strip(before), 'declaring an intent changes no explanation and no finding');
-  assert.deepEqual(after.counts, before.counts);
+  const strip = (result) => result.workflows.map((entry) => ({ ...entry, intents: undefined, counts: undefined,
+    findings: entry.findings.filter((finding) => finding.code !== 'CHECK_INTENTS_PARTIAL').map(({ code, severity, title, subject }) => ({ code, severity, title, subject })) }));
+  assert.deepEqual(strip(after), strip(before), 'declaring an intent changes no explanation and no other finding');
+  assert.deepEqual(after.counts, { ...before.counts, note: before.counts.note + 1 });
 
   // An intent in a workflow's overrides does not load, and says where to fix it.
   const file = path.join(root, 'singularity', 'workflow.yml');
@@ -97,4 +101,58 @@ test('each step\'s intent and how sure SFlow is, and the repository\'s kind of s
   assert.equal(refused.configuration.valid, false);
   const problem = refused.repository.findings.find((entry) => entry.code === 'STEP_INTENT_INVALID');
   assert.match(problem?.detail ?? '', /what a step is for is set on the step itself/u);
+});
+
+test('workflow check --settings: a version 4 workflow of intents, refused while a step contradicts its intent, then derived, with where each setting came from', async () => {
+  const root = await paymentsRepository();
+  const file = path.join(root, 'singularity', 'workflow.yml');
+  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  document.set('version', 4);
+  for (const [id, intent] of [['intake', 'intake'], ['requirements', 'requirements'], ['pay-build', 'code'], ['pay-check', 'test']]) {
+    document.setIn(['phases', id, 'intent'], intent);
+  }
+  await writeFile(file, document.toString());
+  run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'intents'], root);
+  // Workflow Studio's blank step names its output after itself; a test step's output is test results.
+  const refused = json(root, ['workflow', 'check', 'pay']);
+  assert.equal(refused.configuration.valid, false);
+  const problem = refused.repository.findings.find((entry) => entry.code === 'STEP_INTENT_INVALID');
+  assert.match(problem?.detail ?? '', /Validate the payment is a test step, so SFlow recognises its output as test results \(test-evidence\), but it sets output kind pay-check\. Remove artifact\.kind from Validate the payment/u);
+
+  document.deleteIn(['phases', 'pay-check', 'artifact', 'kind']);
+  await writeFile(file, document.toString());
+  run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'no kind'], root);
+  const result = json(root, ['workflow', 'check', 'pay', '--settings']);
+  const [workflow] = result.workflows;
+  assert.equal(workflow.settings.derives, true);
+  assert.equal(workflow.settings.profile, 1);
+  const setting = (step, key) => workflow.settings.steps.find((entry) => entry.id === step).settings.find((entry) => entry.key === key);
+  // The test step: its intent gives the kind, the repository's tests and SFlow's approval; it cites the code step's results.
+  assert.deepEqual([setting('pay-check', 'artifact.kind').value, setting('pay-check', 'artifact.kind').from], ['test-evidence', 'intent']);
+  assert.deepEqual([setting('pay-check', 'repositoryTests').value, setting('pay-check', 'repositoryTests').from], ['run', 'intent']);
+  assert.deepEqual([setting('pay-check', 'testEvidenceFrom').value, setting('pay-check', 'testEvidenceFrom').from], ['pay-build', 'workflow-rule']);
+  assert.equal(setting('pay-check', 'approval').value, 'sflow-when-clean');
+  // The code step's own setting wins over nothing different: it says it changes source files, as its intent does.
+  assert.deepEqual([setting('pay-build', 'writeScope').value, setting('pay-build', 'writeScope').from], ['source-and-artifact', 'shared-step']);
+  assert.equal(setting('pay-build', 'approval').value, 'person');
+  assert.deepEqual(workflow.settings.steps.map((step) => step.intent?.value), ['intake', 'requirements', 'code', 'test']);
+  // Workflow Studio wrote the workflow's requirement IDs itself; they are what the rules give, so no reason is asked.
+  const claims = workflow.settings.workflow.find((entry) => entry.key === 'plannedClaims.clausePhases');
+  assert.deepEqual([claims.value, claims.from], [['requirements'], 'override']);
+  assert.equal(workflow.findings.some((entry) => entry.code === 'CHECK_INTENT_OVERRIDE_WITHOUT_REASON' && entry.subject.setting === 'plannedClaims'), false);
+  // Other workflows that share a step with an intent derive nothing, and say why.
+  const all = json(root, ['workflow', 'check', '--settings']);
+  const others = all.workflows.filter((entry) => entry.id !== 'pay');
+  assert.ok(others.length > 0);
+  for (const other of others) {
+    assert.equal(other.settings.derives, false, other.id);
+    assert.ok(/^not every step has an intent|^its steps have no intent/u.test(other.settings.why), other.settings.why);
+  }
+  const sharing = others.filter((entry) => entry.settings.steps.some((step) => ['intake', 'requirements'].includes(step.id)));
+  for (const other of sharing) assert.ok(other.findings.some((entry) => entry.code === 'CHECK_INTENTS_PARTIAL'), other.id);
+  const text = flow(root, ['workflow', 'check', 'pay', '--settings']).stdout;
+  assert.match(text, /^ {2}Settings: derived from each step's intent, what the step is for \(profile 1\)\.$/mu);
+  assert.match(text, /^ {2}4\. Validate the payment: test, as workflow\.yml says$/mu);
+  assert.match(text, /^ {5}Cites the test results of: Build the change \(workflow rule: nothing since Build the change changed source files, so it cites its committed test results\)$/mu);
+  assert.match(text, /^ {5}Requirement IDs written by: Requirements \(this workflow's override\)$/mu);
 });

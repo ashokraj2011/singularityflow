@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { storyNextCommand } from './action-command-map.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const RUNTIME_CHECK_FORMAT = 'sflow-runtime-check/v1';
@@ -232,7 +233,7 @@ export async function runRuntimeCheck(root, config, workflow, phaseId, { again =
   const { phaseRequiresCodeDelivery } = await import('./code-delivery-policy.mjs');
   if (!phase || !phaseRequiresCodeDelivery(phase) || !(phase.generation >= 1)) {
     throw new SingularityFlowError(`The runtime check runs on a code step's published version; ${phaseId} has none yet.`, { code: 'RUNTIME_CHECK_NOT_PUBLISHED',
-      details: { nextAction: { command: 'singularity-flow nextsteps --json', label: 'Go on with the Story; the check runs once its code step publishes.' } } });
+      details: { nextAction: { command: `${storyNextCommand(workflow.workItem.id)} --json`, label: 'Go on with the Story; the check runs once its code step publishes.' } } });
   }
   const existing = await readRuntimeCheck(root, workflow, phaseId);
   if (existing?.current && !again) return existing;

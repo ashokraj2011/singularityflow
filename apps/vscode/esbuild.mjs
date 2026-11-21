@@ -109,7 +109,9 @@ const options = {
   keepNames: true,
   // Node reads CommonJS as UTF-8. Avoid inflating every user-facing symbol to an ASCII escape.
   charset: 'utf8',
-  external: ['vscode'],
+  // playwright-core loads from node_modules where SFlow drives a browser (application review, the runtime check), as the
+  // CLI bundle does; the extension host never runs that check, and bundling it fails on its optional chromium-bidi import.
+  external: ['vscode', 'playwright-core'],
   // The extension host never runs a bound CLI invocation; core drops those branches from these
   // bundles when it sees this flag (workspaceMemberContextForRepository).
   define: { __SFLOW_BUILD__: JSON.stringify(BUILD), 'globalThis.__SFLOW_EXTENSION_HOST__': 'true' },

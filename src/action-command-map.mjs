@@ -115,6 +115,8 @@ export const storyNextCommand = (workId) => actionCommandLine('none', 'story', {
 /** The approval's argv words, without the executable: a ready receipt's filled approve adds its own flags (choices.mjs). */
 export const approveWords = (step, workId) => (actionCommand('approve-step', 'approve', { step, workId }) ?? '').split(' ').filter(Boolean);
 /** The review's packet as argv words, without the executable (source-review-staging.mjs). */
+/** The review of `step` as a route a command's result carries: its skill and the packet's read (app-review runtime-check). */
+export const reviewGuidance = (step) => ({ copilotCommand: `${ACTION_SKILLS.review} ${step}`, command: actionCommandLine('review-version', 'context', { step }), modelFreeCommand: null });
 export const reviewContextWords = (step) => (actionCommand('review-version', 'context', { step }) ?? '').split(' ').filter(Boolean);
 /** The step's own entry again, which names the issued answers file and its shape (clarification answers, cli.mjs). */
 export const stepEntryCommand = (step, workId) => actionCommandLine('author-version', 'enter', { step, workId });

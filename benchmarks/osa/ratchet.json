@@ -186,7 +186,6 @@
       "intentReads": 1,
       "intentWrites": 1,
       "routeObjects": 1,
-      "lifecycleCommands": 1,
       "skillLiterals": 1
     },
     "commands/approval-packet.mjs": {

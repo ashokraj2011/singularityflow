@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PACKAGE_ROOT } from '../package-root.mjs';
+import { reviewGuidance, stepEntryCommand } from '../action-command-map.mjs';
 import { optionString, optionBoolean } from '../util.mjs';
 import { ARA_ACTIONS, ARA_READS, araFail, exactFields, reviewDigest } from '../application-review-contract.mjs';
 import { applicationReviewPhase } from '../code-delivery-policy.mjs';
@@ -177,7 +178,7 @@ export async function run(_argv, { positionals, options = {} }) {
   const value = { schemaVersion: 1, resultType: 'sflow-application-review', repositoryPath: root, ...result,
     commandGuidance: ownerAction ? { copilotCommand: ownerAction.skill ?? null, command: ownerAction.command, modelFreeCommand: null }
       : sub === 'repair' || sub === 'repair-result'
-      ? { copilotCommand: '/sf-code', command: `singularity-flow phase enter ${phaseId} --work-id ${workId} --compose --for-agent --json`, modelFreeCommand: null }
+      ? { copilotCommand: '/sf-code', command: stepEntryCommand(phaseId, workId), modelFreeCommand: null }
       : { copilotCommand: '/sf-app-review', command: `singularity-flow app-review ${sessionId ? `inspect ${sessionId}` : sub === 'plan' ? 'start' : 'plan'} --work-id ${workId}`, modelFreeCommand: null } };
   const presented = optionBoolean(options, 'for-agent') ? applicationReviewAgentView(value) : value;
   if (optionBoolean(options, 'json') || optionBoolean(options, 'for-agent')) console.log(JSON.stringify(presented, null, 2));
@@ -198,7 +199,7 @@ async function runtimeCheck(root, config, workflow, phaseId, options) {
   const review = capture.status === 'off' ? null : check.runtimeCheckForReview(capture);
   const value = { schemaVersion: 1, resultType: 'sflow-runtime-check', repositoryPath: root, workId: workflow.workItem.id, phase: phaseId,
     ...(review ? { ...review, words: check.runtimeCheckWords(capture), tryIt: check.runtimeTryIt(capture), kinds: capture.kinds } : capture),
-    commandGuidance: { copilotCommand: `/sf-review-source ${phaseId}`, command: `singularity-flow review-source context ${phaseId} --json`, modelFreeCommand: null } };
+    commandGuidance: reviewGuidance(phaseId) };
   if (optionBoolean(options, 'json') || optionBoolean(options, 'for-agent')) { console.log(JSON.stringify(value, null, 2)); return value; }
   console.log(value.words);
   for (const entry of review?.checks ?? []) {

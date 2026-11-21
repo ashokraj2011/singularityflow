@@ -911,8 +911,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // pass (step intents §12.3-12.5) register `capability kind` and `app-review runtime-check` (command-registry.mjs, util.mjs
     // --again), refuse an agent's kind confirmation (copilot-mutation-guard.mjs) and show "Try it" at approval (agent-output.mjs).
     // The check, its adapters and the kind record load only when a code review or the command runs. No new eager file.
-    // 9,827,534 (measured on landing-14, 2026-11-21): Stage 2's hooks and the runtime check's registrations together.
-    assert.ok(closure.bytes <= 9_827_534, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,827,849 (measured on landing-14, 2026-11-21): Stage 2's hooks, the runtime check's registrations and the review route builder together.
+    assert.ok(closure.bytes <= 9_827_849, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

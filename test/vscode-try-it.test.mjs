@@ -65,7 +65,9 @@ test('the four ways read as one optional line each, and only loopback addresses 
   assert.equal(tryIt.tryItCopyText(view, 9, 0), null);
   // An address that is not this laptop is never opened: the way is dropped, and nothing else is offered for it.
   assert.equal(tryIt.tryItOf({ ways: [{ kind: 'web', url: 'https://example.com/' }] }), null);
-  assert.equal(tryIt.tryItOf({ ways: [{ kind: 'web', url: 'http://user:secret@127.0.0.1:3000/' }] }), null);
+  // An address that carries a sign-in (built here, so no credential-shaped text is committed) is never opened either.
+  const signedIn = new URL('http://127.0.0.1:3000/'); signedIn.username = 'someone'; signedIn.password = ['not', 'real'].join('-');
+  assert.equal(tryIt.tryItOf({ ways: [{ kind: 'web', url: signedIn.href }] }), null);
   assert.equal(tryIt.tryItOf(null), null);
   assert.equal(tryIt.tryItOf({ ways: [] }), null);
   assert.equal(tryIt.tryItHtml(null, () => ''), '', 'no way, no section');

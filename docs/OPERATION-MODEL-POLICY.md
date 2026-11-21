@@ -171,6 +171,8 @@ Every public operation is classified before its implementation module is importe
 | capability.edit | mutation | never | — | — |
 | capability.fsck | read | never | — | — |
 | capability.inspect-repository | read | never | — | — |
+| capability.kind | read | never | — | — |
+| capability.kind.confirm | mutation | never | — | — |
 | capability.leads | read | never | — | — |
 | capability.map | mutation | never | — | — |
 | capability.map-team | mutation | never | — | — |

@@ -400,7 +400,8 @@ export function assertCodeDeliveryConfiguration(phase, label = `Phase '${phase?.
 
 export const ARA_VERSION = 1;
 export const ARA_NAMESPACE = 'ARA';
-export const ARA_SURFACES = Object.freeze(['auto', 'web', 'backend', 'cli', 'library', 'artifact']);
+// The kinds of software (software-kinds.mjs) a review profile may name; job (batch or worker) and mobile added for §12.1.
+export const ARA_SURFACES = Object.freeze(['auto', 'web', 'backend', 'job', 'cli', 'library', 'mobile', 'artifact']);
 export const ARA_ACTIONS = Object.freeze(['plan', 'start', 'status', 'inspect', 'feedback', 'repair', 'repair-result', 'recheck', 'accept', 'capture', 'defer', 'close', 'browser']);
 export const ARA_READS = Object.freeze(['plan', 'status']);
 

@@ -1365,6 +1365,9 @@ Usage:
   singularity-flow capability projects --path <CHECKOUT> [--lead URL] [--json]
     (read-only: the projects a monorepo's build tools declare, each with the capability map command
      that scopes it: source roots, shared roots it depends on, and its sparse clone; maps nothing)
+  singularity-flow capability kind [--capability ID] [--set PROJECT=KIND]... [--confirm sha256:<DIGEST>] [--json]
+    (what kind of software each project is: web, backend, job, cli, library, mobile or artifact; the
+     person confirms it once with the short code it shows, and SFlow's runtime check follows it)
   singularity-flow capability test-setup [--source-root <MODULE>]... [--json]
                                                            read-only test runner suggestions; Copilot /sf-test-setup
   singularity-flow capability test-setup [--step <STEP> [--workflow <WORKFLOW>]] (--use <SUGGESTION-ID>... [--source-root <MODULE>]...

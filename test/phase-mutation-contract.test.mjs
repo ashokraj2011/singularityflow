@@ -1421,6 +1421,22 @@ test('no agent turn pins a Story\'s authorized browser target origin; its previe
   }
 });
 
+test('no agent turn records what kind of software a project is; the person\'s /sf-confirm of its line does', async t => {
+  const f = await fixture(t);
+  const digest = `sha256:${'c'.repeat(64)}`;
+  const read = 'singularity-flow capability kind --json';
+  const confirm = `singularity-flow capability kind --confirm ${digest}`;
+  for (const [skill, payload] of [['/sf-phase', await f.enter('/sf-phase')], ['/sf-recover', await f.enter('/sf-recover', 'kernel')]]) {
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: read, cwd: f.root } }), {}, `${skill}: the read is allowed`);
+    const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: confirm, cwd: f.root } });
+    assert.equal(denied.permissionDecision, 'deny', skill);
+    assert.match(denied.permissionDecisionReason, /what kind of software a project is is the person's word/u, skill);
+    assert.deepEqual(denied.next.map((action) => action.command), [read], `${skill}: the refusal names the read that shows the person's line`);
+  }
+  const typed = await f.enter(`/sf-confirm ${confirm.replace('singularity-flow ', '')}`, 'kind-confirmer');
+  assert.deepEqual(await mutationToolGuard({ ...typed, toolName: 'bash', toolArgs: { command: confirm, cwd: f.root } }), {}, 'the person\'s typed confirmation runs');
+});
+
 test('publish-only permits one bound publication, never authoring or lifecycle decisions', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-publish custom-step');
   assert.equal(mutationTurnMode('sf-publish'), 'publish-only');

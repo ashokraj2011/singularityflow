@@ -526,7 +526,7 @@ const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'take
 const SESSION_SUBCOMMANDS = Object.freeze([...SESSION_READ_SUBCOMMANDS, ...SESSION_MUTATION_SUBCOMMANDS]);
 const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
   'tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads',
-  'inspect-repository', 'setup-proposals', 'setup-proposal', 'test-setup', 'projects'
+  'inspect-repository', 'setup-proposals', 'setup-proposal', 'test-setup', 'projects', 'kind'
 ]);
 const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
   'add', 'protect', 'depend', 'auto', 'plain-chat', 'adopt-managed', 'set', 'remove', 'map', 'map-team', 'edit', 'publish',
@@ -1461,6 +1461,8 @@ function resolveCapabilityOperation(definition, positionals, options) {
   }
   // A test command proposal previews as a read; its confirmed digest proposes the change.
   if (subcommand === 'test-setup' && options.confirm !== undefined) return never('capability.test-setup.propose', definition, 'mutation');
+  // The kind of software reads; the person's confirmed digest records it on this clone.
+  if (subcommand === 'kind' && options.confirm !== undefined) return never('capability.kind.confirm', definition, 'mutation');
   if (subcommand === 'onboard') {
     return optionBoolean(options, 'dry-run')
       ? never('capability.onboard.preview', definition, 'read')
@@ -2273,6 +2275,7 @@ export function operationCatalog() {
     ...SESSION_MUTATION_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'mutation')),
     ...CAPABILITY_READ_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'read')),
     never('capability.test-setup.propose', capabilityDefinition, 'mutation'),
+    never('capability.kind.confirm', capabilityDefinition, 'mutation'),
     ...CAPABILITY_MUTATION_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'mutation')),
     never('capability.onboard.preview', capabilityDefinition, 'read'),
     never('capability.onboard.apply', capabilityDefinition, 'mutation'),

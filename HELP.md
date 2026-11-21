@@ -1177,6 +1177,7 @@ singularity-flow capability onboard <REPOSITORY-URL> --dry-run --json
 singularity-flow capability onboard <REPOSITORY-URL> --confirm-plan <PLAN-ID> --json
 singularity-flow capability inspect-repository <GIT-URL> [--lead <URL>]... [--refresh] --json
 singularity-flow capability projects <GIT-URL> [--lead <URL>] --json
+singularity-flow capability kind [--set <PROJECT>=<KIND>] --json
 singularity-flow capability tree --json
 singularity-flow capability show <CAPABILITY-ID> --json
 singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL> \

@@ -982,6 +982,8 @@ export function argvAllowed(argv, mode, value) {
     && (!options['work-id'] || !value.contract || options['work-id'] === value.contract.workId);
   // A step's review is staged and retained only in its reviewer's read-only turn (above), never by its author.
   if (reviewRetention(positionals)) return false;
+  // What kind of software a project is is the person's word: their /sf-confirm of the line `capability kind` showed.
+  if (softwareKindConfirmation(positionals, options)) return false;
   return !['approve', 'reject'].includes(positionals[0]);
 }
 
@@ -1766,6 +1768,22 @@ function targetOriginPinCall(call, value) {
   const { positionals, options } = parseCli(safe.argv);
   return targetOriginPin(positionals, options);
 }
+/** A confirmed `capability kind`: recording what kind of software each project is (software-kind-record.mjs). */
+function softwareKindConfirmation(positionals, options) {
+  return positionals[0] === 'capability' && positionals[1] === 'kind' && options.confirm !== undefined;
+}
+function softwareKindConfirmationCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseCli(safe.argv);
+  return softwareKindConfirmation(positionals, options);
+}
+const SOFTWARE_KIND_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: what kind of software a project is is the person\'s word: '
+  + 'they confirm the line `capability kind` shows by typing its short code (/sf-confirm <CODE> in chat, or singularity-flow confirm <CODE> in a terminal), never this turn. '
+  + 'Show them the line and its code from the read below, and go on with the work; nothing waits on it';
+const SOFTWARE_KIND_READ = Object.freeze({ command: 'singularity-flow capability kind --json', skill: null, copilotCommand: null,
+  label: 'Show the kinds and the line the person confirms.' });
+
 const TARGET_ORIGIN_PIN_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a Story\'s authorized browser target origin is a security boundary; '
   + 'a person who approves the step that smoke-checks it confirms the pin in their own terminal, never this turn. '
   + 'Show the user the preview (story target-origin <WORK-ID> --url <URL>, which is allowed) and its plan digest; do not retry it';
@@ -2636,6 +2654,7 @@ async function mutationToolDecision(payload, record) {
         if (decisionListRecord(call, value)) return mutationDenial(contract,
           `PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person's own step: they record it on the Decide card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it) or run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest`, [], own());
         if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL, [], own());
+        if (softwareKindConfirmationCall(call, value)) return mutationDenial(contract, SOFTWARE_KIND_DENIAL, [], { routes: [SOFTWARE_KIND_READ] });
         if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL, [], own());
         const amendmentStep = intentAmendmentPersonCall(call, value);
         if (amendmentStep) return mutationDenial(contract, INTENT_AMENDMENT_CARD_DENIALS[amendmentStep.verb].replace('<WORK-ID>', contract.workId ?? '<WORK-ID>'),

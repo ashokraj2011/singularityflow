@@ -2037,6 +2037,22 @@ workTypes:
 - `singularity-flow workflow check` shows the number for each workflow; `workflow check <WORKFLOW>` shows it per step.
   A Story keeps the number it started with.
 
+### A failing test goes back to the code step
+
+A test step that changes no source code (its output is test results and it may not change source files) only runs the
+tests and reports them; the code step writes them. When its tests fail at its submission, SFlow returns it to the code
+step on its own, with the failures as the code step's change request: the failing tests, what they said, and the files
+and clauses involved. It starts the code step's next version, settled for you with an undo on the decisions card, and
+once that version is approved the test step's next version starts the same way, so its tests run again. Nobody is asked.
+
+- It counts against the same number, `autoFixVersions` (or the code step's `autoFixVersionsByStep`): after that many
+  returns in a row, when a test fails again after SFlow's fix, after you undid one, or when the Story takes people's
+  signatures, the step waits for its approvers. Its submission and its approval then give the choices, each filled:
+  another version of the code step, accepting the risk on the Decide card (only for a run the environment stopped), or
+  running the tests again.
+- Stories started before this keep the behaviour they started with. A test step that may still change source files is
+  unchanged: its approvers return it, or it repairs its own tests.
+
 ## Approved phase inputs
 
 Phase inputs make approved upstream artifacts explicit prompt dependencies. The top-level mode is pinned when the work item starts:

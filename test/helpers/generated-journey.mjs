@@ -60,7 +60,9 @@ export function generatedAgent(workId) {
     async author({ story, phase, generation }) {
       const facts = stepFacts(story, phase);
       const clauses = await storyClauses(story, workId);
-      if (facts.code) for (const [relative, text] of Object.entries(codeChange(clauses, { pass: Math.max(1, Number(generation) || 1) }))) await story.write(relative, text);
+      // Each version writes a change of its own: a new generation must change something.
+      const codeVersion = Math.max(1, Number(generation) || 1);
+      if (facts.code) for (const [relative, text] of Object.entries(codeChange(clauses, { pass: codeVersion }))) await story.write(relative, text);
       if (!facts.artifact) return true;
       const before = await readFile(path.join(story.root, facts.artifact), 'utf8').catch(() => null);
       if (before == null) return true;

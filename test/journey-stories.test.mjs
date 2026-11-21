@@ -30,6 +30,14 @@
  *      and nobody is asked to start a version (owner, 2026-11-20, D1);
  *   U  the same check fails again after SFlow's fix: SFlow stops, and the approval gives the person filled choices; their
  *      return starts the code step's next version at once, and the fix then passes the test step run again (D1's brake).
+ *   V  a feature Story from its start to its close, as shipped, as `workflow walk` walks it: a person approves the plan and
+ *      the code, and SFlow the rest, its verification included (owner, 2026-11-20, D1, adopted in step intents Stage 7);
+ *   W  a spec-driven Story whose code misses the test its plan names for a requirement: the code approval already shows
+ *      the gap, the convergence check does not approve itself, the person sends it back to the code step, the next
+ *      version delivers it, and SFlow approves the clean check (owner, 2026-11-21: convergence folds into the code approval).
+ *
+ * Journeys A and V also count the person's approvals on the clean path: the plan and the code, nothing else (with the
+ * intake's answers and the scope decisions, which are answers, not approvals).
  *
  * Every walk writes through the real edit guard and reads the person's views at each hand-off (route-follower.mjs).
  *
@@ -42,7 +50,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { accountForAskedFor, check, clarifications, cooperativePerson, decideCard, quickFixIntake, report, reviewer, scopeAnswers, settle, specDrivenAuthor, viewsAgree, writeValueCode } from './helpers/journey-scripts.mjs';
-import { argvOf, copilotTurn, entryCommand, followRoutes, formatTrail, journeyRepository, personViews, publishedGeneration, returnedRoute, skillEntries, startStory, storyRecord } from './helpers/route-follower.mjs';
+import { argvOf, CLI, copilotTurn, entryCommand, followRoutes, formatTrail, journeyRepository, personViews, publishedGeneration, returnedRoute, skillEntries, startStory, storyRecord } from './helpers/route-follower.mjs';
 import { reviewStep } from './helpers/step-review.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
@@ -64,6 +72,27 @@ async function quickFixAtCode(t, W, options = {}) {
 
 const approved = (record, phase) => ['approved', 'completed'].includes(record?.phases?.[phase]?.status);
 
+/**
+ * The spec-versus-code check the code step's approval carries while it waits (approval evidence `convergence`, read as the
+ * decisions list gives it to an approval page), once per code version: convergence folds into the code approval.
+ */
+function codeApprovalCheck(story, seen) {
+  const record = storyRecord(story);
+  const code = record?.phases?.implementation;
+  if (record?.currentPhase !== 'implementation' || code?.status !== 'awaiting_approval' || seen.has(code.generation)) return;
+  const listed = JSON.parse(story.cli('decisions', story.workId, '--json'));
+  seen.set(code.generation, listed?.data?.approvalEvidence?.convergence ?? null);
+}
+
+/** Who approved each step of a closed Story, in its order: the steps a person approved, and those SFlow approved itself. */
+function approvers(record) {
+  const order = record?.phaseOrder ?? [];
+  return {
+    people: order.filter((id) => (record.phases[id]?.approvals ?? []).some((entry) => entry?.decision === 'approved')),
+    sflow: order.filter((id) => record.phases[id]?.approvalDisposition === 'approved_automatically')
+  };
+}
+
 // ------------------------------------------------------------------------------------------- A
 
 test('journey A: a spec-driven Story from its start to its release, every step written, reviewed and approved by its routes', slowLane({ timeout: 1_800_000 }), async (t) => {
@@ -73,7 +102,9 @@ test('journey A: a spec-driven Story from its start to its release, every step w
     configuration.workTypes['spec-driven-standard'].spec = { ...(configuration.workTypes['spec-driven-standard'].spec ?? {}), coverage: 'record' };
   } });
   Object.assign(story, { workId: W, item: `singularity/work-items/${W}` });
+  const checks = new Map();
   const person = cooperativePerson(({ route }) => {
+    codeApprovalCheck(story, checks);
     // The scope the specification defines: each statement of the Story's sources, included through its first clause,
     // by the scope decision the approval's refusal names; then the person approves again.
     if (/^\/sf-decide\b/u.test(route.copilot ?? '') || /^singularity-flow decisions\b/u.test(route.shell ?? '')) {
@@ -116,6 +147,19 @@ test('journey A: a spec-driven Story from its start to its release, every step w
   await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
   await check(t, 'no hand-off names /sf-publish for a kernel-built step\'s publication', {}, () => {
     assert.equal(walk.trail.some((entry) => /^\/sf-publish\b/u.test(entry.taking ?? '')), false, report(walk));
+  });
+  // Stage 7 (owner, 2026-11-20 and 2026-11-21): verification changes no source code, and convergence folds into the code
+  // approval. A person approves the plan and the code; SFlow approves the rest, convergence's clean check included.
+  await check(t, 'a person approved exactly the plan and the code; SFlow approved every other step, convergence included', {}, () => {
+    const record = storyRecord(story);
+    assert.deepEqual(approvers(record), { people: ['planning', 'implementation'], sflow: ['specification', 'convergence', 'verification', 'release'] }, report(walk));
+    assert.match(record.phases.convergence.automaticApproval.checked.join('; '), /the convergence check found every requirement delivered/u);
+    assert.equal(record.phases.convergence.automaticApproval.convergence.requirements, 2, JSON.stringify(record.phases.convergence.automaticApproval));
+  });
+  await check(t, 'the code approval carried the spec-versus-code check: both requirements delivered, nothing to decide', {}, () => {
+    const section = checks.get(1);
+    assert.equal(section?.clean, true, JSON.stringify(section));
+    assert.deepEqual(section.requirements.map((entry) => entry.status), ['delivered', 'delivered'], JSON.stringify(section));
   });
   settle(t);
 });
@@ -961,7 +1005,8 @@ async function testedChangeAtCode(t, W) {
         intake: { label: 'Scope and plan', artifact: { kind: 'requirements' }, clarification: { mode: 'off' },
           approval: { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake'] } },
         implementation: { inputs: ['intake'], approval: { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake', 'implementation'] } },
-        verification: { inputs: ['intake', 'implementation'], writeScope: 'artifact-only', clarification: { mode: 'off' },
+        // The shipped verification step as it is: it changes no source code (D1, Stage 7).
+        verification: { inputs: ['intake', 'implementation'], clarification: { mode: 'off' },
           qualityCommands: [{ id: 'value-check', kind: 'test', argv: [process.execPath, 'checks/value-check.mjs'], modelPolicy: 'never' }],
           approval: { authorities: ['quality-reviewers'], minimum: 1, rejectTo: ['intake', 'implementation', 'verification'] } }
       } };
@@ -1018,6 +1063,7 @@ test('journey T: the test step\'s check fails, SFlow starts the code step\'s nex
   });
   const record = storyRecord(story);
   await check(t, 'SFlow returned the test step itself, with the failure as the code step\'s change request', {}, () => {
+    assert.equal(record.resolution.phases.find((phase) => phase.id === 'verification').writeScope, 'artifact-only', 'the shipped step changes no source code');
     const [request] = record.changeRequests;
     assert.deepEqual([request.sourcePhase, request.sourceGeneration, request.targetPhase, request.requestedBy?.login, request.automatic?.kind],
       ['verification', 1, 'implementation', 'sflow-returned-automatically', 'failing-tests'], JSON.stringify(request));
@@ -1110,6 +1156,100 @@ test('journey U: the same check fails again after SFlow\'s fix, so the person de
     const record = storyRecord(story);
     assert.equal(record.phases.verification.generation, 3);
     assert.equal(settledOf(story, 'tests-rerun').length, 2);
+  });
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- V
+
+// D1 adopted (step intents Stage 7): the shipped feature workflow's verification changes no source code, so SFlow approves
+// a clean run of it. Walked as `workflow walk feature` walks it (src/workflow-walk/walk.mjs): one throwaway Story through
+// every step with the kernel's own commands on an isolated copy, a stub author writing each step from its own template
+// and a stub reviewer; the walk approves a step only when it waits for a person, and says so in that step's people.
+test('journey V: a feature Story from its start to its close, as shipped: a person approves the plan and the code, SFlow every other step', slowLane({ timeout: 2_400_000 }), async (t) => {
+  const { walkWorkflows } = await import('../src/workflow-walk/walk.mjs');
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const result = await walkWorkflows(root, { workflow: 'feature', shipped: true, stepSeconds: 600, totalSeconds: 1800 });
+  const [workflow] = result.workflows;
+  t.diagnostic(JSON.stringify(workflow.steps.map((step) => [step.id, step.outcome, step.people.map((entry) => entry.kind)])));
+  await check(t, 'the feature Story walks from its start to its close with no stop', {}, () => {
+    assert.deepEqual(workflow.stops, [], JSON.stringify(workflow.stops));
+    assert.equal(workflow.outcome, 'completed', JSON.stringify(workflow.steps.map((step) => [step.id, step.outcome])));
+    assert.ok(workflow.steps.every((step) => ['approved', 'completed'].includes(step.outcome)), JSON.stringify(workflow.steps.map((step) => [step.id, step.outcome])));
+  });
+  await check(t, 'a person approved exactly the plan and the code; SFlow approved the rest, the verification included', {}, () => {
+    const people = workflow.steps.filter((step) => step.people.some((entry) => entry.kind === 'approval')).map((step) => step.id);
+    assert.deepEqual(people, ['implementation-spec', 'implementation'], JSON.stringify(workflow.steps.map((step) => [step.id, step.people])));
+  });
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- W
+
+// Convergence folds into the code approval (owner, 2026-11-21). The plan binds the second requirement to a test version 1
+// of the code does not deliver, and the Story records coverage rather than refusing it at the code step, so the gap
+// reaches the convergence check (test/helpers/story-to-verification.mjs, as the convergence tests walk it).
+test('journey W: a convergence gap does not approve itself and goes back to the code step; the next version delivers it, and SFlow approves the clean check', slowLane({ timeout: 1_500_000 }), async (t) => {
+  const { storyAtVerification } = await import('./helpers/story-to-verification.mjs');
+  const W = 'JRN-W';
+  const REQ = `${W}:REQ-002`;
+  const sections = [];
+  const readCheck = ({ cli }) => sections.push(JSON.parse(cli('decisions', W, '--json').stdout).data?.approvalEvidence?.convergence ?? null);
+  const story = await storyAtVerification(t, W, { untested: REQ, onCodeSubmitted: readCheck, atConvergence: async (at) => at });
+  const { cli, run, item, write } = story;
+  const json = (args) => { const text = cli(...args).stdout; return JSON.parse(text.slice(text.search(/^\{/mu))); };
+  const record = async () => JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  await check(t, 'the code approval already carried the gap, the code step\'s own to fix', {}, () => {
+    const [first] = sections;
+    assert.equal(first?.clean, false, JSON.stringify(first));
+    assert.equal(first.requirements.find((entry) => entry.status === 'gap')?.clause, REQ, JSON.stringify(first));
+    assert.ok(first.gaps.length && first.gaps.every((gap) => gap.fixedBy === 'code-step'), JSON.stringify(first.gaps));
+  });
+  const listed = json(['story', 'adjudications', '--json']);
+  const gaps = listed.items.filter((entry) => entry.clauseIds.includes(REQ));
+  await check(t, 'the convergence check found the gap and does not approve itself', {}, async () => {
+    assert.ok(gaps.length, JSON.stringify(listed.items));
+    const refused = run(process.execPath, [CLI, '--no-model', 'story', 'advance', '--work-id', W, '--json'], { allowFailure: true });
+    assert.notEqual(refused.status, 0, refused.stdout.slice(-1500));
+    assert.match(refused.stdout + refused.stderr, /CONVERGENCE_REVIEW_REQUIRED|cannot advance/u);
+    const now = await record();
+    assert.equal(now.phases.convergence.status, 'in_progress');
+    assert.equal(now.phases.convergence.approvalDisposition ?? null, null);
+  });
+  // The person's decision, as the decisions card's "Send back to fix" records it (no reason on a fact SFlow found itself).
+  for (const entry of listed.items) {
+    cli('story', 'adjudicate', entry.id, '--disposition', gaps.includes(entry) ? 'rework' : 'dismissed', ...(gaps.includes(entry) ? [] : ['--reason', 'Not part of this Story.']));
+  }
+  cli('story', 'rework', '--confirm');
+  await check(t, 'the gap went back to the code step, with the requirement it is about', {}, async () => {
+    const now = await record();
+    assert.equal(now.currentPhase, 'implementation');
+    const request = now.changeRequests.at(-1);
+    assert.deepEqual([request.sourcePhase, request.targetPhase], ['convergence', 'implementation'], JSON.stringify(request));
+    assert.ok(request.clauseIds.includes(REQ), JSON.stringify(request));
+  });
+  // Version 2 of the code delivers the test the plan names.
+  const preview = json(['phase', 'rollover', 'implementation', '--json']);
+  cli('phase', 'rollover', 'implementation', '--confirm', preview.confirmation, '--json');
+  cli('prepare', 'implementation');
+  await write('test/second.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';", "import { value } from '../src/value.mjs';", '',
+    `// @ac:${REQ}`, "test('the application returns that same approved value', () => assert.equal(value, 1));", ''].join('\n'));
+  cli('artifact', 'scan', '--phase', 'implementation');
+  cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('submit', 'implementation');
+  readCheck(story);
+  cli('approve', 'implementation', '--yes');
+  cli('prepare', 'convergence');
+  cli('phase', 'publish', 'convergence', '--authored', 'deterministic', '--channel', 'kernel-generator');
+  const digest = json(['story', 'advance', '--work-id', W, '--json']).confirmationDigest;
+  cli('story', 'advance', '--work-id', W, '--confirm', digest);
+  await check(t, 'the next version delivers it, and SFlow approves the clean check: no person approves convergence', {}, async () => {
+    assert.equal(sections[1]?.clean, true, JSON.stringify(sections[1]));
+    const now = await record();
+    assert.equal(now.phases.convergence.approvalDisposition, 'approved_automatically', JSON.stringify(now.phases.convergence.automaticApproval ?? null));
+    assert.deepEqual((now.phases.convergence.approvals ?? []).filter((entry) => entry?.decision === 'approved'), []);
+    assert.match(now.phases.convergence.automaticApproval.checked.join('; '), /the convergence check found every requirement delivered/u);
+    assert.equal(now.currentPhase, 'verification');
   });
   settle(t);
 });

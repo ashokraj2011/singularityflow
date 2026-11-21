@@ -1,14 +1,16 @@
 /**
  * A spec-driven Story walked on the real CLI up to its Verification step: one real `npm test` run at
  * Implementation, on code that then does not change. `untested` leaves that clause with no test delivered. `review`,
- * when given, reviews each published step before it is submitted (a walk with reviews on).
+ * when given, reviews each published step before it is submitted (a walk with reviews on). `onCodeSubmitted` reads the
+ * Story while the code step waits for its approval; `atConvergence`, given, takes the Story at its prepared convergence
+ * step instead of deciding it here.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { approvedSpecificationStory, implementationPlan } from './submitted-planning-story.mjs';
 
-export async function storyAtVerification(t, WORK, { untested = null, configure = null, review = null } = {}) {
+export async function storyAtVerification(t, WORK, { untested = null, configure = null, review = null, onCodeSubmitted = null, atConvergence = null } = {}) {
   const story = await approvedSpecificationStory(t, WORK, { review, configure: (configuration) => {
     configuration.workTypes['spec-driven-standard'].spec.coverage = 'record';
     configure?.(configuration);
@@ -39,8 +41,11 @@ export async function storyAtVerification(t, WORK, { untested = null, configure 
   cli('artifact', 'scan', '--phase', 'implementation');
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   await review?.('implementation', { cli, root });
-  cli('submit', 'implementation'); cli('approve', 'implementation', '--yes');
+  cli('submit', 'implementation');
+  await onCodeSubmitted?.({ ...story, write, clauses });
+  cli('approve', 'implementation', '--yes');
   cli('prepare', 'convergence');
+  if (atConvergence) return atConvergence({ ...story, write, clauses });
   if (untested) {
     for (const entry of JSON.parse(cli('story', 'adjudications', '--json').stdout).items) cli('story', 'adjudicate', entry.id, '--disposition', 'deferred', '--reason', 'The person keeps this for a later Story.');
     cli('prepare', 'convergence');

@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 7
+version: 8
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -35,8 +35,34 @@ Use this topic to take a skill, template, or agent someone has published at a pu
 3. Add exactly what you saw: `singularity-flow import add <LINK> --as skill --agent architect --phases design --sha256 <HASH> --propose`. Without `--sha256` the command shows the content and refuses.
 4. Review the change. A skill for one agent becomes a row in the agent's `## Remote skills` table, its entry in `singularity/agents.lock.yml`, and a copy under `singularity/imports/agents/`. A skill for the skill master becomes `singularity/skill-library/<id>/SKILL.md`. A template becomes `<templatesRoot>/imported/<id>.md` and a catalog entry. `singularity/imports.lock.yml` records each source.
 5. To use a marketplace, trust it once: `singularity-flow marketplace add acme --index https://catalog.example.org/sflow-marketplace.json --allowed-origin https://cdn.example.org --propose`. Browse it with `singularity-flow marketplace browse acme`, then preview and add `market:acme/<entry>` exactly like a link. Each entry pins its file by SHA-256; a file that does not match is refused.
-6. From an approved MCP server: `singularity-flow mcp sources docs --launch` lists what its policy allows; `singularity-flow import preview mcp:docs/prompt/security-checklist --as skill --launch --arg area=payments` reads one. To install a published MCP server: `singularity-flow import add <LINK|market:…> --as mcp-server --agents architect --sha256 <HASH> --propose`, then `singularity-flow mcp host add <SERVER>`. See `sflow explain mcp-integration`.
-7. Later, `singularity-flow imports check` re-reads every source. Anything that changed is staged and shown with the exact `import add … --replace` command; updating is another reviewed import.
+6. A marketplace can also be a Git repository with an APM manifest at its root (an `apm.yml` whose `marketplace.packages` list `agents/<name>` and `skills/<name>`). Trust it at one commit: `singularity-flow marketplace add acme --repo https://git.example.com/acme/sdlc-marketplace.git --ref main --propose` reads it once, checks it is a marketplace and pins the commit `main` is at now. `singularity-flow marketplace browse acme --kind agent` lists its agents and skills at that commit, from each package's own `apm.yml`: type, version, lifecycle state, PDLC phases and tasks, tags and the skills an agent depends on. SFlow reads these files itself, because APM 0.35 refuses `type: agent` and drops the PDLC keys. See "Marketplace agents as workflows" below.
+7. From an approved MCP server: `singularity-flow mcp sources docs --launch` lists what its policy allows; `singularity-flow import preview mcp:docs/prompt/security-checklist --as skill --launch --arg area=payments` reads one. To install a published MCP server: `singularity-flow import add <LINK|market:…> --as mcp-server --agents architect --sha256 <HASH> --propose`, then `singularity-flow mcp host add <SERVER>`. See `sflow explain mcp-integration`.
+8. Later, `singularity-flow imports check` re-reads every source. Anything that changed is staged and shown with the exact `import add … --replace` command; updating is another reviewed import.
+
+## Marketplace agents as workflows
+
+A marketplace agent's `agent.md` is a whole process: a hard gate first, a table of the skill each stage uses for each answer, numbered stages, rules and an output format. `singularity-flow workflow from-agent acme/qa-test-automation-agent` turns it into a workflow and changes nothing; `--out FILE` writes it as a workflow bundle, and `--propose` shows its import as a configuration proposal with the one command that makes it.
+
+- **Stages:** each numbered heading (`## 2. Test Case Creation`) is a step, in order. Headings inside fenced code, such as an Output Format's `##` lines, are ignored. An optional stage that does what the step before it does (Unit Test Gap Fill after Test Automation) runs inside that step.
+- **Hard gates** ("(Hard Gate)", "STOP and WAIT", "MUST ask"): a gate before the first stage becomes the person's questions at the first step, with its choices ("Which channel ...? Choose one: web, android"). A later gate that only asks a person to approve or choose what the stage before it made (Test Case Review) becomes that step's person approval.
+- **Skills:** the step-to-skill table attaches each skill to its step for its answer ("when channel is web"); every skill an agent depends on becomes a library skill.
+- **What each step is for:** from the PDLC tasks of the skills it uses, then a stage named like one of the agent's tasks, then the step intents rules on its name, words and place, with the agent's PDLC phases leaning (discovery: intake, design; elaboration: intake, requirements, design; delivery: plan, code, test; review: review, test; release: release, report; operations: code, report). A stage none of these settles is asked about once, with two to four choices, each a whole command with `--answer STEP=INTENT`; SFlow never guesses.
+- **The result:** a version 4 workflow in which every step says what it is for, so each step's settings come from its intent. Importing it needs `version: 4` at the top of `singularity/workflow.yml`; the import says so.
+
+| PDLC task | Step intent | Why |
+|---|---|---|
+| problem-framing | intake | the request in the requester's own words |
+| requirements-analysis, user-story-writing, acceptance-criteria-writing | requirements | numbered, testable pieces later steps cite |
+| test-case-creation | requirements | a test design document: test cases traced to acceptance criteria; nothing runs yet |
+| architecture-discovery, architecture-design | design | mapping the system as it is is part of design |
+| decision-records | document | an ADR is a decision record |
+| api-implementation, ui-implementation | code | |
+| unit-testing, contract-testing, e2e-testing, ui-test-automation | code | tests are code a code step writes; running them is a test step |
+| feature-toggle-management | code | a toggle change is a code change |
+| documentation | document | |
+| static-analysis | test | it runs the analyzers and records what they found |
+| accessibility-review, coding-standards-review, security-review, pr-review | review | it judges the delivered change |
+| release-notes, changelog, pr-description, release-readiness | release | |
 
 ## State and safety
 
@@ -46,6 +72,7 @@ Use this topic to take a skill, template, or agent someone has published at a pu
 - Adding a skill to an agent that already names remote resources nobody has trusted is refused; run `singularity-flow agents lock <AGENT>` first.
 - No credentials, cookies or tokens are ever sent. Links with embedded credentials, private hosts and `localhost` are refused.
 - A marketplace index can only list files from its own origin and the origins `workflow.yml` allows for it; anything else refuses the whole index.
+- A Git repository marketplace is read at the commit `workflow.yml` pins, with Git and the sign-in a `git clone` of it uses. Nothing is checked out and nothing in it is run. To trust a newer commit, run the same `marketplace add --repo` again: it moves the pin, as a reviewed change.
 - An MCP server is started or contacted only with `--launch`, for an item its `sources` allow; its answer is vendored and never re-read.
 
 ## Troubleshooting

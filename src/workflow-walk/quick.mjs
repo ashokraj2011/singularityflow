@@ -18,7 +18,9 @@
  *   host-route  a route that does not exist on a host: no command for the stage, or a skill, page tool or Command
  *               Palette entry the host does not have;
  *   copy-value  a route that leaves the agent a value SFlow knows to copy in (a Story, a step, a version); the values a
- *               step's own decision reads at its submission are its author's to give, never a copy.
+ *               step's own decision reads at its submission are its author's to give, never a copy;
+ *   dead-end    a step whose gate nothing in the Story can meet: one that cites the test results of a code step
+ *               nobody approves (the generated workflows found it, test/step-intents-hosts.test.mjs).
  *
  * Bounded: by `seconds` (QUICK_WALK_SECONDS) and by the simulation's own step guard. A walk that runs out of time is a
  * note, never a stop. The result is schemaVersion 1, resultType `workflow-walk`, mode `quick`:
@@ -42,12 +44,13 @@ import { routeReach } from '../workflow-decisions.mjs';
 import { simulateWorkflowRoutes } from '../workflow-route-simulation.mjs';
 
 export const QUICK_WALK_SECONDS = 5;
-export const QUICK_WALK_CLASSES = Object.freeze(['loop', 'limit', 'host-route', 'copy-value']);
+export const QUICK_WALK_CLASSES = Object.freeze(['loop', 'limit', 'host-route', 'copy-value', 'dead-end']);
 export const QUICK_WALK_HOSTS = Object.freeze({ 'copilot-cli': 'Copilot CLI', vscode: "VS Code's chat" });
 /** The stop codes, each a `workflow check` problem (src/workflow-check.mjs). */
 export const QUICK_WALK_CODES = Object.freeze({
   sameRoute: 'WALK_SAME_ROUTE_UNCHANGED', repeats: 'WALK_ROUTE_REPEATS', noExit: 'WALK_NO_WAY_ON',
-  missing: 'WALK_ROUTE_MISSING', notOnHost: 'WALK_ROUTE_NOT_ON_HOST', copy: 'WALK_VALUE_TO_COPY', outOfTime: 'WALK_OUT_OF_TIME'
+  missing: 'WALK_ROUTE_MISSING', notOnHost: 'WALK_ROUTE_NOT_ON_HOST', copy: 'WALK_VALUE_TO_COPY', unapprovedResults: 'WALK_RESULTS_NEVER_APPROVED',
+  outOfTime: 'WALK_OUT_OF_TIME'
 });
 const WORK_ID = 'WALK-1';
 
@@ -268,6 +271,17 @@ export function quickWalkResolved(resolved, { approvalAuthorities = null, groups
         fix: { text: `Have ${label(decision.after)} record the value each round: in singularity/workflow.yml give "${decision.label}" (after: ${decision.after}) ${outside.length === 1 ? 'an input' : 'inputs'} of its own, `
           + `${outside.map((input) => `{ name: ${input.name}, values: [${(input.values ?? []).join(', ')}] }`).join(', ')}, in place of the one${outside.length === 1 ? '' : 's'} reused from ${words(sources)}; or make it a decision a person makes (kind: ask, with by).` } });
     }
+  }
+
+  // A step that cites a code step's committed test results takes them only from that step's approval
+  // (state.mjs assertPassedCodeDeliveryInput): a code step nobody approves leaves it refused at every try.
+  for (const phase of resolved.phases.filter((entry) => entry.testEvidenceFrom)) {
+    const source = byId.get(phase.testEvidenceFrom);
+    if (!source || (source.approval?.mode ?? 'required') !== 'none') continue;
+    stop({ class: 'dead-end', code: QUICK_WALK_CODES.unapprovedResults, step: phase.id,
+      title: `${label(phase.id)} waits for test results that ${label(source.id)} never has approved`,
+      detail: `${label(phase.id)} cites ${label(source.id)}'s committed test results, which count only once a person approves ${label(source.id)}. ${label(source.id)} has no approval (approval: none), so every submission of ${label(phase.id)} is refused ("the approval does not bind a current code-delivery receipt") and nothing in the Story changes that.`,
+      fix: { text: `Let a person approve ${label(source.id)}: remove approval: none, and its because entry, from step ${source.id} in singularity/workflow.yml (and from the workflow's phaseOverrides for it).` } });
   }
 
   // A limit's way on: when a decision's rounds run out, the Story waits for its by group. Nobody in it, no way on.

@@ -1891,6 +1891,7 @@ Copilot CLI and on VS Code's chat. It stops on:
 | `limit` | a limit that leaves only the same command: rounds that run out to a group nobody is in (`WALK_NO_WAY_ON`) |
 | `host-route` | a stage with no route (`WALK_ROUTE_MISSING`), or a skill, page tool or Command Palette entry a host does not have (`WALK_ROUTE_NOT_ON_HOST`) |
 | `copy-value` | a route that leaves the agent a value SFlow knows to copy in: a Story, a step, a version (`WALK_VALUE_TO_COPY`); the values a step's own decision reads at its submission are its author's to give |
+| `dead-end` | a step whose gate nothing in the Story can meet: one that cites the test results of a code step nobody approves (`WALK_RESULTS_NEVER_APPROVED`) |
 
 Each stop is a `workflow check` problem with a plain explanation and a filled fix, so a change that
 adds one is refused where it is made, the same as any other problem it adds. The walk is bounded

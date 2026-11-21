@@ -5,7 +5,8 @@
  *   - every shipped workflow walks with no stop, in well under its time;
  *   - each class of stop fires on a workflow made to have it, with a plain explanation and a filled fix: a decision that
  *     goes back on values its round never records again (loop), rounds that run out to a group nobody is in (limit), a
- *     skill or page tool a host lacks (host-route), a value SFlow knows left in a route for the agent (copy-value);
+ *     skill or page tool a host lacks (host-route), a value SFlow knows left in a route for the agent (copy-value), a
+ *     step that cites the results of a code step nobody approves (dead-end);
  *   - it is bounded: out of time is a note, never a stop;
  *   - `workflow walk --quick` prints it, and refuses what only a Story walk takes;
  *   - on change: `workflow check` reports each stop as a problem with its fix, and the one check every way of making a
@@ -143,6 +144,15 @@ test('host-route: a skill or page tool a host does not have stops there, on that
   assert.ok(noTool.stops.length >= 1);
   assert.ok(noTool.stops.every((entry) => entry.host === 'vscode' && entry.stage === 'approval'), JSON.stringify(noTool.stops));
   assert.match(noTool.stops[0].detail, /\/sf-approve runs on VS Code's page tool #sflowDecide, which this VS Code extension does not contribute/u);
+});
+
+test('dead-end: a step that cites the test results of a code step nobody approves is refused at every try, and the fix lets a person approve the code', () => {
+  const result = walked(configuration((value, type) => { type.phaseOverrides.implementation.approval = 'none'; }));
+  const stops = result.stops.filter((entry) => entry.class === 'dead-end');
+  assert.deepEqual(stops.map((entry) => [entry.code, entry.step]), [[QUICK_WALK_CODES.unapprovedResults, 'testing'], [QUICK_WALK_CODES.unapprovedResults, 'conformance']]);
+  assert.equal(stops[0].title, 'Testing waits for test results that Code never has approved');
+  assert.match(stops[0].detail, /Testing cites Code's committed test results, which count only once a person approves Code\. Code has no approval \(approval: none\), so every submission of Testing is refused/u);
+  assert.equal(stops[0].fix.text, 'Let a person approve Code: remove approval: none, and its because entry, from step implementation in singularity/workflow.yml (and from the workflow\'s phaseOverrides for it).');
 });
 
 test("copy-value: a route that leaves a value SFlow knows is one to copy; a step's own decision values and the person's words are not", () => {

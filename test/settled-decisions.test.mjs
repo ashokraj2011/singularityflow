@@ -45,7 +45,8 @@ test('a settlement is recorded with its evidence, an undo makes it the person\'s
   assert.throws(() => recordSettledDecision(story(), { ...selection, kind: 'approval' }), { code: 'SETTLED_DECISION_INVALID' });
   assert.throws(() => recordSettledDecision(story(), { ...selection, by: 'person' }), { code: 'SETTLED_DECISION_INVALID' });
   // review-corrections: a review's next version started for a version only its reviewer saw (owner, 2026-11-19, ceremony cut 10).
-  assert.deepEqual([...SETTLED_KINDS].sort(), ['node-version', 'own-correction', 'plan-accounting', 'review-corrections', 'story-selection', 'test-command']);
+  // A test step's failing tests and its run again after the fix (owner, 2026-11-20, D1; failing-tests-return.mjs).
+  assert.deepEqual([...SETTLED_KINDS].sort(), ['failing-tests', 'node-version', 'own-correction', 'plan-accounting', 'review-corrections', 'story-selection', 'test-command', 'tests-rerun']);
 
   const { undo, settled } = recordSettledUndo(workflow, { id: 'STL-001', actor: 'person@example.invalid', at: LATER, reason: 'Not the Story I meant.' });
   assert.deepEqual([undo.id, undo.undoes, settled.id], ['STL-002', 'STL-001', 'STL-001']);

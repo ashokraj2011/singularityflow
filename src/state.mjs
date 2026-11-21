@@ -6237,9 +6237,14 @@ async function submitPhaseTransition(root, config, workflow, {
   const { failed, unavailable, unavailableRequired } = validation;
   const unacceptedFailed = failed.filter(check => (!retainedRisk
     || check.trpObservationSha256 !== retainedRisk.observation.recordSha256) && !check.testRunRisk);
-  // A failing run of the repository's own tests goes to its reviewer, who returns the step to repair.
+  // A failing run of the repository's own tests goes to its reviewer, who returns the step to repair. So does any failing
+  // test run of a test step that changes no source code: SFlow returns it to its code step after the submission (D1,
+  // failing-tests-return.mjs), and refusing the submission would leave nothing it could fix.
+  const autoReturns = unacceptedFailed.length > 0 && ownerStepChecks(workflow, 4) && !codeDeliveryRequired
+    && (await import('./failing-tests-return.mjs')).autoReturnStep(workflow, phase);
   const repositoryTestsFailed = phase.approvalPolicy?.mode !== 'none' && unacceptedFailed.length > 0
-    && unacceptedFailed.every((check) => repositoryTestFailures.includes(check));
+    && unacceptedFailed.every((check) => repositoryTestFailures.includes(check)
+      || (autoReturns && (check.kind === 'test' || check.source === 'repository-tests')));
   const reviewableFailure = Boolean((phase.repairBudget || repositoryTestsFailed) && unacceptedFailed.length);
   if (unacceptedFailed.length && !reviewableFailure) errors.push(`Quality command failed: ${unacceptedFailed.map((check) => check.command).join(', ')}`);
   const unacceptedUnavailable = unavailableRequired.filter(check => (!retainedRisk
@@ -6250,7 +6255,8 @@ async function submitPhaseTransition(root, config, workflow, {
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   for (const check of validation.warned) console.warn(`Warning: advisory scanner ${check.id} reported problems; it reads no findings, so it fails nothing.`);
   if (repositoryTestsFailed) {
-    console.warn(`Warning: the repository's tests failed: ${unacceptedFailed.map((check) => check.command).join(', ')}. `
+    console.warn(autoReturns ? `Warning: ${phase.id}'s tests failed: ${unacceptedFailed.map((check) => check.command).join(', ')}. SFlow returns it to its code step, unless the review brake asks you first.`
+      : `Warning: the repository's tests failed: ${unacceptedFailed.map((check) => check.command).join(', ')}. `
       + `${phase.id} goes to its reviewer, who cannot approve it and returns it to the step that repairs it.`);
   }
   phase.validationVerdict = validation.verdict;
@@ -7246,20 +7252,29 @@ export async function evaluateApproval(root, config, workflow, {
         // Only the repository's own tests failed, at a step that delivers no code: the regression is in
         // the code an earlier step delivered (its code step, else the closest step this one may return
         // to), so the return goes there, never to this step [PHR:REQ-003].
+        // A test step that changes no source code (D1): any failing test of its run is the code step's to fix, and the
+        // routes are SFlow's filled choices, so nothing is typed (failing-tests-return.mjs).
+        const returns = !lapsed && unacceptedFailed.length > 0 && ownerStepChecks(workflow, 4) && !phaseRequiresCodeDelivery(phase)
+          ? await import('./failing-tests-return.mjs') : null;
+        const d1 = returns?.autoReturnStep(workflow, phase) ? returns : null;
         const regression = !lapsed && !phaseRequiresCodeDelivery(phase) && unacceptedFailed.length > 0 && !unacceptedUnavailable.length
-          && unacceptedFailed.every((check) => check.source === 'repository-tests');
+          && unacceptedFailed.every((check) => check.source === 'repository-tests' || (d1 && check.kind === 'test'));
         const returnable = (candidate) => candidate.id !== phase.id && (phase.approvalPolicy?.rejectTo ?? []).includes(candidate.id);
         const code = regression ? reviewCodeSource(workflow, phase) ?? latestStepBefore(workflow, phase.id, returnable) : null;
-        const repairCommand = code && returnable(code)
+        const choices = d1 && code && returnable(code) ? (await d1.brakeChoices(root, workflow, phase, code, unacceptedFailed)).choices : null;
+        const repairCommand = choices ? choices[0].command : code && returnable(code)
           ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to ${code.id} --reason <REASON>` : null;
         throw new SingularityFlowError(
           `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed and ${unavailableRequiredChecks.length} required command(s) were unavailable. `
             + (lapsed ? `${lapsed.words} Otherwise reject it to an allowed repair phase.`
+              : choices ? d1.heldWords(phase, code, choices)
               : code ? `The repository's own tests fail on the code ${code.id} delivered, which ${code.id} repairs: ${repairCommand
                 ? `reject it to ${code.id} (${repairCommand}).` : `${phase.id} may not return work there, so a workflow maintainer decides how ${code.id} is corrected.`}`
                 : 'Reject it to an allowed repair phase.'),
           { code: 'PHASE_VALIDATION_FAILED', ...(lapsed ? { details: { phase: phase.id, ...lapsed.details } }
-            : code ? { details: { phase: phase.id, ownerPhase: code.id, upstreamPhase: code.id, repositoryTests: 'failed', repairCommand } } : {}) }
+            : code ? { details: { phase: phase.id, ownerPhase: code.id, upstreamPhase: code.id, repositoryTests: 'failed', repairCommand,
+              ...(choices ? { choices, nextAction: { command: choices[0].command, skill: choices[0].skill, label: choices[0].label },
+                recoveryCommands: choices.slice(1).map((choice) => ({ command: choice.command, skill: choice.skill, label: choice.label })) } : {}) } } : {}) }
         );
       }
     }, { needs: ['test-risk'] });
@@ -8423,7 +8438,10 @@ function currentTestingRepairPlan(root, workflow, plan, { phaseId, target, confi
 export async function rejectPhase(root, config, workflow, {
   phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null,
   testingRepairConfirm = null, testingRepairPlan = null, channel = 'terminal', actionContext = null,
-  actor = null, agent = undefined, upstreamIssue = null, presence = null, beyondBudget = false
+  actor = null, agent = undefined, upstreamIssue = null, presence = null, beyondBudget = false,
+  // SFlow's own return of a test step's failing tests to its code step (failing-tests-return.mjs, owner 2026-11-20, D1):
+  // `{ kind, tests, commands, files }`. No person and no group return it; the change request and decision say so.
+  automatic = null
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await assertNoPendingPublication(root, config, workflow, 'reject');
@@ -8492,8 +8510,11 @@ export async function rejectPhase(root, config, workflow, {
   const session = actor
     ? { actor, agent: agent ?? null }
     : await loadSession(root);
-  assertPhaseAgentMayMutate(config, workflow, phase, session, 'reject');
-  const authority = requireApprovalAuthority(
+  // SFlow's own return is no agent's or person's: no agent role is asked, and no approval group is matched. Only SFlow's own
+  // identity makes one, and never with anything a person's return carries.
+  if (automatic && (actor?.automatic !== true || upstreamIssue || convergenceRework || testingRepair || beyondBudget || presence)) automatic = null;
+  if (!automatic) assertPhaseAgentMayMutate(config, workflow, phase, session, 'reject');
+  const authority = automatic ? { authorityGroup: null, identityAssurance: 'automatic' } : requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     (upstreamIssue ? workflow.phases[target]?.approvalPolicy : null) ?? phase.approvalPolicy,
     session.actor
@@ -8569,6 +8590,8 @@ export async function rejectPhase(root, config, workflow, {
     } : {}),
     ...(requestedMembers.length ? { members: requestedMembers } : {}),
     ...(upstreamIssue ? { [String(upstreamIssue.id).startsWith('FAM-') ? 'forwardAmendment' : 'upstreamIssue']: upstreamIssue.id } : {}),
+    // What failed, as SFlow read it from the step's run: the code step's author fixes these.
+    ...(automatic ? { automatic: structuredClone(automatic) } : {}),
     ...(testingRepair ? { testingRepair: {
       confirmation: testingRepair.confirmation,
       changeSetDigest: testingRepair.changeSetDigest,
@@ -8653,6 +8676,7 @@ export async function rejectPhase(root, config, workflow, {
     ...(phase.artifactSet ? { artifactSet: phase.artifactSet.setId, bundleSha256: phase.artifactSet.bundleSha256 } : {}),
     ...(requestedMembers.length ? { members: requestedMembers } : {}),
     ...(repairBudget ? { repairBudget: { consumed: repairBudget.attempts.length, maximum: repairBudget.maximum } } : {}),
+    ...(automatic ? { automatic: automatic.kind } : {}),
     ...(actionContext ? { actionContext } : {})
   };
   // The card, then the approver's touch, over the final record [SPEC-PSS-v1 M2].
@@ -8670,7 +8694,7 @@ export async function rejectPhase(root, config, workflow, {
       reason: changeRequest.comment
     };
   }
-  workflow.history.push({ at: timestamp, actor: key, agent: session.agent, event: 'phase_rejected', phase: phase.id, detail: `${changeRequest.id} returned to ${targetId}: ${changeRequest.comment}` });
+  workflow.history.push({ at: timestamp, actor: key, agent: session.agent, event: 'phase_rejected', phase: phase.id, detail: `${changeRequest.id} returned to ${targetId}${automatic ? ' automatically by SFlow' : ''}: ${changeRequest.comment}` });
   await saveWorkflow(root, config, workflow);
   return {
     ...workflow.phases[targetId],

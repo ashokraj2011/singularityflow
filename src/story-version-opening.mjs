@@ -40,6 +40,18 @@ export const RECORD_SCHEMA = 'version-opening/v1';
 export const TAKEOVER_SCHEMA = 'version-writer-takeover/v1';
 export const OPENING_REASONS = Object.freeze(['initial', 'watermark', 'rework', 'rejected', 'amendment', 'author-conflict', 'review-corrections',
   'requested-change', 'changed-after-publication', 'own-correction', 'legacy-promotion']);
+/**
+ * The openings SFlow settles for the person, with an undo, never as consent, by the settlement's kind and the reasons it
+ * opens for: a review's findings on a version only the reviewer saw (owner, 2026-11-19; review-findings-opening.mjs), and a
+ * test step's failing tests, the code step's next version and then the test step's run again (owner, 2026-11-20, D1;
+ * failing-tests-return.mjs).
+ */
+export const SETTLED_OPENINGS = Object.freeze({ 'review-corrections': Object.freeze(['review-corrections']),
+  'failing-tests': Object.freeze(['rework', 'rejected']), 'tests-rerun': Object.freeze(['rework', 'rejected']) });
+/** Whether `settled` stands in for the person's yes to `proposal`. */
+export const settledOpening = (settled, proposal) => Boolean(settled?.settlement) && (SETTLED_OPENINGS[settled.kind] ?? []).includes(proposal?.reason);
+const SETTLED_WORDS = Object.freeze({ 'review-corrections': (proposal) => `only the reviewer had seen version ${proposal.from?.published ?? proposal.version - 1}`,
+  'failing-tests': () => 'the tests of the step after it failed', 'tests-rerun': () => 'the code step\'s fix for its failing tests was approved' });
 const OPERATION_ID = /^v[ot]-[0-9a-f]{32}$/u;
 
 const refuse = (message, code, details = {}) => new SingularityFlowError(message, { code, details });
@@ -153,8 +165,8 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
   }
   // Only the first opening of version 1 omits the person's yes [§7.2]; every other needs its exact, sealed receipt, the
   // author's own correction too (owner, 2026-11-17) [D3, OSA:REQ-030]; but a review's findings on a version only the reviewer
-  // saw open settled, with an undo, never as consent (owner, 2026-11-19; review-findings-opening.mjs).
-  const reviewSettled = settled?.kind === 'review-corrections' && proposal.reason === 'review-corrections' && Boolean(settled.settlement) && !receipt;
+  // saw, and a test step's failing tests, open settled, with an undo, never as consent (SETTLED_OPENINGS).
+  const reviewSettled = settledOpening(settled, proposal) && !receipt;
   let settledRecord = null;
   const problem = reviewSettled ? null : proposal.consent !== 'not-required' || receipt ? consentProblem(commonDir, receipt, { digest, proposal, principal }) : null;
   // A yes that opens nothing (another person's, expired, declined, for another proposal, or none) is asked again: the
@@ -211,7 +223,7 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
             assurance: receipt.principal.assurance } : reviewSettled ? { settled: settledRecord.id, surface: 'settled' } : null, writer, openedAt };
         (workflow.history ??= []).push({ at: openedAt, actor: principal?.email ?? principal?.name ?? 'system', agent, event: 'version_opened',
           phase: phase.id, detail: `version ${proposal.version} opened (${proposal.reason})${receipt ? ` on the person's yes (${receipt.response.surface})`
-            : reviewSettled ? ` settled for the person (${settledRecord.id}; only the reviewer had seen version ${proposal.from?.published ?? proposal.version - 1})` : ''}` });
+            : reviewSettled ? ` settled for the person (${settledRecord.id}; ${SETTLED_WORDS[settledRecord.kind]?.(proposal) ?? 'settled by SFlow'})` : ''}` });
       },
       fault: async (point, context) => {
         // The commit exists on this clone; its shared acceptance is pending until the push answers [§7.2 checkpoints].

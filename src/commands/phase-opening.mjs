@@ -72,6 +72,9 @@ async function reasonOf(workflow, phase, fallback) {
   return { REWORK: 'rework', REJECTED: 'rejected', AMENDMENT: 'amendment', AUTHOR_CONFLICT: 'author-conflict' }[need] ?? fallback;
 }
 
+/** Why a step a return reopened needs its next version, in the opening's words (`rework` when nothing else says). */
+export const successorReason = (workflow, phase) => reasonOf(workflow, phase, 'rework');
+
 /** The proposal as the Story stands now, bound to its local lifecycle revision. */
 export async function proposalNow(root, workflow, phase, options = {}) {
   const [{ versionProposal }, { head }] = await Promise.all([opening(), import('../git.mjs')]);
@@ -147,13 +150,15 @@ export async function askAtTerminal(question) {
 
 /**
  * Open a successor on the person's yes: their consent receipt, then the one opening operation. `open(workflow, phase)`
- * makes the step's own opening inside the governed commit. The author's own correction is asked too; `settled` is the one
- * exception, a review's findings on a version only the reviewer has seen (owner, 2026-11-19).
+ * makes the step's own opening inside the governed commit. The author's own correction is asked too; `settled` is the
+ * exception, a review's findings on a version only the reviewer has seen (owner, 2026-11-19), and a test step's failing
+ * tests (owner, 2026-11-20, D1).
  */
 export async function openSuccessor(root, config, workflow, phase, { proposal, digest, question, open, typed = false, operationId = null, fault = null, settled = null }) {
   // Only the first opening of version 1 needs no yes [§7.2]; every successor does, the author's own correction too
-  // (owner, 2026-11-17) [D3, OSA:REQ-030], but for review findings only the reviewer saw (owner, 2026-11-19).
-  const owed = proposal.consent !== 'not-required' && !(settled?.kind === 'review-corrections' && proposal.reason === 'review-corrections');
+  // (owner, 2026-11-17) [D3, OSA:REQ-030], but for review findings only the reviewer saw (owner, 2026-11-19) and a test
+  // step's failing tests (owner, 2026-11-20, D1), which SFlow settles with an undo (story-version-opening.mjs SETTLED_OPENINGS).
+  const owed = proposal.consent !== 'not-required' && !(await opening()).settledOpening(settled, proposal);
   const found = owed ? await consentFor(root, workflow, { proposal, digest, question, typed }) : { principal: await principalHere(root), receipt: null };
   if (owed && !found.receipt) {
     // The step's own preview, through its work command, as the views name it: never the published version's submission.

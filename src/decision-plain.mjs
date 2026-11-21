@@ -305,6 +305,11 @@ export function plainSettled(workflow, entry) {
         return `${who} opened a new version of ${step} to correct its own work because nobody had reviewed it yet`;
       case 'review-corrections':
         return `${who} started version ${effect.toGeneration ?? 'N'} of ${step} to fix the review's findings because only the reviewer had seen version ${effect.generation ?? 'N'}`;
+      // A test step's failing tests went back to the code step on their own (owner, 2026-11-20, D1).
+      case 'failing-tests':
+        return `${who} started version ${effect.toGeneration ?? 'N'} of ${step} to fix the tests ${stepName(workflow, effect.testPhase)} found failing, because ${stepName(workflow, effect.testPhase)} changes no code`;
+      case 'tests-rerun':
+        return `${who} started version ${effect.toGeneration ?? 'N'} of ${step} to run its tests again because ${stepName(workflow, effect.codePhase)} version ${effect.codeGeneration ?? 'N'} fixed them`;
       default: {
         const [what, because] = String(entry.answer ?? '').split(/:\s+/u, 2);
         return because ? `${who} chose this: ${bare(what)}, because ${bare(because)}` : `${who} chose this: ${bare(what)}`;
@@ -317,7 +322,8 @@ export function plainSettled(workflow, entry) {
   // History: its step has moved on, so it is said, with nothing to undo [owner, 2026-11-20].
   if (entry.history) return `${capital(said)}.`;
   return entry.kind === 'review-corrections' ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open. To disagree with a finding, dispute it.${disputed}`
-    : `${capital(said)}. Undo if wrong.`;
+    : ['failing-tests', 'tests-rerun'].includes(entry.kind) ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open.`
+      : `${capital(said)}. Undo if wrong.`;
 }
 
 /** "One question for you." / "3 questions for you." / "Nothing waits on you now.", from what is asked now. */
@@ -379,7 +385,7 @@ function settledName(workflow, item) {
     case 'node-version': return `Node ${effect.version ?? ''} for ${step}'s tests`.replace('Node  ', 'Node ');
     case 'test-command': return `${effect.commandId ?? 'the test command'} as ${step}'s tests`;
     case 'plan-accounting': return `${effect.path ?? effect.file ?? String(item.subject ?? '').replace(/^file:/u, '')} in the plan`;
-    case 'review-corrections': case 'own-correction': return `starting version ${effect.toGeneration ?? 'N'} of ${step}`;
+    case 'review-corrections': case 'own-correction': case 'failing-tests': case 'tests-rerun': return `starting version ${effect.toGeneration ?? 'N'} of ${step}`;
     case 'story-selection': return `opening ${String(item.subject ?? '').split(' on ')[0] || workflow?.workItem?.id}`;
     default: return bare(item.subject ?? item.title);
   }

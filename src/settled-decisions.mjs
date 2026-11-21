@@ -19,7 +19,12 @@ import { SingularityFlowError } from './util.mjs';
  * that recorded one before 2026-11-17; none is settled now: the author's own correction is asked like every successor
  * (owner, 2026-11-17) [D3, OSA:REQ-030].
  */
-export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction', 'node-version', 'test-command', 'plan-accounting', 'review-corrections']);
+export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction', 'node-version', 'test-command', 'plan-accounting', 'review-corrections',
+  // A test step's failing tests returned to the code step, which starts its next version, and the test step's run again
+  // once that version is approved (owner, 2026-11-20, D1; failing-tests-return.mjs).
+  'failing-tests', 'tests-rerun']);
+/** The kinds that start a step's next version: forward only, and history once a later version of that step exists. */
+const VERSION_STARTS = Object.freeze(['review-corrections', 'own-correction', 'failing-tests', 'tests-rerun']);
 const RETIRED_KINDS = Object.freeze(['own-correction']);
 const ID = /^STL-[0-9]{3,}$/u;
 const BY = Object.freeze(['agent', 'sflow']);
@@ -52,7 +57,7 @@ export function settlementMatters(workflow, entry) {
   if (!entry.phase) return true;
   const phase = workflow.phases?.[entry.phase];
   if (entry.phase !== workflow.currentPhase || ['approved', 'completed', 'skipped'].includes(phase?.status)) return false;
-  if (!['review-corrections', 'own-correction'].includes(entry.kind)) return true;
+  if (!VERSION_STARTS.includes(entry.kind)) return true;
   const latest = Math.max(Number(phase?.generation) || 0, Number(phase?.versionOpening?.version) || 0);
   return Number(entry.effect?.toGeneration) >= latest;
 }
@@ -145,10 +150,16 @@ export function reraisedRoute(workflow, entry) {
     command: 'singularity-flow session open', copilotCommand: '/sf-session' };
   // The review's findings on a version only its reviewer had seen (review-findings-opening.mjs): an undo is forward only, since
   // no route withdraws an open version; the person's say on a finding is their dispute of it, or a return at approval [2026-11-20].
-  if (['own-correction', 'review-corrections'].includes(entry.kind)) return { words: entry.kind === 'own-correction'
-    ? `The author asks you before it corrects ${step} again. The generation it opened stays open, and the one before it stays as published.`
-    : `From now on SFlow asks you before it starts another version of ${step} for a review's findings. An undo does not withdraw the version it started: that stays open, and the one before it stays as published. `
+  // A test step's failing tests (failing-tests-return.mjs) are forward only too: the version SFlow started stays open, and
+  // from now on the test step waits for its approvers when its tests fail, or before it runs them again.
+  if (VERSION_STARTS.includes(entry.kind)) return { words: {
+    'own-correction': `The author asks you before it corrects ${step} again. The generation it opened stays open, and the one before it stays as published.`,
+    'review-corrections': `From now on SFlow asks you before it starts another version of ${step} for a review's findings. An undo does not withdraw the version it started: that stays open, and the one before it stays as published. `
       + 'To disagree with a finding, dispute it on the decisions card or in /sf-decide, with your reason; or return the step when you approve it.',
+    'failing-tests': `From now on SFlow asks you before it returns ${entry.effect?.testPhase ?? 'the test step'}'s failing tests to ${step} again. `
+      + 'An undo does not withdraw the version it started: that stays open, and the one before it stays as published.',
+    'tests-rerun': `From now on SFlow asks you before it runs ${step}'s tests again after a fix. The version it started stays open.`
+  }[entry.kind],
   command: `singularity-flow phase show ${step} --work-id ${workId}`, copilotCommand: `/sf-phase-documents ${step}` };
   if (entry.kind === 'node-version') return { words: `Which Node ${step}'s tests run on is on the decision list again.`, ...list };
   if (entry.kind === 'test-command') return { words: `${entry.effect?.request ?? 'The requested test command'} waits for a person who approves ${step} on the decision list again.`, ...list };

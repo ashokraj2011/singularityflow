@@ -123,10 +123,10 @@ async function withRunningApplication(root, project, policy, use, { deadline }) 
       } });
   } catch (error) {
     if (!ready) {
-      const { redactDiagnosticText } = await import('./git-remote-diagnostics.mjs');
+      const [{ redactDiagnosticText }, { diagnosticTail }] = await Promise.all([import('./git-remote-diagnostics.mjs'), import('./runtime-check-job.mjs')]);
       return { entry: entry.id, missing: [{ what: `the app (start entry ${entry.id}) running here`, why: String(error?.message ?? error).split('\n')[0],
         ...(error?.details?.nextAction?.command ? { command: error.details.nextAction.command } : { command: `singularity-flow app start ${entry.id}` }),
-        ...(log.trim() ? { log: redactDiagnosticText(log.trim().split('\n').slice(-12).join('\n'), { multiline: true }) } : {}) }] };
+        ...(log.trim() ? { log: redactDiagnosticText(diagnosticTail(log), { multiline: true }) } : {}) }] };
     }
     if (!result) throw error;
   } finally { clearTimeout(timer); }
@@ -250,7 +250,7 @@ async function jobCheck(root, project, { policy, deadline, tracked }) {
       const result = await job.runJobOnce(launch(step.argv, folder), { cwd: folder, env, timeoutMs: Math.min(step.timeoutMs, Math.max(1_000, remaining())), terminate });
       if (result.timedOut || result.code !== 0) {
         return notAvailable([{ what: `the job's before-launch step ${index + 1} (${shellLine(step.argv)})`, why: result.timedOut ? 'It did not finish in time.' : `It exited ${result.code ?? result.signal ?? result.error}.`,
-          command: `singularity-flow app start ${entry.id}`, ...(result.stderr.trim() ? { log: result.stderr.trim().split('\n').slice(-12).join('\n') } : {}) }]);
+          command: `singularity-flow app start ${entry.id}`, ...(result.stderr.trim() ? { log: job.diagnosticTail(result.stderr) } : {}) }]);
       }
     }
     const input = job.sampleInputs(tracked, project.root ?? '')[0] ?? null;

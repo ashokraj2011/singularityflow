@@ -260,8 +260,21 @@ export function decideUpstreamIssue(workflow, {
   let expiry = null;
   if (outcome === 'accept-risk') {
     const parsed = Date.parse(expiresAt ?? '');
-    if (!Number.isFinite(parsed) || parsed <= Date.parse(at) || parsed - Date.parse(at) > MAX_RISK_DAYS * DAY) {
-      refused(`An accepted risk expires: give --expires within ${MAX_RISK_DAYS} days.`, 'UPSTREAM_ISSUE_RISK_EXPIRY_REQUIRED');
+    const now = Date.parse(at);
+    if (!Number.isFinite(parsed) || parsed <= now || parsed - now > MAX_RISK_DAYS * DAY) {
+      // Say which part is wrong, and hand back the same decision with an expiry that fits (30 days, the person may change it).
+      const why = !expiresAt ? 'An accepted risk needs an expiry'
+        : !Number.isFinite(parsed) ? `--expires ${expiresAt} is not a date`
+          : parsed <= now ? `--expires ${expiresAt} has already passed`
+            : `--expires ${expiresAt} is more than ${MAX_RISK_DAYS} days away`;
+      const latest = new Date(now + MAX_RISK_DAYS * DAY).toISOString().slice(0, 10);
+      const suggested = new Date(now + 30 * DAY).toISOString().slice(0, 10);
+      const said = String(reason ?? '').trim();
+      const workId = workflow?.workItem?.id;
+      const again = workId && `singularity-flow upstream-issue decide ${issueId} --work-id ${workId} --outcome accept-risk --expires ${suggested} `
+        + `--reason "${said.length >= 20 && said.length <= 1000 && !/["\\$`\n]/u.test(said) ? said : '<why>'}"`;
+      refused(`${why}: give --expires after now and within ${MAX_RISK_DAYS} days (by ${latest}).`, 'UPSTREAM_ISSUE_RISK_EXPIRY_REQUIRED',
+        again ? { nextAction: { command: again, label: `Accept the risk until ${suggested} (30 days)` } } : undefined);
     }
     expiry = new Date(parsed).toISOString();
   } else if (expiresAt) {

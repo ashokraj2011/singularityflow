@@ -151,7 +151,19 @@ export async function runJobOnce(argv, { cwd, env, stdinFile = null, timeoutMs, 
   });
 }
 
-const tail = (text, lines = 12) => String(text ?? '').trim().split('\n').slice(-lines).join('\n').slice(-1_500);
+// The line that says what went wrong. Node, Java, Go and Android print it above their stack frames, where a longer
+// trace pushes it out of the last lines (Node 26 prints more frames than Node 22); Python prints it last.
+const HEADLINE = /^(?:.*?\bAndroidRuntime: )?(?:Caused by: )?(?:(?:[\w$]+\.)*[\w$]*(?:Error|Exception)(?: \[[\w-]+\])?:\s|Exception in thread "|panic: )/u;
+
+/** The last `lines` of a run's output, with the line that says what went wrong kept when the tail lost it. */
+export function diagnosticTail(text, lines = 12, maximum = Infinity) {
+  const all = String(text ?? '').trim().split('\n');
+  const kept = all.slice(-lines).join('\n').slice(-maximum);
+  const headline = all.map((line) => line.trim()).findLast((line) => HEADLINE.test(line));
+  return headline && !kept.includes(headline) ? `${headline.slice(0, 300)}\n…\n${kept}` : kept;
+}
+
+const tail = (text, lines = 12) => diagnosticTail(text, lines, 1_500);
 
 /** The findings of two runs of the same job on the same input, and what they say ran. */
 export function jobFindings(name, first, second, { firstOutputs, secondOutputs, folder, input }) {

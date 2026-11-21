@@ -234,8 +234,9 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
   assert.match(undecidedFinding.details.choices[0].command, new RegExp(`^singularity-flow upstream-issue decide UPI-001 --work-id ${W} --outcome accept-risk `, 'u'));
   assert.doesNotMatch(undecidedFinding.recovery.command, /reject conformance --work-id \S+ --to conformance/u, 'never back to the report author');
 
-  // An accepted risk that has expired no longer covers the clause.
-  const soon = new Date(Date.now() + 4000).toISOString();
+  // An accepted risk that has expired no longer covers the clause. The window outlasts a CLI start on a loaded machine
+  // (4 seconds had passed before the decision was recorded in a full Node 26 run).
+  const soon = new Date(Date.now() + 20_000).toISOString();
   cli('upstream-issue', 'decide', 'UPI-001', '--outcome', 'accept-risk', '--expires', soon,
     '--reason', 'Accept the unrecorded run briefly while the runner is repaired.');
   await sleep(Math.max(0, Date.parse(soon) - Date.now()) + 500);

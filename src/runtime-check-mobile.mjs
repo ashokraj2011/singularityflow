@@ -15,6 +15,8 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { diagnosticTail } from './runtime-check-job.mjs';
+
 const SETTLE_MS = 5_000;
 const COMMAND_MS = 60_000;
 const SKIPPED = new Set(['node_modules', '.git', '.gradle', 'Pods', 'intermediates', 'tmp']);
@@ -234,7 +236,7 @@ export function mobileLauncher({ exec = execCommand, spawnBackground = spawnBack
       const pid = invoke([adb, '-s', serial, 'shell', 'pidof', appId], 15_000).stdout.trim();
       ran.push(`checked ${appId} is running ${Math.round(settleMs / 1000)} seconds after launch`);
       const crashLog = pid ? '' : invoke([adb, '-s', serial, 'logcat', '-d', '-b', 'crash', '-t', '40'], 15_000).stdout.trim();
-      return { started: true, crashed: !pid, detail: pid ? null : `${appId} was not running ${Math.round(settleMs / 1000)} seconds after launch.`, log: crashLog.split('\n').slice(-12).join('\n'), ran,
+      return { started: true, crashed: !pid, detail: pid ? null : `${appId} was not running ${Math.round(settleMs / 1000)} seconds after launch.`, log: diagnosticTail(crashLog), ran,
         tryIt: { kind: 'mobile', commands: [`adb install -r '${build}'`, `adb shell monkey -p ${appId} -c android.intent.category.LAUNCHER 1`] } };
     } finally {
       invoke([adb, '-s', serial, 'shell', 'am', 'force-stop', appId], 15_000);

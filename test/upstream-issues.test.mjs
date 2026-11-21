@@ -70,6 +70,17 @@ test('decisions close an issue; a plan correction must be the earlier step\'s ow
   assert.equal(decide(structuredClone(workflow), { issue: 'UPI-002', outcome: 'amend', link: 'FAM-001' }).link, 'FAM-001');
   assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'accept-risk' }), { code: 'UPSTREAM_ISSUE_RISK_EXPIRY_REQUIRED' });
   assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'accept-risk', expiresAt: '2027-03-01' }), { code: 'UPSTREAM_ISSUE_RISK_EXPIRY_REQUIRED' });
+  // The refusal says which part is wrong and hands back the same decision with an expiry that fits.
+  assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'accept-risk', expiresAt: '2026-10-01' }), (error) => {
+    assert.match(error.message, /^--expires 2026-10-01 has already passed: give --expires after now and within 90 days \(by \d{4}-\d{2}-\d{2}\)\.$/u);
+    assert.match(error.details.nextAction.command,
+      /^singularity-flow upstream-issue decide UPI-002 --work-id UPI-STORY --outcome accept-risk --expires \d{4}-\d{2}-\d{2} --reason "AC-002 is covered by the regression suite already\."$/u);
+    const suggested = error.details.nextAction.command.match(/--expires (\S+)/u)[1];
+    assert.equal(decide(structuredClone(workflow), { issue: 'UPI-002', outcome: 'accept-risk', expiresAt: suggested }).expiresAt, `${suggested}T00:00:00.000Z`, 'the handed-back command is accepted');
+    return true;
+  });
+  assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'accept-risk', expiresAt: '2027-03-01' }), { message: /^--expires 2027-03-01 is more than 90 days away/u });
+  assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'accept-risk' }), { message: /^An accepted risk needs an expiry/u });
   assert.throws(() => decide(workflow, { issue: 'UPI-002', expiresAt: '2026-11-01' }), /only with --outcome accept-risk/u);
   assert.throws(() => decide(workflow, { issue: 'UPI-002', reason: 'no' }), { code: 'UPSTREAM_ISSUE_REASON_REQUIRED' });
   assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'return', link: null }), /change request/u);

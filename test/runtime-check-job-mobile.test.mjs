@@ -18,7 +18,7 @@ import test from 'node:test';
 
 import { normalizeApplicationReview } from '../src/application-review-contract.mjs';
 import { runRuntimeCheck, runtimeCheckWords, runtimeFindings, runtimeTryIt } from '../src/runtime-check.mjs';
-import { comparableText, sampleInputs } from '../src/runtime-check-job.mjs';
+import { comparableText, diagnosticTail, sampleInputs } from '../src/runtime-check-job.mjs';
 import { emulatorSerials, mobileLauncher } from '../src/runtime-check-mobile.mjs';
 
 const git = (root, ...args) => { const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
@@ -254,4 +254,23 @@ test('an iOS app in a booted simulator: installed, launched, checked running; on
 
 test('only emulators count as places to launch: a connected phone is not one', () => {
   assert.deepEqual(emulatorSerials('List of devices attached\nR58M123ABC\tdevice\nemulator-5556\toffline\nemulator-5554\tdevice\n'), ['emulator-5554']);
+});
+
+test('a crash keeps the line that says what went wrong, however long the stack trace after it is', () => {
+  const frames = (count, frame) => Array.from({ length: count }, (_, index) => frame(index)).join('\n');
+  // Node 26 prints more frames than Node 22, which pushed the error out of the last 12 lines.
+  const node = `file:///job.mjs:2\nthrow new TypeError('bad amount: 2,ten');\n^\n\nTypeError: bad amount: 2,ten\n${frames(20, (index) => `    at step${index} (file:///job.mjs:${index}:1)`)}\n\nNode.js v26.12.0`;
+  assert.match(diagnosticTail(node), /^TypeError: bad amount: 2,ten\n…\n/u);
+  assert.equal(diagnosticTail(node).split('\n').length, 14, 'the error line, a gap, then the last 12 lines');
+  const java = `Exception in thread "main" java.lang.IllegalStateException: run failed\n${frames(15, (index) => `\tat Job.step${index}(Job.java:${index})`)}\nCaused by: java.io.IOException: disk full\n${frames(15, (index) => `\tat Io.write${index}(Io.java:${index})`)}`;
+  assert.match(diagnosticTail(java), /^Caused by: java\.io\.IOException: disk full\n…\n/u, 'the root cause');
+  const android = frames(30, (index) => `11-22 04:00:00.000  1234  1234 E AndroidRuntime: \tat com.example.Step${index}.run(Step.java:${index})`)
+    .replace(/^/u, '11-22 04:00:00.000  1234  1234 E AndroidRuntime: java.lang.RuntimeException: Unable to start activity\n');
+  assert.match(diagnosticTail(android), /^11-22 .*AndroidRuntime: java\.lang\.RuntimeException: Unable to start activity\n…\n/u);
+  // Python prints the error last, Go its panic first; a short output is returned as it is.
+  const python = `Traceback (most recent call last):\n${frames(20, (index) => `  File "job.py", line ${index}, in step${index}`)}\nValueError: bad amount`;
+  assert.equal(diagnosticTail(python), python.split('\n').slice(-12).join('\n'));
+  assert.match(diagnosticTail(`panic: runtime error: index out of range\n\ngoroutine 1 [running]:\n${frames(20, (index) => `main.step${index}()\n\t/job.go:${index}`)}`), /^panic: runtime error: index out of range\n…\n/u);
+  assert.equal(diagnosticTail('the warehouse is unreachable'), 'the warehouse is unreachable');
+  assert.equal(diagnosticTail(''), '');
 });

@@ -159,12 +159,19 @@ function changeList(value, label, code) {
 }
 
 const listWords = (values) => (values.length < 2 ? values.join('') : `${values.slice(0, -1).join(', ')} and ${values.at(-1)}`);
+// The ways on from a step intent refusal, on the screen the person changes it in.
+const INTENT_ROUTE = Object.freeze({ label: 'Choose what the step does in Workflow Studio',
+  workflowStudio: 'In VS Code, open Workflow Studio, select the step and choose what it does, one of the ten offered.' });
+const COPY_ROUTE = Object.freeze({ label: 'Use a copy of the step in this workflow',
+  workflowStudio: 'In Workflow Studio, select the step, choose Use a copy in this workflow, then give the copy what it does.' });
+const REASON_ROUTE = Object.freeze({ label: 'Say why the step differs from its intent',
+  workflowStudio: 'In Workflow Studio, select the step and say why under "Why this setting", in 20 to 1000 characters.' });
 
 /** What a step does, as a change set names it: one of the ten step intents. */
 function requireStepIntent(value, name) {
   if (!STEP_INTENTS.includes(value)) {
     throw new SingularityFlowError(`What ${name} does is one of: ${STEP_INTENT_CHOICES.map((entry) => `${entry.id} (${entry.label.toLowerCase()})`).join(', ')}; not '${value}'.`,
-      { code: 'STUDIO_INTENT_INVALID', details: { intents: [...STEP_INTENTS] } });
+      { code: 'STUDIO_INTENT_INVALID', details: { intents: [...STEP_INTENTS], nextAction: INTENT_ROUTE } });
   }
   return value;
 }
@@ -177,11 +184,11 @@ function intentAgreesWithOutput(intent, { output, changesCode }, name) {
   const code = intent === 'code';
   if (code && ((output != null && output !== 'code') || changesCode === false)) {
     throw new SingularityFlowError(`${name} changes the code (intent code), so it delivers code changes; leave out its output and changes-code settings, or give it another intent if it changes no code.`,
-      { code: 'STUDIO_INTENT_CONTRADICTION', details: { intent, output: output ?? null, changesCode: changesCode ?? null } });
+      { code: 'STUDIO_INTENT_CONTRADICTION', details: { intent, output: output ?? null, changesCode: changesCode ?? null, nextAction: INTENT_ROUTE } });
   }
   if (!code && output === 'code') {
     throw new SingularityFlowError(`${name} is a ${intent} step, so it does not deliver code changes; give it intent code if it changes the code, or leave out its output.`,
-      { code: 'STUDIO_INTENT_CONTRADICTION', details: { intent, output } });
+      { code: 'STUDIO_INTENT_CONTRADICTION', details: { intent, output, nextAction: INTENT_ROUTE } });
   }
 }
 
@@ -208,15 +215,15 @@ function alignStepToIntent(node, intent) {
 
 /** A step's `because:` as a change gives it, merged over what it has: setting → reason, null takes one away. */
 function stepBecause(value, name, current = null) {
-  if (!isObject(value)) throw new SingularityFlowError(`Why ${name} sets a setting itself is a map from the setting to the reason, for example { writeScope: "..." }.`, { code: 'STUDIO_BECAUSE_INVALID' });
+  if (!isObject(value)) throw new SingularityFlowError(`Why ${name} sets a setting itself is a map from the setting to the reason, for example { writeScope: "..." }.`, { code: 'STUDIO_BECAUSE_INVALID', details: { nextAction: REASON_ROUTE } });
   const next = isObject(current) ? { ...current } : {};
   for (const [setting, reason] of Object.entries(value)) {
     if (!BECAUSE_SETTINGS.includes(setting)) {
-      throw new SingularityFlowError(`${name} cannot say why for '${setting}': it is not a setting a step's intent gives. Use one of: ${BECAUSE_SETTINGS.join(', ')}.`, { code: 'STUDIO_BECAUSE_INVALID' });
+      throw new SingularityFlowError(`${name} cannot say why for '${setting}': it is not a setting a step's intent gives. Use one of: ${BECAUSE_SETTINGS.join(', ')}.`, { code: 'STUDIO_BECAUSE_INVALID', details: { nextAction: REASON_ROUTE } });
     }
     if (reason == null) { delete next[setting]; continue; }
     if (typeof reason !== 'string' || reason.trim().length < 20 || reason.trim().length > 1000) {
-      throw new SingularityFlowError(`Why ${name} sets ${setting} itself is said in 20 to 1000 characters, in plain words.`, { code: 'STUDIO_BECAUSE_INVALID' });
+      throw new SingularityFlowError(`Why ${name} sets ${setting} itself is said in 20 to 1000 characters, in plain words.`, { code: 'STUDIO_BECAUSE_INVALID', details: { nextAction: REASON_ROUTE } });
     }
     next[setting] = reason.trim();
   }
@@ -1189,12 +1196,12 @@ class StudioCandidate {
     const workflowId = requireId(id, 'A workflow ID');
     const type = this.content.workTypes?.[workflowId];
     if (!type) throw new SingularityFlowError(`There is no workflow '${workflowId}' whose steps to confirm.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
-    if (!isObject(steps)) throw new SingularityFlowError('The confirmed intents are a map from each step to what it does.', { code: 'STUDIO_INTENT_INVALID' });
+    if (!isObject(steps)) throw new SingularityFlowError('The confirmed intents are a map from each step to what it does.', { code: 'STUDIO_INTENT_INVALID', details: { nextAction: INTENT_ROUTE } });
     const phases = this.finalPhases?.get(workflowId) ?? type.phases ?? [];
     const missing = phases.filter((phaseId) => !Object.hasOwn(steps, phaseId) && this.phase(phaseId)?.kind !== 'skill');
     if (missing.length) {
       throw new SingularityFlowError(`Confirm what every step of ${type.label ?? workflowId} is for: ${listWords(missing.map((phaseId) => this.phaseLabel(phaseId)))} ${missing.length === 1 ? 'has' : 'have'} no intent in the confirmation.`,
-        { code: 'STUDIO_INTENT_INVALID', details: { workflow: workflowId, missing } });
+        { code: 'STUDIO_INTENT_INVALID', details: { workflow: workflowId, missing, nextAction: INTENT_ROUTE } });
     }
     for (const [phaseId, value] of Object.entries(steps)) {
       if (!phases.includes(phaseId)) throw new SingularityFlowError(`${type.label ?? workflowId} has no step '${phaseId}'.`, { code: 'STUDIO_PHASE_UNKNOWN' });
@@ -1204,7 +1211,7 @@ class StudioCandidate {
       const others = this.usedByAtEnd(phaseId).filter((entry) => entry !== workflowId);
       if (others.length && typeof current === 'string' && current !== intentValue) {
         throw new SingularityFlowError(`${name} is a ${current} step in ${listWords(others.map((entry) => this.content.workTypes?.[entry]?.label ?? entry))} too, and a step means one thing in every workflow. Copy ${name} for this workflow and give the copy intent ${intentValue}.`,
-          { code: 'STUDIO_INTENT_SHARED', details: { step: phaseId, intent: current, workflows: others } });
+          { code: 'STUDIO_INTENT_SHARED', details: { step: phaseId, intent: current, workflows: others, nextAction: COPY_ROUTE } });
       }
       if (current !== intentValue) this.document.setIn(['phases', phaseId, 'intent'], intentValue);
     }
@@ -2666,7 +2673,7 @@ class StudioCandidate {
         if (shared && typeof current === 'string' && current !== value) {
           const others = users.filter((entry) => entry !== workflow).map((entry) => this.content.workTypes?.[entry]?.label ?? entry);
           throw new SingularityFlowError(`${name} is a ${current} step in ${listWords(others)} too, and a step means one thing in every workflow. Copy ${name} for this workflow and give the copy intent ${value}.`,
-            { code: 'STUDIO_INTENT_SHARED', details: { step: phaseId, intent: current, workflows: users } });
+            { code: 'STUDIO_INTENT_SHARED', details: { step: phaseId, intent: current, workflows: users, nextAction: COPY_ROUTE } });
         }
         intentAgreesWithOutput(value, { output: output ?? outputOf(this.phase(phaseId)), changesCode: changesCode ?? (outputOf(this.phase(phaseId)) === 'code' ? true : undefined) }, name);
         this.document.setIn(['phases', phaseId, 'intent'], value);
@@ -2767,14 +2774,14 @@ class StudioCandidate {
       // Settings given back to the step's intent (workflow assess): taken from this workflow's own settings for the step
       // where it has them, else from the step itself, which a step other workflows share cannot do.
       if (!Array.isArray(reset) || reset.some((setting) => !BECAUSE_SETTINGS.includes(setting))) {
-        throw new SingularityFlowError(`What ${name} gives back to its intent is a list of its settings, from: ${BECAUSE_SETTINGS.join(', ')}.`, { code: 'STUDIO_RESET_INVALID' });
+        throw new SingularityFlowError(`What ${name} gives back to its intent is a list of its settings, from: ${BECAUSE_SETTINGS.join(', ')}.`, { code: 'STUDIO_RESET_INVALID', details: { nextAction: REASON_ROUTE } });
       }
       for (const setting of reset) {
         const keys = setting === 'clarification.mode' ? ['clarification', 'mode'] : setting.split('.');
         if (override && this.document.hasIn([...override, ...keys])) { this.document.deleteIn([...override, ...keys]); continue; }
         if (!this.document.hasIn(['phases', phaseId, ...keys])) continue;
         if (shared) {
-          throw new SingularityFlowError(`${name} sets ${setting} itself, and other workflows use it too, so taking it away changes them. Copy ${name} for this workflow, or leave the setting.`, { code: 'STUDIO_INTENT_SHARED' });
+          throw new SingularityFlowError(`${name} sets ${setting} itself, and other workflows use it too, so taking it away changes them. Copy ${name} for this workflow, or leave the setting.`, { code: 'STUDIO_INTENT_SHARED', details: { step: phaseId, nextAction: COPY_ROUTE } });
         }
         this.document.deleteIn(['phases', phaseId, ...keys]);
       }
@@ -3594,7 +3601,7 @@ function intentReasonProblems(before, after) {
       if (!changed) continue;
       problems.push({ code: 'STUDIO_INTENT_REASON_REQUIRED', message: `${warning.title}. ${warning.fix}`, step: warning.step ?? null, setting: warning.setting,
         subject: warning.step ? { kind: 'phase', id: warning.step } : { kind: 'workflow', id: workflowId },
-        nextAction: { label: 'Say why the step differs from its intent, or take the setting away', workflowStudio: 'In VS Code, open Workflow Studio, select the step and say why under "Why this setting", or set it back.' } });
+        nextAction: REASON_ROUTE });
     }
   }
   return problems;

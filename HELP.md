@@ -3100,7 +3100,7 @@ singularity-flow workflow studio apply --change-set changes.json --dry-run --jso
 singularity-flow workflow studio apply --change-set changes.json --propose --json
 ```
 
-A change set is `{"schema": "sflow-studio-change-set@1", "base": {...}, "changes": [...]}`, where each change is one of `workflow.create`, `workflow.update`, `workflow.install`, `phase.create`, `phase.update`, `phase.agent`, `agent.create`, `agent.update`, `group.create`, `group.update`, `template.create`, `template.update`, `artifactSet.create`, `artifactSet.update`, `artifactSet.remove`, `epicWorkflow.create`, `epicWorkflow.update`, `epicStep.create`, `epicStep.update`, `epicOutput.set`, `epicOutput.remove`, the `integration.target.*` and `marketplace.*` changes, and the `import.*` changes the Library queues. The `base` returned by `workflow studio --json` makes a stale change set refuse rather than overwrite a newer configuration.
+A change set is `{"schema": "sflow-studio-change-set@1", "base": {...}, "changes": [...]}`, where each change is one of `workflow.create`, `workflow.update`, `workflow.install`, `workflow.intents` (every step's confirmed intent, and `version: 4`; see Step intents), `phase.create`, `phase.update`, `phase.agent`, `agent.create`, `agent.update`, `group.create`, `group.update`, `template.create`, `template.update`, `artifactSet.create`, `artifactSet.update`, `artifactSet.remove`, `epicWorkflow.create`, `epicWorkflow.update`, `epicStep.create`, `epicStep.update`, `epicOutput.set`, `epicOutput.remove`, the `integration.target.*` and `marketplace.*` changes, and the `import.*` changes the Library queues. The `base` returned by `workflow studio --json` makes a stale change set refuse rather than overwrite a newer configuration.
 
 ### Editing the definition
 
@@ -3130,6 +3130,39 @@ singularity-flow validate
 ```
 
 Process files are protected during phase generation. Change them in a dedicated configuration commit, review them like code, and avoid changing active work-item state manually.
+
+## Step intents
+
+A **step intent** is one word on a workflow step that says what the step is for. Once every step of a workflow has one, SFlow gives each step its settings from it: whether it changes code, who approves it, whether it asks questions first, which tests run at submit and where its starter template comes from. You choose one of ten:
+
+| Intent | What the step does |
+|---|---|
+| `intake` | Captures the request: what is wanted, why, and what is out of scope |
+| `requirements` | Writes numbered, testable requirements and acceptance criteria |
+| `design` | Works out how, or investigates: architecture, reproducing a bug, impact |
+| `plan` | Plans the exact changes and their tests; a person approves it |
+| `code` | Changes the code; a person approves it |
+| `test` | Runs the tests and records the results |
+| `review` | Checks the change against every requirement |
+| `release` | Prepares the release: pull request text, release notes, rollback check |
+| `report` | Writes a report for people: what happened and what remains |
+| `document` | Writes another document: a runbook, threat model or decision record |
+
+**Adding a step means choosing its intent.** Workflow Studio's **Add step** and the Builder's `step.add` ask "What does this step do?" first, and the new step starts from that intent's template (`common/requirements.md`, `common/plan.md` and the rest).
+
+**SFlow works out what it can.** For each step it reads its structure first (a code task, an output kind, the tests it runs), then its place, its words and its agent, and says how sure it is: certain, likely or unclear. Copilot proposes an intent for each step that is not certain. You are asked one plain question only when a step is truly unclear, with two or three choices and what each means; never a free-text answer.
+
+**You confirm on one screen.** Every step with its intent, a badge (*SFlow is sure*, *Copilot suggests*, *Your answer needed*), why, and what SFlow will set up, then the workflow facts: where requirement IDs are written, which step is the plan, which steps a person approves, and what is left out and why. Confirming writes `intent:` on every step and `version: 4` at the top of `workflow.yml`, so the workflow derives its settings from its steps' intents. A workflow that uses steps SFlow ships keeps its own settings until SFlow ships what those steps are for, unless you use copies of them; the screen says so, and there is nothing to confirm.
+
+- **Workflow Studio:** a build's **Finish** tab, under "What each step is for".
+- **Copilot:** `/sf-build-workflow` shows the same table and asks once.
+- **Shell:** `singularity-flow workflow build intents --build <ID>` prints the table with a short code; `--intent STEP=INTENT` answers a row, `--rule WAY` takes one of the two ways the workflow rules offer, and `--confirm CODE` confirms the table as shown. `singularity-flow workflow build start --intents <WORKFLOW>` opens this for a workflow you already have.
+
+When nothing before a code step plans it, or nothing before it writes the requirements, the screen asks which way: add a short plan (or requirements) step before it (recommended), or let the step plan its own change.
+
+**A setting that differs from the intent says why.** A step may still set a framework setting itself (for example a test step that writes its own regression tests), with the reason under `because:`, such as `because: { writeScope: "It adds the missing regression tests itself, so a person approves it." }`. Saving a changed setting without a reason is refused; a file written before intents gets a warning instead. `singularity-flow workflow check <WORKFLOW> --settings` shows where each setting comes from, and `singularity-flow workflow assess <WORKFLOW>` finds text that contradicts a step's intent, settings changed with no reason, and settings that say what the intent gives anyway.
+
+**Not the same as `workflow intent`.** The `singularity-flow workflow intent catalog | show | example | preflight | attachments` commands are something else: model-free discovery for designing a workflow with Copilot (the Create with Copilot handoff), which looks up the steps, agents and templates a new workflow can reuse. They neither read nor write step intents.
 
 ## VS Code extension
 

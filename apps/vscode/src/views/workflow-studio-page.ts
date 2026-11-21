@@ -4823,7 +4823,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (!trusted.length && !pending.length) section.appendChild(el('p', { class: 'muted', text: 'None yet. A marketplace is a catalog your team publishes; each entry pins its file by hash, and its index can only list files from origins you allow here.' }));
     trusted.forEach(function (market) {
       section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark ok', text: '✓' }),
-        el('div', null, el('strong', { text: market.label }), el('div', { class: 'muted', text: market.index + (market.allowedOrigins.length ? ' · files also from ' + market.allowedOrigins.join(', ') : '') })),
+        el('div', null, el('strong', { text: market.label }), el('div', { class: 'muted', text: market.repository ? market.repository + ' at ' + String(market.commit || '').slice(0, 12)
+          : market.index + (market.allowedOrigins.length ? ' · files also from ' + market.allowedOrigins.join(', ') : '') })),
         el('div', { class: 'studio-row' },
           button(lib.busy === 'browse:' + market.id ? 'Opening…' : 'Browse', function () { lib.busy = 'browse:' + market.id; lib.market = market; lib.entries = null; lib.error = null; render(); post({ type: 'studio.marketplaceBrowse', id: market.id }); }, { class: 'secondary', 'aria-label': 'Browse ' + market.label }),
           button('Stop trusting', function () { queueImport({ op: 'marketplace.remove', id: market.id }, market.label + ' will no longer be trusted once you publish.'); }, { class: 'secondary', 'aria-label': 'Stop trusting ' + market.label }))));
@@ -4876,7 +4877,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
             if (entry.kind === 'generated') { lib.generated = entry; lib.preview = null; render(); return; }
             previewImport(importReference(entry, market.id), entry.kind, null);
           }, { class: 'secondary', 'aria-label': (entry.kind === 'generated' ? 'Set up ' : 'Preview ') + entry.label })
-          : el('span', { class: 'muted', text: 'This version of Singularity Flow cannot import ' + (KIND_WORDS[entry.kind] || entry.kind).replace(/^[A-Z][a-z]/, function (start) { return start.toLowerCase(); }) + ' entries yet.' })));
+          // A Git repository marketplace's agent becomes a workflow; its skills come with it.
+          : entry.workflowCommand ? el('span', { class: 'muted', text: 'As a workflow: ' + entry.workflowCommand })
+            : market.repository ? el('span', { class: 'muted', text: 'Comes with the agents that use it.' })
+              : el('span', { class: 'muted', text: 'This version of Singularity Flow cannot import ' + (KIND_WORDS[entry.kind] || entry.kind).replace(/^[A-Z][a-z]/, function (start) { return start.toLowerCase(); }) + ' entries yet.' })));
     });
     box.appendChild(grid);
     return box;

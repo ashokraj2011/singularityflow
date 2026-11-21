@@ -17,6 +17,8 @@
 import { createHash } from 'node:crypto';
 import { guidanceConflicts, scanGuidanceText } from '../guidance-scan.mjs';
 import { textUsers } from '../workflow-build/text-moves.mjs';
+import { workTypeDerivesIntents } from '../phase-roles.mjs';
+import { deriveWorkTypeSettings } from '../step-intent-settings.mjs';
 import { bytesOf, conditionCount, containment, contentWords, occurrences, sameSentence, similarity, vaguePhrase, wordCount } from './text.mjs';
 
 export const ASSESS_SEVERITIES = Object.freeze(['problem', 'warning', 'note']);
@@ -189,6 +191,51 @@ function removal({ layer, step, span, reach, context, text, also = [] }) {
     saving: { bytes: bytes * reach, tokens: Math.ceil(Math.max(0, bytes) / 4) * reach, perStep: bytes, steps: reach } };
 }
 
+/** The settings a step may give back to its intent with step.reset, as workflow.yml names them. */
+export const RESETTABLE_SETTINGS = Object.freeze(['writeScope', 'sourceBoundary', 'artifact.kind', 'clarification.mode', 'approval.automatic',
+  'approval.rejectTo', 'repositoryTests', 'testEvidenceFrom', 'testRuns', 'repairBudget']);
+
+/**
+ * What a workflow that derives from its steps' intents says about its own settings (step intents §6.5): a framework
+ * setting a step changes from its intent with no reason (`because:`), and one it writes as its intent gives it anyway.
+ * Model-free, from the derivation configuration itself runs; each with the builder move that settles it.
+ */
+function intentSettingFindings({ workflow, steps, definition }) {
+  if (!workTypeDerivesIntents(definition, definition?.workTypes?.[workflow.id])) return [];
+  let derivation = null;
+  try { derivation = deriveWorkTypeSettings(definition, workflow.id); } catch { return []; }
+  if (!derivation) return [];
+  const label = (id) => steps.find((step) => step.id === id)?.label ?? definition.phases?.[id]?.label ?? id;
+  const location = { file: 'singularity/workflow.yml', line: null };
+  const found = [];
+  for (const warning of derivation.warnings.filter((entry) => entry.code === 'CHECK_INTENT_OVERRIDE_WITHOUT_REASON' && entry.step)) {
+    const resettable = RESETTABLE_SETTINGS.includes(warning.setting);
+    found.push({ code: 'ASSESS_OVERRIDE_WITHOUT_REASON', kind: 'unclear', severity: 'warning', steps: [warning.step], location, subjectKey: `${warning.step}:${warning.setting}`,
+      title: warning.title, detail: warning.detail,
+      suggestion: { text: `Say why ${label(warning.step)} sets ${warning.setting} itself: step.change with because: { ${warning.setting}: "why it differs" } (20 to 1000 characters)${resettable ? ', or take it away so the intent decides it' : ''}.`,
+        decidedBy: 'person', moves: [], ...(resettable ? { alternatives: [{ id: 'reset', label: `Take ${warning.setting} away from ${label(warning.step)}, so its intent decides it`,
+          moves: [{ move: 'step.reset', id: warning.step, settings: [warning.setting] }] }] } : {}) } });
+  }
+  for (const step of derivation.steps) {
+    const d = step.derived;
+    const explicit = (key) => ['override', 'shared-step'].includes(step.sources[key]?.from);
+    const same = [
+      ['writeScope', step.intent !== 'code' && explicit('writeScope') && step.settings.writeScope === d.writeScope, d.writeScope],
+      ['artifact.kind', explicit('artifact.kind') && step.settings.artifact?.kind === d.artifactKind, d.artifactKind],
+      ['clarification.mode', explicit('clarification.mode') && (step.settings.clarification?.mode ?? step.settings.clarification) === d.clarification.mode, d.clarification.mode],
+      ['repositoryTests', explicit('repositoryTests') && (step.settings.repositoryTests ?? 'off') === d.repositoryTests, d.repositoryTests],
+      ['testEvidenceFrom', explicit('testEvidenceFrom') && d.testEvidenceFrom != null && step.settings.testEvidenceFrom === d.testEvidenceFrom, d.testEvidenceFrom]
+    ].filter(([, equal]) => equal);
+    for (const [key, , value] of same) {
+      found.push({ code: 'ASSESS_OVERRIDE_SAME_AS_INTENT', kind: 'redundant', severity: 'note', steps: [step.id], location, subjectKey: `${step.id}:${key}`,
+        title: `${label(step.id)} sets ${key} to what its intent gives`,
+        detail: `${label(step.id)}'s intent (${step.intent}) gives ${key} ${value} already, so the setting says nothing the intent does not; it only stops an improved profile from reaching this step.`,
+        suggestion: { text: `Take ${key} away from ${label(step.id)}: its intent gives the same.`, decidedBy: 'sflow', moves: [{ move: 'step.reset', id: step.id, settings: [key] }] } });
+    }
+  }
+  return found;
+}
+
 /** Run every check over one workflow's steps (src/workflow-assess/layers.mjs). */
 export function assessSteps({ workflow, steps, model, definition, applicationExists }) {
   const out = collector(workflow);
@@ -211,7 +258,15 @@ export function assessSteps({ workflow, steps, model, definition, applicationExi
       const others = stepsOf(layer).map((id) => byId.get(id));
       const negated = NEGATED.test(sentence.text);
       const span = removalSpan(layer.source, [sentence]);
-      if (!settings.changesCode && !negated && WRITES_CODE.test(sentence.text) && layer.layer !== 'step') {
+      const intent = typeof definition?.phases?.[step.id]?.intent === 'string' ? definition.phases[step.id].intent : null;
+      if (intent && intent !== 'code' && !settings.changesCode && !negated && WRITES_CODE.test(sentence.text)) {
+        // Step intents §6.5: the step says what it is for, and its own text says otherwise.
+        sentenceFinding(sentence, step, { code: 'ASSESS_TEXT_CONTRADICTS_INTENT', kind: 'contradictory', severity: 'problem',
+          title: `${step.label} is a ${intent} step, but its text tells it to change code`,
+          detail: `${step.label} says it is a ${intent} step, which changes no code, so the step's guard refuses every edit to the repository's files: an agent that follows "${quoted(sentence.text, 120)}" is refused and stalls.`,
+          suggestion: { ...removal({ layer, step, span, reach: reach(layer), context, text: `Take the sentence out: ${step.label} ${intent === 'test' ? 'runs the tests and reports' : 'writes its document'}, and the code step changes the code.` }),
+            alternatives: [{ id: 'intent', label: `Make ${step.label} a code step`, moves: [{ move: 'step.intent', id: step.id, intent: 'code' }] }] } });
+      } else if (!settings.changesCode && !negated && WRITES_CODE.test(sentence.text) && layer.layer !== 'step') {
         const coding = others.filter((other) => other.settings.changesCode);
         sentenceFinding(sentence, step, { code: 'ASSESS_WRITES_CODE_IN_NO_CODE_STEP', kind: 'contradictory', severity: 'problem',
           title: `${step.label} is told to change code, but it changes no code`,
@@ -543,6 +598,8 @@ export function assessSteps({ workflow, steps, model, definition, applicationExi
       }
     }
   }
+
+  for (const entry of intentSettingFindings({ workflow, steps, definition })) out.add(entry);
 
   // One change per text: a later finding about text an earlier one already takes out points at it.
   const findings = out.list().sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]

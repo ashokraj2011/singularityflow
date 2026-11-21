@@ -874,8 +874,13 @@ export async function checkBuild(id, { root = null, include = null, env = proces
   // What each step is for (step intents §6.4): the table, and whether this build must confirm it before it finishes.
   // A workflow whose shipped steps keep their settings (another intent than shipped, or a repository on an earlier
   // version that does not say theirs yet) has nothing to confirm.
-  const intents = plan.inspection?.intents ? { ...plan.inspection.intents, required: result.intentsInPlay && plan.inspection.intents.derivable,
-    ...intentRoutes(record.id, plan.inspection.intents) } : null;
+  // Every step already says what it is for in workflow.yml (a copy of SFlow's shipped steps, Stage 4) and nothing is
+  // open: SFlow knows the table, so there is nothing for a person to confirm, unless they opened the build to settle it.
+  const table = plan.inspection?.intents;
+  const declared = Boolean(table) && !record.goal?.intents && table.rows.every((row) => row.source === 'declared')
+    && !table.open && !table.problems.length;
+  const intents = table ? { ...table, required: result.intentsInPlay && table.derivable && !declared,
+    ...intentRoutes(record.id, table) } : null;
   const intentsSettled = !intents?.required || (intents.confirmed && !intents.open && !intents.problems.length);
   // A change build is ready only once it changes something.
   const unchanged = draft.workflow.inPlace && !changeSet.changes.length;

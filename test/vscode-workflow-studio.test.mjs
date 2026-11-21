@@ -285,7 +285,8 @@ test('a copy runs in its workflow exactly as the step it replaces, in each packa
     out.push(at);
     return out;
   };
-  const expected = [/^\.phases\.\d+\.(label|defaultTemplate|artifact\.(path|kind)|inputs\.\d+\.path|worldModel\.views\.\d+|comparison\.identifiers\.\d+)$/,
+  // A step's intent (the intake's `intake`) only looks like a step ID too.
+  const expected = [/^\.phases\.\d+\.(label|defaultTemplate|intent|artifact\.(path|kind)|inputs\.\d+\.path|worldModel\.views\.\d+|comparison\.identifiers\.\d+)$/,
     /^\.(artifactSets|harnessImports|verification|architectureIntent)\b/,
     // The exact obligation-graph digest hashes step IDs; its rename-stable shape digest must not move.
     /^\.obligationGraph\.digest$/];

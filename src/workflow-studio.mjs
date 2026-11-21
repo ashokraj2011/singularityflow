@@ -244,6 +244,8 @@ function requireAuthoringSkill(value) {
  */
 /** Why a step a person turned "Approve automatically when ready" off for in Workflow Studio is approved by a person. */
 const AUTOMATIC_OFF_REASON = 'A person approves this step: automatic approval was turned off for it in Workflow Studio.';
+/** Why a step whose questions a person turned off in Workflow Studio asks nothing. */
+const QUESTIONS_OFF_REASON = 'This step asks no questions first: they were turned off for it in Workflow Studio.';
 
 function automaticApprovalView(phase, type, resolvedPhases) {
   const approval = phase?.approval;
@@ -1046,11 +1048,35 @@ class StudioCandidate {
     const at = [...scope, 'because', 'approval.automatic'];
     if (signOff && typeof signOff === 'object' && signOff.automatic === 'off') {
       if (!this.document.hasIn(at)) this.document.setIn(at, AUTOMATIC_OFF_REASON);
-    } else if (this.document.getIn(at) === AUTOMATIC_OFF_REASON) {
-      this.document.deleteIn(at);
-      const rest = this.document.getIn([...scope, 'because']);
-      if (rest && typeof rest.items !== 'undefined' && !rest.items.length) this.document.deleteIn([...scope, 'because']);
-    }
+    } else this.dropStudioReason(scope, 'approval.automatic', AUTOMATIC_OFF_REASON);
+  }
+
+  /** Whether a step's intent decides what it leaves unset: it has one, in a version 4 file. */
+  intentsDecide(phaseId) {
+    return Number.isSafeInteger(this.content?.version) && this.content.version >= INTENTS_FILE_VERSION
+      && typeof this.phase(phaseId)?.intent === 'string';
+  }
+
+  /**
+   * "Clarifying questions: off". Elsewhere absent says it; where the step's intent decides, absent would be the intent's
+   * questions, so off is written with the rest of the step's question settings kept, and says why: the person turned
+   * the questions off here (spec §7.3). A copy of a step that asks nothing keeps its source's settings and reason.
+   */
+  questionsOff(phaseId, base) {
+    const at = ['phases', phaseId, 'clarification'];
+    if (!this.intentsDecide(phaseId)) { this.document.deleteIn(at); return; }
+    this.document.setIn(at, this.document.createNode({ ...(isObject(base) ? base : {}), mode: 'off' }));
+    const reason = ['phases', phaseId, 'because', 'clarification.mode'];
+    if (!this.document.hasIn(reason)) this.document.setIn(reason, QUESTIONS_OFF_REASON);
+  }
+
+  /** A reason Workflow Studio wrote for a setting, taken away with the setting it explained. */
+  dropStudioReason(scope, setting, reason) {
+    const at = [...scope, 'because', setting];
+    if (this.document.getIn(at) !== reason) return;
+    this.document.deleteIn(at);
+    const rest = this.document.getIn([...scope, 'because']);
+    if (rest && typeof rest.items !== 'undefined' && !rest.items.length) this.document.deleteIn([...scope, 'because']);
   }
 
   /**
@@ -2628,8 +2654,11 @@ class StudioCandidate {
     }
     if (clarification !== undefined) {
       if (!CLARIFICATION_MODES.some((mode) => mode.id === clarification)) throw new SingularityFlowError('Clarifying questions are off, when-needed or required.', { code: 'STUDIO_CLARIFICATION_INVALID' });
-      if (clarification === 'off') this.document.deleteIn(['phases', phaseId, 'clarification']);
-      else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ ...(node.clarification ?? {}), mode: clarification }));
+      if (clarification === 'off') this.questionsOff(phaseId, node.clarification);
+      else {
+        this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ ...(node.clarification ?? {}), mode: clarification }));
+        this.dropStudioReason(['phases', phaseId], 'clarification.mode', QUESTIONS_OFF_REASON);
+      }
     }
     // What the new step sends after it: the list the change names, so a copy can also drop its source's.
     let actionCount = 0;
@@ -2809,8 +2838,11 @@ class StudioCandidate {
       changed.push('questions');
     } else if (clarification != null) {
       if (!CLARIFICATION_MODES.some((mode) => mode.id === clarification)) throw new SingularityFlowError('Clarifying questions are off, when-needed or required.', { code: 'STUDIO_CLARIFICATION_INVALID' });
-      if (clarification === 'off') this.document.deleteIn(['phases', phaseId, 'clarification']);
-      else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ mode: clarification }));
+      if (clarification === 'off') this.questionsOff(phaseId, this.phase(phaseId)?.clarification);
+      else {
+        this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ mode: clarification }));
+        this.dropStudioReason(['phases', phaseId], 'clarification.mode', QUESTIONS_OFF_REASON);
+      }
       changed.push('questions');
     }
     if (reset != null) {
@@ -3549,7 +3581,7 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   if (writtenWorkflow) {
     let afterDefinition = null;
     try { afterDefinition = parseYamlText(asText(writtenWorkflow.after)) ?? {}; } catch { afterDefinition = null; }
-    if (afterDefinition) reasonProblems = intentReasonProblems(sources.raw ?? {}, afterDefinition);
+    if (afterDefinition) reasonProblems = intentReasonProblems(sources.raw ?? {}, afterDefinition, changeSet.changes ?? []);
   }
   // `inspect` reads the configuration as it would be after the change set: the validated copy, or the
   // configuration itself when nothing would change.
@@ -3629,10 +3661,22 @@ function frameworkValue(node, setting) {
  * The framework settings a change set gives a step of a workflow that derives from intents, which differ from what
  * the step's intent gives and say no reason (step intents §7.5): each refused, naming the reason or the removal.
  */
-function intentReasonProblems(before, after) {
+function intentReasonProblems(before, after, changes = []) {
   if (!declaresStepIntents(after)) return [];
   const problems = [];
   const same = (left, right) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  // A copy keeps what its source step, or its source workflow, sets: a setting that is the same as there is not one
+  // this change set gives (a copy of a shipped step brings its explicit settings into the workflow it now runs in).
+  const stepCopies = new Map(changes.filter((change) => change?.op === 'phase.create' && typeof change.copyOf === 'string').map((change) => [change.id, change.copyOf]));
+  const workflowCopies = new Map(changes.filter((change) => change?.op === 'workflow.create' && typeof change.copyOf === 'string').map((change) => [change.id, change.copyOf]));
+  const inherited = (workflowId, step, setting) => {
+    const sourceStep = stepCopies.get(step) ?? step;
+    const sourceWorkflow = workflowCopies.get(workflowId) ?? workflowId;
+    if (sourceStep === step && sourceWorkflow === workflowId) return false;
+    const override = frameworkValue(after.workTypes?.[workflowId]?.phaseOverrides?.[step], setting);
+    return same(frameworkValue(before.phases?.[sourceStep], setting), frameworkValue(after.phases?.[step], setting))
+      && (override === undefined || same(frameworkValue(before.workTypes?.[sourceWorkflow]?.phaseOverrides?.[sourceStep], setting), override));
+  };
   for (const [workflowId, type] of Object.entries(after.workTypes ?? {})) {
     if (!workTypeDerivesIntents(after, type)) continue;
     let derivation = null;
@@ -3644,7 +3688,7 @@ function intentReasonProblems(before, after) {
           || !same(frameworkValue(before.workTypes?.[workflowId]?.phaseOverrides?.[warning.step], warning.setting),
             frameworkValue(after.workTypes?.[workflowId]?.phaseOverrides?.[warning.step], warning.setting))
         : !same(frameworkValue(before.workTypes?.[workflowId], warning.setting), frameworkValue(type, warning.setting));
-      if (!changed) continue;
+      if (!changed || (warning.step && inherited(workflowId, warning.step, warning.setting))) continue;
       problems.push({ code: 'STUDIO_INTENT_REASON_REQUIRED', message: `${warning.title}. ${warning.fix}`, step: warning.step ?? null, setting: warning.setting,
         subject: warning.step ? { kind: 'phase', id: warning.step } : { kind: 'workflow', id: workflowId },
         nextAction: REASON_ROUTE });

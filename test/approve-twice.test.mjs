@@ -280,4 +280,15 @@ test('Workflow Studio offers the switch only where the workflow allows it, and a
   const refused = await apply([{ op: 'phase.update', id: 'intake', workflow: 'our-chore', approval: { group: 'product-approvers', minimum: 1, automatic: true } }], { ok: false });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stdout + refused.stderr, /cannot be approved automatically: it is the plan/u);
+  // Questions turned off where the step's intent would ask them: off is written with the step's other question
+  // settings, and says why; turned on again, the reason Studio wrote goes with it.
+  await apply([{ op: 'phase.create', id: 'our-conformance', label: 'Our conformance', copyOf: 'conformance', clarification: 'off' },
+    { op: 'workflow.update', id: 'our-chore', phases: ['intake', 'implementation', 'verification', 'our-conformance'] }]);
+  const quiet = (await workflow()).phases['our-conformance'];
+  assert.deepEqual([quiet.clarification.mode, quiet.clarification.maxQuestions], ['off', 3]);
+  assert.match(quiet.because['clarification.mode'], /turned off for it in Workflow Studio/u);
+  await apply([{ op: 'phase.update', id: 'our-conformance', clarification: 'when-needed' }]);
+  const asking = (await workflow()).phases['our-conformance'];
+  assert.equal(asking.clarification.mode, 'when-needed');
+  assert.equal(asking.because?.['clarification.mode'], undefined);
 });

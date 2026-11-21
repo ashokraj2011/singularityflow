@@ -69,8 +69,11 @@ test('the review packet asks one question with its outcome-labelled choice, noth
   assert.equal(act.ask.question, QUESTION);
   assert.deepEqual(act.ask.choices.map((choice) => choice.label), ['Approve Requirements v1', 'Not now']);
   assert.match(act.ask.how, /approvalCovers/u);
-  // VS Code: #sflowDecide opens the approval page, and the turn ends there with no approve route [owner's Story, 2026-11-20].
-  assert.match(act.ask.how, /in VS Code's own chat do not ask: call #sflowDecide with workId only, which opens the approval page when only the approval is left; the person approves there, or types the tool's next \(@sflow \/approve\) in the chat box, so end the turn there and relay no other approve route/u);
+  // VS Code: #sflowDecide opens the approval page, and the turn ends there with no approve route [owner's Story, 2026-11-20]. A
+  // second turn calls it again, which brings the open page forward; the ending names only the page and the person's own
+  // @sflow line, filled when the packet names the Story [owner, 2026-11-21].
+  assert.match(act.ask.how, /in VS Code's own chat do not ask: call #sflowDecide with workId only, in this turn even when an earlier one opened the approval page \(it brings that page forward\)\. When it answers approval-open, end that VS Code turn with only what the person does: approve on the approval page that is open, or type the tool's next \(@sflow \/approve\) in the chat box \(only that line when it says the page could not open\), and no Copilot, Shell or other approve route/u);
+  assert.match(agentAct({ ...packet, workId: 'AY-1' }).ask.how, /or type `@sflow \/approve requirements --work-id AY-1` in the chat box/u);
   assert.match(act.ask.how, /Record it only after their Yes; never answer it yourself/u);
 });
 

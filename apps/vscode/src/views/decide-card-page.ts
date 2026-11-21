@@ -122,12 +122,15 @@ export function approvalFocus(packet: DecisionPacket, item?: DecisionItemPacket 
   return { workId: packet.workId, phase: typeof phase === 'string' && phase ? phase : packet.phase };
 }
 
-/** What a chat that opened this card is told once the approval page is open: nothing to relay, nothing it records. */
+/**
+ * What a chat that opened this card is told once the approval page is open: nothing to relay, nothing it records. A page
+ * that could not open leaves one route, the person's own @sflow /approve (approveInChat), the tool's next [owner, 2026-11-21].
+ */
 export function approvalPageWords(packet: DecisionPacket, item: DecisionItemPacket, opened = true): string {
   const version = Number(item.details?.generation);
   const step = `${packet.phaseLabel}${Number.isSafeInteger(version) && version > 0 ? ` v${version}` : ''}`;
   return opened ? `The approval page is open for ${step} with its documents. The person reads them and chooses Approve there; this chat records nothing.`
-    : `The approval page for ${step} could not open here. The person opens Singularity Flow: Approvals and approves there; this chat records nothing.`;
+    : `The approval page for ${step} could not open here. The person approves by typing ${approveInChat(packet, item).modelFreeCommand} in the chat box; this chat records nothing.`;
 }
 
 /**

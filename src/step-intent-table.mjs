@@ -141,8 +141,10 @@ function ruleQuestions(derivation, { label, freeId, agentFor, approverOf }) {
  * IDs it has, with `agentOf(step)` the agent of a step; `protectedSteps` and `seededWorkflows` the steps and workflows
  * SFlow ships that the repository has as shipped (seeded-workflow-protection.mjs).
  *
- * A step SFlow ships takes only its packaged intent, and none while that would make a shipped workflow derive from
- * intents before SFlow ships them (Stage 4): such a workflow keeps its own settings, and `derivable` is false.
+ * A step SFlow ships takes only its packaged intent. Since Stage 4 the shipped workflow.yml says it on every step; a
+ * repository the upgrade kept on an earlier version has the shipped steps without it, and such a step takes none while
+ * that would make a shipped workflow derive from intents before the repository moves to version 4. Either way the
+ * workflow keeps its own settings, and `derivable` is false.
  */
 export function intentTable(definition, workflowId, { rows = [], proposed = {}, chosen = {}, confirmed = null, groups = null, agents = [], agentOf = () => null,
   protectedSteps = [], seededWorkflows = [] } = {}) {
@@ -202,17 +204,26 @@ export function intentTable(definition, workflowId, { rows = [], proposed = {}, 
   });
 
   const facts = factsOf(derivation, label);
-  // Steps SFlow ships keep what they are until it ships their intents, when giving one would change a shipped workflow.
-  const declaredAfter = (id) => current[id] ?? (typeof definition.phases?.[id]?.intent === 'string' ? definition.phases[id].intent : null);
+  // A step SFlow ships keeps its packaged intent; one workflow.yml does not say it for yet (a repository kept on an earlier
+  // version, Stage 4) takes none while giving it one would change a shipped workflow.
+  const written = (id) => (typeof definition.phases?.[id]?.intent === 'string' ? definition.phases[id].intent : null);
+  const declaredAfter = (id) => current[id] ?? written(id);
   const completes = seededWorkflows.filter((id) => Array.isArray(definition.workTypes?.[id]?.phases)
     && definition.workTypes[id].phases.every((phase) => definition.phases?.[phase]?.kind === 'skill' || declaredAfter(phase)));
-  const held = new Set(protectedSteps.filter((id) => ids.includes(id)
-    && (current[id] !== PACKAGED_STEP_INTENTS[id] || completes.some((workflow) => definition.workTypes[workflow].phases.includes(id)))));
+  const otherIntent = protectedSteps.filter((id) => ids.includes(id) && current[id] !== PACKAGED_STEP_INTENTS[id]);
+  const notYet = protectedSteps.filter((id) => ids.includes(id) && !otherIntent.includes(id) && !written(id)
+    && completes.some((workflow) => definition.workTypes[workflow].phases.includes(id)));
+  const held = new Set([...otherIntent, ...notYet]);
   for (const row of table) if (held.has(row.step)) row.writable = false;
   const derivable = held.size === 0;
-  if (!derivable) {
-    facts.lines.push(`${listed([...held].map(label))} ${held.size === 1 ? 'is a step' : 'are steps'} SFlow ships, which keep${held.size === 1 ? 's' : ''} its settings until SFlow ships what ${held.size === 1 ? 'it is' : 'they are'} for, `
-      + 'so this workflow keeps its own settings too; nothing to confirm. To derive them now, use copies of those steps.');
+  const steps = (list) => `${listed(list.map(label))} ${list.length === 1 ? 'is a step' : 'are steps'} SFlow ships`;
+  if (otherIntent.length) {
+    facts.lines.push(`${steps(otherIntent)} with what ${otherIntent.length === 1 ? 'it is' : 'they are'} for (${otherIntent.map((id) => `${label(id)}: ${PACKAGED_STEP_INTENTS[id]}`).join(', ')}), `
+      + 'so this workflow keeps its own settings; nothing to confirm. To give one another intent, use a copy of it.');
+  }
+  if (notYet.length) {
+    facts.lines.push(`${steps(notYet)}, which this repository's workflow.yml keeps without what ${notYet.length === 1 ? 'it is' : 'they are'} for until it moves to `
+      + 'version 4, so this workflow keeps its own settings too; nothing to confirm. To derive them now, use copies of those steps.');
   }
   const phaseIds = new Set(Object.keys(definition.phases ?? {}));
   const freeId = (stem) => { let id = stem; for (let index = 2; phaseIds.has(id); index += 1) id = `${stem}-${index}`; return id; };

@@ -242,6 +242,9 @@ function requireAuthoringSkill(value) {
  * A workflow step's "Approve automatically when ready" switch: whether it is on, and whether this workflow may turn it
  * on, with why not in a developer's words. Read from the resolved workflow; unknown when it does not resolve.
  */
+/** Why a step a person turned "Approve automatically when ready" off for in Workflow Studio is approved by a person. */
+const AUTOMATIC_OFF_REASON = 'A person approves this step: automatic approval was turned off for it in Workflow Studio.';
+
 function automaticApprovalView(phase, type, resolvedPhases) {
   const approval = phase?.approval;
   const on = Boolean(approval && typeof approval === 'object' && approval.automatic);
@@ -1023,9 +1026,31 @@ class StudioCandidate {
     // Approve twice (owner, 2026-11-19): "Approve automatically when ready", on or off; configuration refuses it where
     // a person must approve (phase-roles.mjs), and the page offers it only where it may be on.
     if (approval.automatic === true) node.automatic = 'when-ready';
-    else if (approval.automatic === false) delete node.automatic;
+    else if (approval.automatic === false) {
+      // In a version 4 file a step's intent may let SFlow approve it when the workflow says nothing, so "off" is
+      // written there (the derivation reads it as a person's approval); elsewhere absent already says it.
+      const intents = Number.isSafeInteger(this.content?.version) && this.content.version >= INTENTS_FILE_VERSION
+        && phaseId && typeof this.phase(phaseId)?.intent === 'string';
+      if (intents) node.automatic = 'off'; else delete node.automatic;
+    }
     if (approval.rejectTo != null) node.rejectTo = this.sendBackTargets(approval.rejectTo, phaseId, reaches, name ?? this.phaseLabel(phaseId));
     return node;
+  }
+
+  /**
+   * "Approve automatically when ready" turned off where the step's intent would let SFlow approve it writes
+   * `automatic: off`, a setting that differs from the intent, so it says why: the person turned it off here (spec §7.3).
+   * Turned on again, that reason goes with it; a reason the person wrote stays.
+   */
+  automaticOffReason(scope, signOff) {
+    const at = [...scope, 'because', 'approval.automatic'];
+    if (signOff && typeof signOff === 'object' && signOff.automatic === 'off') {
+      if (!this.document.hasIn(at)) this.document.setIn(at, AUTOMATIC_OFF_REASON);
+    } else if (this.document.getIn(at) === AUTOMATIC_OFF_REASON) {
+      this.document.deleteIn(at);
+      const rest = this.document.getIn([...scope, 'because']);
+      if (rest && typeof rest.items !== 'undefined' && !rest.items.length) this.document.deleteIn([...scope, 'because']);
+    }
   }
 
   /**
@@ -2592,7 +2617,9 @@ class StudioCandidate {
           && (!Array.isArray(approval.required) || JSON.stringify(approval.required) === JSON.stringify(current.requiredAuthorities))
           && (approval.rejectTo == null || JSON.stringify(approval.rejectTo) === JSON.stringify(node.approval?.rejectTo ?? null));
       if (!unchanged) {
-        this.document.setIn(['phases', phaseId, 'approval'], this.document.createNode(this.approvalNode(approval, node.approval, { phaseId, name, reaches: this.ownSendBackReach(phaseId) })));
+        const signOff = this.approvalNode(approval, node.approval, { phaseId, name, reaches: this.ownSendBackReach(phaseId) });
+        this.document.setIn(['phases', phaseId, 'approval'], this.document.createNode(signOff));
+        this.automaticOffReason(['phases', phaseId], signOff);
       }
     }
     if (authoringSkill !== undefined) {
@@ -2720,7 +2747,9 @@ class StudioCandidate {
       // Send-back targets set for one workflow are checked against that workflow; the step's own
       // against every workflow they reach.
       const reaches = scope === override ? [workflow] : this.ownSendBackReach(phaseId);
-      this.document.setIn([...scope, 'approval'], this.document.createNode(this.approvalNode(approval, existing === 'none' ? null : existing, { phaseId, reaches })));
+      const signOff = this.approvalNode(approval, existing === 'none' ? null : existing, { phaseId, reaches });
+      this.document.setIn([...scope, 'approval'], this.document.createNode(signOff));
+      this.automaticOffReason(scope, signOff);
       changed.push(approval !== 'none' && approval.rejectTo != null ? 'sign-off and send-back targets' : 'sign-off');
     }
     // Step World Model views belonged to the removed registered World Model; nothing is written.
@@ -3513,12 +3542,14 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   }
   // A framework setting this change set gives a step, other than what the step's intent gives, says why (step intents
   // §7.5): refused here, with the two ways on. One written before intents, which the change set leaves as it was,
-  // stays a warning in workflow check.
+  // stays a warning in workflow check. Configuration's own refusal comes first: a reason would not let a plan step be
+  // approved automatically, so that refusal, not the reason, is what to fix.
   const writtenWorkflow = problems.length ? null : files.find((entry) => entry.path === WORKFLOW_PATH && entry.after != null);
+  let reasonProblems = [];
   if (writtenWorkflow) {
     let afterDefinition = null;
     try { afterDefinition = parseYamlText(asText(writtenWorkflow.after)) ?? {}; } catch { afterDefinition = null; }
-    if (afterDefinition) problems.push(...intentReasonProblems(sources.raw ?? {}, afterDefinition));
+    if (afterDefinition) reasonProblems = intentReasonProblems(sources.raw ?? {}, afterDefinition);
   }
   // `inspect` reads the configuration as it would be after the change set: the validated copy, or the
   // configuration itself when nothing would change.
@@ -3534,6 +3565,7 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
         ...(Array.isArray(located) && located.length ? { located } : {}) });
     }
   } else if (!problems.length && inspectCandidate) await inspectCandidate(root);
+  if (!problems.length) problems.push(...reasonProblems);
   const obligationWarnings = problems.length ? [] : obligationFindings(files, [...candidate.workflows.keys()]);
   // What approval would refuse and SFlow cannot add itself: shown in a preview, refused when proposed.
   const refused = problems.length ? [] : (checked?.problems ?? []).map((problem) => ({ code: 'STUDIO_WORKFLOW_PROBLEM',

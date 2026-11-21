@@ -820,8 +820,8 @@
     "workTypeBecause": {
       "type": "object",
       "minProperties": 1,
-      "description": "Why the workflow sets a work-type setting its steps' intents would give (requirement IDs and plan owners, steps left without their review): the setting's name, then the reason in 20 to 1000 characters.",
-      "propertyNames": { "enum": ["plannedClaims", "plannedClaims.clausePhases", "plannedClaims.owners", "sourceReview", "sourceReview.skip"] },
+      "description": "Why the workflow sets a work-type setting its steps' intents would give (requirement IDs and plan owners, steps left without their review, the steps that take attached documents): the setting's name, then the reason in 20 to 1000 characters.",
+      "propertyNames": { "enum": ["plannedClaims", "plannedClaims.clausePhases", "plannedClaims.owners", "sourceReview", "sourceReview.skip", "documents", "documents.allowedPhases"] },
       "additionalProperties": { "type": "string", "minLength": 20, "maxLength": 1000 }
     },
     "stepBecause": {

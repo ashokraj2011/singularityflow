@@ -7024,7 +7024,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         }))));
     });
     (table.problems || []).forEach(function (problem) { card.appendChild(el('div', { class: 'callout bad', text: problem.message + ' ' + problem.fix })); });
-    // A workflow whose shipped steps keep their settings until SFlow ships their intents has nothing to confirm (facts say so).
+    // A workflow whose shipped steps keep their settings (another intent than shipped, or an earlier workflow.yml version) has nothing to confirm (facts say so).
     if (table.derivable === false) { main.appendChild(card); return; }
     card.appendChild(table.confirmed
       ? el('div', { class: 'callout ok', 'data-key': 'build-intents-confirmed', text: 'Confirmed: every step says what it is for. Finishing writes each step\'s intent, and the workflow derives its settings from them.' })

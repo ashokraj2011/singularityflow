@@ -872,7 +872,8 @@ export async function checkBuild(id, { root = null, include = null, env = proces
   if (result.landed) return landedCheck(record, result, { env });
   const { draft, accepted, changeSet, plan, changes } = result;
   // What each step is for (step intents §6.4): the table, and whether this build must confirm it before it finishes.
-  // A workflow whose shipped steps keep their settings until SFlow ships their intents has nothing to confirm yet.
+  // A workflow whose shipped steps keep their settings (another intent than shipped, or a repository on an earlier
+  // version that does not say theirs yet) has nothing to confirm.
   const intents = plan.inspection?.intents ? { ...plan.inspection.intents, required: result.intentsInPlay && plan.inspection.intents.derivable,
     ...intentRoutes(record.id, plan.inspection.intents) } : null;
   const intentsSettled = !intents?.required || (intents.confirmed && !intents.open && !intents.problems.length);

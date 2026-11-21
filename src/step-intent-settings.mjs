@@ -39,7 +39,8 @@ import {
 export { BECAUSE_SETTINGS, INTENTS_FILE_VERSION, pinnedIntentProfile, STEP_INTENTS, workTypeDerivesIntents };
 
 /** The work-type settings a work type's own `because:` may name (spec §7.3): those its steps' intents give. */
-export const WORK_TYPE_BECAUSE_SETTINGS = Object.freeze(['plannedClaims', 'plannedClaims.clausePhases', 'plannedClaims.owners', 'sourceReview', 'sourceReview.skip']);
+export const WORK_TYPE_BECAUSE_SETTINGS = Object.freeze(['plannedClaims', 'plannedClaims.clausePhases', 'plannedClaims.owners', 'sourceReview', 'sourceReview.skip',
+  'documents', 'documents.allowedPhases']);
 
 // ---------------------------------------------------------------------------------------------
 // Profiles (spec §4), shared with step-intents.mjs, which re-exports them with the inference (§6.1)
@@ -162,11 +163,13 @@ const indexOf = (steps, id) => steps.findIndex((step) => step.id === id);
  * `codeStep` whether it is a code step as the workflow has it (both default to: its intent is code; a kept override
  * can differ, as chore's `generation.task: analyze`), `builtBySflow` whether SFlow builds it itself, and `noApproval`
  * whether the workflow gives it `approval: none`. The options name what the workflow declares: `omitsScope` (it
- * leaves the scope out), `decisionsAfter`, `loopSources`, `designCaptureStep`, and `heldForPerson` (step ID → why a
- * person approves it, from its own approval or a safety rule).
+ * leaves the scope out), `decisionsAfter`, `loopSources`, `designCaptureStep`, `heldForPerson` (step ID → why a
+ * person approves it, from its own approval or a safety rule), and `declaredOwners`, the plan owners the workflow's
+ * own planned claims name (code step → the step that plans it): the step a workflow names as a code step's plan is
+ * the plan a person approves, over the rule's nearest step (precedence, §7.2).
  */
 export function workflowIntentFacts(steps, {
-  omitsScope = false, decisionsAfter = [], loopSources = [], designCaptureStep = null, heldForPerson = {}
+  omitsScope = false, decisionsAfter = [], loopSources = [], designCaptureStep = null, heldForPerson = {}, declaredOwners = null
 } = {}) {
   const of = (intent) => steps.filter((step) => step.intent === intent);
   const edits = (step) => (typeof step.editsSource === 'boolean' ? step.editsSource : step.intent === 'code');
@@ -190,7 +193,9 @@ export function workflowIntentFacts(steps, {
   // The plan a person approves: the planners; with none, the last step before the first step that changes source
   // files that a person can approve, which is the rule configuration holds automatic approval to
   // (phase-roles.mjs planStepIds), so the two always name the same step.
-  let planSteps = [...new Set(Object.values(planners))];
+  const named = Object.entries(declaredOwners ?? {}).filter(([code, owner]) => codeSteps.some((step) => step.id === code)
+    && indexOf(steps, owner) >= 0 && indexOf(steps, owner) < indexOf(steps, code));
+  let planSteps = [...new Set(Object.values({ ...planners, ...Object.fromEntries(named) }))];
   const firstEdit = steps.findIndex(edits);
   if (!planSteps.length && firstEdit > 0) {
     const pick = steps.slice(0, firstEdit).filter((step) => !step.noApproval).at(-1);
@@ -268,7 +273,8 @@ export function deriveStepSettings(intent, context = {}) {
   // since has changed source; it then reads that code step too (config.mjs requires it).
   let testEvidenceFrom = null;
   if (entry.citesCodeTestResults && !edits({ ...step, intent }) && !step.builtBySflow) {
-    const code = steps.slice(0, index).findLastIndex((candidate) => candidate.intent === 'code');
+    // A code step as the workflow has it: chore's configuration change (task analyze) commits no code test results.
+    const code = steps.slice(0, index).findLastIndex((candidate) => (typeof candidate.codeStep === 'boolean' ? candidate.codeStep : candidate.intent === 'code'));
     if (code >= 0 && !steps.slice(code + 1, index).some(edits)) testEvidenceFrom = steps[code].id;
   }
 
@@ -509,12 +515,6 @@ export function workTypeIntents(definition, workTypeId, { intentProfile = null, 
   return { derivation };
 }
 
-/** `approval.automatic: off` keeps a person on a step its intent would let SFlow approve: read only on such a step. */
-export function approvalWithoutOff(approval) {
-  const { automatic: _off, ...rest } = approval;
-  return rest;
-}
-
 /** Story start's refusal of such a contract, with its two ways on. */
 export function unplannedStartProblem(resolved, steps) {
   const claims = resolved.plannedClaims;
@@ -577,7 +577,9 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
     loopSources: (Array.isArray(workType.reworkLoops) ? workType.reworkLoops : []).map((entry) => entry?.from).filter(Boolean),
     designCaptureStep,
     screenProfiles: (workType.verification?.profiles ?? []).length > 0,
-    heldForPerson
+    heldForPerson,
+    declaredOwners: isMapping(workType.plannedClaims) && workType.plannedClaims.mode === 'required' && isMapping(workType.plannedClaims.owners)
+      ? workType.plannedClaims.owners : null
   });
 
   const declaredClaims = isMapping(workType.plannedClaims) ? workType.plannedClaims : null;
@@ -663,7 +665,8 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
 
     // Who approves it: the step's own approval, the profile with the workflow rules, then SFlow's safety rules.
     const mode = approvalMode(settings.approval);
-    const writtenAutomatic = explicitOrigin(entry, ['approval', 'automatic']);
+    // `approval: none` replaces the whole approval, so it writes no `automatic` of its own: its reason is the mode's.
+    const writtenAutomatic = isMapping(merged.approval) ? explicitOrigin(entry, ['approval', 'automatic']) : null;
     if (isMapping(settings.approval) && settings.approval.automatic === 'off') delete settings.approval.automatic;
     const derivedAutomatic = !writtenAutomatic && isMapping(settings.approval) && settings.approval.automatic === 'when-ready';
     let held = null;
@@ -717,8 +720,9 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
       warnings.push({ step: id, code: 'CHECK_INTENT_BEFORE_CODE', title: `${name} is a ${intent} step before any code step`,
         detail: `A ${intent} step works on the delivered change, which no step before ${label(ids[firstCode])} has made yet.`,
         fix: `Move ${name} after ${label(ids[firstCode])}, or set its intent to design or document.` });
-    } else if (firstCode < 0 && intent === 'review') {
+    } else if (facts.codeFree && intent === 'review') {
       // §5: a review checks a delivered change against the requirements; a workflow that changes no code reports instead.
+      // A workflow whose only change is not a code step (chore's configuration change) still delivers one to review.
       warnings.push({ step: id, code: 'CHECK_INTENT_BEFORE_CODE', title: `${name} is a review step, but this workflow changes no code`,
         detail: `A review step checks a delivered change against every requirement, and no step of this workflow changes code.`,
         fix: `Set ${name}'s intent to report: it then writes what the workflow found for people to read.` });
@@ -779,7 +783,8 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
   const ownDocuments = Array.isArray(workType.documents?.allowedPhases);
   const allowedPhases = ownDocuments ? [...workType.documents.allowedPhases]
     : steps.filter((step) => step.derived.attachedDocuments).map((step) => step.id);
-  workTypeSources['documents.allowedPhases'] = ownDocuments ? { from: 'override' } : { from: 'intent' };
+  const documentsReason = reasonFor(workTypeBecause, 'documents.allowedPhases');
+  workTypeSources['documents.allowedPhases'] = ownDocuments ? { from: 'override', ...(documentsReason ? { reason: documentsReason } : {}) } : { from: 'intent' };
 
   return {
     profile: version, facts, planSteps: [...facts.planSteps], steps,

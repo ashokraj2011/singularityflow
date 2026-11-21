@@ -1000,7 +1000,7 @@ const chatRouteOf = (next) => (next && typeof next === 'object' ? next.vscodeCha
  * `do.vscodeChat`), the person acts on the page, and the skill's own next instruction runs after it. The same tool, input,
  * status and next coming back on the same Story state is a loop (owner, 2026-11-20); each answer is also checked for a route
  * VS Code's chat does not have, a route back to the skill that called it, an approval page that shows another Story, and the
- * approval handed back as still open.
+ * approval handed back as still open; the approval packet, for a route to the approval the turn is giving (owner, 2026-11-21).
  */
 async function vscodeTurn({ story, route, entries, phases, currentPhase, person, entry, guard, chat, step }) {
   const { vscode, branches, seen, names } = chat;
@@ -1103,6 +1103,11 @@ async function vscodeTurn({ story, route, entries, phases, currentPhase, person,
     // `decisions-required`: /sf-decide 11-14 now, without its step 1 (sflow-approve step 1).
     if (result?.reason === 'decisions-required') { callers.add('/sf-decide'); return readList(`singularity-flow decisions ${workId} --for-agent --json`, { toolAnswered: answered.length > 0 }); }
     if (result?.begun === false) return { result, next: nextFrom(result, { turn: skill }), turn: skill };
+    // The turn is this approval: what its packet says comes next is never that approval again, which the chat relayed as
+    // three routes and the person took round (owner, 2026-11-21).
+    const approving = result?.approvalContext?.phase;
+    const own = JSON.stringify(result?.approvalPacket ?? null).match(new RegExp(`.{0,120}(?:/sf-approve\\b|singularity-flow approve ${approving}\\b).{0,60}`, 'u'));
+    if (approving && own) return finding('approve-self-route', `the approval packet hands the turn approving ${approving} its own approval as a route: ${own[0]}`);
     const how = result?.act?.ask?.how ?? '';
     const reference = /#sflow\w+/u.exec(how)?.[0];
     if (!reference) return finding('no-vscode-route', `the approval asks "${result?.act?.ask?.question ?? ''}" with no route for VS Code's chat, whose question tool cannot record an approval`);

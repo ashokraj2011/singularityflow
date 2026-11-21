@@ -410,6 +410,10 @@ const KIND_INTENTS = Object.freeze({
   'convergence-report': ['review'],
   'publication-review': ['release', 'report']
 });
+/** Whether a step whose intent is `intent` may keep output kind `kind`: a kind the engine reads as another role may not. */
+export const kindFitsIntent = (kind, intent) => !Object.hasOwn(KIND_INTENTS, kind) || KIND_INTENTS[kind].includes(intent);
+/** The intents a step with output kind `kind` may have, or null when the kind is the step's own name for its output. */
+export const intentsForKind = (kind) => (Object.hasOwn(KIND_INTENTS, kind) ? [...KIND_INTENTS[kind]] : null);
 const CLAUSE_KINDS = new Set(['requirements', 'implementation-spec']);
 const TEST_KINDS = new Set(['test-evidence', 'visual-test-evidence']);
 const AFTER_CODE = new Set(['review', 'release', 'report']);

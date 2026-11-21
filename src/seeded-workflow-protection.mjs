@@ -6,6 +6,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { librarySkillPath, parseLibrarySkill } from './skill-library.mjs';
 import { instructionPath } from './instruction-library.mjs';
+import { PACKAGED_STEP_INTENTS } from './step-intents.mjs';
 
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
@@ -60,10 +61,37 @@ export async function seededWorkflowProtection(story, initiative = {}, agents = 
     instructions: [...instructions], artifactSets: [...artifactSets], templates: [...templates], templateFiles: [...templateFiles], integrationTargets: [...integrationTargets] };
 }
 
+/**
+ * Whether the only change to a step SFlow ships is its packaged intent (step intents Stage 3), which changes nothing in
+ * a seeded workflow while one of that workflow's steps still has none: a workflow derives from intents only once every
+ * step has one. A change that would make a seeded workflow derive is refused, with the copy as its way out.
+ */
+function packagedIntentOnly(id, before, after, protectedIds) {
+  const intent = PACKAGED_STEP_INTENTS[id];
+  const was = before.story?.phases?.[id];
+  const now = after.story?.phases?.[id];
+  if (!intent || !now || now.intent !== intent || (was?.intent !== undefined && was.intent !== intent)) return false;
+  const { intent: _now, ...nowRest } = now;
+  const { intent: _was, ...wasRest } = was ?? {};
+  if (!same(wasRest, nowRest)) return false;
+  const derives = protectedIds.workflows.filter((workflow) => {
+    const phases = after.story.workTypes?.[workflow]?.phases ?? [];
+    return phases.length && phases.includes(id) && phases.every((phase) => typeof after.story.phases?.[phase]?.intent === 'string');
+  });
+  if (derives.length) {
+    throw new SingularityFlowError(`Giving step '${id}' its intent would make the seeded workflow ${derives.join(', ')} derive its settings from intents before SFlow ships them. Copy the step for your workflow and give the copy its intent.`,
+      { code: 'SEEDED_WORKFLOW_READ_ONLY', details: { step: id, workflows: derives } });
+  }
+  return true;
+}
+
 export function assertSeededWorkflowsUnchanged(protectedIds, before, after, { beforeAgents = [], afterAgents = [], files = [] } = {}) {
   const refuse = (subject) => { throw new SingularityFlowError(`Seeded ${subject} is read-only. Duplicate the workflow and edit its independent copy.`, { code: 'SEEDED_WORKFLOW_READ_ONLY' }); };
+  for (const id of protectedIds.phases) {
+    if (!same(before.story?.phases?.[id], after.story?.phases?.[id]) && !packagedIntentOnly(id, before, after, protectedIds)) refuse(`phases:${id}`);
+  }
   for (const [side, catalog, ids] of [
-    ['story', 'workTypes', protectedIds.workflows], ['story', 'phases', protectedIds.phases],
+    ['story', 'workTypes', protectedIds.workflows],
     ['story', 'artifactSets', protectedIds.artifactSets], ['story', 'templates', protectedIds.templates],
     ['initiative', 'initiativeProfiles', protectedIds.epics], ['initiative', 'initiativePhases', protectedIds.epicPhases]
   ]) for (const id of ids) if (!same(before[side]?.[catalog]?.[id], after[side]?.[catalog]?.[id])) refuse(`${catalog}:${id}`);

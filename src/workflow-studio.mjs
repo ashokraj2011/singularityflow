@@ -10,7 +10,7 @@
  * the way a Configuration Center save validates one file, and only then are the changed files
  * written — in one review proposal, or in a local authority's working tree.
  */
-import { automaticApprovalRefusal, isConvergencePhase } from './phase-roles.mjs';
+import { automaticApprovalRefusal, BECAUSE_SETTINGS, declaresStepIntents, INTENTS_FILE_VERSION, isConvergencePhase, STEP_INTENTS, workTypeDerivesIntents } from './phase-roles.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import path from 'node:path';
@@ -58,7 +58,8 @@ import { configurationReadRoot, withoutConfigurationReadScope } from './configur
 import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
-import { STEP_OUTPUTS, newStepContract, newStepTemplate } from './step-outputs.mjs';
+import { STEP_INTENT_CHOICES, STEP_OUTPUTS, newStepContract, newStepTemplate, stepIntentChoice } from './step-outputs.mjs';
+import { deriveWorkTypeSettings, intentProfile, kindFitsIntent } from './step-intent-settings.mjs';
 import { normalizeExternalCommand, selectedRepositoryTests, testCommandLevel } from './external-command-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, nearestNames, posix, secureRepositoryPath } from './util.mjs';
@@ -155,6 +156,71 @@ function changeList(value, label, code) {
   if (value == null) return null;
   if (!Array.isArray(value)) throw new SingularityFlowError(`${label} must be a list.`, { code });
   return value;
+}
+
+const listWords = (values) => (values.length < 2 ? values.join('') : `${values.slice(0, -1).join(', ')} and ${values.at(-1)}`);
+
+/** What a step does, as a change set names it: one of the ten step intents. */
+function requireStepIntent(value, name) {
+  if (!STEP_INTENTS.includes(value)) {
+    throw new SingularityFlowError(`What ${name} does is one of: ${STEP_INTENT_CHOICES.map((entry) => `${entry.id} (${entry.label.toLowerCase()})`).join(', ')}; not '${value}'.`,
+      { code: 'STUDIO_INTENT_INVALID', details: { intents: [...STEP_INTENTS] } });
+  }
+  return value;
+}
+
+/**
+ * An output or changes-code switch a change gives with an intent follows from the intent (spec §6.5): one that says
+ * the opposite is refused with the two ways to fix it, never taken over the intent.
+ */
+function intentAgreesWithOutput(intent, { output, changesCode }, name) {
+  const code = intent === 'code';
+  if (code && ((output != null && output !== 'code') || changesCode === false)) {
+    throw new SingularityFlowError(`${name} changes the code (intent code), so it delivers code changes; leave out its output and changes-code settings, or give it another intent if it changes no code.`,
+      { code: 'STUDIO_INTENT_CONTRADICTION', details: { intent, output: output ?? null, changesCode: changesCode ?? null } });
+  }
+  if (!code && output === 'code') {
+    throw new SingularityFlowError(`${name} is a ${intent} step, so it does not deliver code changes; give it intent code if it changes the code, or leave out its output.`,
+      { code: 'STUDIO_INTENT_CONTRADICTION', details: { intent, output } });
+  }
+}
+
+/**
+ * A copy given an intent of its own: the settings of its source that say it is something else go (its output kind
+ * when the engine reads it as another role, a code task, changing source files), so its intent decides them. Returns
+ * what went, in words.
+ */
+function alignStepToIntent(node, intent) {
+  const gone = [];
+  node.intent = intent;
+  const kind = node.artifact?.kind;
+  if (typeof kind === 'string' && !kindFitsIntent(kind, intent)) { delete node.artifact.kind; gone.push(`its output kind ${kind}`); }
+  const generation = isObject(node.generation) ? node.generation : null;
+  if (intent === 'code') {
+    node.generation = { ...(generation ?? {}), task: 'code' };
+    node.writeScope = 'source-and-artifact';
+  } else {
+    if (generation?.task === 'code') { delete generation.task; gone.push('its code task'); if (!Object.keys(generation).length) delete node.generation; }
+    if (node.writeScope === 'source-and-artifact') { node.writeScope = 'artifact-only'; gone.push('changing source files'); }
+  }
+  return gone;
+}
+
+/** A step's `because:` as a change gives it, merged over what it has: setting → reason, null takes one away. */
+function stepBecause(value, name, current = null) {
+  if (!isObject(value)) throw new SingularityFlowError(`Why ${name} sets a setting itself is a map from the setting to the reason, for example { writeScope: "..." }.`, { code: 'STUDIO_BECAUSE_INVALID' });
+  const next = isObject(current) ? { ...current } : {};
+  for (const [setting, reason] of Object.entries(value)) {
+    if (!BECAUSE_SETTINGS.includes(setting)) {
+      throw new SingularityFlowError(`${name} cannot say why for '${setting}': it is not a setting a step's intent gives. Use one of: ${BECAUSE_SETTINGS.join(', ')}.`, { code: 'STUDIO_BECAUSE_INVALID' });
+    }
+    if (reason == null) { delete next[setting]; continue; }
+    if (typeof reason !== 'string' || reason.trim().length < 20 || reason.trim().length > 1000) {
+      throw new SingularityFlowError(`Why ${name} sets ${setting} itself is said in 20 to 1000 characters, in plain words.`, { code: 'STUDIO_BECAUSE_INVALID' });
+    }
+    next[setting] = reason.trim();
+  }
+  return next;
 }
 
 /** A drafting skill as a change set names it; the candidate configuration checks the rest. */
@@ -489,6 +555,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
         const tests = testsFrom(phase, written);
         return {
           id: phase.id, label: phase.label ?? phase.id, output: outputOf(phase), changesCode: changesCodeOf(phase),
+          // What the step says it is for (step intents), read from the step itself, or null.
+          intent: STEP_INTENTS.includes(phases[phase.id]?.intent) ? phases[phase.id].intent : null,
           // Resolution leaves the description out of Story pins, so it is read from the step itself.
           description: typeof phases[phase.id]?.description === 'string' ? phases[phase.id].description : '',
           agent: phase.defaultAgent ?? defaultAgentOf(phase.id),
@@ -563,6 +631,12 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     },
     phases: Object.entries(phases).map(([id, phase]) => ({
       id, label: phase.label ?? id, output: outputOf(phase), changesCode: changesCodeOf(phase),
+      // What the step says it is for (step intents), or null, and what its structure says (the Builder checks intents against it).
+      intent: STEP_INTENTS.includes(phase.intent) ? phase.intent : null,
+      kind: typeof phase.artifact?.kind === 'string' ? phase.artifact.kind : null,
+      task: isObject(phase.generation) && typeof phase.generation.task === 'string' ? phase.generation.task : null,
+      ...(typeof phase.testEvidenceFrom === 'string' ? { testEvidenceFrom: phase.testEvidenceFrom } : {}),
+      ...(phase.repositoryTests === 'run' ? { repositoryTests: 'run' } : {}),
       description: typeof phase.description === 'string' ? phase.description : '',
       approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
       authoringSkill: typeof phase.authoringSkill === 'string' ? phase.authoringSkill : null,
@@ -621,6 +695,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     })),
     choices: {
       outputs: STEP_OUTPUTS,
+      // "What does this step do?": the ten step intents, in the words Studio asks with.
+      intents: STEP_INTENT_CHOICES,
       authoringSkills: await authoringSkillChoices(),
       clarification: CLARIFICATION_MODES,
       // The registered World Model was removed: there are no views to choose.
@@ -683,7 +759,7 @@ export function unifiedDiff(before, after, file) {
 const RANK = Object.freeze({
   'marketplace.add': 0, 'marketplace.remove': 0, 'integration.target.create': 0, 'integration.target.update': 0.5, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'userAgent.add': 2.6, 'userAgent.update': 2.6, 'workflow.install': 3,
   'import.template': 3.5, 'template.create': 3.6, 'template.update': 3.6, 'artifactSet.create': 3.7, 'artifactSet.update': 3.7,
-  'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'artifactSet.remove': 11.6,
+  'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'workflow.intents': 7.1, 'artifactSet.remove': 11.6,
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
   'skill.create': 2.2, 'import.librarySkill': 2.3, 'skill.update': 2.4,
   'instruction.create': 2.05, 'instruction.update': 2.1, 'instruction.remove': 11.2, 'presence.set': 0,
@@ -1095,10 +1171,51 @@ class StudioCandidate {
     return agent.rawText ?? renderAgent(agent);
   }
 
-  writeTemplateIfMissing(relativeTemplate, id, label) {
+  writeTemplateIfMissing(relativeTemplate, id, label, intent = null) {
     const relative = posix(path.join(this.sources.templatesRoot, relativeTemplate));
     if (existsSync(path.join(this.sources.configRoot, relative)) || this.templates.has(relative)) return;
-    this.templates.set(relative, newStepTemplate(id, label));
+    // A step that says what it is for starts from its intent's packaged template, as its own copy.
+    const choice = intent ? stepIntentChoice(intent) : null;
+    let starter = null;
+    if (choice) { try { starter = readFileSync(path.join(PACKAGED_TEMPLATES, ...choice.template.split('/')), 'utf8'); } catch { starter = null; } }
+    this.templates.set(relative, newStepTemplate(id, label, { starter }));
+  }
+
+  /**
+   * Every step of a workflow says what it is for, as the person confirmed on one screen (step intents §6.4): each
+   * step's `intent:` is written, and workflow.yml becomes version 4, so the workflow derives its settings from them.
+   */
+  confirmIntents({ id, steps }) {
+    const workflowId = requireId(id, 'A workflow ID');
+    const type = this.content.workTypes?.[workflowId];
+    if (!type) throw new SingularityFlowError(`There is no workflow '${workflowId}' whose steps to confirm.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
+    if (!isObject(steps)) throw new SingularityFlowError('The confirmed intents are a map from each step to what it does.', { code: 'STUDIO_INTENT_INVALID' });
+    const phases = this.finalPhases?.get(workflowId) ?? type.phases ?? [];
+    const missing = phases.filter((phaseId) => !Object.hasOwn(steps, phaseId) && this.phase(phaseId)?.kind !== 'skill');
+    if (missing.length) {
+      throw new SingularityFlowError(`Confirm what every step of ${type.label ?? workflowId} is for: ${listWords(missing.map((phaseId) => this.phaseLabel(phaseId)))} ${missing.length === 1 ? 'has' : 'have'} no intent in the confirmation.`,
+        { code: 'STUDIO_INTENT_INVALID', details: { workflow: workflowId, missing } });
+    }
+    for (const [phaseId, value] of Object.entries(steps)) {
+      if (!phases.includes(phaseId)) throw new SingularityFlowError(`${type.label ?? workflowId} has no step '${phaseId}'.`, { code: 'STUDIO_PHASE_UNKNOWN' });
+      const name = this.phaseLabel(phaseId);
+      const intentValue = requireStepIntent(value, name);
+      const current = this.phase(phaseId)?.intent;
+      const others = this.usedByAtEnd(phaseId).filter((entry) => entry !== workflowId);
+      if (others.length && typeof current === 'string' && current !== intentValue) {
+        throw new SingularityFlowError(`${name} is a ${current} step in ${listWords(others.map((entry) => this.content.workTypes?.[entry]?.label ?? entry))} too, and a step means one thing in every workflow. Copy ${name} for this workflow and give the copy intent ${intentValue}.`,
+          { code: 'STUDIO_INTENT_SHARED', details: { step: phaseId, intent: current, workflows: others } });
+      }
+      if (current !== intentValue) this.document.setIn(['phases', phaseId, 'intent'], intentValue);
+    }
+    const version = this.content.version;
+    if (!(Number.isSafeInteger(version) && version >= INTENTS_FILE_VERSION)) this.document.setIn(['version'], INTENTS_FILE_VERSION);
+    // Other workflows whose every step now has an intent derive from them too: named, never silent.
+    const content = this.content;
+    const alsoDerive = Object.entries(content.workTypes ?? {}).filter(([otherId, other]) => otherId !== workflowId && Array.isArray(other?.phases) && other.phases.length
+      && other.phases.every((phaseId) => STEP_INTENTS.includes(content.phases?.[phaseId]?.intent))).map(([otherId, other]) => other.label ?? otherId);
+    this.summary.push(`${type.label ?? workflowId}: every step says what it is for, confirmed on one screen; workflow.yml is version ${INTENTS_FILE_VERSION}, so its settings derive from its steps' intents.`
+      + (alsoDerive.length ? ` ${listWords(alsoDerive)} ${alsoDerive.length === 1 ? 'uses' : 'use'} only steps with an intent too, so ${alsoDerive.length === 1 ? 'it derives' : 'they derive'} from them as well.` : ''));
   }
 
   apply(change) {
@@ -1113,6 +1230,7 @@ class StudioCandidate {
       case 'workflow.install': return this.installBlueprint(change);
       case 'phase.create': return this.createPhase(change);
       case 'phase.update': return this.updatePhase(change);
+      case 'workflow.intents': return this.confirmIntents(change);
       case 'phase.agent': return this.assignAgent(change);
       case 'workflow.create': return this.createWorkflow(change);
       case 'workflow.update': return this.updateWorkflow(change);
@@ -2373,11 +2491,15 @@ class StudioCandidate {
     this.summary.push(`Installed blueprint ${profile.label ?? workflowId}: ${profile.phases.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  createPhase({ id, label, description, output, changesCode, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile }) {
+  createPhase({ id, label, description, output, changesCode, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile, intent, because }) {
     const phaseId = requireId(id, 'A step ID');
     if (this.phase(phaseId)) throw new SingularityFlowError(`A step called '${phaseId}' already exists.`, { code: 'STUDIO_PHASE_EXISTS' });
     const name = requireLabel(label, 'The step');
+    // What the step does (its intent, step intents Stage 3): a new step starts from it.
+    const stepIntent = intent == null ? null : requireStepIntent(intent, name);
+    if (stepIntent) intentAgreesWithOutput(stepIntent, { output, changesCode }, name);
     let node;
+    let aligned = [];
     if (copyOf) {
       const source = this.requirePhase(requireId(copyOf, 'The step to copy'));
       node = structuredClone(this.phase(source));
@@ -2404,24 +2526,32 @@ class StudioCandidate {
       // A step that may be sent back to itself may be sent back to its copy, not to the step it copies.
       if (Array.isArray(node.approval?.rejectTo)) node.approval.rejectTo = node.approval.rejectTo.map((target) => (target === source ? phaseId : target));
       if (node.repairBudget?.resetOnPhase === source) node.repairBudget.resetOnPhase = phaseId;
+      // A copy given what it is for takes that intent; settings of its source that say otherwise go, said in the summary.
+      if (stepIntent) aligned = alignStepToIntent(node, stepIntent);
       this.copies.set(phaseId, source);
     } else {
-      const firstGroup = Object.keys(this.content.approvalAuthorities ?? {})[0];
+      const groups = Object.keys(this.content.approvalAuthorities ?? {});
+      // A step that says what it is for is signed off by its intent's group when this repository has one, else the first.
+      const intentGroup = stepIntent ? intentProfile().intents[stepIntent].approvers : null;
+      const group = intentGroup && groups.includes(intentGroup) ? intentGroup : groups[0];
       node = {
-        ...newStepContract(phaseId, name),
-        approval: approval === 'none' ? 'none' : this.approvalNode(approval ?? { group: firstGroup }, null, { phaseId, name, reaches: this.ownSendBackReach(phaseId) })
+        ...newStepContract(phaseId, name, 'document', { intent: stepIntent }),
+        approval: approval === 'none' ? 'none' : this.approvalNode(approval ?? { group }, null, { phaseId, name, reaches: this.ownSendBackReach(phaseId) })
       };
     }
+    if (because != null) node.because = stepBecause(because, name, node.because);
     if (description !== undefined) {
       const text = stepDescription(description, name);
       if (text) node.description = text; else delete node.description;
     }
     this.document.setIn(['phases', phaseId], this.document.createNode(node));
-    // A copy's own skill that cannot draft its new output is dropped; one the change names decides.
-    const dropped = !copyOf || (output !== undefined && output !== outputOf(node)) ? this.setOutput(phaseId, output ?? 'document') : null;
+    // A copy's own skill that cannot draft its new output is dropped; one the change names decides. A new step that says
+    // what it is for takes its output from its intent, so only an output the change names is written.
+    const dropped = stepIntent && !copyOf ? (output != null && output !== outputOf(node) ? this.setOutput(phaseId, output) : null)
+      : !copyOf || (output !== undefined && output !== outputOf(node)) ? this.setOutput(phaseId, output ?? 'document') : null;
     if (changesCode != null) this.setChangesCode(phaseId, changesCode);
     if (template !== undefined && template !== null) this.document.setIn(['phases', phaseId, 'defaultTemplate'], this.templateValue(template, name));
-    else if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
+    else if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name, stepIntent);
     if (artifactSet !== undefined && artifactSet !== null) {
       const setId = requireId(artifactSet, 'An artifact set ID');
       if (!this.content.artifactSets?.[setId]) throw new SingularityFlowError(`There is no artifact set '${setId}'.`, { code: 'STUDIO_ARTIFACT_SET_UNKNOWN' });
@@ -2464,9 +2594,10 @@ class StudioCandidate {
     const agentId = agent ?? (copyOf ? [...this.agents.values()].find((entry) => entry.defaultFor.includes(copyOf))?.id : null);
     if (!agentId) throw new SingularityFlowError(`Choose the agent that drafts ${name}.`, { code: 'STUDIO_PHASE_AGENT_REQUIRED' });
     this.setDefaultAgent(phaseId, requireId(agentId, 'An agent ID'));
+    const forWhat = stepIntent ? ` It ${stepIntentChoice(stepIntent).label.toLowerCase()} (intent ${stepIntent}).` : '';
     this.summary.push(copyOf
-      ? `New step ${name}, a copy of ${this.phaseLabel(copyOf)}, drafted by ${this.agentLabel(agentId)}.`
-      : `New step ${name}: drafted by ${this.agentLabel(agentId)}, ${node.approval === 'none' ? 'no sign-off' : `signed off by ${this.content.approvalAuthorities?.[approvalSummary(node.approval).authorities[0]]?.label ?? 'its group'}`}.`);
+      ? `New step ${name}, a copy of ${this.phaseLabel(copyOf)}, drafted by ${this.agentLabel(agentId)}.${forWhat}${aligned.length ? ` As a ${stepIntent} step it no longer keeps ${listWords(aligned)} from ${this.phaseLabel(copyOf)}.` : ''}`
+      : `New step ${name}: drafted by ${this.agentLabel(agentId)}, ${node.approval === 'none' ? 'no sign-off' : `signed off by ${this.content.approvalAuthorities?.[approvalSummary(node.approval).authorities[0]]?.label ?? 'its group'}`}.${forWhat}`);
     if (actionCount) this.summary.push(`${name} sends ${actionCount} ${actionCount === 1 ? 'action' : 'actions'} after it.`);
     const droppedLine = authoringSkill === undefined ? this.droppedSkillLine(phaseId, name, dropped) : null;
     if (droppedLine) this.summary.push(droppedLine);
@@ -2496,7 +2627,7 @@ class StudioCandidate {
     });
   }
 
-  updatePhase({ id, workflow, label, description, output, changesCode, inputs, approval, views, clarification, clarificationPolicy, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile }) {
+  updatePhase({ id, workflow, label, description, output, changesCode, inputs, approval, views, clarification, clarificationPolicy, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile, intent, because, reset }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
     // Shared once the change set is applied: a step this change set also adds to another workflow
@@ -2525,6 +2656,23 @@ class StudioCandidate {
     const changed = [];
     let dropped = null;
     if (label != null) { this.document.setIn(['phases', phaseId, 'label'], requireLabel(label, 'The step')); changed.push('name'); }
+    if (intent !== undefined) {
+      // What the step is for lives on the step itself: a step means one thing in every workflow (spec §7.1).
+      if (intent === null) {
+        if (this.document.hasIn(['phases', phaseId, 'intent'])) this.document.deleteIn(['phases', phaseId, 'intent']);
+      } else {
+        const value = requireStepIntent(intent, name);
+        const current = this.phase(phaseId)?.intent;
+        if (shared && typeof current === 'string' && current !== value) {
+          const others = users.filter((entry) => entry !== workflow).map((entry) => this.content.workTypes?.[entry]?.label ?? entry);
+          throw new SingularityFlowError(`${name} is a ${current} step in ${listWords(others)} too, and a step means one thing in every workflow. Copy ${name} for this workflow and give the copy intent ${value}.`,
+            { code: 'STUDIO_INTENT_SHARED', details: { step: phaseId, intent: current, workflows: users } });
+        }
+        intentAgreesWithOutput(value, { output: output ?? outputOf(this.phase(phaseId)), changesCode: changesCode ?? (outputOf(this.phase(phaseId)) === 'code' ? true : undefined) }, name);
+        this.document.setIn(['phases', phaseId, 'intent'], value);
+      }
+      changed.push('what it is for');
+    }
     if (output != null) { dropped = this.setOutput(phaseId, output); changed.push('output'); }
     if (changesCode != null) { this.setChangesCode(phaseId, changesCode); changed.push('whether it changes code'); }
     if (description !== undefined) {
@@ -2614,6 +2762,31 @@ class StudioCandidate {
       if (clarification === 'off') this.document.deleteIn(['phases', phaseId, 'clarification']);
       else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ mode: clarification }));
       changed.push('questions');
+    }
+    if (reset != null) {
+      // Settings given back to the step's intent (workflow assess): taken from this workflow's own settings for the step
+      // where it has them, else from the step itself, which a step other workflows share cannot do.
+      if (!Array.isArray(reset) || reset.some((setting) => !BECAUSE_SETTINGS.includes(setting))) {
+        throw new SingularityFlowError(`What ${name} gives back to its intent is a list of its settings, from: ${BECAUSE_SETTINGS.join(', ')}.`, { code: 'STUDIO_RESET_INVALID' });
+      }
+      for (const setting of reset) {
+        const keys = setting === 'clarification.mode' ? ['clarification', 'mode'] : setting.split('.');
+        if (override && this.document.hasIn([...override, ...keys])) { this.document.deleteIn([...override, ...keys]); continue; }
+        if (!this.document.hasIn(['phases', phaseId, ...keys])) continue;
+        if (shared) {
+          throw new SingularityFlowError(`${name} sets ${setting} itself, and other workflows use it too, so taking it away changes them. Copy ${name} for this workflow, or leave the setting.`, { code: 'STUDIO_INTENT_SHARED' });
+        }
+        this.document.deleteIn(['phases', phaseId, ...keys]);
+      }
+      changed.push('settings given back to its intent');
+    }
+    if (because !== undefined) {
+      // Why the step sets a setting its intent would give otherwise: per workflow on a shared step, like sign-off.
+      const scope = scopeFor('because');
+      const next = because === null ? {} : stepBecause(because, name, valueAt(scope, 'because'));
+      if (Object.keys(next).length) this.document.setIn([...scope, 'because'], this.document.createNode(next));
+      else if (this.document.hasIn([...scope, 'because'])) this.document.deleteIn([...scope, 'because']);
+      changed.push('why it differs from its intent');
     }
     if (template !== undefined) {
       // A workflow's own template for a shared step lives in its templateOverrides; otherwise the
@@ -3317,6 +3490,15 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
       ? { ...file, after: byPath.get(file.path).content } : file));
     for (const file of checked.files.filter((entry) => entry.repaired)) files.push({ path: file.path, before: file.before, after: file.content });
   }
+  // A framework setting this change set gives a step, other than what the step's intent gives, says why (step intents
+  // §7.5): refused here, with the two ways on. One written before intents, which the change set leaves as it was,
+  // stays a warning in workflow check.
+  const writtenWorkflow = problems.length ? null : files.find((entry) => entry.path === WORKFLOW_PATH && entry.after != null);
+  if (writtenWorkflow) {
+    let afterDefinition = null;
+    try { afterDefinition = parseYamlText(asText(writtenWorkflow.after)) ?? {}; } catch { afterDefinition = null; }
+    if (afterDefinition) problems.push(...intentReasonProblems(sources.raw ?? {}, afterDefinition));
+  }
   // `inspect` reads the configuration as it would be after the change set: the validated copy, or the
   // configuration itself when nothing would change.
   let inspection = null;
@@ -3375,6 +3557,47 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
     await writeFile(target, file.after);
   }
   return { ...plan, path: WORKFLOW_PATH, written: files.map((file) => file.path) };
+}
+
+/** Where a setting `because:` names lives in a step as written: the value the save rule compares before and after. */
+function frameworkValue(node, setting) {
+  if (!isObject(node)) return undefined;
+  const generation = node.generation;
+  switch (setting) {
+    case 'approval.mode': return typeof node.approval === 'string' ? node.approval : node.approval?.mode;
+    case 'generation.producer': return isObject(generation) ? [generation.producer, generation.defaultProducer, generation.allowedProducers] : undefined;
+    case 'generation.requirement': return typeof generation === 'string' ? generation : isObject(generation) ? generation.requirement ?? generation.mode : undefined;
+    case 'clarification.mode': return typeof node.clarification === 'string' ? node.clarification : node.clarification?.mode;
+    default: return setting.split('.').reduce((value, key) => (isObject(value) ? value[key] : undefined), node);
+  }
+}
+
+/**
+ * The framework settings a change set gives a step of a workflow that derives from intents, which differ from what
+ * the step's intent gives and say no reason (step intents §7.5): each refused, naming the reason or the removal.
+ */
+function intentReasonProblems(before, after) {
+  if (!declaresStepIntents(after)) return [];
+  const problems = [];
+  const same = (left, right) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  for (const [workflowId, type] of Object.entries(after.workTypes ?? {})) {
+    if (!workTypeDerivesIntents(after, type)) continue;
+    let derivation = null;
+    try { derivation = deriveWorkTypeSettings(after, workflowId); } catch { continue; }
+    for (const warning of derivation?.warnings ?? []) {
+      if (warning.code !== 'CHECK_INTENT_OVERRIDE_WITHOUT_REASON') continue;
+      const changed = warning.step
+        ? !same(frameworkValue(before.phases?.[warning.step], warning.setting), frameworkValue(after.phases?.[warning.step], warning.setting))
+          || !same(frameworkValue(before.workTypes?.[workflowId]?.phaseOverrides?.[warning.step], warning.setting),
+            frameworkValue(after.workTypes?.[workflowId]?.phaseOverrides?.[warning.step], warning.setting))
+        : !same(frameworkValue(before.workTypes?.[workflowId], warning.setting), frameworkValue(type, warning.setting));
+      if (!changed) continue;
+      problems.push({ code: 'STUDIO_INTENT_REASON_REQUIRED', message: `${warning.title}. ${warning.fix}`, step: warning.step ?? null, setting: warning.setting,
+        subject: warning.step ? { kind: 'phase', id: warning.step } : { kind: 'workflow', id: workflowId },
+        nextAction: { label: 'Say why the step differs from its intent, or take the setting away', workflowStudio: 'In VS Code, open Workflow Studio, select the step and say why under "Why this setting", or set it back.' } });
+    }
+  }
+  return problems;
 }
 
 /**

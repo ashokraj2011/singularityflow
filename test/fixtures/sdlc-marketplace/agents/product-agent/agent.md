@@ -37,7 +37,7 @@ STOP and WAIT for the answers. Do not draft requirements until the user has answ
 | Requirements Draft | `skills/requirements-writer/` |
 | Acceptance Criteria | `skills/acceptance-criteria-writer/` |
 
-If `skills/<name>/` is not at the workspace root, look for `<name>/SKILL.md` under `.github/skills/`, `.agents/skills/` or `.claude/skills/`. If a skill cannot be found, STOP and say which one is missing.
+If `skills/<name>/` is not at the workspace root, look for `<name>/SKILL.md` under `.github/skills/` or `.agents/skills/`. If a skill cannot be found, STOP and say which one is missing.
 
 ## 1. Context Intake
 

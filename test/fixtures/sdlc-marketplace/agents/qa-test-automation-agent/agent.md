@@ -42,7 +42,7 @@ Resolve each step's skill from the selected channel. Open the skill's `SKILL.md`
 
 Optional, android only: Unit Test Gap Fill uses `skills/android-unit-test/` (step 5).
 
-If `skills/<name>/` is not at the workspace root, the skill was installed by APM: look for `<name>/SKILL.md` under `.github/skills/`, `.agents/skills/` or `.claude/skills/`. If the skill cannot be found, STOP and tell the user which skill is missing; do not improvise its steps.
+If `skills/<name>/` is not at the workspace root, the skill was installed by APM: look for `<name>/SKILL.md` under `.github/skills/` or `.agents/skills/`. If the skill cannot be found, STOP and tell the user which skill is missing; do not improvise its steps.
 
 ## 1. Intake
 

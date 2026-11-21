@@ -87,8 +87,8 @@ test('a repository marketplace pins its commit, has no allowed origins, and is a
   assert.throws(() => normalizeMarketplaces({ acme: { repository: '/srv/marketplace' } }), /must pin the commit/u);
   assert.throws(() => normalizeMarketplaces({ acme: { repository: '/srv/marketplace', commit: COMMIT, index: 'https://catalog.example.org/i.json' } }), /not both/u);
   assert.throws(() => normalizeMarketplaces({ acme: { repository: 'relative/folder', commit: COMMIT } }), /absolute folder path/u);
-  const withPassword = `https://user:${['pass', 'word'].join('')}@git.example.com/acme/market.git`;
-  assert.throws(() => normalizeMarketplaces({ acme: { repository: withPassword, commit: COMMIT } }), /no password/u);
+  const userInfoRemote = `https://user:${['pass', 'word'].join('')}@git.example.com/acme/market.git`;
+  assert.throws(() => normalizeMarketplaces({ acme: { repository: userInfoRemote, commit: COMMIT } }), /no password/u);
   assert.throws(() => normalizeMarketplaces({ acme: { repository: 'file:///srv/marketplace', commit: COMMIT } }), /https or ssh/u);
 });
 

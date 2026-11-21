@@ -17,7 +17,6 @@ marketplace:
     strategy: per_package
 
   outputs:
-    claude: {}
     copilot: {}
 
   packages:

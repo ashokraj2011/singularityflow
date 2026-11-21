@@ -129,6 +129,7 @@ function passResult(outcome, reviews = [], unfinished = [], reason = null, done 
   return Object.freeze({
     outcome,
     reviews: Object.freeze([...reviews]),
+    ...(done.stepIntents?.length ? { stepIntents: Object.freeze([...done.stepIntents]) } : {}),
     ...(done.updated?.length ? { updated: Object.freeze([...done.updated]) } : {}),
     ...(done.removedRefs?.total ? { removedRefs: Object.freeze({ ...done.removedRefs }) } : {}),
     ...(done.summary?.length ? { summary: Object.freeze([...done.summary]) } : {}),
@@ -145,6 +146,16 @@ function laggingRepositories(preview) {
   return (preview?.results ?? [])
     .filter((entry) => entry.status === 'would-update' && entry.configurationChanged && !entry.productStampOnly)
     .map((entry) => entry.repository);
+}
+
+/**
+ * The repositories whose own workflows can say what each step is for (step intents §8): the one screen each has, by
+ * its code and counts. Nothing is written for them here; a person confirms each screen (VS Code asks, once per build).
+ */
+function stepIntentScreens(preview) {
+  return (preview?.results ?? []).filter((entry) => entry.intentPass?.code && (entry.intentPass.counts?.workflows || entry.intentPass.counts?.open))
+    .map(({ repository, intentPass }) => Object.freeze({ repository, code: intentPass.code, summary: bounded(intentPass.summary),
+      counts: Object.freeze({ ...intentPass.counts }) }));
 }
 
 function stalePlan(result) {
@@ -178,7 +189,8 @@ export async function openConfigurationReviews({ registryFile, refresh = default
     if (again.length) return passResult('unavailable', [], [...unreachable, ...again]);
   }
   let lagging = laggingRepositories(preview);
-  if (!lagging.length) return passResult('current', [], unreachable);
+  const stepIntents = stepIntentScreens(preview);
+  if (!lagging.length) return passResult('current', [], unreachable, null, { stepIntents });
   let opened = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let bound = null;
@@ -186,7 +198,7 @@ export async function openConfigurationReviews({ registryFile, refresh = default
       const fresh = await refresh({ registryFile, repositories: lagging, dryRun: true });
       if (troubled(fresh).length) return passResult('unavailable', [], [...unreachable, ...troubled(fresh)]);
       const still = laggingRepositories(fresh);
-      if (!still.length) return passResult('current', [], unreachable);
+      if (!still.length) return passResult('current', [], unreachable, null, { stepIntents });
       // The fresh preview covered exactly `lagging`; while every one still lags, its plan is bound.
       if (still.length === lagging.length) bound = fresh;
       lagging = still;
@@ -212,7 +224,7 @@ export async function openConfigurationReviews({ registryFile, refresh = default
   const removed = opened?.supersededRefs?.removed ?? null;
   const removedRefs = removed ? { ...removed, total: Number(opened.supersededRefs.total ?? 0) } : null;
   return passResult(updated.length ? 'updated' : reviews.length ? 'reviews-opened' : failed.length ? 'failed' : 'current',
-    reviews, [...unreachable, ...failed], null, { updated, removedRefs, summary: opened?.summary ?? [] });
+    reviews, [...unreachable, ...failed], null, { updated, removedRefs, summary: opened?.summary ?? [], stepIntents });
 }
 
 /**
@@ -251,6 +263,7 @@ export async function runConfigurationReviewWorker({
       status: 'complete', completedAt: new Date().toISOString(),
       outcome: result.outcome, reviews: [...(result.reviews ?? [])].map((review) => ({ ...review })),
       ...(result.updated?.length ? { updated: result.updated.map((item) => ({ ...item })) } : {}),
+      ...(result.stepIntents?.length ? { stepIntents: result.stepIntents.map((item) => ({ ...item, counts: { ...item.counts } })) } : {}),
       ...(result.removedRefs?.total ? { removedRefs: { ...result.removedRefs } } : {}),
       ...(result.summary?.length ? { summary: [...result.summary] } : {}),
       ...(result.unfinished?.length ? { unfinished: result.unfinished.map((item) => ({ ...item })) } : {}),

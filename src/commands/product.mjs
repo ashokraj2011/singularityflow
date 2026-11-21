@@ -168,6 +168,13 @@ export async function productReviews({
   const result = runningBuild
     ? await pass({ runningBuild })
     : { status: 'development', outcome: 'development', reviews: [] };
+  // The repositories whose own workflows can say what each step is for: one screen each, written only when confirmed.
+  const stepIntents = (result.stepIntents ?? []).map((entry) => ({ ...entry, counts: { ...entry.counts } }));
+  const summary = [...(result.summary ?? [])];
+  for (const entry of stepIntents) {
+    const line = `${entry.repository}: ${entry.summary}`;
+    if (entry.summary && !summary.includes(line)) summary.push(line);
+  }
   const data = {
     resultType: 'product-configuration-reviews',
     schemaVersion: 1, // schema-transient: public CLI result envelope
@@ -176,7 +183,8 @@ export async function productReviews({
     reviews: (result.reviews ?? []).map((entry) => ({ ...entry })),
     updated: (result.updated ?? []).map((entry) => ({ ...entry })),
     removedRefs: result.removedRefs ? { ...result.removedRefs } : null,
-    summary: [...(result.summary ?? [])],
+    summary,
+    stepIntents,
     unfinished: (result.unfinished ?? []).map((entry) => ({ ...entry })),
     startedAt: result.startedAt ?? null,
     completedAt: result.completedAt ?? null,

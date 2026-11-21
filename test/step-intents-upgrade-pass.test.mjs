@@ -31,6 +31,7 @@ import {
   intentPass, intentPassLines, intentPassRoutes, KEPT_BEFORE_INTENTS
 } from '../src/step-intents-upgrade.mjs';
 import { refreshPackagedConfiguration, refreshSummary } from '../src/workspace-configuration-refresh.mjs';
+import { openConfigurationReviews } from '../src/configuration-review-pass.mjs';
 import { beforeStepIntents, SHIPPED_WORKFLOW, teamCopy } from './helpers/before-step-intents.mjs';
 
 await loadStepIntentSettings();
@@ -429,4 +430,19 @@ test('an answer without the screen\'s code is refused before anything runs, with
   const output = `${result.stdout}${result.stderr}`;
   assert.match(output, /STEP_INTENTS_CONFIRMATION_REQUIRED/u);
   assert.match(output, /singularity-flow workspace refresh-configuration --dry-run/u);
+});
+
+test('the upgrade\'s pass names each repository whose own workflows can say what each step is for, and writes none of them', async () => {
+  const screen = { code: 'a1b2c3', summary: 'Step intents: 4 steps of your own workflows can say what they are for. Nothing changes until you confirm: x',
+    counts: { workflows: 1, steps: 4, kept: 1, open: 0, held: 0 }, workflows: [{ workflow: 'team' }] };
+  const calls = [];
+  const refresh = async (options) => {
+    calls.push(options);
+    return { results: [{ status: 'current', repository: 'payments', configurationChanged: false, intentPass: screen },
+      { status: 'current', repository: 'catalog', configurationChanged: false }] };
+  };
+  const result = await openConfigurationReviews({ registryFile: '/registry.json', refresh });
+  assert.equal(result.outcome, 'current');
+  assert.deepEqual(result.stepIntents, [{ repository: 'payments', code: 'a1b2c3', summary: screen.summary, counts: screen.counts }]);
+  assert.ok(calls.every((options) => options.stepIntents == null), 'the pass never confirms a screen');
 });

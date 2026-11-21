@@ -163,6 +163,7 @@ import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli
 import {
   alignProductSurfaces, codeLauncher, LoadedBundle, openConfigurationReviews, type ProductAlignmentHost
 } from './product-alignment.ts';
+import { offerStepIntents } from './step-intents-upgrade.ts';
 import { LEGACY_AGENTS_ROOT } from '../../../src/configuration-assets.mjs';
 
 let extensionLifetime = new AbortController();
@@ -4501,7 +4502,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     warn: (message, ...actions) => showCompactWarningMessage(message, ...actions),
     reload: () => vscode.commands.executeCommand('workbench.action.reloadWindow'),
     remembered: (key) => context.globalState.get(key),
-    remember: (key, value) => context.globalState.update(key, value)
+    remember: (key, value) => context.globalState.update(key, value),
+    // Update SFlow's step intents screen: one modal per repository, each open question a pick of its two or three intents.
+    offerStepIntents: (offers) => offerStepIntents({
+      run: (args) => productClient.run(args),
+      progress: (title, task) => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, task),
+      inform: (message, ...actions) => showCompactInformationMessage(message, ...actions),
+      warn: (message, ...actions) => showCompactWarningMessage(message, ...actions),
+      confirm: async (message, detail, action) => (await vscode.window.showInformationMessage(message, { modal: true, detail }, action)) === action,
+      pick: async (title, choices) => (await vscode.window.showQuickPick(choices.map((choice) => ({ label: choice.label, intent: choice.intent })),
+        { title, placeHolder: title, ignoreFocusOut: true }))?.intent,
+      log: (line) => output.appendLine(line),
+      remembered: (key) => context.globalState.get(key),
+      remember: (key, value) => context.globalState.update(key, value)
+    }, offers, { loadedBuild })
   };
   const onExtensionsChanged = vscode.extensions?.onDidChange;
   if (onExtensionsChanged) {

@@ -227,6 +227,10 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     assert.match(shown.workflowYaml, /^version: 4$/mu);
     assert.deepEqual(shown.derived.map((step) => [step.intent, step.changesSource, step.approval]), [
       ['intake', false, 'sflow-when-clean'], ['requirements', false, 'person'], ['code', true, 'person'], ['test', false, 'sflow-when-clean']]);
+    // Walked before anything is written (step intents Stage 6): every path, each route on both hosts, no stop.
+    assert.equal(shown.walk.mode, 'quick');
+    assert.deepEqual(shown.walk.stops, []);
+    assert.ok(shown.walk.paths >= 1 && shown.walk.routes >= 4, JSON.stringify(shown.walk));
     const out = path.join(root, 'qa.workflow.json');
     flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--out', out]);
     const file = path.join(root, 'singularity', 'workflow.yml');

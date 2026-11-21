@@ -1865,6 +1865,42 @@ change), visual evidence and screenshots, Initiative workflows, a route a decisi
 (the walk follows the route that walks on), a test runner other than `node --test`, and whether a
 person can actually be reached (it approves as a listed member).
 
+#### The walk on every change (`workflow walk --quick`)
+
+A Story walk takes about a minute a workflow, too long to wait for on every save. So every change
+to a workflow runs the quick walk instead, as part of the one check every way of making a workflow
+runs: `workflow create` and `workflow edit`, a Workflow Studio save, a configuration save, `workflow
+import`, a workflow build's verify and finish, and `workflow from-agent`. It also runs in `workflow
+check` and `workflow validate`, so approval sees the same stops.
+
+```bash
+singularity-flow workflow walk --quick                 # every Story workflow of this repository, in milliseconds
+singularity-flow workflow walk team-delivery --quick --json
+```
+
+The quick walk starts no Story, runs no command and no model. It takes every path a Story of the
+workflow can take: a passing run, each decision route, a decision that keeps going back until its
+rounds run out, and each send-back of a person's approval. On each path, for each step, it renders
+the route SFlow hands out at each stage (entry, publication, review, submission, approval, a
+decision, a next version) with the engine's own action-to-command map. It checks each route on
+Copilot CLI and on VS Code's chat. It stops on:
+
+| Class | Stop |
+|---|---|
+| `loop` | the same route comes round with nothing changed: a decision that goes back on values its round never records again (`WALK_SAME_ROUTE_UNCHANGED`), or a route that repeats without a limit (`WALK_ROUTE_REPEATS`) |
+| `limit` | a limit that leaves only the same command: rounds that run out to a group nobody is in (`WALK_NO_WAY_ON`) |
+| `host-route` | a stage with no route (`WALK_ROUTE_MISSING`), or a skill, page tool or Command Palette entry a host does not have (`WALK_ROUTE_NOT_ON_HOST`) |
+| `copy-value` | a route that leaves the agent a value SFlow knows to copy in: a Story, a step, a version (`WALK_VALUE_TO_COPY`); the values a step's own decision reads at its submission are its author's to give |
+
+Each stop is a `workflow check` problem with a plain explanation and a filled fix, so a change that
+adds one is refused where it is made, the same as any other problem it adds. The walk is bounded
+(5 seconds a workflow by default; `--total-seconds` sets it). If it runs out of time it adds a note,
+never a stop. `--json` returns `resultType: workflow-walk` with `mode: quick`, `counts` (`workflows`,
+`stops`, `paths`, `routes`, `notJudged`) and `workflows[]`, each with its `outcome`, `paths`,
+`routes` and `stops[]` (`class`, `code`, `step`, `decision`, `host`, `title`, `detail`, `fix`).
+`workflow check --json` gives each workflow's `walk` in brief. The Story walk above stays the deeper
+check: a workflow build's verify runs it before the build can finish.
+
 ### Assess what each step's agent is told (`workflow assess`)
 
 `workflow check` judges a workflow's settings. `workflow assess` judges what its steps' agents are

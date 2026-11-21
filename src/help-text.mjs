@@ -498,11 +498,14 @@ Usage:
                                                         why and how to fix it; exits 1 when one is not. /sf-fix-workflow in Copilot
                                                         drafts the fixes as one reviewed configuration proposal. With WORKFLOW, who
                                                         drafts, asks, reviews and approves each step, and where
-  singularity-flow workflow walk [WORKFLOW] [--source repository|shipped] [--step-seconds N] [--total-seconds N] [--keep] [--json]
+  singularity-flow workflow walk [WORKFLOW] [--source repository|shipped] [--quick] [--step-seconds N] [--total-seconds N] [--keep] [--json]
                                                         a model-free dry run: drives a throwaway Story through every step on an isolated
                                                         copy (stub author, stub reviewer, test approver) and lists each step's person
                                                         steps and every stop no person decision clears, with its likely cause; reads
-                                                        only this repository's configuration; exits 1 on a stop, 2 when a step was not judged
+                                                        only this repository's configuration; exits 1 on a stop, 2 when a step was not judged.
+                                                        --quick is the walk every workflow change runs: every path and each step's routes
+                                                        on Copilot CLI and VS Code, with no Story, stopping on a loop, a limit with no way
+                                                        on, a route a host lacks or a value the agent must copy in
   singularity-flow workflow assess [WORKFLOW] [--read STEP [--part N] | --verify FILE|-] [--json]
                                                         what each step's agent is told, layer by layer with its size, and what in it is
                                                         repeated, contradicts the step's settings, the platform or another rule, or is

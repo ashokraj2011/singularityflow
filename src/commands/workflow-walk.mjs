@@ -1,14 +1,17 @@
 /**
- * `workflow walk [WORKFLOW] [--source repository|shipped] [--step-seconds N] [--total-seconds N] [--keep] [--json]` —
+ * `workflow walk [WORKFLOW] [--source repository|shipped] [--quick] [--step-seconds N] [--total-seconds N] [--keep] [--json]` —
  * a model-free dry run that drives a throwaway Story through every step of each workflow on an
  * isolated copy and reports every place it would stop that is not a real decision a person is meant
  * to make (src/workflow-walk/walk.mjs). It reads only this repository's workflow configuration; every
  * write is in its own temporary folder, which it removes (`--keep` leaves it and names it). Exits 1
  * when any step stops, 2 when nothing stopped but a step could not be judged, else 0.
+ *
+ * `--quick` is the walk every change to a workflow runs (src/workflow-walk/quick.mjs): every path a Story takes and
+ * each step's routes on Copilot CLI and VS Code, in this process, in milliseconds, with no Story at all.
  */
 import { SingularityFlowError, optionBoolean, optionString } from '../util.mjs';
 
-const OPTIONS = ['json', 'source', 'step-seconds', 'total-seconds', 'keep'];
+const OPTIONS = ['json', 'source', 'step-seconds', 'total-seconds', 'keep', 'quick'];
 
 function seconds(options, name, fallback, maximum) {
   const raw = optionString(options, name);
@@ -62,8 +65,19 @@ export async function run(argv, { positionals, options }) {
   }
   const shipped = source === 'shipped';
   const root = shipped ? process.cwd() : (await import('../git.mjs')).repoRoot();
-  const { walkWorkflows } = await import('../workflow-walk/walk.mjs');
   const json = optionBoolean(options, 'json');
+  if (optionBoolean(options, 'quick')) {
+    for (const name of ['step-seconds', 'keep']) {
+      if (options[name] !== undefined) throw new SingularityFlowError(`--quick walks no Story, so it takes no --${name}.`, { code: 'WORKFLOW_WALK_USAGE' });
+    }
+    const quick = await import('../workflow-walk/quick.mjs');
+    const result = await quick.quickWalkShippedOr(root, { shipped, workflow: positionals[2] ?? null, seconds: seconds(options, 'total-seconds', quick.QUICK_WALK_SECONDS, 3600) });
+    process.exitCode = result.counts.stops ? 1 : result.ok ? 0 : 2;
+    if (json) return console.log(JSON.stringify(result, null, 2));
+    for (const line of quick.quickWalkLines(result)) console.log(line);
+    return;
+  }
+  const { walkWorkflows } = await import('../workflow-walk/walk.mjs');
   const result = await walkWorkflows(root, {
     workflow: positionals[2] ?? null, shipped, keep: optionBoolean(options, 'keep'),
     stepSeconds: seconds(options, 'step-seconds', 240, 3600), totalSeconds: seconds(options, 'total-seconds', 3600, 86_400),

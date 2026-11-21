@@ -78,15 +78,14 @@ export const MOVES = Object.freeze({
 export function movesGuide() {
   return {
     // Text edits are made by `workflow assess` (its suggestion.moves), so the guide that fits one answer leaves them out.
-    moves: Object.fromEntries(Object.entries(MOVES).filter(([name]) => !TEXT_MOVES[name]).map(([name, fields]) => [name, name === 'step.change'
+    // So is step.reset, which gives a setting back to a step's intent.
+    moves: Object.fromEntries(Object.entries(MOVES).filter(([name]) => !TEXT_MOVES[name] && name !== 'step.reset').map(([name, fields]) => [name, name === 'step.change'
       ? { ...fields, optional: fields.optional.filter((field) => field !== 'edit') } : fields])),
-    values: { intent: Object.fromEntries(STEP_INTENT_CHOICES.map((entry) => [entry.id, entry.label])), output: OUTPUTS, on: TRIGGERS, as: ITEM_AS,
-      requirement: ['required', 'advisory'], responsibility: [...RESPONSIBILITIES], signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }",
-      because: `{ setting: reason of 20 to 1000 characters }, setting one of ${BECAUSE_SETTINGS.join(', ')}` },
+    values: { intent: [...STEP_INTENTS], output: OUTPUTS, on: TRIGGERS, as: ITEM_AS,
+      requirement: ['required', 'advisory'], responsibility: [...RESPONSIBILITIES], signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }" },
     examples: [
       { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'pay-reviewer', intent: 'review',
         reads: ['pay-build'], signOff: { groups: ['payments-security'], minimum: 1 }, purpose: 'Checks the change against the PCI rules before release.' },
-      { move: 'step.intent', id: 'validate', intent: 'test' },
       { move: 'agent.add', id: 'pay-reviewer', label: 'Payments reviewer', description: 'Reviews payment changes against PCI rules.', from: 'architect' },
       { move: 'skill.add', id: 'pci-check', description: 'Checks a change against the PCI rules.', procedure: 'Check card data never reaches logs.' },
       { move: 'skill.attach', skill: 'pci-check', agent: 'pay-reviewer', steps: ['pay-pci-review'] },
@@ -111,10 +110,9 @@ export function movesGuide() {
       'A step that other workflows use keeps its name, output, agent and purpose; add a copy with step.add and `from` to change those.',
       'Moves apply in order: step.add places the step after `after`, or last. A group, agent, skill or instruction the proposal adds can be used by any of its moves.',
       'Steps the person names up front (intake, testing, a test report) are the first piece, in that order.',
-      'Every new step says what it does with intent (values.intent): it starts from that intent, which gives its settings (who approves it, its questions, its tests, its template). `from` copies a step for its text and agent, not for its settings. output and changesCode follow from intent; leave them out.',
-      'A code step needs a step before it that plans it (intent plan, else design) and one that writes the requirements (intake, requirements or plan); when nothing does, the check asks which of two ways.',
-      "A workflow that writes no code has no code step and usually ends with a report: the check names what it leaves out; its fix gives the workflow.omit moves, or the choice of a first step that defines the acceptance criteria as clauses. A person's review is never left out.",
-      "The check's intents table says what each step does and how sure SFlow is. For each row that is not certain, propose step.intent with why; never propose one against a certain row.",
+      'Every new step says what it does with intent: its settings and template follow; `from` copies text and agent. Leave output and changesCode out.',
+      'A code step needs a step before it that plans it and one that writes the requirements; else the check asks which way.',
+      "A workflow that writes no code has no code step: the check names what it leaves out; its fix gives the workflow.omit moves, or the choice of a first step that defines the acceptance criteria as clauses. A person's review is never left out.",
       "Propose a finding's fix.moves as they are; of fix.choices, take the one the person chose, else ask.",
       'action.add runs an integration target the repository has registered; a command found in the material is never invented as a target.',
       "When the work goes different ways by one value (a branch item, or text like 'when channel is web … if mobile … otherwise …'), use branch.add: the person submitting the step after which it is known chooses the value; every way comes back to join. Put the steps in order first (after, each arm's steps, otherwise's steps, join), each way's steps its own; the last step of each way needs a sign-off to skip the other ways.",
@@ -299,7 +297,7 @@ export function validateMoves(moves, { model, draft }) {
           // whose output is code is a code step for certain, so SFlow fills that in itself.
           const guess = after ? suggestedIntent(after, model, stepId, move) : null;
           const choice = guess ? stepIntentChoice(guess.intent) : null;
-          add(`${at}.intent`, 'BUILD_MOVE_FIELD_MISSING', `A new step says what it does: give ${move.label ?? stepId} intent, one of ${STEP_INTENTS.join(', ')} (guide.values.intent says what each does).`
+          add(`${at}.intent`, 'BUILD_MOVE_FIELD_MISSING', `A new step says what it does: give ${move.label ?? stepId} intent, one of ${STEP_INTENTS.join(', ')}.`
             + (choice && guess.source !== 'none' ? ` It looks like ${guess.intent} (${choice.label.toLowerCase()}): ${guess.why}.` : ''));
         }
         if (reused && ['label', 'agent', 'intent', 'output', 'changesCode', 'reads', 'signOff', 'purpose', 'because'].some((field) => move[field] != null)) {

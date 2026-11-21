@@ -100,7 +100,7 @@ test('a new step says what it does, and a proposal never goes against a step\'s 
   const missing = await refused([{ move: 'step.add', id: 'intake' }, { move: 'step.add', id: 'run-checks', label: 'Run checks', agent: 'qa', after: 'intake' }]);
   const finding = missing.details.findings.find((entry) => entry.at === 'moves[1].intent');
   assert.equal(finding.code, 'BUILD_MOVE_FIELD_MISSING');
-  assert.match(finding.message, /^A new step says what it does: give Run checks intent, one of intake, requirements, design, plan, code, test, review, release, report, document \(guide\.values\.intent says what each does\)\. It looks like test \(runs the tests\): /u);
+  assert.match(finding.message, /^A new step says what it does: give Run checks intent, one of intake, requirements, design, plan, code, test, review, release, report, document\. It looks like test \(runs the tests\): /u);
   const contradiction = await refused([{ move: 'step.add', id: 'run-checks', label: 'Run checks', agent: 'qa', intent: 'test', output: 'code' }]);
   assert.equal(contradiction.details.findings[0].code, 'BUILD_MOVE_INTENT_CONTRADICTION');
   const certain = await refused([{ move: 'step.add', id: 'implementation' }, { move: 'step.intent', id: 'implementation', intent: 'test' }]);
@@ -141,6 +141,14 @@ test('a build finishes only once the person confirmed each step\'s intent, which
   assert.match(text, /Run checks: test \(runs the tests\) {2}\[Your choice\] {2}Changes no code · SFlow approves it when clean · Asks when unclear/u);
   assert.match(text, new RegExp(`Confirm this table \\(code ${check.intents.code}\\): singularity-flow workflow build intents --build ${build.id} --confirm ${check.intents.code}`, 'u'));
 
+  // The person's own pick for a step, and back again: the table it gives is named by its own code.
+  const picked = json(root, ['workflow', 'build', 'intents', '--build', build.id, '--intent', 'pay-checks=review']);
+  assert.deepEqual(['intent', 'badge'].map((key) => picked.intents.rows.find((row) => row.step === 'pay-checks')[key]), ['review', 'yours']);
+  assert.notEqual(picked.intents.code, check.intents.code);
+  const back = json(root, ['workflow', 'build', 'intents', '--build', build.id, '--intent', 'pay-checks=test']);
+  assert.equal(back.intents.code, check.intents.code);
+  const bad = flow(root, ['workflow', 'build', 'intents', '--build', build.id, '--intent', 'pay-checks'], { allowFailure: true });
+  assert.match(bad.stdout + bad.stderr, /--intent takes STEP=INTENT, such as --intent run-checks=test/u);
   const stale = flow(root, ['workflow', 'build', 'intents', '--build', build.id, '--confirm', 'abcdef', '--json'], { allowFailure: true });
   assert.notEqual(stale.status, 0);
   assert.match(stale.stdout + stale.stderr, /WORKFLOW_BUILD_INTENTS_CHANGED/u);

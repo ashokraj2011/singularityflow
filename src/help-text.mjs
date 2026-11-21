@@ -118,6 +118,7 @@ Usage:
   singularity-flow tests held --work-id ID [--phase PHASE] [--command ID --set-aside --confirm CODE] [--json]
   singularity-flow app-review plan|start|status|inspect|feedback|repair|recheck|accept|capture|defer|close [SESSION] [--work-id ID] [--json]
   singularity-flow app-review browser install
+  singularity-flow app-review runtime-check [--work-id ID] [--phase PHASE] [--again] [--json]
   singularity-flow outcome [WORK-ID] [--capability ID] [--json]
   singularity-flow result last [--wait [SECONDS]] [--command WORDS] [--json]
   singularity-flow confirm CODE [--json]

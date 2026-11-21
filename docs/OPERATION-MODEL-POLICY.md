@@ -59,6 +59,7 @@ Every public operation is classified before its implementation module is importe
 | app-review.recheck | mutation | never | — | — |
 | app-review.repair | mutation | never | — | — |
 | app-review.repair-result | mutation | never | — | — |
+| app-review.runtime-check | mutation | never | — | — |
 | app-review.start | mutation | never | — | — |
 | app-review.status | read | never | — | — |
 | app.config | read | never | — | — |

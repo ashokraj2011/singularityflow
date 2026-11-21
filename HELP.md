@@ -4292,6 +4292,7 @@ singularity-flow app plan|start|status|stop|suggest|config preview [START-ID] [-
 singularity-flow tests plan|run|summary [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--run RUN-ID] [--json]
 singularity-flow app-review plan|start|status|inspect|feedback|repair|recheck|accept|capture|defer|close [SESSION] [--work-id ID] [--json]
 singularity-flow app-review browser install
+singularity-flow app-review runtime-check [--work-id ID] [--phase PHASE] [--again] [--json]
 singularity-flow outcome [WORK-ID] [--capability ID] [--json]
 singularity-flow result last [--wait [SECONDS]] [--command WORDS] [--json]
 singularity-flow confirm CODE [--json]

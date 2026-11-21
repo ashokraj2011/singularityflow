@@ -1,5 +1,5 @@
 // Registry owns the public forms; agreement with the lazy review service is regression checked.
-const ARA_ACTIONS = ['plan', 'start', 'status', 'inspect', 'feedback', 'repair', 'repair-result', 'recheck', 'accept', 'capture', 'defer', 'close', 'browser'];
+const ARA_ACTIONS = ['plan', 'start', 'status', 'inspect', 'feedback', 'repair', 'repair-result', 'recheck', 'accept', 'capture', 'defer', 'close', 'browser', 'runtime-check'];
 const ARA_READS = ['plan', 'status'];
 const UI_ACTIONS = ['open', 'serve', 'status', 'stop'];
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';

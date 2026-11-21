@@ -8,8 +8,9 @@ import { optionString, optionBoolean } from '../util.mjs';
 import { ARA_ACTIONS, ARA_READS, araFail, exactFields, reviewDigest } from '../application-review-contract.mjs';
 import { applicationReviewPhase } from '../code-delivery-policy.mjs';
 
-const allowed = ['work-id', 'phase', 'json', 'for-agent', 'timings', 'action-id', 'revision', 'input', 'input-json', 'help'];
+const allowed = ['work-id', 'phase', 'json', 'for-agent', 'timings', 'action-id', 'revision', 'input', 'input-json', 'help', 'again'];
 export const APPLICATION_REVIEW_USAGE = `Usage: singularity-flow app-review plan|start [--work-id ID] [--phase PHASE] [--json]
+       singularity-flow app-review runtime-check [--work-id ID] [--phase PHASE] [--again] [--json]
        singularity-flow app-review status|inspect|accept|capture|defer|close SESSION [--work-id ID] [--json]
        singularity-flow app-review feedback|repair|repair-result SESSION --input FILE --action-id ID --revision NUMBER [--work-id ID] [--json]
        singularity-flow app-review recheck SESSION
@@ -107,8 +108,8 @@ export async function run(_argv, { positionals, options = {} }) {
   if (unknown.length || !ARA_ACTIONS.includes(sub)) araFail('ARA_COMMAND_INVALID', `${unknown.length ? `Unsupported options: ${unknown.join(', ')}.` : `Unknown review action '${sub}'.`} ${APPLICATION_REVIEW_USAGE}`);
   const dataAction = ['feedback', 'repair', 'repair-result'].includes(sub);
   const invalidForAction = Object.keys(options).filter(key => ['action-id', 'revision', 'input', 'input-json'].includes(key)
-    && !(dataAction || sub === 'start' && key === 'action-id') || key === 'phase' && !['plan', 'start'].includes(sub));
-  if (invalidForAction.length || positionals.length > (['plan', 'start'].includes(sub) ? 2 : 3)) araFail('ARA_COMMAND_INVALID', APPLICATION_REVIEW_USAGE);
+    && !(dataAction || sub === 'start' && key === 'action-id') || key === 'phase' && !['plan', 'start', 'runtime-check'].includes(sub) || key === 'again' && sub !== 'runtime-check');
+  if (invalidForAction.length || positionals.length > (['plan', 'start', 'runtime-check'].includes(sub) ? 2 : 3)) araFail('ARA_COMMAND_INVALID', APPLICATION_REVIEW_USAGE);
   if (sub === 'browser') {
     if (positionals[2] !== 'install' || positionals.length !== 3) araFail('ARA_COMMAND_INVALID', 'Use app-review browser install to provision the pinned Chromium used only by SFlow.');
     const executable = path.join(PACKAGE_ROOT, 'node_modules', 'playwright-core', 'cli.js');
@@ -132,6 +133,7 @@ export async function run(_argv, { positionals, options = {} }) {
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const workId = workflow.workItem.id;
   const phaseId = optionString(options, 'phase', null) ?? applicationReviewPhase(workflow);
+  if (sub === 'runtime-check') return runtimeCheck(root, config, workflow, phaseId, options);
   const { applicationReviewPlan, applicationReviewStatus, findReviewSession } = await import('../application-review-read.mjs');
   let result;
   if (sub === 'plan') result = await applicationReviewPlan(root, config, workflow, { phaseId });
@@ -184,6 +186,28 @@ export async function run(_argv, { positionals, options = {} }) {
     console.log(`\n- Copilot: ${value.commandGuidance.copilotCommand}\n- Shell: ${value.commandGuidance.command}\n- VS Code (model-free): not available for this action`);
   }
   return presented;
+}
+
+/**
+ * `app-review runtime-check`: SFlow runs the step's published version by its kind of software (runtime-check.mjs) and
+ * keeps what it saw for the review; a version already checked is shown as kept unless --again. Its review reads it.
+ */
+async function runtimeCheck(root, config, workflow, phaseId, options) {
+  const check = await import('../runtime-check.mjs');
+  const capture = await check.runRuntimeCheck(root, config, workflow, phaseId, { again: optionBoolean(options, 'again') });
+  const review = capture.status === 'off' ? null : check.runtimeCheckForReview(capture);
+  const value = { schemaVersion: 1, resultType: 'sflow-runtime-check', repositoryPath: root, workId: workflow.workItem.id, phase: phaseId,
+    ...(review ? { ...review, words: check.runtimeCheckWords(capture), tryIt: check.runtimeTryIt(capture), kinds: capture.kinds } : capture),
+    commandGuidance: { copilotCommand: `/sf-review-source ${phaseId}`, command: `singularity-flow review-source context ${phaseId} --json`, modelFreeCommand: null } };
+  if (optionBoolean(options, 'json') || optionBoolean(options, 'for-agent')) { console.log(JSON.stringify(value, null, 2)); return value; }
+  console.log(value.words);
+  for (const entry of review?.checks ?? []) {
+    for (const finding of entry.findings) console.log(`  ${finding.id} ${finding.use === 'breaks-use' ? 'breaks use' : 'advice'}: ${finding.title}. ${finding.detail}`);
+    for (const missing of entry.missing ?? []) console.log(`  Missing here: ${missing.what}. ${missing.why}${missing.command ? ` (${missing.command})` : ''}`);
+  }
+  if (capture.kinds?.question) console.log(`${capture.kinds.question} Confirm it with singularity-flow capability kind --json.`);
+  console.log(`\n- Copilot: ${value.commandGuidance.copilotCommand}\n- Shell: ${value.commandGuidance.command}\n- VS Code (model-free): not available for this action`);
+  return value;
 }
 
 /** Copilot needs state and exact continuation, not duplicate manifests, case inventories or events. */

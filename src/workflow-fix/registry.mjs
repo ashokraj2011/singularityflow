@@ -853,6 +853,22 @@ async function browserTarget([finding]) {
     choices: [keep('Yes: each Story is started with its target')] }] };
 }
 
+/**
+ * Step intents (Stage 2): what each step is for is the team's word for it, so these are a person's. Workflow Studio
+ * cannot write an intent or a reason yet (Stage 3), so each question keeps the workflow as it is and says the edit.
+ */
+const INTENT_WHY = 'What each step is for, and why one differs from it, is the team\'s own word; nothing in the repository says it.';
+async function intentQuestion([finding]) {
+  const ask = {
+    CHECK_INTENTS_PARTIAL: `${finding.title}. Should every step have one, so SFlow derives this workflow's settings from them?`,
+    CHECK_INTENTS_NEED_VERSION: `${finding.title}. Should SFlow derive this workflow's settings from its steps' intents (workflow.yml version 4)?`,
+    CHECK_INTENT_BEFORE_CODE: `${finding.title}. Is that where the team wants it?`,
+    CHECK_INTENT_OVERRIDE_WITHOUT_REASON: `${finding.title}. Why does it differ from its intent?`
+  }[finding.code] ?? finding.title;
+  return { questions: [{ ask: finding.fix?.text ? `${ask} ${finding.fix.text}` : ask, why: INTENT_WHY,
+    ...(finding.code === 'CHECK_INTENT_OVERRIDE_WITHOUT_REASON' ? { answer: { kind: 'text' } } : {}), choices: [keep()] }] };
+}
+
 async function unreadable([finding]) {
   return { questions: [{ ask: `${finding.title}: ${finding.detail}`, why: 'The engine refused this workflow with the message above; what it should be instead is not written anywhere a fixer can read.',
     answer: { kind: 'text' }, choices: [keep('Fix it by hand in Workflow Studio')] }] };
@@ -1094,6 +1110,11 @@ export const WORKFLOW_FIXERS = Object.freeze({
   CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED: question(78, 'Whether a step always confirms its reading of the sources with a person is the team\'s choice, not a defect.', clarificationFix),
   // Clarity last: descriptions read the explanation, labels the steps.
   CHECK_STEP_LABEL_DUPLICATE: change(80, duplicateLabel),
+  // Step intents: a person's word for what each step is for (Stage 3 writes them from Workflow Studio).
+  CHECK_INTENT_BEFORE_CODE: question(74, INTENT_WHY, intentQuestion),
+  CHECK_INTENT_OVERRIDE_WITHOUT_REASON: question(74, INTENT_WHY, intentQuestion),
+  CHECK_INTENTS_PARTIAL: question(74, INTENT_WHY, intentQuestion),
+  CHECK_INTENTS_NEED_VERSION: question(74, INTENT_WHY, intentQuestion),
   CHECK_STEPS_UNDESCRIBED: change(90, undescribedSteps)
 });
 

@@ -624,6 +624,11 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
       warnings.push({ step: id, code: 'CHECK_INTENT_BEFORE_CODE', title: `${name} is a ${intent} step before any code step`,
         detail: `A ${intent} step works on the delivered change, which no step before ${label(ids[firstCode])} has made yet.`,
         fix: `Move ${name} after ${label(ids[firstCode])}, or set its intent to design or document.` });
+    } else if (firstCode < 0 && intent === 'review') {
+      // §5: a review checks a delivered change against the requirements; a workflow that changes no code reports instead.
+      warnings.push({ step: id, code: 'CHECK_INTENT_BEFORE_CODE', title: `${name} is a review step, but this workflow changes no code`,
+        detail: `A review step checks a delivered change against every requirement, and no step of this workflow changes code.`,
+        fix: `Set ${name}'s intent to report: it then writes what the workflow found for people to read.` });
     }
     for (const key of changedFrameworkSettings(entry, settings, d, { intent, rejectTo: patch.approval.rejectTo })) {
       if (reasonFor(because, key)) continue;

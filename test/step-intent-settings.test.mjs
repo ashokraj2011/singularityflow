@@ -315,6 +315,10 @@ test('§7.5 warnings: a review before any code, and a framework setting changed 
   assert.deepEqual(derived.warnings.map((entry) => [entry.code, entry.step, entry.setting ?? null]), [
     ['CHECK_INTENT_BEFORE_CODE', 'look', null], ['CHECK_INTENT_OVERRIDE_WITHOUT_REASON', 'rules', 'clarification.mode']]);
   assert.match(derived.warnings[0].fix, /Move look after make, or set its intent to design or document/u);
+  // In a workflow that changes no code, a review is proposed as a report.
+  const codeFree = deriveWorkTypeSettings(validateDefinition(definition([{ id: 'ask', intent: 'intake' }, { id: 'look', intent: 'review' }])), 'custom');
+  assert.deepEqual(codeFree.warnings.map((entry) => [entry.code, entry.step]), [['CHECK_INTENT_BEFORE_CODE', 'look']]);
+  assert.match(codeFree.warnings[0].fix, /Set look's intent to report/u);
 });
 
 test('intentProfiles: version 4 only, absent means 1, and a newer one asks for the update', () => {

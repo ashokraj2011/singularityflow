@@ -72,8 +72,14 @@ test('the shipped delivery workflows: people approve the plan and every step tha
   assert.deepEqual(design.approval.rejectTo, ['intake', 'requirements', 'design']);
   // The quick fix and the demonstrations keep their own approvals.
   assert.equal(resolveWorkType(definition, 'quick-fix').phases.find((phase) => phase.id === 'verify').approval.mode, 'policy');
-  for (const id of ['document-test-repair', 'poc-workflow']) assert.deepEqual(split(id).automatic, [], id);
-  assert.deepEqual(split('benchmarking-a').automatic, ['testing']);
+  assert.deepEqual(split('document-test-repair').automatic, []);
+  // Approve twice for both benchmarks and the POC workflow (owner, 2026-11-20, D2; Stage 7); the demo closes keep a person.
+  for (const id of ['benchmarking-a', 'benchmarking-b']) {
+    assert.deepEqual(split(id), { people: ['design', 'implementation'], automatic: ['intake', 'testing', 'conformance'] }, id);
+  }
+  assert.deepEqual(split('poc-workflow'), { people: ['poc-ui-exploration', 'poc-test-generation', 'poc-validation', 'poc-publication-review'],
+    automatic: ['poc-intake', 'poc-impact-analysis'] });
+  for (const id of ['demo-check-repair-close', 'demo-instruction-test-loop']) assert.deepEqual(split(id).automatic, [], id);
   // Only the quick fix keeps `mode: policy`: no other Story gets the low-risk waiver's five-path cap on its code step
   // (work-intervals.mjs reads any `mode: policy` step as that waiver).
   for (const id of Object.keys(definition.workTypes).filter((entry) => entry !== 'quick-fix')) {

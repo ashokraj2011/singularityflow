@@ -210,9 +210,9 @@
     "shapeDigest": "sha256:a8b6b9b22444f6d4886dfe4da8c14551bff4124020a59db8e5aed09a55a5d091"
   },
   "benchmarking-a": {
-    "resolutionSha256": "d27ac926642be4558eb393a077cd3d8d2e13ee84fa27d829d0f699a9a78075c1",
-    "people": ["intake","design","implementation","conformance"],
-    "automatic": ["testing"],
+    "resolutionSha256": "a3cbe2d1dc40368eb6c11f8e9eeaca9dafd02f3b5b7a4579b4ec4022150422fb",
+    "people": ["design","implementation"],
+    "automatic": ["intake","testing","conformance"],
     "other": [],
     "changeSource": ["implementation"],
     "questionsEveryTime": ["intake"],
@@ -221,12 +221,12 @@
     "planOwners": {"implementation":"design"},
     "reviewed": ["intake","design","implementation","testing","conformance"],
     "attachedDocuments": ["intake","design"],
-    "shapeDigest": "sha256:1263bd954df0925b2bb7e48f391840c2a167fbeb7eb68b1d11a8d91246b6a392"
+    "shapeDigest": "sha256:6ffdc142c23103f6bbadc862c97564838aa1d2f04232f8895259a8740aceb0d8"
   },
   "benchmarking-b": {
-    "resolutionSha256": "4d8d86b687c47626982b5ea110edf2a5c062488cee9aafb1b1f4f9b81a648836",
-    "people": ["intake","design","implementation","conformance"],
-    "automatic": ["testing"],
+    "resolutionSha256": "1e42accc18829b757206c67f9fe561c98ecb7015c68a43dbb9f1f606a2887158",
+    "people": ["design","implementation"],
+    "automatic": ["intake","testing","conformance"],
     "other": [],
     "changeSource": ["implementation"],
     "questionsEveryTime": ["intake"],
@@ -235,12 +235,12 @@
     "planOwners": {"implementation":"design"},
     "reviewed": ["intake","design","implementation","testing","conformance"],
     "attachedDocuments": ["intake","design"],
-    "shapeDigest": "sha256:1263bd954df0925b2bb7e48f391840c2a167fbeb7eb68b1d11a8d91246b6a392"
+    "shapeDigest": "sha256:6ffdc142c23103f6bbadc862c97564838aa1d2f04232f8895259a8740aceb0d8"
   },
   "poc-workflow": {
-    "resolutionSha256": "6587589973bc50c7e1b1142b671643f63d433c7944b035158646eb156d763c57",
-    "people": ["poc-intake","poc-impact-analysis","poc-ui-exploration","poc-test-generation","poc-validation","poc-publication-review"],
-    "automatic": [],
+    "resolutionSha256": "ef7830fa8a95e28fde05b6c9aef53b7c16251b6971b87d297a35feb071bf1e67",
+    "people": ["poc-ui-exploration","poc-test-generation","poc-validation","poc-publication-review"],
+    "automatic": ["poc-intake","poc-impact-analysis"],
     "other": [],
     "changeSource": ["poc-test-generation","poc-validation"],
     "questionsEveryTime": ["poc-intake"],
@@ -249,7 +249,7 @@
     "planOwners": {"poc-test-generation":"poc-ui-exploration"},
     "reviewed": ["poc-intake","poc-impact-analysis","poc-ui-exploration","poc-test-generation","poc-validation","poc-publication-review"],
     "attachedDocuments": [],
-    "shapeDigest": "sha256:4ff16278ca0ba5c898ef2128f699978a462b43b0966dc35f9a0cc3c6b600ecca"
+    "shapeDigest": "sha256:e6ffccc6c9dbe22160fc40f452d4a43d904b0ca5a7ca13719fff2f0531b302c2"
   },
   "reference-driven-build": {
     "resolutionSha256": "a7aeea0c49088d3b535630ded2195777589a22dad15a2fc0f8937c6776da24ec",

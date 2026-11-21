@@ -367,12 +367,13 @@ const BEFORE_STEP_INTENTS = Object.freeze({
  */
 const BEFORE_ADOPTED_DIFFERENCES = Object.freeze({
   workTypes: Object.freeze({
-    'benchmarking-a': Object.freeze(['a77226943dd3d984efb8fe8652f0a631b7a5790cb887431c033ddc8c0ddf7a1c', 'b4e3dd606d89e762bb76cb157e726c5701178491ba8d708cc520917c3e5ef981']),
-    'benchmarking-b': Object.freeze(['2d77572d3f727a85befeb614d115cec2dc4a4e1b26456110d1e5985353b4b935', 'd9d57eda508708f5ac2722250cb90b4e1a0a2180c1285d33fe7a928ad42b99c3']),
+    'benchmarking-a': Object.freeze(['a77226943dd3d984efb8fe8652f0a631b7a5790cb887431c033ddc8c0ddf7a1c', '3ccd98b7eaaa8492637aad4d395d441f3115a490502ce4c85d77e40089f40850']),
+    'benchmarking-b': Object.freeze(['2d77572d3f727a85befeb614d115cec2dc4a4e1b26456110d1e5985353b4b935', 'd804a32571109f2e764cbc1a11884ff7fb51a52a4f03a76fd488a1e783afae20']),
     bugfix: Object.freeze(['4102c9f0f0574eba7aeb2e0c9bf6cc4fd30169525ad3ce3c1c64fc65693f789b']),
-    chore: Object.freeze(['e77e2382540ec9b0de3db63a425d007a944ccebb3cc8952b4c16fdd85ddd6c2a', 'dfec57c230c2f464f5ae85f46f41d105ab2efc8b75ff9f5681475f07ecb4c29f']),
-    feature: Object.freeze(['34f4956a9cdd565f555cfc69b89372790c635103b3f57ab9438f4e4eb41a8ad8', 'a16d8c24e4c9cf60a42a34c9d5c3dd46bdfa41ecc6873efb1add90c1f0f13b7a']),
-    'findings-remediation': Object.freeze(['f67b902f348f735f418321a5ecb74bd6bb13e826271b58d179497648dc83c688', '0192ac30a43920b813d12803ab6f00097409ecfac0af32ba168ee69e5031d1ff']),
+    chore: Object.freeze(['e77e2382540ec9b0de3db63a425d007a944ccebb3cc8952b4c16fdd85ddd6c2a', '20acb3db0472805d981bf8d0d2870d97ee6139895eb9f18a8bd80e471c38442f']),
+    feature: Object.freeze(['34f4956a9cdd565f555cfc69b89372790c635103b3f57ab9438f4e4eb41a8ad8', '313a6f7fede2a3da7e1c5494046d396d19bf1fcf2b94ee2a172830c8c46d22f5']),
+    'findings-remediation': Object.freeze(['f67b902f348f735f418321a5ecb74bd6bb13e826271b58d179497648dc83c688', 'dea8e73cf9aa2ffc44ef8aa7ee07f5354d3d6018b385137fb1a69c0dfd8e4b99']),
+    'poc-workflow': Object.freeze(['2f89981a4026255380ccbdfacfa1df162577ef85eedbfd31bac2313f1f08a774', '949b3ca0957d12a0f1cc056935f2609deead1ab5dcb686c13337dcab78fcaa44']),
     'reference-driven-build': Object.freeze(['459ae3ff12dbb941ca7e603b2bdac2fb062868717ca364ea4c6dcebc3c6f7f4b']),
     'spec-driven-standard': Object.freeze(['46ffc1360346b4e65bea9f074fa08f6f904fd93b67fa15948b4405619887c3ba'])
   }),
@@ -390,12 +391,10 @@ const BEFORE_ADOPTED_DIFFERENCES = Object.freeze({
  */
 export const PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS = Object.freeze({
   workTypes: Object.freeze({
-    'benchmarking-a': '3ccd98b7eaaa8492637aad4d395d441f3115a490502ce4c85d77e40089f40850',
-    'benchmarking-b': 'd804a32571109f2e764cbc1a11884ff7fb51a52a4f03a76fd488a1e783afae20',
     chore: '20acb3db0472805d981bf8d0d2870d97ee6139895eb9f18a8bd80e471c38442f',
     feature: '313a6f7fede2a3da7e1c5494046d396d19bf1fcf2b94ee2a172830c8c46d22f5',
     'findings-remediation': 'dea8e73cf9aa2ffc44ef8aa7ee07f5354d3d6018b385137fb1a69c0dfd8e4b99',
-    'poc-workflow': '949b3ca0957d12a0f1cc056935f2609deead1ab5dcb686c13337dcab78fcaa44'
+    'poc-workflow': '16c1625b6ba55649978b5a37443e30da44df58a94e978195b6fddad4e7c7f94a'
   }),
   phases: Object.freeze({
     'careful-change': '3e8d1f4b390348570b5b32e5c822f52365d718db0f7d01fc360ce3d21bbaf14e',
@@ -426,8 +425,8 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
     'test-run': '17a4c04485f1515b786e3d06595f36f05d6f707bad3c167274bfb084e53f000d',
     'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
-    'benchmarking-a': '17411b43a94a7dac3f27ebd82ec3d538602b779e7efd61a0baced17ebf670521',
-    'benchmarking-b': '863390104059afb12d6c371de473c8abd24fed9a9d5e153989f49449c2bf9948',
+    'benchmarking-a': '5987514ccfa232e0a3894279b217a21862e661a0b41ea2acda53a944684c6c74',
+    'benchmarking-b': 'e456354190587280083e860deed0958fba75b13e4f28621cd462c159529c55c3',
     bugfix: '087a226ca173f9b01211501d9b33dc4272c8e34b039d5652e94e7530dbad60ed',
     chore: '9196bada9e0449df3c00f57e923ad4b04d9d04015850a1bfeec1888881f14e03',
     'classic-delivery': '9991f59f3ba6df48d9e5603edb78e7d33b303b6944f8fffa0e5e01f28fda9574',
@@ -437,7 +436,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     feature: '946aa9cb57ae903f24541378a77f87ff73b52dd51feffbb8c23703b06e9e71b5',
     'figma-mobile': '4bf49f8560fc79d59bc91ce46fd209a64723a9d4cc35ee649364b84c189a8772',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
-    'poc-workflow': '2f89981a4026255380ccbdfacfa1df162577ef85eedbfd31bac2313f1f08a774',
+    'poc-workflow': '6b737f2cd55f86c21b7ab109fd83129c02584b5f2ec4cff3c7b8b4f22f4fff99',
     'quick-fix': 'be9ad15c5d199f58b7c0fd7e39d1889fdefadffb2453d8373325abcf482d04df',
     'reference-driven-build': '3e11dfb6f95bfd3e5629668862af780488e9905bd96b192f7ee4d7a986287ab4',
     'spec-code-test-loop': 'e494c9de72ee485d92c2a567feb2e788241be05fbed170c24564018ed221cbba',

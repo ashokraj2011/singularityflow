@@ -993,6 +993,8 @@ workTypes:
       clausePhases: [intake]
       owners: { implementation: design }
     intelligence: { worldModel: required, ast: optional-context, agentBriefs: required }
+    # Approve twice [owner, 2026-11-20, D2; adopted in Stage 7]: people approve the plan (the design) and the code, in
+    # both arms alike so their runs stay comparable; SFlow approves the intake, the testing and the conformance when clean.
     templateOverrides:
       intake: benchmark/intake.md
       design: benchmark/design.md
@@ -1002,9 +1004,7 @@ workTypes:
     phaseOverrides:
       intake:
         artifact: { kind: requirements }
-        approval: { automatic: off }
-        because:
-          approval.automatic: Kept as it was before step intents. A person approves the benchmark intake, in both benchmark workflows so their runs stay comparable.
+        approval: { automatic: when-ready }
       design:
         inputs:
           - { phase: intake, projection: approved-summary, preserve: [Success criteria, Scope and constraints], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
@@ -1027,9 +1027,7 @@ workTypes:
           - { phase: implementation, projection: approved-summary, preserve: [Changed components], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: testing, projection: approved-summary, preserve: [Test evidence and results], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
         testEvidenceFrom: implementation
-        approval: { automatic: off, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
-        because:
-          approval.automatic: Kept as it was before step intents. A person approves the benchmark conformance, in both benchmark workflows so their runs stay comparable.
+        approval: { automatic: when-ready, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
 
   benchmarking-b:
     label: Benchmark B — generic context
@@ -1042,6 +1040,7 @@ workTypes:
       clausePhases: [intake]
       owners: { implementation: design }
     intelligence: { worldModel: off, ast: off, agentBriefs: off }
+    # Approve twice, as in Benchmark A [owner, 2026-11-20, D2].
     templateOverrides:
       intake: benchmark/intake.md
       design: benchmark/design.md
@@ -1051,9 +1050,7 @@ workTypes:
     phaseOverrides:
       intake:
         artifact: { kind: requirements }
-        approval: { automatic: off }
-        because:
-          approval.automatic: Kept as it was before step intents. A person approves the benchmark intake, in both benchmark workflows so their runs stay comparable.
+        approval: { automatic: when-ready }
       design:
         inputs: [intake]
         approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, design] }
@@ -1068,9 +1065,7 @@ workTypes:
       conformance:
         inputs: [intake, design, implementation, testing]
         testEvidenceFrom: implementation
-        approval: { automatic: off, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
-        because:
-          approval.automatic: Kept as it was before step intents. A person approves the benchmark conformance, in both benchmark workflows so their runs stay comparable.
+        approval: { automatic: when-ready, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
 
   poc-workflow:
     label: POC workflow — enterprise Playwright
@@ -1095,17 +1090,15 @@ workTypes:
       poc-test-generation: poc-workflow/test-generation.md
       poc-validation: poc-workflow/validation.md
       poc-publication-review: poc-workflow/publication-review.md
+    # Approve twice [owner, 2026-11-20, D2; adopted in Stage 7]: people approve the plan (the UI exploration), the test
+    # code, the validation that repairs it and the publication; SFlow approves the intake and the impact analysis when clean.
     phaseOverrides:
       poc-intake:
         artifact: { kind: requirements }
-        approval: { automatic: off }
-        because:
-          approval.automatic: Kept as it was before step intents. A person approves the POC intake.
+        approval: { automatic: when-ready }
       poc-impact-analysis:
         inputs: [poc-intake]
-        approval: { automatic: off }
-        because:
-          approval.automatic: Kept as it was before step intents. A person approves the regression impact analysis.
+        approval: { automatic: when-ready }
       poc-ui-exploration: { inputs: [poc-intake, poc-impact-analysis] }
       poc-test-generation: { inputs: [poc-intake, poc-impact-analysis, poc-ui-exploration] }
       poc-validation: { inputs: [poc-impact-analysis, poc-ui-exploration, poc-test-generation] }

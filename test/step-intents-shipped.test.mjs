@@ -93,8 +93,10 @@ test('no shipped setting differs from its intent without a reason, and nothing c
   assert.match(sources('figma-mobile', 'visual-verification').writeScope.reason, /may correct screen differences/u, 'G1 kept');
   assert.match(sources('poc-workflow', 'poc-validation').writeScope.reason, /repairs the Playwright tests it runs/u, 'G1 kept');
   assert.match(sources('quick-fix', 'verify').writeScope.reason, /keeps its check on the changed code/u, 'G1 kept');
-  assert.equal(sources('benchmarking-a', 'intake').approval.from, 'override', 'G2');
-  assert.match(sources('benchmarking-a', 'intake').approval.reason, /both benchmark workflows/u, 'G2');
+  // G2 adopted (D2): approve twice for both benchmarks and the POC workflow, with no reason left to give; the demo closes keep a person.
+  assert.deepEqual([sources('benchmarking-a', 'intake').approval.from, sources('benchmarking-a', 'intake').approval.reason], ['override', undefined], 'G2 adopted');
+  assert.equal(sources('poc-workflow', 'poc-intake').approval.reason, undefined, 'G2 adopted');
+  assert.match(sources('demo-check-repair-close', 'demo-close').approval.reason, /closing decision/u, 'G2 kept');
   assert.match(sources('quick-fix', 'implement').approval.reason, /the Verify step after it checks it/u, 'G3');
   assert.match(sources('spec-driven-standard', 'release')['clarification.mode'].reason, /asks nothing first/u, 'G4');
   assert.match(sources('figma-mobile', 'visual-verification').repositoryTests.reason, /whole test suite/u, 'G5');

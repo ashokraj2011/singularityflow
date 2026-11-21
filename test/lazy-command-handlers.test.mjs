@@ -907,6 +907,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the cheap gate that says whether a workflow.yml opts in (phase-roles.mjs) and where configuration resolves with a
     // derivation (config.mjs). The derivation, the inference and `workflow check --settings` load only when a workflow
     // opts in (step-intent-settings.mjs, step-intents.mjs, workflow-step-settings.mjs; asserted above). No new eager file.
+    // 9,821,723 (measured for submit.mjs, +600, 2026-11-21, intents-runtime-review): the runtime check and the reviewer's second
+    // pass (step intents §12.3-12.5) register `capability kind` and `app-review runtime-check` (command-registry.mjs, util.mjs
+    // --again), refuse an agent's kind confirmation (copilot-mutation-guard.mjs) and show "Try it" at approval (agent-output.mjs).
+    // The check, its adapters and the kind record load only when a code review or the command runs. No new eager file.
     assert.ok(closure.bytes <= 9_826_934, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1056,6 +1060,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // run), so a wait's retry says which program and how long. No new eager file.
   // 873,794 (measured 873,794, +12, 2026-11-21, intents-stage2): `workflow check --settings`, each step's settings and where
   // each came from, is a boolean option the parser knows (util.mjs). No new eager file.
+  // 874,195 (measured 874,195, +413, 2026-11-21, intents-runtime-review): `capability kind` (a read, and its person-confirmed
+  // record) and `app-review runtime-check` registered (command-registry.mjs), with --again a boolean (util.mjs). No new eager file.
   assert.ok(root.bytes <= 873_794, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
@@ -1409,6 +1415,8 @@ test('the common session projection does not import attach, state stores or publ
   // No new eager file.
   // 4,328,362 (measured, +5,446, 2026-11-21, intents-stage2): step intents Stage 2's gate and configuration hooks (phase-roles.mjs,
   // config.mjs); the derivation loads only for a workflow.yml that opts in. No new eager file.
+  // 4,323,516 (measured, +600, 2026-11-21, intents-runtime-review): the two commands registered, --again, the guard's refusal of an
+  // agent's kind confirmation and "Try it" in the approval act. No new eager file.
   assert.ok(current.bytes <= 4_328_362, `session current loads ${current.bytes} source bytes`);
 });
 

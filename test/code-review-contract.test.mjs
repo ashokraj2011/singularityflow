@@ -1,10 +1,11 @@
 /**
  * The code review contract [review level 2]: a code step's change is checked against its approved plan and the
- * evidence its delivery recorded, on four checks, every one cited at file:line:
+ * evidence its delivery recorded, on five checks, every one cited at file:line:
  *   (a) plan: each delivered clause implemented where its plan row says; every changed path planned or reviewed;
  *   (b) tests: each delivered clause's own planned test ran, passed and proves it;
  *   (c) quality and security: every counted, held or unavailable result is reviewed;
- *   (d) readability and design: advisory, blocking only for a named maintainability defect.
+ *   (d) readability and design: advisory, blocking only for a named maintainability defect;
+ *   (e) does it work for its users and callers (test/source-review-use-findings.test.mjs).
  * And the policy that puts a review in every authored step of a new Story, and only a new one.
  */
 import assert from 'node:assert/strict';
@@ -72,8 +73,8 @@ test('a code review that cites each clause\'s planned implementation and its own
   assert.equal(result.status, 'ready', JSON.stringify(result.findings));
   assert.equal(checkSourceReviewReport(value, ctx).retentionReady, true);
   const guide = sourceReviewCitationGuide(ctx);
-  assert.equal(guide.checks.length, 4);
-  assert.match(guide.checks.join(' '), /\(a\) Plan.*\(b\) Tests.*\(c\) Quality and security.*\(d\) Readability and design/su);
+  assert.equal(guide.checks.length, 5);
+  assert.match(guide.checks.join(' '), /\(a\) Plan.*\(b\) Tests.*\(c\) Quality and security.*\(d\) Readability and design.*\(e\) Does it work for its users and callers/su);
   assert.match(guide.findingRule, /names its check and cites a changed file/u);
 });
 

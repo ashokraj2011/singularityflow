@@ -468,8 +468,28 @@ async function stepReviewInput(root, config, workflow, phase, kind, { reviewerAg
   const code = { deliveredClauses: planned ? Object.keys(planned).sort() : clauses.map((clause) => clause.id).sort(),
     planned, changedPaths: sources.filter((source) => source.id !== 'summary').map((source) => source.path), passedTests, quality };
   const visualSources = await plannedFileSources(root, `${itemRelative(config, workflow.workItem.id)}/evidence/`, evidence, planned, sources);
-  const context = { ...common, sources, code, ...(testRuns.length ? { testRuns } : {}), ...(visualSources.length ? { visualSources } : {}), ...(planArtifact ? { plan: planArtifact } : {}) };
+  // The second pass (step intents §12.4): what the runtime check saw of this version and the kinds of software the change
+  // touches. Outside the binding, as testRuns are: a review retained before them stays current.
+  const { runtimeCheck, useKinds } = await secondPassInput(root, workflow, phaseId, code.changedPaths);
+  const context = { ...common, sources, code, ...(testRuns.length ? { testRuns } : {}), ...(runtimeCheck ? { runtimeCheck } : {}), ...(useKinds.length ? { useKinds } : {}),
+    ...(visualSources.length ? { visualSources } : {}), ...(planArtifact ? { plan: planArtifact } : {}) };
   return { ...context, binding: sourceReviewBinding(context) };
+}
+
+/** The runtime check's capture of this version (when there is one) and the kinds of software `changedPaths` touch. */
+async function secondPassInput(root, workflow, phaseId, changedPaths) {
+  let runtimeCheck = null;
+  try {
+    const check = await import('./runtime-check.mjs');
+    runtimeCheck = check.runtimeCheckForReview(await check.readRuntimeCheck(root, workflow, phaseId));
+  } catch { runtimeCheck = null; }
+  // The kinds a person confirmed (a small private read); the runtime check's capture names the rest.
+  let useKinds = (runtimeCheck?.checks ?? []).map((check) => check.kind);
+  try {
+    const record = await import('./software-kind-record.mjs');
+    useKinds = [...useKinds, ...record.kindsTouched(await record.recordedSoftwareKinds(root), changedPaths).map((project) => project.kind)];
+  } catch { /* No record: the checklist is any code's, plus the runtime check's kinds. */ }
+  return { runtimeCheck, useKinds: [...new Set(useKinds.filter(Boolean))] };
 }
 
 /**
@@ -1044,10 +1064,19 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
       reviewer: { activation: 'awaiting-successor-publication', setupRequired: false },
       continuation: sourceReviewContinuation(workflow, phase) };
   }
+  // After publication and before the review, SFlow runs the changed software once per version (runtime-check.mjs), so the
+  // reviewer reads what it saw. It never throws for what this laptop lacks; the capture names it.
+  if (snapshot && globalThis.__SFLOW_EXTENSION_HOST__ !== true && sourceReviewKind(workflow, phaseId) === 'code') {
+    const check = await import('./runtime-check.mjs');
+    if (check.runtimeCheckAdopted(workflow)) await check.runRuntimeCheck(root, config, workflow, phaseId).catch(() => null);
+  }
   const input = await sourceReviewInput(root, config, workflow, phaseId);
   const status = await evaluateRetainedSourceReview(root, config, workflow, phaseId, input);
   if (globalThis.__SFLOW_EXTENSION_HOST__ !== true && input.visualSources?.length) await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(
     root, input.visualSources.map(source => source.absolutePath));
+  // The runtime check's screenshots are SFlow's private files: the reviewer may open exactly these.
+  const screenshots = (input.runtimeCheck?.checks ?? []).flatMap((check) => (check.screenshots ?? []).map((shot) => shot.path));
+  if (globalThis.__SFLOW_EXTENSION_HOST__ !== true && screenshots.length) await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, screenshots);
   // The report's kind is what the step does (specification or planning), never the step's name:
   // the evaluator compares it with that, so a renamed or copied step's review is accepted too.
   const reportTemplate = sourceReviewReportTemplate(input);
@@ -1114,6 +1143,8 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     ...(input.plan ? { plan: hashView(input.plan, input.binding.plan) } : {}),
     ...(input.code ? { code: input.code } : {}),
     ...(input.testRuns?.length ? { testRuns: input.testRuns } : {}),
+    // What SFlow saw when it ran this version, for the second pass, check (e) [step intents §12.3, §12.4].
+    ...(input.runtimeCheck ? { runtimeCheck: input.runtimeCheck } : {}),
     // A finding about that specification names this step as its ownerPhase [PHR:REQ-003].
     ...(input.upstreamSpecPhase ? { upstreamSpecPhase: input.upstreamSpecPhase } : {}),
     ...(disputedEarlier.length ? { disputedEarlier, disputedGuidance: 'A person who may decide for this step disputed each finding in disputedEarlier, with their reason. If you raise the same finding again, keep its id, check, clause and cited source: it then shows as already disputed instead of blocking. Any other problem is a new finding with its own new id.' } : {}),
@@ -1168,6 +1199,7 @@ function reviewKnownIds(input) {
   return [
     { field: /(?:^rows\[\d+\]\.clauseId|^rows\[\d+\]\.clauseIds\[\d+\]|^findings\[\d+\]\.clauseId)$/u, values: clauseIds, what: 'a clause ID this review covers' },
     { field: /^qualityReviewed\[\d+\]$/u, values: (input.code?.quality ?? []).map((item) => item.id), what: 'a result ID from context.code.quality' },
+    { field: /^findings\[\d+\]\.runtimeFinding$/u, values: (input.runtimeCheck?.checks ?? []).flatMap((check) => check.findings ?? []).map((entry) => entry.id), what: 'a finding ID from context.runtimeCheck' },
     { field: /^clarificationsReviewed\[\d+\]$/u, values: (input.clarifications ?? []).map((entry) => entry.id), what: 'a clarification record ID from context.clarifications' },
     ...(input.kind === 'specification' ? [{ field: /^rows\[\d+\]\.scenarioId$/u, values: [...sourceReviewScenarioIds(input.artifact?.text ?? '')], what: 'a scenario ID of the specification' }] : []),
     { field: /^reviewer\.agentId$/u, values: input.reviewerAgentId ? [input.reviewerAgentId] : [], what: 'this review\'s reviewer' }
@@ -1191,7 +1223,8 @@ export function checkSourceReviewReport(report, input) {
     'source-unknown', 'clause-list-invalid', 'clause-row-invalid', 'plan-row-mismatch',
     'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed',
     'clarifications-reviewed-invalid', 'clarifications-not-all-reviewed', 'visual-sources-not-reviewed',
-    'visual-inspection-invalid', 'visual-citation-invalid', 'finding-citation-missing', 'design-blocking-without-defect', 'evidence-outside-plan']);
+    'visual-inspection-invalid', 'visual-citation-invalid', 'finding-citation-missing', 'design-blocking-without-defect', 'evidence-outside-plan',
+    'use-severity-mismatch', 'runtime-finding-unknown', 'runtime-finding-unanswered']);
   const bindingAndCitationFindings = evaluation?.findings.filter((entry) => invalid.has(entry.code) || entry.code === 'review-binding-stale') ?? [];
   const checked = { format, evaluation,
     retentionReady: format.status === 'ready' && evaluation.status !== 'stale' && !bindingAndCitationFindings.length,

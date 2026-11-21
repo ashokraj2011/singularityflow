@@ -364,6 +364,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   revise: route('sf-revise'),
   capability: route('sf-capability-map', {
     'test-setup': 'sf-test-setup',
+    kind: 'sf-capabilities',
     onboard: 'sf-capability-map',
     add: 'sf-capability-add',
     protect: 'sf-capability-protect',

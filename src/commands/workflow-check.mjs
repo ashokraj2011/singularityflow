@@ -7,6 +7,7 @@
  * It also says what each step is for and how sure SFlow is (step intents), and, without a change set, what kind
  * of software each project in the repository is (src/software-kinds.mjs). With --settings it lists every step's
  * settings and where each came from: its intent, a workflow rule, the step or the workflow itself, or an SFlow rule.
+ * The kind is recorded with `capability kind`, and the runtime check follows it (src/runtime-check.mjs).
  */
 import { readFile } from 'node:fs/promises';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString } from '../util.mjs';
@@ -50,7 +51,7 @@ function printSoftware(software) {
     console.log(`What kind of software this is: SFlow could not read the repository's files (${software.unavailable}).`);
     return;
   }
-  console.log('What kind of software this is, from its files (nothing depends on it yet):');
+  console.log('What kind of software this is, from its files (the runtime check follows it; singularity-flow capability kind confirms it once):');
   for (const project of software.projects) {
     const name = project.root ? `${project.name ?? project.id} (${project.root})` : 'This repository';
     const kind = project.kind ? `${project.kind}${project.confidence === 'certain' ? '' : ` (${SURE_WORDS[project.confidence]})`}` : 'cannot tell';

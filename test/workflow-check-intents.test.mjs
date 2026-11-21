@@ -71,7 +71,7 @@ test('each step\'s intent and how sure SFlow is, and the repository\'s kind of s
   const text = flow(root, ['workflow', 'check', 'pay']).stdout;
   assert.match(text, /^ {5}For: intake \(SFlow is sure: a step SFlow ships\)\.$/mu);
   assert.match(text, /^ {5}For: test \(likely: its words say "check", "validate"/mu);
-  assert.match(text, /^What kind of software this is, from its files \(nothing depends on it yet\):\n {2}This repository: web: react in package\.json; front-end component files\.$/mu);
+  assert.match(text, /^What kind of software this is, from its files \(the runtime check follows it; singularity-flow capability kind confirms it once\):\n {2}This repository: web: react in package\.json; front-end component files\.$/mu);
   const all = flow(root, ['workflow', 'check']).stdout;
   assert.match(all, /^ {2}What each step is for: Intake: intake, Requirements: requirements, Build the change: code, Validate the payment: test \(likely\)\.$/mu);
 

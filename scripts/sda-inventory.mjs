@@ -99,6 +99,11 @@ const OVERRIDES = {
   'session-state-index.mjs': 'projection',
   // A review's disposable static preview and its machine-local captures, kept under the Git directory.
   'application-review-preview.mjs': 'local-operational',
+  // The runtime check's capture and screenshots of one step version, private to this checkout's Git directory.
+  'runtime-check.mjs': 'local-operational',
+  'runtime-check-web.mjs': 'local-operational',
+  // A person's confirmed kind of software for a capability, kept with this clone's private files; the only copy.
+  'software-kind-record.mjs': 'local-authored',
   // The short confirmation codes this machine gave, each with the command it names; a week's worth, never shared.
   'confirm-code.mjs': 'local-operational',
   // Configuration drafts are the one place a configuration edit is saved before it is proposed.

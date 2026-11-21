@@ -58,8 +58,10 @@ const codeRow = z.strictObject({
 const unplannedPath = z.strictObject({ sourceId: id, assessment: z.enum(['supporting', 'out-of-scope']), note: text() });
 const reviewerFinding = z.strictObject({
   id, severity: z.enum(['blocking', 'advisory']),
-  check: z.enum(['plan', 'tests', 'quality', 'design']).optional().describe('Code review only: which check found it. Design blocks only with defect.'),
+  check: z.enum(['plan', 'tests', 'quality', 'design', 'use']).optional().describe('Code review only: which check found it. Design blocks only with defect; use is the second pass, "does it work for its users and callers".'),
   defect: text(1024).optional().describe('Code review, design check: the maintainability defect that makes it blocking.'),
+  use: z.enum(['breaks-use', 'improvement']).optional().describe('Code review, use check: breaks-use blocks (the author fixes it in the next version); improvement is advice that never blocks. SFlow sets severity from it.'),
+  runtimeFinding: id.optional().describe('Code review, use check: the runtime check finding (runtimeCheck.checks[].findings[].id) this rests on.'),
   message: text().describe('Explain the evidence and gap in message; not explanation.'),
   clauseId: id.optional(), sourceId: id.optional(),
   line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(),
@@ -83,7 +85,8 @@ function schema(kind) {
       method: z.enum(['image-tool', 'pdf-tool']), locator: text(1024), observations: text() })).max(100).optional(),
     clarificationsReviewed: z.array(id).max(2).optional().describe('SFlow lists every record in context.clarifications here; read each one.'),
     rows,
-    ...(kind === 'code' ? { unplannedPaths: z.array(unplannedPath).max(2000).describe('(a) Each changed path no plan row names: supporting, or out-of-scope.'),
+    ...(kind === 'code' ? { runtimeChecked: id.optional().describe('SFlow writes the id of the runtime check this review read (context.runtimeCheck.id).'),
+      unplannedPaths: z.array(unplannedPath).max(2000).describe('(a) Each changed path no plan row names: supporting, or out-of-scope.'),
       qualityReviewed: z.array(id).max(500).describe('(c) SFlow lists every quality, security and secret-scan result in context.code.quality here; raise a finding for one that must be fixed.') } : {}),
     findings: z.array(reviewerFinding).max(500)
   });
@@ -149,6 +152,7 @@ export function sourceReviewReportTemplate(input) {
     sourcesReviewed: [...input.sources, ...(input.visualSources ?? [])].map((source) => source.id),
     ...(input.visualSources?.length ? { visualSourcesReviewed: [] } : {}),
     ...(input.clarifications?.length ? { clarificationsReviewed: input.clarifications.map((entry) => entry.id) } : {}), rows,
+    ...(input.kind === 'code' && input.runtimeCheck?.id ? { runtimeChecked: input.runtimeCheck.id } : {}),
     ...(input.kind === 'code' ? { unplannedPaths: input.code?.planned ? input.sources.filter((source) => (input.code.changedPaths ?? []).includes(source.path) && !plannedPaths.has(source.path))
       .map((source) => ({ sourceId: source.id, assessment: 'unreviewed', note: '' })) : [], qualityReviewed: (input.code?.quality ?? []).map((item) => item.id) } : {}),
     findings: []
@@ -297,6 +301,13 @@ export function normalizeSourceReviewReport(report, input) {
   if (input.kind === 'code') {
     const quality = (input.code?.quality ?? []).map((item) => item.id);
     if (!sameSet(next.qualityReviewed, quality)) set(next, 'qualityReviewed', 'qualityReviewed', quality, 'acknowledged');
+    // The runtime check this review read is SFlow's to name, and a use finding's severity follows its kind.
+    if (input.runtimeCheck?.id) set(next, 'runtimeChecked', 'runtimeChecked', input.runtimeCheck.id, 'acknowledged');
+    else remove(next, 'runtimeChecked', 'runtimeChecked', 'acknowledged');
+    findings.forEach((entry, index) => {
+      if (!isObject(entry) || entry.check !== 'use' || !['breaks-use', 'improvement'].includes(entry.use)) return;
+      set(entry, 'severity', `findings[${index}].severity`, entry.use === 'breaks-use' ? 'blocking' : 'advisory', 'use-class');
+    });
   }
 
   // A planning row's plan fields, by its clause: pinned metadata the reviewer cannot change, so never a judgment.
@@ -349,6 +360,27 @@ function codeEvidenceFiles(input) {
     .map((source) => ({ clauseId, sourceId: source.id, path: source.path })));
 }
 
+/**
+ * What the second pass looks for, by kind of software (step intents spec §12.4): every code change gets `any code`, and each
+ * kind the change touches (web, backend, job, cli, library, mobile, artifact) adds its own list.
+ */
+export const USE_CHECKLISTS = Object.freeze({
+  'any code': 'Unhandled errors and swallowed exceptions. Null and empty handling. Resource leaks (connections, files, streams). Unbounded loops or retries. Missing timeouts on remote calls. Thread safety in shared state. Input used without validation. Secrets in code or logs. Edge cases the code plainly mishandles.',
+  web: 'Layout tied to content that comes and goes. Charts or canvases with no resize handling. Effect and redraw loops. Missing keyboard path and labels.',
+  backend: 'Error mapping (exceptions surfacing as 500), validation, auth on new endpoints, contract compatibility, transactions around multi-step writes, N+1 queries, pagination on growing lists, idempotency of retried calls.',
+  job: 'Partial-failure handling, re-run safety, memory on large input.',
+  cli: 'Exit codes, stdout vs stderr, argument parsing errors.',
+  library: 'Accidental breaking changes, and semver of the release.',
+  mobile: 'Crashes on the main flow, screens in portrait and landscape, accessible text and controls.',
+  artifact: 'Destructive migrations, missing rollback, overly broad permissions.'
+});
+
+/** The checklists for a code review: any code, then each kind its change touches (input.useKinds or the runtime check's). */
+function useChecklist(input) {
+  const kinds = [...new Set([...(input.useKinds ?? []), ...(input.runtimeCheck?.checks ?? []).map((check) => check.kind)].filter((kind) => USE_CHECKLISTS[kind]))];
+  return Object.fromEntries(['any code', ...kinds].map((kind) => [kind, USE_CHECKLISTS[kind]]));
+}
+
 /** Citation mechanics only: never infer coverage, rewrite quotes, or make reviewer judgments. */
 export function sourceReviewCitationGuide(input) {
   const evidenceFiles = codeEvidenceFiles(input);
@@ -368,8 +400,11 @@ export function sourceReviewCitationGuide(input) {
         '(a) Plan: each delivered clause is implemented where its plan row says (cite file:line in implementation); review every changed path no plan row names as supporting or out-of-scope.',
         '(b) Tests: each delivered clause has its own planned test that ran and passed (context.code.passedTests); cite its file:line and say whether it proves the behaviour. SFlow\'s own runs of this version, with the Node each ran on, are context.testRuns: they stand over any test result the summary states, which it may have written before them.',
         '(c) Quality and security: read every context.code.quality result (SFlow lists them in qualityReviewed); raise a blocking quality finding for one that must be fixed.',
-        '(d) Readability and design: your judgement, proportionate. Advisory by default; blocking only for a real maintainability defect, named in defect.'
+        '(d) Readability and design: your judgement, proportionate. Advisory by default; blocking only for a real maintainability defect, named in defect.',
+        '(e) Does it work for its users and callers: a second pass over the changed code, beyond the requirements, with context.runtimeCheck (what SFlow saw when it ran the change) and useChecklist for the kinds this change touches. A finding here has check "use" and use "breaks-use" (it blocks: the code plainly breaks something a user or caller does; cite the line that causes it, and runtimeFinding when the runtime check shows it) or "improvement" (advice: it never blocks and never starts a version). Taste, style and nice-to-haves are improvements.'
       ],
+      useChecklist: useChecklist(input),
+      ...(input.runtimeCheck ? { runtimeRule: 'Answer every runtimeCheck finding whose use is breaks-use with a "use" finding naming it in runtimeFinding: breaks-use with the line that causes it, or improvement saying why this change does not cause it. A check that could not run names what was missing; it holds nothing. You may run the app yourself with the repository\'s own tools (Run & Test, Playwright, HTTP calls) to settle a question the capture leaves open; say what you ran in the finding.' } : {}),
       findingRule: 'Every finding names its check and cites a changed file: sourceId (its sources[].id, or its exact path, which the check turns into the ID), line and an exact quote; name the clauseId for plan and tests findings.',
       ...(evidenceFiles.length ? { evidenceFiles,
         evidenceRule: 'Some clauses are proved by a file the plan keeps as evidence, such as a screenshot, not by code. Open each file in evidenceFiles with your image or PDF tool and list it in visualSourcesReviewed with what you looked at and what you saw. Then, in that clause\'s row, add it to evidence: { "sourceId": "<its id>", "attestation": "<the part you looked at and what it shows>" }. Cite the clause\'s test in tests as usual; implementation may stay empty. If the file does not show what the clause asks, set assessment to not-implemented and add a blocking plan finding with that sourceId and attestation (no line or quote).' } : {})

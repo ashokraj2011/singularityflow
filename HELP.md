@@ -1177,6 +1177,7 @@ singularity-flow capability onboard <REPOSITORY-URL> --dry-run --json
 singularity-flow capability onboard <REPOSITORY-URL> --confirm-plan <PLAN-ID> --json
 singularity-flow capability inspect-repository <GIT-URL> [--lead <URL>]... [--refresh] --json
 singularity-flow capability projects <GIT-URL> [--lead <URL>] --json
+singularity-flow capability kind [--kind <PROJECT>=<KIND>] --json
 singularity-flow capability tree --json
 singularity-flow capability show <CAPABILITY-ID> --json
 singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL> \
@@ -4291,6 +4292,7 @@ singularity-flow app plan|start|status|stop|suggest|config preview [START-ID] [-
 singularity-flow tests plan|run|summary [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--run RUN-ID] [--json]
 singularity-flow app-review plan|start|status|inspect|feedback|repair|recheck|accept|capture|defer|close [SESSION] [--work-id ID] [--json]
 singularity-flow app-review browser install
+singularity-flow app-review runtime-check [--work-id ID] [--phase PHASE] [--again] [--json]
 singularity-flow outcome [WORK-ID] [--capability ID] [--json]
 singularity-flow result last [--wait [SECONDS]] [--command WORDS] [--json]
 singularity-flow confirm CODE [--json]

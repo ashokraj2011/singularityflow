@@ -83,11 +83,17 @@ For a `document`, give each pinned source (the Story, its documents and the appr
 reads) at least one cited row: `consistent`, `inconsistent` or `question`, with a note for the last two.
 
 For `code`, the sources are the changed files exactly as published; cite their lines by each file's
-`sources[].id` (or the file's exact path, which the check turns into its ID). Do all four checks in `citationGuide.checks`: (a) each delivered clause is implemented where
+`sources[].id` (or the file's exact path, which the check turns into its ID). Do all five checks in `citationGuide.checks`: (a) each delivered clause is implemented where
 the approved plan says, and each changed path no plan row names is `supporting` or `out-of-scope`;
 (b) each delivered clause has its own planned test that ran and passed and that proves the behaviour;
 (c) read every `code.quality` result (SFlow lists them in `qualityReviewed`); (d) readability and design are
-advisory unless a real maintainability defect, named in `defect`, makes them blocking. Every finding
+advisory unless a real maintainability defect, named in `defect`, makes them blocking; (e) does it work
+for its users and callers: a second pass over the changed code beyond the requirements, with `runtimeCheck`
+(what SFlow saw running it) and `citationGuide.useChecklist`. A `use` finding is `breaks-use` (blocking: the
+code plainly breaks what a user or caller does; cite the line that causes it and `runtimeFinding`) or
+`improvement` (advice that never blocks or starts a version); taste is an improvement. Answer each
+breaks-use runtime finding by its `runtimeFinding`. You may run the app with the repository's own tools to
+settle what the capture leaves open. Every finding
 names its `check` and cites file:line with an exact quote, and the clause or plan row it is about.
 A blocking finding sends the step back to its author for the next generation in the same step.
 

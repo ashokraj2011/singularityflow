@@ -43,7 +43,10 @@ export async function outcomeReview(root, { workId = null, capabilityId = null }
     ? { required: workflow.resolution.applicationReview.mode === 'required', sessionId: reviewSession?.id ?? null,
       command: reviewSession ? `singularity-flow app-review inspect ${reviewSession.id} --work-id ${workflow.workItem.id}`
         : `singularity-flow app-review start --work-id ${workflow.workItem.id}`, copilotCommand: '/sf-app-review' } : null;
-  return { ...(applicationReview ? { applicationReview } : {}), ...buildOutcomeReview({ workflow, graph, evaluation, owed, application,
+  // The ready ways to try this version, from SFlow's runtime check of it (step intents §12.5); optional, never a hold.
+  const tryIt = phaseRequiresCodeDelivery(workflow.phases[reviewPhase])
+    ? await (await import('./runtime-check.mjs')).runtimeTryItView(root, workflow, reviewPhase).catch(() => null) : null;
+  return { ...(applicationReview ? { applicationReview } : {}), ...(tryIt ? { tryIt } : {}), ...buildOutcomeReview({ workflow, graph, evaluation, owed, application,
     contracts: mergedVerificationContracts(graph.records?.planned ?? []),
     workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot ?? 'singularity/work-items' }) };
 }

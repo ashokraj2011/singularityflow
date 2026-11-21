@@ -68,8 +68,10 @@
             "auto",
             "web",
             "backend",
+            "job",
             "cli",
             "library",
+            "mobile",
             "artifact"
           ]
         },

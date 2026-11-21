@@ -45,7 +45,7 @@ export const INFERRED_BUILD = Object.freeze({
   steps: Object.freeze([Object.freeze({ argv: Object.freeze(['npm', 'ci', '--no-audit', '--no-fund']) }), Object.freeze({ argv: Object.freeze(['npm', 'run', 'build']) })]),
   outputDirectory: 'dist'
 });
-const NON_WEB = new Set(['backend', 'cli', 'library', 'artifact']);
+const NON_WEB = new Set(['backend', 'job', 'cli', 'library', 'artifact']);
 const USER_FACING = /\.(?:jsx|tsx|vue|svelte|html|css|scss)$/iu;
 const VITE_BUILD = /(?:^|[\s;&|(])vite\s+build(?:\s|$|[;&|)])/u;
 

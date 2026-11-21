@@ -97,6 +97,13 @@
       },
       "digest": "5ba1e620d1d644155679e4abc07a0119e4aac52eb429c55bf0d76c61aa16d760"
     },
+    "src/runtime-check-cli.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "6ade375d0e5c3da7f62ffec857a5c1565ab7d090afef8200b5b7893b0631b071"
+    },
     "src/story-policy-anchor.mjs": {
       "counts": {
         "command-run": 2

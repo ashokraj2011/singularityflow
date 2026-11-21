@@ -7,13 +7,14 @@ export function reviewApplicability(policy, paths) {
   const surface = ui ? 'web' : policy?.surface ?? 'auto';
   const resolved = surface !== 'auto';
   return { resolved, surface, reason: ui ? 'Observed user-facing source changes' : resolved ? 'Explicit adopted review profile' : 'Change surface requires an explicit review profile',
-    dimensions: { visual: surface === 'web' ? 'pending' : resolved ? 'not-applicable' : 'pending', functional: 'pending' } };
+    // A mobile app has screens too: its visual check stays a person's, as a web app's does.
+    dimensions: { visual: ['web', 'mobile'].includes(surface) ? 'pending' : resolved ? 'not-applicable' : 'pending', functional: 'pending' } };
 }
 
 /**
  * A visual step's coverage when the Story's declared surface has no screens, or null when a person decides as before
  * [CQF:REQ-035]. The same profile as app review, declared whether or not the work type adopts it (`applicationReview:
- * { mode: off, surface: library }` adopts nothing). Only a declared backend, cli, library or artifact surface rules the
+ * { mode: off, surface: library }` adopts nothing). Only a declared backend, job, cli, library or artifact surface rules the
  * step out, never a guess from the diff; a user-facing file a code step delivered (its recorded paths, no Git read)
  * brings it back. `applicability.words` is what the approver reads wherever visual coverage is shown.
  */

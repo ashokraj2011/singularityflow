@@ -4,15 +4,15 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "0538f8f8edd42dd9d9eadb288e3c855d2b7c83cf",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-20-HARDENING-LANDING.md",
-    "companionIds": ["publication-unit-of-work"]
+    "reviewedAtCommit": "07ddb6dc0dd11b424b9f641989235de8405a8a68",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-21-STEP-INTENTS.md",
+    "companionIds": ["workflow-configuration"]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:58f70922173ad2efdb6f253e32600c671769a8f8dd29f8fbf76c3c8d5bca25a3"
+      "sha256": "sha256:f39e9681e193a9f6e1deab68c1eb8471420249ea6f8be72d33f5210346fe6a6c"
     },
     {
       "id": "sgos-portable-schema",

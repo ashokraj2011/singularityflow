@@ -75,7 +75,9 @@ export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runSt
   const filled = (await import('../choices.mjs')).approvalReceiptCommands(begun.value);
   // This turn is that approval: what the readiness and the review say comes next is this same approval, never a route.
   const own = { workId, phase };
-  return { ...begun.value, ...(filled ? { onYes: safeCommandGuidance({ argv: filled.answer }) } : {}),
+  // The person's Yes is recorded in this same approve turn: onYes has no skill or chat route of its own (choices maps to /sf-start).
+  return { ...begun.value,
+    ...(filled ? { onYes: { ...safeCommandGuidance({ argv: filled.answer }), skill: null, copilotCommand: null, modelFreeCommand: null } } : {}),
     approvalPacket: { readiness: withoutOwnApproval(readiness, own), review: withoutOwnApproval(shown.value, own) } };
 }
 

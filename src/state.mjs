@@ -197,6 +197,7 @@ import {
   approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
   readConfigurationSource, resolveApprovedStoryWorkType
 } from './configuration-branch.mjs';
+import { pinnedIntentProfile } from './step-intent-settings.mjs';
 import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
 import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
@@ -10761,8 +10762,9 @@ async function skillAmendmentCandidate(root, config, workflow, skillId, approved
   }
   const configurationAncestry = await captureSkillConfigurationAncestry(
     approvedConfigurationSnapshot, previousSource);
+  // With the step intent profile this Story pinned, so a newer profile in the repository changes nothing here.
   const resolved = resolveApprovedStoryWorkType(approvedConfigurationSnapshot,
-    workflow.workItem.workType);
+    workflow.workItem.workType, { intentProfile: pinnedIntentProfile(workflow.resolution) });
   if (canonicalJson(resolved.phases.map((phase) => phase.id))
       !== canonicalJson(workflow.phaseOrder)) {
     skillAmendmentFail('SKP_AMENDMENT_UNSUPPORTED',

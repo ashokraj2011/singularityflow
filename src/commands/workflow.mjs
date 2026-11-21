@@ -33,6 +33,7 @@ export async function run(argv, { positionals, options }) {
   if (method === 'intent') return (await import('./workflow-intent.mjs')).run(argv, { positionals, options });
   if (method === 'markup') return (await import('./workflow-markup.mjs')).run(argv, { positionals, options });
   if (method === 'import-team') return (await import('./workflow-import-team.mjs')).run(argv, { positionals, options });
+  if (method === 'from-agent') return (await import('./workflow-from-agent.mjs')).run(argv, { positionals, options });
   if (method === 'check') return (await import('./workflow-check.mjs')).run(argv, { positionals, options });
   if (method === 'validate') return (await import('./workflow-validate.mjs')).run(argv, { positionals, options });
   if (method === 'walk') return (await import('./workflow-walk.mjs')).run(argv, { positionals, options });

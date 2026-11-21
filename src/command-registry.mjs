@@ -405,7 +405,7 @@ const WORKFLOW_AUTHOR_ACTIONS = Object.freeze([...WORKFLOW_AUTHOR_READ_ACTIONS, 
 const WORKFLOW_STUDIO_ACTIONS = Object.freeze(['show', 'apply']);
 const WORKFLOW_IMPORT_TEAM_ACTIONS = Object.freeze(['inspect', 'compile', 'status', 'export', 'import']);
 const WORKFLOW_BUILD_ACTIONS = Object.freeze(['start', 'add', 'status', 'source', 'propose', 'decide', 'answer', 'check', 'verify', 'finish', 'export', 'import']);
-const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'build', 'markup', 'intent']);
+const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'build', 'markup', 'intent', 'from-agent']);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse', 'artifacts', 'readiness']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch', 'restore']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
@@ -756,6 +756,11 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
     if (!['example', 'compile'].includes(action)) return unknownSubcommand('workflow markup', action, ['example', 'compile']);
     return never(action === 'example' ? 'workflow.markup.example' : options.out ? 'workflow.markup.write' : 'workflow.markup.compile', definition,
       action === 'compile' && options.out ? 'mutation' : 'read');
+  }
+  // A marketplace agent as a workflow: a preview reads; --out and --propose write the workflow bundle.
+  if (subcommand === 'from-agent') {
+    return options.out || optionBoolean(options, 'propose')
+      ? never('workflow.from-agent.write', definition, 'mutation') : never('workflow.from-agent', definition, 'read');
   }
   if (subcommand === 'author') {
     const action = positionals[2] ?? 'list';
@@ -2119,6 +2124,8 @@ export function operationCatalog() {
     never('workflow.intent.preflight', workflowDefinition, 'read'),
     never('workflow.markup.compile', workflowDefinition, 'read'),
     never('workflow.markup.write', workflowDefinition, 'mutation'),
+    never('workflow.from-agent', workflowDefinition, 'read'),
+    never('workflow.from-agent.write', workflowDefinition, 'mutation'),
     ...DOCUMENTS_READ_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'read')),
     ...DOCUMENTS_MUTATION_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'mutation')),
     ...DECISION_READ_SUBCOMMANDS.map((name) => never(`decision.${name}`, decisionDefinition, 'read')),

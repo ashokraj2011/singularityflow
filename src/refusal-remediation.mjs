@@ -2702,6 +2702,11 @@ export function refusalDetails(details) {
     exitCode: Number.isInteger(details.execution.exitCode) ? details.execution.exitCode : null
   });
   for (const key of ['workId', 'phase', 'currentPhase', 'operation', 'repositoryPath', 'preservation', 'stagingPath']) if (text(details[key])) projected[key] = text(details[key]);
+  // The person's filled choices where SFlow stopped returning a test step's failing tests (failing-tests-return.mjs, D1):
+  // every one is kept, as the plan below keeps only the first beside its own steps.
+  const choices = list(details.choices, (entry) => (typeof entry?.command === 'string' && safeCommandGuidance({ command: entry.command })
+    ? compact({ id: lowerKebab(entry.id), label: text(entry.label), command: safeCommandGuidance({ command: entry.command }).command, skill: text(entry.skill) }) : null)).slice(0, 5);
+  if (choices.length) projected.choices = choices;
   // A step the Story does not have: what was typed, the steps it has and the ones this command takes.
   const unknownStep = details.unknownStep;
   if (unknownStep && typeof unknownStep === 'object' && text(unknownStep.requested)) {

@@ -25,6 +25,11 @@
  *   Q  a quick design (daily run, 2026-11-17): a change typed twice is one instruction; published without its account,
  *      every view leads with that account, and the code step nobody approves completes once it is made; the code step is
  *      offered to /sf-code, never as a generated publish; once closed, the Story says it is done.
+ *   T  a test step that changes no code runs its check and it fails: SFlow returns it to the code step and starts its next
+ *      version on its own, settled with an undo; once the fix is approved the test step runs again on its own and passes,
+ *      and nobody is asked to start a version (owner, 2026-11-20, D1);
+ *   U  the same check fails again after SFlow's fix: SFlow stops, and the approval gives the person filled choices; their
+ *      return starts the code step's next version at once, and the fix then passes the test step run again (D1's brake).
  *
  * Every walk writes through the real edit guard and reads the person's views at each hand-off (route-follower.mjs).
  *
@@ -932,6 +937,179 @@ test('journey R: an unaccounted instruction and a typed change: the person says 
     const record = storyRecord(story);
     assert.equal(record.phases.implement.generation, 1);
     assert.equal(record.phases.implement.approvalDisposition, 'not_required');
+  });
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- T and U
+
+// D1 (owner, 2026-11-20, step intents spec §11): a test step changes no source code, and a failing test goes back to the
+// code step on its own, under the workflow's review brake (src/failing-tests-return.mjs). The workflow: a scope-and-plan
+// step, a code step and a test step that changes no source and runs its own check of the value.
+const VALUE_CHECK = ["import { value } from '../src/value.mjs';", '',
+  "if (value !== 2) { console.error(`AssertionError: the value must be 2, got ${value}`); process.exit(1); }", "console.log('ok: the value is 2');", ''].join('\n');
+const fillTodos = (text, words) => text.replace(/TODO:[^\n]*/gu, words).replace(/\bTODO\b/gu, 'none');
+
+/** A Story of the tested-change workflow whose scope and plan is approved and whose code step is next, every step reviewed. */
+async function testedChangeAtCode(t, W) {
+  const story = await journeyRepository(t, { files: { 'checks/value-check.mjs': VALUE_CHECK }, configure: (configuration) => {
+    configuration.workTypes['tested-change'] = { label: 'Tested change', description: 'Scope and plan, code, and a test step that runs the value check and changes no code.',
+      phases: ['intake', 'implementation', 'verification'],
+      plannedClaims: { mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake' } },
+      templateOverrides: { intake: 'quick-fix/intake.md' },
+      phaseOverrides: {
+        intake: { label: 'Scope and plan', artifact: { kind: 'requirements' }, clarification: { mode: 'off' },
+          approval: { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake'] } },
+        implementation: { inputs: ['intake'], approval: { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake', 'implementation'] } },
+        verification: { inputs: ['intake', 'implementation'], writeScope: 'artifact-only', clarification: { mode: 'off' },
+          qualityCommands: [{ id: 'value-check', kind: 'test', argv: [process.execPath, 'checks/value-check.mjs'], modelPolicy: 'never' }],
+          approval: { authorities: ['quality-reviewers'], minimum: 1, rejectTo: ['intake', 'implementation', 'verification'] } }
+      } };
+  } });
+  startStory(story, W, { workType: 'tested-change', title: 'Change the value', description: 'Return 2.' });
+  story.cli('prepare', 'intake');
+  await story.write(`${story.item}/artifacts/intake/intake.md`, quickFixIntake(W));
+  story.cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  reviewStep((args) => JSON.parse(story.cli(...args)), 'intake');
+  story.cli('submit', 'intake');
+  story.cli('approve', 'intake', '--yes');
+  return story;
+}
+
+/** The code step writes the value `valueFor(version)` (its own test reads that value); the test step reports its run. */
+const testedChangeAuthor = (W, valueFor) => async ({ story: s, phase, generation }) => {
+  if (phase === 'implementation') {
+    const open = storyRecord(s)?.phases?.implementation?.generationIntent;
+    const version = open?.status === 'open' ? Number(open.generation) : Number(generation ?? 0) + 1;
+    const value = valueFor(version);
+    await writeValueCode(s, { value, clauses: [`${W}:AC-001`], note: `returns the approved value (version ${version})` });
+    await s.write(`${s.item}/artifacts/implementation/implementation-summary.md`, [`# ${W} — Implementation Summary`, '', '## Agent brief', '',
+      `Version ${version} sets the exported value to ${value}; its focused test reads that value and nothing else changes.`, '', '## Implemented outcome', '',
+      `\`src/value.mjs\` exports ${value}.`, '', '## Changed components and decisions', '',
+      `- \`src/value.mjs\` carries \`@clause:${W}:AC-001\` beside the constant it sets.`, '', '## Tests and operational notes', '',
+      `\`test/value.test.mjs\` (tagged \`@ac:${W}:AC-001\`) reads the value; \`npm test\` runs it. Nothing changes for an operator.`, ''].join('\n'));
+    return true;
+  }
+  if (phase === 'verification') {
+    const file = `${s.item}/artifacts/verification/test-evidence.md`;
+    const before = await s.read(file).catch(() => '');
+    await s.write(file, fillTodos(before, `Ran the value check (\`node checks/value-check.mjs\`) on the code ${W}:AC-001 names; its result is the run this step records.`));
+    return true;
+  }
+  return false;
+};
+
+const settledOf = (story, kind) => (storyRecord(story)?.settledDecisions ?? []).filter((entry) => entry.kind === kind);
+
+test('journey T: the test step\'s check fails, SFlow starts the code step\'s next version on its own, the fix passes the check, and nobody is asked', slowLane({ timeout: 2_400_000 }), async (t) => {
+  const W = 'JRN-T';
+  const story = await testedChangeAtCode(t, W);
+  const asked = [];
+  const walk = await followRoutes(story, {
+    label: 'journey T', start: { copilot: '/sf-code' },
+    agent: { author: testedChangeAuthor(W, (version) => (version >= 2 ? 2 : 1)), review: reviewer(), clarify: clarifications() },
+    person: cooperativePerson(({ act }) => { if (act?.state === 'confirm') asked.push(act.ask?.question ?? act.said ?? ''); return null; }),
+    done: ({ record }) => ['approved', 'completed'].includes(record?.phases?.verification?.status) && Number(record.phases.verification.generation) >= 2, maxSteps: 120
+  });
+  t.diagnostic(formatTrail(walk.trail));
+  await check(t, 'the Story goes from the failing check to the passing one by its routes alone: nothing loops or dead-ends', {}, () => {
+    assert.equal(walk.reached, true, report(walk));
+    assert.deepEqual(walk.findings, [], report(walk));
+  });
+  const record = storyRecord(story);
+  await check(t, 'SFlow returned the test step itself, with the failure as the code step\'s change request', {}, () => {
+    const [request] = record.changeRequests;
+    assert.deepEqual([request.sourcePhase, request.sourceGeneration, request.targetPhase, request.requestedBy?.login, request.automatic?.kind],
+      ['verification', 1, 'implementation', 'sflow-returned-automatically', 'failing-tests'], JSON.stringify(request));
+    assert.match(request.comment, /value-check .*exit 1.*AssertionError: the value must be 2, got 1/u, request.comment);
+    assert.match(request.comment, /Fix the code, or its tests, in Implementation so these pass; Verification then runs them again\.$/u);
+    assert.ok(record.history.some((event) => event.event === 'phase_rejected' && /returned to implementation automatically by SFlow/u.test(event.detail)), 'the return is in the history');
+  });
+  await check(t, 'both starts are settled for the person with an undo: the code step\'s version 2, then the test step\'s run again', {}, () => {
+    const [returned] = settledOf(story, 'failing-tests');
+    assert.deepEqual([returned?.phase, returned?.effect?.generation, returned?.effect?.toGeneration, returned?.effect?.testPhase, returned?.effect?.round],
+      ['implementation', 1, 2, 'verification', 1], JSON.stringify(returned));
+    const [rerun] = settledOf(story, 'tests-rerun');
+    assert.deepEqual([rerun?.phase, rerun?.effect?.generation, rerun?.effect?.toGeneration, rerun?.effect?.codeGeneration],
+      ['verification', 1, 2, 2], JSON.stringify(rerun));
+    assert.equal(record.phases.implementation.generation, 2);
+    assert.equal(record.phases.verification.generation, 2);
+    assert.equal(record.phases.verification.checks.find((entry) => entry.id === 'value-check')?.status, 'passed');
+  });
+  await check(t, 'no person was asked to start a version: only the plan, the code and the tests were approved by a person', {}, () => {
+    assert.deepEqual(asked, [], report(walk));
+    assert.ok(!walk.trail.some((entry) => /phase rollover \S+ --confirm /u.test(entry.ran ?? '')), report(walk));
+    // The failing submission ended the test step's turn, and the code step's fix started in a new turn by /sf-code.
+    const failed = walk.trail.findIndex((entry) => entry.act === 'end-turn' && /--submit-if-ready/u.test(entry.ran ?? '') && /returned it to the code step/u.test(entry.did ?? entry.said ?? ''));
+    assert.ok(failed < 0 || walk.trail[failed + 1]?.typed === true, report(walk));
+  });
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
+  settle(t);
+});
+
+/** A command line a choice names, as the argv a person's terminal runs: its one quoted reason kept whole. */
+const choiceArgv = (command) => [...command.replace(/^singularity-flow /u, '').matchAll(/"([^"]*)"|(\S+)/gu)].map((match) => match[1] ?? match[2]);
+
+test('journey U: the same check fails again after SFlow\'s fix, so the person decides with filled choices; their return starts the next version once', slowLane({ timeout: 2_400_000 }), async (t) => {
+  const W = 'JRN-U';
+  const story = await testedChangeAtCode(t, W);
+  // The code step's version 2 does not fix the value; version 3 does.
+  const agent = { author: testedChangeAuthor(W, (version) => (version >= 3 ? 2 : 1)), review: reviewer(), clarify: clarifications() };
+  const asked = [];
+  const person = cooperativePerson(({ act }) => { if (act?.state === 'confirm') asked.push(act.ask?.question ?? act.said ?? ''); return null; });
+  const first = await followRoutes(story, { label: 'journey U, to the brake', start: { copilot: '/sf-code' }, agent, person, maxSteps: 120,
+    done: ({ record }) => record?.phases?.verification?.status === 'awaiting_approval' && Number(record.phases.verification.generation) === 2 });
+  t.diagnostic(formatTrail(first.trail));
+  await check(t, 'the first failure goes back on its own, and the same failure after SFlow\'s fix stops there, by the routes alone', {}, () => {
+    assert.equal(first.reached, true, report(first));
+    assert.deepEqual(first.findings, [], report(first));
+    assert.deepEqual(asked, [], report(first));
+    assert.equal(settledOf(story, 'failing-tests').length, 1, 'one return on its own, never a second for the same failure');
+    const record = storyRecord(story);
+    assert.equal(record.currentPhase, 'verification');
+    assert.equal(record.phases.verification.validationVerdict, 'failed');
+  });
+  // The person's view at the brake: the approval says why it waits, and every choice is filled.
+  const refused = story.raw(['approve', 'verification', '--work-id', W, '--yes', '--json']);
+  const refusal = json(refused.stdout);
+  const returns = (refusal?.error?.details?.choices ?? []).map((choice) => choice.command);
+  await check(t, 'the approval is refused with the filled choices: another version, or the tests again; nothing to type', {}, () => {
+    assert.notEqual(refused.status, 0);
+    assert.equal(refusal?.error?.code, 'PHASE_VALIDATION_FAILED', refused.stdout.slice(-2000));
+    assert.match(refusal.error.message, /changes no source code, and its tests fail on the code implementation delivered, which implementation fixes\. Start another version of implementation /u);
+    assert.deepEqual(refusal.error.details.choices.map((choice) => choice.id), ['another-version', 'dispute'], JSON.stringify(refusal.error.details).slice(0, 3000));
+    assert.deepEqual(returns.map((command) => / --to (\S+) /u.exec(command)?.[1]), ['implementation', 'verification']);
+    for (const command of returns) {
+      assert.doesNotMatch(command, /<[A-Za-z-]+>/u, command);
+      assert.match(command, / --reason "[^"<>]+"$/u, command);
+    }
+    // The plan every surface renders leads with the first choice, with its words.
+    const [first] = refusal.remediationPlan?.steps ?? [];
+    assert.deepEqual([first?.command, first?.label], [returns[0], 'Start another version of Implementation to fix the failing tests'], JSON.stringify(refusal.remediationPlan).slice(0, 3000));
+  });
+  // The person takes "Start another version": their own return, and SFlow starts that version with it (no second question).
+  const back = returns[0];
+  const returned = story.raw([...choiceArgv(back), '--json']);
+  await check(t, 'the person\'s return starts version 3 of the code step at once, settled, citing their return', {}, () => {
+    assert.equal(returned.status, 0, returned.stdout.slice(-2000) + returned.stderr.slice(-2000));
+    const record = storyRecord(story);
+    assert.equal(record.currentPhase, 'implementation');
+    assert.equal(Number(record.phases.implementation.versionOpening?.version), 3);
+    assert.equal(record.phases.implementation.versionOpening?.consent?.surface, 'settled');
+    const [, mine] = settledOf(story, 'failing-tests');
+    assert.equal(mine?.effect?.byPerson, record.changeRequests.at(-1).id, JSON.stringify(mine));
+    assert.equal(json(returned.stdout)?.data?.codeVersion?.opened?.generation, 3, returned.stdout.slice(-2000));
+  });
+  const rest = await followRoutes(story, { label: 'journey U, the fix', start: { copilot: '/sf-code' }, agent, person, maxSteps: 80,
+    done: ({ record }) => ['approved', 'completed'].includes(record?.phases?.verification?.status) });
+  t.diagnostic(formatTrail(rest.trail));
+  await check(t, 'version 3 fixes it, the test step runs again on its own and passes, and nobody is asked to start a version', {}, () => {
+    assert.equal(rest.reached, true, report(rest));
+    assert.deepEqual(rest.findings, [], report(rest));
+    assert.deepEqual(asked, [], report(rest));
+    const record = storyRecord(story);
+    assert.equal(record.phases.verification.generation, 3);
+    assert.equal(settledOf(story, 'tests-rerun').length, 2);
   });
   settle(t);
 });

@@ -3764,8 +3764,15 @@ async function rejectCommand(positionals, options) {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, accepted.config, accepted.workflow);
   });
+  // A person's own return of a test step's failing tests to its code step ("start another version", at the review brake):
+  // the version they asked for starts with it, settled with an undo, so it is not asked a second time (D1).
+  const started = phase.id !== current.id && current.validationVerdict === 'failed' && Number(workflow.resolution?.phaseResponsibility?.ownerStepChecks ?? 0) >= 4
+    ? (await postPublicationStep('the code step\'s next version', workflow.workItem.id, async () => (await import('./failing-tests-opening.mjs'))
+      .versionAfterPersonReturn(root, workflow.workItem.id, current.id, phase.changeRequest.id, { actor: session.actor }))).value : null;
+  const after = started ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
   if (!json) {
     console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
+    if (started?.line) console.log(started.line);
     if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
     if (phase.changeRequest.members?.length) {
       console.log(`Members to regenerate: ${phase.changeRequest.members.join(', ')}`);
@@ -3779,8 +3786,9 @@ async function rejectCommand(positionals, options) {
     outcome: succeeded('reject.succeeded', { phase: current.id, target: phase.id }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     data: { changeRequestId: phase.changeRequest.id, comment: phase.changeRequest.comment,
-      clauseIds: phase.changeRequest.clauseIds ?? [], members: phase.changeRequest.members ?? [], contextBoundary: phase.contextBoundary ?? null }
-  }), { json, postState: workflow });
+      clauseIds: phase.changeRequest.clauseIds ?? [], members: phase.changeRequest.members ?? [], contextBoundary: phase.contextBoundary ?? null,
+      ...(started ? { codeVersion: { opened: started.opened, settled: started.settled, nextAction: started.nextAction } } : {}) }
+  }), { json, postState: after });
 }
 
 /**

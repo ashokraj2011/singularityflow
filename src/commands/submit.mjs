@@ -214,10 +214,25 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       )
     : { ok: false, value: null };
   const evidenceReceipt = evidenceReceiptResult.value;
+  // D1 (owner, 2026-11-20): a test step that changes no source code returns its failing tests to its code step on its own,
+  // which starts its next version with them as its task; at the workflow's review brake its people decide, with filled
+  // choices (failing-tests-opening.mjs). Its own commits, after the submission's.
+  let automaticReturn = null;
+  if (phase.status === 'awaiting_approval' && phase.validationVerdict === 'failed') {
+    const submittedId = phase.id;
+    automaticReturn = (await postPublicationStep('the automatic return of the failing tests', workflow.workItem.id,
+      async () => (await import('../failing-tests-opening.mjs')).returnFailingTests(root, workflow.workItem.id, submittedId, { actor: actionActor(root) }))).value;
+    if (automaticReturn?.returned) {
+      workflow = (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow;
+      phase = workflow.phases[submittedId];
+    }
+    if (!automaticReturn?.data) automaticReturn = null;
+  }
+  const returned = automaticReturn?.returned === true;
   // Approve twice (owner, 2026-11-19): a step SFlow approves when it is ready is approved now, in its own commit, when its
   // reviewer said ready, its checks passed and nothing is open for it; otherwise its people approve it and are told why.
   let automaticApproval = null;
-  if (phase.status === 'awaiting_approval' && automaticApprovalOn(phase.approvalPolicy)) {
+  if (!returned && phase.status === 'awaiting_approval' && automaticApprovalOn(phase.approvalPolicy)) {
     const submittedId = phase.id;
     automaticApproval = (await postPublicationStep('the automatic approval', workflow.workItem.id, async () => {
       const current = await loadAcceptedStoryExecution(root, workflow.workItem.id);
@@ -231,7 +246,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   const approvalMode = phase.approvalPolicy?.mode ?? 'required';
   const completedWithoutReview = phase.status === 'approved' && approvalMode === 'none';
   const completedByPolicy = phase.status === 'approved' && approvalMode === 'policy';
-  if (phase.status === 'approved') {
+  if (phase.status === 'approved' || returned) {
     // No-approval and policy-waived submission advance inside the submit transaction, without a
     // later approve command to perform the handoff. Bind the exact committed next phase now; a
     // stale prior-phase session must never be reported ready merely because the next phase happens
@@ -242,6 +257,10 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     });
   }
   const receiptsLine = phase.status === 'approved' ? await recordRequiredReceiptsAfterTransition(root, workflow) : null;
+  // A completed step that brought the Story back to a test step whose failing tests SFlow returned: its tests run again (D1).
+  const rerun = phase.status === 'approved' && (workflow.settledDecisions ?? []).some((entry) => entry?.kind === 'failing-tests') ? (await postPublicationStep('the test step\'s run again', workflow.workItem.id,
+    async () => (await import('../failing-tests-opening.mjs')).rerunTestsAfterFix(root, workflow.workItem.id, { actor: actionActor(root) }))).value : null;
+  if (rerun) workflow = (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow;
   // A step approved by its submission moves the register items it fixed on the way too [CQF:REQ-066].
   const fixedOnTheWay = phase.status === 'approved' && workflow.departures?.some((entry) => entry.phase === phase.id && entry.findings?.length)
     ? await (await import('../findings/register/on-the-way.mjs')).recordFindingsAfterApproval(root, config,
@@ -251,12 +270,15 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
     else if (automaticApproval?.approved) console.log(`\nApproved ${phase.label ?? phase.id} v${phase.generation} automatically: ${automaticApproval.checked.join('; ')}.`);
     else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
+    else if (returned) console.log(`\nSubmitted ${phase.id}.`);
     else console.log(`\nSubmitted ${phase.id} phase for approval.`);
     if (automaticApproval?.applies && !automaticApproval.approved) console.log((await import('../automatic-approval.mjs')).needsPersonWords(phase, automaticApproval));
+    // The return, or at the brake why SFlow did not make it and the person's filled choices; the test step's run again.
+    for (const line of [...(automaticReturn?.lines ?? []), ...(rerun?.line ? [rerun.line] : [])]) console.log(line);
     for (const repair of registrationRepairs) {
       console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
     }
-    console.log(`Committed: ${automaticApproval?.approved ? 'request approval, then approved automatically' : phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
+    console.log(`Committed: ${automaticApproval?.approved ? 'request approval, then approved automatically' : returned ? 'request approval, then returned automatically' : phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
     console.log(`Push: ${pushedTo ?? 'disabled by git.publish: off'}`);
     if (receiptsLine) console.log(receiptsLine);
     if (fixedOnTheWay?.moved.length) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
@@ -286,8 +308,9 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   emitCommandResult(commandResult({
     operation: { id: 'submit', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded(phase.status === 'approved' ? 'submit.completed' : 'submit.succeeded', {
+    outcome: succeeded(returned ? 'submit.returned' : phase.status === 'approved' ? 'submit.completed' : 'submit.succeeded', {
       phase: phase.id, documents: phase.artifacts.length,
+      ...(returned ? { code: automaticReturn.code, version: automaticReturn.opened?.generation ?? null } : {}),
       ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
@@ -300,6 +323,8 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       registrationRepairs,
       generation: phase.generation,
       pushedTo,
+      ...(automaticReturn ? { automaticReturn: automaticReturn.data } : {}),
+      ...(rerun ? { testsRerun: rerun } : {}),
       ...(automaticApproval?.applies ? { automaticApproval: { approved: automaticApproval.approved === true, checked: automaticApproval.checked ?? [],
         open: automaticApproval.open ?? [], ...(automaticApproval.approved ? { commit: automaticApproval.publication?.sha ?? null } : {}) } } : {}),
       ...(fixedOnTheWay?.moved.length ? { fixedOnTheWay: fixedOnTheWay.moved } : {}),

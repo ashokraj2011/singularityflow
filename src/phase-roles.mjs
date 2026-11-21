@@ -182,7 +182,7 @@ export function isTestEvidencePhase(phase) {
  * step's own submission refuses the coverage its approval would (a step with no approval completes there), so the gap
  * is delivered in that step's next version. A Story pinned at a level keeps that level's checks and never meets a later one's.
  */
-export const OWNER_STEP_CHECKS = 3;
+export const OWNER_STEP_CHECKS = 4;
 
 export function phaseResponsibilityPin() {
   return { ownerStepChecks: OWNER_STEP_CHECKS };

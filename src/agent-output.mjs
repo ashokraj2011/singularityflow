@@ -519,10 +519,14 @@ export function agentAct(result) {
     said: 'Show the actual retained test results, diagnostic runs separately, application readiness and outstanding human checks, then act.show as one line of optional choices. Ask nothing: run a choice\'s route only when the person picks one (a Start in the terminal tool\'s background mode, as its how says). Never accept, submit or approve from it.' };
   // A submission that completed its step (nobody approves it) moved the Story on: the turn ends there and names the next step
   // for the person, never starts it [decision 7, OSA:REQ-050; owner, 2026-11-19].
-  if (result.submitIfReady?.submitted && result.submitIfReady.result?.status === 'completed' && done) {
+  // So did a test step whose tests failed: SFlow returned it to its code step and started that step's next version (D1); its
+  // fix is the code step's own work, in a new turn.
+  const returned = result.submitIfReady?.result?.status === 'returned';
+  if (result.submitIfReady?.submitted && (result.submitIfReady.result?.status === 'completed' || returned) && done) {
     const reset = done.contextBoundary?.commands?.length ? done.contextBoundary.commands.join(', then ') : null;
     return withRoute({ state: 'end-turn', do: null, read: ['submitIfReady.next', 'submitIfReady.result'],
-      said: oneLine(`Submitted, and that completed ${result.submitIfReady.result.phase ?? 'the step'}. End this turn. Name the next step for the person: ${reset ?? (done.commandGuidance ? 'do.copilot' : 'as submitIfReady.next says')}, in a new turn; never start it here.`) },
+      said: oneLine(`${returned ? `Submitted ${result.submitIfReady.result.phase ?? 'the step'}; its tests failed, so SFlow returned it to the code step and started that step's next version to fix them, with nothing for the person to answer.`
+        : `Submitted, and that completed ${result.submitIfReady.result.phase ?? 'the step'}.`} End this turn. Name the next step for the person: ${reset ?? (done.commandGuidance ? 'do.copilot' : 'as submitIfReady.next says')}, in a new turn; never start it here.`) },
     done.commandGuidance ? { commandGuidance: done.commandGuidance, reason: done.reason, turn: 'new-turn' } : null);
   }
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.

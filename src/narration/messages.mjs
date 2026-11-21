@@ -783,6 +783,11 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Completed ${slot(s.phase)} with ${slot(s.documents, '0')} generated document(s); its approval policy required no review.${finalCheckSentence(s)}`,
     preserves: false
   },
+  // D1 (owner, 2026-11-20): the test step's tests failed, and SFlow returned it to its code step (failing-tests-return.mjs).
+  'submit.returned': {
+    headline: (s) => `Submitted ${slot(s.phase)}; its tests failed, so SFlow returned it to ${slot(s.code)}${s.version ? ` and started version ${slot(s.version)} to fix them` : ''}.`,
+    preserves: false
+  },
   'submit.noop': {
     headline: (s) => `${slot(s.phase)} is already awaiting approval.`,
     preserves: true

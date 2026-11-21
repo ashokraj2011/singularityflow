@@ -81,7 +81,7 @@ export function builderAsset(model: StudioModelLike | null, kind: string, id: st
 type Entry = Record<string, unknown>;
 interface BuildView { build: { id: string; label: string; items: Entry[]; proposals: Entry[]; questions: Entry[]; conversation: Entry[] }; guide?: unknown; untrusted?: string }
 interface BuildCheck { draft?: Entry & { workflow?: Entry & { id?: string } }; explanation?: { summary?: string; description?: string | null; readOnly?: boolean; steps?: Entry[] } | null; findings?: Entry[]; counts?: unknown; ready?: boolean;
-  changes?: Entry | null; unchanged?: boolean }
+  changes?: Entry | null; unchanged?: boolean; intents?: Entry & { rows?: Entry[]; open?: number; confirmed?: boolean; required?: boolean } | null }
 
 /**
  * The most one answer of this tool carries. VS Code shows a model a tool answer inline only up to
@@ -191,6 +191,10 @@ export function builderState(view: BuildView, check: BuildCheck): Record<string,
     findings: stateFindings(check.findings ?? [], check.draft?.workflow?.id),
     // What the build adds, removes, moves or changes in the workflow it starts from, and what leaves with a removed step.
     ...(plain(check.changes) ? { changes: kept({ ...check.changes, decisions: plain(check.changes.decisions) ? kept(check.changes.decisions) : null }) } : {}),
+    // What each step is for (step intents): the rows SFlow is not sure of, for step.intent proposals (a sure row, or the
+    // person's own choice, is never proposed against); the person answers and confirms on the Finish tab.
+    ...(plain(check.intents) && check.intents.required ? { intents: kept({ open: check.intents.open, confirmed: check.intents.confirmed || null,
+      propose: ((check.intents.rows ?? []) as Entry[]).filter((row) => !['sure', 'yours'].includes(String(row.badge))).map(({ step, intent, badge }) => ({ step, intent, badge })) }) } : {}),
     counts: check.counts, ready: check.ready, ...(check.unchanged ? { unchanged: true } : {}), guide: GUIDE_NOTE,
     untrusted: view.untrusted
   };

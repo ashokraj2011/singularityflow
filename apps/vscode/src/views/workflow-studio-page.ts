@@ -822,6 +822,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         var home = homeWorkflow(draft, id);
         var step = home && draft.steps[home] && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs, authoringSkill: phase.authoringSkill, afterStep: phase.afterStep };
         var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent, clarification: phase.clarification || 'off', authoringSkill: step.authoringSkill || null };
+        // What it produces follows from what it does; the intent says it.
+        if (phase.intent) { create.intent = phase.intent; delete create.output; }
         if (phase.copyOf) create.copyOf = phase.copyOf;
         if (phase.description) create.description = phase.description;
         if (phase.copyFromWorkflow) create.copyFromWorkflow = phase.copyFromWorkflow;
@@ -1452,7 +1454,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return knowledge.prompt === 'off' ? 'World Model: the Repository brief is off in this repository.'
       : 'World Model: the step gets the Repository brief for the ' + knowledgeReader(kebab(label || '')) + ' reader.';
   }
-  function createStep(workflowId, label, output, agent, afterId) {
+  /** "What does this step do?": the ten step intents, in the words the engine gives (step-outputs.mjs). */
+  function intentChoices() { return (state.model.choices && state.model.choices.intents) || []; }
+  function intentChoiceOf(id) { return intentChoices().find(function (choice) { return choice.id === id; }) || { id: id, label: id, detail: '' }; }
+
+  function createStep(workflowId, label, output, agent, afterId, intent) {
     var id = kebab(label);
     if (!id) { setStatus('Give the new step a name.'); return null; }
     if (state.draft.phases[id]) { setStatus('A step called ' + label + ' already exists; add it from the list instead.'); return null; }
@@ -1460,6 +1466,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var phases = workflowSteps(workflowId);
     var previous = afterId && phases.indexOf(afterId) >= 0 ? [afterId] : phases.slice(-1);
     state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [], artifactFile: id + '.md' };
+    // A step that says what it does starts from that intent (step intents): the engine writes its template and settings.
+    if (intent) state.draft.phases[id].intent = intent;
     insertStep(workflowId, id, afterId);
     state.draft.steps[workflowId][id] = { approval: { group: firstGroup, groups: firstGroup ? [firstGroup] : [], minimum: 1, required: [] }, inputs: previous, afterStep: [] };
     state.step = id;
@@ -3322,7 +3330,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function renderAddStep(workflowId, workflow) {
     var phases = workflow.phases;
     var library = Object.keys(state.draft.phases).filter(function (id) { return phases.indexOf(id) < 0; }).sort(function (a, b) { return state.draft.phases[a].label.localeCompare(state.draft.phases[b].label); });
-    var adding = state.adding || (state.adding = { phase: library[0] || '', label: '', output: 'document', agent: '', after: null });
+    var adding = state.adding || (state.adding = { phase: library[0] || '', label: '', intent: '', agent: '', after: null });
     if (library.indexOf(adding.phase) < 0) adding.phase = library[0] || '';
     if (phases.indexOf(adding.after) < 0) adding.after = phases.indexOf(state.step) >= 0 ? state.step : phases[phases.length - 1];
     var aside = el('aside', { class: 'inspector properties', 'aria-label': 'Add a step' });
@@ -3336,12 +3344,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }
     aside.appendChild(section('add-new', 'A new step', [
       field('add-new-name', 'Name', textInput('add-new-name', adding.label, function (value) { adding.label = value; }, { placeholder: 'Vendor analysis' })),
-      field('add-new-output', 'Produces', select('add-new-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), adding.output, function (value) { adding.output = value; })),
+      // Adding a step means choosing what it does (its intent); what it produces and whether it changes code follow from it.
+      field('add-new-intent', 'What does this step do?', select('add-new-intent', [{ value: '', label: 'Choose what it does' }].concat(intentChoices().map(function (choice) { return { value: choice.id, label: choice.label, title: choice.detail }; })), adding.intent, function (value) { adding.intent = value; requestRender(); }),
+        adding.intent ? intentChoiceOf(adding.intent).detail : 'It starts from that intent: its template, who approves it, its questions.'),
       field('add-new-agent', 'Drafted by', select('add-new-agent', agentOptions(adding.agent), adding.agent, function (value) { if (value === '__new__') { openAgentForm({ returnTo: 'board-add' }); return; } adding.agent = value; requestRender(); })),
       el('p', { class: 'hint', 'data-key': 'add-new-world-model', text: newStepWorldModelHint(adding.agent, adding.label) }),
       el('div', { class: 'studio-row' }, button('Create step', function () {
+        if (!adding.intent) { setStatus('Choose what the new step does.'); return; }
         if (!adding.agent) { setStatus('Choose the agent that drafts the new step.'); return; }
-        if (createStep(workflowId, adding.label.trim(), adding.output, adding.agent, adding.after)) { adding.label = ''; state.panel = null; }
+        if (createStep(workflowId, adding.label.trim(), adding.intent === 'code' ? 'code' : 'document', adding.agent, adding.after, adding.intent)) { adding.label = ''; adding.intent = ''; state.panel = null; }
       }, { class: 'primary' }))
     ]));
     aside.appendChild(el('div', { class: 'prop-actions' }, button('Cancel', function () { state.adding = null; state.panel = null; render(); }, { class: 'secondary' })));
@@ -6346,7 +6357,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
   function openBuild(id) {
     var b = buildState();
-    b.id = id; b.view = null; b.check = null; b.preview = null; b.source = null; b.tab = 'build'; b.selected = null; b.addStep = null; b.finished = null; b.decline = {}; b.leaving = {}; b.settling = null;
+    b.id = id; b.view = null; b.check = null; b.preview = null; b.source = null; b.tab = 'build'; b.selected = null; b.addStep = null; b.finished = null; b.decline = {}; b.leaving = {}; b.settling = null; b.intentPicks = {};
     buildAction('open', { build: id }, 'open');
   }
   /** Your own change: recorded and accepted at once, so it shows like any other piece of the build. */
@@ -6413,11 +6424,13 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       case 'step.add': return Object.keys(move).length <= 3 && state.draft.phases[move.id] && !move.label
         ? 'Use the existing step ' + buildStepLabel(move.id) + (move.after === undefined ? '' : move.after ? ' after ' + buildStepLabel(move.after) : ' at the start')
         : 'Add the step ' + (move.label || move.id) + (move.from ? ' (a copy of ' + buildStepLabel(move.from) + ')' : '') + (move.after ? ' after ' + buildStepLabel(move.after) : move.after === null ? ' at the start' : '')
-          + (move.agent ? ', drafted by ' + buildName('agent', move.agent) : '') + (move.output ? ', ' + (BUILD_OUTPUT_WORDS[move.output] || move.output) : '')
+          + (move.agent ? ', drafted by ' + buildName('agent', move.agent) : '') + (move.intent ? ', ' + intentChoiceOf(move.intent).label.toLowerCase() : '') + (move.output ? ', ' + (BUILD_OUTPUT_WORDS[move.output] || move.output) : '')
           + (move.changesCode === false ? ', changes no code' : move.changesCode === true ? ', may change code' : '') + signOff(move.signOff);
       case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'edit'].filter(function (key) { return move[key] !== undefined; })
         .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'edit' ? 'its template text' : key === 'changesCode' ? (move.changesCode ? 'may change code' : 'changes no code')
           : key === 'signOff' ? 'sign-off' + (sendBack(move.signOff) ? ' (' + sendBack(move.signOff) + ')' : '') : key; }).join(', ');
+      case 'step.intent': return buildStepLabel(move.id) + ' ' + intentChoiceOf(move.intent).label.toLowerCase() + ' (' + move.intent + ')';
+      case 'step.reset': return 'Give ' + (move.settings || []).join(', ') + ' of ' + buildStepLabel(move.id) + ' back to what it does';
       case 'step.remove': return 'Remove ' + buildStepLabel(move.id) + ' from this workflow';
       case 'step.move': return 'Move ' + buildStepLabel(move.id) + (move.after ? ' after ' + buildStepLabel(move.after) : ' to the start');
       case 'agent.add': return 'Add the agent ' + move.label + (move.from ? ', starting from ' + buildName('agent', move.from) : '');
@@ -6773,7 +6786,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         ? button('Ask Copilot for the next piece…', function () { post({ type: 'studio.build.chat', build: b.id }); }, { class: 'primary', 'data-key': 'build-chat',
           title: 'Opens Copilot Chat with /sf-build-workflow for this build. Its proposals appear here; only you accept them.' })
         : el('p', { class: 'hint', 'data-key': 'build-model-off', text: 'Copilot is off in this window. You can still build: add steps yourself, and leave out or keep what was found.' }),
-      button(b.addStep ? 'Close the step form' : 'Add a step yourself…', function () { b.addStep = b.addStep ? null : { label: '', after: '', agent: '', output: 'document', signOff: '', purpose: '' }; render(); },
+      button(b.addStep ? 'Close the step form' : 'Add a step yourself…', function () { b.addStep = b.addStep ? null : { label: '', after: '', agent: '', intent: '', signOff: '', purpose: '' }; render(); },
         { class: 'secondary', 'data-key': 'build-add-step' })));
     if (b.addStep) pane.appendChild(renderBuildAddStep());
     return pane;
@@ -6802,18 +6815,19 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       field('build-step-label', 'Step name', textInput('build-step-label', form.label, function (value) { form.label = value; }, { placeholder: 'Release notes' })),
       field('build-step-after', 'After', select('build-step-after', [{ value: '', label: 'At the start' }].concat(steps.map(function (step) { return { value: step.id, label: step.label }; })), form.after, function (value) { form.after = value; })),
       field('build-step-agent', 'Drafted by', select('build-step-agent', [{ value: '', label: 'Choose an agent' }].concat(agents), form.agent, function (value) { form.agent = value; render(); })),
-      field('build-step-output', 'It', select('build-step-output', Object.keys(BUILD_OUTPUT_WORDS).map(function (key) { return { value: key, label: BUILD_OUTPUT_WORDS[key] }; }), form.output, function (value) { form.output = value; })),
-      field('build-step-signoff', 'Signed off by', select('build-step-signoff', [{ value: '', label: 'Nobody: it moves on when it is submitted' }].concat(groups), form.signOff, function (value) { form.signOff = value; })),
+      field('build-step-intent', 'What does this step do?', select('build-step-intent', [{ value: '', label: 'Choose what it does' }].concat(intentChoices().map(function (choice) { return { value: choice.id, label: choice.label, title: choice.detail }; })), form.intent, function (value) { form.intent = value; render(); }),
+        form.intent ? intentChoiceOf(form.intent).detail : 'It starts from that intent: its template, who approves it, its questions.'),
+      field('build-step-signoff', 'Signed off by', select('build-step-signoff', [{ value: '', label: 'As its intent says' }].concat(groups), form.signOff, function (value) { form.signOff = value; })),
       field('build-step-purpose', 'What it is for', el('textarea', { id: 'build-step-purpose', 'data-key': 'build-step-purpose', rows: 2, oninput: function (event) { form.purpose = event.target.value; } }, form.purpose)),
       el('div', { class: 'studio-row' }, button('Add the step', function () {
         var label = form.label.trim();
-        if (!label || !form.agent) { setStatus('A step needs a name and the agent that drafts it.'); return; }
-        var move = { move: 'step.add', id: freshStepId(label), label: label, after: form.after || null, agent: form.agent, output: form.output,
-          signOff: form.signOff ? { groups: [form.signOff], minimum: 1 } : 'none' };
+        if (!label || !form.agent || !form.intent) { setStatus('A step needs a name, what it does and the agent that drafts it.'); return; }
+        var move = { move: 'step.add', id: freshStepId(label), label: label, after: form.after || null, agent: form.agent, intent: form.intent };
+        if (form.signOff) move.signOff = { groups: [form.signOff], minimum: 1 };
         if (form.purpose.trim()) move.purpose = form.purpose.trim();
         b.addStep = null;
         buildMine('Add ' + label, form.purpose.trim() || 'Added by hand.', [move]);
-      }, { class: 'primary', 'data-key': 'build-step-add', disabled: Boolean(b.busy) || !form.agent })));
+      }, { class: 'primary', 'data-key': 'build-step-add', disabled: Boolean(b.busy) || !form.agent || !form.intent })));
   }
 
   function renderBuildFlow() {
@@ -6962,11 +6976,63 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (result.counts && result.counts.problem) reasons.push(result.counts.problem + (result.counts.problem === 1 ? ' problem needs' : ' problems need') + ' fixing.');
     var blocking = (result.questions || []).filter(function (question) { return question.blocking; }).length;
     if (blocking) reasons.push(blocking + (blocking === 1 ? ' question needs' : ' questions need') + ' an answer.');
+    if (result.intents && result.intents.required && !result.intents.confirmed) reasons.push('Confirm what each step is for (Finish).');
     return reasons;
+  }
+
+  /**
+   * What each step is for (step intents §6.4), before Finish: every step with its intent, a badge, why and what SFlow
+   * sets up for it, the workflow facts, the questions the workflow rules ask, and one Confirm. Changing a step's intent
+   * shows what it would mean at once, and records the choice; the facts follow from the next check.
+   */
+  function renderBuildIntents(main, result) {
+    var b = buildState(); var table = result.intents;
+    if (!table) return;
+    var picks = b.intentPicks || (b.intentPicks = {});
+    var card = el('section', { class: 'studio-card', 'aria-label': 'What each step is for', 'data-key': 'build-intents' }, el('h2', { text: 'What each step is for' }));
+    table.rows.forEach(function (row) {
+      var picked = picks[row.step] || row.intent;
+      var option = row.options.find(function (entry) { return entry.intent === picked; }) || { consequences: row.consequences };
+      var control = row.locked ? el('span', { 'data-key': 'build-intent-' + row.step, text: intentChoiceOf(row.intent).label + ' (' + row.intent + ')' })
+        : select('build-intent-' + row.step, row.options.map(function (entry) { return { value: entry.intent, label: entry.label + ' (' + entry.intent + ')' }; }), picked, function (value) {
+          picks[row.step] = value; buildAction('intents', { set: [{ step: row.step, intent: value }] }, 'intents');
+        }, { disabled: Boolean(b.busy) });
+      card.appendChild(el('div', { class: 'check-row', 'data-intent-step': row.step },
+        el('span', { class: 'mark ' + (row.badge === 'needs-answer' ? 'wait' : 'ok'), 'aria-hidden': 'true' }),
+        el('div', null,
+          el('div', { class: 'studio-row' }, el('strong', { text: row.label }), control,
+            el('span', { class: 'pill' + (row.badge === 'needs-answer' ? ' attention' : ''), 'data-key': 'build-intent-badge-' + row.step, text: picks[row.step] && picks[row.step] !== row.intent ? 'Your choice' : row.badgeText })),
+          el('div', { class: 'muted', 'data-key': 'build-intent-consequences-' + row.step, text: (option.consequences || []).join(' · ') }),
+          el('div', { class: 'muted', text: 'Why: ' + row.why }),
+          row.question && !picks[row.step] ? el('div', { class: 'studio-row', role: 'group', 'aria-label': row.question.question },
+            el('span', { text: row.question.question }),
+            row.question.choices.map(function (choice) {
+              return button(choice.text, function () { picks[row.step] = choice.intent; buildAction('intents', { set: [{ step: row.step, intent: choice.intent }] }, 'intents'); },
+                { class: 'secondary', 'data-key': 'build-intent-answer-' + row.step + '-' + choice.intent, disabled: Boolean(b.busy) });
+            })) : null), el('span')));
+    });
+    card.appendChild(el('ul', { class: 'build-moves', 'data-key': 'build-intent-facts' }, table.facts.lines.map(function (line) { return el('li', { text: line }); })));
+    (table.questions || []).forEach(function (question) {
+      card.appendChild(el('div', { class: 'callout wait', 'data-key': 'build-intent-rule-' + question.kind }, el('div', { text: question.question }),
+        el('div', { class: 'studio-row', style: 'margin-top:6px' }, question.choices.map(function (choice) {
+          return button(choice.label, function () { buildAction('intents', { rule: choice.key }, 'intents'); },
+            { class: choice.recommended ? 'primary' : 'secondary', 'data-key': 'build-intent-way-' + choice.key, disabled: Boolean(b.busy) });
+        }))));
+    });
+    (table.problems || []).forEach(function (problem) { card.appendChild(el('div', { class: 'callout bad', text: problem.message + ' ' + problem.fix })); });
+    // A workflow whose shipped steps keep their settings until SFlow ships their intents has nothing to confirm (facts say so).
+    if (table.derivable === false) { main.appendChild(card); return; }
+    card.appendChild(table.confirmed
+      ? el('div', { class: 'callout ok', 'data-key': 'build-intents-confirmed', text: 'Confirmed: every step says what it is for. Finishing writes each step\'s intent, and the workflow derives its settings from them.' })
+      : el('div', { class: 'studio-row' }, button(b.busy === 'intents' ? 'Recording…' : 'Confirm', function () { buildAction('intents', { confirm: table.code }, 'intents'); },
+        { class: 'primary', 'data-key': 'build-intents-confirm', disabled: Boolean(table.open || (table.problems || []).length || b.busy || Object.keys(picks).some(function (step) { var row = table.rows.find(function (entry) { return entry.step === step; }); return row && row.intent !== picks[step]; })) }),
+        table.open ? el('span', { class: 'muted', text: table.open + (table.open === 1 ? ' answer is' : ' answers are') + ' needed above.' }) : null));
+    main.appendChild(card);
   }
 
   function renderBuildFinish(main) {
     var b = buildState(); var result = b.check; var build = b.view.build;
+    if (result && !result.landed && result.intents) renderBuildIntents(main, result);
     var card = el('section', { class: 'studio-card', 'aria-label': 'Finish the build' }, el('h2', { text: 'Finish the build' }));
     main.appendChild(card);
     if (!result) { card.appendChild(el('p', { class: 'muted', text: b.checking ? 'Checking…' : 'Not checked yet.' })); return; }
@@ -7186,7 +7252,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var checked = buildState();
       if (message.build !== checked.id) return;
       checked.checking = false;
-      if (message.result) checked.check = message.result;
+      // A fresh check holds every pick that was recorded: what each step is for is read from it again.
+      if (message.result) { checked.check = message.result; checked.intentPicks = {}; }
       if (message.error) checked.error = message.error;
       if (state.view === 'build') render();
     } else if (message.type === 'studio.buildPreview') {
@@ -7315,6 +7382,27 @@ export const STUDIO_MODEL_ARGS = Object.freeze(['workflow', 'studio', '--json'])
 export const BUILD_ID = /^wb_[a-f0-9]{16}$/;
 export const BUILD_PROPOSAL_ID = /^p-[1-9]\d{0,3}$/;
 export const BUILD_QUESTION_ID = /^q-[1-9]\d{0,3}$/;
+const STEP_INTENT_IDS = ['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review', 'release', 'report', 'document'];
+/**
+ * The options of `workflow build intents` for one message from the Build view's "What each step is for": the person's
+ * pick for steps, one way of a workflow rule's question, or the confirmation by code. Anything else is null.
+ */
+export function buildIntentsArgs(message: Record<string, unknown>): string[] | null {
+  const set = message.set;
+  if (Array.isArray(set)) {
+    if (!set.length || set.length > 50) return null;
+    const args: string[] = [];
+    for (const entry of set) {
+      const { step, intent } = (entry ?? {}) as { step?: unknown; intent?: unknown };
+      if (typeof step !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(step) || typeof intent !== 'string' || !STEP_INTENT_IDS.includes(intent)) return null;
+      args.push('--intent', `${step}=${intent}`);
+    }
+    return args;
+  }
+  if (typeof message.rule === 'string') return /^[a-z]+(?:-[a-z]+)*$/.test(message.rule) ? ['--rule', message.rule] : null;
+  if (typeof message.confirm === 'string') return /^[0-9a-f]{6}$/.test(message.confirm) ? ['--confirm', message.confirm] : null;
+  return null;
+}
 /** One `workflow build` command for the Build view, always as JSON. */
 export function studioBuildArgs(action: string, build: string, extra: readonly string[] = []): string[] {
   return ['workflow', 'build', action, '--build', build, ...extra, '--json'];

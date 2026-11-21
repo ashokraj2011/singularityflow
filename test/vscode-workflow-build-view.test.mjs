@@ -53,7 +53,7 @@ const FIRST = {
     { move: 'step.add', id: 'requirements', after: 'intake' },
     { move: 'step.add', id: 'pay-build', label: 'Build', after: 'requirements', agent: 'developer', output: 'code', reads: ['requirements'],
       signOff: { groups: ['engineering-reviewers'], minimum: 1 }, purpose: 'Makes the change and runs the payment tests.' },
-    { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'architect', output: 'document', reads: ['pay-build'],
+    { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'architect', intent: 'document', reads: ['pay-build'],
       signOff: { groups: ['payments-security'], minimum: 1 }, purpose: 'Nothing ships without a PCI check signed off by security.' }
   ],
   evidence: [{ path: '.github/agents/release-captain.agent.md', startLine: 6, endLine: 9 }],
@@ -115,7 +115,7 @@ test('the Build view lists builds, opens one, and draws, explains and checks it;
   const card = nodes(main).find((node) => node.attributes?.['data-proposal'] === 'p-1');
   assert.match(textOf(card), /Four steps from release-captain.*waiting for you/);
   assert.match(textOf(card), /Use the existing step Intake at the start/);
-  assert.match(textOf(card), /Add the step PCI review after Build, drafted by Architect, writes a document, signed off by Payments security/);
+  assert.match(textOf(card), /Add the step PCI review after Build, drafted by Architect, writes another document, signed off by Payments security/);
   assert.match(textOf(card), /Add the approval group Payments security \(people are added later\)/);
   assert.match(textOf(nodes(main).find((node) => node.attributes?.['data-question'] === 'q-1')), /Copilot asks.*needed to finish.*Who signs off the PCI review\?/);
 
@@ -135,10 +135,25 @@ test('the Build view lists builds, opens one, and draws, explains and checks it;
   json(root, ['workflow', 'build', 'answer', '--build', view.build.id, '--question', 'q-1', '--choice', 'payments-security', '--json']);
   const accepted = json(root, ['workflow', 'build', 'decide', '--build', view.build.id, '--proposal', 'p-1', '--accept', '--json']);
   send({ type: 'studio.build', build: view.build.id, view: accepted, checking: true });
-  send({ type: 'studio.buildChecked', build: view.build.id, result: json(root, ['workflow', 'build', 'check', '--build', view.build.id, '--json']) });
+  const unconfirmed = json(root, ['workflow', 'build', 'check', '--build', view.build.id, '--json']);
+  send({ type: 'studio.buildChecked', build: view.build.id, result: unconfirmed });
   main = draw();
   assert.equal(page.buildState().preview, null, 'accepting ends the preview');
   assert.match(textOf(byKey(main, 'build-step-pay-build')), /Build.*new.*Developer · changes code/);
+  // What each step is for comes before Finish: every row with its badge and what SFlow sets up, then one Confirm.
+  assert.match(textOf(byKey(main, 'build-not-ready')), /Confirm what each step is for \(Finish\)\./);
+  page.buildState().tab = 'finish';
+  main = draw();
+  assert.match(textOf(byKey(main, 'build-intent-badge-intake')), /^SFlow is sure$/);
+  assert.match(textOf(byKey(main, 'build-intent-consequences-pay-build')), /^Changes code · A person approves it/);
+  assert.match(textOf(byKey(main, 'build-intent-facts')), /Requirement IDs are written in Requirements\./);
+  byKey(main, 'build-intents-confirm').listeners.click();
+  assert.deepEqual(posted.at(-1), { type: 'studio.build.intents', build: view.build.id, confirm: unconfirmed.intents.code });
+  send({ type: 'studio.buildCancelled' });
+  page.buildState().tab = 'build';
+  json(root, ['workflow', 'build', 'intents', '--build', view.build.id, '--confirm', unconfirmed.intents.code, '--json']);
+  send({ type: 'studio.buildChecked', build: view.build.id, result: json(root, ['workflow', 'build', 'check', '--build', view.build.id, '--json']) });
+  main = draw();
   assert.match(textOf(byKey(main, 'build-ready')), /Ready to finish/);
   assert.match(textOf(main), /Answered: payments-security/);
 
@@ -203,13 +218,15 @@ test('without Copilot the build goes on by hand: add a step, leave out what was 
   assert.match(textOf(byKey(main, 'build-not-ready')), /It has no steps yet\./);
 
   byKey(main, 'build-add-step').listeners.click();
-  Object.assign(page.buildState().addStep, { label: 'Release notes', agent: 'product-owner', purpose: 'Tells support what changed.' });
+  // Adding a step means choosing what it does; with no group chosen, its intent says who signs it off.
+  assert.ok(byKey(main = draw(), 'build-step-intent'), 'the form asks what the step does');
+  Object.assign(page.buildState().addStep, { label: 'Release notes', agent: 'product-owner', intent: 'document', purpose: 'Tells support what changed.' });
   main = draw();
   byKey(main, 'build-step-add').listeners.click();
   const added = posted.at(-1);
   assert.equal(added.type, 'studio.build.mine');
   assert.deepEqual(JSON.parse(added.proposal), { title: 'Add Release notes', why: 'Tells support what changed.', moves: [
-    { move: 'step.add', id: 'release-notes', label: 'Release notes', after: null, agent: 'product-owner', output: 'document', signOff: 'none', purpose: 'Tells support what changed.' }] });
+    { move: 'step.add', id: 'release-notes', label: 'Release notes', after: null, agent: 'product-owner', intent: 'document', purpose: 'Tells support what changed.' }] });
   // The engine accepts your own change as it records it.
   const mine = json(root, ['workflow', 'build', 'propose', '--build', view.build.id, '--proposal', '-', '--by', 'you', '--accept', '--json'], added.proposal);
   assert.equal(mine.build.proposals[0].status, 'accepted');
@@ -482,7 +499,7 @@ test('state of a build like the live run is read inline, with everything Copilot
     moves: [
       { move: 'group.add', id: 'payments-security-approvers', label: 'Payments security approvers' },
       ...['intake', 'requirements', 'design', 'implementation-spec', 'implementation'].map((id, index, steps) => ({ move: 'step.add', id, after: steps[index - 1] ?? null })),
-      { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'implementation', agent: 'qa', output: 'document', reads: ['implementation'],
+      { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'implementation', agent: 'qa', intent: 'document', reads: ['implementation'],
         signOff: { groups: ['payments-security-approvers'], minimum: 1 }, purpose: 'Checks the change against the PCI rules; security signs it off before release.' },
       { move: 'skill.add', id: 'pci-check', description: 'Checks a change against the PCI rules.', procedure: 'Check that card data never reaches logs and that every new endpoint is behind authentication.' },
       { move: 'skill.attach', skill: 'pci-check', agent: 'qa', steps: ['pay-pci-review'] },

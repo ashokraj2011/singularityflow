@@ -22,7 +22,7 @@ import { liveWorkflows, refusalOf, workflowArchiveArgs } from './workflow-delete
 import { chooseNewDefault, WorkflowDeletePanel, type WorkflowRetireOutcome } from './workflow-delete-panel.ts';
 import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
-  BUILD_ID, BUILD_PROPOSAL_ID, BUILD_QUESTION_ID, PROPOSAL_BRANCH, SAVED_DRAFT_ID, STUDIO_FOCUS_VIEWS, buildChatQuery, buildsForRepository, studioBuildArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
+  BUILD_ID, BUILD_PROPOSAL_ID, BUILD_QUESTION_ID, PROPOSAL_BRANCH, SAVED_DRAFT_ID, STUDIO_FOCUS_VIEWS, buildChatQuery, buildIntentsArgs, buildsForRepository, studioBuildArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
   studioPublishArgs, workflowStudioBody, type LocalProposalUpload, type StudioAuthority, type StudioFocusView
 } from './workflow-studio-page.ts';
 import * as os from 'node:os';
@@ -310,6 +310,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.build.importFile': () => this.buildImportFile(),
     'studio.build.decide': (message) => this.buildDecide(message),
     'studio.build.answer': (message) => this.buildAnswer(message),
+    'studio.build.intents': (message) => this.buildIntents(message),
     'studio.build.mine': (message) => this.buildMine(stringField(message, 'build'), stringField(message, 'proposal')),
     'studio.build.preview': (message) => this.buildPreview(stringField(message, 'build'), stringField(message, 'proposal')),
     'studio.build.source': (message) => this.buildSource(stringField(message, 'build'), stringField(message, 'path'), integerField(message, 'from')),
@@ -1044,6 +1045,22 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     if (!id) return;
     if (!question || !BUILD_QUESTION_ID.test(question) || !choice || choice.length > 200) return this.buildFailed('Choose one of the answers offered.');
     await this.buildChange(() => this.client.run<StudioBuildView>(studioBuildArgs('answer', id, ['--question', question, '--choice', choice])), 'Answered.');
+  }
+
+  /**
+   * What each step is for, from the Build view's Finish tab (step intents §6.4): the person's pick for a step, one way
+   * of a workflow rule's question, or the confirmation of the table they see (by its code). The build is then shown
+   * again with its check.
+   */
+  private async buildIntents(message: InboundMessage): Promise<void> {
+    const id = this.openBuildId(stringField(message, 'build'));
+    if (!id) return;
+    const extra = buildIntentsArgs(message as Record<string, unknown>);
+    if (!extra) return this.buildFailed('Choose what the step does, one of the ways offered, or confirm the table.');
+    await this.buildChange(async () => {
+      await this.client.run<unknown>(studioBuildArgs('intents', id, extra));
+      return this.client.run<StudioBuildView>(studioBuildArgs('status', id));
+    }, extra[0] === '--confirm' ? 'Confirmed what each step is for.' : extra[0] === '--rule' ? 'Done: the workflow has its answer.' : 'Recorded what the step does.');
   }
 
   /** Your own change from the page: recorded and accepted at once. */

@@ -452,6 +452,7 @@ export async function approveWithReceipt(
   let sfGuard: import('./views/approval-review.ts').ApprovalReviewRequest['sfGuard'] = null;
   let covers: import('./views/approval-review.ts').ApprovalReviewRequest['covers'] = null;
   let disputes: import('./views/approval-review.ts').ApprovalReviewRequest['disputes'] = null;
+  let focus: import('./views/approval-review.ts').ApprovalReviewRequest['focus'] = null;
   if (request.kind === 'story') {
     try {
       // Begin may fetch. Read the exact checklist and bytes only after that refresh; the receipt
@@ -475,6 +476,8 @@ export async function approveWithReceipt(
       const recorded = client.run(['approvals', request.workId, '--json']).catch(() => null);
       // SF Guard's card for this approval, as the engine renders it: shown on the page, and its digest starts the approval.
       const guardCard = client.run(['guard', 'card', 'approve', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
+      // What needs the person's eyes and only what is new to them, first on the page [owner, 2026-11-21]. A failed read shows the page as before.
+      const shown = client.run(['phase', 'show', request.phaseId, '--json']).catch(() => null);
       storyReview = await client.run<StoryReviewBundle>([
         'review', request.phaseId, '--format', 'json'
       ]);
@@ -487,6 +490,7 @@ export async function approveWithReceipt(
       covers = (await import('./views/approval-review.ts')).coversOf(listed);
       // Each finding of its review a person disputed, and why: decided with it in view [owner, 2026-11-20].
       disputes = (await import('./views/approval-review.ts')).disputesOf(listed);
+      focus = (await import('./views/approval-review.ts')).focusOf(await shown);
       // Evidence counted on a "still holds" across an amendment's wording, named before approving [SCS:REQ-022].
       carried = listed?.approvalEvidence?.carried && Array.isArray(listed.approvalEvidence.carried.entries) ? listed.approvalEvidence.carried : null;
       const read = await readiness;
@@ -549,6 +553,8 @@ export async function approveWithReceipt(
       sfGuard,
       covers,
       disputes,
+      focus,
+      repository: reviewedRepository,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,

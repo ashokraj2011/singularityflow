@@ -23,6 +23,12 @@ export async function phaseShowCommand(positionals, options) {
   const review = await measureCommandSpan('phase.review', () => phaseReview(root, definition, workflow, phase, { includeContinuation: true, includeSheet: !optionBoolean(options, 'for-agent') }));
   if (optionBoolean(options, 'for-agent')) {
     const { agentJson, phaseReviewAgentPresentation } = await import('../agent-packet-presentation.mjs');
+    // A chat links the approval's focus page and never pastes its section text or diffs (the approval packet reads this).
+    if (review.approvalFocus) {
+      const { approvalFocusForAgent, writeApprovalFocusPage } = await import('../approval-focus.mjs');
+      const page = await writeApprovalFocusPage(root, workflow.workItem.id, review.approvalFocus);
+      review.approvalFocus = { ...approvalFocusForAgent(review.approvalFocus), ...(page ? { page } : {}) };
+    }
     console.log(agentJson(phaseReviewAgentPresentation(review)));
   } else if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
   else {

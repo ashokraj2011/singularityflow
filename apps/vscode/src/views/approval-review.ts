@@ -120,6 +120,74 @@ export interface ApprovalReviewRequest {
    * `details.disputes`): the approver decides with it in view, and may still send the step back [owner, 2026-11-20].
    */
   disputes?: Array<{ finding: string; words: string }> | null;
+  /**
+   * What needs the person's eyes, and only what is new to them (`phase show --json` approvalFocus, src/approval-focus.mjs)
+   * [owner, 2026-11-21]. Presentation only: the approval binds every document in full, and each one opens in full.
+   */
+  focus?: ApprovalFocus | null;
+  /** The checkout the focus's paths are relative to, so an item opens its file at its line beside the review. */
+  repository?: string | null;
+}
+
+type FocusAt = { path?: string; line?: number; section?: string; requirement?: string };
+type FocusSection = { title: string; line?: number | null; state: string; folded?: string; text?: string; diff?: Array<{ op: string; text: string }> };
+export type ApprovalFocus = {
+  eyes: { title: string; items: Array<{ id: string; kind: string; words: string; at?: FocusAt }>; more?: Array<{ id: string; kind: string; words: string; at?: FocusAt }>;
+    none?: string; checked: string };
+  documents: Array<{ label: string; path?: string; version?: number; kind: string; line: string; sections?: FocusSection[] }>;
+  words: { full: number; shown: number };
+  binding: string;
+};
+
+/** The approval focus `phase show --json` returned, or null when it carried none or its shape is not one. */
+export function focusOf(read: unknown): ApprovalFocus | null {
+  const focus = (read as { approvalFocus?: ApprovalFocus } | null)?.approvalFocus;
+  if (!focus || typeof focus !== 'object' || !Array.isArray(focus.eyes?.items) || typeof focus.eyes.checked !== 'string' || !Array.isArray(focus.documents)) return null;
+  return focus;
+}
+
+const focusPlace = (at: FocusAt | undefined) => [at?.path ? `${at.path}${at.line ? `:${at.line}` : ''}` : null, at?.section ? `"${at.section}"` : null,
+  at?.requirement && !at.path ? at.requirement : null].filter(Boolean).join(' · ');
+
+/** One item of the list, with where it is; a file it names opens at its line beside the review. */
+function focusItemHtml(item: ApprovalFocus['eyes']['items'][number]): string {
+  const place = focusPlace(item.at);
+  const open = item.at?.path ? `<button type="button" class="secondary focus-open" data-open="${escape(item.at.path)}" data-line="${Number(item.at.line) || ''}">Open</button>` : '';
+  return `<li>${escape(item.words)}${place ? ` <span class="focus-at"><code>${escape(place)}</code></span>` : ''}${open}</li>`;
+}
+
+/** A section of a document as the focus shows it: its diff when it changed, its text when it is new. */
+function focusSectionHtml(section: FocusSection): string {
+  if (section.state === 'changed') {
+    return `<h4>${escape(section.title)}: changed</h4><pre class="focus-diff">${(section.diff ?? []).map((entry) => `<span class="${entry.op === '+' ? 'focus-add' : 'focus-del'}">${escape(`${entry.op} ${entry.text}`)}</span>`).join('\n')}</pre>`;
+  }
+  if (section.state === 'new') return `<details open><summary>${escape(section.title)}: new</summary><pre class="focus-text">${escape(section.text ?? '')}</pre></details>`;
+  if (section.state === 'removed') return `<p class="muted">${escape(section.title)}: removed</p>`;
+  return `<details><summary>${escape(section.title)}: ${escape(section.folded ?? '')}</summary><pre class="focus-text">${escape(section.text ?? '')}</pre></details>`;
+}
+
+/**
+ * The page's opening: "What needs your eyes", each item at its file and line, section or requirement, then one
+ * "checked by SFlow" line; then "What is new", each document in one line and only its new or changed sections open.
+ */
+export function approvalFocusHtml(focus: ApprovalFocus | null | undefined): string {
+  if (!focus) return '';
+  const items = [...focus.eyes.items, ...(focus.eyes.more ?? [])];
+  const documents = focus.documents.map((document) => {
+    const sections = (document.sections ?? []).map(focusSectionHtml).join('');
+    return `<div class="focus-doc"><h3>${escape(document.line)}</h3>${document.path
+      ? `<button type="button" class="secondary focus-open" data-open="${escape(document.path)}" data-line="">Open the full document</button>` : ''}${sections}</div>`;
+  }).join('');
+  return `<section class="approval-focus" aria-label="${escape(focus.eyes.title)}">
+    <h2>${escape(focus.eyes.title)}</h2>
+    ${items.length ? `<ol>${items.map(focusItemHtml).join('')}</ol>` : `<p>${escape(focus.eyes.none ?? '')}</p>`}
+    <p class="muted">${escape(focus.eyes.checked)}</p>
+  </section>
+  <section class="approval-new" aria-label="What is new">
+    <h2>What is new</h2>
+    <p class="muted">${Number(focus.words.shown) || 0} of ${Number(focus.words.full) || 0} words to read. ${escape(focus.binding)}</p>
+    ${documents}
+  </section>`;
 }
 
 /** "Approve Requirements v1", the one choice that approves; the question is the same words with a question mark. */
@@ -545,6 +613,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
       <h1>${escape(approvalChoice(request))}?</h1>
       <p class="meta">${escape(request.title)}. Review this version and answer any decision below, then choose ${escape(approvalChoice(request))}. Nothing is approved until you do.</p>
     </header>
+    ${approvalFocusHtml(request.focus)}
     <div class="review-binding approval-binding">${binding}</div>
     ${approvalCoversHtml(request.covers)}${approvalDisputesHtml(request.disputes)}
     ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${carried}${tests}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
@@ -598,6 +667,16 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }
 .approval-progress { flex-basis:100%; margin:0; font-size:.85rem; }
 .sfg-card { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; margin:.4rem 0; padding:.6rem .75rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+.approval-focus { margin:1rem 0; padding:1rem; border:1px solid var(--sf-wait); border-left:4px solid var(--sf-wait); border-radius:var(--sf-radius); }
+.approval-focus h2, .approval-new h2 { margin-top:0; }
+.approval-focus li { margin:.35rem 0; overflow-wrap:anywhere; }
+.focus-at code { font-size:.85em; }
+.focus-open { margin-left:.5rem; padding:.1rem .5rem; }
+.focus-doc { margin:.6rem 0; padding:.6rem .8rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+.focus-doc h3 { margin:.1rem 0 .4rem; font-size:1rem; overflow-wrap:anywhere; }
+.focus-diff, .focus-text { white-space:pre-wrap; overflow-wrap:anywhere; margin:.3rem 0; padding:.5rem .65rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+.focus-add { color:var(--vscode-gitDecoration-addedResourceForeground,var(--sf-ok)); }
+.focus-del { color:var(--vscode-gitDecoration-deletedResourceForeground,var(--sf-bad)); }
 `;
 
 export const REVIEW_SCRIPT = `
@@ -747,6 +826,10 @@ export const REVIEW_SCRIPT = `
   if (decide) decide.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.decide' }); });
   const tests = form.querySelector('[data-test-summary]');
   if (tests) tests.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.testSummary' }); });
+  // An item of "What needs your eyes", or a document: its file opens at its line beside the review.
+  for (const open of form.querySelectorAll('[data-open]')) open.addEventListener('click', function () {
+    window.__sfVscode.postMessage({ type: 'approval.open', path: open.dataset.open, line: Number(open.dataset.line) || 0 });
+  });
   form.addEventListener('submit', function (event) {
     event.preventDefault();
     sync();
@@ -811,6 +894,16 @@ export function collectApprovalReview(
       'approval.testSummary': () => {
         if (!request.testRun) return;
         void vscode.commands.executeCommand('singularityFlow.testSummary', { workId: request.workId, phase: request.phaseId, beside: true });
+      },
+      // Only a file the focus names, inside the Story's checkout, opens: at its line, beside the review, which stays open.
+      'approval.open': (message) => {
+        const file = stringField(message, 'path');
+        const named = new Set([...(request.focus?.eyes.items ?? []), ...(request.focus?.eyes.more ?? [])].map((item) => item.at?.path)
+          .concat((request.focus?.documents ?? []).map((document) => document.path)).filter((entry): entry is string => typeof entry === 'string'));
+        if (!file || !request.repository || !named.has(file) || file.split('/').includes('..')) return;
+        const line = Math.max(0, Math.floor(Number((message as { line?: unknown }).line) || 0) - 1);
+        void vscode.window.showTextDocument(vscode.Uri.joinPath(vscode.Uri.file(request.repository), ...file.split('/')),
+          { viewColumn: vscode.ViewColumn.Beside, preview: true, selection: new vscode.Range(line, 0, line, 0) }).then(undefined, () => undefined);
       },
       'approval.submit': (message) => {
         const checked = validateApprovalReviewSubmission(request, message);

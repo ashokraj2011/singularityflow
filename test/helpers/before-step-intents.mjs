@@ -17,6 +17,7 @@ function withoutIntent(step) {
   if (!isMapping(step)) return;
   delete step.intent;
   delete step.because;
+  if (step.testEvidenceFrom === false) delete step.testEvidenceFrom;
   if (isMapping(step.approval) && step.approval.automatic === 'off') {
     delete step.approval.automatic;
     if (!Object.keys(step.approval).length) delete step.approval;

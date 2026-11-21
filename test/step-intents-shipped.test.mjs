@@ -90,6 +90,8 @@ test('no shipped setting differs from its intent without a reason, and nothing c
   // clean run; the three kept differences still say why.
   assert.equal(sources('feature', 'verification').writeScope.reason, undefined, 'G1 adopted');
   assert.equal(sources('benchmarking-a', 'testing').writeScope.reason, undefined, 'G1 adopted');
+  // It runs the repository's tests itself (reusing the code step's run on unchanged code), so a failing test goes back.
+  assert.match(sources('feature', 'verification').testEvidenceFrom.reason, /runs the repository's tests itself/u, 'G1: runs its tests');
   assert.match(sources('figma-mobile', 'visual-verification').writeScope.reason, /may correct screen differences/u, 'G1 kept');
   assert.match(sources('poc-workflow', 'poc-validation').writeScope.reason, /repairs the Playwright tests it runs/u, 'G1 kept');
   assert.match(sources('quick-fix', 'verify').writeScope.reason, /keeps its check on the changed code/u, 'G1 kept');

@@ -1,6 +1,6 @@
 {
   "feature": {
-    "resolutionSha256": "a0fb85fc13648be2741fcb7862f6eaa710963117b603bc62bdec152f5ca643c2",
+    "resolutionSha256": "55c75a803d30cd018ad46ce062eb66f52c228dc997b57aa960d2e2ff27d7a096",
     "people": ["implementation-spec","implementation"],
     "automatic": ["intake","requirements","design","verification","conformance"],
     "other": [],
@@ -14,7 +14,7 @@
     "shapeDigest": "sha256:d14a446862c75e2ac5af1c1792a22ee776986629ac184d483b4e7f541e71d948"
   },
   "bugfix": {
-    "resolutionSha256": "bdc4cd7421efcfd78a5f8860602c408572e31193cde722a4b37f88c9b0027413",
+    "resolutionSha256": "a2c818bc5ee8b0d0006f0453e3febb474b202a3dd287ecbeed1693f52b7c0bf7",
     "people": ["fix-spec","implementation"],
     "automatic": ["intake","reproduction","fix-design","verification","conformance"],
     "other": [],
@@ -42,7 +42,7 @@
     "shapeDigest": "sha256:f0cef6d7371a6511cd3e338580e2eece192626671dfa6fc161fb2bdc50786532"
   },
   "findings-remediation": {
-    "resolutionSha256": "955f0660ac53fd6e1be50ede105f21237a70f482d12ce31119d856fc19614516",
+    "resolutionSha256": "569852f7014c55a8e5708012f2958a7d102e15dbeaf814db65758948bf88901b",
     "people": ["remediation-plan","implementation"],
     "automatic": ["findings-intake","verification","conformance"],
     "other": [],
@@ -210,7 +210,7 @@
     "shapeDigest": "sha256:a8b6b9b22444f6d4886dfe4da8c14551bff4124020a59db8e5aed09a55a5d091"
   },
   "benchmarking-a": {
-    "resolutionSha256": "a3cbe2d1dc40368eb6c11f8e9eeaca9dafd02f3b5b7a4579b4ec4022150422fb",
+    "resolutionSha256": "41de19735f95278208858755ac61cf218b586a9df1874fb2be62571c0e10f015",
     "people": ["design","implementation"],
     "automatic": ["intake","testing","conformance"],
     "other": [],
@@ -224,7 +224,7 @@
     "shapeDigest": "sha256:6ffdc142c23103f6bbadc862c97564838aa1d2f04232f8895259a8740aceb0d8"
   },
   "benchmarking-b": {
-    "resolutionSha256": "1e42accc18829b757206c67f9fe561c98ecb7015c68a43dbb9f1f606a2887158",
+    "resolutionSha256": "1447b5a0260cfcab95fa34e71eae0144dc0d1b5eae59aa84c073428a80a1b67a",
     "people": ["design","implementation"],
     "automatic": ["intake","testing","conformance"],
     "other": [],
@@ -252,7 +252,7 @@
     "shapeDigest": "sha256:e6ffccc6c9dbe22160fc40f452d4a43d904b0ca5a7ca13719fff2f0531b302c2"
   },
   "reference-driven-build": {
-    "resolutionSha256": "f90dd27075e348028dd4c206d1e4232dc6587301b29960b8b980c94c9e4db635",
+    "resolutionSha256": "9c441498d66161a673a2b4934f40d171438016fa87f51a9bff5206b90e8b51da",
     "people": ["planning","implementation"],
     "automatic": ["specification","convergence","verification","release"],
     "other": [],
@@ -266,7 +266,7 @@
     "shapeDigest": "sha256:6a643fb1e6828a03b67c892a3bcc7be85322fd57a575f40578b80ea1f13fa01b"
   },
   "spec-driven-standard": {
-    "resolutionSha256": "9f279d59a844425708f0cb4eb48f4b746459008841ffcb85a973e1d710513fcc",
+    "resolutionSha256": "3092b8258a09039940cb061cd5e25c17c0c4a23d971a00907bdc6f8c2bdd58a8",
     "people": ["planning","implementation"],
     "automatic": ["specification","convergence","verification","release"],
     "other": [],

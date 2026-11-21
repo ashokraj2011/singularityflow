@@ -505,7 +505,6 @@ workTypes:
         approval: { rejectTo: [intake, requirements, design, implementation-spec, implementation] }
       verification:
         inputs: [implementation-spec, implementation]
-        testEvidenceFrom: implementation
         writeScope: artifact-only
         approval: { automatic: when-ready, rejectTo: [intake, requirements, design, implementation-spec, implementation, verification] }
       conformance:
@@ -537,7 +536,6 @@ workTypes:
         approval: { rejectTo: [intake, reproduction, fix-design, fix-spec, implementation] }
       verification:
         inputs: [fix-spec, implementation]
-        testEvidenceFrom: implementation
         writeScope: artifact-only
         approval: { automatic: when-ready, rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification] }
       conformance:
@@ -593,7 +591,6 @@ workTypes:
         approval: { rejectTo: [findings-intake, remediation-plan, implementation] }
       verification:
         inputs: [remediation-plan, implementation]
-        testEvidenceFrom: implementation
         writeScope: artifact-only
         approval: { automatic: when-ready, rejectTo: [findings-intake, remediation-plan, implementation, verification] }
       conformance:
@@ -1016,7 +1013,6 @@ workTypes:
         inputs:
           - { phase: intake, projection: approved-summary, preserve: [Success criteria], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components, Validation and operational notes], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
-        testEvidenceFrom: implementation
         writeScope: artifact-only
         approval: { automatic: when-ready, rejectTo: [intake, design, implementation, testing] }
       conformance:
@@ -1058,7 +1054,6 @@ workTypes:
         approval: { rejectTo: [intake, design, implementation] }
       testing:
         inputs: [intake, implementation]
-        testEvidenceFrom: implementation
         writeScope: artifact-only
         approval: { automatic: when-ready, rejectTo: [intake, design, implementation, testing] }
       conformance:
@@ -1132,7 +1127,6 @@ workTypes:
       convergence: { inputs: [specification, planning, implementation] }
       verification:
         inputs: [specification, planning, implementation]
-        testEvidenceFrom: implementation
         writeScope: artifact-only
         approval: { automatic: when-ready, rejectTo: [specification, planning, implementation, convergence, verification] }
       release: { inputs: [verification, implementation], testEvidenceFrom: implementation, approval: { automatic: when-ready } }
@@ -1206,7 +1200,6 @@ workTypes:
           - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
           - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
-        testEvidenceFrom: implementation
         writeScope: artifact-only
         approval: { automatic: when-ready, rejectTo: [specification, planning, implementation, convergence, verification] }
       release:
@@ -1393,6 +1386,9 @@ phases:
     # step (above); a repository with no test command gets a note, not a refusal.
     # Set off to rely on the code step's tests alone.
     repositoryTests: run
+    testEvidenceFrom: false
+    because:
+      testEvidenceFrom: It runs the repository's tests itself, reusing the code step's run on unchanged code, so a failing test goes back to the code step on its own (D1) instead of only reading the code step's results.
   testing:
     intent: test
     label: Testing
@@ -1406,6 +1402,9 @@ phases:
     # As for verification. A review of one code step's committed test receipt (testEvidenceFrom)
     # does not run them again.
     repositoryTests: run
+    testEvidenceFrom: false
+    because:
+      testEvidenceFrom: It runs the repository's tests itself, reusing the code step's run on unchanged code, so a failing test goes back to the code step on its own (D1) instead of only reading the code step's results.
   # Test run's one step: the repository's own tests run when it is submitted, and its report cites what they
   # found. It writes only its report. A step that runs some of them names testLevels or testIds (see tests:).
   test-run:

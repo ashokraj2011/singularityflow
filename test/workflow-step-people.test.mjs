@@ -142,8 +142,8 @@ test('every packaged workflow: each step says who does what and where, and its q
   assert.deepEqual(implementation.signOffs.map((entry) => [entry.kind, entry.methods, entry.where]), [['evidence', ['inspection', 'visual'], 'own-terminal']]);
   assert.deepEqual([implementation.tests.runs, implementation.tests.from], [true, 'found']);
   assert.match(implementation.approval.text, /^Approval: one person from Engineering reviewers \(its author may approve it\), in the chat with \/sf-approve, but only in the approver's own terminal when it also confirms/u);
-  // Its verification reads the code step's committed test results and changes no source code (D1, Stage 7).
-  assert.deepEqual([step('verification').tests.runs, step('verification').tests.from, step('verification').tests.evidenceFrom], [false, 'code-step', 'implementation']);
+  // Its verification changes no source code (D1, Stage 7) and still runs the repository's tests itself.
+  assert.equal(step('verification').approval.ownTerminalWhen.map((entry) => entry.reason).join(), 'test-decision', 'it runs the repository\'s tests');
   // A visual verification step answers for the visual sign-offs; its code step for inspections only.
   const figma = report.workflows.find((entry) => entry.id === 'figma-mobile').explanation.steps;
   assert.deepEqual(figma.filter((entry) => entry.people.signOffs.length).map((entry) => [entry.id, entry.people.signOffs[0].methods]),

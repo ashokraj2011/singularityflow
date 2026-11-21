@@ -379,7 +379,7 @@ const BEFORE_ADOPTED_DIFFERENCES = Object.freeze({
   }),
   phases: Object.freeze({
     'careful-change': Object.freeze(['ca6aaba67b9cf9e8bdc9be8da84017dd1b49c06d0ba4c0f0af95ffeff33abd42', 'bbc58dac2fcbfd0f36d7790a08f625f32370a1681951cdba3e2130849ac0e76e']),
-    convergence: Object.freeze(['04fbd5f4ccde1ad059f67d940b9fdcdb41215b90357f500f625c9775c9862784', '01c3869cade3f0f865a0d255d54e25decfab811b50e6288481fd521f8060ccc0']),
+    convergence: Object.freeze(['04fbd5f4ccde1ad059f67d940b9fdcdb41215b90357f500f625c9775c9862784', 'f68d481966719b32c2d0a591ebf1be9b7aa314316d10e04356a8438393ff8373']),
     planning: Object.freeze(['cacf37d1e684a7540fcc730e583ead911be3521b93c19c2e2f09085645cc6261', '96fce9f45437f54d095a3f42e094d4345b550b27a7470eb9e1941916b7f2444e']),
     release: Object.freeze(['7b030f85dee39f2762e1c973f99fe99118d5a9d933dc661d7cff72eb1bc79c3d', 'b3228d91bdae3a55f0b4389ff473a00b564794fb45ee1ae69262dc3dde6b2811']),
     'test-run': Object.freeze(['e70dabd498a904b7a1b739a21e50bb8bccd53b1449d4b8de3f81320264b9a83b', '272c641c63d9bd3498bf6cff8f7609cf3cd11e13e2ae31bc187eef0578f93041']),
@@ -397,7 +397,7 @@ const BEFORE_ADOPTED_DIFFERENCES = Object.freeze({
 export const PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS = Object.freeze({
   workTypes: Object.freeze({
     chore: '20acb3db0472805d981bf8d0d2870d97ee6139895eb9f18a8bd80e471c38442f',
-    feature: '313a6f7fede2a3da7e1c5494046d396d19bf1fcf2b94ee2a172830c8c46d22f5'
+    feature: 'a4ff1b7326d8afeaccca570b37b56a2fc6e1754cd848dfb2092f0e03d66bc928'
   }),
   phases: Object.freeze({
     'careful-change': 'bbc58dac2fcbfd0f36d7790a08f625f32370a1681951cdba3e2130849ac0e76e',
@@ -429,23 +429,23 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
     'test-run': '17a4c04485f1515b786e3d06595f36f05d6f707bad3c167274bfb084e53f000d',
     'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
-    'benchmarking-a': '5987514ccfa232e0a3894279b217a21862e661a0b41ea2acda53a944684c6c74',
-    'benchmarking-b': 'e456354190587280083e860deed0958fba75b13e4f28621cd462c159529c55c3',
-    bugfix: '087a226ca173f9b01211501d9b33dc4272c8e34b039d5652e94e7530dbad60ed',
+    'benchmarking-a': '903eda0c8b99351b6993c06498bdcc1683237d864e6c55319f806a91b9fee89d',
+    'benchmarking-b': 'a6446501c81f3fcd4bba484b95652652153ddcea34cf6f01d74e1c93cd99873a',
+    bugfix: '8012b5293b1fe6c9792ddf64d8267ef1fa70ed76042e53b2e3498504411e4c90',
     chore: '9196bada9e0449df3c00f57e923ad4b04d9d04015850a1bfeec1888881f14e03',
     'classic-delivery': '9991f59f3ba6df48d9e5603edb78e7d33b303b6944f8fffa0e5e01f28fda9574',
     'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
     'demo-web-e2e-testing': '6161336401af54bd15e26c17cee6e45f43cadff36a424e051d0fbf285fb4af9a',
     'demo-check-repair-close': '8b7a856aa801154f306e6a42375fe65d00f6977bac9129d98f202b6ba01ce8f9',
-    feature: '946aa9cb57ae903f24541378a77f87ff73b52dd51feffbb8c23703b06e9e71b5',
+    feature: 'acca9a89695829b1edadbf6892449a2d09b94f3e2c5a1b0f5319aaf00b45b174',
     'figma-mobile': '4bf49f8560fc79d59bc91ce46fd209a64723a9d4cc35ee649364b84c189a8772',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
     'poc-workflow': '5a51383a2b4679ec3536b0089dc4d0a15b2e947f1f3871e5b204e054b283c6c3',
     'quick-fix': 'be9ad15c5d199f58b7c0fd7e39d1889fdefadffb2453d8373325abcf482d04df',
-    'reference-driven-build': '3e11dfb6f95bfd3e5629668862af780488e9905bd96b192f7ee4d7a986287ab4',
+    'reference-driven-build': 'b95a9da6caf80d18b7eaa134ee7c484eff81511bfc4eee8cf5a4284cd1f1b862',
     'spec-code-test-loop': 'e494c9de72ee485d92c2a567feb2e788241be05fbed170c24564018ed221cbba',
-    'spec-driven-standard': '8b3633ce9e7565f087cc4ed280c310476af649ca9676fe650b07264b5cfd46a5',
-    'findings-remediation': '106c9c6fb3ecfe8bcf78b4b3dbd6b57613c6272939910b32f62c33b31cd98de8'
+    'spec-driven-standard': 'fe1ae0c9578c7f722f112453df9ecd934733fb28758f9b7aa906a01676daec2e',
+    'findings-remediation': 'c49256be0c8dde9bcce28af22305d1ce0ef5b59964022fd421ade63331d1bf32'
   }),
   phases: Object.freeze({
     'test-run': '0bc648139486b4ce011e301fd49d907b899913e4214eae5ea6aa0f85325d816b',
@@ -496,8 +496,8 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'scenario-repair': 'd0b91e9a20d46b80c7ac2b59140245fc3b94480c13e19d23f17427022ac03333',
     'scenario-retest': '7e3971acf7328dc062ef3a77d011d3536b12f5c2ff8752cb1ef770a5a390ae44',
     specification: '33441e641a89936533be4afa9a9663bf2fe2be4d4166a8b6ac2d78d0abdf67db',
-    testing: 'afcc5b6512c3fc5166ede476c431ba341a03e0e38aec1196e64d41573931e30a',
-    verification: '2a2be19c2e654ff38f0bd809b84e9597a942097f03d1ef118e211c43fee53e78',
+    testing: '8b722f317db603dfc9931c27392e9a7860d1e9d0209dbcc4b83b12ab35be4db8',
+    verification: 'cfd67b89da97269d90c2545872a24996d773952c9c4ea813472ce836f0e5d0bb',
     verify: '3f8d7783d455b98a5bde58e2dfd2e2ecbf0c7f786e93253a9144630cbbbced0b',
     'visual-verification': 'eb08d123a3b3646651bf6bf950a466a61b7ec09495f38c06b92f0565034c0a5d'
   }),

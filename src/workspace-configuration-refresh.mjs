@@ -951,6 +951,7 @@ function stepWithoutIntent(step) {
   if (!plainObject(step)) return;
   delete step.intent;
   delete step.because;
+  if (step.testEvidenceFrom === false) delete step.testEvidenceFrom;
   if (plainObject(step.approval) && step.approval.automatic === 'off') {
     delete step.approval.automatic;
     if (!Object.keys(step.approval).length) delete step.approval;
@@ -959,7 +960,8 @@ function stepWithoutIntent(step) {
 
 /**
  * The packaged workflow.yml as a repository on `version` (2 or 3) takes it (step intents spec §7.7, Stage 4): without
- * the steps' intents and reasons, `approval.automatic: off` and `intentProfiles`, none of which that version reads.
+ * the steps' intents and reasons, `approval.automatic: off`, `testEvidenceFrom: false` (what absent says) and
+ * `intentProfiles`, none of which that version reads.
  * Every setting the packaged steps set themselves stays, so each workflow resolves exactly as it does at version 4,
  * and an older build that reads only version 2 or 3 reads nothing it does not know.
  */

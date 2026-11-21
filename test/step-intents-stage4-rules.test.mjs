@@ -4,7 +4,9 @@
  * - a workflow's own list of steps that take attached documents may say why;
  * - a review in a workflow whose change is not a code step (chore's configuration change) is not told to be a report,
  *   and cites no code step's test results, since that change commits none;
- * - `approval: none` gives its own reason, not that of an automatic approval it does not have.
+ * - `approval: none` gives its own reason, not that of an automatic approval it does not have;
+ * - an intake that writes its own kind out (as the shipped one does) and defines the scope is recognised as requirements;
+ * - a narrower send-back list than the intent's widest needs no reason (a copy of a shipped step keeps its own list).
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -81,4 +83,24 @@ test('approval none gives its own reason, not that of an automatic approval it d
     { id: 'prove', intent: 'test' }]);
   const derived = deriveWorkTypeSettings(validateDefinition(value), 'custom');
   assert.deepEqual(derived.steps.find((step) => step.id === 'make').sources.approval, { from: 'shared-step', reason: REASON });
+});
+
+test('an intake that writes its kind out and defines the scope is recognised as requirements, as one that writes none', () => {
+  // The shipped intake says kind intake (for version 2 and 3); a workflow whose scope it is takes the rules' kind.
+  const steps = [{ id: 'ask', intent: 'intake', artifact: { kind: 'intake' } }, { id: 'make', intent: 'code' }];
+  const resolved = byId(resolveWorkType(validateDefinition(definition(steps)), 'custom'));
+  assert.equal(resolved.ask.artifact.kind, 'requirements');
+  const derived = deriveWorkTypeSettings(validateDefinition(definition(steps)), 'custom');
+  assert.deepEqual(derived.refusals, []);
+  assert.equal(derived.steps[0].sources['artifact.kind'].from, 'workflow-rule');
+  // Where it does not define the scope (a requirements step does), it keeps the kind it says.
+  const later = byId(resolveWorkType(validateDefinition(definition([...steps.slice(0, 1), { id: 'rules', intent: 'requirements' }, steps[1]])), 'custom'));
+  assert.equal(later.ask.artifact.kind, 'intake');
+});
+
+test('a workflow may narrow where a person sends work back without a reason; the intent gives the widest set', () => {
+  const steps = [{ id: 'ask', intent: 'intake' }, { id: 'rules', intent: 'requirements' }, { id: 'make', intent: 'code', approval: { rejectTo: ['make'] } }];
+  const derived = deriveWorkTypeSettings(validateDefinition(definition(steps)), 'custom');
+  assert.deepEqual(derived.warnings.filter((entry) => entry.setting === 'approval.rejectTo'), []);
+  assert.deepEqual(byId(resolveWorkType(validateDefinition(definition(steps)), 'custom')).make.approval.rejectTo, ['make']);
 });

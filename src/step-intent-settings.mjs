@@ -624,6 +624,12 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
       if (mine === undefined) { if (patch[key] === undefined) delete settings[key]; else settings[key] = patch[key]; continue; }
       settings[key] = isMapping(mine) && isMapping(patch[key]) ? { ...patch[key], ...mine } : mine;
     }
+    // A step whose own kind is its intent's own (an intake's `intake`) and which defines this workflow's scope is
+    // recognised as defining clauses, as if it set none: SFlow's shipped intake writes its kind out, so a repository on
+    // version 2 or 3 reads it the same, and a workflow whose scope it is gets the kind the rules give (Stage 4).
+    const baseKind = present(merged.artifact?.kind) && merged.artifact.kind === entryProfile.kind && d.definesScope
+      && Boolean(entryProfile.kindWhenWritingRequirementIds);
+    if (baseKind) settings.artifact = { ...settings.artifact, kind: entryProfile.kindWhenWritingRequirementIds };
     if (!present(merged.inputs)) settings.inputs = [...d.inputs];
     else if (patch.testEvidenceFrom && !merged.inputs.some((input) => (isMapping(input) ? input.phase : input) === patch.testEvidenceFrom)) {
       // A step that cites a code step's results reads that step (config.mjs requires it): the rule adds it.
@@ -636,7 +642,8 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
       : namedClauses ? 'the workflow names it among the steps that write requirement IDs'
         : d.artifactKind !== entryProfile.kind ? 'the workflow declares screen profiles' : null;
     if (!explicit('writeScope')) source('writeScope', 'intent');
-    if (!explicit('artifact.kind')) source('artifact.kind', ruleKind ? 'workflow-rule' : 'intent', ruleKind);
+    if (baseKind) source('artifact.kind', 'workflow-rule', 'it defines the scope, so its output is recognised as defining clauses');
+    else if (!explicit('artifact.kind')) source('artifact.kind', ruleKind ? 'workflow-rule' : 'intent', ruleKind);
     if (!explicit('generation.task')) source('generation.task', 'intent');
     if (!explicit('clarification.mode')) {
       if (d.clarification.mode === 'off') source('clarification.mode', 'workflow-rule', 'SFlow builds it, so nobody is asked');
@@ -686,7 +693,7 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
     // Contradictions: settings that say the step is something its intent is not (spec §7.5).
     const name = label(id);
     const kind = settings.artifact?.kind ?? null;
-    const kindWritten = present(merged.artifact?.kind);
+    const kindWritten = present(merged.artifact?.kind) && !baseKind;
     if (intent === 'code' && present(merged.writeScope) && merged.writeScope !== 'source-and-artifact') {
       refuse(id, 'writeScope', `${name} is a code step (intent code), so it changes source files, but it sets writeScope ${merged.writeScope}.`,
         `Remove writeScope from ${name}, or set its intent to test, document or report if it changes no code.`);
@@ -727,7 +734,7 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
         detail: `A review step checks a delivered change against every requirement, and no step of this workflow changes code.`,
         fix: `Set ${name}'s intent to report: it then writes what the workflow found for people to read.` });
     }
-    for (const key of changedFrameworkSettings(entry, settings, d, { intent, rejectTo: patch.approval.rejectTo })) {
+    for (const key of changedFrameworkSettings(entry, settings, d, { intent })) {
       if (reasonFor(because, key)) continue;
       warnings.push({ step: id, setting: key, code: 'CHECK_INTENT_OVERRIDE_WITHOUT_REASON', title: `${name} sets ${key} itself, with no reason`,
         detail: `${name}'s intent (${intent}) gives ${key} a different value. A setting a step changes from its intent says why, so the next person knows it is meant.`,
@@ -798,12 +805,11 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
  * reason. The output kind is not one: a kind the engine reads as another role is refused, and any other kind is the
  * step's own name for its output.
  */
-function changedFrameworkSettings(entry, settings, derived, { intent, rejectTo }) {
+function changedFrameworkSettings(entry, settings, derived, { intent }) {
   const { merged } = entry;
   const changed = [];
   const written = (path) => explicitOrigin(entry, path) != null;
   const modeOf = (value) => (typeof value === 'string' ? value : value?.mode ?? 'off');
-  const sameSet = (left, right) => JSON.stringify([...new Set(left ?? [])].sort()) === JSON.stringify([...new Set(right ?? [])].sort());
   if (written(['writeScope']) && merged.writeScope !== derived.writeScope) changed.push('writeScope');
   if (written(['sourceBoundary']) && merged.sourceBoundary !== 'unrestricted') changed.push('sourceBoundary');
   const task = isMapping(merged.generation) ? merged.generation.task ?? null : null;
@@ -816,7 +822,10 @@ function changedFrameworkSettings(entry, settings, derived, { intent, rejectTo }
   if (mode !== 'required') changed.push('approval.mode');
   else if (written(['approval', 'automatic'])
       && (merged.approval.automatic === 'when-ready') !== (derived.approval.by === 'sflow-when-clean')) changed.push('approval.automatic');
-  if (mode !== 'none' && written(['approval', 'rejectTo']) && !sameSet(merged.approval.rejectTo, rejectTo)) changed.push('approval.rejectTo');
+  // Send-back targets need no reason: the intent lets a person send work back to any earlier step or to the step
+  // itself, the widest set, so a workflow that names fewer only narrows a person's choice (a shipped step's own list is
+  // narrower than the steps before it in most workflows that use it, and a Workflow Studio copy keeps that list); one
+  // beyond it, a later step or one the workflow lacks, is configuration's own refusal (WORKFLOW_REJECTION_TARGET).
   if (written(['repositoryTests']) && merged.repositoryTests !== derived.repositoryTests) changed.push('repositoryTests');
   if (written(['testEvidenceFrom']) && merged.testEvidenceFrom !== derived.testEvidenceFrom) changed.push('testEvidenceFrom');
   if (written(['testRuns']) && merged.testRuns === 'fresh') changed.push('testRuns');

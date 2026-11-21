@@ -1442,7 +1442,11 @@ export async function refreshPackagedConfiguration(root, {
   migrateWorldModel = false,
   build = proposingBuild(),
   rollback = false,
-  environment = process.env
+  environment = process.env,
+  // The upgrade's intent pass (step intents §8, Stage 5): `{ confirm, answers }` writes the screen a person confirmed
+  // by its code; without it the pass only shows the screen. `repository` names this repository in its routes.
+  stepIntents = null,
+  repository = null
 } = {}) {
   resolutions = normalizeRefreshResolutions(resolutions);
   const ownershipTransfers = Object.entries(resolutions)
@@ -1799,12 +1803,14 @@ export async function refreshPackagedConfiguration(root, {
     }
   }
 
+  let intentPass = null;
   if (!dryRun) {
+    let loaded;
     try {
       // Workflow fields, agents, templates and prompts are one executable contract. Validating only
       // the merged workflow allowed a preserved, older agent to omit a newly introduced phase and
       // still be pushed to sflow/config; every later Story then failed while loading configuration.
-      await loadDefinition(root);
+      loaded = await loadDefinition(root);
     } catch (error) {
       const preserved = conflicts.filter((entry) => entry.resolution === 'preserved-local'
         || entry.resolution === 'preserved-local-deletion').map((entry) => entry.path);
@@ -1820,16 +1826,29 @@ export async function refreshPackagedConfiguration(root, {
         }
       );
     }
+    // Step intents (spec §8, Stage 5): the repository's own workflows whose steps do not say what they are for yet are
+    // offered their intents on one screen, keeping every setting as it was, and written only when a person confirmed
+    // that screen by its code. Never part of the packaged refresh itself: it holds nothing up.
+    if (!restorePackagedSeeds && !rollback
+        && Object.keys(merged.value.workTypes ?? {}).some((id) => !Object.hasOwn(incoming.workTypes ?? {}, id))) {
+      const { upgradeStepIntents } = await import('./step-intents-upgrade.mjs');
+      intentPass = await upgradeStepIntents(root, {
+        workflowFile, packaged: incoming, loaded, repository,
+        confirm: stepIntents?.confirm ?? null, answers: stepIntents?.answers ?? {}
+      });
+      if (intentPass?.confirmation === 'written') changedFiles.add(WORKFLOW_PATH);
+    }
   }
 
   return {
     product: lock.product,
     packageContentDigest,
     changed: changedFiles.size > 0,
-    ...(productStampOnly ? { productStampOnly } : {}),
+    ...(productStampOnly && intentPass?.confirmation !== 'written' ? { productStampOnly } : {}),
     files: [...changedFiles].sort(),
     removed: [...removedFiles].sort(),
     conflicts,
+    ...(intentPass ? { intentPass } : {}),
     ...(sectionMerges.length ? { sectionMerges } : {}),
     ...(worldModelMigration ? { worldModelMigration } : {}),
     ...(agentsHome ? { agentsHome } : {}),
@@ -2711,7 +2730,7 @@ async function prepareCandidate(repository, options, { env = process.env } = {})
       throw refreshRefError(`refs/heads/${CONFIGURATION_BRANCH}`, sourceRef.status, 'read');
     }
     const sourceCommit = sourceRef.commit;
-    let refresh = await refreshPackagedConfiguration(root, options);
+    let refresh = await refreshPackagedConfiguration(root, { ...options, repository: repository.id });
     if (options.hardCutover) refresh = await stageStoryHardCutover(root, repository, sourceCommit, refresh);
     const desired = await desiredConfiguration(root, { env: gitEnv });
     return { repository, root, sourceCommit, refresh, desired, gitEnv };
@@ -2761,7 +2780,7 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
     run('git', ['remote', 'set-url', 'origin', transport.remote], {
       cwd: root, env: transport.env
     });
-    let refresh = await refreshPackagedConfiguration(root, options);
+    let refresh = await refreshPackagedConfiguration(root, { ...options, repository: observation.repository.id });
     if (options.hardCutover) refresh = await stageStoryHardCutover(root, observation.repository, sourceCommit, refresh);
     const desired = await desiredConfiguration(root, { env: transport.env });
     return {
@@ -2837,7 +2856,9 @@ function previewResultForCandidate(candidate, status) {
     configurationAssets: candidate.desired.assets,
     ...(candidate.refresh.worldModelMigration ? { worldModelMigration: candidate.refresh.worldModelMigration } : {}),
     ...(candidate.refresh.agentsHome ? { agentsHome: candidate.refresh.agentsHome } : {}),
-    ...(candidate.refresh.storyCutover ? { storyCutover: candidate.refresh.storyCutover } : {})
+    ...(candidate.refresh.storyCutover ? { storyCutover: candidate.refresh.storyCutover } : {}),
+    // The one screen of step intents for this repository's own workflows, with its code (step intents §8).
+    ...(candidate.refresh.intentPass ? { intentPass: candidate.refresh.intentPass } : {})
   };
 }
 
@@ -2991,7 +3012,8 @@ async function proposeCandidate(candidate) {
     status, repository: repository.id, remote: repository.displayRemote,
     memberships: repository.memberships, sourceCommit,
     conflicts: refresh.conflicts, configurationChanged: false, error: null,
-    ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}), ...extra
+    ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
+    ...(refresh.intentPass ? { intentPass: refresh.intentPass } : {}), ...extra
   });
   // A difference that is only the build's name is nothing for a person to review [owner, 2026-11-13], except a rollback:
   // going back to the older build is what lowers the repository's minimum build (D8).
@@ -3120,6 +3142,7 @@ async function publishCandidate(candidate) {
     conflicts: refresh.conflicts,
     ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {}),
     ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
+    ...(refresh.intentPass ? { intentPass: refresh.intentPass } : {}),
     supersededRefs
   };
   } catch (error) {
@@ -3175,6 +3198,8 @@ export async function refreshWorkspaceConfigurations({
   reviewOnly = false,
   // Going back to an older build: a package proposal labelled as a rollback, never a direct publish (D8).
   rollback = false,
+  // The upgrade's intent pass: `{ confirm, answers }`, the screen a person confirmed by its code (step intents §8).
+  stepIntents = null,
   // The build proposing (SPEC-SCF D1); tests stand in another build here.
   build = proposingBuild()
 } = {}) {
@@ -3282,7 +3307,7 @@ export async function refreshWorkspaceConfigurations({
       try {
         candidate = await prepareCandidate(observation.repository, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
+          restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback, stepIntents
         }, { env: gitEnv });
         if (inspectCandidate) await inspectCandidate(candidate);
       } catch (error) {
@@ -3345,7 +3370,7 @@ export async function refreshWorkspaceConfigurations({
       }
       try {
         const candidate = await prepareObservedCandidate(observation, {
-          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
+          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback, stepIntents
         }, cachedPlan, { env: gitEnv });
         return { observation, candidate, retained: true, bootstrap: false, error: null };
       } catch (error) {
@@ -3583,7 +3608,7 @@ export async function refreshWorkspaceConfigurations({
   const prepared = await mapLimit(toPrepare, workers, async (observation) => {
     try {
       const candidate = await prepareObservedCandidate(observation, {
-        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback
+        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build, rollback, stepIntents
       }, cachedPlan, { env: gitEnv });
       return { observation, candidate, error: null };
     } catch (error) {
@@ -3769,6 +3794,8 @@ export function refreshSummary(results) {
     } else if (result.status === 'failed') {
       lines.push(`${result.repository}: nothing changed there. ${result.error}`);
     }
+    // What the step intents screen offers this repository, or what its confirmation wrote (step intents §8.5).
+    if (result.intentPass?.summary) lines.push(`${result.repository}: ${result.intentPass.summary}`);
     const refused = result.supersededRefs?.refused ?? [];
     if (refused.length) {
       lines.push(`${result.repository}: the host refused to delete ${refused.length} old ref${refused.length === 1 ? '' : 's'} `

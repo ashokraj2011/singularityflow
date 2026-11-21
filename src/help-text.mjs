@@ -1490,12 +1490,14 @@ Usage:
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
     [--resolve PATH=local|bundled|merge] [--accept-bundled-conflicts]
-    [--confirm-plan PLAN-ID] [--review-only | --rollback] [--json]
+    [--confirm-plan PLAN-ID] [--review-only | --rollback]
+    [--confirm-intents CODE [--intent STEP=INTENT]...] [--json]
     (publishes each repository's packaged configuration straight to sflow/config and removes its
      old sflow/config-history/* and sflow/config-refresh/* refs; a host that refuses the push gets a
      review branch with its link; --review-only proposes it instead, as a package proposal that
      configuration approve lands; --rollback lets an older build propose going back to it, labelled
-     as a rollback with what it removes)
+     as a rollback with what it removes; --confirm-intents writes the step intents screen it showed
+     for a repository's own workflows, by its code, keeping every setting as it was)
   singularity-flow workspace reinitialize [WORKSPACE] [--repository ID]
     [--hard-cutover] [--dry-run | --confirm-plan PLAN-ID] [--json]
     (--hard-cutover explicitly retires known existing Stories, preserving their bytes read-only;

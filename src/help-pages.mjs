@@ -2321,6 +2321,14 @@ const PAGES = Object.freeze({
       'Neither holds up another repository. Runtime state such as world models is preserved, and',
       'existing Story snapshots never move.',
       '',
+      'When a repository\'s own workflows have steps that do not say what they are for yet, the',
+      'refresh shows one screen for that repository: each step, the intent its settings say and why,',
+      'and any setting its intent would change, which it keeps as it is with the reason "Kept as it',
+      'was before step intents". A step SFlow cannot read for certain asks one question. Nothing',
+      'changes until you confirm the screen by its code with `--confirm-intents CODE` (each answer',
+      'with `--intent STEP=INTENT`, its command shown on the screen); then the same refresh writes',
+      'each intent and `version: 4`, and every workflow runs exactly as before.',
+      '',
       '`workspace migrate-schemas` checks every active registered workspace repository in one pass.',
       'It applies registered schema migrations in memory, then reports coverage, migrated records,',
       'and blockers. Archived workspaces and unavailable checkouts are reported as skipped.',
@@ -2365,6 +2373,8 @@ const PAGES = Object.freeze({
       ['--resolve PATH=CHOICE', 'For refresh-configuration only: deliberately resolve one reported conflict as local, bundled, or merge; repeat for additional paths. Safe reinitialize refuses ownership transfer.'],
       ['--confirm-plan ID', 'Apply only if the reviewed configuration, state, and reinitialization topology authorities still match the preview.'],
       ['--accept-bundled-conflicts', 'For refresh-configuration only: explicitly adopt packaged values where both package and repository changed the same field or asset. Safe reinitialize refuses this option.'],
+      ['--confirm-intents CODE', 'For refresh-configuration only: write the step intents screen the refresh showed, by its code; another code writes nothing and shows the screen as it is now.'],
+      ['--intent STEP=INTENT', 'For refresh-configuration only, with --confirm-intents: answer one question on that screen with one of its choices; repeat for another step.'],
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
     examples: [
@@ -2385,6 +2395,7 @@ const PAGES = Object.freeze({
       ['singularity-flow workspace refresh-configuration --dry-run', 'Preview package/configuration drift across every registered repository.'],
       ['singularity-flow workspace refresh-configuration payments --resolve singularity/templates/feature/spec.md=bundled --confirm-plan cfgp-…', 'Apply reviewed choices only while the preview remains current.'],
       ['singularity-flow workspace refresh-configuration payments', 'Refresh one registered workspace.'],
+      ['singularity-flow workspace refresh-configuration --repository payments-api --confirm-intents 3f9a1c', 'Write the step intents screen the refresh showed for that repository; every workflow runs as before.'],
       ['singularity-flow workspace migrate-schemas --json', 'Check schema compatibility across all active registered workspace repositories without rewriting stored records.'],
       ['singularity-flow workspace reinitialize payments --dry-run', 'Preview a complete, non-destructive workspace upgrade and receive its bound plan ID.'],
       ['singularity-flow workspace reinitialize payments --confirm-plan wrip-…', 'Apply the compound plan that binds configuration/state authority, workspace topology, and schema readiness.']

@@ -6,7 +6,10 @@ import YAML from 'yaml';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { workflowFileVersionObsolete } from './phase-roles.mjs';
+// Obsolete: no version, or one below the oldest this build reads (phase-roles.mjs WORKFLOW_FILE_VERSIONS starts at 2;
+// test/workflow-file-versions.test.mjs holds the two to the same rule). Inline, so the VS Code bundles that read the
+// registry do not take phase-roles.mjs for one comparison.
+const workflowFileVersionObsolete = (version) => !Number.isSafeInteger(version) || version < 2;
 import { branch, gitCommonDir, gitDir, head, repoRoot } from './git-execution.mjs';
 import { configuredRemoteIdentity, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { workspaceRepositoryPathAliases } from './workspace-repository-paths.mjs';

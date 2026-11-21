@@ -80,7 +80,7 @@ function packagedIntentOnly(id, before, after, protectedIds) {
     return phases.length && phases.includes(id) && phases.every((phase) => typeof after.story.phases?.[phase]?.intent === 'string');
   });
   if (derives.length) {
-    throw new SingularityFlowError(`Giving step '${id}' its intent would make the seeded workflow ${derives.join(', ')} derive its settings from intents before the upgrade brings the shipped ones. Copy the step for your workflow and give the copy its intent.`,
+    throw new SingularityFlowError(`Giving step '${id}' its intent would make the seeded workflow ${derives.join(', ')} derive its settings before the upgrade brings the shipped intents. Copy the step for your workflow and give the copy its intent.`,
       { code: 'SEEDED_WORKFLOW_READ_ONLY', details: { step: id, workflows: derives } });
   }
   return true;

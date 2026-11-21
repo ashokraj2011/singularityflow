@@ -59,6 +59,8 @@ test('an explicit workspace prune forgets only an obsolete workflow.yml, never o
   const result = await discardUnsupportedWorkflowWorkspaces(registry);
   assert.deepEqual(result.removed.map((entry) => [entry.id, entry.version]).sort(), [['none', null], ['v1', 1]]);
   assert.match(result.removed.find((entry) => entry.id === 'none').reason, /does not declare its version/u);
+  // The same rule as phase-roles.mjs workflowFileVersionObsolete, which workspace-context.mjs inlines.
+  for (const entry of result.removed) assert.equal(workflowFileVersionObsolete(entry.version ?? undefined), true, entry.id);
   // `remaining` is read back from the registry file after the prune.
   assert.deepEqual(result.remaining.map((entry) => entry.id).sort(), ['v2', 'v3', 'v4', 'v5']);
 });

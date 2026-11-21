@@ -42,7 +42,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 111
+version: 112
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -286,8 +286,10 @@ summary says so; changing the output back before publishing restores them.
 A step's id is only its name. The engine reads what a step is for from its structure, so renaming a
 step, or copying it under another name, keeps every rule that governs it, and naming a step after a
 packaged one confers nothing. A step is convergence because its artifact kind is
-`convergence-report`: such a step must allow only deterministic generation and require a person's
-approval (`CONVERGENCE_HUMAN_APPROVAL_REQUIRED`), it is submitted only through `story advance`, and no
+`convergence-report`: such a step must allow only deterministic generation and require its approval,
+never waived (`CONVERGENCE_HUMAN_APPROVAL_REQUIRED` refuses `none` and `policy`): a person's, or SFlow's when
+its workflow marks it `automatic: when-ready` and its own check is clean, as the shipped spec-driven workflows
+do (convergence folds into the code approval), it is submitted only through `story advance`, and no
 decision may follow it. It reconciles the code step before it with the steps that define the scope
 and plan the claims, whatever they are called. A step merely named `convergence` with another
 artifact kind is an ordinary step.

@@ -837,9 +837,6 @@
       "versionArithmetic": 1,
       "lifecycleCommands": 1
     },
-    "workflow-walk/quick.mjs": {
-      "predicateCalls": 1
-    },
     "workflow-walk/walk.mjs": {
       "skillChooserCalls": 1,
       "lifecycleCommands": 3

@@ -25,3 +25,22 @@ export async function withoutStepIntents(root, version = 2) {
   const file = path.join(root, 'singularity', 'workflow.yml');
   await writeFile(file, YAML.stringify(packagedWorkflowWithoutIntents(YAML.parse(await readFile(file, 'utf8')), version), { lineWidth: 0 }));
 }
+
+/**
+ * Gives the shipped steps of a repository's singularity/workflow.yml the write scopes an earlier version shipped them
+ * with (before step intents Stage 7, Testing and Verification could change source files), for a test of what those
+ * shipped steps did then. Only the steps' own write scopes: a workflow's overrides keep theirs.
+ */
+export async function earlierWriteScopes(root) {
+  const { readFile, writeFile } = await import('node:fs/promises');
+  const previous = previousShippedWorkflow();
+  const file = path.join(root, 'singularity', 'workflow.yml');
+  const value = YAML.parse(await readFile(file, 'utf8'));
+  for (const [id, phase] of Object.entries(value.phases ?? {})) {
+    const before = previous.phases?.[id];
+    if (!before || before.writeScope === phase?.writeScope) continue;
+    if (before.writeScope === undefined) delete phase.writeScope;
+    else phase.writeScope = before.writeScope;
+  }
+  await writeFile(file, YAML.stringify(value, { lineWidth: 0 }));
+}

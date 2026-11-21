@@ -202,8 +202,9 @@ test('a reviewed amendment compares a newer revision in the Story closure, never
     { intake: 'new', specification: 'new' }, 'the whole revision also names a step this Story does not have');
   assert.deepEqual((await resolveApprovedStoryWorkTypeFor(f.snapshot, story)).contextPolicy, pinned.contextPolicy);
   const legacy = { workItem: { workType: 'spec-driven-standard' }, resolution: { configurationSource: { commit: f.commit } } };
+  // A Story that pinned no intent profile started before step intents, and keeps resolving without them.
   assert.deepEqual(await resolveApprovedStoryWorkTypeFor(f.snapshot, legacy),
-    resolveApprovedStoryWorkType(f.snapshot, 'spec-driven-standard'), 'a whole-copy Story compares as before');
+    resolveApprovedStoryWorkType(f.snapshot, 'spec-driven-standard', { intentProfile: false }), 'a whole-copy Story compares as before');
 });
 
 test('projection keeps layout, narrows shared lists and never widens one to "any"', () => {

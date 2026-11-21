@@ -130,7 +130,7 @@ test('the migration moves SFlow\'s agents byte for byte, sets the signal, and is
   assert.deepEqual(await tree(path.join(root, AGENTS_HOME)), moved, 'every agent keeps its bytes and its name');
   assert.deepEqual(await tree(path.join(root, '.github/agents')), { 'security-reviewer.agent.md': sha(TEAM_REVIEWER) });
   const text = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
-  assert.match(text, /^version: 2\n# SFlow's step agents live in singularity\/agents;.*\nagentPromptsRoot: singularity\/agents\n/u);
+  assert.match(text, /^version: \d+\n# SFlow's step agents live in singularity\/agents;.*\nagentPromptsRoot: singularity\/agents\n/u);
   const after = await loadDefinition(root);
   assert.equal(after.agents.developer.source, 'singularity/agents/developer.agent.md');
   assert.equal(after.agents['security-reviewer'], undefined);
@@ -171,7 +171,7 @@ test('a destination with other bytes holds the move and names both files [AGH:RE
 test('a workflow.yml naming its own agentPromptsRoot holds the move, keeps that root carried, and says how to go on [AGH:REQ-005, REQ-018]', async (t) => {
   const root = await legacyConfiguration(t);
   const file = path.join(root, 'singularity/workflow.yml');
-  await writeFile(file, (await readFile(file, 'utf8')).replace(/^version: 2\n/u, 'version: 2\nagentPromptsRoot: governed/agents\n'));
+  await writeFile(file, (await readFile(file, 'utf8')).replace(/^version: \d+\n/u, '$&agentPromptsRoot: governed/agents\n'));
   await mkdir(path.join(root, 'governed/agents'), { recursive: true });
   await writeFile(path.join(root, 'governed/agents/notes.md'), 'carried as configuration\n');
   assert.equal((await loadDefinition(root)).agents.developer.source, '.github/agents/developer.agent.md');

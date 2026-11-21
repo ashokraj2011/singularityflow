@@ -101,6 +101,9 @@ const OVERRIDES = {
   'application-review-preview.mjs': 'local-operational',
   // A marketplace agent's workflow bundle, laid out in a scratch configuration and removed, like workflow markup's.
   'agent-workflow-bundle.mjs': 'shared-state',
+  // The upgrade's intent pass writes a repository's own workflows inside the refresh candidate of the approved
+  // configuration, which the upgrade publishes to sflow/config (step intents spec §8).
+  'step-intents-upgrade.mjs': 'shared-state',
   // The runtime check's capture and screenshots of one step version, private to this checkout's Git directory.
   'runtime-check.mjs': 'local-operational',
   'runtime-check-web.mjs': 'local-operational',

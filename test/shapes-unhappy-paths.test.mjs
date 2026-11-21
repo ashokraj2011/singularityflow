@@ -73,7 +73,7 @@ async function story(t, id, { files, outcome, rows }) {
   cli('approve', 'intake', '--yes');
   cli('prepare', 'implementation');
   const summary = path.join(item, 'artifacts/implementation/implementation-summary.md');
-  await writeFile(summary, (await readFile(summary, 'utf8')).replace(/TODO:[^\n]*/gu, 'The planned change is made.'));
+  await writeFile(summary, (await readFile(summary, 'utf8')).replace(/TODO:[^\n]*/gu, 'The planned change is made as the approved plan says, and nothing outside its listed paths changes.'));
   return { root, item, cli, attempt, write };
 }
 

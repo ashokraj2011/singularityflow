@@ -1,5 +1,5 @@
 import { repositoryOwnedWorkflows, requirementsTemplatePlansCode } from './helpers/repository-owned-workflows.mjs';
-import { withoutStepIntents } from './helpers/previous-workflow.mjs';
+import { earlierWriteScopes, withoutStepIntents } from './helpers/previous-workflow.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -527,9 +527,11 @@ test('a workflow named up front that writes no code: the check gives the moves t
   const said = json(current, describe).build;
   json(current, ['workflow', 'build', 'propose', '--build', said.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'Three steps', why: 'The team named these steps.', moves: threeSteps }) });
   assert.equal(problem(json(current, ['workflow', 'build', 'check', '--build', said.id]), 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN'), undefined);
-  // The office's repository (2026-11-13) was on an earlier version, whose shipped steps say nothing of what they are for.
+  // The office's repository (2026-11-13) was on an earlier version, whose shipped steps say nothing of what they are for,
+  // and whose Testing may change source files.
   const root = await repository(run, flow);
   await withoutStepIntents(root);
+  await earlierWriteScopes(root);
   run('git', ['commit', '-qam', 'the shipped steps as an earlier version has them'], root);
   const build = json(root, describe).build;
   const mine = (title, moves) => json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title, why: 'The team named these steps.', moves }) });

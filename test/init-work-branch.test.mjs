@@ -491,7 +491,8 @@ test('init permits first bootstrap only after a configured authority positively 
   ], root, { env });
   assert.match(initialized.stdout, /Initialized Singularity Flow on setup\/FIRST-INIT/);
   assert.equal(git(root, 'branch', '--show-current'), 'setup/FIRST-INIT');
-  assert.match(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), /version: 2/);
+  assert.equal(YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).version,
+    YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8')).version, 'init writes the shipped workflow');
 });
 
 test('init treats an unmarked application state branch as no SFlow authority', async (t) => {

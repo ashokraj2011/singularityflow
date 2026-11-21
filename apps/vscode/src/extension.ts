@@ -4509,7 +4509,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       progress: (title, task) => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, task),
       inform: (message, ...actions) => showCompactInformationMessage(message, ...actions),
       warn: (message, ...actions) => showCompactWarningMessage(message, ...actions),
-      confirm: async (message, detail, action) => (await vscode.window.showInformationMessage(message, { modal: true, detail }, action)) === action,
+      confirm: async (message, detail, action) => (await showCompactInformationMessage(message, { modal: true, detail }, action)) === action,
       pick: async (title, choices) => (await vscode.window.showQuickPick(choices.map((choice) => ({ label: choice.label, intent: choice.intent })),
         { title, placeHolder: title, ignoreFocusOut: true }))?.intent,
       log: (line) => output.appendLine(line),

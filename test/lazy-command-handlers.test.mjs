@@ -950,7 +950,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,846,152 (measured on the integration branch with Stage 7, 2026-11-21): approval-focus and Stage 7 together.
     // 9,846,882 (measured on the integration branch, 2026-11-21): the integration fixes (a narrowed top-level document list
     // kept for derived work types, a version 3 file resolving in the version 2 field order, one word-count line). No new eager file.
-    assert.ok(closure.bytes <= 9_846_882, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,847,460 (measured, 2026-11-21): the full run's fixes; the failing-tests warning names the code step SFlow returns to,
+    // or promises no return when there is none, and the workflow change graph skips a step's reasons. No new eager file.
+    assert.ok(closure.bytes <= 9_847_460, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

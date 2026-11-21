@@ -5,10 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
+import { withoutStepIntents } from './helpers/previous-workflow.mjs';
 
-const definition = async () => YAML.parse(await readFile(
+// The shipped workflow as a version 2 repository takes it: these tests are about version 2, where no step has an intent.
+const definition = async () => packagedWorkflowWithoutIntents(YAML.parse(await readFile(
   new URL('../templates/workflow.yml', import.meta.url), 'utf8'
-));
+)), 2);
 
 function unsupported(action, field) {
   assert.throws(action, (error) => error?.code === 'SKP_PHASE_PRODUCER_UNSUPPORTED'
@@ -75,6 +78,7 @@ test('a repository workflow with a skill phase is refused during load', async (t
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, '.git'));
   await initializeDefinition(root);
+  await withoutStepIntents(root);
   const file = path.join(root, 'singularity', 'workflow.yml');
   const config = YAML.parse(await readFile(file, 'utf8'));
   config.phases.intake.kind = 'skill';

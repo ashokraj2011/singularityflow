@@ -134,7 +134,10 @@ test('a verification step runs the repository tests and records the pass', slowL
 test('a failing run goes to the reviewer, who returns the Story to repair it', slowLane({ timeout: 300_000 }), async (t) => {
   const root = await repository(t, { tests: 'failing' });
   const { submitted, phase } = await submitVerification(root, 'CH-FAIL');
+  // Chore's implementation analyzes and delivers no code, so SFlow has no code step to return the failing tests to (D1):
+  // the warning promises no return, and the reviewer returns it.
   assert.match(submitted.stderr, /Warning: the repository's tests failed: .*verification goes to its reviewer, who cannot approve it/su);
+  assert.doesNotMatch(submitted.stderr, /SFlow returns it to/u);
   const run = phase.checks.find((check) => check.source === 'repository-tests');
   assert.equal(run.status, 'failed');
   assert.equal(phase.status, 'awaiting_approval');
@@ -148,14 +151,14 @@ test('a failing run goes to the reviewer, who returns the Story to repair it', s
   const { error, remediationPlan } = JSON.parse(approve.stdout);
   assert.equal(error.code, 'PHASE_VALIDATION_FAILED');
   // The regression is in the code implementation delivered: the refusal and the hold both return it
-  // there, never verification to itself [PHR:REQ-003, REQ-004].
-  const back = 'singularity-flow reject verification --work-id CH-FAIL --to implementation --reason <REASON>';
-  assert.match(error.message, /The repository's own tests fail on the code implementation delivered, which implementation repairs/u);
-  assert.ok(remediationPlan.steps.some((entry) => entry.command === back && entry.skill === '/sf-reject'), JSON.stringify(remediationPlan.steps));
+  // there, never verification to itself [PHR:REQ-003, REQ-004]. SFlow fills the reason with what failed (D1).
+  const back = (command) => /^singularity-flow reject verification --work-id CH-FAIL (?:--fetch )?--to implementation --reason "The tests Verification version 1 ran failed: The test 'ledger balances'\./u.test(command ?? '');
+  assert.match(error.message, /verification changes no source code, and its tests fail on the code implementation delivered, which implementation fixes/u);
+  assert.ok(remediationPlan.steps.some((entry) => back(entry.command) && entry.skill === '/sf-reject'), JSON.stringify(remediationPlan.steps));
   const [hold] = JSON.parse(flow(root, ['status', 'CH-FAIL', '--submission-readiness', '--json']).stdout).approvalCheck.holds;
   assert.equal(hold.code, 'PHASE_VALIDATION_FAILED');
-  assert.equal(hold.action.command, back);
-  assert.match(hold.action.label, /returns verification to implementation/u);
+  assert.ok(back(hold.action.command), hold.action.command);
+  assert.match(hold.action.label, /^Start another version of Implementation to fix the failing tests/u);
   flow(root, ['reject', '--to', 'implementation', '--reason', 'The ledger suite fails.']);
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/CH-FAIL/workflow.json'), 'utf8'));
   assert.equal(workflow.currentPhase, 'implementation');

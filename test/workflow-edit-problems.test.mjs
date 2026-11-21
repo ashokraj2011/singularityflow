@@ -16,6 +16,7 @@ import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { defineWorkflow, editWorkflow } from '../src/workflow-authoring.mjs';
 import { addedProblems, createdWithoutProblems, editedWithoutNewProblems, validateWorkflows, workflowProblems } from '../src/workflow-validation.mjs';
+import { withoutStepIntents } from './helpers/previous-workflow.mjs';
 
 const PLAN = { mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } };
 // Requirements' template has no planned-claims table: a plan owned by it is the problem approval refuses.
@@ -92,6 +93,9 @@ test('a clean edit is written as before', async (t) => {
 
 test('a route that drops responsibilities stays the same problem when a step is appended after its last; only a newly missing one is added (review 11-17)', async (t) => {
   const { root, file } = await configuration(t);
+  // On version 2, where no step has an intent: on version 4 a workflow that changes no code is given its omits by SFlow
+  // (step intents, "this workflow changes no code"), so this route drops nothing.
+  await withoutStepIntents(root);
   // Requirements alone: its one route ends the Story without the change itself or verification.
   await defineWorkflow(root, 'short-route', { phases: ['requirements'] });
   const before = await workflowProblems(root, ['short-route']);

@@ -235,6 +235,9 @@ function dependencyGraph(definition, agents, replacements, { fullCatalog = false
     if (Array.isArray(value)) { for (const child of value) named(from, child); return; }
     if (!plain(value)) return;
     for (const [name, child] of Object.entries(value)) {
+      // A step's `because:` holds each setting's reason in prose, keyed by the setting it explains (step intents §4.4):
+      // `because.testEvidenceFrom` is a sentence, never the step it names.
+      if (name === 'because') continue;
       if (name === 'artifactSet' && typeof child === 'string') link(from, 'artifact-set', child);
       // A compiled SKP readScope.inputs is a boolean, not a phase-reference collection.
       // Actual phase/binding input declarations are separately required to be arrays below.

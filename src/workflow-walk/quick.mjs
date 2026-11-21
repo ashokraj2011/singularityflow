@@ -34,12 +34,12 @@ import path from 'node:path';
 
 import { codePublicationRoute, submitRoute } from '../action-command-map.mjs';
 import { approvesAutomatically } from '../approval-authority.mjs';
-import { phaseKernelOwned, phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { VSCODE_DECIDE_CARD, VSCODE_SELECT_STORY, VSCODE_WITNESS_REVIEW } from '../model-free-commands.mjs';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
-import { actionRoute } from '../step-decision.mjs';
+import { actionRoute, executionOwner } from '../step-decision.mjs';
 import { routeReach } from '../workflow-decisions.mjs';
 import { simulateWorkflowRoutes } from '../workflow-route-simulation.mjs';
 
@@ -132,7 +132,7 @@ function stepRoutes(story, phase, { visit, decision }) {
   const step = phase.id;
   const render = (operation, form, detail) => actionRoute(operation, form, { step, workId: WORK_ID, detail });
   const code = phaseRequiresCodeDelivery(phase);
-  const kernel = phaseKernelOwned(phase);
+  const kernel = executionOwner(phase) === 'kernel';
   const stages = [];
   const add = (stage, route, words) => stages.push({ stage, route, words });
   if (visit > 1) add('next version', render(kernel ? 'build-version' : 'open-version', 'preview', `Start version ${visit} of ${step}?`), `the person's yes to its version ${visit}`);

@@ -139,7 +139,10 @@ const COMPUTED = Object.freeze([
   ['src/commands/decisions.mjs', "if (confirm && confirm !== packet.packetSha256 && (DIGEST.test(confirm) || copySlip(confirm, packet.packetSha256) === 'slip')) changedList"],
   ['src/scope/decisions.mjs', 'if (confirm !== inventory.inventorySha256) {'],
   ['src/story-baseline-admission.mjs', 'fresh.preview.planDigest !== options.confirmation'],
-  ['src/phase-quality-risk.mjs', 'confirm !== digest(record)']
+  ['src/phase-quality-risk.mjs', 'confirm !== digest(record)'],
+  // The upgrade's intent screen: whether SFlow wrote it, a state it computed, never a copied code (step intents §8).
+  ['src/step-intents-upgrade.mjs', "pass.confirmation !== 'written'"],
+  ['src/workspace-configuration-refresh.mjs', "intentScreen?.confirmation !== 'written'"]
 ]);
 const RAW = /\b(?:options\.)?confirm(?:ation)?\b\s*!==|!==\s*(?:options\.)?confirm(?:ation)?\b/u;
 // A type check (`typeof confirmation !== 'string'`) compares no value with another, so it is not counted.

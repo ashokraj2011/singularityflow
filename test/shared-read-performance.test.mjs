@@ -70,7 +70,7 @@ test('session current shares configuration and Git identity without retaining mu
 
   const source = path.join(fixture.repository, 'singularity/workflow.yml');
   const original = await readFile(source, 'utf8');
-  await writeFile(source, original.replace('version: 2', 'version: 999'));
+  await writeFile(source, original.replace(/^version: \d+$/mu, 'version: 999'));
   const changed = invoke();
   assert.notEqual(changed.status, 0, 'a later request must validate changed configuration');
   await writeFile(source, original);

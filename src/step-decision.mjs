@@ -50,8 +50,11 @@ function commandRoute(command, detail, skill = null) {
 
 /** Only the step's own configuration decides what it may change: no producer but the kernel builds no files (P-9). */
 export const onlyDeterministic = (phase) => phase?.generationPolicy?.allowedProducers?.length === 1 && phase.generationPolicy.allowedProducers[0] === 'deterministic';
-/** Who builds the step (the entry's phaseKernelOwned); a policy that contradicts itself is classified by its producers alone. */
-function executionOwner(phase) {
+/**
+ * Who builds the step (the entry's phaseKernelOwned); a policy that contradicts itself is classified by its producers alone.
+ * The kernel's `kind` fact, and the one classification a surface reads (the quick workflow walk too).
+ */
+export function executionOwner(phase) {
   try { return phaseKernelOwned(phase) ? 'kernel' : 'agent'; } catch { return onlyDeterministic(phase) && !phaseRequiresCodeDelivery(phase) ? 'kernel' : 'agent'; }
 }
 

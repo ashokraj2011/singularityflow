@@ -33,6 +33,7 @@ import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs
 import { retainedSkillExpansion, selectRetainedSkillInstructions } from '../src/retained-skill-instructions.mjs';
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
 import { applyWorkflowImport, copyWorkflow, exportWorkflowBundle, planWorkflowCopy, planWorkflowImport } from '../src/workflow-transfer.mjs';
+import { ANCHOR_PLACEHOLDERS } from '../src/workflow-template-conformance.mjs';
 import { addReleaseWorkflow, LIBRARY_SKILL_PATH, librarySkillText as releaseSkill } from './helpers/release-workflow-fixture.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -1037,6 +1038,10 @@ test('accepted snapshots pin instructions offline and on-demand expansion retain
 test('workflow bundles carry referenced instructions and independent copies rewrite their identities', async t => {
   const source = await repository(t, 'sflow-instruction-export-');
   await addReleaseWorkflow(source, 'source', { librarySkill: true });
+  // This workflow changes no code, so its scope step's template defines the clauses (step intents Stage 6); written here,
+  // the import has nothing of its own to add to it, and importing the bundle again finds the same file.
+  const releasePlan = path.join(source, 'singularity/templates/mobile-release/release-plan.md');
+  await writeFile(releasePlan, `${await readFile(releasePlan, 'utf8')}\n## Requirements\n\n${ANCHOR_PLACEHOLDERS[0]}\n\n## Acceptance criteria\n\n${ANCHOR_PLACEHOLDERS[1]}\n`);
   const file = path.join(source, LIBRARY_SKILL_PATH);
   const skill = parseLibrarySkill(await readFile(file, 'utf8'));
   await writeFile(file, librarySkillText({ ...skill, instructionRefs: ['web-guide'] }));

@@ -446,7 +446,7 @@ test('a destination preview binds the plan; a destination that changes is refuse
   const plan = await planWorkflowImport(destination, bundle, importResolutionOptions([], 'suggested'));
   const file = path.join(destination, 'singularity', 'workflow.yml');
   const original = await readFile(file, 'utf8');
-  await writeFile(file, original.replace(/^version: 2$/mu, 'version: 2\n# changed'));
+  await writeFile(file, original.replace(/^version: \d+$/mu, '$&\n# changed'));
   await assert.rejects(() => applyWorkflowImport(destination, bundle, { expectedPlanSha256: plan.planSha256, ...importResolutionOptions([], 'suggested') }),
     { code: 'WORKFLOW_TRANSFER_PLAN_STALE' });
   await writeFile(file, original);

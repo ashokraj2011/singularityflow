@@ -6250,8 +6250,12 @@ async function submitPhaseTransition(root, config, workflow, {
   // A failing run of the repository's own tests goes to its reviewer, who returns the step to repair. So does any failing
   // test run of a test step that changes no source code: SFlow returns it to its code step after the submission (D1,
   // failing-tests-return.mjs), and refusing the submission would leave nothing it could fix.
-  const autoReturns = unacceptedFailed.length > 0 && ownerStepChecks(workflow, 4) && !codeDeliveryRequired
-    && (await import('./failing-tests-return.mjs')).autoReturnStep(workflow, phase);
+  const failingTestsReturn = unacceptedFailed.length > 0 && ownerStepChecks(workflow, 4) && !codeDeliveryRequired
+    ? await import('./failing-tests-return.mjs') : null;
+  const autoReturns = Boolean(failingTestsReturn?.autoReturnStep(workflow, phase));
+  // Where SFlow returns them: an approved code step this step may send work back to. A step with none (chore's
+  // implementation analyzes, it delivers no code) goes to its reviewer as before, so the warning promises no return.
+  const returnsTo = autoReturns ? failingTestsReturn.codeStepOf(workflow, phase) : null;
   const repositoryTestsFailed = phase.approvalPolicy?.mode !== 'none' && unacceptedFailed.length > 0
     && unacceptedFailed.every((check) => repositoryTestFailures.includes(check)
       || (autoReturns && (check.kind === 'test' || check.source === 'repository-tests')));
@@ -6265,8 +6269,9 @@ async function submitPhaseTransition(root, config, workflow, {
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   for (const check of validation.warned) console.warn(`Warning: advisory scanner ${check.id} reported problems; it reads no findings, so it fails nothing.`);
   if (repositoryTestsFailed) {
-    console.warn(autoReturns ? `Warning: ${phase.id}'s tests failed: ${unacceptedFailed.map((check) => check.command).join(', ')}. SFlow returns it to its code step, unless the review brake asks you first.`
-      : `Warning: the repository's tests failed: ${unacceptedFailed.map((check) => check.command).join(', ')}. `
+    const commands = unacceptedFailed.map((check) => check.command).join(', ');
+    console.warn(returnsTo ? `Warning: ${phase.id}'s tests failed: ${commands}. SFlow returns it to ${returnsTo.id}, unless the review brake asks you first.`
+      : `Warning: ${unacceptedFailed.every((check) => repositoryTestFailures.includes(check)) ? 'the repository\'s' : `${phase.id}'s`} tests failed: ${commands}. `
       + `${phase.id} goes to its reviewer, who cannot approve it and returns it to the step that repairs it.`);
   }
   phase.validationVerdict = validation.verdict;

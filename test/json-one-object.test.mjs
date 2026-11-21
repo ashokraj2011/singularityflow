@@ -201,10 +201,12 @@ test('a Story walked with --json answers each step with one object, its converge
   assert.equal(advanced.outcome.slots.phase, 'convergence');
   assert.equal(advanced.data.pushedTo, `origin/${WORK}`);
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
-  assert.equal(workflow.phases.convergence.status, 'awaiting_approval', 'the confirmed advance submitted convergence');
+  // Approve twice (step intents Stage 7): a clean convergence is approved by SFlow as it is submitted.
+  assert.equal(workflow.phases.convergence.status, 'approved', 'the confirmed advance submitted convergence');
+  assert.equal(workflow.phases.convergence.automaticApproval?.generation, workflow.phases.convergence.generation, 'SFlow approved it');
 
   const cancelled = json('cancel', WORK, '--confirm', WORK, '--reason', 'The walk ends here.', '--json');
   assert.equal(cancelled.resultType, 'sflow-story-cancelled');
-  assert.equal(cancelled.phase, 'convergence');
+  assert.equal(cancelled.phase, workflow.currentPhase);
   assert.equal(cancelled.pushed, true);
 });

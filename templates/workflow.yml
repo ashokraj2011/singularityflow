@@ -1,4 +1,4 @@
-version: 2
+version: 4
 inputsMode: enforce
 
 # Keep large governed results bounded in model context and allow exact expansion
@@ -480,6 +480,8 @@ workTypes:
       mode: required
       clausePhases: [requirements, implementation-spec]
       owners: { implementation: implementation-spec }
+    because:
+      plannedClaims: The implementation specification adds its own requirement IDs for the technical details, beside the requirements step's.
     templateOverrides:
       intake: feature/intake.md
       requirements: feature/requirements.md
@@ -550,6 +552,8 @@ workTypes:
         inputs: [intake]
         generation: { task: analyze }
         approval: { rejectTo: [intake, implementation] }
+        because:
+          generation.task: A chore may change configuration only, so it runs without the code-delivery checks.
       verification:
         inputs: [implementation]
         approval: { rejectTo: [intake, implementation, verification] }
@@ -567,6 +571,9 @@ workTypes:
       mode: required
       clausePhases: [findings-intake]
       owners: { implementation: remediation-plan }
+    documents: { allowedPhases: [] }
+    because:
+      documents.allowedPhases: Kept as it was before step intents. The findings come from the findings register, and no step takes attached documents.
     # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
     # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
     phaseOverrides:
@@ -649,6 +656,8 @@ workTypes:
         artifact: { kind: requirements }
         clarification: { mode: when-needed, maxQuestions: 3, topics: [acceptance criteria, changed paths, tests] }
         approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [intake] }
+        because:
+          clarification.mode: A quick fix starts from a concrete change, so its scope step asks only when something is unclear.
       implement: { inputs: [intake] }
       verify: { inputs: [intake, implement] }
 
@@ -714,6 +723,8 @@ workTypes:
         writeScope: artifact-only
         testEvidenceFrom: implementation
         approval: { automatic: when-ready, authorities: [quality-reviewers], minimum: 1, rejectTo: [intake, implementation, testing] }
+        because:
+          writeScope: Classic delivery's testing cites the tests the code step committed and changes no source files.
       conformance:
         label: Code checking
         inputs: [intake, implementation, testing]
@@ -762,6 +773,8 @@ workTypes:
             - { server: playwright, tool: browser_snapshot, minimum: 1, outputRequired: true }
             - { server: playwright, tool: browser_take_screenshot, minimum: 1, outputRequired: true }
         approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [specification, testing] }
+        because:
+          approval.rejectTo: A failed browser review goes back to the code through the rework loop; a person may send it back to the specification or redo it.
       conformance:
         label: Spec, code and test checking
         inputs: [specification, implementation, testing]
@@ -976,6 +989,9 @@ workTypes:
     phaseOverrides:
       intake:
         artifact: { kind: requirements }
+        approval: { automatic: off }
+        because:
+          approval.automatic: Kept as it was before step intents. A person approves the benchmark intake, in both benchmark workflows so their runs stay comparable.
       design:
         inputs:
           - { phase: intake, projection: approved-summary, preserve: [Success criteria, Scope and constraints], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
@@ -995,7 +1011,9 @@ workTypes:
           - { phase: design, projection: approved-summary, preserve: [Design and interfaces], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: testing, projection: approved-summary, preserve: [Test evidence and results], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
-        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
+        approval: { automatic: off, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
+        because:
+          approval.automatic: Kept as it was before step intents. A person approves the benchmark conformance, in both benchmark workflows so their runs stay comparable.
 
   benchmarking-b:
     label: Benchmark B — generic context
@@ -1015,7 +1033,11 @@ workTypes:
       testing: benchmark/testing.md
       conformance: benchmark/conformance.md
     phaseOverrides:
-      intake: { artifact: { kind: requirements } }
+      intake:
+        artifact: { kind: requirements }
+        approval: { automatic: off }
+        because:
+          approval.automatic: Kept as it was before step intents. A person approves the benchmark intake, in both benchmark workflows so their runs stay comparable.
       design:
         inputs: [intake]
         approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, design] }
@@ -1027,7 +1049,9 @@ workTypes:
         approval: { rejectTo: [intake, design, implementation, testing] }
       conformance:
         inputs: [intake, design, implementation, testing]
-        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
+        approval: { automatic: off, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
+        because:
+          approval.automatic: Kept as it was before step intents. A person approves the benchmark conformance, in both benchmark workflows so their runs stay comparable.
 
   poc-workflow:
     label: POC workflow — enterprise Playwright
@@ -1042,6 +1066,9 @@ workTypes:
       mode: required
       clausePhases: [poc-intake]
       owners: { poc-test-generation: poc-ui-exploration }
+    documents: { allowedPhases: [] }
+    because:
+      documents.allowedPhases: Kept as it was before step intents. The POC workflow's steps take no attached documents.
     templateOverrides:
       poc-intake: poc-workflow/intake.md
       poc-impact-analysis: poc-workflow/impact-analysis.md
@@ -1050,8 +1077,16 @@ workTypes:
       poc-validation: poc-workflow/validation.md
       poc-publication-review: poc-workflow/publication-review.md
     phaseOverrides:
-      poc-intake: { artifact: { kind: requirements } }
-      poc-impact-analysis: { inputs: [poc-intake] }
+      poc-intake:
+        artifact: { kind: requirements }
+        approval: { automatic: off }
+        because:
+          approval.automatic: Kept as it was before step intents. A person approves the POC intake.
+      poc-impact-analysis:
+        inputs: [poc-intake]
+        approval: { automatic: off }
+        because:
+          approval.automatic: Kept as it was before step intents. A person approves the regression impact analysis.
       poc-ui-exploration: { inputs: [poc-intake, poc-impact-analysis] }
       poc-test-generation: { inputs: [poc-intake, poc-impact-analysis, poc-ui-exploration] }
       poc-validation: { inputs: [poc-impact-analysis, poc-ui-exploration, poc-test-generation] }
@@ -1166,8 +1201,14 @@ workTypes:
         approval: { automatic: when-ready }
 # Clarification is `required` only at a Story's intake; later steps proceed on the approved documents and ask
 # only when something is truly unclear (`when-needed`) [owner, 2026-11-19].
+#
+# Every step says what it is for (`intent:`, step intents spec §3). In this version 4 file each workflow derives
+# the settings its steps leave unset from their intents (profile 1). A step that sets a framework setting to
+# something other than its intent gives says why under `because:`; every setting below resolves as it did
+# before step intents (test/step-intents-shipped.test.mjs).
 phases:
   intake:
+    intent: intake
     label: Intake
     defaultTemplate: common/intake.md
     artifact: { path: artifacts/intake/intake.md, kind: intake, minimumBytes: 200 }
@@ -1178,6 +1219,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [intake] }
   requirements:
+    intent: requirements
     label: Requirements
     defaultTemplate: feature/requirements.md
     artifact: { path: artifacts/requirements/requirements.md, kind: requirements, minimumBytes: 300 }
@@ -1188,6 +1230,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [intake, requirements] }
   design:
+    intent: design
     label: Architecture and design
     defaultTemplate: feature/design.md
     artifact: { path: artifacts/design/design.md, kind: design, minimumBytes: 300 }
@@ -1198,6 +1241,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [requirements, design] }
   implementation-spec:
+    intent: plan
     label: Implementation specification
     defaultTemplate: feature/implementation-spec.md
     artifact: { path: artifacts/implementation-spec/implementation-spec.md, kind: implementation-spec, minimumBytes: 400 }
@@ -1208,6 +1252,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, requirements, design, implementation-spec] }
   reproduction:
+    intent: design
     label: Reproduction
     defaultTemplate: bugfix/reproduction.md
     artifact: { path: artifacts/reproduction/reproduction.md, kind: reproduction, minimumBytes: 250 }
@@ -1218,6 +1263,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [intake, reproduction] }
   fix-design:
+    intent: design
     label: Fix design
     defaultTemplate: bugfix/fix-design.md
     artifact: { path: artifacts/fix-design/fix-design.md, kind: fix-design, minimumBytes: 250 }
@@ -1228,6 +1274,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, reproduction, fix-design] }
   fix-spec:
+    intent: plan
     label: Fix specification
     defaultTemplate: bugfix/fix-spec.md
     artifact: { path: artifacts/fix-spec/fix-spec.md, kind: implementation-spec, minimumBytes: 300 }
@@ -1239,13 +1286,17 @@ phases:
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, reproduction, fix-design, fix-spec] }
   # The findings-remediation steps: the picked items, one clause each, and the fix per item.
   findings-intake:
+    intent: requirements
     label: Findings intake
     defaultTemplate: findings-remediation/intake.md
     artifact: { path: artifacts/findings-intake/findings-intake.md, kind: requirements, minimumBytes: 200 }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [scope, exceptions, due dates] }
     writeScope: artifact-only
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [findings-intake] }
+    because:
+      clarification.mode: Each finding comes from the register with its details already written, so this step asks only when something is unclear.
   remediation-plan:
+    intent: plan
     label: Remediation plan
     defaultTemplate: findings-remediation/remediation-plan.md
     artifact: { path: artifacts/remediation-plan/remediation-plan.md, kind: implementation-spec, minimumBytes: 300 }
@@ -1253,6 +1304,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [findings-intake, remediation-plan] }
   design-intake:
+    intent: intake
     label: Design package intake
     defaultTemplate: figma-mobile/design-intake.md
     artifact: { path: artifacts/design-intake/design-package-intake.md, kind: design-intake, minimumBytes: 350 }
@@ -1263,6 +1315,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [design-reviewers], minimum: 1, rejectTo: [design-intake] }
   design-inventory:
+    intent: design
     label: Screen and design inventory
     defaultTemplate: figma-mobile/design-inventory.md
     artifact: { path: artifacts/design-inventory/design-inventory.md, kind: design-inventory, minimumBytes: 500 }
@@ -1273,6 +1326,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [design-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory] }
   component-mapping:
+    intent: design
     label: Mobile component mapping
     defaultTemplate: figma-mobile/component-mapping.md
     artifact: { path: artifacts/component-mapping/component-mapping.md, kind: component-mapping, minimumBytes: 500 }
@@ -1283,6 +1337,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping] }
   mobile-spec:
+    intent: plan
     label: Mobile implementation specification
     defaultTemplate: figma-mobile/mobile-spec.md
     artifact: { path: artifacts/mobile-spec/mobile-spec.md, kind: implementation-spec, minimumBytes: 700 }
@@ -1293,6 +1348,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping, mobile-spec] }
   implementation:
+    intent: code
     label: Implementation
     defaultTemplate: common/implementation.md
     artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
@@ -1304,6 +1360,7 @@ phases:
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [implementation] }
     qualityCommands: []
   verification:
+    intent: test
     label: Verification
     defaultTemplate: common/verification.md
     artifact: { path: artifacts/verification/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
@@ -1316,7 +1373,10 @@ phases:
     # who returns the step to repair; a repository with no test command gets a note, not a refusal.
     # Set off to rely on the code step's tests alone.
     repositoryTests: run
+    because:
+      writeScope: Kept as it was before step intents. Verification may add or fix tests itself, so it may change source files and a person approves it.
   testing:
+    intent: test
     label: Testing
     defaultTemplate: benchmark/testing.md
     artifact: { path: artifacts/testing/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
@@ -1327,9 +1387,12 @@ phases:
     # As for verification. A review of one code step's committed test receipt (testEvidenceFrom)
     # does not run them again.
     repositoryTests: run
+    because:
+      writeScope: Kept as it was before step intents. The benchmarks' testing may add or fix tests itself, so it may change source files and a person approves it.
   # Test run's one step: the repository's own tests run when it is submitted, and its report cites what they
   # found. It writes only its report. A step that runs some of them names testLevels or testIds (see tests:).
   test-run:
+    intent: test
     label: Run the tests
     description: Runs the repository's own tests and records what they found.
     defaultTemplate: test-run/run.md
@@ -1338,12 +1401,15 @@ phases:
       kind: test-evidence
       minimumBytes: 200
       validation: { requiredHeadings: [What ran, Results, Failures and follow-up] }
-    clarification: { mode: off }
+    clarification: { mode: off, maxQuestions: 5 }
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [test-run] }
     qualityCommands: []
     repositoryTests: run
+    because:
+      clarification.mode: Kept as it was before step intents. A test run asks nothing first; it runs the repository's own tests and reports what they found.
   visual-verification:
+    intent: test
     label: Mobile visual verification
     defaultTemplate: figma-mobile/visual-verification.md
     artifact: { path: artifacts/visual-verification/visual-comparison.md, kind: visual-test-evidence, minimumBytes: 600 }
@@ -1351,7 +1417,12 @@ phases:
     writeScope: source-and-artifact
     approval: { authorities: [design-reviewers, quality-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification] }
     qualityCommands: []
+    repositoryTests: off
+    because:
+      writeScope: Visual verification may correct screen differences and their tests itself, so it may change source files and a person approves it.
+      repositoryTests: It compares the screens with the approved design on the chosen devices; the repository's whole test suite could stop it on failures unrelated to the screens.
   conformance:
+    intent: review
     label: Spec-to-code conformance
     defaultTemplate: common/conformance.md
     artifact: { path: artifacts/conformance/spec-code-comparison.md, kind: conformance-report, minimumBytes: 400 }
@@ -1364,6 +1435,7 @@ phases:
   # rejected to exploration, generation, or validation for a human-directed repair generation;
   # there is no autonomous convergence loop and publication remains a separate human gate.
   document-intake:
+    intent: intake
     label: Documents and scenario intake
     defaultTemplate: document-test-repair/intake.md
     artifact:
@@ -1378,6 +1450,7 @@ phases:
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [document-intake] }
     qualityCommands: []
   scenario-check:
+    intent: test
     label: Test existing behavior
     defaultTemplate: document-test-repair/check.md
     artifact:
@@ -1395,7 +1468,11 @@ phases:
     # intake's authorized commands/tools and retains their results. Code repair has its own kernel
     # structured-test publication gate; optional MCP observations never replace that receipt.
     qualityCommands: []
+    repositoryTests: off
+    because:
+      repositoryTests: It checks the approved scenarios with the test tool chosen at intake; the repository's whole test suite could stop it on failures unrelated to them.
   scenario-repair:
+    intent: code
     label: Repair code and tests
     defaultTemplate: document-test-repair/repair.md
     artifact:
@@ -1410,6 +1487,7 @@ phases:
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [document-intake, scenario-check, scenario-repair] }
     qualityCommands: []
   scenario-retest:
+    intent: test
     label: Retest and accept
     defaultTemplate: document-test-repair/check.md
     artifact:
@@ -1425,8 +1503,12 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [document-intake, scenario-check, scenario-repair, scenario-retest] }
     qualityCommands: []
+    repositoryTests: off
+    because:
+      repositoryTests: It checks the approved scenarios with the test tool chosen at intake; the repository's whole test suite could stop it on failures unrelated to them.
 
   demo-web-intake:
+    intent: intake
     label: Screenshot and web scenario intake
     defaultTemplate: demo-web-e2e-testing/intake.md
     artifact:
@@ -1441,6 +1523,7 @@ phases:
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [demo-web-intake] }
     qualityCommands: []
   demo-web-check:
+    intent: test
     label: Check current web application
     defaultTemplate: demo-web-e2e-testing/check.md
     artifact:
@@ -1455,7 +1538,11 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-web-intake, demo-web-check] }
     qualityCommands: []
+    repositoryTests: off
+    because:
+      repositoryTests: It checks the approved scenarios with the test tool chosen at intake; the repository's whole test suite could stop it on failures unrelated to them.
   demo-web-repair:
+    intent: code
     label: Repair web code and regression tests
     defaultTemplate: demo-web-e2e-testing/repair.md
     artifact:
@@ -1470,6 +1557,7 @@ phases:
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-web-intake, demo-web-check, demo-web-repair] }
     qualityCommands: []
   demo-web-retest:
+    intent: test
     label: Retest web behavior and accept
     defaultTemplate: demo-web-e2e-testing/check.md
     artifact:
@@ -1485,8 +1573,12 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-web-intake, demo-web-check, demo-web-repair, demo-web-retest] }
     qualityCommands: []
+    repositoryTests: off
+    because:
+      repositoryTests: It checks the approved scenarios with the test tool chosen at intake; the repository's whole test suite could stop it on failures unrelated to them.
 
   demo-intake:
+    intent: intake
     label: Intake and acceptance agreement
     defaultTemplate: demo-check-repair-close/intake.md
     artifact:
@@ -1501,6 +1593,7 @@ phases:
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [demo-intake] }
     qualityCommands: []
   demo-check:
+    intent: test
     label: Check code against approved scenarios
     defaultTemplate: demo-check-repair-close/check.md
     artifact:
@@ -1517,7 +1610,11 @@ phases:
     # Failure reports must be reviewable so they can authorize repair. Their actual execution
     # evidence is retained in the report; failed or unavailable tests cannot produce verdict=pass.
     qualityCommands: []
+    repositoryTests: off
+    because:
+      repositoryTests: It checks the approved scenarios with the test tool chosen at intake; the repository's whole test suite could stop it on failures unrelated to them.
   demo-repair:
+    intent: code
     label: Repair code and regression tests
     defaultTemplate: demo-check-repair-close/repair.md
     artifact:
@@ -1532,6 +1629,7 @@ phases:
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-intake, demo-check, demo-repair] }
     qualityCommands: []
   demo-close:
+    intent: report
     label: Closing documents and human acceptance
     defaultTemplate: demo-check-repair-close/close.md
     artifact:
@@ -1543,10 +1641,13 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [residual risk, final acceptance, operational handoff] }
     generation: { task: summarize }
     writeScope: artifact-only
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-intake, demo-check, demo-repair, demo-close] }
+    approval: { automatic: off, authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-intake, demo-check, demo-repair, demo-close] }
     qualityCommands: []
+    because:
+      approval.automatic: Its report ends in the person's closing decision, so a person approves it.
 
   demo-instruction-intake:
+    intent: intake
     label: Instruction demo — Intake
     defaultTemplate: demo-check-repair-close/intake.md
     artifact:
@@ -1561,6 +1662,7 @@ phases:
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [demo-instruction-intake] }
     qualityCommands: []
   demo-instruction-test:
+    intent: test
     label: Instruction demo — Test and compare
     defaultTemplate: demo-check-repair-close/check.md
     artifact:
@@ -1575,7 +1677,11 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-instruction-intake, demo-instruction-test] }
     qualityCommands: []
+    repositoryTests: off
+    because:
+      repositoryTests: It checks the approved scenarios with the test tool chosen at intake; the repository's whole test suite could stop it on failures unrelated to them.
   demo-instruction-repair:
+    intent: code
     label: Instruction demo — Repair
     defaultTemplate: demo-check-repair-close/repair.md
     artifact:
@@ -1590,6 +1696,7 @@ phases:
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-instruction-intake, demo-instruction-test, demo-instruction-repair] }
     qualityCommands: []
   demo-instruction-close:
+    intent: report
     label: Instruction demo — Close
     defaultTemplate: demo-check-repair-close/close.md
     artifact:
@@ -1601,10 +1708,13 @@ phases:
     generation: { task: summarize }
     writeScope: artifact-only
     clarification: { mode: when-needed, maxQuestions: 3, topics: [final acceptance, residual risk] }
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-instruction-intake, demo-instruction-test, demo-instruction-repair, demo-instruction-close] }
+    approval: { automatic: off, authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-instruction-intake, demo-instruction-test, demo-instruction-repair, demo-instruction-close] }
     qualityCommands: []
+    because:
+      approval.automatic: Its report ends in the person's closing decision, so a person approves it.
 
   poc-intake:
+    intent: intake
     label: POC intent and environment
     defaultTemplate: poc-workflow/intake.md
     artifact:
@@ -1620,6 +1730,7 @@ phases:
     generation: { task: clarify }
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [poc-intake] }
   poc-impact-analysis:
+    intent: design
     label: Regression impact analysis
     defaultTemplate: poc-workflow/impact-analysis.md
     artifact:
@@ -1632,6 +1743,7 @@ phases:
     generation: { task: analyze }
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis] }
   poc-ui-exploration:
+    intent: design
     label: Governed UI exploration
     defaultTemplate: poc-workflow/ui-exploration.md
     artifact:
@@ -1651,6 +1763,7 @@ phases:
         - { server: playwright, tool: browser_take_screenshot, minimum: 1, outputRequired: true }
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration] }
   poc-test-generation:
+    intent: code
     label: Playwright test generation
     defaultTemplate: poc-workflow/test-generation.md
     artifact:
@@ -1665,7 +1778,10 @@ phases:
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation] }
     qualityCommands:
       - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
+    because:
+      sourceBoundary: It writes Playwright tests only, so it may change test-automation files and nothing else.
   poc-validation:
+    intent: test
     label: Playwright validation and bounded repair
     defaultTemplate: poc-workflow/validation.md
     artifact:
@@ -1690,7 +1806,14 @@ phases:
       - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never, timeoutMs: 60000 }
       - { id: typescript-compile, argv: [npx, --no-install, tsc, --noEmit], modelPolicy: never, timeoutMs: 300000 }
       - { id: playwright-tests, argv: [npx, --no-install, playwright, test, --reporter=json], modelPolicy: never, timeoutMs: 1200000 }
+    repositoryTests: off
+    because:
+      writeScope: It repairs the Playwright tests it runs, so it may change source files and a person approves it.
+      sourceBoundary: Its repairs stay within the Playwright test-automation files.
+      repairBudget: Two repair rounds, then a person decides how to go on; a new intake starts the count again.
+      repositoryTests: It runs the TypeScript check and the Playwright suite named in its quality commands, not the repository's whole test suite.
   poc-publication-review:
+    intent: release
     label: Publication and PR review
     defaultTemplate: poc-workflow/publication-review.md
     artifact:
@@ -1707,6 +1830,7 @@ phases:
   # ordinary phase machinery, deterministic artifacts, the repository's own executable tests,
   # and one final human decision. It has no MCP, external tracker, model, or World Model dependency.
   poc-lite-plan:
+    intent: plan
     label: PLAN — bound the local change
     defaultTemplate: poc-lite/plan.md
     artifact:
@@ -1717,7 +1841,11 @@ phases:
     generation: { requirement: required, producer: deterministic, task: reason }
     writeScope: artifact-only
     approval: none
+    because:
+      generation.producer: POC Lite uses no model, so SFlow writes this plan itself from the requested change.
+      approval.mode: Nobody approves the plan on its own; the person's finish decision at the end covers it.
   poc-lite-act:
+    intent: code
     label: ACT — make the bounded change
     defaultTemplate: poc-lite/act.md
     artifact:
@@ -1732,7 +1860,12 @@ phases:
     # the changed module. This deterministic whitespace check is additive, not a substitute.
     qualityCommands:
       - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
+    clarification: { mode: off, maxQuestions: 5 }
+    because:
+      generation.producer: POC Lite uses no model, so SFlow makes the bounded change itself.
+      approval.mode: Nobody approves the change on its own; the next step's checks and the person's finish decision cover it.
   poc-lite-verify:
+    intent: test
     label: VERIFY — run repository checks
     defaultTemplate: poc-lite/verify.md
     artifact:
@@ -1745,7 +1878,14 @@ phases:
     approval: none
     qualityCommands:
       - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
+    clarification: { mode: off, maxQuestions: 5 }
+    repositoryTests: off
+    because:
+      generation.producer: SFlow runs the configured checks itself and records what they found.
+      approval.mode: Nobody approves the results on their own; the person's finish decision covers them.
+      repositoryTests: The ACT step already ran the repository's test command for the changed module; this step runs the checks the plan names.
   poc-lite-finalize:
+    intent: release
     label: FINALIZE — human finish decision
     defaultTemplate: poc-lite/finalize.md
     artifact:
@@ -1756,6 +1896,9 @@ phases:
     generation: { requirement: required, producer: deterministic, task: summarize }
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], requiredAuthorities: [quality-reviewers], minimum: 1, rejectTo: [poc-lite-plan, poc-lite-act, poc-lite-verify, poc-lite-finalize] }
+    clarification: { mode: off, maxQuestions: 5 }
+    because:
+      generation.producer: SFlow writes the finish summary itself; the person's finish decision is the approval.
 
   # ---------------------------------------------------------------------------------------------
   # Spec-driven phases. Ordinary phases in every respect: they use the same generation, input,
@@ -1764,6 +1907,7 @@ phases:
   # rather than a phase [SPK:CON-018], and the task map is an advisory planning member rather than a
   # phase [SPK:CON-019].
   specification:
+    intent: requirements
     label: Specification
     defaultTemplate: spec-driven/spec.md
     artifact: { path: artifacts/specification/spec.md, kind: requirements, minimumBytes: 400 }
@@ -1787,6 +1931,7 @@ phases:
     writeScope: artifact-only
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [specification] }
   planning:
+    intent: plan
     label: Planning
     defaultTemplate: spec-driven/plan.md
     artifact: { path: artifacts/planning/plan.md, kind: design, minimumBytes: 300 }
@@ -1796,14 +1941,21 @@ phases:
     clarification: { mode: off }
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [specification, planning] }
+    because:
+      clarification.mode: Kept as it was before step intents. Planning works from the approved specification; a change of intent goes through an amendment, not new questions.
   release:
+    intent: review
     label: Release
     defaultTemplate: spec-driven/release.md
     artifact: { path: artifacts/release/conformance.md, kind: conformance-report, minimumBytes: 300 }
     artifactSet: spec-driven-verification
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [specification, planning, implementation, convergence, verification, release] }
+    clarification: { mode: off, maxQuestions: 5 }
+    because:
+      clarification.mode: Kept as it was before step intents. Release checks the verified change against the approved specification and asks nothing first.
   convergence:
+    intent: review
     label: Convergence
     defaultTemplate: spec-driven/convergence.md
     # The convergence-report kind is what makes a step convergence, whatever it is called: the
@@ -1815,7 +1967,11 @@ phases:
     # [SPK:REQ-032]. Advancement fails while blocking findings remain [SPK:REQ-183]. Its reviewers
     # may also return the Story to planning or the specification when the defect started there.
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [specification, planning, implementation, convergence] }
+    clarification: { mode: off, maxQuestions: 5 }
+    because:
+      generation.producer: SFlow builds the convergence report itself from the specification, the plan and the code; only a person moves the Story on from it.
   implement:
+    intent: code
     label: Implement
     defaultTemplate: quick-fix/implement.md
     artifact: { path: artifacts/implement/implementation-summary.md, kind: implementation-summary, minimumBytes: 200 }
@@ -1823,7 +1979,12 @@ phases:
     writeScope: source-and-artifact
     approval: none
     qualityCommands: []
+    clarification: { mode: off, maxQuestions: 5 }
+    because:
+      generation.producer: The quick fix's change is made by SFlow from the approved scope and plan; no agent drafts it.
+      approval.mode: Nobody approves the change on its own; the Verify step after it checks it, and the low-risk rule or a person approves that.
   verify:
+    intent: test
     label: Verify
     defaultTemplate: quick-fix/verify.md
     artifact: { path: artifacts/verify/verification-summary.md, kind: test-evidence, minimumBytes: 200 }
@@ -1836,8 +1997,16 @@ phases:
       - id: git-diff-check
         argv: [git, diff, --check]
         modelPolicy: never
+    clarification: { mode: off, maxQuestions: 5 }
+    repositoryTests: off
+    because:
+      writeScope: The quick fix keeps its check on the changed code, as shipped, so it may change source files.
+      generation.producer: SFlow runs the quick fix's checks itself and records what they found.
+      approval.mode: The low-risk rule approves a small change whose checks pass; anything else goes to a person.
+      repositoryTests: It runs the checks named in its quality commands, which a repository replaces or extends with its own test command.
   # The sample user-defined agent's one step; its agent's instructions are its folder's main file.
   careful-change:
+    intent: code
     label: Careful change
     description: Runs Careful change, the user-defined agent from the careful-change folder.
     defaultTemplate: common/careful-change.md
@@ -1846,6 +2015,9 @@ phases:
     writeScope: source-and-artifact
     inputs: []
     approval: { authorities: [engineering-reviewers], minimum: 1 }
+    clarification: { mode: off, maxQuestions: 5 }
+    because:
+      clarification.mode: Kept as it was before step intents. A user-defined agent follows its own instructions in its one step, so SFlow asks nothing first.
 governance:
   requireAcceptanceCriteriaTags: true
   protectedPaths:

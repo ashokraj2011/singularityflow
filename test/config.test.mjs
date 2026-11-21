@@ -35,6 +35,7 @@ import {
   authoredArtifactFingerprint, inspectArtifactContent
 } from '../src/publication-preflight.mjs';
 import { normalizeTokenEconomy } from '../src/token-economy.mjs';
+import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
 import { run } from '../src/util.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
@@ -569,8 +570,12 @@ test('artifact byte and text-validation contracts fail configuration load when a
   invalid((artifact) => { artifact.validation = { forbiddenPlaceholders: [''] }; }, /forbiddenPlaceholders must be an array of non-empty unique strings/);
 });
 
+// A workflow.yml as it was before step intents: the shipped steps as a version 2 file takes them.
+const packagedBeforeIntents = async () => packagedWorkflowWithoutIntents(
+  YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8')), 2);
+
 test('legacy implementation contracts are upgraded to code and unsafe scopes fail at configuration load', async () => {
-  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const definition = await packagedBeforeIntents();
   validateDefinition(definition);
   delete definition.phases.implementation.generation;
   delete definition.workTypes.chore.phaseOverrides.implementation.generation;
@@ -589,6 +594,11 @@ test('legacy implementation contracts are upgraded to code and unsafe scopes fai
     () => resolveWorkType(definition, 'feature'),
     /document-only implementation is forbidden/
   );
+  // In the shipped version 4 file the code step's intent refuses the same scope, with its fix.
+  const shipped = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  shipped.phases.implementation.writeScope = 'artifact-only';
+  assert.throws(() => resolveWorkType(validateDefinition(shipped), 'feature'),
+    (error) => error.code === 'STEP_INTENT_INVALID' && /Implementation is a code step \(intent code\), so it changes source files/u.test(error.message));
 });
 
 test('design-source policy rejects inactive, duplicate, and invalid lifecycle declarations', async () => {
@@ -913,7 +923,8 @@ test('planned-claim topology is inferred, resolved, and pinned for specification
 });
 
 test('future custom workflows must resolve an authoritative clause phase and owner before code', async () => {
-  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  // Custom workflows written before step intents: the shipped steps without them (version 2).
+  const definition = await packagedBeforeIntents();
   definition.workTypes['custom-delivery'] = {
     label: 'Custom delivery',
     phases: ['intake', 'design', 'implementation'],
@@ -961,7 +972,8 @@ test('future custom workflows must resolve an authoritative clause phase and own
 });
 
 test('a planned-claim opt-out is retired: the catalog loads, Story start refuses it, and omits declare a genuine omission', async () => {
-  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  // Custom workflows written before step intents: the shipped steps without them (version 2).
+  const definition = await packagedBeforeIntents();
   definition.workTypes['short-delivery'] = {
     label: 'Short delivery',
     phases: ['intake', 'implementation'],
@@ -987,7 +999,8 @@ test('a planned-claim opt-out is retired: the catalog loads, Story start refuses
 });
 
 test('an old custom workflow with no planned-claim contract stays readable and cannot start a Story', async () => {
-  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  // Custom workflows written before step intents: the shipped steps without them (version 2).
+  const definition = await packagedBeforeIntents();
   validateDefinition(definition);
   assert.equal(resolveWorkType(definition, 'quick-fix').plannedClaims.mode, 'required');
   assert.equal(resolveWorkType(definition, 'chore').plannedClaims.disabledBecause, 'no-code-delivery-phases');

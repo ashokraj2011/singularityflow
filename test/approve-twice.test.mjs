@@ -109,7 +109,11 @@ test('an upgrade replaces an untouched shipped workflow, and keeps a customized 
   const definition = await packaged();
   const before = (id) => {
     const value = structuredClone(definition.workTypes[id]);
+    // As shipped before step intents (Stage 4): no reasons, and no attached-documents list of its own.
+    delete value.because;
+    if (JSON.stringify(value.documents) === JSON.stringify({ allowedPhases: [] })) delete value.documents;
     for (const [phase, override] of Object.entries(value.phaseOverrides ?? {})) {
+      delete override.because;
       if (!override.approval?.automatic) continue;
       delete override.approval.automatic;
       if (!Object.keys(override.approval).length) delete override.approval;
@@ -192,7 +196,8 @@ test('a step that is ready is approved automatically after it is submitted, reco
   const { reviewStep } = await import('./helpers/step-review.mjs');
   const W = 'APT-1';
   const story = await journeyRepository(t, { configure: (configuration) => {
-    delete configuration.phases['fix-design'].clarification;
+    // It asks nothing (in a workflow of intents, absent would mean its intent's "when needed").
+    configuration.phases['fix-design'].clarification = { mode: 'off' };
     configuration.workTypes['quick-design'] = { ...configuration.workTypes['quick-fix'], label: 'Quick design', phases: ['intake', 'fix-design', 'implement', 'verify'],
       phaseOverrides: { ...configuration.workTypes['quick-fix'].phaseOverrides, 'fix-design': { inputs: ['intake'], approval: { automatic: 'when-ready' } } } };
   } });
@@ -266,7 +271,10 @@ test('Workflow Studio offers the switch only where the workflow allows it, and a
   await apply([{ op: 'workflow.create', id: 'our-chore', label: 'Our chore', copyOf: 'chore', phases: ['intake', 'implementation', 'verification', 'conformance'] }]);
   assert.equal(view('our-chore', 'conformance').on, true, 'a copy keeps the setting it was copied with');
   await apply([{ op: 'phase.update', id: 'conformance', workflow: 'our-chore', approval: { group: 'quality-reviewers', minimum: 1, automatic: false } }]);
-  assert.equal((await workflow()).workTypes['our-chore'].phaseOverrides.conformance.approval.automatic, undefined);
+  // A version 4 file: the step's intent would let SFlow approve it, so turning it off writes off, and says why.
+  const turnedOff = (await workflow()).workTypes['our-chore'].phaseOverrides.conformance;
+  assert.equal(turnedOff.approval.automatic, 'off');
+  assert.match(turnedOff.because['approval.automatic'], /turned off for it in Workflow Studio/u);
   assert.equal(view('our-chore', 'conformance').on, false);
   assert.equal(view('chore', 'conformance').on, true, 'the shipped workflow is unchanged');
   const refused = await apply([{ op: 'phase.update', id: 'intake', workflow: 'our-chore', approval: { group: 'product-approvers', minimum: 1, automatic: true } }], { ok: false });

@@ -105,7 +105,8 @@ test('a new step says what it does, and a proposal never goes against a step\'s 
   assert.equal(contradiction.details.findings[0].code, 'BUILD_MOVE_INTENT_CONTRADICTION');
   const certain = await refused([{ move: 'step.add', id: 'implementation' }, { move: 'step.intent', id: 'implementation', intent: 'test' }]);
   assert.equal(certain.details.findings[0].code, 'BUILD_MOVE_INTENT_CERTAIN');
-  assert.match(certain.details.findings[0].message, /is a code step for certain \(it delivers code changes\), so it cannot be test\. Propose intent code, or add a copy with step\.add, from: 'implementation' and intent test\.$/u);
+  // The shipped step says what it is for in workflow.yml itself (Stage 4).
+  assert.match(certain.details.findings[0].message, /is a code step for certain \(it says so in workflow\.yml\), so it cannot be test\. Propose intent code, or add a copy with step\.add, from: 'implementation' and intent test\.$/u);
   const reason = await refused([{ move: 'step.add', id: 'run-checks', label: 'Run checks', agent: 'qa', intent: 'test', because: { writeScope: 'short' } }]);
   assert.equal(reason.details.findings[0].at, 'moves[0].because.writeScope');
 });
@@ -171,6 +172,7 @@ test('a build finishes only once the person confirmed each step\'s intent, which
 test('workflow build start --intents settles an existing workflow in place', async () => {
   const { run, flow, json } = await harness();
   const root = await repository(run, flow);
+  const before = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
   const build = json(root, ['workflow', 'build', 'start', '--intents', 'repo-classic-delivery']).build;
   const check = json(root, ['workflow', 'build', 'check', '--build', build.id]);
   assert.equal(check.intents.required, true);
@@ -180,5 +182,5 @@ test('workflow build start --intents settles an existing workflow in place', asy
   assert.equal(confirmed.intents.confirmed, true, JSON.stringify(confirmed.intents));
   const after = json(root, ['workflow', 'build', 'check', '--build', build.id]);
   assert.deepEqual(after.changeSet.changes.map((change) => change.op), ['workflow.intents']);
-  assert.equal(YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).version, 2, 'nothing is written before the build finishes');
+  assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), before, 'nothing is written before the build finishes');
 });

@@ -15,7 +15,21 @@ import { loadStepIntentSettings, resolveWorkType, validateDefinition } from '../
 import { declaresStepIntents, INTENTS_FILE_VERSION, workTypeDerivesIntents } from '../src/phase-roles.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const packaged = () => YAML.parse(readFileSync(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+// The shipped workflows without their steps' intents and reasons (the shipped file carries them since Stage 4).
+const packaged = () => {
+  const value = YAML.parse(readFileSync(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+  const strip = (step) => {
+    delete step.intent;
+    delete step.because;
+    if (step.approval?.automatic === 'off') delete step.approval.automatic;
+  };
+  for (const phase of Object.values(value.phases)) strip(phase);
+  for (const workType of Object.values(value.workTypes)) {
+    delete workType.because;
+    for (const override of Object.values(workType.phaseOverrides ?? {})) strip(override);
+  }
+  return value;
+};
 
 test('a workflow.yml without intents never loads the derivation; one that opts in loads it once, as one module', async () => {
   // Version 3 and version 4 without intents: every work type validates and resolves, and nothing loaded the derivation.
@@ -26,7 +40,7 @@ test('a workflow.yml without intents never loads the derivation; one that opts i
     assert.equal(await loadStepIntentSettings(definition), null, `version ${version} loaded the derivation`);
   }
   // Intents in a version 3 file opt nothing in either.
-  const three = packaged();
+  const three = { ...packaged(), version: 3 };
   three.phases.intake.intent = 'intake';
   assert.equal(declaresStepIntents(validateDefinition(three)), false);
   assert.equal(await loadStepIntentSettings(three), null);

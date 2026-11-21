@@ -16,10 +16,10 @@ import {
   packagedAssetSha256
 } from '../src/packaged-asset-history.mjs';
 import {
-  CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256,
+  CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256, PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS,
   isKnownPackagedWorkflowValue, packagedWorkflowValueSha256
 } from '../src/packaged-workflow-history.mjs';
-import { refreshPackagedConfiguration } from '../src/workspace-configuration-refresh.mjs';
+import { packagedWorkflowWithoutIntents, refreshPackagedConfiguration } from '../src/workspace-configuration-refresh.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PACKAGE_TEMPLATES = path.join(ROOT, 'templates');
@@ -93,6 +93,21 @@ test('release registry contains every current packaged workflow node at its cano
         `${section}.${id}`);
       assert.equal(isKnownPackagedWorkflowValue(section, id, value), true,
         `${section}.${id}`);
+    }
+  }
+});
+
+test('the current packaged nodes as a version 2 or 3 repository takes them are registered, and only those', async () => {
+  const workflow = YAML.parse(await readFile(path.join(PACKAGE_TEMPLATES, 'workflow.yml'), 'utf8'));
+  const older = packagedWorkflowWithoutIntents(workflow, 2);
+  for (const section of ['workTypes', 'phases', 'artifactSets', 'mcpServers']) {
+    for (const [id, value] of Object.entries(older[section] ?? {})) {
+      assert.equal(isKnownPackagedWorkflowValue(section, id, value), true, `${section}.${id}`);
+    }
+    // Each entry is exactly that form of a current node; one left from an earlier release would be stale.
+    for (const [id, digest] of Object.entries(PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS[section] ?? {})) {
+      assert.equal(digest, packagedWorkflowValueSha256(older[section]?.[id]), `${section}.${id}: no stale entry`);
+      assert.notEqual(digest, CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section][id], `${section}.${id}: only where it differs`);
     }
   }
 });

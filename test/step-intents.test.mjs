@@ -14,6 +14,7 @@ import YAML from 'yaml';
 
 import { resolveWorkType, stepIntentFieldProblems, validateDefinition, WORKFLOW_FILE_VERSIONS } from '../src/config.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
 import {
   BECAUSE_SETTINGS, CURRENT_INTENT_PROFILE, deriveStepSettings, deriveWorkflowSettings, DOCUMENT_INTENTS, inferStepIntents, INTENT_PROFILES,
   intentProfile, PACKAGED_STEP_INTENTS, STEP_INTENTS, workflowIntentFacts
@@ -232,8 +233,9 @@ test('intent: and because: are checked as written on a step, and intent is never
 });
 
 test('configuration accepts intent and because on steps, refuses them where they cannot be, and resolves exactly as without them', () => {
-  const plain = validateDefinition(packaged());
-  const annotated = packaged();
+  // In a version 3 file (the shipped steps as that version takes them), declared intents and reasons derive nothing.
+  const plain = validateDefinition(packagedWorkflowWithoutIntents(packaged(), 3));
+  const annotated = packagedWorkflowWithoutIntents(packaged(), 3);
   for (const [id, phase] of Object.entries(annotated.phases)) {
     phase.intent = PACKAGED_STEP_INTENTS[id] ?? 'document';
     phase.because = { writeScope: REASON };

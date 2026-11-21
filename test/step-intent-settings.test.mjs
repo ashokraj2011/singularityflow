@@ -25,6 +25,7 @@ import {
 } from '../src/step-intent-settings.mjs';
 import { PACKAGED_STEP_INTENTS } from '../src/step-intents.mjs';
 import { assertImportedIntentsDerive } from '../src/workflow-transfer.mjs';
+import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TEMPLATE = readFileSync(path.join(ROOT, 'templates/workflow.yml'), 'utf8');
@@ -73,16 +74,18 @@ const FEATURE = [
 ];
 
 test('opt-in only: no intents, some intents, or an older file resolve byte for byte as without step intents', () => {
-  const plain = validateDefinition(packaged());
+  // The shipped workflows without their intents, as a repository on version 2 takes them (Stage 4).
+  const plain = validateDefinition(packagedWorkflowWithoutIntents(packaged(), 2));
   // Version 4 alone changes nothing: a file that uses no intents means the same at 3 and 4.
-  const four = validateDefinition({ ...packaged(), version: 4 });
+  const four = validateDefinition(packagedWorkflowWithoutIntents(packaged(), 4));
   for (const id of Object.keys(plain.workTypes)) {
     assert.equal(JSON.stringify(resolveWorkType(four, id)), JSON.stringify(resolveWorkType(plain, id)), `${id} at version 4`);
     assert.equal(workTypeDerivesIntents(four, four.workTypes[id]), false);
   }
-  // Every step of every shipped workflow with its intent, at version 3: still derives nothing.
+  // Every step of every shipped workflow with its intent and reasons, at version 3: still derives nothing.
   const annotated = packaged();
-  for (const [id, phase] of Object.entries(annotated.phases)) phase.intent = PACKAGED_STEP_INTENTS[id] ?? 'document';
+  annotated.version = 3;
+  for (const [id, phase] of Object.entries(annotated.phases)) assert.equal(phase.intent, PACKAGED_STEP_INTENTS[id], id);
   const three = validateDefinition(annotated);
   for (const id of Object.keys(plain.workTypes)) assert.equal(JSON.stringify(resolveWorkType(three, id)), JSON.stringify(resolveWorkType(plain, id)), `${id} at version 3`);
   // A work type with one step that says nothing derives nothing, at version 4: as if no step said anything.
@@ -125,7 +128,7 @@ test('a workflow of intents gets exactly what profile 1 says, whatever its steps
   // Each step pins its intent and the profile it derived from (spec §7.6).
   assert.deepEqual(resolved.phases.map((phase) => [phase.intent, phase.intentProfile]), FEATURE.map((step) => [step.intent, 1]));
   assert.equal(pinnedIntentProfile(resolved), 1);
-  assert.equal(pinnedIntentProfile(resolveWorkType(validateDefinition(packaged()), 'feature')), null);
+  assert.equal(pinnedIntentProfile(resolveWorkType(validateDefinition(packagedWorkflowWithoutIntents(packaged(), 2)), 'feature')), null);
 });
 
 test('names decide nothing: the same intents under other names derive the same settings and the same route shape', () => {
@@ -159,9 +162,14 @@ test('precedence: the workflow\'s override, then the step\'s own setting, then t
   // The shared merge keeps a step without reasons in its own shape.
   assert.equal(Object.hasOwn(mergePhaseOverride({ label: 'x' }, { label: 'y' }), 'because'), false);
   assert.deepEqual(mergePhaseOverride({ because: { writeScope: REASON } }, { because: { approval: REASON } }).because, { writeScope: REASON, approval: REASON });
-  // Outside a workflow of intents, `automatic: off` is still refused, as it always was.
+  // Outside a workflow of intents, `automatic: off` says what absent says: a person approves (Stage 4: a shipped step
+  // that carries it reads the same in a version 3 file). Any other value is still refused.
   const three = definition(FEATURE.map((step) => (step.id === 'pay-conform' ? { ...step, approval: { automatic: 'off' } } : step)), { version: 3 });
-  assert.throws(() => validateDefinition(three), (error) => error.code === 'AUTOMATIC_APPROVAL_NOT_ALLOWED');
+  const kept = resolveWorkType(validateDefinition(three), 'custom').phases.find((phase) => phase.id === 'pay-conform');
+  assert.equal(who(kept), 'person');
+  assert.equal(Object.hasOwn(kept.approval, 'automatic'), false);
+  const always = definition(FEATURE.map((step) => (step.id === 'pay-conform' ? { ...step, approval: { automatic: 'always' } } : step)), { version: 3 });
+  assert.throws(() => validateDefinition(always), (error) => error.code === 'AUTOMATIC_APPROVAL_NOT_ALLOWED');
 });
 
 test('where each setting came from: intent, workflow rule, the step, the workflow\'s override or an SFlow rule', () => {

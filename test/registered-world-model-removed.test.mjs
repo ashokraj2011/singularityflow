@@ -111,8 +111,9 @@ test('removed commands refuse by name and point to the Repository brief', async 
 
 test('a repository seeded from the earlier package keeps its packaged phases and agents framework-owned', async () => {
   const template = YAML.parse(await readFile(path.join(root, 'templates', 'workflow.yml'), 'utf8'));
-  // The earlier package shipped the same Intake phase with its World Model views.
-  const earlierIntake = { ...template.phases.intake, worldModel: { views: ['biz.rules'], depth: 'quick' } };
+  // The earlier package shipped the same Intake phase with its World Model views (and, as every step then, no intent).
+  const { intent: _intent, ...intakeBeforeIntents } = template.phases.intake;
+  const earlierIntake = { ...intakeBeforeIntents, worldModel: { views: ['biz.rules'], depth: 'quick' } };
   assert.equal(isKnownPackagedWorkflowValue('phases', 'intake', earlierIntake), true);
   assert.equal(isKnownPackagedWorkflowValue('phases', 'intake', template.phases.intake), true);
   // …and the developer agent exactly as it shipped with its views header. The agent has changed

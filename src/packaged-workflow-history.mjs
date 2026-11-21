@@ -285,54 +285,45 @@ const PHASES_BEFORE_WORLD_MODEL_REMOVAL = Object.freeze({
   'visual-verification': 'f699279ec984049ef4f4186202e9e963da07a0e41fae1d935372678f6d80027f'
 });
 
-/** Exact canonical hashes for every workflow node shipped by this package release. */
-export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
+/**
+ * Every packaged node step intents changed, as shipped before them (2026-11-21): the packaged workflow.yml moved to
+ * version 4 and each step gained its intent, with reasons for the settings that differ from it. A repository seeded
+ * before then holds exactly these values, which stay framework-owned so the next refresh can replace them.
+ */
+const BEFORE_STEP_INTENTS = Object.freeze({
   workTypes: Object.freeze({
-    'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
-    'test-run': '17a4c04485f1515b786e3d06595f36f05d6f707bad3c167274bfb084e53f000d',
-    'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
     'benchmarking-a': '683792ad3e475d6150b924c42fef6a78c8df657b331fd6dde45417db2797491a',
     'benchmarking-b': '96868ea267f0f37892d70bca6b527dfbf378b7892c9abdb062e2375b0acb104d',
-    bugfix: '4102c9f0f0574eba7aeb2e0c9bf6cc4fd30169525ad3ce3c1c64fc65693f789b',
     chore: '45d990b4cae0c7d18465d11d82369a2f0e89f38b8e91bca4e496dd1a189e120b',
     'classic-delivery': '0b245f5b482f1baaf8507cdec69ecbf97734adf2e2d0c61d6fac3c2b6317057f',
-    'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
-    'demo-web-e2e-testing': '6161336401af54bd15e26c17cee6e45f43cadff36a424e051d0fbf285fb4af9a',
-    'demo-check-repair-close': '8b7a856aa801154f306e6a42375fe65d00f6977bac9129d98f202b6ba01ce8f9',
     feature: '4d7a236a08e4489a2c5ec695c48ee8869237cfac75bd0c9126d2845557ff260a',
-    'figma-mobile': '4bf49f8560fc79d59bc91ce46fd209a64723a9d4cc35ee649364b84c189a8772',
-    'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
+    'findings-remediation': '452621b65a60839a2eb8933f632d9fc7f2d5a6a491e17f6e93c5ec86208b39a0',
     'poc-workflow': '2d703ea2ba9712a859cb29a4f26346d9e23071ca6445fcca6ec821bb5cd1ef3b',
     'quick-fix': '01398a0d4124462b07ee451bd27ee9b1b4af94046df803a31170f2efbf87d0e6',
-    'reference-driven-build': '459ae3ff12dbb941ca7e603b2bdac2fb062868717ca364ea4c6dcebc3c6f7f4b',
-    'spec-code-test-loop': '82064c8180434a842b252dcc1dd447ce1c9bf82d0e2a9926a49afee18abda6eb',
-    'spec-driven-standard': '46ffc1360346b4e65bea9f074fa08f6f904fd93b67fa15948b4405619887c3ba',
-    'findings-remediation': '452621b65a60839a2eb8933f632d9fc7f2d5a6a491e17f6e93c5ec86208b39a0'
+    'spec-code-test-loop': '82064c8180434a842b252dcc1dd447ce1c9bf82d0e2a9926a49afee18abda6eb'
   }),
   phases: Object.freeze({
-    'test-run': '7fecbf9f931ba41decfe666646cce84428b715e2964bb191ceff08a87151f845',
     'careful-change': 'f1d09fc9b2581f97a19b8b6557810ba62d3f98bb92b2a26a4edd1c09d55c5cef',
-    'findings-intake': '8f096ce5c0680bff417bf0861a69b974bdeef710e5fcfad90cf2918b90a88859',
-    'remediation-plan': '7689d8b7ab5c10c31e09f9fa807e82a3e6b1886c9ca4d31e2f2081eceef45213',
-    'demo-instruction-intake': '521a52d220ad7df8dc67933a10a7410f60fcb3839fe585cbcd3b9b38d078c1f0',
-    'demo-instruction-test': '03d2174959b490fc63ab3db7575a6b96577e4ff99e63fe3c1b62f097705ea5e9',
-    'demo-instruction-repair': '7e8ae07b42be559af1aec7e521065a42a8b58ee834435d2a3478bd288494cf90',
-    'demo-instruction-close': '6da535a7c13aba8941a612e90567c575f7f97d3d2a50cd8ef7a72d57bd708044',
-    'demo-intake': '45ecc0c63654b37c2e396706a286ff0c1d17136fbcebe54c9bc94fd3a516e062',
-    'demo-check': '20072760b4cc6db323ab0676c3bf8704c9d2b849074ea2ab6884e45984bab4de',
-    'demo-repair': 'fba44208099c3f78541f5ed2b69a5a5733437ce93f0a455bf350ba360668832c',
-    'demo-close': '4e974360a3b5c1b8e2be9d90782201e1fcd8f9918d956320d6da4e81b7bb5204',
-    'demo-web-intake': '5d4abe5ce3d309ada94f814a00b949a7c895547d10215369da550e9651cdba69',
-    'demo-web-check': 'dd3b828027bc70a9501a9ac0931958667f4664511a62f4d33bd829effb94bd19',
-    'demo-web-repair': 'fd73ce3858ad7522d40e15a6a3d2d03a42d1e71ac17fcedbaeb89b8a808103c1',
-    'demo-web-retest': '35fde1ffb133547a031c995504ad3881ca60eb8d10eebabda44121fe442a4b62',
     'component-mapping': 'd418bdfa5cc56ea3cba624ed8019c1e9348ec2e7456634b4c6746ae26264a584',
     conformance: '8aebfffa8ed9c22fa75a2e69800f73db16a7ca6b53ed02e60a14646b52736b73',
     convergence: '00d346ea1b8dfca976e2aac2f6b8a7cabd17b6e31b40dd3c3826d1d952daeaed',
+    'demo-check': '20072760b4cc6db323ab0676c3bf8704c9d2b849074ea2ab6884e45984bab4de',
+    'demo-close': '4e974360a3b5c1b8e2be9d90782201e1fcd8f9918d956320d6da4e81b7bb5204',
+    'demo-instruction-close': '6da535a7c13aba8941a612e90567c575f7f97d3d2a50cd8ef7a72d57bd708044',
+    'demo-instruction-intake': '521a52d220ad7df8dc67933a10a7410f60fcb3839fe585cbcd3b9b38d078c1f0',
+    'demo-instruction-repair': '7e8ae07b42be559af1aec7e521065a42a8b58ee834435d2a3478bd288494cf90',
+    'demo-instruction-test': '03d2174959b490fc63ab3db7575a6b96577e4ff99e63fe3c1b62f097705ea5e9',
+    'demo-intake': '45ecc0c63654b37c2e396706a286ff0c1d17136fbcebe54c9bc94fd3a516e062',
+    'demo-repair': 'fba44208099c3f78541f5ed2b69a5a5733437ce93f0a455bf350ba360668832c',
+    'demo-web-check': 'dd3b828027bc70a9501a9ac0931958667f4664511a62f4d33bd829effb94bd19',
+    'demo-web-intake': '5d4abe5ce3d309ada94f814a00b949a7c895547d10215369da550e9651cdba69',
+    'demo-web-repair': 'fd73ce3858ad7522d40e15a6a3d2d03a42d1e71ac17fcedbaeb89b8a808103c1',
+    'demo-web-retest': '35fde1ffb133547a031c995504ad3881ca60eb8d10eebabda44121fe442a4b62',
     design: '4ea4ca5882e847a14c9a70ae2df1e7bfba75287c2a611a96f03fa73a4a77ca34',
     'design-intake': 'e4d0371c1c702461dddb8f25d3f93295dc895be412324aac28d93edf39de47ae',
     'design-inventory': '00e2265bad948db2bc7c1f9b629814bf954b2c3e321d07a64dc696c10fcc4117',
     'document-intake': '2bce3e0ff60252660b3514153296a55c36f9ac3e1dfaa7cdf51259845f8500d1',
+    'findings-intake': '8f096ce5c0680bff417bf0861a69b974bdeef710e5fcfad90cf2918b90a88859',
     'fix-design': '75a11314627f861c845d0556048de55d7cf6f3c524ffca7045299bddd28b3f82',
     'fix-spec': '19a5e378212dcb1a642f339781b2d1a63e4e79556b4640d73eef549fbb7df6b8',
     implement: '2d1991614f6090ee1fa4c97c88ae67a158cf93bda49650308766fe181c2b55d8',
@@ -352,16 +343,130 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'poc-ui-exploration': '7ee802db5756bbedcda38384c9f069d5318565af036e9b78feba6d75b1898668',
     'poc-validation': '63a304a682b7f426e60ca560449531b707ee7448ead839512d1403a044c8e8c2',
     release: '1619c2b5da0081e1412a8989abdc2f13aff4599424bafff3b8d2fd30dddf5d94',
+    'remediation-plan': '7689d8b7ab5c10c31e09f9fa807e82a3e6b1886c9ca4d31e2f2081eceef45213',
     reproduction: 'bc21cfb570542e87db5358ced1c82e8f88c3efb13102ee4f8859522e5536dfc4',
     requirements: '9f49f6ad7d3da48dbc73f252c060b834c5d919a3d1dd436371a5584ac54c7a9a',
     'scenario-check': '866e2fe7588272b2b7ef1132c37e8a36cecb4947419b733889a919ff5ee03f17',
     'scenario-repair': 'cf0575cfaedb47919f13f239d55a9c6508c70086508e6b60a4df659bf3996e55',
     'scenario-retest': '57decaee448ea9be8ab55b625aaa38f323b5c27797cc1336cbd7b9d177592de3',
     specification: '58c900068d634f95ed90bd5dff25741a1a948e33c802f76ea4af7fc2c851ed39',
+    'test-run': '7fecbf9f931ba41decfe666646cce84428b715e2964bb191ceff08a87151f845',
     testing: '85cc97324578f64ce95470a36acc03ad5d585ec4ce7a6d50a2b44f4fae0b8007',
     verification: 'eac367d76e194fec085356e3413db5e333e17c7e81b2f1bbc4d06aa8f3161061',
     verify: '3fb605371c18b1a2877f4447f164f0e7893c1ec56095e19fde7aa4b2d5d3dccd',
     'visual-verification': 'e929feaf22bc30c7f8d698909f4a0b3c08faaa3b29cf4379ca6b270150086f60'
+  })
+});
+
+/**
+ * The current nodes as a repository still on version 2 or 3 takes them (workspace-configuration-refresh.mjs
+ * packagedWorkflowWithoutIntents: no intents, reasons or `automatic: off`), where that differs from both the current
+ * node and the one before step intents. Framework-owned like any shipped revision; test/packaged-provenance-registry
+ * checks every entry against the packaged workflow.yml.
+ */
+export const PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS = Object.freeze({
+  workTypes: Object.freeze({
+    'findings-remediation': '3af678d67d90a501cbec31078fc2d1e17726629b7d0426c98e24b6ef83753f62',
+    'poc-workflow': '949b3ca0957d12a0f1cc056935f2609deead1ab5dcb686c13337dcab78fcaa44'
+  }),
+  phases: Object.freeze({
+    'careful-change': '3e8d1f4b390348570b5b32e5c822f52365d718db0f7d01fc360ce3d21bbaf14e',
+    convergence: '01c3869cade3f0f865a0d255d54e25decfab811b50e6288481fd521f8060ccc0',
+    'demo-check': 'dd2bd92514e184e3fefde35802787da42e3441103217a638c85bc3a779ba5a4b',
+    'demo-instruction-test': '36fabea3cda4b5a1e29a38cfdec901bac4b0eeb07334d0f77232abaaf8e337f4',
+    'demo-web-check': 'b412140ce3fbee77cb772ba72b4a333f102937509af834c3205269f0e1872581',
+    'demo-web-retest': '61d6bdb6d25fd18bb9bbff640416465da0919e2054cc32ade1eb87a3503e0e20',
+    implement: '9e4c09566e0a1bfda3bdf46cfc562cef9ddc6dc71141d411f469b70279ed508e',
+    'poc-lite-act': 'd088a69e817b08ef1080a496f4e709067e601e688c3d3709afa73a749003e084',
+    'poc-lite-finalize': '4531f76d5e14219a01054ca0691afa2a688d4e2709364d7dd48eeec7e9da2697',
+    'poc-lite-verify': '525ba10c990d62abcdf66b585ae9afba3078c28948091cfe454b574b4a129de5',
+    'poc-validation': 'fd0a14cdf94906c18c68c7b880fadcfd1526498fff5e41e68972fd35794171d5',
+    release: '8fa6a445b0177b64282d42ebf62d03957498199ba4625cbb3edcbb0e56f2b512',
+    'scenario-check': 'dea9af470d6a55b2e4c4295ab6c55ed9c087fe593c260ae6ed10e4e9ba83e601',
+    'scenario-retest': 'd8ff6cce07f1b7071b03fca9c05a40236582c09aa0e8eee1a88ad62fbc49cac7',
+    'test-run': '0869cbc4ee977277bd9a6fcdbe023f40dc04acaa41deb42c50d1549493db1aa1',
+    verify: 'e8e0d0d8d784244b1a8e9a547af5682c47cb8dbd4c2bc63c70df1264770b4d0e',
+    'visual-verification': 'cae7f5c5220831c4eb830888fe38a0515edc78c3dae55df01b37960078cfc55a'
+  })
+});
+
+/** Exact canonical hashes for every workflow node shipped by this package release. */
+export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
+  workTypes: Object.freeze({
+    'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
+    'test-run': '17a4c04485f1515b786e3d06595f36f05d6f707bad3c167274bfb084e53f000d',
+    'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
+    'benchmarking-a': 'a77226943dd3d984efb8fe8652f0a631b7a5790cb887431c033ddc8c0ddf7a1c',
+    'benchmarking-b': '2d77572d3f727a85befeb614d115cec2dc4a4e1b26456110d1e5985353b4b935',
+    bugfix: '4102c9f0f0574eba7aeb2e0c9bf6cc4fd30169525ad3ce3c1c64fc65693f789b',
+    chore: 'e77e2382540ec9b0de3db63a425d007a944ccebb3cc8952b4c16fdd85ddd6c2a',
+    'classic-delivery': '9991f59f3ba6df48d9e5603edb78e7d33b303b6944f8fffa0e5e01f28fda9574',
+    'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
+    'demo-web-e2e-testing': '6161336401af54bd15e26c17cee6e45f43cadff36a424e051d0fbf285fb4af9a',
+    'demo-check-repair-close': '8b7a856aa801154f306e6a42375fe65d00f6977bac9129d98f202b6ba01ce8f9',
+    feature: '34f4956a9cdd565f555cfc69b89372790c635103b3f57ab9438f4e4eb41a8ad8',
+    'figma-mobile': '4bf49f8560fc79d59bc91ce46fd209a64723a9d4cc35ee649364b84c189a8772',
+    'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
+    'poc-workflow': '2f89981a4026255380ccbdfacfa1df162577ef85eedbfd31bac2313f1f08a774',
+    'quick-fix': 'be9ad15c5d199f58b7c0fd7e39d1889fdefadffb2453d8373325abcf482d04df',
+    'reference-driven-build': '459ae3ff12dbb941ca7e603b2bdac2fb062868717ca364ea4c6dcebc3c6f7f4b',
+    'spec-code-test-loop': 'e494c9de72ee485d92c2a567feb2e788241be05fbed170c24564018ed221cbba',
+    'spec-driven-standard': '46ffc1360346b4e65bea9f074fa08f6f904fd93b67fa15948b4405619887c3ba',
+    'findings-remediation': 'f67b902f348f735f418321a5ecb74bd6bb13e826271b58d179497648dc83c688'
+  }),
+  phases: Object.freeze({
+    'test-run': 'e70dabd498a904b7a1b739a21e50bb8bccd53b1449d4b8de3f81320264b9a83b',
+    'careful-change': 'ca6aaba67b9cf9e8bdc9be8da84017dd1b49c06d0ba4c0f0af95ffeff33abd42',
+    'findings-intake': 'd8d2bd4286f8df766497ad2b36ca76346ca75265dc733d125c2527a1f4c6fc03',
+    'remediation-plan': '33f70899b252699d7fa481534af7d754b65e41e8fb9069c712216be1f140e606',
+    'demo-instruction-intake': 'f93743f3befe3fa341e59e77982baf7eab0154453b073a886a2414bbf9fc4ed6',
+    'demo-instruction-test': 'c7ad686ab76222b7821c3b21deecd166470487e666aca3d3eeb4c79eecc2d64a',
+    'demo-instruction-repair': '9bba82e5dc3842a48407b1636ed87ad70b9508986ca61de7b6251499caee280c',
+    'demo-instruction-close': 'a4d5d6f7d415acd3c15954c8730a9afae7b8115a5def381ffca8f52b9c12c1d5',
+    'demo-intake': '6ca4c26db12ea5384bf5ea4e08a6b562e2e18ca7d08e46d221f04651f730a395',
+    'demo-check': '404d2893a6324fd9af8f5497cf66906ce36eb8ad7d22cc499da81e55fabb5775',
+    'demo-repair': 'd6e84b965660c5d03af175f6fa34aa3f922accc9fd00aa02cd0263d600f01954',
+    'demo-close': '52a85c12220a0a81e0625e52e72f7f506ec61f75911c72fef4add907da9a76be',
+    'demo-web-intake': '691090a4ef4180bdb24c42a1338c3d655177f2c6923c2a3e3af4524a30d398f7',
+    'demo-web-check': 'c8a0df5e0989fb0ad98316536ec83f56cd184f3a69bbfa0fcba06b624a276657',
+    'demo-web-repair': '076475beee4400cd8ea9500c5db3574586d492da7bea96eef582bafac90e568e',
+    'demo-web-retest': 'f543b8a178c10beb050f0fc93167d01ed7730489b04008bf616640db52150e0d',
+    'component-mapping': '71a6294c4b68bdf3b5e60ec679ddbec54d99bb611f2902d451b42c6098432585',
+    conformance: '2175f769afdfa108e3eaa38637967c7ad6816267cf2d4afc254a1fb9d4e9aff5',
+    convergence: '04fbd5f4ccde1ad059f67d940b9fdcdb41215b90357f500f625c9775c9862784',
+    design: 'e01400e17b4be1fe637d45e29edbbe5c47b38e53a73825d54d0a269fc1217d20',
+    'design-intake': '9073c1dcadb11224d9c56dd69f1fead295bc0cf854a2062607f80dadab1e660c',
+    'design-inventory': '3f773571d171f2e8bad88809a60000fb55a03217aa043903449b9165606f06fd',
+    'document-intake': 'b58473561cb63bfccff82dcc0790049e1ad854c8d19fa39b60ba6d451287d75f',
+    'fix-design': '2196e6a614eeed151f3295fa1d3eaede24590ca98d50c6be16dcc5d1021d0a0a',
+    'fix-spec': 'f2a38dc95f7e412bf2786be439431c1ef6bfd10a50718f56bddf25baa9353a95',
+    implement: 'fa4b2dedad9b9d64cf870fa4145f5e16382fbea2099b8980075730d696c8fb9b',
+    implementation: 'ece9fac3fd278df1b4f8b917f208552a3fb75821d93cf913a9bfa56b424b9c69',
+    'implementation-spec': 'd8f2d0d6e68478201994f3e4c43978a9c42310bef25b31e57d511184703cc6fa',
+    intake: '32425664b14545ee7c73125bb921dc429f66967735a23721b6f783900ee0253a',
+    'mobile-spec': '9313e36c703d3d6b8715c6a5825c771cd586dafb0408680b16b3a90fa8543dad',
+    planning: 'cacf37d1e684a7540fcc730e583ead911be3521b93c19c2e2f09085645cc6261',
+    'poc-impact-analysis': '07d11535dcd75c59ebccfa43ea52c5460fafec0f1655340eb5b410a5266a8e77',
+    'poc-intake': 'ca60fd9d2be5ef945f726580253ce336975efb7bb4a756d72a262293289e0dd5',
+    'poc-lite-act': '415d946ca9db0a880590a2826ed68b06f45ac55051edb3160ac7cc3398953c52',
+    'poc-lite-finalize': 'd0fc406bfd1d97a86b1f5323fc543c5cc24f5c40a585558e6167a5d33c418107',
+    'poc-lite-plan': '8f3820222ed0d0a9d157f1a072cda1562259d52d7f756664f0d9645fec76a990',
+    'poc-lite-verify': 'a61406a5b4c750b179548134e50ff2fba6ee98a98188f81bd9e7ccabaae495f3',
+    'poc-publication-review': '99b9057b0b412b83428656acfaa9791f35a711ba91d1b417f7815df4ebcab46a',
+    'poc-test-generation': '137588e3b97ed52ec51377b9774a3599670864e0b6d279cef97ceec1218822af',
+    'poc-ui-exploration': 'ae7c58aa9096d6db162eee647b057fcaef61c7e2b539c2eb1eb2a8fb82efc10c',
+    'poc-validation': '3a552b2c77d92f75869d865e27f4be296a66ba26cb01070c1882594b78024012',
+    release: '7b030f85dee39f2762e1c973f99fe99118d5a9d933dc661d7cff72eb1bc79c3d',
+    reproduction: 'c0c5d2624809b0a6e5bf574c2dd28d3bf541f5892b9ce33e04b1470c17c3a5b2',
+    requirements: 'b63ec5fa738ece84baf26a77f3923e7b13f6dc66c94fb23821534edb764a63c4',
+    'scenario-check': 'cb5181f77115795fb7bede094f044b0ab9b2bb08a25a7cabb4bfac0aec5ff9bc',
+    'scenario-repair': 'd0b91e9a20d46b80c7ac2b59140245fc3b94480c13e19d23f17427022ac03333',
+    'scenario-retest': '7e3971acf7328dc062ef3a77d011d3536b12f5c2ff8752cb1ef770a5a390ae44',
+    specification: '33441e641a89936533be4afa9a9663bf2fe2be4d4166a8b6ac2d78d0abdf67db',
+    testing: '0596101e575c768228880b8d55871b37d63cbfa0b151b86e4d0982a7f619baab',
+    verification: '5205092525f5d83b842ab56b3c28e3d8713208960718e65ac0d7d3b41bfe631b',
+    verify: '3f8d7783d455b98a5bde58e2dfd2e2ecbf0c7f786e93253a9144630cbbbced0b',
+    'visual-verification': 'eb08d123a3b3646651bf6bf950a466a61b7ec09495f38c06b92f0565034c0a5d'
   }),
   artifactSets: Object.freeze({
     'spec-driven-planning': 'bc18e7338a3819b75a65ed001f0cd7843f3be8c9b3908db769a6578d97f44d12',
@@ -377,24 +482,27 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
 
 /** Every exact released workflow-node revision accepted as framework provenance. */
 export const KNOWN_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze(Object.fromEntries(
-  ['workTypes', 'phases', 'artifactSets', 'mcpServers'].map((section) => [
-    section,
-    Object.freeze(Object.fromEntries(
+  ['workTypes', 'phases', 'artifactSets', 'mcpServers'].map((section) => {
+    // Whole-release snapshots, one hash per node each: before the World Model removal (phases only), before step
+    // intents, the current nodes as version 2 or 3 takes them, and the current release.
+    const snapshots = [
+      section === 'phases' ? PHASES_BEFORE_WORLD_MODEL_REMOVAL : {},
+      BEFORE_STEP_INTENTS[section] ?? {},
+      PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS[section] ?? {},
+      CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}
+    ];
+    return [section, Object.freeze(Object.fromEntries(
       [...new Set([
         ...Object.keys(HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}),
-        ...Object.keys(section === 'phases' ? PHASES_BEFORE_WORLD_MODEL_REMOVAL : {}),
-        ...Object.keys(CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {})
+        ...snapshots.flatMap((snapshot) => Object.keys(snapshot))
       ])].sort().map((id) => [id, Object.freeze([
         ...new Set([
           ...(HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section]?.[id] ?? []),
-          ...(section === 'phases' && PHASES_BEFORE_WORLD_MODEL_REMOVAL[id]
-            ? [PHASES_BEFORE_WORLD_MODEL_REMOVAL[id]] : []),
-          ...(CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section]?.[id]
-            ? [CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section][id]] : [])
+          ...snapshots.flatMap((snapshot) => (snapshot[id] ? [snapshot[id]] : []))
         ])
       ])])
-    ))
-  ])
+    ))];
+  })
 ));
 
 function canonical(value) {

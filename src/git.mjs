@@ -1829,7 +1829,7 @@ export function exactChangedPathsBetweenObjects(root, before, after) {
 const ISOLATED_GIT_OBJECT_REPOSITORIES = new Set();
 
 export async function withIsolatedGitObjectRepository({
-  remote, expectedCommit = null, objectFormat = 'sha1', maximumBytes = 64 * 1024 * 1024
+  remote, expectedCommit = null, objectFormat = 'sha1', maximumBytes = 64 * 1024 * 1024, executables = false
 }, callback) {
   assertCredentialFreeRemote(remote);
   invariant(isPortableAbsoluteGitPath(remote) || /^[a-z][a-z0-9+.-]*:\/\//iu.test(remote)
@@ -1876,7 +1876,9 @@ export async function withIsolatedGitObjectRepository({
       // byte sequence. Check the whole exact tree before returning any file to the caller.
       const listed = git(['ls-tree', '-r', '-z', expectedCommit], { cwd: scratch, env, allowFailure: true, maxBuffer: 2 * 1024 * 1024, timeoutMs: 30_000 });
       if (!processResultCompleted(listed)) retained = true;
-      if (!processResultSucceeded(listed) || listed.stdout.split('\0').filter(Boolean).some((row) => !/^100644 blob (?:[a-f0-9]{40}|[a-f0-9]{64})\t/u.test(row))) {
+      // A read-only catalog (a marketplace) may hold executable scripts; a link or submodule is never followed.
+      const regular = executables ? /^100(?:644|755) blob (?:[a-f0-9]{40}|[a-f0-9]{64})\t/u : /^100644 blob (?:[a-f0-9]{40}|[a-f0-9]{64})\t/u;
+      if (!processResultSucceeded(listed) || listed.stdout.split('\0').filter(Boolean).some((row) => !regular.test(row))) {
         throw new SingularityFlowError('The exact shared tree contains a non-regular or unreadable entry.', { code: 'GIT_OBJECT_REPOSITORY_INVALID' });
       }
     }
@@ -1888,6 +1890,25 @@ export async function withIsolatedGitObjectRepository({
     ISOLATED_GIT_OBJECT_REPOSITORIES.delete(scratch);
     if (!retained) await removeTemporaryTree(scratch);
   }
+}
+
+/**
+ * The commit another repository's branch or tag is at (its default branch's when `ref` is null): one ls-remote over
+ * the frozen transport, nothing fetched. `{ commit, ambiguous, result }`; commit is null when it has no such ref.
+ */
+export async function remoteRefCommit(remote, ref = null) {
+  assertCredentialFreeRemote(remote);
+  invariant(ref === null || isGitRefName(ref), 'Invalid remote branch or tag name.');
+  const transport = frozenRemoteTransport(remote);
+  const result = await runRemoteGitAsync(['-c', `core.hooksPath=${gitDisabledHooksPath()}`, 'ls-remote', '--', transport.remote,
+    ...(ref ? [`refs/heads/${ref}`, `refs/tags/${ref}`] : ['HEAD'])], { cwd: os.tmpdir(), env: transport.env, operation: 'remote-probe', maxBuffer: 1024 * 1024 });
+  if (!processResultSucceeded(result)) return { commit: null, ambiguous: false, result };
+  const advertised = new Map(String(result.stdout ?? '').split(/\r?\n/u).map((line) => line.match(/^([0-9a-f]{40}(?:[0-9a-f]{24})?)\t(\S+)$/iu))
+    .filter(Boolean).map((match) => [match[2], match[1].toLowerCase()]));
+  const branch = advertised.get(ref ? `refs/heads/${ref}` : 'HEAD') ?? null;
+  // An annotated tag names its commit on the peeled line.
+  const tag = ref ? advertised.get(`refs/tags/${ref}^{}`) ?? advertised.get(`refs/tags/${ref}`) ?? null : null;
+  return { commit: branch ?? tag, ambiguous: Boolean(branch && tag && branch !== tag), result };
 }
 
 function isolatedObjectWriterEnvironment() {

@@ -1,0 +1,21 @@
+name: android-ui-test-creation
+version: 1.0.0-pdlc
+description: Generate production-ready Android UI automation test code from natural language test steps, reusing existing page objects and test tags.
+type: skill
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+author-email: maintainers@example.com
+categories:
+  - pdlc
+tags:
+  - android
+  - compose
+  - espresso
+  - test-automation
+  - ga
+pdlc-phases:
+  - delivery
+pdlc-tasks:
+  - ui-test-automation
+  - e2e-testing
+lifecycle-state: approved

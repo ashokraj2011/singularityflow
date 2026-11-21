@@ -627,17 +627,32 @@
     },
     "marketplaces": {
       "type": "object",
-      "description": "Catalogs this repository trusts for imported skills, templates and agents. Each names its HTTPS index and any further origins its files may come from; an index can never widen that.",
+      "description": "Catalogs this repository trusts for imported skills, templates and agents. Each names its HTTPS index and any further origins its files may come from; an index can never widen that. Or each is a Git repository with an APM manifest at its root (marketplace.packages), read at the commit it pins.",
       "propertyNames": { "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
       "additionalProperties": {
-        "type": "object",
-        "required": ["index"],
-        "properties": {
-          "label": { "type": "string", "minLength": 1, "maxLength": 120 },
-          "index": { "type": "string", "pattern": "^https://" },
-          "allowedOrigins": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^https://[^/]+/?$" } }
-        },
-        "additionalProperties": false
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["index"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "index": { "type": "string", "pattern": "^https://" },
+              "allowedOrigins": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^https://[^/]+/?$" } }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["repository", "commit"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "repository": { "type": "string", "minLength": 1, "maxLength": 1000 },
+              "ref": { "type": "string", "minLength": 1, "maxLength": 200 },
+              "commit": { "type": "string", "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$" }
+            },
+            "additionalProperties": false
+          }
+        ]
       }
     },
     "ast": {

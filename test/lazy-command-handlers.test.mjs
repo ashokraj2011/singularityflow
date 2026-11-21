@@ -915,6 +915,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,828,644 (measured for submit.mjs, +795, 2026-11-21, intents-stage3): the six intent starter templates' digests
     // (packaged-asset-history.mjs) and the `workflow build intents` action (command-registry.mjs). The table, the Builder's
     // intent moves and the baseline criteria load only where they are used. No new eager file.
+    // 9,832,468 (measured for submit.mjs, +4,619, 2026-11-21, marketplace-agents): a marketplace that is a Git repository is
+    // checked where configuration loads (marketplace.mjs: its remote, ref and pinned commit), the one ls-remote that pins it and
+    // executable files allowed in a read-only catalog's isolated repository (git.mjs), and `workflow from-agent` registered
+    // (command-registry.mjs). The catalog reader and the conversion load only for marketplace browse and workflow from-agent
+    // (marketplace-repository.mjs, agent-workflow.mjs, agent-workflow-bundle.mjs). No new eager file.
     assert.ok(closure.bytes <= 9_828_644, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1068,6 +1073,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // record) and `app-review runtime-check` registered (command-registry.mjs), with --again a boolean (util.mjs). No new eager file.
   // 874,207 (measured on landing-14, 2026-11-21): Stage 2's hooks and the runtime check's registrations together.
   // 874,218 (measured, +11, 2026-11-21, intents-stage3): the `workflow build intents` action (command-registry.mjs); no new file.
+  // 874,679 (measured, +472, 2026-11-21, marketplace-agents): `workflow from-agent` registered, a read without --out or
+  // --propose (command-registry.mjs). No new eager file.
   assert.ok(root.bytes <= 874_218, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
@@ -1426,6 +1433,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,328,962 (measured on landing-14, 2026-11-21): Stage 2's hooks and the runtime check's registrations together.
   // 4,329,757 (measured, +795, 2026-11-21, intents-stage3): the six intent starter templates' digests (packaged-asset-history.mjs)
   // and the `workflow build intents` action (command-registry.mjs). No new eager file.
+  // 4,333,581 (measured, +4,619, 2026-11-21, marketplace-agents): a Git repository marketplace checked where configuration
+  // loads (marketplace.mjs), the ls-remote that pins it and executables in a read-only catalog (git.mjs), and `workflow
+  // from-agent` registered (command-registry.mjs). Its reader and conversion load only when used. No new eager file.
   assert.ok(current.bytes <= 4_329_757, `session current loads ${current.bytes} source bytes`);
 });
 

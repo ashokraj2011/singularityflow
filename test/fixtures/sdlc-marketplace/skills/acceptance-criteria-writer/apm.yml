@@ -1,0 +1,19 @@
+name: acceptance-criteria-writer
+version: 1.0.0-pdlc
+description: Write testable Given/When/Then acceptance criteria for each user story, covering the happy path, edge cases, errors and accessibility, traced to requirement IDs.
+type: skill
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+author-email: maintainers@example.com
+categories:
+  - pdlc
+tags:
+  - acceptance-criteria
+  - bdd
+  - ga
+pdlc-phases:
+  - elaboration
+pdlc-tasks:
+  - user-story-writing
+  - acceptance-criteria-writing
+lifecycle-state: approved

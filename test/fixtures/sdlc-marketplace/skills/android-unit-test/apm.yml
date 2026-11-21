@@ -1,0 +1,19 @@
+name: android-unit-test
+version: 1.0.0-pdlc
+description: Write JUnit and MockK unit tests for Android ViewModels, use cases and repositories, with coroutine test dispatchers and Turbine for flows.
+type: skill
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+author-email: maintainers@example.com
+categories:
+  - pdlc
+tags:
+  - android
+  - kotlin
+  - junit
+  - ga
+pdlc-phases:
+  - delivery
+pdlc-tasks:
+  - unit-testing
+lifecycle-state: approved

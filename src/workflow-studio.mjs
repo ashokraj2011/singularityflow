@@ -1980,10 +1980,24 @@ class StudioCandidate {
     this.summary.push(`${existing ? 'Updated' : 'New'} agent ${parsed.label} from ${sourceText(staged.source)}${parsed.defaultFor.length ? `, drafting ${parsed.defaultFor.map((step) => this.phaseLabel(step)).join(', ')}` : ''}.`);
   }
 
-  addMarketplace({ id, label, index, allowedOrigins = [] }) {
+  addMarketplace({ id, label, index, allowedOrigins = [], repository, ref, commit, repin = false }) {
     const marketplaceId = requireId(id, 'A marketplace ID');
-    if (this.content.marketplaces?.[marketplaceId]) {
+    const existing = this.content.marketplaces?.[marketplaceId];
+    // Trusting a newer commit of the same repository marketplace moves its pin; nothing else is replaced.
+    const moves = repin === true && repository !== undefined && existing?.repository === repository;
+    if (existing && !moves) {
       throw new SingularityFlowError(`This repository already trusts a marketplace called '${marketplaceId}'.`, { code: 'STUDIO_MARKETPLACE_EXISTS' });
+    }
+    if (repository !== undefined) {
+      // A Git repository with an APM manifest at its root, read at the commit `marketplace add --repo` pinned.
+      const pinned = normalizeMarketplaces({ [marketplaceId]: { label: label ?? undefined, repository, ...(ref ? { ref } : {}), commit } })[marketplaceId];
+      this.document.setIn(['marketplaces', marketplaceId], this.document.createNode({
+        label: pinned.label, repository: pinned.repository, ...(pinned.ref ? { ref: pinned.ref } : {}), commit: pinned.commit
+      }));
+      this.summary.push(moves
+        ? `Marketplace ${pinned.label} is now read at ${pinned.commit.slice(0, 12)} (it was ${String(existing.commit ?? '').slice(0, 12)}).`
+        : `This repository trusts marketplace ${pinned.label} (${pinned.repository} at ${pinned.commit.slice(0, 12)}).`);
+      return;
     }
     const marketplace = normalizeMarketplaces({ [marketplaceId]: { label: label ?? undefined, index, allowedOrigins } })[marketplaceId];
     this.document.setIn(['marketplaces', marketplaceId], this.document.createNode({

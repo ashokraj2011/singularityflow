@@ -1,0 +1,115 @@
+# Controlled vocabulary for package metadata.
+#
+# `categories`, `pdlc-phases`, `pdlc-tasks` and `lifecycle-state` in every
+# package apm.yml must use values from this file. docs/metadata-reference.md
+# explains each value; scripts/validate-marketplace.mjs reads this file.
+version: 1
+
+categories:
+  - name: pdlc
+    description: Agents and skills that do product delivery lifecycle work.
+  - name: examples
+    description: Templates and examples for authors. Not meant for real work.
+
+pdlc-phases:
+  - name: discovery
+    description: Problem framing and research before requirements exist.
+  - name: elaboration
+    description: Requirements, user stories, acceptance criteria, test cases, architecture and design.
+  - name: delivery
+    description: Implementation and the tests that ship with it.
+  - name: review
+    description: Static analysis, coding standards, security checks and pull request review.
+  - name: release
+    description: Release preparation, release communication and the go or no-go decision.
+  - name: operations
+    description: Work after a release, such as toggle cleanup and follow-up fixes.
+
+pdlc-tasks:
+  - name: problem-framing
+    phase: discovery
+    description: State the problem, the users affected and how success is measured.
+  - name: requirements-analysis
+    phase: elaboration
+    description: Write numbered functional and non-functional requirements.
+  - name: user-story-writing
+    phase: elaboration
+    description: Split requirements into INVEST user stories.
+  - name: acceptance-criteria-writing
+    phase: elaboration
+    description: Write testable Given/When/Then acceptance criteria.
+  - name: architecture-discovery
+    phase: elaboration
+    description: Map the current system before changing it.
+  - name: architecture-design
+    phase: elaboration
+    description: Compare design options and describe the chosen design.
+  - name: decision-records
+    phase: elaboration
+    description: Record architecture decisions as ADRs.
+  - name: test-case-creation
+    phase: elaboration
+    description: Document manual test cases traced to acceptance criteria.
+  - name: api-implementation
+    phase: delivery
+    description: Implement backend API endpoints.
+  - name: ui-implementation
+    phase: delivery
+    description: Implement user interface components and screens.
+  - name: unit-testing
+    phase: delivery
+    description: Write unit tests next to the code they cover.
+  - name: contract-testing
+    phase: delivery
+    description: Write consumer-driven API contract tests.
+  - name: e2e-testing
+    phase: delivery
+    description: Write end-to-end tests that drive the running application.
+  - name: ui-test-automation
+    phase: delivery
+    description: Automate UI test cases for web or mobile.
+  - name: accessibility-review
+    phase: review
+    description: Check UI changes against WCAG 2.2 AA.
+  - name: feature-toggle-management
+    phase: operations
+    description: Add, change or remove feature toggles safely.
+  - name: static-analysis
+    phase: review
+    description: Run the repository's configured analyzers and report findings.
+  - name: coding-standards-review
+    phase: review
+    description: Check code against the team's coding standards.
+  - name: security-review
+    phase: review
+    description: Walk the security checklist for a change.
+  - name: pr-review
+    phase: review
+    description: Review a pull request and give a verdict.
+  - name: release-notes
+    phase: release
+    description: Write release notes for customers or internal readers.
+  - name: changelog
+    phase: release
+    description: Write the changelog entry for a release.
+  - name: pr-description
+    phase: release
+    description: Write a pull request description.
+  - name: release-readiness
+    phase: release
+    description: Walk the release readiness checklist.
+  - name: documentation
+    phase: delivery
+    description: Write or update documentation.
+
+lifecycle-states:
+  - name: proposed
+    description: Submitted by its author and listed, but not yet reviewed by the marketplace maintainers.
+  - name: experimental
+    description: Reviewed and listed for early adopters. Its steps or outputs may still change.
+  - name: approved
+    description: Reviewed, supported and recommended for everyday use.
+  - name: deprecated
+    description: Still installable, but a replacement exists. The package README names it.
+  - name: retired
+    description: No longer supported. Kept only so old references resolve. Remove from apm.yml.

@@ -1042,6 +1042,8 @@ Every public operation is classified before its implementation module is importe
 | workflow.edit | mutation | never | — | — |
 | workflow.export | mutation | never | — | — |
 | workflow.fix | read | never | — | — |
+| workflow.from-agent | read | never | — | — |
+| workflow.from-agent.write | mutation | never | — | — |
 | workflow.import | mutation | never | — | — |
 | workflow.import-team.compile | mutation | never | — | — |
 | workflow.import-team.compile.preview | read | never | — | — |

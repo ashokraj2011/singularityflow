@@ -1,0 +1,20 @@
+name: web-e2e-test-generation
+version: 1.0.0-pdlc
+description: Generate Playwright end-to-end tests in TypeScript from natural language test steps, reusing existing page objects and accessible locators.
+type: skill
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+author-email: maintainers@example.com
+categories:
+  - pdlc
+tags:
+  - web
+  - playwright
+  - test-automation
+  - ga
+pdlc-phases:
+  - delivery
+pdlc-tasks:
+  - e2e-testing
+  - ui-test-automation
+lifecycle-state: approved

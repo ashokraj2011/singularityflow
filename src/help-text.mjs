@@ -425,6 +425,10 @@ Usage:
   singularity-flow workflow intent attachments [--file FILE]... [--folder DIRECTORY]... [--expected-source SHA256] [--id ID] [--json]
   singularity-flow workflow markup compile <FILE|-> [--out BUNDLE.json] [--json]
   singularity-flow workflow markup compile <FILE|-> [--design-review|--inspect-phase PHASE] --json
+  singularity-flow workflow from-agent MARKETPLACE/AGENT [--answer STEP=INTENT]... [--out BUNDLE.json | --propose] [--json]
+                                                        a marketplace agent's stages as a version 4 workflow, every step
+                                                        with what it is for; --out writes the bundle, --propose previews
+                                                        its import as a configuration proposal
   singularity-flow workflow studio apply --change-set FILE|- [--dry-run] [--propose] [--json]
                                                         read-only BYO/mixed recipe preview; no activation or host launch
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]
@@ -843,7 +847,12 @@ Usage:
   singularity-flow imports remove <IMPORT> [--dry-run] [--propose] [--json]
   singularity-flow marketplace [list] [--json]
   singularity-flow marketplace browse <ID> [--kind KIND] [--search TEXT] [--json]
+                                                        for a Git repository marketplace: its agents and skills (--kind
+                                                        agent|skill), with each one's apm.yml phases, tasks and skills
   singularity-flow marketplace add <ID> --index URL [--label TEXT] [--allowed-origin URL]... [--dry-run] [--propose] [--json]
+  singularity-flow marketplace add <ID> --repo GIT-URL|FOLDER [--ref BRANCH|TAG] [--label TEXT] [--dry-run] [--propose] [--json]
+                                                        a Git repository with an apm.yml marketplace at its root, read at
+                                                        the commit --ref names now (its default branch without --ref)
   singularity-flow marketplace remove <ID> [--dry-run] [--propose] [--json]
   singularity-flow apm status [--json]
   singularity-flow apm install [PACKAGE]... [--dev] [--dry-run] [--json]

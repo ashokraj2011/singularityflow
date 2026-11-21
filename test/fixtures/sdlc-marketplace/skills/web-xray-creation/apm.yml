@@ -1,0 +1,20 @@
+name: web-xray-creation
+version: 1.0.0-pdlc
+description: Document web test cases in Xray manual test format, with preconditions, browser coverage, numbered steps, test data and expected results, traced to acceptance criteria.
+type: skill
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+author-email: maintainers@example.com
+categories:
+  - pdlc
+tags:
+  - web
+  - xray
+  - test-management
+  - beta
+pdlc-phases:
+  - elaboration
+  - delivery
+pdlc-tasks:
+  - test-case-creation
+lifecycle-state: proposed

@@ -1,0 +1,68 @@
+name: sdlc-marketplace
+version: 1.0.0
+description: Simulated SDLC agent marketplace for the fictional Acme Retail web, android and Java backend channels, trimmed for SFlow's tests to two agents and the skills they route to.
+
+# APM marketplace manifest (APM 0.35), as the simulated marketplace writes it. SFlow reads
+# marketplace.packages and each package's own apm.yml; it never runs apm to list them.
+marketplace:
+  owner:
+    name: Acme Retail Engineering Enablement
+    email: maintainers@example.com
+    url: https://git.example.com/acme/sdlc-marketplace
+
+  build:
+    tagPattern: "v{version}"
+
+  versioning:
+    strategy: per_package
+
+  outputs:
+    copilot: {}
+
+  packages:
+    # ---- Agents (agents/<name>/agent.md + apm.yml) ----
+    - name: product-agent
+      description: Product elaboration agent that asks clarifying questions first, then writes numbered requirements, INVEST user stories and Given/When/Then acceptance criteria with full traceability.
+      source: ./agents/product-agent
+      include_prerelease: true
+
+    - name: qa-test-automation-agent
+      description: Multi-channel QA automation agent that prompts for the target channel and routes to the matching test-automation skills for web and android.
+      source: ./agents/qa-test-automation-agent
+      include_prerelease: true
+
+    # ---- Skills (skills/<name>/SKILL.md + apm.yml) ----
+    - name: requirements-writer
+      description: Turn a feature brief and answered clarifying questions into numbered functional and non-functional requirements with assumptions, out-of-scope items and open questions.
+      source: ./skills/requirements-writer
+      include_prerelease: true
+
+    - name: acceptance-criteria-writer
+      description: Write testable Given/When/Then acceptance criteria for each user story, covering the happy path, edge cases, errors and accessibility, traced to requirement IDs.
+      source: ./skills/acceptance-criteria-writer
+      include_prerelease: true
+
+    - name: web-e2e-test-generation
+      description: Generate Playwright end-to-end tests in TypeScript from natural language test steps, reusing existing page objects and accessible locators.
+      source: ./skills/web-e2e-test-generation
+      include_prerelease: true
+
+    - name: web-xray-creation
+      description: Document web test cases in Xray manual test format, with preconditions, browser coverage, numbered steps, test data and expected results, traced to acceptance criteria.
+      source: ./skills/web-xray-creation
+      include_prerelease: true
+
+    - name: android-xray-creation
+      description: Document Android test cases in Xray manual test format, with preconditions, device and OS coverage, numbered steps, test data and expected results, traced to acceptance criteria.
+      source: ./skills/android-xray-creation
+      include_prerelease: true
+
+    - name: android-ui-test-creation
+      description: Generate production-ready Android UI automation test code from natural language test steps, reusing existing page objects and test tags.
+      source: ./skills/android-ui-test-creation
+      include_prerelease: true
+
+    - name: android-unit-test
+      description: Write JUnit and MockK unit tests for Android ViewModels, use cases and repositories, with coroutine test dispatchers and Turbine for flows.
+      source: ./skills/android-unit-test
+      include_prerelease: true

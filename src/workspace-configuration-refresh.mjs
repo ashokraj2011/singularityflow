@@ -21,7 +21,8 @@ import {
   configurationAssetPolicy, mergeConfigurationAssetPolicies,
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
-import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { loadDefinition, loadStepIntentSettings, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { INTENTS_FILE_VERSION, workflowFileVersionReadable, workTypeDerivesIntents } from './phase-roles.mjs';
 import { initializationMappingsFor, SMART_INITIALIZATION_ASSETS, withAgentsHomeSetting } from './initialization-assets.mjs';
 import { AGENTS_HOME, agentsRootOf } from './configuration-assets.mjs';
 import {
@@ -945,6 +946,70 @@ async function migrateLegacyWorkflowForSeedRestore(root, current, incoming, enab
   return migrated;
 }
 
+/** A step or a workflow's override for it, without what only a version 4 workflow.yml reads. */
+function stepWithoutIntent(step) {
+  if (!plainObject(step)) return;
+  delete step.intent;
+  delete step.because;
+  if (plainObject(step.approval) && step.approval.automatic === 'off') {
+    delete step.approval.automatic;
+    if (!Object.keys(step.approval).length) delete step.approval;
+  }
+}
+
+/**
+ * The packaged workflow.yml as a repository on `version` (2 or 3) takes it (step intents spec §7.7, Stage 4): without
+ * the steps' intents and reasons, `approval.automatic: off` and `intentProfiles`, none of which that version reads.
+ * Every setting the packaged steps set themselves stays, so each workflow resolves exactly as it does at version 4,
+ * and an older build that reads only version 2 or 3 reads nothing it does not know.
+ */
+export function packagedWorkflowWithoutIntents(workflow, version) {
+  const value = structuredClone(workflow);
+  value.version = version;
+  delete value.intentProfiles;
+  for (const phase of Object.values(value.phases ?? {})) stepWithoutIntent(phase);
+  for (const workType of Object.values(value.workTypes ?? {})) {
+    if (!plainObject(workType)) continue;
+    delete workType.because;
+    for (const override of Object.values(workType.phaseOverrides ?? {})) stepWithoutIntent(override);
+  }
+  return value;
+}
+
+const withoutIntentPins = (resolved) => ({
+  ...resolved,
+  phases: resolved.phases.map(({ intent: _intent, intentProfile: _profile, because: _because, ...phase }) => phase)
+});
+const resolvedOrRefused = (definition, workTypeId) => {
+  try { return withoutIntentPins(resolveWorkType(definition, workTypeId)); }
+  catch (error) { return { refused: error?.code ?? String(error?.message ?? error) }; }
+};
+
+/**
+ * The work types that would run differently in `moved` (the refreshed workflow.yml with the packaged steps' intents,
+ * at version 4) than in `kept` (the same refresh with the packaged steps as the repository's version takes them): a
+ * workflow whose steps all have an intent derives the settings it leaves unset, so a team's own workflow made only of
+ * shipped steps can change by their intents alone. Empty when bringing them changes nothing.
+ */
+export async function workTypesChangedByIntents(moved, kept) {
+  const deriving = Object.keys(moved.workTypes ?? {}).filter((id) => workTypeDerivesIntents(moved, moved.workTypes[id]));
+  if (!deriving.length) return [];
+  let left;
+  let right;
+  try {
+    await loadStepIntentSettings(moved);
+    left = validateDefinition(structuredClone(moved));
+    await loadStepIntentSettings(kept);
+    right = validateDefinition(structuredClone(kept));
+  } catch (error) {
+    // Not moved when version 4 would refuse the file (a step that contradicts its intent, say), naming that workflow;
+    // a file this build cannot read either way is not moved either, and the refresh reports its problem as before.
+    const named = error?.details?.workType;
+    return deriving.includes(named) ? [named] : deriving;
+  }
+  return deriving.filter((id) => !equal(resolvedOrRefused(left, id), resolvedOrRefused(right, id)));
+}
+
 /**
  * Three-way merge one packaged value into approved repository configuration.
  *
@@ -1498,45 +1563,73 @@ export async function refreshPackagedConfiguration(root, {
   const agentsHome = workflowMissing ? null : await planAgentsHomeMigration(root, current);
   const migratingAgents = agentsHome?.status === 'proposed';
   if (migratingAgents) baseline = baselineAtAgentsHome(baseline);
-  const mergeCurrent = await migrateLegacyWorkflowForSeedRestore(
-    root, current, incoming, restorePackagedSeeds
-  );
-
   // The accepted smart preset is a curated package selection. Its omitted workflows and assets
   // are intentional repository choices, including after the workflow is locally customized.
   const preserveSmartInitSelections = restorePackagedSeeds && usesSmartInitializationPreset(current);
-  const requiredWorkflowPaths = preserveSmartInitSelections
-    ? new Set() : requiredPackagedWorkflowPaths(mergeCurrent, incoming);
-  const merged = mergePackagedConfiguration(baseline?.workflow ?? {}, mergeCurrent, incoming, {
-    acceptBundledConflicts,
-    // A standard product workflow is always restored as packaged when it is absent. Repository
-    // customizations inside an installed profile continue through the normal three-way merge.
-    resolutions: {
-      ...resolutions,
-      ...Object.fromEntries([...requiredWorkflowPaths].map((entry) => [entry, 'bundled']))
+  // The workflow merge, from the packaged workflow as this repository takes it (see the step intents move below).
+  const planWorkflowMerge = async (packaged) => {
+    const mergeCurrent = await migrateLegacyWorkflowForSeedRestore(
+      root, current, packaged, restorePackagedSeeds
+    );
+    const requiredWorkflowPaths = preserveSmartInitSelections
+      ? new Set() : requiredPackagedWorkflowPaths(mergeCurrent, packaged);
+    const merged = mergePackagedConfiguration(baseline?.workflow ?? {}, mergeCurrent, packaged, {
+      acceptBundledConflicts,
+      // A standard product workflow is always restored as packaged when it is absent. Repository
+      // customizations inside an installed profile continue through the normal three-way merge.
+      resolutions: {
+        ...resolutions,
+        ...Object.fromEntries([...requiredWorkflowPaths].map((entry) => [entry, 'bundled']))
+      }
+    });
+    // Record ownership even during ordinary refresh so a later reinitialize can distinguish a
+    // package seed from a same-ID repository contract. Legacy baselines without this receipt are
+    // inferred only from exact current/package or current/prior-package equality.
+    // Ownership is proven against the bytes/data as found. A v1 field migration deliberately
+    // changes that data shape, so hashing the migrated value would lose otherwise exact historical
+    // package provenance and incorrectly preserve stale seeds as repository-owned.
+    const workflowOwnership = packagedWorkflowOwnership(current, packaged, baseline, {
+      preserveSmartInitSelections
+    });
+    const seededWorkflowResult = restorePackagedSeeds
+      ? applyPackagedWorkflowOwnership(
+        merged.value, mergeCurrent, packaged, workflowOwnership, { preserveSmartInitSelections }
+      ) : { exactRoots: new Set(), collisionRoots: new Set(), conflicts: [] };
+    // Required restoration is an invariant, not a choice the preview can switch back to local. Keep
+    // ordinary repository customizations visible while avoiding a misleading dropdown for these
+    // product-owned missing nodes.
+    merged.conflicts = merged.conflicts.filter((entry) =>
+      !requiredWorkflowPaths.has(entry.path)
+      && !isWithinOwnedConfigurationPath(entry.path, seededWorkflowResult.exactRoots)
+      && !isWithinOwnedConfigurationPath(entry.path, seededWorkflowResult.collisionRoots));
+    merged.conflicts.push(...seededWorkflowResult.conflicts);
+    return { mergeCurrent, requiredWorkflowPaths, merged, workflowOwnership, seededWorkflowResult };
+  };
+  let workflowPlan = await planWorkflowMerge(incoming);
+  // Step intents (spec §7.7, §8; Stage 4): the packaged workflow.yml is version 4 and says what each step is for. When
+  // those intents first arrive (a repository on 2 or 3, or one an earlier refresh kept without them), they come, and
+  // the file moves to version 4, only when no workflow of the repository's would run differently; otherwise it keeps
+  // its version and takes the packaged steps without what only version 4 reads. Either way every workflow runs as before.
+  let stepIntents = null;
+  const intentsArrive = !workflowMissing && workflowFileVersionReadable(current.version) && incoming.version >= INTENTS_FILE_VERSION
+    && Object.entries(incoming.phases ?? {}).some(([id, phase]) => typeof phase?.intent === 'string'
+      && plainObject(current.phases?.[id]) && typeof current.phases[id].intent !== 'string');
+  if (intentsArrive) {
+    const keptIncoming = packagedWorkflowWithoutIntents(incoming, current.version);
+    const keptPlan = await planWorkflowMerge(keptIncoming);
+    const version = Math.max(current.version, incoming.version);
+    const changed = await workTypesChangedByIntents({ ...structuredClone(workflowPlan.merged.value), version }, keptPlan.merged.value);
+    if (changed.length) {
+      incoming = keptIncoming;
+      workflowPlan = keptPlan;
+      stepIntents = { version: current.version, movedFrom: null, kept: true, workTypes: changed };
+    } else {
+      workflowPlan.merged.value.version = version;
+      workflowPlan.merged.conflicts = workflowPlan.merged.conflicts.filter((entry) => entry.path !== 'workflow.version');
+      stepIntents = { version, movedFrom: version === current.version ? null : current.version, kept: false, workTypes: [] };
     }
-  });
-  // Record ownership even during ordinary refresh so a later reinitialize can distinguish a
-  // package seed from a same-ID repository contract. Legacy baselines without this receipt are
-  // inferred only from exact current/package or current/prior-package equality.
-  // Ownership is proven against the bytes/data as found. A v1 field migration deliberately
-  // changes that data shape, so hashing the migrated value would lose otherwise exact historical
-  // package provenance and incorrectly preserve stale seeds as repository-owned.
-  const workflowOwnership = packagedWorkflowOwnership(current, incoming, baseline, {
-    preserveSmartInitSelections
-  });
-  const seededWorkflowResult = restorePackagedSeeds
-    ? applyPackagedWorkflowOwnership(
-      merged.value, mergeCurrent, incoming, workflowOwnership, { preserveSmartInitSelections }
-    ) : { exactRoots: new Set(), collisionRoots: new Set(), conflicts: [] };
-  // Required restoration is an invariant, not a choice the preview can switch back to local. Keep
-  // ordinary repository customizations visible while avoiding a misleading dropdown for these
-  // product-owned missing nodes.
-  merged.conflicts = merged.conflicts.filter((entry) =>
-    !requiredWorkflowPaths.has(entry.path)
-    && !isWithinOwnedConfigurationPath(entry.path, seededWorkflowResult.exactRoots)
-    && !isWithinOwnedConfigurationPath(entry.path, seededWorkflowResult.collisionRoots));
-  merged.conflicts.push(...seededWorkflowResult.conflicts);
+  }
+  const { merged, workflowOwnership } = workflowPlan;
   // The explicit migration is staged in this disposable, plan-bound configuration candidate.
   // Never flip only `format`, rewrite Story snapshots, or promote old narrative to v4 facts.
   let worldModelMigration = null;
@@ -1833,6 +1926,7 @@ export async function refreshPackagedConfiguration(root, {
     ...(sectionMerges.length ? { sectionMerges } : {}),
     ...(worldModelMigration ? { worldModelMigration } : {}),
     ...(agentsHome ? { agentsHome } : {}),
+    ...(stepIntents ? { stepIntents } : {}),
     dryRun
   };
 }
@@ -2837,6 +2931,8 @@ function previewResultForCandidate(candidate, status) {
     configurationAssets: candidate.desired.assets,
     ...(candidate.refresh.worldModelMigration ? { worldModelMigration: candidate.refresh.worldModelMigration } : {}),
     ...(candidate.refresh.agentsHome ? { agentsHome: candidate.refresh.agentsHome } : {}),
+    // Whether workflow.yml moves to version 4 with the packaged steps' intents, or keeps its version (Stage 4).
+    ...(candidate.refresh.stepIntents ? { stepIntents: candidate.refresh.stepIntents } : {}),
     ...(candidate.refresh.storyCutover ? { storyCutover: candidate.refresh.storyCutover } : {})
   };
 }
@@ -3663,7 +3759,8 @@ export async function refreshWorkspaceConfigurations({
       // person approves it by merging that review (SCF:REQ-014, AGH:REQ-016).
       try {
         const published = await publishCandidate(reviewOnly ? { ...candidate, reviewOnly, rollback, build } : candidate);
-        return candidate.refresh?.agentsHome ? { ...published, agentsHome: candidate.refresh.agentsHome } : published;
+        return { ...published, ...(candidate.refresh?.agentsHome ? { agentsHome: candidate.refresh.agentsHome } : {}),
+          ...(candidate.refresh?.stepIntents ? { stepIntents: candidate.refresh.stepIntents } : {}) };
       }
       catch (error) {
         const partial = error?.details?.partialPublication ?? {};

@@ -427,9 +427,11 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
   const open = [];
   candidates.forEach((candidate, index) => {
     const answer = answers[candidate.id];
-    // The person may say what any step is for; a step SFlow is sure of takes any intent, an open one its choices.
+    // The person may say what any step is for, with any of the ten intents: the question's choices are SFlow's best few.
+    if (answer != null && !STEP_INTENTS.includes(answer)) {
+      throw fail(`'${answer}' is not one of the ten things a step can be for: ${STEP_INTENTS.join(', ')}.`, 'AGENT_WORKFLOW_ANSWER_INVALID', { step: candidate.id });
+    }
     if (candidate.decided && answer != null) {
-      if (!STEP_INTENTS.includes(answer)) throw fail(`'${answer}' is not a step intent. Use one of: ${STEP_INTENTS.join(', ')}.`, 'AGENT_WORKFLOW_ANSWER_INVALID', { step: candidate.id });
       if (answer !== candidate.decided.intent) candidate.decided = { intent: answer, confidence: 'certain', source: 'person', why: `the person chose it (SFlow read ${candidate.decided.intent}: ${candidate.decided.why})` };
       return;
     }
@@ -451,10 +453,6 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
     const offered = [...new Set([result.intent, ...placed, ...ranked, ...leans])].filter((intent) => intent !== 'document').slice(0, 3);
     const choices = [...offered, 'document'].map((intent) => ({ intent, label: INTENT_CHOICES[intent] }));
     if (answer != null) {
-      if (!choices.some((choice) => choice.intent === answer)) {
-        throw fail(`'${answer}' is not one of the answers for ${candidate.id} (${candidate.stage.title}): ${choices.map((choice) => choice.intent).join(', ')}.`,
-          'AGENT_WORKFLOW_ANSWER_INVALID', { step: candidate.id, choices: choices.map((choice) => choice.intent) });
-      }
       candidate.decided = { intent: answer, confidence: 'certain', source: 'person', why: 'the person chose it' };
       return;
     }
@@ -491,6 +489,8 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
     const derived = deriveWorkflowSettings(steps.map((step) => ({ id: step.id, intent: step.intent })));
     steps.forEach((step, index) => {
       const own = derived.steps[index];
+      // What its template needs: the clause anchors of a step that writes the requirement IDs, the planned-claims table of a plan.
+      Object.assign(step, { writesRequirementIds: own.writesRequirementIds, isPlan: own.isPlan });
       const gates = [...step.gates, ...(parsed.stages.find((stage) => stage.number === step.stage)?.hardGate ? [parsed.stages.find((stage) => stage.number === step.stage)] : [])];
       if (gates.length) {
         const gate = gates[0];

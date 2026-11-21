@@ -29,8 +29,12 @@ function fail(message, code = 'AGENT_WORKFLOW_COLLISION', details = undefined) {
 
 const guidance = (text) => String(text).replace(/-->/gu, '- ->').replace(/\s+/gu, ' ').trim();
 
-/** A step's template: its stage named first, then the shipped template of its intent (or a starter) without its title. */
-function stepTemplate(conversion, step, shipped) {
+/**
+ * A step's template: its stage named first, then the shipped template of its intent (or a starter) without its title,
+ * with the clause anchors a step that writes the requirement IDs needs and the planned-claims table a plan needs, as
+ * the import's own check would add them (workflow-fix/templates.mjs).
+ */
+function stepTemplate(conversion, step, shipped, { templateAnchors, withClauseAnchors, withPlannedTable }) {
   const stages = [step.stage, ...step.folded.map((entry) => entry.number)].join(' and ');
   const lines = [
     `# {{work.id}} — ${step.label}`, '',
@@ -38,7 +42,10 @@ function stepTemplate(conversion, step, shipped) {
   ];
   const body = shipped ? shipped.replace(/\r\n?/gu, '\n').replace(/^# [^\n]*\n+/u, '').trim()
     : ['## What this step decides', '', '## Evidence', '', '## Open questions'].join('\n');
-  return `${lines.join('\n')}${body}\n`;
+  let text = `${lines.join('\n')}${body}\n`;
+  if (step.writesRequirementIds && !templateAnchors(text).length) text = withClauseAnchors(text).text;
+  if (step.isPlan && !/^\|\s*clause\s*\|\s*expected paths\s*\|\s*planned tests\s*\|/imu.test(text)) text = withPlannedTable(text).text;
+  return text.endsWith('\n') ? text : `${text}\n`;
 }
 
 /** One attachment per skill: every step that uses it, and when, step by step where the steps differ. */
@@ -96,9 +103,10 @@ export async function compileAgentWorkflow(conversion, { agentText, skillTexts =
     definition.version = Math.max(Number(definition.version) || 0, INTENTS_FILE_VERSION);
     for (const [id, phase] of Object.entries(phases)) definition.phases[id] = phase;
     definition.workTypes[workflowId] = workType;
+    const fixes = await import('./workflow-fix/templates.mjs');
     for (const step of conversion.steps) {
       const shipped = INTENT_TEMPLATES[step.intent] ? await readFile(at(`${templatesRoot}/${INTENT_TEMPLATES[step.intent]}`), 'utf8').catch(() => null) : null;
-      await put(`${templatesRoot}/${template(step)}`, stepTemplate(conversion, step, shipped));
+      await put(`${templatesRoot}/${template(step)}`, stepTemplate(conversion, step, shipped, fixes));
     }
     const stepIds = conversion.steps.map((step) => step.id);
     await put(agentFileIn(conversion.agent.id, AGENTS_HOME), newAgentFile({

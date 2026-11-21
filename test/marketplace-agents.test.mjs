@@ -159,7 +159,7 @@ test('the product agent, and a stage SFlow cannot classify gets the one plain qu
   assert.ok(handoff.choices.some((choice) => choice.intent === 'report'), 'the last step of a workflow that changes no code leans to report');
   assert.equal(handoff.choices.at(-1).label, 'Something else: any other document (document)');
   assert.throws(() => workflowDefinition(asked), { code: 'AGENT_WORKFLOW_OPEN' });
-  assert.throws(() => convertAgent({ marketplace: MARKET, agent, skills, answers: { 'product-hand-off': 'code' } }), { code: 'AGENT_WORKFLOW_ANSWER_INVALID' });
+  assert.throws(() => convertAgent({ marketplace: MARKET, agent, skills, answers: { 'product-hand-off': 'shipping' } }), { code: 'AGENT_WORKFLOW_ANSWER_INVALID' });
   assert.throws(() => convertAgent({ marketplace: MARKET, agent, skills, answers: { 'product-nothing': 'report' } }), { code: 'AGENT_WORKFLOW_ANSWER_INVALID' });
   const answered = convertAgent({ marketplace: MARKET, agent, skills, answers: { 'product-traceability-check': 'review', 'product-hand-off': 'report' } });
   assert.equal(answered.ready, true);
@@ -236,6 +236,8 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'version 4'], root);
     const plan = json(root, ['workflow', 'import', out, '--dry-run']);
     assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved ?? plan));
+    // The plan's template already has its planned-claims table: the import has nothing to repair.
+    assert.deepEqual(plan.repairs ?? [], []);
     flow(root, ['workflow', 'import', out, '--confirm', plan.planSha256]);
     run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'import the QA workflow'], root);
     const check = json(root, ['workflow', 'check', 'qa-test-automation', '--settings']);

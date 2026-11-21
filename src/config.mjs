@@ -760,12 +760,13 @@ export function normalizeGenerationPolicy(value = null, phaseId = 'phase') {
 }
 
 function assertConvergenceHumanApproval(policy, label = 'The convergence phase') {
-  if (policy.mode === 'required' && !policy.automatic) return policy;
-  // Only a person's approval advances out of convergence [SPK:REQ-032]; it is recognised by its kind [E2G-001].
+  if (policy.mode === 'required') return policy;
+  // Its approval advances the Story out of convergence [SPK:REQ-032], and is never waived; it is recognised by its kind
+  // [E2G-001]. Convergence folds into the code approval (owner, 2026-11-21): with `automatic: when-ready` SFlow approves it
+  // when its own check is clean, else a person (automatic-approval.mjs).
   throw new SingularityFlowError(
-    policy.automatic ? `${label} is approved by a person, never automatically: only a person's approval moves the Story on from convergence.`
-      : `${label} approval must require an explicit human decision; approval modes 'none' and 'policy' cannot waive convergence.`,
-    { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED', details: { mode: policy.mode, ...(policy.automatic ? { automatic: policy.automatic } : {}) } }
+    `${label} approval must be required, by a person or by SFlow when its check is clean (approval.automatic: when-ready); approval modes 'none' and 'policy' cannot waive convergence.`,
+    { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED', details: { mode: policy.mode } }
   );
 }
 

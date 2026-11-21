@@ -584,7 +584,9 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
     noApproval: approvalMode(merged.approval) === 'none'
   }));
   const heldForPerson = Object.fromEntries(written.flatMap(({ id, merged }) => {
-    if (isConvergencePhase(merged)) return [[id, 'only a person moves the Story on from convergence']];
+    // A person approves a convergence step unless its workflow says SFlow approves a clean check (owner, 2026-11-21): the
+    // shipped spec-driven workflows say so, with their reason; a team's own copy keeps what it had until it says so too.
+    if (isConvergencePhase(merged)) return [[id, 'a person approves convergence unless the workflow says SFlow approves a clean check']];
     const held = approvalHeldBy(merged.approval);
     return held ? [[id, held]] : [];
   }));

@@ -943,7 +943,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (packaged-asset-history.mjs). The writer and the focus load only when used (record-documents.mjs, approval-focus.mjs).
     // No new eager file.
     // 9,845,150 (measured on the integration branch with approval-focus, 2026-11-21): the two together.
-    assert.ok(closure.bytes <= 9_845_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,844,341 (measured for submit.mjs, +1,002, 2026-11-21, intents-stage7): convergence folds into the code approval: its
+    // rule's words (config.mjs, phase-roles.mjs, step-intent-settings.mjs), the submit refusal (state.mjs, submit.mjs) and
+    // the version 2/3 form's `testEvidenceFrom: false` (workspace-configuration-refresh.mjs). The check and its section load
+    // only at a convergence step's automatic approval and a code approval's evidence (convergence-section.mjs). No new eager file.
+    // 9,846,152 (measured on the integration branch with Stage 7, 2026-11-21): approval-focus and Stage 7 together.
+    assert.ok(closure.bytes <= 9_846_152, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1471,7 +1476,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,334,573 (measured, +188, 2026-11-21, approval-focus): the shorter implementation template's earlier digest stays known,
   // so an unmodified copy upgrades (packaged-asset-history.mjs). No new eager file.
   // 4,338,519 (measured on the integration branch with approval-focus, 2026-11-21): the two together.
-  assert.ok(current.bytes <= 4_338_519, `session current loads ${current.bytes} source bytes`);
+  // 4,338,600 (measured, +269, 2026-11-21, intents-stage7): the convergence rule's words (config.mjs, phase-roles.mjs). No new eager file.
+  // 4,338,788 (measured on the integration branch with Stage 7, 2026-11-21): approval-focus and Stage 7 together.
+  assert.ok(current.bytes <= 4_338_788, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

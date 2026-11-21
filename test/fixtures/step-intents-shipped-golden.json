@@ -1,59 +1,59 @@
 {
   "feature": {
-    "resolutionSha256": "c98d11f14d6a0c9e36a04f7212eb2d1fb559df5fcca784c3f60928f5b1aec3aa",
-    "people": ["implementation-spec","implementation","verification"],
-    "automatic": ["intake","requirements","design","conformance"],
+    "resolutionSha256": "55c75a803d30cd018ad46ce062eb66f52c228dc997b57aa960d2e2ff27d7a096",
+    "people": ["implementation-spec","implementation"],
+    "automatic": ["intake","requirements","design","verification","conformance"],
     "other": [],
-    "changeSource": ["implementation","verification"],
+    "changeSource": ["implementation"],
     "questionsEveryTime": ["intake"],
     "repositoryTests": ["verification"],
     "requirementIds": ["requirements","implementation-spec"],
     "planOwners": {"implementation":"implementation-spec"},
     "reviewed": ["intake","requirements","design","implementation-spec","implementation","verification","conformance"],
     "attachedDocuments": ["intake","requirements","design","implementation-spec"],
-    "shapeDigest": "sha256:885bcdbfe4750a639da01c136b0304c33d3dbb56f358213b6dd306c2bff3a7bc"
+    "shapeDigest": "sha256:d14a446862c75e2ac5af1c1792a22ee776986629ac184d483b4e7f541e71d948"
   },
   "bugfix": {
-    "resolutionSha256": "9244c99d09b2d5def79af9c200c7faf4d9da08468b01f6cff4b28310b61ba1f3",
-    "people": ["fix-spec","implementation","verification"],
-    "automatic": ["intake","reproduction","fix-design","conformance"],
+    "resolutionSha256": "a2c818bc5ee8b0d0006f0453e3febb474b202a3dd287ecbeed1693f52b7c0bf7",
+    "people": ["fix-spec","implementation"],
+    "automatic": ["intake","reproduction","fix-design","verification","conformance"],
     "other": [],
-    "changeSource": ["implementation","verification"],
+    "changeSource": ["implementation"],
     "questionsEveryTime": ["intake"],
     "repositoryTests": ["verification"],
     "requirementIds": ["fix-spec"],
     "planOwners": {"implementation":"fix-spec"},
     "reviewed": ["intake","reproduction","fix-design","fix-spec","implementation","verification","conformance"],
     "attachedDocuments": ["intake","reproduction","fix-design","fix-spec"],
-    "shapeDigest": "sha256:04a67506651bfeedc5da1c7cd852c0f8cee10ec6be80a4788768f9b0f73be538"
+    "shapeDigest": "sha256:38cf2dcfb0ddabf3d728a3801625ac96e3a34234552ef3b913efc533b7713701"
   },
   "chore": {
-    "resolutionSha256": "530278ea61999a8f648922d64dcfc8474de1c665ad2e30a40d56b7208b8a458f",
-    "people": ["intake","implementation","verification"],
-    "automatic": ["conformance"],
+    "resolutionSha256": "3383561b580dc9280421e57096fb9c5581f86a043abd2ccced70aced9b7c0af2",
+    "people": ["intake","implementation"],
+    "automatic": ["verification","conformance"],
     "other": [],
-    "changeSource": ["implementation","verification"],
+    "changeSource": ["implementation"],
     "questionsEveryTime": ["intake"],
     "repositoryTests": ["verification"],
     "requirementIds": [],
     "planOwners": {},
     "reviewed": ["intake","implementation","verification","conformance"],
     "attachedDocuments": ["intake"],
-    "shapeDigest": "sha256:d0352a91da6199745581e6af709ee54e45cd9c96a6c776df61b70fdb38213686"
+    "shapeDigest": "sha256:f0cef6d7371a6511cd3e338580e2eece192626671dfa6fc161fb2bdc50786532"
   },
   "findings-remediation": {
-    "resolutionSha256": "33e400be7bd5e3a451ec1cf55ca751c57bd27db42b0b1b855b735581f83eae57",
-    "people": ["remediation-plan","implementation","verification"],
-    "automatic": ["findings-intake","conformance"],
+    "resolutionSha256": "569852f7014c55a8e5708012f2958a7d102e15dbeaf814db65758948bf88901b",
+    "people": ["remediation-plan","implementation"],
+    "automatic": ["findings-intake","verification","conformance"],
     "other": [],
-    "changeSource": ["implementation","verification"],
+    "changeSource": ["implementation"],
     "questionsEveryTime": [],
     "repositoryTests": ["verification"],
     "requirementIds": ["findings-intake"],
     "planOwners": {"implementation":"remediation-plan"},
     "reviewed": ["findings-intake","remediation-plan","implementation","verification","conformance"],
-    "attachedDocuments": [],
-    "shapeDigest": "sha256:eff69ff6f6d972e24da35059fe23e5110d1259a3d7cf9ebced0c471694bca865"
+    "attachedDocuments": ["findings-intake","remediation-plan"],
+    "shapeDigest": "sha256:6ffdc142c23103f6bbadc862c97564838aa1d2f04232f8895259a8740aceb0d8"
   },
   "figma-mobile": {
     "resolutionSha256": "b970ae4fbb5186200f2c9aa0c9ba3efcc71ccb934057fa2c3894a3a19c88a072",
@@ -84,7 +84,7 @@
     "shapeDigest": "sha256:08b95bffa1409f869c4d779353737c0ff9b442734e6fd12de0b6a75e351fd04e"
   },
   "careful-change": {
-    "resolutionSha256": "25bdc28fc0580d88176fa184beabbb96121431451049e1c0720c89c7d982918b",
+    "resolutionSha256": "85ecbb6bd94389681f67413fc29fa10734ad3f34bfcef9da1285faa43d859248",
     "people": ["careful-change"],
     "automatic": [],
     "other": [],
@@ -98,7 +98,7 @@
     "shapeDigest": "sha256:c04c3757b1db84c5613ba1607456fbf21280abb209de16ea79db1f170f3b3ffa"
   },
   "test-run": {
-    "resolutionSha256": "6f0d1a89401a6949d92bbd864da71927bad9ab7bf6befed4beb3f7a8228f6f13",
+    "resolutionSha256": "3b025ed50a8c5d7ebf7a4675fe30a14f5c495d8b82444306d92b90b008e22cae",
     "people": ["test-run"],
     "automatic": [],
     "other": [],
@@ -210,37 +210,37 @@
     "shapeDigest": "sha256:a8b6b9b22444f6d4886dfe4da8c14551bff4124020a59db8e5aed09a55a5d091"
   },
   "benchmarking-a": {
-    "resolutionSha256": "1b3544b4d835b5afac13f5eddc81481486bd4225fb2584c6f5ae46a067c6bb75",
-    "people": ["intake","design","implementation","testing","conformance"],
-    "automatic": [],
+    "resolutionSha256": "41de19735f95278208858755ac61cf218b586a9df1874fb2be62571c0e10f015",
+    "people": ["design","implementation"],
+    "automatic": ["intake","testing","conformance"],
     "other": [],
-    "changeSource": ["implementation","testing"],
+    "changeSource": ["implementation"],
     "questionsEveryTime": ["intake"],
     "repositoryTests": ["testing"],
     "requirementIds": ["intake"],
     "planOwners": {"implementation":"design"},
     "reviewed": ["intake","design","implementation","testing","conformance"],
     "attachedDocuments": ["intake","design"],
-    "shapeDigest": "sha256:f2b16f91519ad36a6519c2f68c75ecabd01537ed3308eec27b18bfe58d8c18ab"
+    "shapeDigest": "sha256:6ffdc142c23103f6bbadc862c97564838aa1d2f04232f8895259a8740aceb0d8"
   },
   "benchmarking-b": {
-    "resolutionSha256": "eba553aa9eb7cc8b0719aa985ce96f3d7eea4c4a799c27d7d3b60399f2423e58",
-    "people": ["intake","design","implementation","testing","conformance"],
-    "automatic": [],
+    "resolutionSha256": "1447b5a0260cfcab95fa34e71eae0144dc0d1b5eae59aa84c073428a80a1b67a",
+    "people": ["design","implementation"],
+    "automatic": ["intake","testing","conformance"],
     "other": [],
-    "changeSource": ["implementation","testing"],
+    "changeSource": ["implementation"],
     "questionsEveryTime": ["intake"],
     "repositoryTests": ["testing"],
     "requirementIds": ["intake"],
     "planOwners": {"implementation":"design"},
     "reviewed": ["intake","design","implementation","testing","conformance"],
     "attachedDocuments": ["intake","design"],
-    "shapeDigest": "sha256:f2b16f91519ad36a6519c2f68c75ecabd01537ed3308eec27b18bfe58d8c18ab"
+    "shapeDigest": "sha256:6ffdc142c23103f6bbadc862c97564838aa1d2f04232f8895259a8740aceb0d8"
   },
   "poc-workflow": {
-    "resolutionSha256": "6587589973bc50c7e1b1142b671643f63d433c7944b035158646eb156d763c57",
-    "people": ["poc-intake","poc-impact-analysis","poc-ui-exploration","poc-test-generation","poc-validation","poc-publication-review"],
-    "automatic": [],
+    "resolutionSha256": "397d94ea1e18746506166de4672d4b048abad92d661065ece3c627d2b86a215d",
+    "people": ["poc-ui-exploration","poc-test-generation","poc-validation","poc-publication-review"],
+    "automatic": ["poc-intake","poc-impact-analysis"],
     "other": [],
     "changeSource": ["poc-test-generation","poc-validation"],
     "questionsEveryTime": ["poc-intake"],
@@ -248,35 +248,35 @@
     "requirementIds": ["poc-intake"],
     "planOwners": {"poc-test-generation":"poc-ui-exploration"},
     "reviewed": ["poc-intake","poc-impact-analysis","poc-ui-exploration","poc-test-generation","poc-validation","poc-publication-review"],
-    "attachedDocuments": [],
-    "shapeDigest": "sha256:4ff16278ca0ba5c898ef2128f699978a462b43b0966dc35f9a0cc3c6b600ecca"
+    "attachedDocuments": ["poc-intake","poc-impact-analysis","poc-ui-exploration"],
+    "shapeDigest": "sha256:e6ffccc6c9dbe22160fc40f452d4a43d904b0ca5a7ca13719fff2f0531b302c2"
   },
   "reference-driven-build": {
-    "resolutionSha256": "43044bc3aaefd087c78cd73cc27c071702d8a78602e5286132f2cc60190e545d",
-    "people": ["planning","implementation","convergence","verification"],
-    "automatic": ["specification","release"],
+    "resolutionSha256": "9c441498d66161a673a2b4934f40d171438016fa87f51a9bff5206b90e8b51da",
+    "people": ["planning","implementation"],
+    "automatic": ["specification","convergence","verification","release"],
     "other": [],
-    "changeSource": ["implementation","verification"],
+    "changeSource": ["implementation"],
     "questionsEveryTime": ["specification"],
     "repositoryTests": ["verification"],
     "requirementIds": ["specification"],
     "planOwners": {"implementation":"planning"},
     "reviewed": ["specification","planning","implementation","verification","release"],
     "attachedDocuments": ["specification","planning"],
-    "shapeDigest": "sha256:2fe9e7b20817fea1c444111f27a43d4593ccf256971890ae3a2daade40e90324"
+    "shapeDigest": "sha256:6a643fb1e6828a03b67c892a3bcc7be85322fd57a575f40578b80ea1f13fa01b"
   },
   "spec-driven-standard": {
-    "resolutionSha256": "42ded9fad1ae20edebf8b5e211c515ec3d3f0b67de8471718c32638205665139",
-    "people": ["planning","implementation","convergence","verification"],
-    "automatic": ["specification","release"],
+    "resolutionSha256": "3092b8258a09039940cb061cd5e25c17c0c4a23d971a00907bdc6f8c2bdd58a8",
+    "people": ["planning","implementation"],
+    "automatic": ["specification","convergence","verification","release"],
     "other": [],
-    "changeSource": ["implementation","verification"],
+    "changeSource": ["implementation"],
     "questionsEveryTime": ["specification"],
     "repositoryTests": ["verification"],
     "requirementIds": ["specification"],
     "planOwners": {"implementation":"planning"},
     "reviewed": ["specification","planning","implementation","verification","release"],
     "attachedDocuments": ["specification","planning"],
-    "shapeDigest": "sha256:2fe9e7b20817fea1c444111f27a43d4593ccf256971890ae3a2daade40e90324"
+    "shapeDigest": "sha256:6a643fb1e6828a03b67c892a3bcc7be85322fd57a575f40578b80ea1f13fa01b"
   }
 }

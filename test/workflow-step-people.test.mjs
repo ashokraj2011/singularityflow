@@ -105,10 +105,12 @@ test('every packaged workflow: each step says who does what and where, and its q
     JSON.stringify(report.workflows.flatMap((entry) => entry.findings).filter((entry) => entry.severity !== 'note')));
   const questions = report.workflows.flatMap((workflow) => workflow.findings.filter((entry) => QUESTION_CODES.includes(entry.code))
     .map((entry) => [workflow.id, entry.code, entry.subject.step, entry.severity]));
-  // Two packaged steps define the scope from the Story's own sources and ask only when needed: worth a note, never a problem.
+  // Three packaged steps read the Story's own sources first and ask only when needed: worth a note, never a problem. The
+  // test run's one step asks only when needed since Stage 7 (owner, 2026-11-20, D2: G4).
   assert.deepEqual(questions.sort(), [
     ['findings-remediation', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', 'findings-intake', 'note'],
-    ['quick-fix', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', 'intake', 'note']
+    ['quick-fix', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', 'intake', 'note'],
+    ['test-run', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', 'test-run', 'note']
   ]);
   for (const workflow of report.workflows) {
     for (const step of workflow.explanation.steps) {
@@ -140,6 +142,7 @@ test('every packaged workflow: each step says who does what and where, and its q
   assert.deepEqual(implementation.signOffs.map((entry) => [entry.kind, entry.methods, entry.where]), [['evidence', ['inspection', 'visual'], 'own-terminal']]);
   assert.deepEqual([implementation.tests.runs, implementation.tests.from], [true, 'found']);
   assert.match(implementation.approval.text, /^Approval: one person from Engineering reviewers \(its author may approve it\), in the chat with \/sf-approve, but only in the approver's own terminal when it also confirms/u);
+  // Its verification changes no source code (D1, Stage 7) and still runs the repository's tests itself.
   assert.equal(step('verification').approval.ownTerminalWhen.map((entry) => entry.reason).join(), 'test-decision', 'it runs the repository\'s tests');
   // A visual verification step answers for the visual sign-offs; its code step for inspections only.
   const figma = report.workflows.find((entry) => entry.id === 'figma-mobile').explanation.steps;

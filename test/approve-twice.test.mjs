@@ -3,7 +3,8 @@
  * plan and the delivered code; a step marked `approval: { automatic: when-ready }` is approved by SFlow right after it is
  * submitted, when its reviewer said ready, its checks passed and nothing is open for it, and the record says what it
  * checked (`approved_automatically`, never `policy_waived`). Anything open leaves the step with its people. The plan,
- * a step that may change source files, convergence and the design sources are always a person's.
+ * a step that may change source files and the design sources are always a person's; convergence is SFlow's when its own
+ * check is clean (owner, 2026-11-21: convergence folds into the code approval; test/convergence-folds-into-code.test.mjs).
  */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -55,15 +56,16 @@ test('the shipped delivery workflows: people approve the plan and every step tha
     return { people: phases.filter((phase) => phase.approval.mode === 'required' && !phase.approval.automatic).map((phase) => phase.id),
       automatic: phases.filter((phase) => phase.approval.automatic).map((phase) => phase.id) };
   };
-  assert.deepEqual(split('feature'), { people: ['implementation-spec', 'implementation', 'verification'], automatic: ['intake', 'requirements', 'design', 'conformance'] });
-  assert.deepEqual(split('bugfix'), { people: ['fix-spec', 'implementation', 'verification'], automatic: ['intake', 'reproduction', 'fix-design', 'conformance'] });
-  assert.deepEqual(split('chore'), { people: ['intake', 'implementation', 'verification'], automatic: ['conformance'] });
-  assert.deepEqual(split('findings-remediation').automatic, ['findings-intake', 'conformance']);
+  // Their test steps change no source code (owner, 2026-11-20, D1; Stage 7), so SFlow approves a clean run.
+  assert.deepEqual(split('feature'), { people: ['implementation-spec', 'implementation'], automatic: ['intake', 'requirements', 'design', 'verification', 'conformance'] });
+  assert.deepEqual(split('bugfix'), { people: ['fix-spec', 'implementation'], automatic: ['intake', 'reproduction', 'fix-design', 'verification', 'conformance'] });
+  assert.deepEqual(split('chore'), { people: ['intake', 'implementation'], automatic: ['verification', 'conformance'] });
+  assert.deepEqual(split('findings-remediation').automatic, ['findings-intake', 'verification', 'conformance']);
   assert.deepEqual(split('figma-mobile'), { people: ['design-intake', 'mobile-spec', 'implementation', 'visual-verification'], automatic: ['design-inventory', 'component-mapping', 'conformance'] });
   assert.deepEqual(split('classic-delivery').automatic, ['testing', 'conformance']);
   assert.deepEqual(split('spec-code-test-loop').automatic, ['conformance'], 'its testing step starts a rework loop');
   for (const id of ['spec-driven-standard', 'reference-driven-build']) {
-    assert.deepEqual(split(id), { people: ['planning', 'implementation', 'convergence', 'verification'], automatic: ['specification', 'release'] });
+    assert.deepEqual(split(id), { people: ['planning', 'implementation'], automatic: ['specification', 'convergence', 'verification', 'release'] });
   }
   // A fallback to people keeps each step's own approval groups and send-back targets.
   const design = resolveWorkType(definition, 'feature').phases.find((phase) => phase.id === 'design');
@@ -71,7 +73,14 @@ test('the shipped delivery workflows: people approve the plan and every step tha
   assert.deepEqual(design.approval.rejectTo, ['intake', 'requirements', 'design']);
   // The quick fix and the demonstrations keep their own approvals.
   assert.equal(resolveWorkType(definition, 'quick-fix').phases.find((phase) => phase.id === 'verify').approval.mode, 'policy');
-  for (const id of ['document-test-repair', 'poc-workflow', 'benchmarking-a']) assert.deepEqual(split(id).automatic, [], id);
+  assert.deepEqual(split('document-test-repair').automatic, []);
+  // Approve twice for both benchmarks and the POC workflow (owner, 2026-11-20, D2; Stage 7); the demo closes keep a person.
+  for (const id of ['benchmarking-a', 'benchmarking-b']) {
+    assert.deepEqual(split(id), { people: ['design', 'implementation'], automatic: ['intake', 'testing', 'conformance'] }, id);
+  }
+  assert.deepEqual(split('poc-workflow'), { people: ['poc-ui-exploration', 'poc-test-generation', 'poc-validation', 'poc-publication-review'],
+    automatic: ['poc-intake', 'poc-impact-analysis'] });
+  for (const id of ['demo-check-repair-close', 'demo-instruction-test-loop']) assert.deepEqual(split(id).automatic, [], id);
   // Only the quick fix keeps `mode: policy`: no other Story gets the low-risk waiver's five-path cap on its code step
   // (work-intervals.mjs reads any `mode: policy` step as that waiver).
   for (const id of Object.keys(definition.workTypes).filter((entry) => entry !== 'quick-fix')) {
@@ -89,12 +98,11 @@ test('configuration refuses it where a person must approve', async () => {
   };
   refused('feature', 'implementation-spec', /it is the plan/u);
   refused('feature', 'implementation', /may change source files/u);
-  refused('feature', 'verification', /may change source files/u);
+  refused('poc-workflow', 'poc-validation', /may change source files/u);
   refused('chore', 'intake', /it is the plan/u);
   refused('figma-mobile', 'design-intake', /design versions/u);
   refused('figma-mobile', 'visual-verification', /may change source files/u);
   refused('spec-code-test-loop', 'testing', /send the work back to implementation/u);
-  refused('spec-driven-standard', 'convergence', /moves the Story on from convergence/u, 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED');
   // A repository whose own Design step takes two approvers keeps a valid configuration after the upgrade marks the
   // shipped feature's Design automatic: that step stays with its two people.
   const strict = structuredClone(definition);
@@ -107,13 +115,11 @@ test('configuration refuses it where a person must approve', async () => {
 
 test('an upgrade replaces an untouched shipped workflow, and keeps a customized one as it is', async () => {
   const definition = await packaged();
+  // As shipped before approve twice: the workflow.yml shipped before step intents, without its automatic approvals.
+  const previous = YAML.parse(await readFile(path.join(ROOT, 'test/fixtures/workflow-v2-before-step-intents.yml'), 'utf8'));
   const before = (id) => {
-    const value = structuredClone(definition.workTypes[id]);
-    // As shipped before step intents (Stage 4): no reasons, and no attached-documents list of its own.
-    delete value.because;
-    if (JSON.stringify(value.documents) === JSON.stringify({ allowedPhases: [] })) delete value.documents;
+    const value = structuredClone(previous.workTypes[id]);
     for (const [phase, override] of Object.entries(value.phaseOverrides ?? {})) {
-      delete override.because;
       if (!override.approval?.automatic) continue;
       delete override.approval.automatic;
       if (!Object.keys(override.approval).length) delete override.approval;
@@ -266,7 +272,9 @@ test('Workflow Studio offers the switch only where the workflow allows it, and a
   assert.deepEqual(view('chore', 'conformance'), { on: true, allowed: true, why: null });
   assert.equal(view('chore', 'intake').allowed, false);
   assert.match(view('chore', 'intake').why, /it is the plan/u);
-  assert.match(view('chore', 'verification').why, /may change source files/u);
+  // Its test step changes no source code (D1, Stage 7), so SFlow may approve it; its code step may not.
+  assert.deepEqual(view('chore', 'verification'), { on: true, allowed: true, why: null });
+  assert.match(view('chore', 'implementation').why, /may change source files/u);
   // A team's own copy: turning it off gives the step back to its people; a plan step cannot take it.
   await apply([{ op: 'workflow.create', id: 'our-chore', label: 'Our chore', copyOf: 'chore', phases: ['intake', 'implementation', 'verification', 'conformance'] }]);
   assert.equal(view('our-chore', 'conformance').on, true, 'a copy keeps the setting it was copied with');

@@ -5,7 +5,8 @@
  *    approver, self-approval allowed, no group that must approve, no source changes, and no signature on the Story;
  * 2. the record binds this version's immutable submission, whose packet verifies, and whose checks are the step's and
  *    all passed;
- * 3. the reviewer's committed report for this version is the one the record names;
+ * 3. the reviewer's committed report for this version is the one the record names; for a convergence step (owner,
+ *    2026-11-21), the committed convergence record it names, which found nothing to decide;
  * 4. the committed Story record holds this same automatic approval and exactly one history event for it (inside the
  *    transition that records it, the event in the transition's own state).
  * It cannot re-prove that nothing was open: the list's digest is recorded, as a person's approval records the packet
@@ -17,7 +18,7 @@ import { canonicalJson } from './records.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { exactFileAtObject, head } from './git.mjs';
 import { AUTOMATIC_APPROVAL_RULE, approvesAutomatically } from './approval-authority.mjs';
-import { editsSource } from './phase-roles.mjs';
+import { editsSource, isConvergencePhase } from './phase-roles.mjs';
 
 const digest = (value) => `sha256:${createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex')}`;
 const committedJson = (root, commit, relative) => {
@@ -56,10 +57,25 @@ export async function verifyAutomaticApproval(root, config, workflow, phase, { p
       throw new Error('the submitted checks differ from the step\'s, or did not all pass');
     }
     const commit = head(root);
-    if (record.review?.status !== 'ready' || !record.review.reportPath) throw new Error('it names no ready review');
-    const report = committedJson(root, commit, record.review.reportPath);
-    if (!report || report.reportSha256 !== record.review.reportSha256 || report.phase !== phase.id || Number(report.generation) !== Number(phase.generation)) {
-      throw new Error('the reviewer\'s committed report is not the one it names');
+    if (isConvergencePhase(pinned) || isConvergencePhase(phase)) {
+      // Convergence has no reviewer: its own check, the sealed record it names, is what SFlow approved it by.
+      const named = record.convergence;
+      if (!named?.path || !named.convergenceSha256) throw new Error('it names no convergence check');
+      const bytes = exactFileAtObject(root, commit, named.path, { maximumBytes: 16 * 1024 * 1024 });
+      if (!bytes) throw new Error('the convergence record it names is not committed');
+      const { decodeConvergenceRecord } = await import('./convergence.mjs');
+      const projection = decodeConvergenceRecord(bytes, { workId: workflow.workItem.id, iteration: named.iteration });
+      if (projection.convergenceSha256 !== named.convergenceSha256) throw new Error('the committed convergence record is not the one it names');
+      if ((projection.facts ?? []).length || (projection.candidates ?? []).length || (projection.findings ?? []).length
+          || (projection.unresolvedBlockers ?? []).length) {
+        throw new Error('the convergence check it names found something to decide');
+      }
+    } else {
+      if (record.review?.status !== 'ready' || !record.review.reportPath) throw new Error('it names no ready review');
+      const report = committedJson(root, commit, record.review.reportPath);
+      if (!report || report.reportSha256 !== record.review.reportSha256 || report.phase !== phase.id || Number(report.generation) !== Number(phase.generation)) {
+        throw new Error('the reviewer\'s committed report is not the one it names');
+      }
     }
     const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json');
     const retained = committedJson(root, commit, relative);

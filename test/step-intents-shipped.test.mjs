@@ -1,7 +1,7 @@
 /**
  * Step intents Stage 4 (spec §4.3, §4.4, §9.2): the shipped workflow.yml is version 4, every step it ships says what it
  * is for, and each setting that differs from its intent's profile is set on the step or the workflow with its reason
- * (G1–G7, kept until the owner's decisions are adopted one at a time in Stage 7).
+ * (G1–G7, each kept until the owner's decision on it is adopted, one at a time, in Stage 7).
  *
  * The golden (test/fixtures/step-intents-shipped-golden.json) is what every shipped work type resolved to before step
  * intents: the digest of its whole resolution, without the intent pins a Story now also keeps (intent, intentProfile,
@@ -86,14 +86,44 @@ test('no shipped setting differs from its intent without a reason, and nothing c
   }
   // The kept differences say why where a person reads them (workflow check --settings): a few of each group.
   const sources = (workType, step) => deriveWorkTypeSettings(raw, workType).steps.find((entry) => entry.id === step).sources;
-  assert.match(sources('feature', 'verification').writeScope.reason, /may add or fix tests itself/u, 'G1');
-  assert.equal(sources('benchmarking-a', 'intake').approval.from, 'override', 'G2');
-  assert.match(sources('benchmarking-a', 'intake').approval.reason, /both benchmark workflows/u, 'G2');
+  // G1 adopted (D1, Stage 7): the core test steps change no source code, as their intent says, and SFlow approves a
+  // clean run; the three kept differences still say why.
+  assert.equal(sources('feature', 'verification').writeScope.reason, undefined, 'G1 adopted');
+  assert.equal(sources('benchmarking-a', 'testing').writeScope.reason, undefined, 'G1 adopted');
+  // It runs the repository's tests itself (reusing the code step's run on unchanged code), so a failing test goes back.
+  assert.match(sources('feature', 'verification').testEvidenceFrom.reason, /runs the repository's tests itself/u, 'G1: runs its tests');
+  assert.match(sources('figma-mobile', 'visual-verification').writeScope.reason, /may correct screen differences/u, 'G1 kept');
+  assert.match(sources('poc-workflow', 'poc-validation').writeScope.reason, /repairs the Playwright tests it runs/u, 'G1 kept');
+  assert.match(sources('quick-fix', 'verify').writeScope.reason, /keeps its check on the changed code/u, 'G1 kept');
+  // G2 adopted (D2): approve twice for both benchmarks and the POC workflow, with no reason left to give; the demo closes keep a person.
+  assert.deepEqual([sources('benchmarking-a', 'intake').approval.from, sources('benchmarking-a', 'intake').approval.reason], ['override', undefined], 'G2 adopted');
+  assert.equal(sources('poc-workflow', 'poc-intake').approval.reason, undefined, 'G2 adopted');
+  assert.match(sources('demo-check-repair-close', 'demo-close').approval.reason, /closing decision/u, 'G2 kept');
   assert.match(sources('quick-fix', 'implement').approval.reason, /the Verify step after it checks it/u, 'G3');
-  assert.match(sources('spec-driven-standard', 'release')['clarification.mode'].reason, /asks nothing first/u, 'G4');
+  // Convergence folds into the code approval (owner, 2026-11-21): SFlow approves a clean check, and the workflow says why.
+  assert.match(sources('spec-driven-standard', 'convergence').approval.reason, /folds into the code approval/u, 'convergence');
+  // G4 adopted (D2): planning, release, careful-change and test-run ask only when needed, as their intents do; the quick
+  // fix's and the findings' intakes keep asking only when needed, with their reasons.
+  for (const [type, step] of [['spec-driven-standard', 'planning'], ['spec-driven-standard', 'release'], ['careful-change', 'careful-change'], ['test-run', 'test-run']]) {
+    assert.equal(sources(type, step)['clarification.mode'].reason, undefined, `G4 adopted: ${step}`);
+  }
+  assert.match(sources('quick-fix', 'intake')['clarification.mode'].reason, /concrete change/u, 'G4 kept');
+  assert.match(sources('findings-remediation', 'findings-intake')['clarification.mode'].reason, /from the register/u, 'G4 kept');
   assert.match(sources('figma-mobile', 'visual-verification').repositoryTests.reason, /whole test suite/u, 'G5');
+  // G5 decided (D2): repository tests stay off on every check that tests with its own tool, each with its reason.
+  for (const [type, step] of [['document-test-repair', 'scenario-check'], ['document-test-repair', 'scenario-retest'], ['demo-web-e2e-testing', 'demo-web-check'],
+    ['demo-web-e2e-testing', 'demo-web-retest'], ['demo-check-repair-close', 'demo-check'], ['demo-instruction-test-loop', 'demo-instruction-test'],
+    ['figma-mobile', 'visual-verification'], ['poc-workflow', 'poc-validation'], ['quick-fix', 'verify'], ['poc-lite', 'poc-lite-verify']]) {
+    const resolved = resolveWorkType(validateDefinition(structuredClone(raw)), type).phases.find((phase) => phase.id === step);
+    assert.equal(resolved.repositoryTests, undefined, `G5 kept: ${step} runs no repository tests`);
+    assert.ok(sources(type, step).repositoryTests.reason?.length >= 20, `G5 kept: ${step} says why`);
+  }
   assert.match(deriveWorkTypeSettings(raw, 'feature').workType.sources['plannedClaims.clausePhases'].reason, /its own requirement IDs/u, 'G6');
-  assert.match(deriveWorkTypeSettings(raw, 'poc-workflow').workType.sources['documents.allowedPhases'].reason, /no attached documents/u, 'G7');
+  // G7 adopted (D2): the findings intake and plan, and the POC workflow's intake and analysis steps, take attached documents.
+  for (const [type, steps] of [['findings-remediation', ['findings-intake', 'remediation-plan']], ['poc-workflow', ['poc-intake', 'poc-impact-analysis', 'poc-ui-exploration']]]) {
+    assert.equal(deriveWorkTypeSettings(raw, type).workType.sources['documents.allowedPhases'].reason, undefined, `G7 adopted: ${type}`);
+    assert.deepEqual(resolveWorkType(validateDefinition(structuredClone(raw)), type).documents.allowedPhases, steps, type);
+  }
 });
 
 test('golden: every shipped work type resolves exactly as it did before step intents, apart from its intent pins', async () => {

@@ -111,9 +111,10 @@ test('every shipped workflow\'s shape, as a team\'s own copy, is offered its int
     assert.ok(reason.startsWith(KEPT_BEFORE_INTENTS), reason);
     assert.ok(reason.length >= 20 && reason.length <= 1000);
   }
-  // A step that ran its own tests keeps doing so, rather than citing a code step's results.
-  assert.ok(Object.values(answered.after.workTypes).some((type) => Object.values(type.phaseOverrides ?? {})
-    .some((override) => override?.repositoryTests === 'off' || override?.testEvidenceFrom === false)), 'test steps keep their own tests');
+  // A test step keeps how it tests: one that checks with its own tool keeps the repository's tests off, and one that
+  // reads its code step's results (the shipped test steps since Stage 7) keeps citing them in the copy.
+  const overrides = Object.values(answered.after.workTypes).flatMap((type) => Object.values(type.phaseOverrides ?? {}));
+  assert.ok(overrides.some((override) => typeof override?.testEvidenceFrom === 'string'), 'test steps keep citing their code step\'s results');
 });
 
 test('team copies that share their steps: a step one workflow settles is that in all, and every workflow runs as before', () => {

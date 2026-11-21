@@ -1,0 +1,22 @@
+{
+  "feature": "c98d11f14d6a0c9e36a04f7212eb2d1fb559df5fcca784c3f60928f5b1aec3aa",
+  "bugfix": "9244c99d09b2d5def79af9c200c7faf4d9da08468b01f6cff4b28310b61ba1f3",
+  "chore": "530278ea61999a8f648922d64dcfc8474de1c665ad2e30a40d56b7208b8a458f",
+  "findings-remediation": "33e400be7bd5e3a451ec1cf55ca751c57bd27db42b0b1b855b735581f83eae57",
+  "figma-mobile": "b970ae4fbb5186200f2c9aa0c9ba3efcc71ccb934057fa2c3894a3a19c88a072",
+  "quick-fix": "c353c8fcb84ee4dd41903d5a9af55f3266394e5992e94c55747f4ad84b353c8c",
+  "careful-change": "25bdc28fc0580d88176fa184beabbb96121431451049e1c0720c89c7d982918b",
+  "test-run": "6f0d1a89401a6949d92bbd864da71927bad9ab7bf6befed4beb3f7a8228f6f13",
+  "classic-delivery": "433592108e696437a5b8627234f1513cbff61b729afd58c5630c427e62cb0fc1",
+  "spec-code-test-loop": "d019f0b1619d466d01c98a2dba07778f116f9f3ad2a87c76f30ead018076d17b",
+  "document-test-repair": "49ae45cd858a2ddcf5ac254550063576c17f25dbbc91bf1efca12fa9934c0dae",
+  "demo-web-e2e-testing": "f88c54a35894b8b5b8661964bb6994974a672bb6d101657b451bfab1b4d56c33",
+  "demo-check-repair-close": "ea048b1cf06afb20ea79a2df15c0927bc70f0141a385869849b6ea9b6dbf127a",
+  "demo-instruction-test-loop": "8b845dcdf981e7fa1e3510a994da468e15ad81f949f6aea112f7674da1a43351",
+  "poc-lite": "d63dc0a953cca77a258cd2340b46f84a1ec74408f1d15b8097da83f15f19333e",
+  "benchmarking-a": "1b3544b4d835b5afac13f5eddc81481486bd4225fb2584c6f5ae46a067c6bb75",
+  "benchmarking-b": "eba553aa9eb7cc8b0719aa985ce96f3d7eea4c4a799c27d7d3b60399f2423e58",
+  "poc-workflow": "6587589973bc50c7e1b1142b671643f63d433c7944b035158646eb156d763c57",
+  "reference-driven-build": "43044bc3aaefd087c78cd73cc27c071702d8a78602e5286132f2cc60190e545d",
+  "spec-driven-standard": "42ded9fad1ae20edebf8b5e211c515ec3d3f0b67de8471718c32638205665139"
+}

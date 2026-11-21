@@ -2050,8 +2050,12 @@ once that version is approved the test step's next version starts the same way, 
   signatures, the step waits for its approvers. Its submission and its approval then give the choices, each filled:
   another version of the code step, accepting the risk on the Decide card (only for a run the environment stopped), or
   running the tests again.
+- The shipped verification and testing steps (feature, bug fix, chore, findings remediation, both spec-driven
+  workflows and both benchmarks) change no source code, and SFlow approves a clean run of them. A chore's code step
+  makes a configuration change without the code checks, so a failing test there waits for its approvers.
 - Stories started before this keep the behaviour they started with. A test step that may still change source files is
-  unchanged: its approvers return it, or it repairs its own tests.
+  unchanged: its approvers return it, or it repairs its own tests. The shipped ones are the POC workflow's Playwright
+  validation, the Figma workflow's visual verification and the quick fix's verify.
 
 ## Approved phase inputs
 

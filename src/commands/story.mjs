@@ -22,7 +22,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff, radiusSummary } from '../amendment.mjs';
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { automaticApprovalOn, requireApprovalAuthority } from '../approval-authority.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
@@ -1591,7 +1591,8 @@ export async function prepareDeterministicConvergence(root, config, workId = nul
  * Deterministic by default `[SPK:REQ-073]`. It computes facts, carries forward any adjudications
  * already recorded for this iteration, and writes the projection. It never approves anything,
  * changes a specification, opens a change request or advances the phase `[SPK:CON-036]` — those are
- * `story adjudicate`, `reject` and `story advance`, each of which needs a human.
+ * `story adjudicate` and `reject`, which need a person, and `story advance`, whose submission a person approves, or SFlow
+ * when its workflow says so and the check is clean (owner, 2026-11-21).
  */
 export async function storyConvergeCommand(positionals, options) {
   const root = repoRoot();
@@ -3086,12 +3087,16 @@ export async function storyAdvanceCommand(positionals, options) {
     if (endsStory(workflow, subject.phase)) await (await import('../evidence/terminal.mjs')).assertTerminalReadiness(root, config, workflow);
     // The convergence confirmation folds into its approval (owner, 2026-11-19): `--submit` sends this exact result for
     // approval, where the person reviews it and approves it with one bound Yes, which advances the Story out of convergence
-    // [SPK:REQ-032] (approval checks the same result again). No code to type; `--confirm <digest>` still submits the exact
-    // result a preview showed (a host binds it).
+    // [SPK:REQ-032] (approval checks the same result again). Convergence folds into the code approval (owner, 2026-11-21):
+    // where its workflow says so, SFlow approves a clean result itself right after the submission (automatic-approval.mjs).
+    // No code to type; `--confirm <digest>` still submits the exact result a preview showed (a host binds it).
     const confirmation = optionBoolean(options, 'submit') ? reviewed.snapshotSha256 : optionString(options, 'confirm');
     if (!confirmation) {
       const command = `singularity-flow story advance --work-id ${workflow.workItem.id} --submit`;
-      const label = 'Submit it for approval; you review it there and approve it with one Yes.';
+      const clean = !(projection.facts ?? []).length && !(projection.candidates ?? []).length && !(projection.findings ?? []).length;
+      const label = clean && automaticApprovalOn(subject.phase.approvalPolicy)
+        ? 'Submit it: its check found nothing to decide, so SFlow approves it.'
+        : 'Submit it for approval; you review it there and approve it with one Yes.';
       if (optionBoolean(options, 'json')) {
         console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-convergence-advance', status: 'ready-to-confirm', workId: workflow.workItem.id, phase: subject.phase.id,
           iteration: projection.iteration, findings: projection.findings.length, reconciliation: projection.bindings.reconciliation.sha256,

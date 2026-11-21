@@ -359,6 +359,36 @@ const BEFORE_STEP_INTENTS = Object.freeze({
 });
 
 /**
+ * Every packaged node the adopted step-intent differences changed (step intents Stage 7, 2026-11-21: test steps change no
+ * source code, approve twice for the benchmarks and the POC workflow, questions when needed, attached documents, and
+ * convergence approved by SFlow when its check is clean), as shipped before them: as version 4 has it and, where that
+ * differed, as a repository on version 2 or 3 took it. A repository seeded before then holds exactly these values, which
+ * stay framework-owned so the next refresh can replace them.
+ */
+const BEFORE_ADOPTED_DIFFERENCES = Object.freeze({
+  workTypes: Object.freeze({
+    'benchmarking-a': Object.freeze(['a77226943dd3d984efb8fe8652f0a631b7a5790cb887431c033ddc8c0ddf7a1c']),
+    'benchmarking-b': Object.freeze(['2d77572d3f727a85befeb614d115cec2dc4a4e1b26456110d1e5985353b4b935']),
+    bugfix: Object.freeze(['4102c9f0f0574eba7aeb2e0c9bf6cc4fd30169525ad3ce3c1c64fc65693f789b']),
+    chore: Object.freeze(['e77e2382540ec9b0de3db63a425d007a944ccebb3cc8952b4c16fdd85ddd6c2a', '20acb3db0472805d981bf8d0d2870d97ee6139895eb9f18a8bd80e471c38442f']),
+    feature: Object.freeze(['34f4956a9cdd565f555cfc69b89372790c635103b3f57ab9438f4e4eb41a8ad8', '313a6f7fede2a3da7e1c5494046d396d19bf1fcf2b94ee2a172830c8c46d22f5']),
+    'findings-remediation': Object.freeze(['f67b902f348f735f418321a5ecb74bd6bb13e826271b58d179497648dc83c688']),
+    'poc-workflow': Object.freeze(['2f89981a4026255380ccbdfacfa1df162577ef85eedbfd31bac2313f1f08a774']),
+    'reference-driven-build': Object.freeze(['459ae3ff12dbb941ca7e603b2bdac2fb062868717ca364ea4c6dcebc3c6f7f4b']),
+    'spec-driven-standard': Object.freeze(['46ffc1360346b4e65bea9f074fa08f6f904fd93b67fa15948b4405619887c3ba'])
+  }),
+  phases: Object.freeze({
+    'careful-change': Object.freeze(['ca6aaba67b9cf9e8bdc9be8da84017dd1b49c06d0ba4c0f0af95ffeff33abd42', 'bbc58dac2fcbfd0f36d7790a08f625f32370a1681951cdba3e2130849ac0e76e']),
+    convergence: Object.freeze(['04fbd5f4ccde1ad059f67d940b9fdcdb41215b90357f500f625c9775c9862784', 'f68d481966719b32c2d0a591ebf1be9b7aa314316d10e04356a8438393ff8373']),
+    planning: Object.freeze(['cacf37d1e684a7540fcc730e583ead911be3521b93c19c2e2f09085645cc6261', '96fce9f45437f54d095a3f42e094d4345b550b27a7470eb9e1941916b7f2444e']),
+    release: Object.freeze(['7b030f85dee39f2762e1c973f99fe99118d5a9d933dc661d7cff72eb1bc79c3d', 'b3228d91bdae3a55f0b4389ff473a00b564794fb45ee1ae69262dc3dde6b2811']),
+    'test-run': Object.freeze(['e70dabd498a904b7a1b739a21e50bb8bccd53b1449d4b8de3f81320264b9a83b', '272c641c63d9bd3498bf6cff8f7609cf3cd11e13e2ae31bc187eef0578f93041']),
+    testing: Object.freeze(['0596101e575c768228880b8d55871b37d63cbfa0b151b86e4d0982a7f619baab', '50c0b6c43bf215cc6d807d5b125a3988c139f19b19230bd629f0d39ef79cf654']),
+    verification: Object.freeze(['5205092525f5d83b842ab56b3c28e3d8713208960718e65ac0d7d3b41bfe631b', '8904d083a842ee24fcfb0ff2c73e7fecdad079c70872ce009a9e906ede6d95a5'])
+  })
+});
+
+/**
  * The current nodes as a repository still on version 2 or 3 takes them (workspace-configuration-refresh.mjs
  * packagedWorkflowWithoutIntents: no intents, reasons or `automatic: off`), where that differs from both the current
  * node and the one before step intents. Framework-owned like any shipped revision; test/packaged-provenance-registry
@@ -366,25 +396,28 @@ const BEFORE_STEP_INTENTS = Object.freeze({
  */
 export const PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS = Object.freeze({
   workTypes: Object.freeze({
-    'findings-remediation': '3af678d67d90a501cbec31078fc2d1e17726629b7d0426c98e24b6ef83753f62',
-    'poc-workflow': '949b3ca0957d12a0f1cc056935f2609deead1ab5dcb686c13337dcab78fcaa44'
+    chore: '20acb3db0472805d981bf8d0d2870d97ee6139895eb9f18a8bd80e471c38442f',
+    feature: 'a4ff1b7326d8afeaccca570b37b56a2fc6e1754cd848dfb2092f0e03d66bc928'
   }),
   phases: Object.freeze({
-    'careful-change': '3e8d1f4b390348570b5b32e5c822f52365d718db0f7d01fc360ce3d21bbaf14e',
-    convergence: '01c3869cade3f0f865a0d255d54e25decfab811b50e6288481fd521f8060ccc0',
+    'careful-change': 'bbc58dac2fcbfd0f36d7790a08f625f32370a1681951cdba3e2130849ac0e76e',
+    convergence: 'f68d481966719b32c2d0a591ebf1be9b7aa314316d10e04356a8438393ff8373',
     'demo-check': 'dd2bd92514e184e3fefde35802787da42e3441103217a638c85bc3a779ba5a4b',
     'demo-instruction-test': '36fabea3cda4b5a1e29a38cfdec901bac4b0eeb07334d0f77232abaaf8e337f4',
     'demo-web-check': 'b412140ce3fbee77cb772ba72b4a333f102937509af834c3205269f0e1872581',
     'demo-web-retest': '61d6bdb6d25fd18bb9bbff640416465da0919e2054cc32ade1eb87a3503e0e20',
     implement: '9e4c09566e0a1bfda3bdf46cfc562cef9ddc6dc71141d411f469b70279ed508e',
+    planning: '96fce9f45437f54d095a3f42e094d4345b550b27a7470eb9e1941916b7f2444e',
     'poc-lite-act': 'd088a69e817b08ef1080a496f4e709067e601e688c3d3709afa73a749003e084',
     'poc-lite-finalize': '4531f76d5e14219a01054ca0691afa2a688d4e2709364d7dd48eeec7e9da2697',
     'poc-lite-verify': '525ba10c990d62abcdf66b585ae9afba3078c28948091cfe454b574b4a129de5',
     'poc-validation': 'fd0a14cdf94906c18c68c7b880fadcfd1526498fff5e41e68972fd35794171d5',
-    release: '8fa6a445b0177b64282d42ebf62d03957498199ba4625cbb3edcbb0e56f2b512',
+    release: 'b3228d91bdae3a55f0b4389ff473a00b564794fb45ee1ae69262dc3dde6b2811',
     'scenario-check': 'dea9af470d6a55b2e4c4295ab6c55ed9c087fe593c260ae6ed10e4e9ba83e601',
     'scenario-retest': 'd8ff6cce07f1b7071b03fca9c05a40236582c09aa0e8eee1a88ad62fbc49cac7',
-    'test-run': '0869cbc4ee977277bd9a6fcdbe023f40dc04acaa41deb42c50d1549493db1aa1',
+    'test-run': '272c641c63d9bd3498bf6cff8f7609cf3cd11e13e2ae31bc187eef0578f93041',
+    testing: '50c0b6c43bf215cc6d807d5b125a3988c139f19b19230bd629f0d39ef79cf654',
+    verification: '8904d083a842ee24fcfb0ff2c73e7fecdad079c70872ce009a9e906ede6d95a5',
     verify: 'e8e0d0d8d784244b1a8e9a547af5682c47cb8dbd4c2bc63c70df1264770b4d0e',
     'visual-verification': 'cae7f5c5220831c4eb830888fe38a0515edc78c3dae55df01b37960078cfc55a'
   })
@@ -396,27 +429,27 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
     'test-run': '17a4c04485f1515b786e3d06595f36f05d6f707bad3c167274bfb084e53f000d',
     'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
-    'benchmarking-a': 'a77226943dd3d984efb8fe8652f0a631b7a5790cb887431c033ddc8c0ddf7a1c',
-    'benchmarking-b': '2d77572d3f727a85befeb614d115cec2dc4a4e1b26456110d1e5985353b4b935',
-    bugfix: '4102c9f0f0574eba7aeb2e0c9bf6cc4fd30169525ad3ce3c1c64fc65693f789b',
-    chore: 'e77e2382540ec9b0de3db63a425d007a944ccebb3cc8952b4c16fdd85ddd6c2a',
+    'benchmarking-a': '903eda0c8b99351b6993c06498bdcc1683237d864e6c55319f806a91b9fee89d',
+    'benchmarking-b': 'a6446501c81f3fcd4bba484b95652652153ddcea34cf6f01d74e1c93cd99873a',
+    bugfix: '8012b5293b1fe6c9792ddf64d8267ef1fa70ed76042e53b2e3498504411e4c90',
+    chore: '9196bada9e0449df3c00f57e923ad4b04d9d04015850a1bfeec1888881f14e03',
     'classic-delivery': '9991f59f3ba6df48d9e5603edb78e7d33b303b6944f8fffa0e5e01f28fda9574',
     'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
     'demo-web-e2e-testing': '6161336401af54bd15e26c17cee6e45f43cadff36a424e051d0fbf285fb4af9a',
     'demo-check-repair-close': '8b7a856aa801154f306e6a42375fe65d00f6977bac9129d98f202b6ba01ce8f9',
-    feature: '34f4956a9cdd565f555cfc69b89372790c635103b3f57ab9438f4e4eb41a8ad8',
+    feature: 'acca9a89695829b1edadbf6892449a2d09b94f3e2c5a1b0f5319aaf00b45b174',
     'figma-mobile': '4bf49f8560fc79d59bc91ce46fd209a64723a9d4cc35ee649364b84c189a8772',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
-    'poc-workflow': '2f89981a4026255380ccbdfacfa1df162577ef85eedbfd31bac2313f1f08a774',
+    'poc-workflow': '5a51383a2b4679ec3536b0089dc4d0a15b2e947f1f3871e5b204e054b283c6c3',
     'quick-fix': 'be9ad15c5d199f58b7c0fd7e39d1889fdefadffb2453d8373325abcf482d04df',
-    'reference-driven-build': '459ae3ff12dbb941ca7e603b2bdac2fb062868717ca364ea4c6dcebc3c6f7f4b',
+    'reference-driven-build': 'b95a9da6caf80d18b7eaa134ee7c484eff81511bfc4eee8cf5a4284cd1f1b862',
     'spec-code-test-loop': 'e494c9de72ee485d92c2a567feb2e788241be05fbed170c24564018ed221cbba',
-    'spec-driven-standard': '46ffc1360346b4e65bea9f074fa08f6f904fd93b67fa15948b4405619887c3ba',
-    'findings-remediation': 'f67b902f348f735f418321a5ecb74bd6bb13e826271b58d179497648dc83c688'
+    'spec-driven-standard': 'fe1ae0c9578c7f722f112453df9ecd934733fb28758f9b7aa906a01676daec2e',
+    'findings-remediation': 'c49256be0c8dde9bcce28af22305d1ce0ef5b59964022fd421ade63331d1bf32'
   }),
   phases: Object.freeze({
-    'test-run': 'e70dabd498a904b7a1b739a21e50bb8bccd53b1449d4b8de3f81320264b9a83b',
-    'careful-change': 'ca6aaba67b9cf9e8bdc9be8da84017dd1b49c06d0ba4c0f0af95ffeff33abd42',
+    'test-run': '0bc648139486b4ce011e301fd49d907b899913e4214eae5ea6aa0f85325d816b',
+    'careful-change': '0aa8f013189c97f582179f2dfa6f29997e3d0ce8c0ad55756959cad41b93969f',
     'findings-intake': 'd8d2bd4286f8df766497ad2b36ca76346ca75265dc733d125c2527a1f4c6fc03',
     'remediation-plan': '33f70899b252699d7fa481534af7d754b65e41e8fb9069c712216be1f140e606',
     'demo-instruction-intake': 'f93743f3befe3fa341e59e77982baf7eab0154453b073a886a2414bbf9fc4ed6',
@@ -433,7 +466,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'demo-web-retest': 'f543b8a178c10beb050f0fc93167d01ed7730489b04008bf616640db52150e0d',
     'component-mapping': '71a6294c4b68bdf3b5e60ec679ddbec54d99bb611f2902d451b42c6098432585',
     conformance: '2175f769afdfa108e3eaa38637967c7ad6816267cf2d4afc254a1fb9d4e9aff5',
-    convergence: '04fbd5f4ccde1ad059f67d940b9fdcdb41215b90357f500f625c9775c9862784',
+    convergence: 'c0f6654d4592da0631bdb1b83242b4dc2d1d1b738fb19518b5cc484955b1f0e1',
     design: 'e01400e17b4be1fe637d45e29edbbe5c47b38e53a73825d54d0a269fc1217d20',
     'design-intake': '9073c1dcadb11224d9c56dd69f1fead295bc0cf854a2062607f80dadab1e660c',
     'design-inventory': '3f773571d171f2e8bad88809a60000fb55a03217aa043903449b9165606f06fd',
@@ -445,7 +478,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'implementation-spec': 'd8f2d0d6e68478201994f3e4c43978a9c42310bef25b31e57d511184703cc6fa',
     intake: '32425664b14545ee7c73125bb921dc429f66967735a23721b6f783900ee0253a',
     'mobile-spec': '9313e36c703d3d6b8715c6a5825c771cd586dafb0408680b16b3a90fa8543dad',
-    planning: 'cacf37d1e684a7540fcc730e583ead911be3521b93c19c2e2f09085645cc6261',
+    planning: '5b18fb970169be0acf840947b7825d1862049543aa3166e476a0a39888f20cde',
     'poc-impact-analysis': '07d11535dcd75c59ebccfa43ea52c5460fafec0f1655340eb5b410a5266a8e77',
     'poc-intake': 'ca60fd9d2be5ef945f726580253ce336975efb7bb4a756d72a262293289e0dd5',
     'poc-lite-act': '415d946ca9db0a880590a2826ed68b06f45ac55051edb3160ac7cc3398953c52',
@@ -456,15 +489,15 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'poc-test-generation': '137588e3b97ed52ec51377b9774a3599670864e0b6d279cef97ceec1218822af',
     'poc-ui-exploration': 'ae7c58aa9096d6db162eee647b057fcaef61c7e2b539c2eb1eb2a8fb82efc10c',
     'poc-validation': '3a552b2c77d92f75869d865e27f4be296a66ba26cb01070c1882594b78024012',
-    release: '7b030f85dee39f2762e1c973f99fe99118d5a9d933dc661d7cff72eb1bc79c3d',
+    release: '65dc9882d3da9bb7f7326ce393b4a76df02fd684b28d67ff04c78432d369680c',
     reproduction: 'c0c5d2624809b0a6e5bf574c2dd28d3bf541f5892b9ce33e04b1470c17c3a5b2',
     requirements: 'b63ec5fa738ece84baf26a77f3923e7b13f6dc66c94fb23821534edb764a63c4',
     'scenario-check': 'cb5181f77115795fb7bede094f044b0ab9b2bb08a25a7cabb4bfac0aec5ff9bc',
     'scenario-repair': 'd0b91e9a20d46b80c7ac2b59140245fc3b94480c13e19d23f17427022ac03333',
     'scenario-retest': '7e3971acf7328dc062ef3a77d011d3536b12f5c2ff8752cb1ef770a5a390ae44',
     specification: '33441e641a89936533be4afa9a9663bf2fe2be4d4166a8b6ac2d78d0abdf67db',
-    testing: '0596101e575c768228880b8d55871b37d63cbfa0b151b86e4d0982a7f619baab',
-    verification: '5205092525f5d83b842ab56b3c28e3d8713208960718e65ac0d7d3b41bfe631b',
+    testing: '8b722f317db603dfc9931c27392e9a7860d1e9d0209dbcc4b83b12ab35be4db8',
+    verification: 'cfd67b89da97269d90c2545872a24996d773952c9c4ea813472ce836f0e5d0bb',
     verify: '3f8d7783d455b98a5bde58e2dfd2e2ecbf0c7f786e93253a9144630cbbbced0b',
     'visual-verification': 'eb08d123a3b3646651bf6bf950a466a61b7ec09495f38c06b92f0565034c0a5d'
   }),
@@ -491,13 +524,15 @@ export const KNOWN_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze(Object.fromEnt
       PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS[section] ?? {},
       CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}
     ];
+    // Revisions kept as lists, one or more hashes per node: older releases, and before the adopted differences.
+    const lists = [HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}, BEFORE_ADOPTED_DIFFERENCES[section] ?? {}];
     return [section, Object.freeze(Object.fromEntries(
       [...new Set([
-        ...Object.keys(HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}),
+        ...lists.flatMap((list) => Object.keys(list)),
         ...snapshots.flatMap((snapshot) => Object.keys(snapshot))
       ])].sort().map((id) => [id, Object.freeze([
         ...new Set([
-          ...(HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section]?.[id] ?? []),
+          ...lists.flatMap((list) => list[id] ?? []),
           ...snapshots.flatMap((snapshot) => (snapshot[id] ? [snapshot[id]] : []))
         ])
       ])])

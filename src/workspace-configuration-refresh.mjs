@@ -951,6 +951,7 @@ function stepWithoutIntent(step) {
   if (!plainObject(step)) return;
   delete step.intent;
   delete step.because;
+  if (step.testEvidenceFrom === false) delete step.testEvidenceFrom;
   if (plainObject(step.approval) && step.approval.automatic === 'off') {
     delete step.approval.automatic;
     if (!Object.keys(step.approval).length) delete step.approval;
@@ -959,7 +960,8 @@ function stepWithoutIntent(step) {
 
 /**
  * The packaged workflow.yml as a repository on `version` (2 or 3) takes it (step intents spec §7.7, Stage 4): without
- * the steps' intents and reasons, `approval.automatic: off` and `intentProfiles`, none of which that version reads.
+ * the steps' intents and reasons, `approval.automatic: off`, `testEvidenceFrom: false` (what absent says) and
+ * `intentProfiles`, none of which that version reads.
  * Every setting the packaged steps set themselves stays, so each workflow resolves exactly as it does at version 4,
  * and an older build that reads only version 2 or 3 reads nothing it does not know.
  */
@@ -1008,6 +1010,28 @@ export async function workTypesChangedByIntents(moved, kept) {
     return deriving.includes(named) ? [named] : deriving;
   }
   return deriving.filter((id) => !equal(resolvedOrRefused(left, id), resolvedOrRefused(right, id)));
+}
+
+/**
+ * The merge's base for a repository's workflow.yml: the recorded package baseline, and, for each node it has no entry
+ * for, the repository's own value when that is an exact shipped revision (packaged-workflow-history.mjs). Such a node
+ * is untouched, so it moves with the package whole, as a reinitialize moves it; without this, a repository with no
+ * recorded baseline (seeded by an older build) kept every changed field of every shipped node as its own, and a
+ * shipped change spread over two nodes (a workflow approving a step that the shared step now lets change no source
+ * code, step intents Stage 7) was half taken and refused. A node the repository edited is unknown, so it is merged as
+ * before and its edits are kept.
+ */
+export function baseWithKnownNodes(base, local) {
+  let out = base;
+  for (const section of ['workTypes', 'phases', 'artifactSets', 'mcpServers']) {
+    for (const [id, value] of Object.entries(plainObject(local?.[section]) ? local[section] : {})) {
+      if (Object.hasOwn(plainObject(base?.[section]) ? base[section] : {}, id) || !isKnownPackagedWorkflowValue(section, id, value)) continue;
+      if (out === base) out = { ...base };
+      if (out[section] === base?.[section]) out[section] = { ...(plainObject(base?.[section]) ? base[section] : {}) };
+      out[section][id] = clone(value);
+    }
+  }
+  return out;
 }
 
 /**
@@ -1577,7 +1601,7 @@ export async function refreshPackagedConfiguration(root, {
     );
     const requiredWorkflowPaths = preserveSmartInitSelections
       ? new Set() : requiredPackagedWorkflowPaths(mergeCurrent, packaged);
-    const merged = mergePackagedConfiguration(baseline?.workflow ?? {}, mergeCurrent, packaged, {
+    const merged = mergePackagedConfiguration(baseWithKnownNodes(baseline?.workflow ?? {}, mergeCurrent), mergeCurrent, packaged, {
       acceptBundledConflicts,
       // A standard product workflow is always restored as packaged when it is absent. Repository
       // customizations inside an installed profile continue through the normal three-way merge.

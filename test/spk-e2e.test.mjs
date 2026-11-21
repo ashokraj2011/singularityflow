@@ -29,7 +29,6 @@ import YAML from 'yaml';
 import { serializeConvergence } from '../src/convergence.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
-import { loadSession } from '../src/session.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -955,30 +954,16 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.notEqual(staleConfirmation.status, 0, 'a non-matching convergence review digest was accepted');
   assert.match(staleConfirmation.output, /CONVERGENCE_ADVANCE_CONFIRMATION_STALE|changed after preview/i);
   sflow(root, ['story', 'advance', '--work-id', WORK, '--confirm', confirmation]);
-  assert.equal((await workflowOf(root)).phases.convergence.status, 'awaiting_approval');
-  // Convergence deliberately ends the author session. All approval surfaces must still preview
-  // the human's real approval path, rather than inventing an author repair or a resume loop.
-  assert.equal(await loadSession(root, { required: false }), null);
-  const convergenceState = await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`));
-  const convergenceHead = git(root, 'rev-parse', 'HEAD');
-  for (const args of [
-    ['status', WORK, '--submission-readiness', '--json'],
-    ['phase', 'show', 'convergence', '--json']
-  ]) {
-    const { approvalCheck } = JSON.parse(sflow(root, args).stdout);
-    assert.equal(approvalCheck.ready, true, JSON.stringify(approvalCheck));
-    assert.deepEqual(approvalCheck.holds, []);
-  }
-  const convergenceDecisions = JSON.parse(sflow(root, ['decisions', WORK, '--json']).stdout).data;
-  assert.ok(convergenceDecisions.items.some(entry => entry.kind === 'approval'));
-  assert.ok(convergenceDecisions.items.every(entry => entry.kind !== 'approval-hold'));
-  assert.equal(convergenceDecisions.next.copilotCommand, `/sf-approve convergence --work-id ${WORK}`);
-  assert.equal(convergenceDecisions.next.command, `singularity-flow approve convergence --work-id ${WORK} --fetch`);
-  assert.equal(await loadSession(root, { required: false }), null);
-  assert.equal(git(root, 'rev-parse', 'HEAD'), convergenceHead);
-  assert.ok(convergenceState.equals(await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`))));
-  sflow(root, ['approve', 'convergence', '--yes']);
-  assert.equal((await workflowOf(root)).currentPhase, 'verification');
+  // Convergence folds into the code approval (owner, 2026-11-21): this iteration's check is clean, so SFlow approves the
+  // step at its submission, in its own commit, recorded with what it checked, and the gate replays it. No person is asked.
+  const converged = await workflowOf(root);
+  assert.equal(converged.phases.convergence.status, 'approved');
+  assert.equal(converged.phases.convergence.approvalDisposition, 'approved_automatically');
+  assert.deepEqual(converged.phases.convergence.approvals.filter((entry) => entry.decision === 'approved'), [], 'no person approved it');
+  assert.match(converged.phases.convergence.automaticApproval.checked.join('; '), /the convergence check found every requirement delivered/u);
+  assert.equal(converged.currentPhase, 'verification');
+  const replayed = sflow(root, ['gate', '--json'], { allowFailure: true });
+  assert.match(replayed.output, /approved automatically, record verified: convergence/u, replayed.output.slice(-2000));
 
   await write(root, `singularity/work-items/${WORK}/artifacts/verification/test-evidence.md`, [
     '# Test evidence', '',

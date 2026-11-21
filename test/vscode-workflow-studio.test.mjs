@@ -154,7 +154,9 @@ test('edits made in the page become one change set the engine accepts', async ()
   assert.deepEqual(changeSet.changes.map((change) => change.op).sort(), [
     'agent.create', 'group.update', 'phase.agent', 'phase.create', 'phase.update', 'workflow.create', 'workflow.update'
   ].sort());
-  assert.deepEqual(changeSet.changes.find((change) => change.op === 'phase.update'), { op: 'phase.update', id: 'verification', workflow: 'repo-feature', approval: { group: 'quality-reviewers', minimum: 2 } });
+  // The step's "Approve automatically when ready" goes with its sign-off: the shipped feature's verification has it on since
+  // it changes no source code (D1, step intents Stage 7); with two approvers, its people approve it.
+  assert.deepEqual(changeSet.changes.find((change) => change.op === 'phase.update'), { op: 'phase.update', id: 'verification', workflow: 'repo-feature', approval: { group: 'quality-reviewers', minimum: 2, automatic: true } });
   assert.ok(changeSet.changes.some((change) => change.op === 'workflow.update' && change.id === 'vendor-assessment' && change.reworkLoops.length === 1));
   const words = changeSet.changes.map((change) => logic.describe(change, draft));
   assert.ok(words.includes('New step Vendor analysis, drafted by Vendor analyst'));

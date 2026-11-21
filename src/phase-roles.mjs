@@ -263,6 +263,15 @@ export const BECAUSE_SETTINGS = Object.freeze([
 // The cheap gate before step intents' derivation (step-intent-settings.mjs loads only behind it): workflow.yml version 4
 // or later with an intent or intentProfiles; a work type derives when every step has an intent. And a Story's pinned profile.
 export const INTENTS_FILE_VERSION = 4;
+/**
+ * The workflow.yml versions this build reads (step intents spec §7.7, D4): 2, 3 for compiled skill steps, and 4 for
+ * steps that say what they are for. Every reader of a repository's workflow.yml takes these, never one version alone; a
+ * higher one was written by a newer SFlow and asks for the update, and only a version below 2 is obsolete.
+ */
+export const WORKFLOW_FILE_VERSIONS = Object.freeze([2, 3, INTENTS_FILE_VERSION]);
+export const workflowFileVersionReadable = (version) => WORKFLOW_FILE_VERSIONS.includes(version);
+export const workflowFileVersionNewer = (version) => Number.isSafeInteger(version) && version > WORKFLOW_FILE_VERSIONS.at(-1);
+export const workflowFileVersionObsolete = (version) => !Number.isSafeInteger(version) || version < WORKFLOW_FILE_VERSIONS[0];
 const intentsFile = (definition) => Number.isSafeInteger(definition?.version) && definition.version >= INTENTS_FILE_VERSION && definition.phases && typeof definition.phases === 'object';
 export const declaresStepIntents = (definition) => Boolean(intentsFile(definition)) && (definition.intentProfiles !== undefined
   || Object.values(definition.phases).some((phase) => typeof phase?.intent === 'string'));
@@ -270,3 +279,9 @@ export const workTypeDerivesIntents = (definition, workType) => Boolean(intentsF
   && workType.phases.length > 0 && workType.phases.every((id) => STEP_INTENTS.includes(Object.hasOwn(definition.phases, id) ? definition.phases[id]?.intent : null)
     && definition.phases[id].kind !== 'skill');
 export const pinnedIntentProfile = (resolution) => (resolution?.phases ?? []).find((phase) => Number.isSafeInteger(phase?.intentProfile))?.intentProfile ?? null;
+/**
+ * The profile a running Story's work type re-resolves with when an amendment reads newer configuration (§7.6): the one
+ * it pinned, or false when it started without intents. A Story never re-derives, so one that pinned no profile
+ * resolves as it started, without its steps' intents, after its repository's workflow.yml moved to version 4.
+ */
+export const storyIntentProfile = (resolution) => pinnedIntentProfile(resolution) ?? false;

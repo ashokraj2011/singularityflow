@@ -20,7 +20,7 @@ import {
   chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile
 } from 'node:fs/promises';
 import { initializeDefinition, loadDefinition, resolveWorkType } from './config.mjs';
-import { pinnedIntentProfile } from './phase-roles.mjs';
+import { storyIntentProfile } from './phase-roles.mjs';
 import {
   describeCapability, describeRepository, enableLedger, repositoryIdFromUrl,
   setDefaultBaseBranch
@@ -2243,7 +2243,7 @@ export function resolveApprovedStoryWorkType(snapshot, workTypeId, { intentProfi
 export async function resolveApprovedStoryWorkTypeFor(snapshot, workflow) {
   const workTypeId = workflow?.workItem?.workType;
   const closure = workflow?.resolution?.configurationSource?.closure;
-  const intentProfile = pinnedIntentProfile(workflow?.resolution);
+  const intentProfile = storyIntentProfile(workflow?.resolution);
   if (closure?.kind !== 'work-type' || !Array.isArray(closure.workTypes)) return resolveApprovedStoryWorkType(snapshot, workTypeId, { intentProfile });
   return resolveWorkType((await storyConfigurationClosure(snapshot, closure.workTypes)).copyDefinition(), workTypeId, { intentProfile });
 }

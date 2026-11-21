@@ -5,6 +5,7 @@ import { constants as fsConstants } from 'node:fs';
 import YAML from 'yaml';
 
 import { gitCommonDir, identity } from '../git.mjs';
+import { workflowFileVersionReadable } from '../phase-roles.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { resolvePlatformProcess } from '../platform-process.mjs';
@@ -89,7 +90,8 @@ export async function smartInitPrecheck(root) {
   try {
     workflowBytes = await readFile(workflowFile);
     workflow = YAML.parse(workflowBytes.toString('utf8'));
-    checks.push({ id: 'configuration-parse', status: workflow?.version === 2 ? OK : 'fail', subject: 'singularity/workflow.yml' });
+    // Every version this build reads (2, 3 and 4), not version 2 alone: an intents file is as current as any.
+    checks.push({ id: 'configuration-parse', status: workflowFileVersionReadable(workflow?.version) ? OK : 'fail', subject: 'singularity/workflow.yml' });
   } catch {
     checks.push({ id: 'configuration-parse', status: 'fail', subject: 'singularity/workflow.yml' });
   }

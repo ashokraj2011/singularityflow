@@ -34,8 +34,8 @@ import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
 import {
-  automaticApprovalRefusal, BECAUSE_SETTINGS, declaresStepIntents, INTENTS_FILE_VERSION, isConvergencePhase, isVisualVerificationPhase,
-  reviewKindForResponsibilities, STEP_INTENTS, workTypeDerivesIntents
+  automaticApprovalRefusal, BECAUSE_SETTINGS, declaresStepIntents, isConvergencePhase, isVisualVerificationPhase,
+  reviewKindForResponsibilities, STEP_INTENTS, WORKFLOW_FILE_VERSIONS, workTypeDerivesIntents
 } from './phase-roles.mjs';
 import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
@@ -943,7 +943,7 @@ export function normalizeModelProviders(value = {}) {
 }
 
 /** The workflow.yml versions this build reads; a higher one was written by a newer SFlow (step intents spec §7.7, D4). */
-export const WORKFLOW_FILE_VERSIONS = Object.freeze([2, 3, 4]);
+export { WORKFLOW_FILE_VERSIONS };
 
 // Step intents' derivation loads only when a workflow.yml opts in (declaresStepIntents): imported by loadDefinition, else required.
 let stepIntentSettings = null;
@@ -980,9 +980,13 @@ function assertWorkflowFileVersionReadable(version) {
   );
 }
 
-// `automatic: off` keeps a person on a step with an intent (version 4 only).
-const approvalAsWritten = (approval, phase, version) => (version >= INTENTS_FILE_VERSION && typeof phase?.intent === 'string' && approval?.automatic === 'off'
-  ? stepIntentSettingsNow().approvalWithoutOff(approval) : approval);
+// `automatic: off` keeps a person on a step its intent would let SFlow approve. Anywhere else it says what absent
+// says, a person approves, so a shipped step that carries it reads the same in a version 2 or 3 file (Stage 4).
+const approvalAsWritten = (approval) => {
+  if (approval?.automatic !== 'off') return approval;
+  const { automatic: _off, ...rest } = approval;
+  return rest;
+};
 
 const BECAUSE_REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const isMapping = (value) => value != null && typeof value === 'object' && !Array.isArray(value);
@@ -1294,7 +1298,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
     }
     const normalizedApproval = normalizeApprovalPolicy(
-      approvalAsWritten(phase.approval ?? {}, phase, definition.version), definition.approvalAuthorities, id, definition.approvalSecurity
+      approvalAsWritten(phase.approval ?? {}), definition.approvalAuthorities, id, definition.approvalSecurity
     );
     // Convergence is recognised by its artifact kind, so a renamed copy keeps these rules [E2G-001].
     if (isConvergencePhase(phase)) assertConvergenceHumanApproval(normalizedApproval, `Phase '${id}'`);
@@ -2087,6 +2091,11 @@ function workTypeIntentDerivation(definition, workTypeId, intentProfile) {
   return derivation;
 }
 
+/**
+ * `intentProfile`: the step intent profile the work type derives with when its steps all have an intent. null is the
+ * file's own (a new Story), a number a running Story's pin (phase-roles.mjs storyIntentProfile), and false that the
+ * Story started without intents, so the work type resolves without deriving, as it did then.
+ */
 export function resolveWorkType(definition, workTypeId, { intentProfile = null } = {}) {
   const workType = declaredCatalogValue(definition.workTypes, workTypeId);
   if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
@@ -2109,7 +2118,7 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
     workTypeId, phases: workType.phases
   });
   const repositoryTests = repositoryTestCommands(definition.tests);
-  const intents = workTypeIntentDerivation(definition, workTypeId, intentProfile);
+  const intents = intentProfile === false ? null : workTypeIntentDerivation(definition, workTypeId, intentProfile);
   // The repository tests each step that runs tests chose, for the code step before it [PHR:REQ-007], item 8.
   const chosenRepositoryTests = new Map();
   let phases = workType.phases.map((id, order) => {
@@ -2125,7 +2134,7 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
     const template = phase.kind === 'skill' ? null
       : resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
-    const approval = normalizeApprovalPolicy(approvalAsWritten(merged.approval ?? {}, phase, definition.version),
+    const approval = normalizeApprovalPolicy(approvalAsWritten(merged.approval ?? {}),
       definition.approvalAuthorities, id, definition.approvalSecurity);
     const loopTargets = reworkLoops.filter((loop) => loop.from === id).map((loop) => loop.to);
     if (loopTargets.length && approval.mode === 'none') {

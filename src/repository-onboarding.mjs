@@ -25,6 +25,7 @@ import {
   loadCapabilities
 } from './capabilities.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
+import { WORKFLOW_FILE_VERSIONS, workflowFileVersionNewer, workflowFileVersionReadable } from './phase-roles.mjs';
 import {
   CAPABILITY_AUTHORITY_LINK_PATH, validateCapabilityAuthorityLink
 } from './capability-authority-link.mjs';
@@ -71,7 +72,9 @@ export const REPOSITORY_STATE_KINDS = Object.freeze([
   'configuration-mirror', 'delivery-locator', 'lifecycle-only', 'none', 'invalid'
 ]);
 
-const CURRENT_WORKFLOW_FORMAT_VERSION = 2;
+// The newest workflow.yml version this build writes; it reads every one of WORKFLOW_FILE_VERSIONS (2, 3 and 4) as
+// current, so a configuration on any of them is checked and migrated in place, never called a newer one.
+const CURRENT_WORKFLOW_FORMAT_VERSION = WORKFLOW_FILE_VERSIONS.at(-1);
 const STATE_BRANCH_DEFAULT = 'state';
 const CONFIGURATION_REF = `refs/heads/${CONFIGURATION_BRANCH}`;
 const CONFIGURATION_RECOVERY_RECEIPT = 'singularity/.product/configuration-recovery.json';
@@ -1103,8 +1106,8 @@ async function verifiedMirrorFromCheckout(root, remote, branch, commit, env, run
   let compatibility = 'invalid';
   let validationError = null;
   let seedChanges = [];
-  if (workflowVersion > CURRENT_WORKFLOW_FORMAT_VERSION) compatibility = 'future';
-  else if (workflowVersion === CURRENT_WORKFLOW_FORMAT_VERSION) {
+  if (workflowFileVersionNewer(workflowVersion)) compatibility = 'future';
+  else if (workflowFileVersionReadable(workflowVersion)) {
     try {
       await loadDefinition(root);
       const before = new Map(Object.entries(manifest.files));
@@ -1365,13 +1368,13 @@ async function inspectConfigurationSnapshot(remote, commit, {
         validationError: error?.message ?? String(error)
       });
     }
-    if (workflowVersion > CURRENT_WORKFLOW_FORMAT_VERSION) return Object.freeze({
+    if (workflowFileVersionNewer(workflowVersion)) return Object.freeze({
       branch: CONFIGURATION_BRANCH, commit, status: 'future', schemaVersion: workflowVersion,
       currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
       stateBranch: configuredStateBranch,
       seedChanges: Object.freeze([]), validationError: null
     });
-    if (workflowVersion !== CURRENT_WORKFLOW_FORMAT_VERSION) return Object.freeze({
+    if (!workflowFileVersionReadable(workflowVersion)) return Object.freeze({
       branch: CONFIGURATION_BRANCH, commit, status: 'invalid', schemaVersion: workflowVersion,
       currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
       stateBranch: configuredStateBranch,

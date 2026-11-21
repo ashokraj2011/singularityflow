@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { workflowFileVersionObsolete } from './phase-roles.mjs';
 import { branch, gitCommonDir, gitDir, head, repoRoot } from './git-execution.mjs';
 import { configuredRemoteIdentity, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { workspaceRepositoryPathAliases } from './workspace-repository-paths.mjs';
@@ -171,7 +172,9 @@ async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
  *
  * Missing workflow files stay registered: an uninitialized clone is a valid setup state. YAML that
  * cannot be parsed also stays registered so Configuration can expose the file for repair. Only an
- * unambiguous, successfully parsed non-v2 declaration is discarded by an explicit prune.
+ * unambiguous, successfully parsed obsolete declaration (no version, or one below 2) is discarded by an
+ * explicit prune. Every version this build reads (2, 3 and 4) stays, and so does a newer one: that
+ * repository needs a newer SFlow, not to be forgotten (phase-roles.mjs WORKFLOW_FILE_VERSIONS).
  * Ordinary commands preserve registrations because approved sflow/config—not this potentially
  * stale checkout—is their upgrade source of truth. There is no implicit conversion path.
  */
@@ -203,7 +206,7 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
     let workflow;
     try { workflow = YAML.parse(text); }
     catch { continue; }
-    if (workflow?.version === 2) continue;
+    if (!workflowFileVersionObsolete(workflow?.version)) continue;
     const incompatible = {
       id: entry.id,
       name: entry.name,
@@ -211,7 +214,7 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
       leadRepositoryPath: lead,
       version: workflow?.version ?? null,
       reason: workflow?.version == null
-        ? 'workflow.yml does not declare version 2'
+        ? 'workflow.yml does not declare its version'
         : `workflow.yml declares unsupported version ${workflow.version}`
     };
     removed.push(incompatible);

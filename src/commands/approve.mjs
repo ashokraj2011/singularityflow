@@ -313,6 +313,13 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   if (receiptsLine && !quiet) console.log(receiptsLine);
   const usageLine = await recordSpecUsageAfterTransition(root, config, workflow, { phase: result.phase.id, ended: !result.next });
   if (usageLine && !quiet) console.log(usageLine);
+  // The Story reached a test step whose failing tests SFlow returned to the code step, and the fix is approved: its tests
+  // run again, its next version started by SFlow with an undo (failing-tests-opening.mjs, owner 2026-11-20, D1).
+  const rerun = result.reached !== false && result.next && (workflow.settledDecisions ?? []).some((entry) => entry?.kind === 'failing-tests')
+    ? (await postPublicationStep('the test step\'s run again', workflow.workItem.id, async () => (await import('../failing-tests-opening.mjs'))
+      .rerunTestsAfterFix(root, workflow.workItem.id, { actor: session.actor }))).value : null;
+  if (rerun?.line && !quiet) console.log(rerun.line);
+  const settledState = rerun ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
   // The register items this step fixed on the way are fixed, awaiting proof [CQF:REQ-066]; the approval stands whatever the register does.
   const fixedOnTheWay = result.reached !== false && workflow.departures?.some((entry) => entry.phase === result.phase.id && entry.findings?.length)
     ? await (await import('../findings/register/on-the-way.mjs')).recordFindingsAfterApproval(root, config,
@@ -346,11 +353,12 @@ export async function approveCommand(positionals, options, dependencies = {}) {
         label: presenceModule.personRecordLabel(workflow, result.approval) } } : {}),
       ...(result.decisions ? { decisions: result.decisions } : {}),
       artifactSetSha256: result.approval.artifactSetSha256,
+      ...(rerun ? { testsRerun: rerun } : {}),
       ...(landing ? { landing: { finalized: landing.finalized, pullRequest: landing.pullRequest, next: landing.next } } : {}),
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
-  }), { postState: workflow, json: optionBoolean(options, 'json'), forAgent,
-    stepActionHold: await stepActionHoldAfterTransition(root, config, workflow) });
+  }), { postState: settledState, json: optionBoolean(options, 'json'), forAgent,
+    stepActionHold: await stepActionHoldAfterTransition(root, config, settledState) });
 }
 
 /** How SF Guard reads one recorded decision, as a suffix for a line, or ''. */

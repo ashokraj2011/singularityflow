@@ -923,7 +923,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,833,263 (measured on landing-15, 2026-11-21): step intents Stage 3 and the marketplace agent import together.
     // 9,827,858 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
     // 9,833,272 (measured on landing-15 with main ce94e5a79): the typeof check and the two option names added.
-    assert.ok(closure.bytes <= 9_833_272, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,838,896 (measured for submit.mjs, +5,624, 2026-11-21, d1-auto-return): a test step's failing tests go back to the code
+    // step on their own (D1). Submission lets a test step that changes no code submit with failing tests, and its approval
+    // gives the filled choices (state.mjs); SFlow's own return (rejectPhase `automatic`), the two settled kinds with their
+    // words and undo (settled-decisions.mjs, decision-plain.mjs), the settled openings (story-version-opening.mjs), the
+    // `submit.returned` outcome and its end of turn (narration/messages.mjs, agent-output.mjs). The rules and the acts load
+    // only when a test step's run failed or after a return (failing-tests-return.mjs, failing-tests-opening.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_838_896, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

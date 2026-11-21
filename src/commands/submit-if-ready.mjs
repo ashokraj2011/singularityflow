@@ -63,9 +63,13 @@ export function submittedResult(value) {
   return {
     phase: value?.outcome?.slots?.phase ?? null,
     generation: data.generation ?? null,
-    status: messageId === 'submit.completed' ? 'completed' : messageId === 'submit.noop' ? 'already-submitted' : 'submitted',
+    // `returned`: its tests failed, and SFlow returned it to its code step, whose next version is open (D1).
+    status: messageId === 'submit.completed' ? 'completed' : messageId === 'submit.returned' ? 'returned' : messageId === 'submit.noop' ? 'already-submitted' : 'submitted',
     committed: typeof data.commit === 'string',
-    pushedTo: data.pushedTo ?? null
+    pushedTo: data.pushedTo ?? null,
+    // Its tests failed and SFlow stopped at the review brake (D1): why, and the person's filled choices at its approval.
+    ...(data.automaticReturn && data.automaticReturn.returned === false ? { held: data.automaticReturn.held?.words ?? null,
+      choices: (data.automaticReturn.choices ?? []).map(({ label, command, skill }) => ({ label, command, skill })) } : {})
   };
 }
 
@@ -90,7 +94,8 @@ export async function run({ positionals, options }) {
   const result = submitted.value?.operation?.id === 'submit' ? submittedResult(submitted.value) : submitReport(submitted.stdout);
   // A step its submission completed (nobody approves it) is behind the Story now: what follows is the step that is current,
   // as every view names it, never a hand-off to next steps (journey Q, 2026-11-17). A Story that ended keeps the step's own.
-  const following = result?.status === 'completed' ? await show() : null;
+  // So is a test step SFlow returned to its code step for its failing tests: that step's next version is what follows (D1).
+  const following = ['completed', 'returned'].includes(result?.status) ? await show() : null;
   // First, with what follows: the readiness fields after it describe the step before submission.
   console.log(JSON.stringify({ submitIfReady: {
     submitted: true, next: nextAfterStep(following?.ok && following.value?.continuation ? following.value : shown.value, 'Submitted.'), command: readiness.nextCommand,

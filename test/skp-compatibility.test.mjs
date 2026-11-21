@@ -96,7 +96,8 @@ test('v2 workflow schema explicitly refuses the SKP authoring fragment', async (
     .additionalProperties.not.anyOf.map(({ required }) => required[0]),
   // A step's intent is the step's own, never a work type's override of it (step intents spec Stage 1, owner 2026-11-20).
   ['kind', 'skill', 'contract', 'intent']);
-  const v3 = schema.allOf.find((entry) => entry.if.properties.version.const === 3);
+  // Version 4 (step intents) keeps version 3's compiled skill steps, so one rule holds for both.
+  const v3 = schema.allOf.find((entry) => entry.if.properties.version.enum?.includes(3) && entry.if.properties.version.enum.includes(4));
   assert.deepEqual(v3.then.properties.phases.additionalProperties.oneOf[0].required,
     ['kind', 'skillBinding', 'label', 'artifact', 'inputs', 'qualityCommands',
       'approval', 'writeScope', 'generation', 'clarification']);

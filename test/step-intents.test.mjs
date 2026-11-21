@@ -50,8 +50,10 @@ test('profile 1 as the spec tables give it (§4.2, D1, D6)', () => {
   const lone = (intent) => deriveStepSettings(intent);
   // Only a code step changes source files (D1: a test step runs the tests the code step wrote).
   for (const intent of STEP_INTENTS) assert.equal(lone(intent).writeScope, intent === 'code' ? 'source-and-artifact' : 'artifact-only', intent);
+  // A lone intake or plan is a workflow with no code whose scope it defines, so it is recognised by a kind that defines
+  // clauses (the §5 code-free rule, Stage 2); in a workflow with a requirements step they keep intake and implementation-plan.
   assert.deepEqual(STEP_INTENTS.map((intent) => [intent, lone(intent).artifactKind]), [
-    ['intake', 'intake'], ['requirements', 'requirements'], ['design', 'design'], ['plan', 'implementation-plan'],
+    ['intake', 'requirements'], ['requirements', 'requirements'], ['design', 'design'], ['plan', 'implementation-spec'],
     ['code', 'implementation-summary'], ['test', 'test-evidence'], ['review', 'conformance-report'], ['release', 'publication-review'],
     ['report', 'report'], ['document', 'document']]);
   assert.equal(lone('code').generationTask, 'code');
@@ -267,12 +269,13 @@ test('the JSON schema knows intent and because, and refuses intent in a workflow
 });
 
 test('a workflow.yml from a newer SFlow is refused with the update, never a factory reset (§7.7, D4)', async () => {
-  assert.deepEqual(WORKFLOW_FILE_VERSIONS, [2, 3]);
-  const newer = { ...packaged(), version: 4 };
+  // Version 4 (Stage 2) is read: the refusal now starts at version 5.
+  assert.deepEqual(WORKFLOW_FILE_VERSIONS, [2, 3, 4]);
+  const newer = { ...packaged(), version: 5 };
   let refusal = null;
   try { validateDefinition(newer); } catch (error) { refusal = error; }
   assert.equal(refusal?.code, 'WORKFLOW_VERSION_NEWER');
-  assert.match(refusal.message, /^This repository's workflows need a newer SFlow: workflow\.yml is version 4, and this SFlow reads 2 and 3\. Update SFlow/u);
+  assert.match(refusal.message, /^This repository's workflows need a newer SFlow: workflow\.yml is version 5, and this SFlow reads 2, 3 and 4\. Update SFlow/u);
   assert.doesNotMatch(refusal.message, /factory-reset/u);
   assert.deepEqual(refusal.details.nextAction.argv, ['update']);
   const plan = refusalRemediationPlan(refusal, ['workflow', 'check']);
@@ -286,5 +289,5 @@ test('a workflow.yml from a newer SFlow is refused with the update, never a fact
     [['lifecycle:error:update', 'singularityFlow.updateSflow'], ['lifecycle:error:doctor', 'singularityFlow.doctor']]);
   // An older file keeps its own refusal and its own way on.
   assert.throws(() => validateDefinition({ ...packaged(), version: 1 }), (error) => /factory-reset/u.test(error.message) && error.code !== 'WORKFLOW_VERSION_NEWER');
-  assert.throws(() => validateDefinition({ ...packaged(), version: '4' }), (error) => error.code !== 'WORKFLOW_VERSION_NEWER');
+  assert.throws(() => validateDefinition({ ...packaged(), version: '5' }), (error) => error.code !== 'WORKFLOW_VERSION_NEWER');
 });

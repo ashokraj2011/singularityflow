@@ -381,7 +381,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
           prepared = prepareWorkflowSkillConsent(JSON.parse(canonicalJson({ source, approvedSource: context.source,
             request, snapshotInputs: { request, assets: draft.assets.map((asset) => ({ path: asset.path,
               bytes: asset.content.length, sha256: bytesDigest(asset.content), contentBase64: asset.content.toString('base64') })) },
-            candidateDefinition: { ...candidate, version: 3 }, pendingFiles: pendingSkillFiles,
+            candidateDefinition: { ...candidate, version: Math.max(candidate.version ?? 3, 3) }, pendingFiles: pendingSkillFiles,
             entries: skillEntries, dependencyLocks: locks, policySha256: core.policySha256,
             ...(phaseReplacements ? { phaseReplacements, approvedWorkflow: { path: 'singularity/workflow.yml',
               bytes: captured.exactFiles.get('singularity/workflow.yml').length,
@@ -901,7 +901,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       } else if (symbols.skills.get(value.skill.id)?.producerClassification) add('WCA_AGENT_BINDING_UNAVAILABLE', `definitions.phases.${key}.agent`, 'Finalization requires one explicitly selected exact phase agent.');
       const configured = finalizedPhases.get(key);
       if (configured) {
-        candidate.version = 3;
+        // Skill steps need version 3; a version 4 file (step intents) keeps its version.
+        candidate.version = Math.max(candidate.version ?? 3, 3);
         candidate.phases[key] = structuredClone(configured);
         validateConfiguredSkillPhase(candidate.phases[key], key);
       } else {

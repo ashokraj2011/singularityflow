@@ -1,26 +1,34 @@
 /**
- * Step intents (spec "SFlow step intents", owner-approved 2026-11-20): what each workflow step is for, the one
- * profile of framework settings each intent gives, the workflow rules that depend on the other steps, and how SFlow
+ * Step intents (spec "SFlow step intents", owner-approved 2026-11-20): what each workflow step is for, and how SFlow
  * tells a step's intent from its structure when the step declares none.
  *
- * - INTENT_PROFILES holds every published profile version as data. A published version never changes
- *   (test/step-intents.test.mjs locks each one by its hash); an improvement is a new version.
- * - deriveStepSettings(intent, context) is what one step's intent gives in its workflow; workflowIntentFacts holds
- *   the workflow rules (spec §5) it reads: who writes the requirement IDs, which step plans each code step, which
- *   steps a person approves, which step asks every time.
+ * - The profiles and the workflow rules are in step-intent-settings.mjs, re-exported here: INTENT_PROFILES holds every
+ *   published profile version as data (a published version never changes; test/step-intents.test.mjs locks each by
+ *   its hash), deriveStepSettings is what one step's intent gives in its workflow, and workflowIntentFacts the
+ *   workflow rules (spec §5) it reads. They load wherever a workflow resolves; what is here loads only where it is used.
+ * - PACKAGED_STEP_INTENTS is the intent of each step SFlow ships.
  * - inferStepIntents tells each step's intent from its structure first, then its position, words and agent (§6.1),
- *   with how sure it is: certain, likely or unclear.
+ *   with how sure it is: certain, likely or unclear. `workflow check` shows it; nothing derives a setting from it.
  *
- * Stage 0 and 1: nothing in the engine derives a setting from these yet. A Story's resolution (config.mjs
- * resolveWorkType) is unchanged; `workflow check` shows the inferred intents, and a test compares what the shipped
- * workflows would derive with what they have today (test/step-intents-comparison.test.mjs).
+ * Stage 2: a work type whose steps all say what they are for, in a version 4 workflow.yml, derives every setting a
+ * step does not set itself (step-intent-settings.mjs, read by config.mjs resolveWorkType); every other work type
+ * resolves as it always did. A test compares what the shipped workflows would derive with what they have today
+ * (test/step-intents-comparison.test.mjs).
  *
- * Pure: no file, process or clock is read, and it imports only the import-free phase-roles.mjs, so Workflow Studio's
- * page can run the same derivation (spec §6.4).
+ * Pure: no file, process or clock is read, and it imports only modules that read nothing, so Workflow Studio's page
+ * can run the same inference (spec §6.4).
  */
 import { BECAUSE_SETTINGS, STEP_INTENTS } from './phase-roles.mjs';
+// The profiles and the workflow rules live with the derivation configuration reads (step-intent-settings.mjs), so only
+// they load whenever a workflow resolves; the inference below loads only where it is used (workflow check, the tests).
+import {
+  CURRENT_INTENT_PROFILE, deriveStepSettings, deriveWorkflowSettings, DOCUMENT_INTENTS, INTENT_PROFILES, intentProfile, workflowIntentFacts
+} from './step-intent-settings.mjs';
 
-export { BECAUSE_SETTINGS, STEP_INTENTS };
+export {
+  BECAUSE_SETTINGS, CURRENT_INTENT_PROFILE, deriveStepSettings, deriveWorkflowSettings, DOCUMENT_INTENTS, INTENT_PROFILES, intentProfile,
+  STEP_INTENTS, workflowIntentFacts
+};
 
 const deepFreeze = (value) => {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -29,105 +37,6 @@ const deepFreeze = (value) => {
   }
   return value;
 };
-
-/** The intents that write documents only; the others deliver or judge a change. */
-export const DOCUMENT_INTENTS = Object.freeze(['intake', 'requirements', 'design', 'plan', 'document']);
-
-const doc = (overrides) => ({
-  family: 'document', changesSource: false, generationTask: null, testsAtSubmit: 'none', citesCodeTestResults: false,
-  preparesCodeEnvironment: false, reviewVersions: { automatic: 2 }, repairBudget: null, ...overrides
-});
-const delivery = (overrides) => ({
-  family: 'delivery', changesSource: false, generationTask: null, attachedDocuments: false, testsAtSubmit: 'none',
-  citesCodeTestResults: false, preparesCodeEnvironment: false, reviewVersions: { automatic: 2 }, repairBudget: null, ...overrides
-});
-const REPAIR = { limit: 3, exit: 'a person may grant one more round' };
-
-/**
- * Profile version 1 (spec §4.2, with the owner's decisions D1, D5 and D6 of 2026-11-20).
- *
- * Per intent: whether it changes source files, the artifact kind it is recognised as, whether it writes the
- * requirement IDs and plans code steps (settled by the workflow rules), its default agent and approver group, its
- * questions, whether SFlow or a person approves it, what it reads, whether it takes attached documents, the tests it
- * runs at submit (none, the repository's, or a code step's own and the later test steps' selections), whether it
- * cites the code step's test results, the versions after review findings, its repair limit and its starter template.
- * `workflow` holds what every step gets whatever its intent (§4.1) and the limits with their exits. The starter
- * templates other than common/intake.md, implementation.md, verification.md and conformance.md come with Stage 3.
- */
-const PROFILE_V1 = {
-  version: 1,
-  intents: {
-    intake: doc({ kind: 'intake', kindWhenWritingRequirementIds: 'requirements', writesRequirementIds: 'when-no-requirements-or-plan-step',
-      plansCode: 'when-nothing-nearer', agent: 'product-owner', questions: { mode: 'required', maxQuestions: 5 },
-      approval: 'sflow-when-clean', approvers: 'product-approvers', reads: 'nothing', attachedDocuments: true,
-      placement: 'first, and at most one', template: 'common/intake.md' }),
-    requirements: doc({ kind: 'requirements', writesRequirementIds: 'always', plansCode: 'when-nothing-nearer', agent: 'product-owner',
-      questions: { mode: 'when-needed', maxQuestions: 5, requiredWhenFirstWithoutIntake: true }, approval: 'sflow-when-clean',
-      approvers: 'product-approvers', reads: { intents: ['intake'] }, attachedDocuments: true, placement: 'before the plan',
-      template: 'common/requirements.md' }),
-    design: doc({ kind: 'design', writesRequirementIds: 'never', plansCode: 'when-no-plan-step', agent: 'architect',
-      questions: { mode: 'when-needed', maxQuestions: 5 }, approval: 'sflow-when-clean', approvers: 'architecture-reviewers',
-      reads: 'earlier-document-steps', attachedDocuments: true, placement: 'before the code step', template: 'common/design.md' }),
-    plan: doc({ kind: 'implementation-plan', kindWhenWritingRequirementIds: 'implementation-spec', writesRequirementIds: 'when-no-requirements-step',
-      plansCode: 'always', agent: 'architect', questions: { mode: 'when-needed', maxQuestions: 5 }, approval: 'person',
-      approvers: 'architecture-reviewers', reads: 'earlier-document-steps', attachedDocuments: true,
-      placement: 'right before the code step it plans', template: 'common/plan.md' }),
-    document: doc({ kind: 'document', writesRequirementIds: 'never', plansCode: 'never', agent: null,
-      questions: { mode: 'when-needed', maxQuestions: 3 }, approval: 'sflow-when-clean', approvers: null,
-      reads: 'earlier-document-steps', attachedDocuments: false, placement: 'anywhere', template: 'common/document.md' }),
-    code: delivery({ changesSource: true, kind: 'implementation-summary', generationTask: 'code', agent: 'developer',
-      questions: { mode: 'when-needed', maxQuestions: 3 }, approval: 'person', approvers: 'engineering-reviewers',
-      testsAtSubmit: 'own-and-later-test-steps', preparesCodeEnvironment: true, repairBudget: REPAIR,
-      reads: { intents: ['requirements', 'design', 'plan'] }, placement: 'after the step that plans it',
-      // D6: the runtime check by the kind of software the code step changes; a team may lower it to optional with a reason.
-      runtimeCheck: { required: ['web', 'backend', 'job', 'cli', 'mobile'], library: 'api-compatibility', artifact: 'validation', lowerTo: 'optional', lowering: 'needs a reason' },
-      template: 'common/implementation.md' }),
-    test: delivery({ kind: 'test-evidence', kindWithScreenProfiles: 'visual-test-evidence', agent: 'qa',
-      questions: { mode: 'when-needed', maxQuestions: 3 }, approval: 'sflow-when-clean', approvers: 'quality-reviewers',
-      testsAtSubmit: 'repository', citesCodeTestResults: true, preparesCodeEnvironment: true, repairBudget: REPAIR,
-      // D1: a test step changes no source; a failing test starts the code step's next version, with the failure as its
-      // task, automatically, under the workflow's review brake.
-      onFailure: 'code-step-next-version',
-      reads: { intents: ['requirements', 'code'] }, placement: 'after a code step, or on its own', template: 'common/verification.md' }),
-    review: delivery({ kind: 'conformance-report', agent: 'qa', questions: { mode: 'when-needed', maxQuestions: 3 },
-      approval: 'sflow-when-clean', approvers: 'quality-reviewers', citesCodeTestResults: true,
-      reads: { intents: ['requirements', 'plan', 'code', 'test'] }, placement: 'after the last code step', template: 'common/conformance.md' }),
-    release: delivery({ kind: 'publication-review', agent: 'qa', questions: { mode: 'when-needed', maxQuestions: 3 },
-      approval: 'sflow-when-clean', approvers: 'quality-reviewers', reads: 'all-earlier-steps', placement: 'after the last code step',
-      template: 'common/release.md' }),
-    report: delivery({ kind: 'report', agent: 'qa', questions: { mode: 'when-needed', maxQuestions: 3 },
-      approval: 'sflow-when-clean', approvers: 'quality-reviewers', reads: 'all-earlier-steps', placement: 'anywhere after the intake, usually last',
-      template: 'common/report.md' })
-  },
-  workflow: {
-    review: 'every drafted step has an independent reviewer; a code step\'s is a code review',
-    choices: 'optional choices are offered, never asked as required questions',
-    sendBack: 'any earlier step, or the step itself',
-    reviewBrake: { rounds: 2, setting: 'per workflow' },
-    approvalFallbacks: ['a decision follows the step', 'it starts a rework loop', 'it captures design sources',
-      'its approval names a required group or more than one approver', 'self-approval is off', 'the Story takes signatures',
-      'the reviewer has not said ready'],
-    codeFree: { leaveOut: 'implement', reason: 'This workflow changes no code', personApproves: ['the scope step', 'the last step'] },
-    limits: {
-      questions: 'the agent goes on and writes down its assumptions',
-      reviewVersions: 'a person\'s "Start version N?"',
-      repairBudget: 'a person grants one more round',
-      reviewerContinuation: 'a fresh budget on the next request',
-      decisionRounds: 'the decision\'s own way out'
-    }
-  }
-};
-
-/** Every published profile version, by number. Append only. */
-export const INTENT_PROFILES = deepFreeze({ 1: PROFILE_V1 });
-export const CURRENT_INTENT_PROFILE = 1;
-
-/** A published profile version; an unknown one is refused, never guessed. */
-export function intentProfile(version = CURRENT_INTENT_PROFILE) {
-  const profile = INTENT_PROFILES[version];
-  if (!profile) throw new RangeError(`Step intent profile ${String(version)} is not one this SFlow has (it has ${Object.keys(INTENT_PROFILES).join(', ')}).`);
-  return profile;
-}
 
 /**
  * The intent of each step SFlow ships (templates/workflow.yml), by step ID: spec §4.3 and Appendix B. A step that is
@@ -150,162 +59,6 @@ export const PACKAGED_STEP_INTENTS = deepFreeze({
   'poc-validation': 'test', 'poc-publication-review': 'release',
   planning: 'plan', convergence: 'review', release: 'review'
 });
-
-// ---------------------------------------------------------------------------------------------
-// Workflow rules (spec §5)
-
-const indexOf = (steps, id) => steps.findIndex((step) => step.id === id);
-
-/**
- * The workflow rules for one workflow's steps, in order. Each step is `{ id, intent, editsSource?, codeStep?,
- * builtBySflow? }`: `editsSource` is whether the step changes source files as the workflow has it, `codeStep` whether
- * it is a code step as the workflow has it (both default to: its intent is code; a kept override can differ, as
- * chore's `generation.task: analyze`), and `builtBySflow` whether SFlow builds it itself. The options name what the
- * workflow declares: `omitsScope` (it leaves the scope out), `decisionsAfter`, `loopSources`, `designCaptureStep`,
- * and `heldForPerson` (step ID → why a person approves it, from its own approval or a safety rule).
- */
-export function workflowIntentFacts(steps, {
-  omitsScope = false, decisionsAfter = [], loopSources = [], designCaptureStep = null, heldForPerson = {}
-} = {}) {
-  const of = (intent) => steps.filter((step) => step.intent === intent);
-  const edits = (step) => (typeof step.editsSource === 'boolean' ? step.editsSource : step.intent === 'code');
-  const codeSteps = steps.filter((step) => (typeof step.codeStep === 'boolean' ? step.codeStep : step.intent === 'code'));
-  const hasCode = codeSteps.length > 0;
-  const changesSource = steps.some(edits);
-  // Who writes the requirement IDs: every requirements step; else the first plan; else the intake.
-  const scopeSteps = omitsScope ? [] : of('requirements').length ? of('requirements')
-    : of('plan').length ? [of('plan')[0]] : of('intake').length ? [of('intake')[0]] : [];
-  const scopeIds = new Set(scopeSteps.map((step) => step.id));
-  // Who plans each code step: the nearest plan before it; else the nearest design; else the step writing the IDs.
-  const planners = {};
-  const unplanned = [];
-  for (const code of codeSteps) {
-    const before = steps.slice(0, indexOf(steps, code.id)).reverse();
-    const pick = before.find((step) => step.intent === 'plan') ?? before.find((step) => step.intent === 'design')
-      ?? before.find((step) => scopeIds.has(step.id));
-    if (pick) planners[code.id] = pick.id;
-    else unplanned.push(code.id);
-  }
-  // The plan a person approves: the planners; with none, the last document step before the first step that changes
-  // source files (phase-roles.mjs planStepIds).
-  let planSteps = [...new Set(Object.values(planners))];
-  const firstEdit = steps.findIndex(edits);
-  if (!planSteps.length && firstEdit > 0) {
-    const pick = steps.slice(0, firstEdit).filter((step) => DOCUMENT_INTENTS.includes(step.intent)).at(-1);
-    if (pick) planSteps = [pick.id];
-  }
-  const intake = of('intake')[0];
-  const questionStep = intake ? intake.id : steps[0] && DOCUMENT_INTENTS.includes(steps[0].intent) ? steps[0].id : null;
-  return deepFreeze({
-    hasCode,
-    codeFree: !changesSource,
-    codeSteps: codeSteps.map((step) => step.id),
-    scopeSteps: [...scopeIds],
-    // IDs are pinned only when the workflow has a code step (config.mjs normalizePlannedClaimsPolicy).
-    requirementIdSteps: hasCode ? [...scopeIds] : [],
-    planners,
-    // The planners the planned claims name: none when no step writes requirement IDs, as plannedClaims has none then.
-    plannedClaimOwners: hasCode && scopeIds.size ? { ...planners } : {},
-    unplanned,
-    planSteps,
-    questionStep,
-    lastStep: steps.at(-1)?.id ?? null,
-    decisionsAfter: [...decisionsAfter], loopSources: [...loopSources], designCaptureStep, heldForPerson: { ...heldForPerson }
-  });
-}
-
-/** The IDs of the steps before `index` that pass `test`, in workflow order. */
-function earlier(steps, index, test) {
-  return steps.slice(0, index).filter(test).map((step) => step.id);
-}
-
-/**
- * What one step's intent gives in its workflow: every framework setting of its profile, settled by the workflow
- * rules. `context` is `{ steps, index, profile?, facts?, screenProfiles?, ...workflowIntentFacts options }`; a lone
- * step needs none of it. A step's own overrides are not applied here: `editsSource`, `codeStep` and `builtBySflow`
- * only settle the rules that read them (who writes the IDs, the plan, citing test results, questions, attached
- * documents). Stage 2 merges overrides and the safety rules over this result (spec §7.2).
- */
-export function deriveStepSettings(intent, context = {}) {
-  const profile = intentProfile(context.profile ?? CURRENT_INTENT_PROFILE);
-  const entry = profile.intents[intent];
-  if (!entry) throw new RangeError(`'${String(intent)}' is not a step intent. Use one of: ${STEP_INTENTS.join(', ')}.`);
-  const steps = context.steps ?? [{ id: context.id ?? 'step', intent }];
-  const index = Number.isInteger(context.index) ? context.index : 0;
-  const step = steps[index] ?? { id: 'step', intent };
-  const facts = context.facts ?? workflowIntentFacts(steps, context);
-  const id = step.id;
-  const edits = (candidate) => (typeof candidate.editsSource === 'boolean' ? candidate.editsSource : candidate.intent === 'code');
-
-  const writesRequirementIds = facts.requirementIdSteps.includes(id);
-  const kind = writesRequirementIds && entry.kindWhenWritingRequirementIds ? entry.kindWhenWritingRequirementIds
-    : context.screenProfiles && entry.kindWithScreenProfiles ? entry.kindWithScreenProfiles : entry.kind;
-
-  // Who approves it: the profile, then the workflow rules that hand a step to a person.
-  const person = (why) => ({ by: 'person', why });
-  const approval = entry.approval === 'person' ? person(intent === 'code' ? 'it changes source files' : 'it is the plan')
-    : facts.planSteps.includes(id) ? person('it is the plan')
-      : facts.codeFree && facts.scopeSteps.includes(id) ? person('it sets the scope of a workflow that changes no code')
-        : facts.codeFree && facts.lastStep === id ? person('it is what a workflow that changes no code delivers')
-          : facts.designCaptureStep === id ? person('it captures the design sources')
-            : facts.loopSources.includes(id) ? person('it starts a rework loop')
-              : facts.decisionsAfter.includes(id) ? person('a decision follows it')
-                : facts.heldForPerson[id] ? person(facts.heldForPerson[id])
-                  : { by: 'sflow-when-clean', why: `the ${intent} profile` };
-
-  // One step asks every time; a step SFlow builds itself asks nothing.
-  const clarification = step.builtBySflow ? { mode: 'off', maxQuestions: entry.questions.maxQuestions }
-    : facts.questionStep === id ? { mode: 'required', maxQuestions: entry.questions.maxQuestions }
-      : { mode: entry.questions.mode === 'required' ? 'when-needed' : entry.questions.mode, maxQuestions: entry.questions.maxQuestions };
-
-  // A test or review step that changes no source cites the latest code step's committed test results, when no step
-  // since has changed source; it then reads that code step too (config.mjs requires it).
-  let testEvidenceFrom = null;
-  if (entry.citesCodeTestResults && !edits({ ...step, intent }) && !step.builtBySflow) {
-    const code = steps.slice(0, index).findLastIndex((candidate) => candidate.intent === 'code');
-    if (code >= 0 && !steps.slice(code + 1, index).some(edits)) testEvidenceFrom = steps[code].id;
-  }
-
-  const scope = new Set(facts.scopeSteps);
-  const reads = entry.reads === 'nothing' ? []
-    : entry.reads === 'all-earlier-steps' ? earlier(steps, index, () => true)
-      : entry.reads === 'earlier-document-steps' ? earlier(steps, index, (candidate) => DOCUMENT_INTENTS.includes(candidate.intent))
-        // The step that writes the requirement IDs stands for the requirements when the workflow has no requirements step.
-        : earlier(steps, index, (candidate) => entry.reads.intents.includes(candidate.intent)
-          || (entry.reads.intents.includes('requirements') && scope.has(candidate.id)));
-  if (testEvidenceFrom && !reads.includes(testEvidenceFrom)) reads.push(testEvidenceFrom);
-  const order = new Map(steps.map((candidate, position) => [candidate.id, position]));
-  reads.sort((left, right) => order.get(left) - order.get(right));
-
-  return deepFreeze({
-    id, intent, intentProfile: profile.version,
-    writeScope: entry.changesSource ? 'source-and-artifact' : 'artifact-only',
-    artifactKind: kind,
-    generationTask: entry.generationTask,
-    writesRequirementIds,
-    plans: Object.entries(facts.planners).filter(([, planner]) => planner === id).map(([code]) => code),
-    isPlan: facts.planSteps.includes(id),
-    clarification,
-    approval,
-    approvers: entry.approvers,
-    repositoryTests: entry.testsAtSubmit === 'repository' ? 'run' : 'off',
-    testEvidenceFrom,
-    inputs: reads,
-    attachedDocuments: Boolean(entry.attachedDocuments) && !step.builtBySflow,
-    defaultAgent: entry.agent,
-    preparesCodeEnvironment: entry.preparesCodeEnvironment,
-    reviewVersions: entry.reviewVersions,
-    repairBudget: entry.repairBudget,
-    template: entry.template,
-    ...(entry.runtimeCheck ? { runtimeCheck: entry.runtimeCheck } : {})
-  });
-}
-
-/** Every step's derived settings, with the workflow rules they share. `steps` and `options` as workflowIntentFacts. */
-export function deriveWorkflowSettings(steps, options = {}) {
-  const facts = workflowIntentFacts(steps, options);
-  return { facts, steps: steps.map((step, index) => deriveStepSettings(step.intent, { ...options, steps, index, facts })) };
-}
 
 // ---------------------------------------------------------------------------------------------
 // Inference (spec §6.1)

@@ -210,10 +210,14 @@ export function planStepIds(workType, phases) {
   return new Set(plan ? [plan.id] : []);
 }
 
-/** Why `phase` is never approved automatically in this work type ("it is the plan"), or null when it may be. */
-export function automaticApprovalRefusal(phase, { workType = null, phases = [] } = {}) {
+/**
+ * Why `phase` is never approved automatically in this work type ("it is the plan"), or null when it may be.
+ * `planSteps` names the plan when the work type's step intents settled it (step-intent-settings.mjs: the planner of
+ * each code step); otherwise planStepIds reads it from the work type.
+ */
+export function automaticApprovalRefusal(phase, { workType = null, phases = [], planSteps = null } = {}) {
   if (!phase) return null;
-  if (planStepIds(workType, phases).has(phase.id)) return 'it is the plan, which a person approves';
+  if ((planSteps ? new Set(planSteps) : planStepIds(workType, phases)).has(phase.id)) return 'it is the plan, which a person approves';
   if (editsSource(phase)) return 'it may change source files, so a person approves it';
   if (isConvergencePhase(phase)) return 'only a person\'s approval moves the Story on from convergence';
   if (workType?.designSources && (workType.designSources.capturePhase ?? 'design-intake') === phase.id) {
@@ -251,7 +255,9 @@ export function coveredStep(phase) {
  * What a step may say about what it is for (step intents spec §3, §7.1): `intent:`, one of these ten words, written on
  * the step itself, and `because:`, the reason for each of these settings the step sets itself rather than taking
  * from its intent (§7.3). Configuration checks both when it loads (config.mjs); the profiles that give each intent
- * its settings are in step-intents.mjs. Names still decide nothing: nothing derives a setting from an intent yet.
+ * its settings are in step-intents.mjs, and step-intent-settings.mjs derives a work type's settings from them when
+ * every step says what it is for (workflow.yml version 4). Names still decide nothing: the engine reads the settings.
+ * A work type's own `because:` names the work-type settings it sets itself (WORK_TYPE_BECAUSE_SETTINGS).
  */
 export const STEP_INTENTS = Object.freeze(['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review', 'release', 'report', 'document']);
 export const BECAUSE_SETTINGS = Object.freeze([
@@ -259,3 +265,4 @@ export const BECAUSE_SETTINGS = Object.freeze([
   'clarification', 'clarification.mode', 'approval', 'approval.mode', 'approval.automatic', 'approval.policy', 'approval.rejectTo',
   'repositoryTests', 'testEvidenceFrom', 'testRuns', 'repairBudget'
 ]);
+export const WORK_TYPE_BECAUSE_SETTINGS = Object.freeze(['plannedClaims', 'plannedClaims.clausePhases', 'plannedClaims.owners', 'sourceReview', 'sourceReview.skip']);

@@ -15,7 +15,7 @@
   "draft-for-version": 6,
   "generic-route": 6204,
   "jargon": 1348,
-  "length": 648
+  "length": 647
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -3113,7 +3113,6 @@
    "1dbe0a17a024": "jargon:binding",
    "310c826f8865": "jargon:generation",
    "35800b5db32f": "length",
-   "6f35aeb4070e": "length",
    "74ba85dd9163": "jargon:retained",
    "7aabb2d4bce2": "length",
    "7e3446d9ecd8": "length",

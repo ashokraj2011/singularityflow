@@ -105,7 +105,6 @@ By group: G1 11, G2 8, G3 8, G4 8, G5 10, G6 1, G7 5, kept override 1.
 - feature / implementation-spec (plan): implementation-spec → implementation-plan
 - bugfix / reproduction (design): reproduction → design
 - bugfix / fix-design (design): fix-design → design
-- chore / intake (intake): requirements → intake
 - findings-remediation / remediation-plan (plan): implementation-spec → implementation-plan
 - figma-mobile / design-intake (intake): design-intake → intake
 - figma-mobile / design-inventory (design): design-inventory → design

@@ -49,6 +49,7 @@ import {
 } from './workflow-transfer-resolution.mjs';
 import { bundleContentsLines, planEntriesText } from './workflow-transfer-resolution.mjs';
 import { assertWorkflowReadinessChanges, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { INTENTS_FILE_VERSION } from './step-intent-settings.mjs';
 import { constitutionPolicy, parseConstitution } from './constitution.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -1643,7 +1644,8 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
   let selectedSkillBytes = 0;
   if (selectedSkills.length) {
     const snapshot = configurationReadSnapshot(root);
-    if (!snapshot || configs.story.version !== 3) {
+    // Version 3 or later: compiled skill steps came with version 3, and version 4 (step intents) keeps them.
+    if (!snapshot || !(configs.story.version >= 3)) {
       fail('Skill workflow export requires the exact verified approved configuration snapshot.',
         'SKP_APPROVED_CONFIGURATION_REQUIRED');
     }
@@ -2096,15 +2098,38 @@ function storyImportCandidate(value, agentCatalog) {
 function validateStoryImportCandidate(value, agentCatalog, existing) {
   const candidate = storyImportCandidate(value, agentCatalog);
   validateDefinition(candidate);
+  assertImportedIntentsDerive(candidate, existing);
   validateAgentCatalog(candidate.agentCatalog, candidate);
   assertWorkflowReadinessChanges(existing ?? {}, value);
   return candidate;
 }
 
+/**
+ * A workflow whose steps all say what they are for derives its settings from their intents only in a version 4
+ * workflow.yml (step intents spec §7.7). Imported into an older file it would run without them, differently from
+ * where it came from, so the import names the one change that keeps it the same instead of writing it.
+ */
+export function assertImportedIntentsDerive(candidate, existing) {
+  if (candidate.version >= INTENTS_FILE_VERSION) return;
+  const brought = Object.entries(candidate.workTypes ?? {}).filter(([id, type]) => {
+    const steps = Array.isArray(type?.phases) ? type.phases : [];
+    if (!steps.length || !steps.every((step) => typeof candidate.phases?.[step]?.intent === 'string')) return false;
+    const before = existing?.workTypes?.[id];
+    return !before || canonicalJson(before) !== canonicalJson(type)
+      || steps.some((step) => canonicalJson(existing?.phases?.[step] ?? null) !== canonicalJson(candidate.phases[step]));
+  }).map(([id]) => id);
+  if (!brought.length) return;
+  fail(`${brought.length === 1 ? `Workflow ${brought[0]}` : `Workflows ${brought.join(', ')}`} say${brought.length === 1 ? 's' : ''} what every step is for, `
+    + `so ${brought.length === 1 ? 'it derives its' : 'they derive their'} settings from those intents, which needs workflow.yml version ${INTENTS_FILE_VERSION}. `
+    + `This repository's workflow.yml is version ${candidate.version}, where ${brought.length === 1 ? 'it' : 'they'} would run without them. `
+    + `Set version: ${INTENTS_FILE_VERSION} at the top of ${WORKFLOW_PATH} (SFlow builds from before step intents then ask to be updated), then preview the import again.`,
+  'WORKFLOW_INTENTS_VERSION_REQUIRED', { workflows: brought, version: candidate.version, needs: INTENTS_FILE_VERSION });
+}
+
 function validateSkillTargetPolicy(bundle, existing, targetAgents = []) {
   const selected = selectedSkillBindings(bundle);
   if (!selected.length) return;
-  if (existing.version !== 3) {
+  if (!(existing.version >= 3)) {
     fail('Target configuration must already admit the registered version-3 skill phase dialect.',
       'SKP_TARGET_POLICY_INCOMPATIBLE');
   }

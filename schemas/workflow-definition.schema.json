@@ -5,7 +5,8 @@
   "type": "object",
   "required": ["version", "git", "templatesRoot", "workTypes", "phases"],
   "properties": {
-    "version": { "enum": [2, 3] },
+    "version": { "enum": [2, 3, 4], "description": "2, or 3 for compiled skill steps, or 4: as 3, and a workflow whose steps all say what they are for (intent) derives its settings from them. A file that uses no intents means the same at 3 and 4." },
+    "intentProfiles": { "type": "integer", "minimum": 1, "description": "Version 4 only: the step intent profile this file's workflows derive their settings from (src/step-intents.mjs). Absent means 1. A Story keeps the profile it started with." },
     "agentPromptsRoot": { "type": "string", "description": "singularity/agents: this repository keeps SFlow's step agents there (SPEC-AGH); init writes it, and the upgrade's reviewed migration sets it. Absent or any other value is the legacy .github/agents, where another value names one more configuration transport root." },
     "repositoryReadiness": {
       "type": "object",
@@ -473,6 +474,7 @@
         "required": ["label", "phases"],
         "properties": {
           "label": { "type": "string", "minLength": 1 },
+          "because": { "$ref": "#/$defs/workTypeBecause" },
           "applicationReview": { "$ref": "application-review.schema.json#/$defs/policy" },
           "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
           "reworkLoops": {
@@ -768,7 +770,7 @@
       }
     },
     {
-      "if": { "properties": { "version": { "const": 3 } }, "required": ["version"] },
+      "if": { "properties": { "version": { "enum": [3, 4] } }, "required": ["version"] },
       "then": {
         "properties": {
           "phases": {
@@ -779,7 +781,7 @@
                   "properties": { "kind": { "const": "skill" }, "skillBinding": { "$ref": "#/$defs/skpSkillBinding" } },
                   "not": { "anyOf": [
                     { "required": ["skill"] }, { "required": ["contract"] },
-                    { "required": ["defaultTemplate"] }
+                    { "required": ["defaultTemplate"] }, { "required": ["intent"] }, { "required": ["because"] }
                   ] }
                 },
                 {
@@ -798,7 +800,14 @@
   "$defs": {
     "stepIntent": {
       "enum": ["intake", "requirements", "design", "plan", "code", "test", "review", "release", "report", "document"],
-      "description": "What the step is for (src/phase-roles.mjs STEP_INTENTS; profiles in src/step-intents.mjs). Set on the step itself, never in a work type's phaseOverrides: a workflow that needs a different step copies it. Read by people and workflow check; nothing derives a setting from it yet."
+      "description": "What the step is for (src/phase-roles.mjs STEP_INTENTS; profiles in src/step-intents.mjs). Set on the step itself, never in a work type's phaseOverrides: a workflow that needs a different step copies it. In a version 4 file, a workflow whose steps all say one derives every setting a step does not set itself from it (src/step-intent-settings.mjs); compiled skill steps take none."
+    },
+    "workTypeBecause": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Why the workflow sets a work-type setting its steps' intents would give (requirement IDs and plan owners, steps left without their review): the setting's name, then the reason in 20 to 1000 characters.",
+      "propertyNames": { "enum": ["plannedClaims", "plannedClaims.clausePhases", "plannedClaims.owners", "sourceReview", "sourceReview.skip"] },
+      "additionalProperties": { "type": "string", "minLength": 20, "maxLength": 1000 }
     },
     "stepBecause": {
       "type": "object",
@@ -1527,7 +1536,7 @@
         "mode": { "enum": ["required", "none", "policy"] },
         "policy": { "type": ["string", "null"], "minLength": 1 },
         "maximumChangedPaths": { "type": ["integer", "null"], "minimum": 1 },
-        "automatic": { "enum": ["when-ready"], "description": "Approved automatically right after it is submitted when its reviewer said ready, its checks passed and nothing is open; otherwise its people approve it." },
+        "automatic": { "enum": ["when-ready", "off"], "description": "when-ready: approved automatically right after it is submitted when its reviewer said ready, its checks passed and nothing is open; otherwise its people approve it. off (a step with an intent in a version 4 file only): a person approves it although its intent would let SFlow approve it when clean." },
         "authorities": {
           "type": "array",
           "minItems": 1,

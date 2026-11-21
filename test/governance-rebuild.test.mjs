@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { activateGovernanceRebuild, planGovernanceRebuild, restoreGovernanceRebuild } from '../src/governance-rebuild.mjs';
+import { previousShippedWorkflow } from './helpers/previous-workflow.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'singularity-flow.mjs');
@@ -41,7 +42,8 @@ async function repository(t) {
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
   sflow(root, 'init');
   const file = path.join(root, 'singularity/workflow.yml');
-  const definition = YAML.parse(await readFile(file, 'utf8'));
+  // A repository an older release seeded: the workflow.yml shipped before step intents, with this init's agents home.
+  const definition = previousShippedWorkflow({ agentPromptsRoot: YAML.parse(await readFile(file, 'utf8')).agentPromptsRoot });
   definition.worldModel.grounding = 'off';
   definition.git.publish = 'off';
   definition.repositoryReadiness = { ...(definition.repositoryReadiness ?? {}), requiredBeforeStory: false };

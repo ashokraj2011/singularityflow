@@ -57,8 +57,9 @@ function compareWorkType(raw, definition, id) {
   const clauses = new Set(resolved.plannedClaims?.mode === 'required' ? resolved.plannedClaims.clausePhases ?? [] : []);
   const owners = resolved.plannedClaims?.mode === 'required' ? resolved.plannedClaims.owners ?? {} : {};
   const documents = new Set(resolved.documents?.allowedPhases ?? []);
-  // A work type's own list of steps that take attached documents is kept as it is written (spec Appendix B).
-  const ownDocuments = Array.isArray(type.documents?.allowedPhases);
+  // A work type's own list of steps that take attached documents is kept as it is written (spec Appendix B); one that
+  // says why it differs from the intents is a kept difference (G7 since Stage 4), compared as one.
+  const ownDocuments = Array.isArray(type.documents?.allowedPhases) && !type.because?.['documents.allowedPhases'];
   const rows = resolved.phases.map((phase, index) => {
     const step = steps[index];
     const next = derived[index];

@@ -264,7 +264,7 @@ test('configuration authority is bootstrapped without changing application histo
     assert.equal(run('git', ['rev-parse', 'main'], { cwd: fixture.remote }).stdout.trim(), before);
     assert.match(run('git', ['show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`], {
       cwd: fixture.remote
-    }).stdout, /^version: 2/m);
+    }).stdout, /^version: 4/m, 'the shipped workflow.yml (version 4 since step intents)');
     assert.equal(run('git', ['show', `${CONFIGURATION_BRANCH}:singularity/company-policy.md`], {
       cwd: fixture.remote
     }).stdout, '# Preserve this policy\n');
@@ -641,7 +641,7 @@ test('a lifecycle branch receives and verifies one exact approved configuration 
     assert.equal(snapshot.branch, CONFIGURATION_BRANCH);
     assert.match(snapshot.commit, /^[0-9a-f]{40}$/);
     assert.ok(snapshot.paths.includes(CONFIGURATION_SOURCE_PATH));
-    assert.equal((await loadDefinition(checkout)).version, 2);
+    assert.equal((await loadDefinition(checkout)).version, 4);
 
     const provenance = await readConfigurationSource(checkout, { verify: true });
     assert.equal(provenance.commit, snapshot.commit);
@@ -786,7 +786,7 @@ test('one verified Story snapshot validates and materializes without a second re
     run('git', ['switch', '-q', '-c', 'STORY-SNAPSHOT'], { cwd: checkout });
     const authority = await resolveStoryConfigurationAuthority(checkout);
     const prepared = await loadStoryConfigurationSnapshot(authority);
-    assert.equal(prepared.definition.version, 2);
+    assert.equal(prepared.definition.version, 4);
 
     const fullRead = await withStoryConfigurationSnapshotRead(checkout, prepared, async () => ({
       snapshot: configurationReadSnapshot(checkout),
@@ -813,7 +813,7 @@ test('one verified Story snapshot validates and materializes without a second re
       authority, snapshot: prepared
     });
     assert.equal(materialized.commit, authority.commit);
-    assert.equal((await loadDefinition(checkout)).version, 2);
+    assert.equal((await loadDefinition(checkout)).version, 4);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -883,7 +883,7 @@ test('Story authority resolution uses the repository root when the host process 
     assert.equal(authority.branch, CONFIGURATION_BRANCH);
     assert.match(authority.commit, /^[0-9a-f]{40}$/);
     assert.equal(authority.observedCommit, authority.commit);
-    assert.equal(authority.version, 2);
+    assert.equal(authority.version, 4);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -997,7 +997,7 @@ test('a running Story pinned to the state copy still loads it; new work never re
     const snapshot = await loadStoryConfigurationSnapshot(authority);
     assert.equal(snapshot.observedCommit, mirror.stateCommit);
     assert.equal(snapshot.sourceCommit, mirror.sourceCommit);
-    assert.equal(snapshot.definition.version, 2);
+    assert.equal(snapshot.definition.version, 4);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

@@ -17,11 +17,15 @@ import { SingularityFlowError } from '../src/util.mjs';
 import { loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { pinnedResolutionVerification } from '../src/state.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
 import { authoringSkillContractErrors } from '../scripts/skill-policy.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 const starter = () => YAML.parse(readFileSync(path.join(packageRoot, 'templates', 'workflow.yml'), 'utf8'));
+// A shipped design step turned into a code step for one workflow: a workflow without step intents (version 2). With
+// them a step means one thing in every workflow, so the code step would be a copy of it (step intents §7.1).
+const starterBeforeIntents = () => packagedWorkflowWithoutIntents(starter(), 2);
 
 function refusal(mutate) {
   const definition = starter();
@@ -282,7 +286,7 @@ function personApprovesPlan(definition) {
 
 test('guidance renders verified code routes regardless of the phase name and drops unlisted skills', () => {
   assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare vendor-analysis', skill: '/sf-jira-board' }), null);
-  const definition = starter();
+  const definition = starterBeforeIntents();
   definition.workTypes.feature.phaseOverrides = {
     ...(definition.workTypes.feature.phaseOverrides ?? {}),
     design: { inputs: ['requirements'], writeScope: 'source-and-artifact', generation: { requirement: 'required', producer: 'agent', task: 'code' }, authoringSkill: 'sf-code' }
@@ -317,7 +321,7 @@ test('guidance renders verified code routes regardless of the phase name and dro
 });
 
 test('a built-in step goes back to its specialised skill only on its automatic document route', () => {
-  const definition = starter();
+  const definition = starterBeforeIntents();
   definition.workTypes.feature.phaseOverrides = {
     ...(definition.workTypes.feature.phaseOverrides ?? {}),
     design: { inputs: ['requirements'], writeScope: 'source-and-artifact', generation: { requirement: 'required', producer: 'agent', task: 'code' } }

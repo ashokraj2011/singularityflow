@@ -64,7 +64,8 @@ export async function seededWorkflowProtection(story, initiative = {}, agents = 
 /**
  * Whether the only change to a step SFlow ships is its packaged intent (step intents Stage 3), which changes nothing in
  * a seeded workflow while one of that workflow's steps still has none: a workflow derives from intents only once every
- * step has one. A change that would make a seeded workflow derive is refused, with the copy as its way out.
+ * step has one. A change that would make a seeded workflow derive is refused, with the copy as its way out: since
+ * Stage 4 only in a repository the upgrade kept without the shipped steps' intents, whose upgrade brings them.
  */
 function packagedIntentOnly(id, before, after, protectedIds) {
   const intent = PACKAGED_STEP_INTENTS[id];
@@ -79,7 +80,7 @@ function packagedIntentOnly(id, before, after, protectedIds) {
     return phases.length && phases.includes(id) && phases.every((phase) => typeof after.story.phases?.[phase]?.intent === 'string');
   });
   if (derives.length) {
-    throw new SingularityFlowError(`Giving step '${id}' its intent would make the seeded workflow ${derives.join(', ')} derive its settings from intents before SFlow ships them. Copy the step for your workflow and give the copy its intent.`,
+    throw new SingularityFlowError(`Giving step '${id}' its intent would make the seeded workflow ${derives.join(', ')} derive its settings from intents before the upgrade brings the shipped ones. Copy the step for your workflow and give the copy its intent.`,
       { code: 'SEEDED_WORKFLOW_READ_ONLY', details: { step: id, workflows: derives } });
   }
   return true;

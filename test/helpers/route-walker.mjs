@@ -17,6 +17,7 @@ import YAML from 'yaml';
 
 import { childTimeout } from './child-timeout.mjs';
 import { longFileRead } from '../../src/copilot-mutation-guard.mjs';
+import { packagedWorkflowWithoutIntents } from '../../src/workspace-configuration-refresh.mjs';
 
 const REPOSITORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const CLI = path.join(REPOSITORY, 'bin/singularity-flow.mjs');
@@ -591,7 +592,8 @@ async function amendedStoryTemplate(t, { observed = false, draftOnly = false, re
   await write('test/value.test.mjs', "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\ntest('value', () => assert.equal(value,1));\n");
   cli('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
-  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  // Written before step intents: its own workflow of shipped steps runs as a repository on version 2 has it.
+  const config = packagedWorkflowWithoutIntents(YAML.parse(await readFile(configPath, 'utf8')), 2);
   config.worldModel.grounding = 'off'; config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   delete config.phases['fix-design'].clarification;

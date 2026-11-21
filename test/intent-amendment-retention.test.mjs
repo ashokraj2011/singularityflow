@@ -21,6 +21,7 @@ import { decideIntentAmendment } from '../src/state.mjs';
 import { currentlyRemovedClauses } from '../src/spec-drift.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { confirmNextVersion } from './helpers/next-version-consent.mjs';
+import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -50,7 +51,8 @@ async function fixture(t) {
   await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { value } from '../src/value.mjs';\ntest('value', () => assert.equal(value, 1));\n");
   sflow('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
-  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  // Written before step intents: its own workflow of shipped steps runs as a repository on version 2 has it.
+  const config = packagedWorkflowWithoutIntents(YAML.parse(await readFile(configPath, 'utf8')), 2);
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;

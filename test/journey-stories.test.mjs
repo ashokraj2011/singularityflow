@@ -40,6 +40,7 @@ import { accountForAskedFor, check, clarifications, cooperativePerson, decideCar
 import { argvOf, copilotTurn, entryCommand, followRoutes, formatTrail, journeyRepository, personViews, publishedGeneration, returnedRoute, skillEntries, startStory, storyRecord } from './helpers/route-follower.mjs';
 import { reviewStep } from './helpers/step-review.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
 
 const posix = process.platform === 'win32' ? { skip: 'the fake Nodes are shell scripts' } : {};
 
@@ -747,6 +748,8 @@ test('journey I: a document step\'s review asks corrections of a version only it
 test('journey Q: a quick design is written, its change typed twice is accounted for once, and once closed it says it is done', slowLane({ timeout: 1_500_000 }), async (t) => {
   const W = 'JRN-QD';
   const story = await journeyRepository(t, { configure: (configuration) => {
+    // Written before step intents: its own workflow of shipped steps runs as a repository on version 2 has it.
+    Object.assign(configuration, packagedWorkflowWithoutIntents(configuration, 2));
     delete configuration.phases['fix-design'].clarification;
     configuration.workTypes['quick-design'] = { ...configuration.workTypes['quick-fix'], label: 'Quick design', phases: ['intake', 'fix-design', 'implement', 'verify'],
       sourceReview: { mode: 'off' } };
@@ -859,6 +862,8 @@ test('journey Q: a quick design is written, its change typed twice is accounted 
 test('journey R: an unaccounted instruction and a typed change: the person says No, and /sf-submit names the account, never a refused submission', slowLane({ timeout: 1_500_000 }), async (t) => {
   const W = 'JRN-R';
   const story = await journeyRepository(t, { configure: (configuration) => {
+    // Written before step intents: its own workflow of shipped steps runs as a repository on version 2 has it.
+    Object.assign(configuration, packagedWorkflowWithoutIntents(configuration, 2));
     delete configuration.phases['fix-design'].clarification;
     configuration.workTypes['quick-design'] = { ...configuration.workTypes['quick-fix'], label: 'Quick design', phases: ['intake', 'fix-design', 'implement', 'verify'],
       sourceReview: { mode: 'off' } };

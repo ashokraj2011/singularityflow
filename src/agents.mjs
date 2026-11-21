@@ -15,7 +15,7 @@ import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { scopedCatalogRead } from './catalog-read-scope.mjs';
 import {
   LIBRARY_SKILL_TABLE, SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillReference, normalizeSkillUse,
-  parseLibrarySkill, readLibrarySkill, readSkillAttachments, renderLibrarySkills
+  parseLibrarySkill, readLibrarySkill, readSkillAttachments, recordedStoryValues, renderLibrarySkills, skillAppliesToStory
 } from './skill-library.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -628,6 +628,9 @@ export async function renderAgentSkills(root, workflow, phase, session, {
       library.skills.push({ ...skill, use: entry.use, scopes: [`workflow ${entry.workflow}`] });
     }
   }
+  // A skill for another answer of a recorded Story value (the channel chosen at intake) is not this step's.
+  const values = recordedStoryValues(workflow);
+  library.skills = library.skills.filter((entry) => skillAppliesToStory(entry.use, values));
   // Same bytes can be attached through both scopes. Render once, preserving both use conditions.
   const unique = new Map();
   for (const entry of library.skills) {

@@ -61,6 +61,8 @@ interface Receipt { token: string; choiceSets: ReceiptChoiceSet[] }
 
 interface StoryReviewBundle {
   evidenceConsistency?: import('./views/webview.ts').EvidenceConsistencyPresentation | null;
+  /** A code step's ready ways to try this version, from SFlow's runtime check (step intents §12.5). Optional. */
+  tryIt?: unknown;
   /** SF Guard's attribution block of this packet, and its labels in words (SPEC-SFG-v1 §7.1). */
   attribution?: unknown;
   attributionLabels?: string[];
@@ -549,6 +551,7 @@ export async function approveWithReceipt(
       sfGuard,
       covers,
       disputes,
+      tryIt: (await import('./views/try-it.ts')).tryItOf(storyReview?.tryIt),
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,

@@ -21,7 +21,8 @@ import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import { assertWorkTypeStartable, resolveWorkType, validateDefinition, WORKFLOW_FILE_VERSIONS } from '../src/config.mjs';
 import { mergePhaseOverride } from '../src/phase-overrides.mjs';
 import {
-  deriveWorkTypeSettings, FIRST_INTENT_PROFILE, INTENTS_FILE_VERSION, pinnedIntentProfile, workTypeDerivesIntents
+  decisionRecordsValueOnly, deriveWorkTypeSettings, FIRST_INTENT_PROFILE, INTENTS_FILE_VERSION, pinnedIntentProfile, stepsHeldByDecisions,
+  workTypeDerivesIntents
 } from '../src/step-intent-settings.mjs';
 import { PACKAGED_STEP_INTENTS } from '../src/step-intents.mjs';
 import { assertImportedIntentsDerive } from '../src/workflow-transfer.mjs';
@@ -273,6 +274,27 @@ test('§5: decisions, rework loops and the design capture keep a step with a per
   const built = byId(resolve([{ id: 'ask', intent: 'intake' }, { id: 'make', intent: 'code' }, { id: 'prove', intent: 'test',
     generation: { producer: 'deterministic' }, because: { 'generation.producer': 'SFlow runs the checks itself and writes the summary.' } }]));
   assert.deepEqual([built.prove.clarification.mode, built.prove.testEvidenceFrom], ['off', undefined]);
+});
+
+test('§5: a decision that only records the person\'s value keeps its step\'s own approval; a real branch hands it to a person', () => {
+  // The channel a person gives at Intake's submission (--decision channel=web): every route goes on to the next step.
+  const channel = { id: 'channel', after: 'gather-needs', kind: 'branch', label: 'Which channel is this for?',
+    inputs: [{ name: 'channel', label: 'Which channel is this for?', values: ['web', 'android'] }],
+    routes: [{ id: 'web', label: 'web', when: { channel: 'web' }, to: 'next' }, { id: 'android', label: 'android', to: 'pay-rules' }] };
+  const recorded = resolve(FEATURE, { workType: { decisions: [channel] } });
+  assert.equal(who(byId(recorded)['gather-needs']), who(byId(resolve(FEATURE))['gather-needs']), 'as without the decision');
+  assert.equal(who(byId(recorded)['gather-needs']), 'sflow');
+  assert.equal(decisionRecordsValueOnly(channel, FEATURE.map((step) => step.id)), true);
+  assertWorkTypeStartable(recorded);
+  // A real branch: one answer sends the work back, so a person approves the facts it reads, as before.
+  const branch = { ...channel, id: 'redo', routes: [{ id: 'again', label: 'Ask again', when: { channel: 'web' }, to: 'gather-needs' }, { id: 'on', label: 'Go on', to: 'next' }] };
+  assert.equal(who(byId(resolve(FEATURE, { workType: { decisions: [branch] } }))['gather-needs']), 'person');
+  // An ask, a route that omits a responsibility, or a value reused from another decision is not only a recorded value.
+  for (const entry of [{ ...channel, kind: 'ask', inputs: undefined }, { ...channel, routes: [channel.routes[0], { ...channel.routes[1], omits: [{ responsibility: 'implement' }] }] },
+    { ...channel, inputs: [{ name: 'channel', from: 'earlier' }] }]) {
+    assert.equal(decisionRecordsValueOnly(entry, FEATURE.map((step) => step.id)), false, JSON.stringify(entry));
+  }
+  assert.deepEqual(stepsHeldByDecisions([channel, branch], FEATURE.map((step) => step.id)), ['gather-needs']);
 });
 
 test('approver groups: the profile\'s when the repository has it, else its first group', () => {

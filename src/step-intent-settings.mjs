@@ -538,6 +538,25 @@ export function unplannedStartProblem(resolved, steps) {
  * `allowedPhases` with their sources; `refusals` (contradictions configuration refuses, each `{ step, field, message,
  * fix }`) and `warnings` (`workflow check` shows them).
  */
+/**
+ * Whether a decision only records a value the person gives when its step is submitted (owner, 2026-11-21: "approve
+ * twice", no ceremony for it): a branch on inputs of its own whose every route goes on to the next step and omits
+ * nothing, such as the channel a marketplace agent's hard gate asks for. It chooses no way, so its step keeps its own
+ * approval; a real branch, a loop or an ask still hands the step to a person ("a decision follows the step").
+ */
+export function decisionRecordsValueOnly(decision, order = []) {
+  const at = order.indexOf(decision?.after);
+  const next = at >= 0 ? order[at + 1] ?? null : null;
+  const routes = Array.isArray(decision?.routes) ? decision.routes : [];
+  const inputs = Array.isArray(decision?.inputs) ? decision.inputs : [];
+  return decision?.kind === 'branch' && routes.length > 0 && routes.every((route) => (route?.to === 'next' || (next && route?.to === next)) && route.omits === undefined)
+    && inputs.length > 0 && inputs.every((input) => input && input.from === undefined) && !(decision.reuses?.length);
+}
+
+/** The steps a decision follows that it hands to a person: every decision's step, but one that only records a value. */
+export const stepsHeldByDecisions = (decisions, order = []) => (Array.isArray(decisions) ? decisions : [])
+  .filter((entry) => entry?.after && !decisionRecordsValueOnly(entry, order)).map((entry) => entry.after);
+
 export function deriveWorkTypeSettings(definition, workTypeId, { profile = null, groups = null } = {}) {
   const workType = isMapping(definition?.workTypes) && Object.hasOwn(definition.workTypes, workTypeId) ? definition.workTypes[workTypeId] : null;
   if (!workTypeDerivesIntents(definition, workType)) return null;
@@ -573,7 +592,7 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
   const { facts, steps: derived } = deriveWorkflowSettings(factSteps, {
     profile: version,
     omitsScope: declaredOmits.some((entry) => entry?.responsibility === 'scope'),
-    decisionsAfter: (Array.isArray(workType.decisions) ? workType.decisions : []).map((entry) => entry?.after).filter(Boolean),
+    decisionsAfter: stepsHeldByDecisions(workType.decisions, ids),
     loopSources: (Array.isArray(workType.reworkLoops) ? workType.reworkLoops : []).map((entry) => entry?.from).filter(Boolean),
     designCaptureStep,
     screenProfiles: (workType.verification?.profiles ?? []).length > 0,

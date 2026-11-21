@@ -1,6 +1,6 @@
 /** Optional procedures expand only from the verified Story closure, never a current URL/library. */
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { parseLibrarySkill } from './skill-library.mjs';
+import { parseLibrarySkill, recordedStoryValues, skillAppliesToStory } from './skill-library.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { composeSkillInstructions } from './skill-instruction-composition.mjs';
 
@@ -58,11 +58,13 @@ export function selectRetainedSkillInstructions(workflow, phase, context, reques
  * the same verified Story closure `skill show` reads. Empty when there are none, so a prompt without
  * on-demand skills is unchanged.
  */
-export function expandedOnDemandSkills(phase, context) {
+export function expandedOnDemandSkills(phase, context, workflow = null) {
   if (context?.identity?.mode !== 'workflow-snapshot') return '';
   const skills = [];
+  const values = recordedStoryValues(workflow); // as agents.mjs renderAgentSkills chooses
   for (const entry of context.dependencies ?? []) {
     if (entry.source !== 'library' || entry.inclusion !== 'included' || !entry.text || !matches(phase.id, entry.phases)) continue;
+    if (!skillAppliesToStory(entry.use, values)) continue;
     const skill = parseLibrarySkill(entry.text, { id: entry.id });
     if (skill.loading !== 'on-demand' || skills.some(known => known.id === skill.id)) continue;
     skills.push({ ...skill, use: entry.use ?? '', referencedInstructions: entry.referencedInstructions ?? [] });

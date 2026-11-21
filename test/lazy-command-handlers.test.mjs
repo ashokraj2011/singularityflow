@@ -932,7 +932,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,833,472 (measured for submit.mjs, +200, 2026-11-21, intents-stage5): `testEvidenceFrom: false` read as absent where
     // configuration resolves a workflow that does not derive (config.mjs). The upgrade's intent pass loads only in the
     // configuration refresh (step-intents-upgrade.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_838_896, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,835,281 (measured for submit.mjs, +2,009, 2026-11-21, loose-ends): a hard gate's answer as a Story value, the
+    // skill for another answer left out of a step (skill-library.mjs storyValueCondition, recordedStoryValues,
+    // skillAppliesToStory, used in agents.mjs and retained-skill-instructions.mjs). No new eager file.
+    // 9,843,339 (measured on the integration branch, 2026-11-21): Stages 4-6, D1 and the loose ends together.
+    assert.ok(closure.bytes <= 9_843_339, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1455,7 +1459,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,328,971 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
   // 4,334,385 (measured on landing-15 with main ce94e5a79): the typeof check and the two option names added.
   // 4,334,585 (measured, +200, 2026-11-21, intents-stage5): `testEvidenceFrom: false` read as absent (config.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_334_585, `session current loads ${current.bytes} source bytes`);
+  // 4,335,893 (measured, +1,508, 2026-11-21, loose-ends): the Story value's skill choice in skill-library.mjs. No new eager file.
+  // 4,338,331 (measured on the integration branch, 2026-11-21): Stages 4-6, D1 and the loose ends together.
+  assert.ok(current.bytes <= 4_338_331, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

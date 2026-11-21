@@ -17,6 +17,7 @@ import { taskStartFolder } from '../terminal-start.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import { documentReference, outcomeView, sameOutcomeTarget, signOffArgs, signOffQuestions, type OutcomeCheck, type OutcomeTarget, type OutcomeView } from './outcome-review-model.ts';
 import { OUTCOME_REVIEW_SCRIPT, OUTCOME_REVIEW_STYLE, outcomeReviewHtml } from './outcome-review-page.ts';
+import { tryItCopyText, tryItOpenUrl } from './try-it.ts';
 import { loopbackUrl } from './run-and-test-model.ts';
 import { VSCODE_SELECT_STORY } from '../../../../src/model-free-commands.mjs';
 
@@ -239,6 +240,19 @@ export class OutcomeReviewPanel {
     }
     if (action === 'start') { await vscode.commands.executeCommand('singularityFlow.startApplication', { ...this.view?.target, capability: this.view?.application.capability }); return; }
     if (action === 'run-test') { await vscode.commands.executeCommand('singularityFlow.workspaceRunTest'); return; }
+    // Try it: `item` is the way, `check` the entry (TRY_IT_START_ENTRY: its start command). Optional; it records nothing.
+    if (action === 'try-open') {
+      const url = tryItOpenUrl(this.view?.tryIt, item);
+      if (url) await vscode.env.openExternal(vscode.Uri.parse(url));
+      return;
+    }
+    if (action === 'try-copy') {
+      const copied = tryItCopyText(this.view?.tryIt, item, check);
+      if (!copied) return;
+      await vscode.env.clipboard.writeText(copied);
+      void showCompactInformationMessage('Copied. Paste it in a terminal to try the change.');
+      return;
+    }
     if (action === 'test-summary') { await vscode.commands.executeCommand('singularityFlow.testSummary', { workId: this.view?.workId, phase: this.view?.testsPhase ?? this.view?.target?.phase }); return; }
     if (action === 'continue') { await vscode.commands.executeCommand('singularityFlow.openJourney'); return; }
     if (action === 'request-repair') {

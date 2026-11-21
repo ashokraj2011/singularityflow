@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 8
+version: 9
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -45,7 +45,8 @@ A marketplace agent's `agent.md` is a whole process: a hard gate first, a table 
 
 - **Stages:** each numbered heading (`## 2. Test Case Creation`) is a step, in order. Headings inside fenced code, such as an Output Format's `##` lines, are ignored. An optional stage that does what the step before it does (Unit Test Gap Fill after Test Automation) runs inside that step.
 - **Hard gates** ("(Hard Gate)", "STOP and WAIT", "MUST ask"): a gate before the first stage becomes the person's questions at the first step, with its choices ("Which channel ...? Choose one: web, android"). A later gate that only asks a person to approve or choose what the stage before it made (Test Case Review) becomes that step's person approval.
-- **Skills:** the step-to-skill table attaches each skill to its step for its answer ("when channel is web"); every skill an agent depends on becomes a library skill.
+- **The answer is a Story value:** a choice the agent records under a name ("Record the answer as `channel`") is recorded when the first step is submitted (`--decision channel=web`), by a decision after that step whose every route goes on to the next step. The person gives it; the agent never does.
+- **Skills:** the step-to-skill table attaches each skill to its step for its answer ("when channel is web"); every skill an agent depends on becomes a library skill. Once the Story records the answer, each later step is given only that answer's skills: choosing android gives the android skills, web the web ones. The agent's own table of every answer's skill paths is replaced by that line.
 - **What each step is for:** from the PDLC tasks of the skills it uses, then a stage named like one of the agent's tasks, then the step intents rules on its name, words and place, with the agent's PDLC phases leaning (discovery: intake, design; elaboration: intake, requirements, design; delivery: plan, code, test; review: review, test; release: release, report; operations: code, report). A stage none of these settles is asked about once, with two to four choices, each a whole command with `--answer STEP=INTENT`; SFlow never guesses.
 - **The result:** a version 4 workflow in which every step says what it is for, so each step's settings come from its intent. Importing it needs `version: 4` at the top of `singularity/workflow.yml`; the import says so.
 

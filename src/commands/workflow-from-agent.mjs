@@ -53,6 +53,11 @@ function printConversion(conversion) {
   if (conversion.questions.length) {
     console.log(`The person answers at ${conversion.steps[0].label}, before any work:`);
     for (const question of conversion.questions) console.log(`  ${question.topic}`);
+    const value = conversion.storyValue;
+    if (value) {
+      console.log(`  The answer is the Story value ${value.name}, recorded when ${conversion.steps[0].label} is submitted (--decision ${value.name}=<${value.values.join('|')}>);`
+        + ' each later step is given only the skills for that answer.');
+    }
   }
   console.log('Steps, each with what it is for:');
   conversion.steps.forEach((step, index) => {

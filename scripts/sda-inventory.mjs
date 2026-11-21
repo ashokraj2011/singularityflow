@@ -99,6 +99,8 @@ const OVERRIDES = {
   'session-state-index.mjs': 'projection',
   // A review's disposable static preview and its machine-local captures, kept under the Git directory.
   'application-review-preview.mjs': 'local-operational',
+  // A marketplace agent's workflow bundle, laid out in a scratch configuration and removed, like workflow markup's.
+  'agent-workflow-bundle.mjs': 'shared-state',
   // The runtime check's capture and screenshots of one step version, private to this checkout's Git directory.
   'runtime-check.mjs': 'local-operational',
   'runtime-check-web.mjs': 'local-operational',

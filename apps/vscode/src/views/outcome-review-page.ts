@@ -5,6 +5,7 @@
  */
 import { escape } from './webview.ts';
 import { documentReference, type OutcomeCriterion, type OutcomeView } from './outcome-review-model.ts';
+import { TRY_IT_STYLE, tryItHtml } from './try-it.ts';
 
 const STATUS_WORDS: Record<string, string> = { met: 'done', missing: 'not done yet', pending: 'pending',
   'not-recorded': 'not recorded', 'not-applicable': 'not applicable', 'setup-available': 'setup available', 'not-running': 'not running', 'criteria-review': 'review criteria' };
@@ -67,6 +68,7 @@ export function outcomeReviewHtml(view: OutcomeView | null, error: string | null
     <p><strong>${escape(view.lifecycle ?? 'Lifecycle unknown')}</strong> · ${escape(view.completion ?? 'Completion unknown')}</p>
     ${guidedHtml}
     ${view.applicationReview ? `<section><h2>Application review</h2><p>${view.applicationReview.required ? 'Application acceptance is required before this code phase can finish.' : 'Inspect, report problems and accept this delivery.'} Evidence stays on this laptop; phase approval is separate.</p>${button('app-review', 'Open application review', {}, false)}</section>` : ''}
+    ${tryItHtml(view.tryIt, (action, way, entry) => `data-outcome="try-${action}" data-item="${way}" data-check="${entry}"`)}
     <section><h2>1. Try the Story result</h2>${appHtml}<p>Use this Story’s checkout and local configuration. Check expected behavior, invalid inputs and relevant boundaries; for a backend, exercise its APIs or executable tests.</p><div class="outcome-actions">${button('run-test', 'Workspace Run & Test')}${view.testsCommand ? button('test-summary', 'Open test summary') : ''}</div></section>
     <section><h2>2. Check acceptance criteria</h2><p>These rows use retained Story evidence. Local test reruns do not replace the publication and submission checks.</p>${view.criteria.length ? view.criteria.map((criterion, index) => criterionHtml(criterion, index, capture)).join('') : '<p>No acceptance criteria are recorded yet.</p>'}
       <div class="outcome-actions">${view.testsCommand ? button('tests', 'Run the tests') : ''}${button('matrix', 'Open the Evidence Matrix')}</div></section>
@@ -78,7 +80,8 @@ export function outcomeReviewHtml(view: OutcomeView | null, error: string | null
 export const OUTCOME_REVIEW_STYLE = `
 .outcome-criterion{border:var(--sf-border);border-radius:var(--sf-radius);padding:var(--sf-space-3);margin:var(--sf-space-3) 0}
 .outcome-criterion h3 small{font-weight:normal;color:var(--sf-dim)}.outcome-actions{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
-.outcome-criterion code,.outcome-criterion p{overflow-wrap:anywhere}`;
+.outcome-criterion code,.outcome-criterion p{overflow-wrap:anywhere}
+${TRY_IT_STYLE}`;
 
 export const OUTCOME_REVIEW_SCRIPT = `
   const vscode = window.__sfVscode;

@@ -1614,7 +1614,8 @@ export async function refreshPackagedConfiguration(root, {
   // those intents first arrive (a repository on 2 or 3, or one an earlier refresh kept without them), they come, and
   // the file moves to version 4, only when no workflow of the repository's would run differently; otherwise it keeps
   // its version and takes the packaged steps without what only version 4 reads. Either way every workflow runs as before.
-  let stepIntents = null;
+  // Named apart from the `stepIntents` option, which carries a person's confirmation of the intent screen (Stage 5).
+  let intentsArrival = null;
   const intentsArrive = !workflowMissing && workflowFileVersionReadable(current.version) && incoming.version >= INTENTS_FILE_VERSION
     && Object.entries(incoming.phases ?? {}).some(([id, phase]) => typeof phase?.intent === 'string'
       && plainObject(current.phases?.[id]) && typeof current.phases[id].intent !== 'string');
@@ -1626,11 +1627,11 @@ export async function refreshPackagedConfiguration(root, {
     if (changed.length) {
       incoming = keptIncoming;
       workflowPlan = keptPlan;
-      stepIntents = { version: current.version, movedFrom: null, kept: true, workTypes: changed };
+      intentsArrival = { version: current.version, movedFrom: null, kept: true, workTypes: changed };
     } else {
       workflowPlan.merged.value.version = version;
       workflowPlan.merged.conflicts = workflowPlan.merged.conflicts.filter((entry) => entry.path !== 'workflow.version');
-      stepIntents = { version, movedFrom: version === current.version ? null : current.version, kept: false, workTypes: [] };
+      intentsArrival = { version, movedFrom: version === current.version ? null : current.version, kept: false, workTypes: [] };
     }
   }
   const { merged, workflowOwnership } = workflowPlan;
@@ -1945,7 +1946,7 @@ export async function refreshPackagedConfiguration(root, {
     ...(sectionMerges.length ? { sectionMerges } : {}),
     ...(worldModelMigration ? { worldModelMigration } : {}),
     ...(agentsHome ? { agentsHome } : {}),
-    ...(stepIntents ? { stepIntents } : {}),
+    ...(intentsArrival ? { stepIntents: intentsArrival } : {}),
     dryRun
   };
 }

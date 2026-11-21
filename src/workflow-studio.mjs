@@ -1065,6 +1065,8 @@ class StudioCandidate {
   questionsOff(phaseId, base) {
     const at = ['phases', phaseId, 'clarification'];
     if (!this.intentsDecide(phaseId)) { this.document.deleteIn(at); return; }
+    // Already off as written (a copy of convergence, which SFlow builds): nothing changes, so there is nothing to explain.
+    if ((isObject(base) ? base.mode : base) === 'off') return;
     this.document.setIn(at, this.document.createNode({ ...(isObject(base) ? base : {}), mode: 'off' }));
     const reason = ['phases', phaseId, 'because', 'clarification.mode'];
     if (!this.document.hasIn(reason)) this.document.setIn(reason, QUESTIONS_OFF_REASON);

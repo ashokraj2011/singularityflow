@@ -3204,10 +3204,14 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
   });
   await until(() => panel.webview.html.includes('This phase has no human specification-quality checklist') ? true : null);
   assert.doesNotMatch(panel.webview.html, /<h2>Specification quality checklist<\/h2>/);
+  // What the page asks, without the specification's own sections that "What is new" shows (approval-focus.mjs): a
+  // section titled "Boundary conditions" is the document's, not a checklist question.
+  const asked = panel.webview.html.replace(/<section class="approval-(?:focus|new)"[\s\S]*?<\/section>/gu, '');
+  assert.match(panel.webview.html, /<h2>What needs your eyes<\/h2>/u, 'the page opens with what needs the person\'s eyes');
   for (const article of [
     'Completeness', 'Ambiguity', 'Consistency', 'Verifiability', 'Boundary conditions',
     'Non-functional requirements'
-  ]) assert.doesNotMatch(panel.webview.html, new RegExp(article));
+  ]) assert.doesNotMatch(asked, new RegExp(article));
   assert.match(panel.webview.html, /Self-approval — not independent review/);
   assert.match(panel.webview.html, /CFA-STORY/);
   assert.match(panel.webview.html,

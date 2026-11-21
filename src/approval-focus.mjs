@@ -77,7 +77,10 @@ export function comparableLine(text) {
 
 const sectionBody = (section) => section.lines.map((line) => line.text).join('\n').trim();
 const sameBody = (left, right) => sectionBody(left).replace(/\s+/gu, ' ') === sectionBody(right).replace(/\s+/gu, ' ');
-const bounded = (text) => text.length > SECTION_TEXT_LIMIT ? `${text.slice(0, SECTION_TEXT_LIMIT - 1)}…` : text;
+// A person reads no hash (owner, 2026-11-11): a digest or commit a section quotes shows as "…"; the full document keeps it.
+const HASH = /\b(?:sha256:)?[0-9a-f]{16,64}\b/gu;
+const readable = (text) => String(text ?? '').replace(HASH, '…');
+const bounded = (text) => { const value = readable(text); return value.length > SECTION_TEXT_LIMIT ? `${value.slice(0, SECTION_TEXT_LIMIT - 1)}…` : value; };
 
 /** The changed lines between two sections, by their longest common run of lines; blank lines are not compared. */
 export function lineDiff(before, after) {
@@ -159,7 +162,7 @@ export function focusSections(text, { previous = null, previousLabel = null, app
     if (old) {
       const diff = lineDiff(old.lines, section.lines);
       return { title, line: section.line, state: 'changed', words, added: diff.filter((entry) => entry.op === '+').length,
-        removed: diff.filter((entry) => entry.op === '-').length, diff: diff.slice(0, DIFF_LINE_LIMIT), ...(diff.length > DIFF_LINE_LIMIT ? { diffTruncated: diff.length } : {}),
+        removed: diff.filter((entry) => entry.op === '-').length, diff: diff.slice(0, DIFF_LINE_LIMIT).map((entry) => ({ ...entry, text: readable(entry.text) })), ...(diff.length > DIFF_LINE_LIMIT ? { diffTruncated: diff.length } : {}),
         text: bounded(sectionBody(section)) };
     }
     const seen = restatement(section, approved);

@@ -28,6 +28,7 @@ const VERIFIED_RESULTS = new Set(['satisfied', 'satisfied-with-exception']);
 const cell = (value) => String(value ?? '').replace(/\|/gu, '\\|').replace(/\s*\n\s*/gu, ' ').trim();
 const code = (value) => `\`${String(value).replace(/`/gu, '')}\``;
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+const person = (actor, fallback = 'a person') => typeof actor === 'string' && actor ? actor : actor?.login ?? actor?.name ?? actor?.email ?? fallback;
 
 /** Which record document `phase` is, or null: SFlow's own template, unmodified, on a Story that tracks its clauses. */
 export async function recordDocumentKind(workflow, phase) {
@@ -186,7 +187,7 @@ function constitutionLines(workflow) {
   if (!articles.length) return ['No constitution article requires evidence in this Story.'];
   const decided = new Map();
   for (const phase of Object.values(workflow.phases ?? {})) for (const approval of phase.approvals ?? []) {
-    for (const entry of approval.checklist ?? []) if (entry?.articleId) decided.set(entry.articleId, { decision: entry.decision, by: approval.actor?.login ?? approval.actor?.name ?? approval.actor?.email ?? 'a person' });
+    for (const entry of approval.checklist ?? []) if (entry?.articleId) decided.set(entry.articleId, { decision: entry.decision, by: person(approval.actor) });
   }
   return ['| Article | Type | Verdict | Recorded by |', '|---|---|---|---|', ...articles.map((article) => {
     const entry = decided.get(article.id);
@@ -197,7 +198,7 @@ function constitutionLines(workflow) {
 function exceptionLines(workflow) {
   const exceptions = workflow.constitutionExceptions ?? [];
   if (!exceptions.length) return ['None recorded.'];
-  return exceptions.map((entry) => `- ${code(entry.articleId)}: ${cell(entry.reason)} (scope ${cell(entry.scope ?? 'this Story')}; ${cell(entry.authority ?? 'an approver')}, ${cell(entry.actor?.login ?? entry.actor?.name ?? 'a person')}${entry.expiresAt ? `; expires ${String(entry.expiresAt).slice(0, 10)}` : ''})`);
+  return exceptions.map((entry) => `- ${code(entry.articleId)}: ${cell(entry.reason)} (scope ${cell(entry.scope ?? 'this Story')}; ${cell(entry.authority ?? 'an approver')}, ${cell(person(entry.actor))}${entry.expiresAt ? `; expires ${String(entry.expiresAt).slice(0, 10)}` : ''})`);
 }
 
 /** The approved verification step before release, and the files its approval bound. */
@@ -219,7 +220,7 @@ async function evidenceIndex(root, workflow, phase, rows) {
   ...runs.filter((run) => run.receiptPath).map((run) => ({ what: `Test run ${run.attemptId ?? run.commandId} (${run.step})`, path: run.receiptPath, sha256: String(run.receiptSha256 ?? '').replace(/^sha256:/u, '') }))];
   const gaps = rows.filter((row) => !VERIFIED_RESULTS.has(row.result) && row.result !== 'not-applicable');
   return [`# Release verification evidence index — ${W}`, '', RECORD_DOCUMENT_BANNER, '',
-    verification ? `${verification.step.label ?? verification.step.id} v${verification.step.generation} is approved${verification.approval?.actor ? ` by ${verification.approval.actor.login ?? verification.approval.actor.name ?? 'its approver'}` : ''}. This release reads its evidence:`
+    verification ? `${verification.step.label ?? verification.step.id} v${verification.step.generation} is approved${verification.approval?.actor ? ` by ${person(verification.approval.actor, 'its approver')}` : ''}. This release reads its evidence:`
       : 'No approved verification step precedes this release; the evidence below is the code step\'s.', '',
     '| Evidence | Path | SHA-256 |', '|---|---|---|', ...files.map((entry) => `| ${cell(entry.what)} | ${code(entry.path)} | ${entry.sha256 ? code(entry.sha256) : 'not recorded'} |`), '',
     '## Observed results', '', ...(runs.length ? runs.map((run) => `- ${code(run.commandId)} (${run.step}${run.reusedBy ? `, reused by ${run.reusedBy}` : ''}): ${run.status}, ${counts(run.tests)}.`) : ['- No test run is recorded.']), '',
@@ -244,7 +245,7 @@ async function releaseBody(root, definition, config, workflow, phase) {
       ...rows.map((row) => `| ${code(row.id)} | ${cell(`${testEvidence(row)}; source ${sourceEvidence(row)}`)} | ${cell(verdictOf(row, deviations))} |`), '',
       '## Constitution conformance', '', ...constitutionLines(workflow), '',
       '## Exceptions', '', ...exceptionLines(workflow), '',
-      '## Deviations', '', ...(deviations.length ? deviations.map((entry) => `- ${entry.id}: ${(entry.clauseIds ?? []).map(code).join(', ')}, accepted by ${cell(entry.decision?.actor?.login ?? entry.decision?.actor ?? 'a person')}: ${cell(entry.decision?.reason ?? 'no reason recorded')}`)
+      '## Deviations', '', ...(deviations.length ? deviations.map((entry) => `- ${entry.id}: ${(entry.clauseIds ?? []).map(code).join(', ')}, accepted by ${cell(person(entry.decision?.actor))}: ${cell(entry.decision?.reason ?? 'no reason recorded')}`)
         : ['None accepted at convergence.']), '',
       '## Self-approval disclosures', '', ...(disclosures.length ? ['Recorded from the retained approvals. Keep every line.', '', ...disclosures]
         : ['None: no step was approved by the identity that produced it.']), ''

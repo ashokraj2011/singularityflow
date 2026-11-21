@@ -41,7 +41,8 @@ async function fixture(t, { witness = true } = {}) {
   source.workItemRoot = 'team/stories';
   source.session.workItemSelection = 'reuse';
   source.phases[STEP] = {
-    ...structuredClone(source.phases.specification), artifactSet: undefined,
+    // A team-owned report step of its own: not the shipped specification's intent.
+    ...structuredClone(source.phases.specification), intent: undefined, artifactSet: undefined,
     specificationQuality: undefined, label: 'Team-owned release report',
     artifact: { path: `artifacts/${STEP}/conformance.md`, kind: 'conformance-report', minimumBytes: 100 },
     approval: { authorities: ['product-approvers'], minimum: 1, rejectTo: [STEP] }

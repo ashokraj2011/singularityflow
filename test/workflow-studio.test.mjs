@@ -992,7 +992,10 @@ test('planned claims are named in the Studio, refused for a step that defines no
   json(root, ['workflow', 'studio', 'apply', '--change-set', infer]);
   written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes['repo-feature'].plannedClaims;
   assert.equal(written.mode, 'required');
-  assert.deepEqual(written.clausePhases, feature.plannedClaims.clausePhases, 'working them out again pins what the engine infers');
+  // Its steps say what they are for (Stage 4), so working them out again pins what their intents give: the requirements
+  // step writes the IDs, without the implementation specification the shipped list adds with its reason (G6).
+  assert.deepEqual(written.clausePhases, ['requirements'], 'working them out again pins what the engine infers');
+  assert.deepEqual(feature.plannedClaims.clausePhases, ['requirements', 'implementation-spec']);
 });
 
 test('Epic workflows are edited in the Studio: steps with outputs and sign-off, workflows, linked copies, in one portfolio change', async () => {

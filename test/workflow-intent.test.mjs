@@ -164,7 +164,8 @@ test('a user-created artifact-only review contract is selected from approved con
   const root = await repository(t); const workflowPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
   for (const [index, id] of ['review-analysis', 'review-findings'].entries()) {
-    definition.phases[id] = { ...structuredClone(definition.phases.intake), label: id, agents: ['review-owner'],
+    // Team-owned steps made from the intake's shape, not the shipped intake's intent (two would be two intakes).
+    definition.phases[id] = { ...structuredClone(definition.phases.intake), intent: undefined, label: id, agents: ['review-owner'],
       generation: { ...definition.phases.intake.generation, task: 'analyze' }, writeScope: 'artifact-only',
       inputs: index ? ['review-analysis'] : [], artifact: { ...definition.phases.intake.artifact, path: `artifacts/${id}/report.md`, kind: 'custom:review-note' },
       approval: { mode: 'required', authorities: ['quality-reviewers'], minimum: 1, rejectTo: index ? ['review-analysis'] : [] } };

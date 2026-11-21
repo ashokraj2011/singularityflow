@@ -1031,6 +1031,7 @@ test('seeded reinitialization restores missing framework seeds and preserves eve
   const bundled = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
   const local = YAML.parse(await readFile(workflowFile, 'utf8'));
   const customPhase = structuredClone(local.phases['poc-lite-plan']);
+  delete customPhase.intent; // repository-owned: not the shipped plan step's intent
   customPhase.label = 'Repository-owned customer review';
   customPhase.defaultTemplate = 'customer/review.md';
   customPhase.artifact = {
@@ -1302,8 +1303,8 @@ Preserve the repository-owned company intake policy and cite governed evidence.
   const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
   const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
 
-  assert.equal(refreshed.version, 2,
-    'the reviewed safe route upgrades the registered schema');
+  assert.equal(refreshed.version, 4,
+    'the reviewed safe route upgrades the registered schema (to the packaged version 4 since step intents)');
   assert.equal(Object.hasOwn(refreshed, 'personaPromptsRoot'), false);
   assert.equal(Object.hasOwn(refreshed, 'personas'), false);
   assert.equal(Object.hasOwn(refreshed.session, 'personaSelection'), false);
@@ -3187,7 +3188,7 @@ test('all-workspace refresh leaves a dirty clone untouched and writes no configu
   assert.deepEqual(bootstrapInspections.map(({ root: _root, ...entry }) => entry), [{
     sourceCommit: null,
     bootstrapCommit: git(remote, ['rev-parse', 'refs/heads/main']),
-    version: 2,
+    version: 4,
     defaultBaseBranch: 'main'
   }], 'first-authority preview inspects the bundled candidate');
   assert.notEqual(path.resolve(bootstrapInspections[0].root), path.resolve(repository),
@@ -3518,7 +3519,7 @@ test('seeded workspace reinitialization restores an absent workflow in an existi
   const restored = run('git', [
     '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
   ]).stdout;
-  assert.equal(YAML.parse(restored).version, 2);
+  assert.equal(YAML.parse(restored).version, 4, 'the packaged workflow.yml, version 4 since step intents');
   // Restored from the packaged text, so every line of the starter, its commentary included, is there.
   assert.deepEqual(changedLines(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'), restored).removed, []);
   assert.equal(run('git', [
@@ -3548,6 +3549,7 @@ test('seeded workspace reinitialization preserves repository contracts in sflow/
   const workflowFile = path.join(authority, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   const customPhase = structuredClone(workflow.phases['poc-lite-plan']);
+  delete customPhase.intent; // repository-owned: not the shipped plan step's intent
   customPhase.label = 'Repository customer review';
   customPhase.defaultTemplate = 'customer/review.md';
   customPhase.artifact = {

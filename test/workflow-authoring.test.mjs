@@ -14,6 +14,7 @@ import path from 'node:path';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { withoutStepIntents } from './helpers/previous-workflow.mjs';
 import {
   addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput
 } from '../src/workflow-authoring.mjs';
@@ -138,6 +139,8 @@ test('identifiers are kebab-case, like every other identifier in the product', a
 test('future Story workflow authoring validates planned claims before writing configuration', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-workflow-contract-'));
   await initializeDefinition(root);
+  // Without step intents: with them, an intake before the code step is its scope and its plan (step intents §5).
+  await withoutStepIntents(root);
   await repositoryOwnedWorkflows(root);
 
   await assert.rejects(

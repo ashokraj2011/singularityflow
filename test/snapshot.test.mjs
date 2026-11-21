@@ -315,8 +315,8 @@ test('read-only snapshots load approved configuration without copying it onto th
   assert.equal(snapshot.repository.branch, 'main');
   assert.equal(snapshot.lifecycle.selectedWorkId, null);
   assert.equal(snapshot.configuration.configurationValid, true);
-  assert.equal(snapshot.configuration.definition.version, 2);
-  assert.match(snapshot.configuration.definitionText, /^version: 2/m);
+  assert.equal(snapshot.configuration.definition.version, 4, 'the shipped workflow.yml, version 4 since step intents');
+  assert.match(snapshot.configuration.definitionText, /^version: 4/m);
   assert.equal(snapshot.configuration.configurationSource.editor, 'effective');
   assert.equal(
     snapshot.configuration.configurationSource.effective.files['singularity/workflow.yml'],
@@ -338,8 +338,8 @@ test('read-only snapshots load approved configuration without copying it onto th
 
   const compatibility = await repositorySnapshot(root);
   assert.equal(compatibility.repository.branch, 'main');
-  assert.equal(compatibility.definition.version, 2);
-  assert.match(compatibility.definitionText, /^version: 2/m);
+  assert.equal(compatibility.definition.version, 4);
+  assert.match(compatibility.definitionText, /^version: 4/m);
 
   const cli = run(process.execPath, [bin, 'snapshot', '--include', 'repository', '--include', 'lifecycle',
     '--include', 'capabilities', '--json'], root);
@@ -428,7 +428,7 @@ test('invalid working-tree configuration stays visible but never replaces approv
   assert.match(scoped.configuration.configurationSource.candidate.error, /configuration|YAML|flow/i);
   assert.equal(scoped.configuration.configurationValid, true,
     'the editable read remains a valid approved fallback');
-  assert.equal(scoped.configuration.definition.version, 2);
+  assert.equal(scoped.configuration.definition.version, 4);
   assert.doesNotMatch(scoped.configuration.definitionText, /\[invalid/);
 });
 

@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { repositoryOwnedWorkflows, requirementsTemplatePlansCode } from './helpers/repository-owned-workflows.mjs';
+import { withoutStepIntents } from './helpers/previous-workflow.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -20,7 +21,8 @@ const TEAM = {
   'docs/runbook.md': ['# Runbook', '```sh', "curl -X POST https://jira.example.com/rest/api/2/issue/$KEY/transitions -d '{}'", '```', ''].join('\n')
 };
 
-async function harness(files = TEAM) {
+/** `stepIntents: false`: a repository on an earlier version, whose shipped steps say nothing of what they are for. */
+async function harness(files = TEAM, { stepIntents = true } = {}) {
   const state = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-view-'));
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Build Tester', SINGULARITY_FLOW_WORKFLOW_BUILD_STATE: path.join(state, 'builds') };
   const run = (command, args, cwd, input = '') => {
@@ -35,6 +37,7 @@ async function harness(files = TEAM) {
   run(process.execPath, [bin, 'init'], root);
   await repositoryOwnedWorkflows(root);
   await requirementsTemplatePlansCode(root);
+  if (!stepIntents) await withoutStepIntents(root);
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize'], root);
   const team = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-view-team-'));
   for (const [relative, text] of Object.entries(files)) {
@@ -482,7 +485,10 @@ const LIVE_TEAM = {
 const bytes = (value) => Buffer.byteLength(JSON.stringify(value));
 
 test('state of a build like the live run is read inline, with everything Copilot proposes from', async () => {
-  const { root, team, json } = await harness(LIVE_TEAM);
+  // The live run (2026-10-18) was in a repository from before step intents. On version 4 the new PCI review takes its
+  // intent's send-back list (every step before it), and state is about 200 bytes longer: its last two items are then
+  // read with `items`, as any state past the limit is.
+  const { root, team, json } = await harness(LIVE_TEAM, { stepIntents: false });
   const view = json(root, ['workflow', 'build', 'start', '--folder', team, '--name', 'Payments release', '--json']);
   const build = view.build.id;
   const propose = (payload) => json(root, ['workflow', 'build', 'propose', '--build', build, '--proposal', '-', '--by', 'copilot', '--json'], JSON.stringify(payload));

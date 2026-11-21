@@ -339,9 +339,11 @@ test('the Studio board asks for a check of the draft and shows it: counts, findi
   listeners.message({ data: { type: 'studio.check', workflow: 'pay', changeSet: '', result } });
   // One problem: Build the change can reach the end without a review. The missing planned-claims table is not one any more:
   // Studio added it when it made the workflow.
-  assert.equal(page.countWords(result.workflows[0].counts), page.countWords({ problem: 1, warning: 1, note: 3 }));
+  // The fourth note: its two shipped steps say what they are for (Stage 4) and its own two do not, so it derives nothing.
+  assert.equal(page.countWords(result.workflows[0].counts), page.countWords({ problem: 1, warning: 1, note: 4 }));
+  assert.ok(result.workflows[0].findings.some((entry) => entry.code === 'CHECK_INTENTS_PARTIAL'));
   assert.deepEqual(page.stepFindings('pay', 'pay-build').map((entry) => entry.code).sort(),
-    ['CHECK_API_UNPROVIDED', 'CHECK_GUIDANCE_CONFLICT', 'CHECK_GUIDANCE_CONFLICT', 'OBLIGATION_VERIFY_WITHOUT_REVIEW']);
+    ['CHECK_API_UNPROVIDED', 'CHECK_GUIDANCE_CONFLICT', 'CHECK_GUIDANCE_CONFLICT', 'CHECK_INTENTS_PARTIAL', 'OBLIGATION_VERIFY_WITHOUT_REVIEW']);
   assert.equal(page.stepMark(page.stepFindings('pay', 'pay-build')), 'problem');
   const panel = page.renderCheckPanel('pay');
   const shown = text(panel);

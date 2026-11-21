@@ -20,6 +20,7 @@ import {
 } from '../src/skp-contract.mjs';
 import { inspectSkillPackage } from '../src/skp-package.mjs';
 import { run } from '../src/util.mjs';
+import { packagedWorkflowWithoutIntents } from '../src/workspace-configuration-refresh.mjs';
 import {
   applyWorkflowImport, exportWorkflowBundle, planWorkflowImport, readWorkflowBundle
 } from '../src/workflow-transfer.mjs';
@@ -64,8 +65,8 @@ async function fixture(t, { sourcePaths = [] } = {}) {
   await writeFile(path.join(directory, 'assets/example.bin'), binaryBytes);
   await writeFile(path.join(source, 'singularity/.gitattributes'), 'skills/** -text\n');
   const capture = await inspectSkillPackage(directory);
-  const definition = await config(source);
-  definition.version = 3;
+  // Version 3 repositories of compiled skill steps, as before step intents: the shipped steps without their intents.
+  const definition = packagedWorkflowWithoutIntents(await config(source), 3);
   const order = [...definition.workTypes.feature.phases];
   order.splice(order.indexOf('requirements') + 1, 0, 'threat-model');
   const authoring = {
@@ -109,8 +110,7 @@ async function fixture(t, { sourcePaths = [] } = {}) {
     ...structuredClone(definition.workTypes.feature), label: 'Reviewed skill feature', phases: order
   };
   await saveConfig(source, definition);
-  const targetDefinition = await config(target);
-  targetDefinition.version = 3;
+  const targetDefinition = packagedWorkflowWithoutIntents(await config(target), 3);
   await saveConfig(target, targetDefinition);
   await writeFile(path.join(source, 'singularity/agents/threat-producer.agent.md'), `---
 name: threat-producer

@@ -1,4 +1,5 @@
 import { repositoryOwnedWorkflows, requirementsTemplatePlansCode } from './helpers/repository-owned-workflows.mjs';
+import { withoutStepIntents } from './helpers/previous-workflow.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -513,17 +514,28 @@ test('a reused step keeps its send-back targets; the check names the one move th
 
 test('a workflow named up front that writes no code: the check gives the moves that settle it, and it is ready', async () => {
   const { run, flow, json, engineEnv } = await harness();
-  const root = await repository(run, flow);
-  const build = json(root, ['workflow', 'build', 'start', '--describe', 'Intake, testing, then the test output and its gaps. No code is written.', '--name', 'Test report']).build;
-  const mine = (title, moves) => json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title, why: 'The team named these steps.', moves }) });
-  const problem = (check, code) => check.findings.find((entry) => entry.code === code && entry.severity === 'problem');
-  // Office, 2026-11-13: Testing may write tests, so a build of three steps that write no code stopped on code
-  // generation, and no move could say the workflow needs no requirements.
-  mine('Three steps', [
+  const threeSteps = [
     { move: 'step.add', id: 'intake', after: null },
     { move: 'step.add', id: 'testing' },
     { move: 'step.add', id: 'test-gaps', from: 'test-run', label: 'Test output and gaps', output: 'document', reads: ['testing'], purpose: 'Reports what the tests found and the gaps they leave.' }
-  ]);
+  ];
+  const describe = ['workflow', 'build', 'start', '--describe', 'Intake, testing, then the test output and its gaps. No code is written.', '--name', 'Test report'];
+  const problem = (check, code) => check.findings.find((entry) => entry.code === code && entry.severity === 'problem');
+  // Since step intents Stage 4 the shipped steps say what they are for: Testing is a test step, so the same three
+  // steps no longer stop on code generation.
+  const current = await repository(run, flow);
+  const said = json(current, describe).build;
+  json(current, ['workflow', 'build', 'propose', '--build', said.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'Three steps', why: 'The team named these steps.', moves: threeSteps }) });
+  assert.equal(problem(json(current, ['workflow', 'build', 'check', '--build', said.id]), 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN'), undefined);
+  // The office's repository (2026-11-13) was on an earlier version, whose shipped steps say nothing of what they are for.
+  const root = await repository(run, flow);
+  await withoutStepIntents(root);
+  run('git', ['commit', '-qam', 'the shipped steps as an earlier version has them'], root);
+  const build = json(root, describe).build;
+  const mine = (title, moves) => json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title, why: 'The team named these steps.', moves }) });
+  // Office, 2026-11-13: Testing may write tests, so a build of three steps that write no code stopped on code
+  // generation, and no move could say the workflow needs no requirements.
+  mine('Three steps', threeSteps);
   const first = json(root, ['workflow', 'build', 'check', '--build', build.id]);
   const unplanned = problem(first, 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN');
   assert.equal(unplanned.subject.step, 'testing');
@@ -620,6 +632,11 @@ test('starting from a workflow copies it; finishing writes a bundle that imports
     moves: [{ move: 'step.add', id: 'chore-notes', label: 'Release notes', after: steps.at(-1), agent: 'product-owner', intent: 'document', reads: [steps.at(-1)],
       signOff: { groups: ['product-approvers'] }, purpose: 'Tells users what changed.' }] }) });
   json(seed, ['workflow', 'build', 'decide', '--build', build.id, '--proposal', 'p-1', '--accept']);
+  // Every step of the copy says what it is for (step intents Stage 4), so it derives what it leaves unset: the person
+  // confirms the table first.
+  const { intents } = json(seed, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.equal(intents.required, true);
+  json(seed, intents.confirmCommand.split(' ').slice(1));
 
   const out = path.join(base, 'chore-with-notes.sflow-workflows.json');
   const bundle = json(seed, ['workflow', 'build', 'finish', '--build', build.id, '--out', out]);

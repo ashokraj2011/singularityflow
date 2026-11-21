@@ -106,6 +106,14 @@ test('no shipped setting differs from its intent without a reason, and nothing c
   assert.match(sources('quick-fix', 'intake')['clarification.mode'].reason, /concrete change/u, 'G4 kept');
   assert.match(sources('findings-remediation', 'findings-intake')['clarification.mode'].reason, /from the register/u, 'G4 kept');
   assert.match(sources('figma-mobile', 'visual-verification').repositoryTests.reason, /whole test suite/u, 'G5');
+  // G5 decided (D2): repository tests stay off on every check that tests with its own tool, each with its reason.
+  for (const [type, step] of [['document-test-repair', 'scenario-check'], ['document-test-repair', 'scenario-retest'], ['demo-web-e2e-testing', 'demo-web-check'],
+    ['demo-web-e2e-testing', 'demo-web-retest'], ['demo-check-repair-close', 'demo-check'], ['demo-instruction-test-loop', 'demo-instruction-test'],
+    ['figma-mobile', 'visual-verification'], ['poc-workflow', 'poc-validation'], ['quick-fix', 'verify'], ['poc-lite', 'poc-lite-verify']]) {
+    const resolved = resolveWorkType(validateDefinition(structuredClone(raw)), type).phases.find((phase) => phase.id === step);
+    assert.equal(resolved.repositoryTests, undefined, `G5 kept: ${step} runs no repository tests`);
+    assert.ok(sources(type, step).repositoryTests.reason?.length >= 20, `G5 kept: ${step} says why`);
+  }
   assert.match(deriveWorkTypeSettings(raw, 'feature').workType.sources['plannedClaims.clausePhases'].reason, /its own requirement IDs/u, 'G6');
   assert.match(deriveWorkTypeSettings(raw, 'poc-workflow').workType.sources['documents.allowedPhases'].reason, /no attached documents/u, 'G7');
 });
